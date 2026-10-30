@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardWorkspaceTabs } from "./dashboard-workspace-tabs";
+import { WorkspaceSwitcher } from "./dashboard-workspace-navigation";
+
+vi.mock("../connect-source-dialog", () => ({
+  ConnectSourceDialog: () => null,
+}));
 
 afterEach(() => {
   cleanup();
@@ -44,4 +49,54 @@ describe("DashboardWorkspaceTabs", () => {
     });
     expect(screen.queryByText("0 repos")).toBeNull();
   });
+});
+
+describe("WorkspaceSwitcher pending organization links", () => {
+  it.each([
+    [
+      "context-tools",
+      "/dashboard/context-tools?workspaceId=workspace+%2F%2B%26%3F",
+    ],
+    ["repositories", "/dashboard?section=repositories"],
+    ["setup", "/dashboard/setup"],
+  ] as const)(
+    "keeps the pending %s tab on the authorized workspace route",
+    async (selectedSection, expectedHref) => {
+      Object.defineProperty(document, "referrer", {
+        value:
+          "https://github.com/apps/review-router-ai/installations/select_target",
+        configurable: true,
+      });
+      const selectedWorkspaceId = "workspace /+&?";
+      render(
+        <WorkspaceSwitcher
+          part="tabs"
+          selectedWorkspaceId={selectedWorkspaceId}
+          selectedSection={selectedSection}
+          appInstallUrl={null}
+          workspaces={[
+            {
+              workspace: {
+                id: selectedWorkspaceId,
+                name: "acme",
+                slug: "acme",
+                installations: [],
+                gitLabInstallations: [],
+                auditEvents: [],
+              },
+              repositoryCount: 1,
+              hasWorkspaceWideAccess: true,
+            },
+          ]}
+          pendingOrganizationInstallRequest={{
+            id: "github-app-organization-request-pending",
+            accountLogin: "Padelapp-Club",
+          }}
+          fallbackUser={{ githubLogin: null, githubAvatarUrl: null }}
+        />,
+      );
+      const pending = await screen.findByRole("tab", { name: /Padelapp-Club/ });
+      expect(pending.getAttribute("href")).toBe(expectedHref);
+    },
+  );
 });

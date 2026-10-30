@@ -22,6 +22,7 @@ import {
   historyFilterSql,
   historyPullRequestUrl,
 } from "./history-read-sql.js";
+import { resolvePrismaHistoryPullRequests } from "./history-pull-request-lookup.js";
 
 type PrRow = {
   id: string;
@@ -63,6 +64,8 @@ export function createPrismaHistoryReader(
 ): HistoryReader {
   const now = options.now ?? (() => new Date());
   return {
+    resolvePullRequests: (input) =>
+      resolvePrismaHistoryPullRequests(prisma, input),
     listPullRequests: (input) =>
       prisma.$transaction(async (tx) => {
         await authorizeHistory(tx, input.actorId, input.workspaceId);

@@ -271,19 +271,27 @@ keys, request bodies, and database credentials are not printed by the harness.
 Use `--resume-own-fixtures` only for bounded follow-up against this exact synthetic
 fixture family; the final full lane should use fresh checked-in migrations.
 
-The `Skills browser acceptance` GitHub workflow runs this same lane on a dedicated
-hosted macOS ARM64 runner with a fresh owned native PostgreSQL 17 cluster and the
-harness's locked Chromium. Prisma generation runs inside a real macOS network
-sandbox after a reachable loopback probe verifies that both a direct client and
-its descendant are denied. An unavailable sandbox or failed probe fails the job;
-there is no unisolated generation fallback. The workflow records the actual PG17
-version and stops only its owned cluster. It checks out the PR head explicitly, requires an unchanged
-source tree, and verifies an exact-head receipt with all 24 scenarios passing
-(the ten integration cases above plus fourteen UX resilience cases), zero
-failures, and zero skips. The workflow retains logs, receipts, screenshots, and
-failure traces as `skills-browser-<run-id>-<attempt>` artifacts for desktop/mobile
-visual review. It uses only generated fixture authority and does not call live
-SCM or model providers. The same workflow can be started with `workflow_dispatch`.
+The `Skills browser acceptance` GitHub workflow runs this same lane through the
+repository's maintained `CI_LINUX_BUILD_RUNNER` routing (currently four vCPU and
+16 GB RAM), with the existing hosted/fallback policy. The complete Next dev
+workload needs this memory headroom: the
+[2182909 run](https://github.com/777genius/review-router-ai/actions/runs/40955606323)
+recorded a 26-second Next diagnostic gap and only 393 MiB free during a genuine
+assigned-skill readback. The runner change preserves the 24 scenarios, their
+wait budgets, one worker and zero retries.
+
+Each job gets its own digest-pinned PostgreSQL 17 service on loopback and the
+harness's locked Chromium. Dependency preparation fetches the locked engines;
+Prisma generation then uses the maintained Linux network namespace isolation
+with `REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1`, failing if isolation is unavailable.
+The workflow retains the actual PostgreSQL version and service logs. It checks
+out the PR head explicitly, requires an unchanged source tree, and verifies an
+exact-head receipt with all 24 scenarios passing (the ten integration cases above
+plus fourteen UX resilience cases), zero failures and zero skips. Logs, receipts,
+screenshots and failure traces are retained as
+`skills-browser-<run-id>-<attempt>` artifacts for desktop/mobile visual review.
+The harness uses generated fixture authority and does not call live SCM or model
+providers. The same workflow can be started with `workflow_dispatch`.
 
 If the pinned Playwright browser download is unavailable, the existing
 `--browser-executable /absolute/path/to/chromium` option now reaches the actual
@@ -352,8 +360,8 @@ OAuth feature flag and preloads a harness-only HTTP fixture for the two fixed
 public catalog URLs. The actual server composition, normalization and cache run
 unchanged. The browser uses the current Providers dialog to verify the available
 direct OpenRouter and Claude catalogs, native IDs, manual refresh, cooldown,
-preserved typed selection and absence of automatic inference. The separate
-account-model lane checks account-scoped Codex discovery. The Gateway scenario
+preserved typed selection and absence of automatic inference. The same CI run
+also checks account-scoped Codex discovery. The Gateway scenario
 proves that public suggestions cannot become authorized account models.
 No provider credentials or external requests are needed.
 
@@ -393,6 +401,19 @@ selected account, saves its refreshed model, and adds the second account's
 model. This is an HTTP dependency fixture, not a live Codex/native proof.
 Use the existing explicit `--database-url` and `--browser-executable` options
 where PostgreSQL or a preinstalled Chromium is required.
+
+The Linux `catalog-browser` CI job runs the account-scoped Codex scenario and the
+direct public-catalog refresh scenario after its unchanged 12-case Skills catalog
+acceptance and eight-static/one-AI receipt checks. These two model scenarios share
+a second fresh service with the same pinned PostgreSQL 17 image on loopback port
+5433 and their own work directory. They run serially with separate browser contexts;
+the direct scenario closes without saving a provider. CI preserves and validates
+only Next's generated `next-env.d.ts` import change between runs, rejects other
+tracked changes, and requires an exact-head, empty-source-delta receipt with fresh
+migrations, successful boot, both named scenarios passing once, zero failures/skips,
+and no external network.
+Its separate `account-models-browser-<run-id>-<attempt>` artifact is retained even
+on failure; the fixture remains UI/read evidence, not live provider qualification.
 
 ## Provider settings UX integration
 
@@ -437,3 +458,32 @@ reported as an actual browser zoom test.
 
 These are controlled dependency and real application checks. They do not spend
 live provider quota or claim live provider availability or full review execution.
+
+## Installed review runtime readiness
+
+The runtime lane uses the same real Next app, generated session and disposable
+PostgreSQL fixture. It registers a synthetic producer with the current model
+dispatch contract, so the actual configured-release and database readers run:
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='review runtime readiness' \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/review-runtime" \
+  --review-runtime-fixture --catalog-fixture
+```
+
+It checks confirmed current, old immutable pin on the same transport, unknown
+pin, pending merge and failed setup states. Dashboard and the authenticated
+search route must agree on which repository is Ready; optimistic merge/provider
+events cannot promote unknown or stale runtime evidence. Existing Update setup
+and Verify setup controls remain distinct. The browser checks 1440px desktop and
+390px mobile, dark/light themes, no horizontal overflow, and the empty search
+state, saving screenshots under the run's `browser-artifacts/` directory.
+
+The catalog flag replaces only public catalog HTTP dependencies. No page or
+readiness API response is mocked, no real credentials are required, and no setup
+PR or external model request is sent. These checks do not attest an actual
+published caller, live provider/OAuth behavior, GitHub bot publication, or
+deployment fleet retirement; those remain separate final live gates.

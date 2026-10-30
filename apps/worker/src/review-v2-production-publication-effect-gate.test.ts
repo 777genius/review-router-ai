@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { ReviewPublicationKind } from "@reviewrouter/features-review-publishing/v2";
+import { controlledRetiredWriterProof } from "../../../packages/features/review-publishing/src/v2/tests/resolution-history-fixtures";
 import {
   ProviderExecutionProfile,
   ReviewProviderKind,
@@ -25,6 +27,42 @@ import {
 } from "./review-v2-publication-ports";
 
 describe("production review investigation publication effect gate", () => {
+  it("rechecks the current writer qualification before a fresh resolve even for an existing captured execution", async () => {
+    const proof = controlledRetiredWriterProof();
+    let qualified = true;
+    const fixture = createFixture(null, {
+      resolutionWriters: {
+        qualify: async () =>
+          qualified
+            ? { status: "qualified", proof }
+            : { status: "unqualified", reasonCode: "revoked" },
+      },
+      resolutionHistory: {
+        readActivation: async () => ({
+          activatedAt: proof.retiredAt,
+          activationVersion: 1,
+          writerDigest: proof.writerDigest,
+          bootstrap: {
+            qualificationSource: proof.qualificationSource,
+            proofHash: proof.proofHash,
+            executorSetHash: proof.executorSetHash,
+            retiredAt: proof.retiredAt,
+            activationCut: proof.retiredAt,
+          },
+        }),
+      },
+    });
+    await expect(
+      fixture.authorize(ReviewPublicationKind.ThreadLifecycle),
+    ).resolves.toBe(ReviewV2PublicationEffectGateDecision.Allowed);
+    qualified = false;
+    await expect(
+      fixture.authorize(ReviewPublicationKind.ThreadLifecycle),
+    ).resolves.toBe(ReviewV2PublicationEffectGateDecision.Unavailable);
+    await expect(
+      fixture.authorize(ReviewPublicationKind.Summary),
+    ).resolves.toBe(ReviewV2PublicationEffectGateDecision.Allowed);
+  });
   it("leaves legacy publication outside investigation rollout", async () => {
     const fixture = createFixture(null);
     fixture.rollout.decisions = [InvestigationRolloutDecision.Unavailable];
@@ -189,6 +227,8 @@ function createFixture(
     readonly attachUnusedShadow?: boolean;
     readonly providerKind?: ReviewProviderKind;
     readonly legacyZeroLineage?: boolean;
+    readonly resolutionWriters?: ProductionReviewInvestigationPublicationEffectGateDependencies["resolutionWriters"];
+    readonly resolutionHistory?: ProductionReviewInvestigationPublicationEffectGateDependencies["resolutionHistory"];
   } = {},
 ) {
   const permit = permitIdentity();
@@ -252,6 +292,12 @@ function createFixture(
   let authorizationReadCount = 0;
   let investigationReadCount = 0;
   const dependencies = {
+    ...(input.resolutionWriters
+      ? { resolutionWriters: input.resolutionWriters }
+      : {}),
+    ...(input.resolutionHistory
+      ? { resolutionHistory: input.resolutionHistory }
+      : {}),
     executions: {
       async findExecution() {
         return {
@@ -324,11 +370,11 @@ function createFixture(
     authorizationReads: () => authorizationReadCount,
     investigationReads: () => investigationReadCount,
     rollout,
-    authorize: () =>
+    authorize: (publicationKind?: ReviewPublicationKind) =>
       gate.authorize({
         provider: ReviewV2ScmProvider.GitHub,
         permit,
-        operation: {} as ReviewPublicationOperation,
+        operation: { publicationKind } as ReviewPublicationOperation,
       }),
   };
 }

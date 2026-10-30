@@ -25,9 +25,11 @@
 }
 .controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   gap: 0.6rem;
   min-width: 0;
+  max-width: 100%;
 }
 .periodControl {
   width: 10rem;
@@ -103,6 +105,7 @@
 .chartHeader {
   min-height: 6.3rem;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -116,6 +119,8 @@
 }
 .chartSelector {
   width: 10rem;
+  max-width: 100%;
+  flex-shrink: 0;
   min-width: 0;
 }
 .chartBody {
@@ -382,7 +387,7 @@
 }
 @media (min-width: 1100px) {
   .chartGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
   }
 }
 @media (max-width: 600px) {
@@ -410,7 +415,7 @@
     width: 100%;
   }
   .periodControl {
-    flex: 1;
+    flex: 1 1 10rem;
   }
   .chartHeader {
     gap: 0.7rem;

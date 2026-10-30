@@ -614,6 +614,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
   }): Promise<{
     readonly compatible: boolean;
     readonly providerApiAuthMode?: ProviderApiAuthMode;
+    readonly subscriptionAuthMode?: "claude-oauth";
     readonly mcpSecrets?: Readonly<Record<string, string>>;
   }> {
     if (input.workflowPath === reviewRouterWorkflowContract.callerPath) {
@@ -652,6 +653,9 @@ export class OctokitCodexRotatingGitHubSecretGateway
           ...(caller.mcpSecrets ? { mcpSecrets: caller.mcpSecrets } : {}),
           ...(caller.providerApiAuthMode
             ? { providerApiAuthMode: caller.providerApiAuthMode }
+            : {}),
+          ...(caller.subscriptionAuthMode
+            ? { subscriptionAuthMode: caller.subscriptionAuthMode }
             : {}),
         };
       } catch {

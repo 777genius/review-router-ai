@@ -102,9 +102,9 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay every current migration, including memory and Gateway allocations.
-        expect(names).toHaveLength(158);
-        expect(names.slice(-21)).toEqual([
+        // Replay all current migrations, including memory, Gateway allocations and dispatch.
+        expect(names).toHaveLength(159);
+        expect(names.slice(-22)).toEqual([
           "000136_review_skills",
           "000137_review_skills_capture",
           "000138_pr_description",
@@ -126,6 +126,7 @@ describe.skipIf(!enabled)(
           "000152_memory_automatic_source",
           "000152_review_run_gateway_allocations",
           "000153_conversation_processing",
+          "000154_unified_model_dispatch",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

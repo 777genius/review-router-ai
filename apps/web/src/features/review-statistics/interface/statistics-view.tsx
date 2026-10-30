@@ -1,7 +1,13 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, SelectField } from "@reviewrouter/ui";
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { usePrivateQueryScope } from "../../../private-query-scope";
+import {
+  statisticsFilterFromUrl,
+  statisticsFilterUrl,
+} from "../application/statistics-url";
+import { Button } from "@reviewrouter/ui";
 import { RefreshCw } from "lucide-react";
 import type {
   StatisticsFilter,
@@ -11,12 +17,16 @@ import {
   fetchStatisticsReport,
   isStatisticsAccessFailure,
   statisticsReportKey,
-  statisticsScopeKey,
+  isStatisticsScopeMismatch,
 } from "../adapters/statistics-api";
 import {
   instantLabel,
   periodLabel,
 } from "../application/statistics-presentation";
+import {
+  StatisticsFilterControls,
+  StatisticsInvalidFilters,
+} from "./statistics-filter-controls";
 import { StatisticsSummary } from "./statistics-summary";
 import { StatisticsCharts } from "./statistics-charts";
 import { StatisticsDailyTable } from "./statistics-daily-table";
@@ -43,14 +53,21 @@ function StatisticsInstance({
   seedId,
   initialReport,
 }: Props) {
-  const client = useQueryClient();
+  const router = useRouter();
+  const scope = usePrivateQueryScope(
+    { namespace: "review-statistics", actorId, workspaceId, seedId },
+    isStatisticsAccessFailure,
+    isStatisticsScopeMismatch,
+  );
+  const { denied } = scope;
   const [filter, setFilter] = useState<StatisticsFilter>(initialReport.filter);
   const [metric, setMetric] = useState<"pullRequestsReviewed" | "reviews">(
     "pullRequestsReviewed",
   );
-  const [denied, setDenied] = useState(false);
+  const [invalidUrl, setInvalidUrl] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [repository, setRepository] = useState<IssueRepository | null>(null);
+  const interactionRevision = useRef(0);
   const section = useRef<HTMLElement>(null);
   const restoreControlFocus = useRef<"severity" | "refresh" | null>(null);
   const refreshControl = useRef<HTMLButtonElement>(null);
@@ -62,48 +79,39 @@ function StatisticsInstance({
     target?.focus({ preventScroll: true });
     target?.scrollIntoView?.({ block: "start" });
   }, [issueFocusRequest]);
-  const active = useRef(true);
-  const deniedRef = useRef(false);
-  useEffect(() => {
-    active.current = true;
-    return () => {
-      active.current = false;
-    };
-  }, []);
-  const rejectAccess = useCallback(() => {
-    if (!active.current || deniedRef.current) return;
-    deniedRef.current = true;
-    setDenied(true);
-    const prefix = statisticsScopeKey(actorId, workspaceId);
-    void client.cancelQueries({ queryKey: prefix });
-    client.removeQueries({ queryKey: prefix });
-  }, [actorId, workspaceId, client]);
   const matchesSeed =
     filter.days === initialReport.filter.days &&
     filter.severity === initialReport.filter.severity;
   const query = useQuery({
     queryKey: statisticsReportKey(actorId, workspaceId, seedId, filter),
-    queryFn: async ({ signal }) => {
-      try {
-        return await fetchStatisticsReport(workspaceId, filter, signal);
-      } catch (error) {
-        if (isStatisticsAccessFailure(error)) rejectAccess();
-        throw error;
-      }
-    },
-    enabled: !denied,
-    initialData: !denied && matchesSeed ? initialReport : undefined,
-    staleTime: 30_000,
+    queryFn: ({ signal }) =>
+      scope.request(
+        () => fetchStatisticsReport(workspaceId, filter, signal, actorId),
+        (error) => {
+          if (isStatisticsScopeMismatch(error)) router.refresh();
+        },
+      ),
+    enabled: !denied && !invalidUrl,
+    initialData:
+      !denied && scope.seedTrusted && matchesSeed && !invalidUrl
+        ? initialReport
+        : undefined,
+    staleTime: scope.seedTrusted ? 30_000 : 0,
     retry: (failures, error) =>
       !isStatisticsAccessFailure(error) && failures < 1,
   });
   const report =
-    denied || isStatisticsAccessFailure(query.error) ? undefined : query.data;
+    denied ||
+    invalidUrl ||
+    !scope.seedTrusted ||
+    isStatisticsAccessFailure(query.error)
+      ? undefined
+      : query.data;
   useEffect(() => {
     if (!report || query.isFetching || !restoreControlFocus.current) return;
     const control = restoreControlFocus.current;
     restoreControlFocus.current = null;
-    // Loading removes Severity or disables Refresh. Restore their initiating
+    // Refresh can disable its initiating button. Restore its initiating
     // focus only when it fell away and the user has not moved to another control.
     if (document.activeElement && document.activeElement !== document.body)
       return;
@@ -117,11 +125,32 @@ function StatisticsInstance({
     target?.focus({ preventScroll: true });
   }, [report, query.isFetching]);
   const changeFilter = (changes: Partial<StatisticsFilter>) => {
+    interactionRevision.current += 1;
     restoreControlFocus.current =
       changes.severity !== undefined ? "severity" : null;
+    const next = { ...filter, ...changes };
     setRepository(null);
-    setFilter((current) => ({ ...current, ...changes }));
+    setInvalidUrl(false);
+    setFilter(next);
+    window.history.pushState(
+      null,
+      "",
+      statisticsFilterUrl(window.location.href, next),
+    );
   };
+  useEffect(() => {
+    const pop = () => {
+      interactionRevision.current += 1;
+      const next = statisticsFilterFromUrl(
+        new URLSearchParams(window.location.search),
+      );
+      setInvalidUrl(next === null);
+      setRepository(null);
+      if (next) setFilter(next);
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
   const issueIdentity = report
     ? JSON.stringify([
         report.period.from,
@@ -147,30 +176,32 @@ function StatisticsInstance({
           </p>
         </div>
         <div className={styles.controls}>
-          <SelectField
-            name="statistics-period"
-            label="Period"
-            value={String(filter.days)}
+          <StatisticsFilterControls
+            filter={filter}
             disabled={denied}
-            options={[
-              { value: "7", label: "Last 7 days" },
-              { value: "30", label: "Last 30 days" },
-              { value: "90", label: "Last 90 days" },
-            ]}
-            onValueChange={(value) =>
-              changeFilter({ days: Number(value) as StatisticsFilter["days"] })
-            }
-            className={styles.periodControl ?? ""}
+            onChange={changeFilter}
           />
           <Button
             ref={refreshControl}
             variant="outline"
             size="sm"
-            disabled={denied || query.isFetching}
+            disabled={!denied && (invalidUrl || query.isFetching)}
             aria-busy={query.isFetching}
             onClick={() => {
+              if (denied) {
+                router.refresh();
+                return;
+              }
               restoreControlFocus.current = "refresh";
-              void query.refetch();
+              const revision = interactionRevision.current;
+              void query.refetch().then((result) => {
+                if (
+                  scope.isActive() &&
+                  interactionRevision.current === revision &&
+                  result.isSuccess
+                )
+                  setRepository(null);
+              });
             }}
           >
             <RefreshCw size={14} aria-hidden="true" />
@@ -180,9 +211,11 @@ function StatisticsInstance({
       </header>
       {denied ? (
         <p role="alert" className={styles.status}>
-          Statistics access is no longer available. Open an authorized workspace
-          report to continue.
+          Statistics access is no longer available. Use Refresh to open an
+          authorized workspace report again.
         </p>
+      ) : invalidUrl ? (
+        <StatisticsInvalidFilters />
       ) : !report ? (
         <div
           role={query.isError ? "alert" : "status"}
@@ -199,7 +232,8 @@ function StatisticsInstance({
           <div className={styles.period}>
             <span>{periodLabel(report)}</span>
             <span>
-              Today in progress · updated {instantLabel(report.period.asOf)} UTC
+              Today in progress · Report generated{" "}
+              {instantLabel(report.period.asOf)} UTC
             </span>
           </div>
           {query.isError ? (
@@ -236,11 +270,14 @@ function StatisticsInstance({
                   ) : null}
                 </div>
               ) : null}
+              <p className={styles.help}>
+                Recent reviews may appear after background processing.
+              </p>
               <StatisticsSummary report={report} />
               {report.totals.reviews === 0 ? (
                 <p className={styles.empty}>
                   {report.coverage.currentComplete
-                    ? "No published reviews in this period yet."
+                    ? "No recorded published reviews in this period yet."
                     : "No recorded reviews in this period. Uncovered activity may be missing."}
                 </p>
               ) : null}
@@ -248,8 +285,8 @@ function StatisticsInstance({
                 report={report}
                 metric={metric}
                 onMetricChange={setMetric}
-                onSeverityChange={(severity) => changeFilter({ severity })}
                 onViewIssues={(row) => {
+                  interactionRevision.current += 1;
                   setRepository(
                     row
                       ? {
@@ -278,11 +315,12 @@ function StatisticsInstance({
                   report={report}
                   repository={repository}
                   onResetRepository={() => {
+                    interactionRevision.current += 1;
                     setRepository(null);
                     setIssueFocusRequest((request) => request + 1);
                   }}
                   onClose={() => setIssuesOpen(false)}
-                  onAccessFailure={rejectAccess}
+                  request={scope.request}
                 />
               ) : null}
             </>

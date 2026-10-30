@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import { listDashboardContextConnections } from "../../../src/server/context-tools";
-import { listDashboardMcpCatalogPresets } from "../../../src/server/mcp-catalog";
-import { createNoIndexPageMetadata } from "../../seo";
-import { ContextConnectionsForm } from "./context-connections-form";
+import { listDashboardContextConnections } from "../../../../src/server/context-tools";
+import { listDashboardMcpCatalogPresets } from "../../../../src/server/mcp-catalog";
+import { createNoIndexPageMetadata } from "../../../seo";
+import { NavigationContentReady } from "../../../navigation-feedback";
+import { ContextConnectionsForm } from "../../context-tools/context-connections-form";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = createNoIndexPageMetadata({
@@ -29,10 +30,11 @@ export default async function ContextToolsPage({
     refused = true;
   }
   return (
-    <main className="mx-auto grid max-w-4xl gap-6 px-4 py-8 text-slate-200">
-      <a className="text-cyan-200 underline" href="/dashboard">
-        Dashboard
-      </a>
+    <section
+      id="dashboard-section-content"
+      className="grid min-w-0 gap-6 text-slate-200"
+    >
+      <NavigationContentReady completionKey={`context-tools:${workspaceId}`} />
       <h1 className="text-2xl font-semibold">Context tools</h1>
       <p className="text-sm text-slate-400">
         Owner/admin managed HTTPS MCP connections. Requires OpenCodeReview
@@ -47,11 +49,12 @@ export default async function ContextToolsPage({
         </p>
       ) : (
         <ContextConnectionsForm
+          key={workspaceId}
           workspaceId={workspaceId}
           connections={connections}
           catalog={listDashboardMcpCatalogPresets()}
         />
       )}
-    </main>
+    </section>
   );
 }

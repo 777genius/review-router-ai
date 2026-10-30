@@ -12,7 +12,10 @@ import {
   parseReviewConfigurationStrict,
   type WorkspaceProviderProfile,
 } from "@reviewrouter/features-review-config";
-import { projectRepositorySetupStatus } from "@reviewrouter/features-workflow-provisioning";
+import {
+  projectRepositorySetupStatus,
+  requiredWorkflowRequirement,
+} from "@reviewrouter/features-workflow-provisioning";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isSetupRecoveryIssue } from "../../../../dashboard/dashboard-copy";
 import type {
@@ -22,6 +25,10 @@ import type {
 import { resolveDashboardRepositoryReadiness } from "../../../../../src/server/dashboard-repository-readiness";
 import type { HostedPoolDashboardView } from "../../../../../src/server/hosted-pool-dashboard";
 import type { GatewayReviewV2RepositoryReadiness } from "../../../../../src/server/prisma-gateway-review-v2-provisioning";
+import {
+  runtimeReadySha,
+  runtimeReleases,
+} from "../../../../../src/server/test-support/review-runtime-readiness-fixture";
 
 const mocks = vi.hoisted(() => ({
   getDashboardSignedInActor: vi.fn(),
@@ -38,7 +45,18 @@ const mocks = vi.hoisted(() => ({
   loadHostedPoolDashboardView: vi.fn(),
   loadDashboardGatewayAccounts: vi.fn(),
   readGatewayReviewV2RepositoryReadiness: vi.fn(),
+  readDashboardRuntimeReleases: vi.fn(),
 }));
+
+vi.mock(
+  "../../../../../src/server/review-runtime-readiness",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../../../../src/server/review-runtime-readiness")
+    >()),
+    readDashboardRuntimeReleases: mocks.readDashboardRuntimeReleases,
+  }),
+);
 
 vi.mock("@reviewrouter/features-repo-health", () => ({
   listWorkspaceRepositoryHealth: mocks.listWorkspaceRepositoryHealth,
@@ -72,11 +90,6 @@ vi.mock(
 vi.mock("../../../../../src/server/dashboard-gateway-accounts", () => ({
   loadDashboardPersonalAccounts: async () => null,
   loadDashboardGatewayAccounts: mocks.loadDashboardGatewayAccounts,
-  hydrateDashboardGatewayAccounts: async (
-    _workspace: unknown,
-    _personal: unknown,
-    accounts: unknown,
-  ) => accounts,
 }));
 
 vi.mock(
@@ -168,6 +181,7 @@ describe("dashboard repository search route", () => {
       status: "unavailable",
     });
     mocks.readGatewayReviewV2RepositoryReadiness.mockResolvedValue(new Map());
+    mocks.readDashboardRuntimeReleases.mockResolvedValue(runtimeReleases);
     // The workspace has no default provider; every repository selects its
     // own rotating Codex profile unless a test stores another selection.
     testProfiles.clear();
@@ -351,7 +365,11 @@ describe("dashboard repository search route", () => {
     });
     mocks.repositoryConnectionFindMany.mockResolvedValue([
       repositoryRow({ id: "repo_legacy", fullName: "fin-int/legacy" }),
-      repositoryRow({ id: "repo_rotating", fullName: "fin-int/rotating" }),
+      repositoryRow({
+        id: "repo_rotating",
+        fullName: "fin-int/rotating",
+        provisioningStatus: "configured",
+      }),
     ]);
     mocks.listWorkspaceRepositoryHealth.mockResolvedValue([
       staleProviderReport("repo_legacy"),
@@ -395,7 +413,11 @@ describe("dashboard repository search route", () => {
     });
     mocks.repositoryConnectionFindMany.mockResolvedValue([
       repositoryRow({ id: "repo_legacy", fullName: "fin-int/legacy" }),
-      repositoryRow({ id: "repo_rotating", fullName: "fin-int/rotating" }),
+      repositoryRow({
+        id: "repo_rotating",
+        fullName: "fin-int/rotating",
+        provisioningStatus: "configured",
+      }),
     ]);
     mocks.listWorkspaceRepositoryHealth.mockResolvedValue([
       healthyReport("repo_legacy"),
@@ -608,6 +630,14 @@ describe("dashboard repository search route", () => {
       repositoryRow({
         id: item.id,
         fullName: `fin-int/${item.id}`,
+        provisioningStatus: "configured",
+        actionVersion: item.gateway ? "workflow-v1" : undefined,
+        installedWorkflowRequirement: requiredWorkflowRequirement({
+          ...workspacePolicyFixture,
+          providers: [
+            item.gateway ? gatewayProvider : workspaceProviderFixture,
+          ],
+        }),
         ...(item.setupIssue
           ? { provisioningStatus: "failed", errorMessage: item.setupIssue }
           : {}),
@@ -673,6 +703,13 @@ describe("dashboard repository search route", () => {
       };
       for (const id of body.repositoryIds) routeReadiness.set(id, readiness);
     }
+    expect(mocks.loadDashboardGatewayAccounts).toHaveBeenCalledWith(
+      "workspace_1",
+      null,
+      expect.arrayContaining([
+        expect.objectContaining({ providers: [gatewayProvider] }),
+      ]),
+    );
     // Composed as the dashboard page composes it for its table and summary.
     const pageReadiness = resolveDashboardRepositoryReadiness({
       effectiveConfigs: new Map(
@@ -698,12 +735,14 @@ describe("dashboard repository search route", () => {
         ),
         installedWorkflowRequirement:
           repository.provisioning[0]?.installedWorkflowRequirement ?? null,
+        workflowProvisioning: repository.provisioning[0] ?? null,
       })),
       health,
       providerSetup,
       hostedRepositories: hostedView.repositories,
       gatewayAccounts: accounts,
       gatewayReadiness,
+      runtimeReleases,
       providerSecretCheckFailedRepositoryFullName: null,
     });
 
@@ -878,6 +917,8 @@ function repositoryRow(input: {
     | "configured"
     | "failed";
   readonly errorMessage?: string;
+  readonly actionVersion?: string | undefined;
+  readonly installedWorkflowRequirement?: string;
 }) {
   const [owner = "", name = ""] = input.fullName.split("/");
   return {
@@ -894,8 +935,16 @@ function repositoryRow(input: {
       ? [
           {
             status: input.provisioningStatus,
+            actionVersion:
+              input.actionVersion ??
+              `777genius/review-router@${runtimeReadySha}`,
             errorMessage: input.errorMessage ?? null,
-            installedWorkflowRequirement: null,
+            installedWorkflowRequirement:
+              input.installedWorkflowRequirement ??
+              requiredWorkflowRequirement({
+                ...workspacePolicyFixture,
+                providers: [workspaceProviderFixture],
+              }),
           },
         ]
       : [],

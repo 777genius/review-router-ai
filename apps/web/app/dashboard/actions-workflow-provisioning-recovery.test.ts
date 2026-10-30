@@ -4,6 +4,7 @@ import {
 } from "@reviewrouter/shared";
 import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 
 const mocks = vi.hoisted(() => ({
   activateConfirmedCodexNamespaceAfterWorkflowMerge: vi.fn(),
@@ -98,7 +99,11 @@ vi.mock("../../src/server/workflow-public-api-url", () => ({
 
 import { resolveReviewRouterActionRef } from "@reviewrouter/platform-config";
 import { parseReviewConfiguration } from "@reviewrouter/features-review-config";
-import { renderReviewRouterReusableWorkflow } from "@reviewrouter/features-workflow-provisioning";
+import {
+  renderReviewRouterReusableWorkflow,
+  renderClaudeSubscriptionWorkflow,
+  reviewRouterWorkflowContract,
+} from "@reviewrouter/features-workflow-provisioning";
 import {
   createProvisioningPrisma,
   initialCandidate,
@@ -718,6 +723,7 @@ describe("dashboard setup PR recovery", () => {
               revision: true,
               branch: true,
               workflowPath: true,
+              actionVersion: true,
               pullRequestUrl: true,
               pullRequestHeadSha: true,
             },
@@ -750,11 +756,150 @@ describe("dashboard setup PR recovery", () => {
     ).resolves.toMatchObject({ params: { notice: "setup_pr_merged" } });
     expect(workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);
   });
+  it("confirms the native Claude caller using only selected provisioning fields", async () => {
+    const actionRef = resolveReviewRouterActionRef();
+    const candidate = { ...initialCandidate, actionVersion: actionRef };
+    const state = createProvisioningPrisma(candidate);
+    const repository = {
+      id: "repository_1",
+      workspaceId: "workspace_1",
+      installationId: "installation_1",
+      provider: "github",
+      githubRepositoryId: 456n,
+      owner: "acme",
+      name: "widget",
+      fullName: "acme/widget",
+      visibility: "private",
+      defaultBranch: "main",
+      selected: true,
+      archived: false,
+      installation: { status: "active", githubInstallationId: 123n },
+    };
+    const findRepository = vi.fn(
+      async (input: {
+        select: { provisioning: { select: Record<string, boolean> } };
+      }) => ({
+        ...repository,
+        // A real Prisma projection does not expose unselected actionVersion.
+        provisioning: [
+          Object.fromEntries(
+            Object.keys(input.select.provisioning.select).map((key) => [
+              key,
+              candidate[key as keyof typeof candidate],
+            ]),
+          ),
+        ],
+      }),
+    );
+    mocks.getPrisma.mockReturnValue({
+      ...state.prisma,
+      reviewConfiguration: workspacePolicyHeadsFixture(),
+      repositoryConnection: {
+        ...state.repositoryConnection,
+        findUnique: findRepository,
+      },
+      hostedCodexRepositoryBinding: { findFirst: vi.fn(async () => null) },
+    });
+    const source = renderClaudeSubscriptionWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.test",
+    }).content;
+    const blobSha = createHash("sha1")
+      .update(`blob ${Buffer.byteLength(source)}\0${source}`)
+      .digest("hex");
+    const commitSha = "c".repeat(40);
+    mocks.createGitHubAppInstallationOctokit.mockResolvedValue({
+      request: vi.fn(
+        async (route: string, parameters?: Record<string, unknown>) => {
+          if (route === "GET /repos/{owner}/{repo}/pulls/{pull_number}")
+            return {
+              data: {
+                merged: true,
+                state: "closed",
+                base: { ref: "main" },
+                head: {
+                  ref: candidate.branch,
+                  sha: candidate.pullRequestHeadSha,
+                },
+              },
+            };
+          if (route === "GET /repos/{owner}/{repo}")
+            return {
+              data: {
+                id: 456,
+                full_name: "acme/widget",
+                default_branch: "main",
+              },
+            };
+          if (route === "GET /repos/{owner}/{repo}/git/ref/{ref}")
+            return {
+              data: { object: { sha: commitSha } },
+            };
+          if (route === "GET /repos/{owner}/{repo}/contents/{path}") {
+            expect(parameters?.ref).toBe(commitSha);
+            if (parameters?.path !== reviewRouterWorkflowContract.callerPath)
+              throw Object.assign(new Error("missing"), { status: 404 });
+            return {
+              data: {
+                type: "file",
+                encoding: "base64",
+                sha: blobSha,
+                path: reviewRouterWorkflowContract.callerPath,
+                content: Buffer.from(source).toString("base64"),
+              },
+            };
+          }
+          throw new Error(`unexpected_github_request:${route}`);
+        },
+      ),
+    });
+    mocks.provisionGatewayReviewV2Repository.mockImplementationOnce(
+      async (input: { assertCurrentSetupAndSource(): Promise<void> }) => {
+        await input.assertCurrentSetupAndSource();
+        return { status: "ready" };
+      },
+    );
+    const form = new FormData();
+    form.set("workspaceId", "workspace_1");
+    form.set("repositoryId", "repository_1");
+    const result = await confirmSetupPullRequestMergedClientAction(form);
+    expect(result).toMatchObject({ params: { notice: "setup_pr_merged" } });
+    expect(findRepository).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          provisioning: expect.objectContaining({
+            select: expect.objectContaining({ actionVersion: true }),
+          }),
+        }),
+      }),
+    );
+    expect(mocks.provisionGatewayReviewV2Repository).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscriptionAuthMode: "claude-oauth",
+        command: expect.objectContaining({
+          expectedGatewaySource: expect.objectContaining({
+            actionRef,
+            sourceRevision: commitSha,
+          }),
+        }),
+      }),
+    );
+    expect(
+      mocks.activateConfirmedCodexNamespaceAfterWorkflowMerge,
+    ).not.toHaveBeenCalled();
+    expect(state.current()).toMatchObject({
+      status: "configured",
+      actionVersion: actionRef,
+    });
+  });
+
   it.each([
     "verified",
     "workflow_absent",
     "activation_failed",
     "transfer_placeholder",
+    "native_probe_denied",
+    "native_probe_malformed",
   ] as const)(
     "handles installed workflow without bound provisioning evidence: %s",
     async (scenario) => {
@@ -795,10 +940,20 @@ describe("dashboard setup PR recovery", () => {
         },
         hostedCodexRepositoryBinding: { findFirst: vi.fn(async () => null) },
       });
-      const request = vi.fn(async (route: string) =>
-        route.includes("/contents/")
-          ? reusableWorkflowResponse()
-          : { data: {} },
+      const request = vi.fn(
+        async (route: string, parameters?: Record<string, unknown>) => {
+          if (!route.includes("/contents/")) return { data: {} };
+          if (parameters?.path === reviewRouterWorkflowContract.callerPath) {
+            if (scenario === "native_probe_denied")
+              throw Object.assign(new Error("denied"), { status: 403 });
+            if (scenario === "native_probe_malformed")
+              return reusableWorkflowResponse();
+            // This installation contains only the original legacy caller.
+            throw Object.assign(new Error("missing"), { status: 404 });
+          }
+          expect(parameters?.path).toBe(".github/workflows/reviewrouter.yml");
+          return reusableWorkflowResponse();
+        },
       );
       mocks.createGitHubAppInstallationOctokit.mockResolvedValue({ request });
       if (scenario === "workflow_absent")
@@ -834,6 +989,15 @@ describe("dashboard setup PR recovery", () => {
       } else {
         expect(result.params).not.toHaveProperty("notice");
         expect(state.workflowProvisioning.create).not.toHaveBeenCalled();
+        if (scenario.startsWith("native_probe_")) {
+          expect(mocks.isWorkflowSetupAlreadyCurrent).not.toHaveBeenCalled();
+          expect(
+            mocks.activateConfirmedCodexNamespaceAfterWorkflowMerge,
+          ).not.toHaveBeenCalled();
+          expect(
+            mocks.provisionGatewayReviewV2Repository,
+          ).not.toHaveBeenCalled();
+        }
       }
       expect(request.mock.calls.flat()).not.toContain(
         "GET /repos/{owner}/{repo}/pulls/{pull_number}",

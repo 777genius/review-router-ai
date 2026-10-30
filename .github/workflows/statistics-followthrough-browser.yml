@@ -1,0 +1,138 @@
+name: Statistics followthrough browser
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/statistics-followthrough-browser.yml"
+      - "scripts/statistics-e2e/**"
+      - "apps/web/app/dashboard/provider-usage-*"
+      - "apps/web/app/dashboard/review-statistics-*"
+      - "apps/web/app/dashboard/dashboard-workspace-page.tsx"
+      - "apps/web/app/api/dashboard/review-statistics/**"
+      - "apps/web/app/api/dashboard/provider-usage/**"
+      - "apps/web/src/features/review-statistics/**"
+      - "apps/web/src/features/review-history/**"
+      - "apps/web/src/server/review-statistics.ts"
+      - "apps/web/src/server/provider-usage-report.ts"
+      - "apps/web/src/server/provider-usage-view-model.ts"
+      - "apps/web/src/private-query-scope.ts"
+      - "apps/web/app/query-provider.tsx"
+      - "apps/web/app/layout.tsx"
+      - "apps/web/app/primary-nav.tsx"
+      - "scripts/prepare-pinned-subscription-runtime.ts"
+      - "packages/features/review-history/**"
+      - "packages/features/review-statistics/**"
+      - "packages/features/provider-usage/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: statistics-followthrough-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  browser:
+    name: Statistics Usage Reviews browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: reviewrouter_statistics_test
+          TZ: UTC
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d reviewrouter_statistics_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_statistics_test
+      STATISTICS_E2E_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_statistics_test
+      STATISTICS_E2E_SCENARIO: followthrough
+      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      TZ: UTC
+    steps:
+      - name: Checkout exact qualification source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install pinned pnpm and locked dependencies
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          node scripts/prepare-pinned-subscription-runtime.ts
+      - name: Generate offline Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Apply ordinary migrations to the isolated fixture
+        run: pnpm --dir packages/platform/db db:migrate:deploy
+      - name: Prepare the pinned native compiler
+        run: pnpm compiler:prepare
+      - name: Generate Next.js route types
+        working-directory: apps/web
+        run: pnpm exec next typegen
+      - name: Typecheck the complete web host
+        run: pnpm --filter @reviewrouter/web typecheck
+      - name: Install Chromium from the locked Playwright package
+        run: |
+          pnpm exec playwright-core install --with-deps chromium
+          node --input-type=module <<'NODE' >> "$GITHUB_ENV"
+          import { chromium } from 'playwright-core';
+          console.log(`STATISTICS_E2E_BROWSER_EXECUTABLE=${chromium.executablePath()}`);
+          NODE
+      - name: Qualify real authenticated followthrough journeys
+        run: node --import tsx scripts/statistics-e2e/browser-qualify.ts
+      - name: Assert the exact scenario receipt and cleanup
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readdirSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          const base='tmp/statistics-e2e';
+          const runs=readdirSync(base).filter(name=>name.startsWith('run-'));
+          assert.equal(runs.length,1);
+          const result=JSON.parse(readFileSync(join(base,runs[0],'result.json'),'utf8'));
+          assert.equal(result.outcome,'passed');
+          assert.equal(result.scenario,'followthrough');
+          assert.equal(result.sourceCommit,execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim());
+          assert.equal(result.cleanup,'passed');
+          assert(result.checks.length>=12);
+          assert(result.screenshots.length>=10);
+          const captures=new Set(result.screenshots.map(item=>item.name));
+          for(const theme of ['dark','light'])
+            for(const width of [1440,900,390]) {
+              assert(captures.has(`followthrough-${theme}-${width}.png`));
+              assert(captures.has(`followthrough-issues-${theme}-${width}.png`));
+            }
+          assert.deepEqual(result.followthroughEvidence.heldResponses.map(item=>item.status),[200,403]);
+          assert(result.followthroughEvidence.heldResponses.every(item=>['delivered','cancelled'].includes(item.outcome)));
+          assert.equal(result.followthroughEvidence.retiredUsageRemount.responseStatus,200);
+          assert.equal(result.followthroughEvidence.retiredUsageRemount.effectiveAccess,'member');
+          assert.equal(result.followthroughEvidence.retiredUsageRemount.dashboardRscRequestsBeforeValidationRelease,0);
+          assert(result.followthroughEvidence.retiredUsageRemount.priorBrowserScopeChecks.every(item=>item.status===200&&item.scopeMatches));
+          assert.deepEqual(result.followthroughEvidence.retiredUsageRemount.priorBrowserDenialMessages,[]);
+          assert(['delivered','cancelled'].includes(result.followthroughEvidence.retiredUsageRemount.outcome));
+          assert.deepEqual(result.browserErrors,[]);
+          assert.deepEqual(result.externalRequests,[]);
+          NODE
+      - name: Preserve receipts and actual screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: statistics-followthrough-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: tmp/statistics-e2e/run-*/
+          if-no-files-found: error
+          retention-days: 14

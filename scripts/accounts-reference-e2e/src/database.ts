@@ -12,6 +12,10 @@ import {
   ACCOUNT_MODEL_UI_ATTESTATIONS,
 } from "./account-models-fixture.ts";
 import {
+  RUNTIME_READY_SHA,
+  RUNTIME_UI_ATTESTATIONS,
+} from "./review-runtime-fixture.ts";
+import {
   FIXTURES,
   TEST_DATABASE_NAME,
   type RuntimeDescriptor,
@@ -339,6 +343,13 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_TOKEN:
       input.secrets.personalControlToken,
     REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID: FIXTURES.gateway.profileId,
+    ...(process.argv.includes("--review-runtime-fixture")
+      ? {
+          REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: `777genius/review-router@${RUNTIME_READY_SHA}`,
+          REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
+            RUNTIME_UI_ATTESTATIONS,
+        }
+      : {}),
     ...(process.argv.includes("--account-models-fixture")
       ? {
           REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID:

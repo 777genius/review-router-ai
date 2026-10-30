@@ -1,4 +1,11 @@
+import { inspectConfiguredRuntimeMigrationTarget } from "../../src/server/workflow-provisioning/approved-codex-runtime-migration-ref";
 import { savedProviderIdentity } from "../../src/server/provider-identity";
+import { randomUUID } from "node:crypto";
+import {
+  readDashboardRuntimeReleases,
+  type DashboardRuntimeReleases,
+} from "../../src/server/review-runtime-readiness";
+import { createPrismaReviewRunControlRepositories } from "@reviewrouter/features-review-run-control/composition";
 import { ReviewStatisticsSection } from "./review-statistics-section";
 import { ReviewHistorySection } from "./review-history-section";
 import { ReviewSkillsSection } from "./review-skills-section";
@@ -64,6 +71,7 @@ import { PrismaHostedPoolQuery } from "@reviewrouter/features-hosted-account-poo
 import {
   buildProviderSecretSetupGuidance,
   type RepositorySetupStepId,
+  type ReviewRuntimeCompatibility,
 } from "@reviewrouter/features-provider-setup";
 import {
   listWorkspaceOutboxFailures,
@@ -164,6 +172,7 @@ import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
 import { DashboardInstallRequestToast } from "./dashboard-install-request-toast";
 import { ProvidersHubNav } from "./dashboard-section-tabs";
 import {
+  dashboardClientNavigationHref,
   dashboardPath,
   dashboardPathFromSearchParams,
   dashboardSectionHref,
@@ -365,6 +374,7 @@ async function loadDashboardWorkspaceSummaries(
 }
 
 type DashboardWorkspaceData = {
+  runtimeReleases?: DashboardRuntimeReleases | null;
   hasWorkspaceWideAccess: boolean;
   workspace: DashboardWorkspace;
   repositoryCount: number;
@@ -443,6 +453,14 @@ export async function loadDashboardSectionData(
   const needsReadiness =
     section === "repositories" || section === "diagnostics";
   const needsConfig = needsReadiness || section === "policy";
+  const runtimeReleasesPromise = needsReadiness
+    ? readDashboardRuntimeReleases({
+        inspectRuntimeMigrationTarget: inspectConfiguredRuntimeMigrationTarget,
+        env: process.env,
+        releases:
+          createPrismaReviewRunControlRepositories(prisma).producerReleases,
+      })
+    : Promise.resolve(null);
   const repositoryStore = new PrismaRepositoryConnectionRepository(prisma);
   const healthStore = new PrismaRepositoryHealthRepository(prisma);
   const entitlementStore = new PrismaEntitlementRepository(prisma);
@@ -695,6 +713,7 @@ export async function loadDashboardSectionData(
       : {};
   return {
     ...otherSettings,
+    runtimeReleases: await runtimeReleasesPromise,
     providerList,
     canSetDefaultProvider,
     hasWorkspaceWideAccess,
@@ -1231,6 +1250,17 @@ export async function DashboardWorkspacePage({
     selectedWorkspace.workspace,
     workspaces,
   );
+  if (selectedSection === "context-tools") {
+    redirect(
+      dashboardClientNavigationHref(
+        dashboardSectionHref(
+          "context-tools",
+          workspaceKey,
+          selectedWorkspace.workspace.id,
+        ),
+      ),
+    );
+  }
   const sectionBoundaryKey = JSON.stringify([
     selectedWorkspace.workspace.id,
     selectedSection,
@@ -1317,7 +1347,10 @@ export async function DashboardSectionContent({
   }
   if (selectedSection === "statistics") {
     return (
-      <ReviewStatisticsSection workspaceId={selectedWorkspace.workspace.id} />
+      <ReviewStatisticsSection
+        workspaceId={selectedWorkspace.workspace.id}
+        params={params}
+      />
     );
   }
   const { workspaceScope, mutationStatus, repositoryAccess } = context;
@@ -1344,6 +1377,13 @@ export async function DashboardSectionContent({
   const personal = wantsAccounts
     ? await loadDashboardPersonalAccounts(selectedWorkspace.workspace.id)
     : null;
+  const dataPromise = loadDashboardSectionData(
+    selectedWorkspace,
+    selectedSection,
+    repositoryAccess,
+    supportAudit,
+    context.signedInActor,
+  );
   const [
     data,
     modelOptions,
@@ -1351,13 +1391,7 @@ export async function DashboardSectionContent({
     contextConnections,
     modelCatalogSnapshots,
   ] = await Promise.all([
-    loadDashboardSectionData(
-      selectedWorkspace,
-      selectedSection,
-      repositoryAccess,
-      supportAudit,
-      context.signedInActor,
-    ),
+    dataPromise,
     wantsProviderDialog ? getReviewModelOptions() : Promise.resolve([]),
     wantsProviderDialog ||
     selectedSection === "diagnostics" ||
@@ -1997,6 +2031,7 @@ export function WorkspaceCard({
         ),
         installedWorkflowRequirement:
           repositoryProvisioning?.installedWorkflowRequirement ?? null,
+        workflowProvisioning: repositoryProvisioning ?? null,
       };
     }),
     health,
@@ -2005,6 +2040,7 @@ export function WorkspaceCard({
     hostedRepositories: hostedPool.repositories,
     gatewayAccounts,
     gatewayReadiness,
+    runtimeReleases: data.runtimeReleases ?? null,
     providerSecretCheckFailedRepositoryFullName:
       providerSecretCheckFailedRepositoryFullName || null,
   });
@@ -2667,7 +2703,14 @@ function RepositoryTable({
   const noProvider: ProviderLineSummary = { source: "none", profile: null };
 
   const rows = repositoryReadiness.map(
-    ({ repository, healthStatus, workflowCurrent, step, readiness }) => {
+    ({
+      repository,
+      healthStatus,
+      workflowCurrent,
+      runtimeCompatibility,
+      step,
+      readiness,
+    }) => {
       const repositoryHealth = repositoryHealthById.get(repository.id);
       const repositoryProvisioning = repositoryProvisioningById.get(
         repository.id,
@@ -2696,6 +2739,7 @@ function RepositoryTable({
         setupPullRequestUrl,
         setupIssue,
         workflowCurrent,
+        runtimeCompatibility,
         setupProgressStep: step,
         readiness,
         searchableText,
@@ -2826,6 +2870,7 @@ function RepositoryTable({
                   setupPullRequestUrl,
                   setupIssue,
                   workflowCurrent,
+                  runtimeCompatibility,
                   setupProgressStep,
                 }) => {
                   const repositoryPolicy = repositoryConfigById.get(
@@ -2950,6 +2995,7 @@ function RepositoryTable({
                             repositoryId={repository.id}
                             disclosureId={setupDisclosureId}
                             currentStep={setupProgressStep}
+                            runtimeCompatibility={runtimeCompatibility}
                             gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
                               gatewayReadiness.get(repository.id),
                             )}
@@ -2965,6 +3011,23 @@ function RepositoryTable({
                         data-repository-setup-panel
                       >
                         <div className="rounded-2xl border border-cyan-200/10 bg-slate-950/45 px-4 pb-1 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5">
+                          {runtimeCompatibility === "update_required" ? (
+                            <p
+                              className="mb-3 text-sm leading-6 text-amber-200"
+                              role="status"
+                            >
+                              Update setup to use the current review runtime.
+                            </p>
+                          ) : runtimeCompatibility === "unknown" &&
+                            repository.setupStatus === "configured" ? (
+                            <p
+                              className="mb-3 text-sm leading-6 text-slate-400"
+                              role="status"
+                            >
+                              Review runtime support is not confirmed yet.
+                              Verify setup before the next review.
+                            </p>
+                          ) : null}
                           <RepositorySetupProgressPanel
                             workspace={workspace}
                             workspaceKey={workspaceKey}
@@ -2972,6 +3035,7 @@ function RepositoryTable({
                             setupPullRequestUrl={setupPullRequestUrl}
                             setupIssue={setupIssue}
                             workflowCurrent={workflowCurrent}
+                            runtimeCompatibility={runtimeCompatibility}
                             mutationsEnabled={mutationsEnabled}
                             providerDialog={providerDialog}
                             providerSummary={summary}
@@ -2989,6 +3053,7 @@ function RepositoryTable({
                       <RepositorySetupReadyGate
                         repositoryId={repository.id}
                         currentStep={setupProgressStep}
+                        runtimeCompatibility={runtimeCompatibility}
                         gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
                           gatewayReadiness.get(repository.id),
                         )}
@@ -3053,6 +3118,7 @@ function RepositorySetupProgressPanel({
   setupPullRequestUrl,
   setupIssue,
   workflowCurrent,
+  runtimeCompatibility,
   mutationsEnabled,
   providerDialog,
   providerSummary,
@@ -3067,6 +3133,7 @@ function RepositorySetupProgressPanel({
   readonly setupPullRequestUrl: string | null;
   readonly setupIssue: string | null;
   readonly workflowCurrent: boolean;
+  readonly runtimeCompatibility: ReviewRuntimeCompatibility;
   readonly mutationsEnabled: boolean;
   readonly providerDialog: ProviderDialogProps;
   readonly providerSummary: ProviderLineSummary;
@@ -3125,6 +3192,7 @@ function RepositorySetupProgressPanel({
       initialSetupPullRequestUrl={setupPullRequestUrl}
       initialSetupIssue={setupIssue}
       workflowCurrent={workflowCurrent}
+      runtimeCompatibility={runtimeCompatibility}
       mutationsEnabled={mutationsEnabled}
       initialStep={currentStep}
       gatewayReviewV2Readiness={gatewayReviewV2Readiness}
@@ -3794,7 +3862,10 @@ async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
     <ProviderUsageView
       key={workspaceId}
       workspaceId={workspaceId}
-      initialReport={report}
+      actorId={report.scope.actorId}
+      effectiveAccess={report.scope.effectiveAccess}
+      seedId={randomUUID()}
+      initialReport={report.report}
       initialFilters={initialFilters}
     />
   );

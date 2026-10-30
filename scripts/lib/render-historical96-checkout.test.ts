@@ -44,6 +44,7 @@ const full = currentFull
       row.migrationName !== "000144_review_statistics" &&
       row.migrationName !== "000143_workspace_draft_review_setting" &&
       row.migrationName !== "000145_workspace_provider_profiles" &&
+      row.migrationName !== "000154_unified_model_dispatch" &&
       row.migrationName !== "000152_review_run_gateway_allocations" &&
       row.migrationName !== "000152_memory_automatic_source" &&
       row.migrationName !== "000153_conversation_processing" &&
@@ -179,7 +180,7 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000154_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000155_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",
@@ -190,7 +191,20 @@ describe("trusted historical96 checkout reader", () => {
     { checkout: currentFull },
     {
       checkout: currentFull.filter(
+        (row) => row.migrationName !== "000154_unified_model_dispatch",
+      ),
+    },
+    {
+      checkout: currentFull.filter(
         (row) =>
+          row.migrationName !== "000152_memory_automatic_source" &&
+          row.migrationName !== "000153_conversation_processing",
+      ),
+    },
+    {
+      checkout: currentFull.filter(
+        (row) =>
+          row.migrationName !== "000154_unified_model_dispatch" &&
           row.migrationName !== "000152_review_run_gateway_allocations" &&
           row.migrationName !== "000152_memory_automatic_source" &&
           row.migrationName !== "000153_conversation_processing",
@@ -213,6 +227,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000144_review_statistics" &&
           row.migrationName !== "000143_workspace_draft_review_setting" &&
           row.migrationName !== "000145_workspace_provider_profiles" &&
+          row.migrationName !== "000154_unified_model_dispatch" &&
           row.migrationName !== "000152_review_run_gateway_allocations" &&
           row.migrationName !== "000152_memory_automatic_source" &&
           row.migrationName !== "000153_conversation_processing" &&
@@ -247,6 +262,7 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000144_review_statistics" &&
           row.migrationName !== "000143_workspace_draft_review_setting" &&
           row.migrationName !== "000145_workspace_provider_profiles" &&
+          row.migrationName !== "000154_unified_model_dispatch" &&
           row.migrationName !== "000152_review_run_gateway_allocations" &&
           row.migrationName !== "000152_memory_automatic_source" &&
           row.migrationName !== "000153_conversation_processing" &&

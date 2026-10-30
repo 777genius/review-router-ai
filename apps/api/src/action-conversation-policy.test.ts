@@ -191,7 +191,6 @@ it.each([
 );
 
 function dynamicModelFixture(
-  gates: Readonly<Record<string, string | undefined>>,
   options: {
     source?: "codex" | "openrouter";
     fetchedAt?: string;
@@ -390,7 +389,6 @@ function dynamicModelFixture(
       ],
     },
     env: {
-      ...gates,
       REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: "https://gateway.example",
       REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: "bounded-probe-bearer",
       REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
@@ -436,37 +434,18 @@ function dynamicModelFixture(
   };
 }
 
-it.each([
-  { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
-  { REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
-])(
-  "admits the exact qualified dynamic model with catalog rollout %j",
-  async (gates) => {
-    const f = dynamicModelFixture(gates);
-    const policy = await f.capture();
-    expect(policy.bindingManifest.model).toBe(f.model);
-    expect(
-      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
-    ).toBe(true);
-    expect(
-      f.fetch.mock.calls.filter(([target]) =>
-        String(target).endsWith("/v1/account-models/read"),
-      ),
-    ).toHaveLength(2);
-  },
-);
-
-it("honors an explicit catalog disable even when the legacy gate is enabled", async () => {
-  const f = dynamicModelFixture({
-    REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "0",
-    REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED: "1",
-  });
-  await expect(f.capture()).rejects.toThrow("unavailable");
+it("admits the exact qualified dynamic model without a catalog rollout gate", async () => {
+  const f = dynamicModelFixture();
+  const policy = await f.capture();
+  expect(policy.bindingManifest.model).toBe(f.model);
   expect(
-    f.fetch.mock.calls.some(([target]) =>
+    await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(true);
+  expect(
+    f.fetch.mock.calls.filter(([target]) =>
       String(target).endsWith("/v1/account-models/read"),
     ),
-  ).toBe(false);
+  ).toHaveLength(2);
 });
 
 it.each([
@@ -477,36 +456,24 @@ it.each([
     expiresAt: new Date(Date.now() - 60_000).toISOString(),
   },
 ])("rejects an inapplicable dynamic model snapshot %j", async (options) => {
-  const f = dynamicModelFixture(
-    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
-    options,
-  );
+  const f = dynamicModelFixture(options);
   await expect(f.capture()).rejects.toThrow("unavailable");
 });
 
 it("reads the complete qualified account catalog beyond the old 256KiB bound", async () => {
-  const f = dynamicModelFixture(
-    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
-    { large: true },
-  );
+  const f = dynamicModelFixture({ large: true });
   expect(f.catalogBytes).toBeGreaterThan(262_144);
   expect(f.catalogBytes).toBeLessThan(2 * 1024 * 1024);
   expect((await f.capture()).bindingManifest.model).toBe(f.model);
 });
 
 it("keeps the SDK account catalog response bounded at 2MiB", async () => {
-  const f = dynamicModelFixture(
-    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
-    { oversized: true },
-  );
+  const f = dynamicModelFixture({ oversized: true });
   await expect(f.capture()).rejects.toThrow("unavailable");
 });
 
 it("uses only the primary reviewer's existing account/model in a multi-reviewer conversation", async () => {
-  const f = dynamicModelFixture(
-    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
-    { multiple: true },
-  );
+  const f = dynamicModelFixture({ multiple: true });
   const policy = await f.capture();
   expect(policy.bindingManifest).toMatchObject({
     bindingId: "binding_probe",
@@ -525,10 +492,7 @@ it("uses only the primary reviewer's existing account/model in a multi-reviewer 
 });
 
 it("does not silently spend a secondary account when the primary reviewer is unavailable", async () => {
-  const f = dynamicModelFixture(
-    { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" },
-    { multiple: true, primaryUnavailable: true },
-  );
+  const f = dynamicModelFixture({ multiple: true, primaryUnavailable: true });
   await expect(f.capture()).rejects.toThrow();
   expect(f.bindingReads).toHaveBeenCalledTimes(1);
   expect(f.bindingReads.mock.calls[0]![0].bindingId).toBe("binding_probe");

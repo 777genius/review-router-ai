@@ -354,6 +354,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@reviewrouter/features-action-control-plane':
+        specifier: workspace:*
+        version: link:../../packages/features/action-control-plane
       '@reviewrouter/features-audit-log':
         specifier: workspace:*
         version: link:../../packages/features/audit-log

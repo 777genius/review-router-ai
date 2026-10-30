@@ -109,7 +109,7 @@ export async function registerRuntimeGenerationCanaryRoute(
           new Error("runtime_generation_canary_identity_invalid"),
           { statusCode: 503 },
         );
-      await input.prisma.$queryRawUnsafe(
+      await input.prisma.$executeRawUnsafe(
         "SELECT public.reviewrouter_request_runtime_canary_challenge($1,$2,$3,$4,$5,$6,$7::jsonb)",
         body.data.rolloutId,
         body.data.nonce,

@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   access,
   mkdir,
+  mkdtemp,
   open,
   readFile,
   readdir,
@@ -13,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -40,15 +42,24 @@ import {
   warmHistorySourceApis,
   type HistorySourceFixture,
 } from "./history-source.js";
+import {
+  seedFollowthrough,
+  qualifyFollowthrough,
+} from "./followthrough-scenario.js";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const scenario = process.env.STATISTICS_E2E_SCENARIO ?? "full";
 assert(
-  ["full", "authorization-recovery", "history", "history-source"].includes(
-    scenario,
-  ),
+  [
+    "full",
+    "authorization-recovery",
+    "history",
+    "history-source",
+    "followthrough",
+  ].includes(scenario),
   "Unknown statistics qualification scenario",
 );
+const nextOldSpaceLimitMiB = scenario === "followthrough" ? 2048 : 1024;
 const databaseUrl = process.env.STATISTICS_E2E_DATABASE_URL ?? "";
 const database = new URL(databaseUrl);
 assert(
@@ -89,10 +100,9 @@ const outputDir = join(
   `run-${new Date().toISOString().replaceAll(":", "-")}-${runId}`,
 );
 await mkdir(outputDir, { recursive: true, mode: 0o700 });
-const runtimeTmp = join(outputDir, "runtime-tmp");
-await mkdir(runtimeTmp);
 const previousTmpdir = process.env.TMPDIR;
-process.env.TMPDIR = runtimeTmp;
+let runtimeTmp: string | undefined;
+let runtimeTmpRemoved = false;
 const nextEnvPath = join(root, "apps/web/next-env.d.ts");
 const originalNextEnv = await readFile(nextEnvPath, "utf8");
 const role = `statistics_browser_${runId}`;
@@ -145,6 +155,15 @@ const admin = new pg.Client({
 });
 let child: ChildProcess | undefined;
 let browser: Browser | undefined;
+let failurePage: Page | undefined;
+let failureEvidence:
+  | {
+      url: string;
+      bodyText: string | null;
+      screenshot: string | null;
+      errors: string[];
+    }
+  | undefined;
 let adminConnected = false;
 let seeded = false;
 let roleCreated = false;
@@ -153,6 +172,9 @@ let originalCoverage: string | null = null;
 let originalHistoryCoverage: string | null = null;
 let historyCoverageChanged = false;
 let historySource: HistorySourceFixture | undefined;
+let followthroughEvidence:
+  | Awaited<ReturnType<typeof qualifyFollowthrough>>
+  | undefined;
 let failure: unknown;
 let appStopRequested = false;
 let appExit: {
@@ -192,7 +214,7 @@ const sourceFiles = [
   "scripts/statistics-e2e/dev-server.ts",
 ];
 const isHistory = scenario === "history" || scenario === "history-source";
-if (isHistory)
+if (isHistory || scenario === "followthrough")
   sourceFiles.push(
     "apps/web/app/dashboard/review-history-section.tsx",
     "apps/web/src/server/review-history.ts",
@@ -207,6 +229,32 @@ if (isHistory)
     "packages/features/review-history/src/adapters/outbound/prisma-history-reader.ts",
     "packages/platform/db/prisma/migrations/000151_review_history/migration.sql",
     "scripts/statistics-e2e/history-scenario.ts",
+  );
+if (scenario === "followthrough")
+  sourceFiles.push(
+    "scripts/statistics-e2e/followthrough-scenario.ts",
+    "apps/web/app/dashboard/provider-usage-view.tsx",
+    "apps/web/app/dashboard/provider-usage-api.ts",
+    "apps/web/app/dashboard/provider-usage-model.ts",
+    "apps/web/app/api/dashboard/provider-usage/route.ts",
+    "apps/web/src/server/provider-usage-report.ts",
+    "apps/web/src/features/review-statistics/adapters/statistics-api.ts",
+    "apps/web/src/features/review-statistics/interface/statistics-issues.tsx",
+    "apps/web/src/features/review-statistics/interface/statistics-filter-controls.tsx",
+    "apps/web/src/features/review-statistics/interface/statistics.module.css",
+    "apps/web/src/features/review-statistics/application/statistics-url.ts",
+    "apps/web/src/features/review-statistics/application/statistics-model.ts",
+    "apps/web/src/private-query-scope.ts",
+    "apps/web/app/query-provider.tsx",
+    "apps/web/app/layout.tsx",
+    "apps/web/app/primary-nav.tsx",
+    "packages/features/review-history/src/adapters/outbound/history-lookup-failure.ts",
+    "packages/features/review-history/src/adapters/outbound/history-pull-request-lookup.ts",
+    "packages/features/review-history/src/domain/history.ts",
+    "packages/features/review-statistics/src/domain/statistics.ts",
+    "packages/features/provider-usage/src/domain/usage.ts",
+    "packages/features/review-history/src/application/ports/history-reader.ts",
+    ".github/workflows/statistics-followthrough-browser.yml",
   );
 if (scenario === "history-source")
   sourceFiles.push(
@@ -247,9 +295,21 @@ const sourceSha256 = Object.fromEntries(
 const sourceCommit = (
   await promisify(execFile)("git", ["rev-parse", "HEAD"], { cwd: root })
 ).stdout.trim();
+if (process.env.EXPECTED_REVISION)
+  assert.equal(
+    sourceCommit,
+    process.env.EXPECTED_REVISION,
+    "Qualification checkout must match the exact requested revision",
+  );
 const logPath = join(outputDir, "next-app.log");
 
 try {
+  // Chromium's SingletonSocket must fit the Unix socket path limit, including
+  // its own nested directory. Keep runtime files outside the long artifact path.
+  runtimeTmp = await mkdtemp(
+    join(process.platform === "win32" ? tmpdir() : "/tmp", "rr-stat-"),
+  );
+  process.env.TMPDIR = runtimeTmp;
   await admin.connect();
   adminConnected = true;
   serverVersion = (
@@ -273,7 +333,7 @@ try {
       "Only the owned source installation avatar changes",
     );
   } else await seed();
-  if (scenario === "history") {
+  if (scenario === "history" || scenario === "followthrough") {
     originalHistoryCoverage = await seedHistoryFixtures(
       admin,
       prefix,
@@ -282,6 +342,13 @@ try {
     );
     historyCoverageChanged = true;
   }
+  if (scenario === "followthrough")
+    await seedFollowthrough(admin, {
+      prefix,
+      workspaceId: main.id,
+      actorId: actor.id,
+      repositories,
+    });
   console.log("statistics-e2e: real fixtures seeded");
   const appDatabaseUrl = await readOnlyRole();
   const port = await loopbackPort();
@@ -305,7 +372,7 @@ try {
         ...cleanEnvironment(),
         TMPDIR: runtimeTmp,
         NODE_ENV: "development",
-        NODE_OPTIONS: "--max-old-space-size=1024",
+        NODE_OPTIONS: `--max-old-space-size=${nextOldSpaceLimitMiB}`,
         NEXT_TELEMETRY_DISABLED: "1",
         NEXT_PRIVATE_TEST_MODE: "1",
         DATABASE_URL: appDatabaseUrl,
@@ -437,7 +504,15 @@ try {
     const warmedReport = await warmApi(
       `/api/dashboard/review-statistics?workspaceId=${main.id}&days=30&severity=all`,
     );
-    const report = (await warmedReport.json()) as StatisticsReport;
+    const envelope = (await warmedReport.json()) as {
+      scope: { actorId: string; workspaceId: string };
+      report: StatisticsReport;
+    };
+    assert.deepEqual(envelope.scope, {
+      actorId: actor.id,
+      workspaceId: main.id,
+    });
+    const { report } = envelope;
     await writeFile(
       join(outputDir, "warm-report.json"),
       JSON.stringify(report, null, 2) + "\n",
@@ -455,7 +530,8 @@ try {
       `/api/dashboard/review-statistics/issues?${issuesQuery}`,
     );
     assert.equal(
-      ((await warmedIssues.json()) as StatisticsIssuePage).items.length,
+      ((await warmedIssues.json()) as { page: StatisticsIssuePage }).page.items
+        .length,
       25,
     );
     checks.push(
@@ -463,6 +539,31 @@ try {
     );
     console.log(
       "statistics-e2e: both protected APIs compiled before browser launch",
+    );
+  }
+  if (scenario === "followthrough") {
+    const usage = await warmApi(
+      `/api/dashboard/provider-usage?workspace=${main.id}&purpose=review`,
+    );
+    const usageEnvelope = (await usage.json()) as {
+      scope: { effectiveAccess: string };
+      report: { rows: unknown[] };
+    };
+    assert.equal(usageEnvelope.scope.effectiveAccess, "admin");
+    assert.equal(usageEnvelope.report.rows.length, 2);
+    const history = await warmApi(
+      `/api/dashboard/review-history?workspaceId=${main.id}`,
+    );
+    const historyPage = (await history.json()) as { items: { id: string }[] };
+    assert.equal(historyPage.items.length, 25);
+    await warmApi(
+      `/api/dashboard/review-history/repositories?workspaceId=${main.id}`,
+    );
+    await warmApi(
+      `/api/dashboard/review-history/runs?workspaceId=${main.id}&pullRequestId=${historyPage.items[0]!.id}`,
+    );
+    checks.push(
+      "followthrough: real member/admin-scoped Usage and all three History APIs warm with private/no-store responses",
     );
   }
   await fetch(`${appUrl}/api/health`, {
@@ -489,6 +590,7 @@ try {
   browserVersion = browser.version();
   const context = await contextFor({ width: 1440, height: 1000 });
   const page = await context.newPage();
+  failurePage = page;
   page.setDefaultTimeout(30_000);
   observe(page);
   if (scenario === "history-source") {
@@ -521,6 +623,26 @@ try {
       checks,
       snapshot,
       selectTheme,
+      addMember,
+    });
+  } else if (scenario === "followthrough") {
+    followthroughEvidence = await qualifyFollowthrough({
+      page,
+      context,
+      admin,
+      appUrl,
+      main,
+      empty,
+      actorId: actor.id,
+      prefix,
+      repositories,
+      checks,
+      requests,
+      snapshot,
+      selectTheme,
+      choose,
+      populated,
+      openWorkspace,
       addMember,
     });
   } else if (scenario === "authorization-recovery") {
@@ -580,6 +702,43 @@ try {
   );
 } catch (error) {
   failure = error;
+  if (failurePage && !failurePage.isClosed()) {
+    const page = failurePage;
+    const evidence = (failureEvidence = {
+      url: redactFailure(page.url()),
+      bodyText: null as string | null,
+      screenshot: null as string | null,
+      errors: [] as string[],
+    });
+    // Read only the synthetic visible page, never cookies, storage or scripts.
+    // Independent bounded captures must not hide the original failure or cleanup.
+    for (const capture of [
+      async () => {
+        const text = await page.locator("body").innerText({ timeout: 5_000 });
+        await writeFile(
+          join(outputDir, "failure-body.txt"),
+          redactFailure(text).slice(0, 20_000),
+          { mode: 0o600 },
+        );
+        evidence.bodyText = "failure-body.txt";
+      },
+      async () => {
+        await page.screenshot({
+          path: join(outputDir, "failure-page.png"),
+          fullPage: true,
+          timeout: 5_000,
+          animations: "disabled",
+        });
+        evidence.screenshot = "failure-page.png";
+      },
+    ]) {
+      try {
+        await capture();
+      } catch (captureError) {
+        evidence.errors.push(redactFailure(captureError));
+      }
+    }
+  }
 } finally {
   for (const action of [
     async () => {
@@ -611,7 +770,12 @@ try {
     },
     async () => {
       await rm(join(outputDir, "next-build"), { recursive: true, force: true });
-      await rm(runtimeTmp, { recursive: true, force: true });
+    },
+    async () => {
+      if (runtimeTmp) {
+        await rm(runtimeTmp, { recursive: true, force: true });
+        runtimeTmpRemoved = true;
+      }
     },
     async () => {
       if (adminConnected && historyCoverageChanged)
@@ -648,6 +812,10 @@ try {
     },
     async () => {
       if (!adminConnected || !seeded) return;
+      await admin.query(
+        'DELETE FROM "UsageCall" WHERE "workspaceId"=ANY($1::text[])',
+        [[main.id, empty.id]],
+      );
       const identities = repositories.map((row) => row.scm);
       await admin.query(
         'UPDATE "ScmRepositoryIdentity" SET "currentWorkspaceId"=NULL,"currentRepositoryConnectionId"=NULL,"unboundAt"=NOW() WHERE "scmRepositoryIdentityId"=ANY($1::text[])',
@@ -691,6 +859,7 @@ const result = {
   outcome: failure || cleanupErrors.length ? "failed" : "passed",
   checkedAt: new Date().toISOString(),
   nextMode: "development-webpack-cache-disabled-test-server",
+  nextOldSpaceLimitMiB,
   scenario,
   sourceCommit,
   sourceSha256,
@@ -707,7 +876,12 @@ const result = {
       ? "real production ingress, intent dispatcher, Action v2/execution, publication/completion capture and registered History outbox handler on one PostgreSQL database; external GitHub/OIDC/provider adapters are synthetic"
       : "real migrated PostgreSQL; direct compact-fact fixtures; capture/projector qualification is separate",
   sourceHistoryEvidence: historySource?.evidence,
+  followthroughEvidence,
   appRole: "temporary SELECT-only role; writes never granted",
+  runtimeTemporaryDirectory: {
+    path: runtimeTmp ?? null,
+    removed: runtimeTmpRemoved,
+  },
   checks,
   screenshots,
   requests,
@@ -715,6 +889,7 @@ const result = {
   externalRequests,
   cleanup: cleanupErrors.length ? cleanupErrors : "passed",
   failure: failure ? redactFailure(failure) : null,
+  failureEvidence,
 };
 await writeFile(
   join(outputDir, "result.json"),
@@ -888,7 +1063,7 @@ async function interactions(page: Page, context: BrowserContext) {
   });
   assert.equal(response.status(), 200);
   assert.equal(response.headers()["cache-control"], "private, no-store");
-  const report = (await response.json()) as StatisticsReport;
+  const { report } = (await response.json()) as { report: StatisticsReport };
   assert.equal(report.totals.pullRequestsReviewed, 12);
   assert.equal(
     report.daily.reduce((sum, row) => sum + row.pullRequestsReviewed, 0),
@@ -1056,7 +1231,9 @@ async function interactions(page: Page, context: BrowserContext) {
   );
   await openWorkspace(page, empty.slug);
   await page
-    .getByText("No published reviews in this period yet.", { exact: true })
+    .getByText("No recorded published reviews in this period yet.", {
+      exact: true,
+    })
     .waitFor();
   assert.deepEqual(
     await page
@@ -1165,7 +1342,7 @@ async function choose(
     await page.waitForFunction(
       () =>
         !document.querySelector(
-          'section[aria-label="Review statistics"] [aria-busy="true"]',
+          'section[aria-label="Review statistics"] [aria-busy="true"],section[aria-label="Provider usage"] button[aria-busy="true"]',
         ),
     );
   }
@@ -1219,7 +1396,8 @@ function observe(page: Page) {
     const url = new URL(response.url());
     if (
       url.pathname.startsWith("/api/dashboard/review-statistics") ||
-      url.pathname.startsWith("/api/dashboard/review-history")
+      url.pathname.startsWith("/api/dashboard/review-history") ||
+      url.pathname.startsWith("/api/dashboard/provider-usage")
     )
       requests.push({
         path: url.pathname,

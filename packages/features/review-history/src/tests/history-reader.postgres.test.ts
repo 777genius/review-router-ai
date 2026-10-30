@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
-import type { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPrismaHistoryReader } from "../adapters/outbound/prisma-history-reader.js";
 import {
@@ -24,15 +25,20 @@ const filters: HistoryFilters = {
   days: null,
 };
 describe.skipIf(!adminUrl)("History actual reader SQL and isolation", () => {
-  let prisma: PrismaClient, cleanup: () => Promise<void>;
+  let prisma: PrismaClient,
+    connectionString: string,
+    cleanup: () => Promise<void>;
   const queries: { query: string; params: string }[] = [];
   let record = false;
   beforeAll(async () => {
-    ({ prisma, cleanup } = await createHistoryDatabase(adminUrl!, {
-      onQuery: (event) => {
-        if (record) queries.push(event);
+    ({ prisma, connectionString, cleanup } = await createHistoryDatabase(
+      adminUrl!,
+      {
+        onQuery: (event) => {
+          if (record) queries.push(event);
+        },
       },
-    }));
+    ));
     await prisma.reviewHistoryCoverage.create({
       data: {
         id: "capture_v1",
@@ -103,6 +109,149 @@ describe.skipIf(!adminUrl)("History actual reader SQL and isolation", () => {
     });
     return { ...row, root, at };
   }
+  it("resolves only captured readable identities in the authorized workspace with bounded raw inputs", async () => {
+    const scope = await fixture(),
+      other = await fixture(),
+      reader = createPrismaHistoryReader(prisma);
+    const first = await pr(scope.workspaceId, 777, {
+      scm: "stable-original",
+      name: "renamed/repository",
+      status: HistoryStatus.Failed,
+    });
+    await pr(other.workspaceId, 777, { scm: "foreign-scm" });
+    await pr(scope.workspaceId, 777, {
+      scm: "unprojected-scm",
+      projected: false,
+    });
+    const incomplete = await pr(scope.workspaceId, 777, {
+      scm: "incomplete-scm",
+    });
+    await prisma.reviewHistoryPullRequest.update({
+      where: { id: incomplete.id },
+      data: { latestStatus: null },
+    });
+    const identities = [
+      "stable-original",
+      "foreign-scm",
+      "unprojected-scm",
+      "incomplete-scm",
+      "missing-scm",
+    ].map((scmRepositoryIdentityId) => ({
+      scmRepositoryIdentityId,
+      pullRequestNumber: 777,
+    }));
+    await expect(
+      reader.resolvePullRequests({
+        ...scope,
+        pullRequests: [...identities, identities[0]!],
+      }),
+    ).resolves.toEqual({
+      state: "available",
+      items: [
+        {
+          id: first.id,
+          scmRepositoryIdentityId: "stable-original",
+          pullRequestNumber: 777,
+        },
+      ],
+    });
+    await expect(
+      reader.resolvePullRequests({
+        ...scope,
+        actorId: scope.outsider,
+        pullRequests: [],
+      }),
+    ).rejects.toBeInstanceOf(HistoryAccessError);
+    await expect(
+      reader.resolvePullRequests({
+        ...scope,
+        pullRequests: Array.from({ length: 26 }, () => identities[0]!),
+      }),
+    ).rejects.toBeInstanceOf(HistoryValidationError);
+    for (const pullRequestNumber of [0, -1, 1.5, 2_147_483_648])
+      await expect(
+        reader.resolvePullRequests({
+          ...scope,
+          pullRequests: [
+            { scmRepositoryIdentityId: "stable-original", pullRequestNumber },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(HistoryValidationError);
+    const coverage = await prisma.reviewHistoryCoverage.findUniqueOrThrow({
+      where: { id: "capture_v1" },
+    });
+    await prisma.reviewHistoryCoverage.delete({ where: { id: "capture_v1" } });
+    try {
+      await expect(
+        reader.resolvePullRequests({ ...scope, pullRequests: identities }),
+      ).resolves.toEqual({ state: "available", items: [] });
+      await expect(
+        reader.resolvePullRequests({
+          ...scope,
+          actorId: scope.outsider,
+          pullRequests: identities,
+        }),
+      ).rejects.toBeInstanceOf(HistoryAccessError);
+    } finally {
+      await prisma.reviewHistoryCoverage.create({ data: coverage });
+    }
+  });
+  it("degrades a real post-authorization projection timeout only after rolling back the owned transaction", async () => {
+    const scope = await fixture(),
+      target = await pr(scope.workspaceId, 778);
+    const readerQueries: string[] = [];
+    const timed = new PrismaClient({
+      adapter: new PrismaPg({
+        connectionString,
+        options: "-c statement_timeout=500",
+        max: 1,
+      }),
+      log: [{ emit: "event", level: "query" }],
+    });
+    timed.$on("query", (event) => readerQueries.push(event.query));
+    let release!: () => void, ready!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const locked = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`LOCK TABLE "ReviewHistoryPullRequest" IN ACCESS EXCLUSIVE MODE`;
+        ready();
+        await released;
+      },
+      { timeout: 10_000 },
+    );
+    try {
+      await locked;
+      await expect(
+        createPrismaHistoryReader(timed).resolvePullRequests({
+          ...scope,
+          pullRequests: [
+            {
+              scmRepositoryIdentityId: target.scmRepositoryIdentityId,
+              pullRequestNumber: 778,
+            },
+          ],
+        }),
+      ).resolves.toEqual({ state: "unavailable" });
+      expect(readerQueries.some((query) => query.includes('"Workspace"'))).toBe(
+        true,
+      );
+      expect(readerQueries.some((query) => /^ROLLBACK\b/u.test(query))).toBe(
+        true,
+      );
+      await expect(timed.$queryRaw`SELECT 1 AS value`).resolves.toEqual([
+        { value: 1 },
+      ]);
+    } finally {
+      release();
+      await holder;
+      await timed.$disconnect();
+    }
+  }, 15_000);
   it("uses strict shared/personal ownership and current active-workspace authorization on every read before cursor validation", async () => {
     const shared = await fixture(),
       personal = await fixture(true),

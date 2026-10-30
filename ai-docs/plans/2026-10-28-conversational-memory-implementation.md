@@ -2,7 +2,35 @@
 
 Implementation of [the reviewed plan](./2026-10-28-conversational-memory-and-shared-llm.md), authorized by the owner on 2026-10-28. The original three design-review rounds are historical. This delivery completed **three fresh implementation-review rounds**, with independent core, memory and runtime/evaluation reviewers in each round. Implementation and review delegates use `gpt-6.1-sol`, `xhigh`.
 
-**Current state:** the implementation is committed in control-plane PR #734 and paired Action PR #350. The 2026-10-29 closure below supersedes historical remote-pending descriptions. All three original implementation review rounds remain closed. Full CI, browser, memory and native mechanism checks passed on the exact pre-integration candidate. This integration preserves current main runner policy and resolves one equivalent account-test conflict. Actual selected-model quality, deployment privacy/configuration and installed App-first qualification remain separate activation gates; no release or activation is claimed.
+**Current state:** the implementation is committed in control-plane PR #734 and paired Action PR #350. The 2026-10-30 integration below supersedes earlier merge handoffs. All three original implementation review rounds remain closed. Full CI, browser, memory and native mechanism checks passed on published head `5c705c8ab571081571663a1615bb5eff79912c4b`; the combined main integration requires its own normal CI. Actual selected-model quality, deployment privacy/configuration and installed App-first qualification remain separate activation gates; no release or activation is claimed.
+
+## 2026-10-30 current main integration
+
+Integrated main `6ff48750ca17e8a01fe12975530f44e8e769e511` with published
+memory head `5c705c8ab571081571663a1615bb5eff79912c4b`, preserving both histories.
+The exact 159-migration catalog includes memory, Gateway allocations and unified
+model dispatch; all published directory names and SQL bytes are unchanged.
+Historical96 and managed92 retain their exact boundaries. Catalog admission adds
+only the combined manifest `35d11ac132da5057b2ed6ff8a0eb82fcf0bd0c289975e7772deea55b1f14ad98`.
+
+Removed the obsolete account-model flag import from conversation policy after
+main removed its owning export. Dynamic discovery still checks the selected
+account, authorization epoch, qualified source, model membership and freshness.
+Both paired CI workflows now use main's immutable Action
+`925df40c6c5806fe2b6673c5f807fdc6abf2fe40`; its two consumed conversation-client
+files are byte-identical to the previous producer. Browser integration preserves
+the current Linux/PostgreSQL runner, the existing bounded Skills warmup and the
+new runtime-readiness fixture. Lifecycle assertions retain both unchanged-body
+trust and publication-time checks.
+
+Fresh independent source-authority review found no material blocker; a separate
+integration critic found the obsolete flag dependency, reviewed its repair and
+found no further material integration defects. A migration specialist resolved
+and checked the exact catalog endpoints. Focused catalog tests passed 360/360,
+conversation policy tests passed 15/15, and API TypeScript 7.0.2 checking passed.
+These checks do not replace the resulting feature head's required CI or the
+protected-main release checks. Deployment and live-model qualification remain
+pending in the existing deployment task.
 
 ## 2026-10-29 final lifecycle-fixture repair and merge handoff
 

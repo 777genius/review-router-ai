@@ -1,11 +1,14 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@reviewrouter/ui";
 import { useState } from "react";
 import type { StatisticsReport } from "@reviewrouter/features-review-statistics";
 import {
   fetchStatisticsIssues,
   isStatisticsAccessFailure,
+  isStatisticsScopeMismatch,
   statisticsIssuesKey,
   type IssueFilters,
 } from "../adapters/statistics-api";
@@ -25,7 +28,7 @@ export function StatisticsIssues({
   repository,
   onResetRepository,
   onClose,
-  onAccessFailure,
+  request,
 }: {
   actorId: string;
   workspaceId: string;
@@ -34,8 +37,12 @@ export function StatisticsIssues({
   repository: IssueRepository | null;
   onResetRepository: () => void;
   onClose: () => void;
-  onAccessFailure: () => void;
+  request: <T>(
+    read: () => Promise<T>,
+    onRejected?: (error: unknown) => void,
+  ) => Promise<T>;
 }) {
+  const router = useRouter();
   const [cursors, setCursors] = useState<string[]>([]);
   const cursor = cursors[cursors.length - 1];
   const filters: IssueFilters = {
@@ -47,14 +54,13 @@ export function StatisticsIssues({
   };
   const query = useQuery({
     queryKey: statisticsIssuesKey(actorId, workspaceId, seedId, filters),
-    queryFn: async ({ signal }) => {
-      try {
-        return await fetchStatisticsIssues(workspaceId, filters, signal);
-      } catch (error) {
-        if (isStatisticsAccessFailure(error)) onAccessFailure();
-        throw error;
-      }
-    },
+    queryFn: ({ signal }) =>
+      request(
+        () => fetchStatisticsIssues(workspaceId, filters, signal, actorId),
+        (error) => {
+          if (isStatisticsScopeMismatch(error)) router.refresh();
+        },
+      ),
     staleTime: 30_000,
     retry: (failures, error) =>
       !isStatisticsAccessFailure(error) && failures < 1,
@@ -120,6 +126,22 @@ export function StatisticsIssues({
               </Button>
             </p>
           ) : null}
+          {query.data.items.some(
+            (issue) => issue.history.status === "temporarily_unavailable",
+          ) ? (
+            <p className={styles.notice} role="status">
+              Review history is temporarily unavailable. External pull request
+              links are still available.{" "}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={query.isFetching}
+                onClick={() => void query.refetch()}
+              >
+                Retry history links
+              </Button>
+            </p>
+          ) : null}
           {!query.data.items.length ? (
             <p className={styles.empty}>
               No recorded issues match this selection.
@@ -152,6 +174,17 @@ export function StatisticsIssues({
                       ) : (
                         <span>PR #{issue.pullRequestNumber}</span>
                       )}
+                      {issue.history.status === "linked" ? (
+                        <Link
+                          className={styles.issueLink}
+                          href={issue.history.href}
+                          scroll={false}
+                        >
+                          Review history
+                        </Link>
+                      ) : issue.history.status === "not_recorded" ? (
+                        <span>Review history not recorded yet</span>
+                      ) : null}
                     </div>
                   </div>
                   <time
@@ -165,30 +198,30 @@ export function StatisticsIssues({
               ))}
             </ul>
           )}
-          <nav className={styles.pagination} aria-label="Issue pages">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!cursors.length || query.isFetching}
-              onClick={() => setCursors((current) => current.slice(0, -1))}
-            >
-              Previous
-            </Button>
-            <span aria-live="polite">Page {cursors.length + 1}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!query.data.nextCursor || query.isFetching}
-              onClick={() => {
-                const next = query.data?.nextCursor;
-                if (next) setCursors((current) => [...current, next]);
-              }}
-            >
-              Next
-            </Button>
-          </nav>
         </>
       )}
+      <nav className={styles.pagination} aria-label="Issue pages">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!cursors.length || query.isFetching}
+          onClick={() => setCursors((current) => current.slice(0, -1))}
+        >
+          Previous
+        </Button>
+        <span aria-live="polite">Page {cursors.length + 1}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!query.data?.nextCursor || query.isFetching}
+          onClick={() => {
+            const next = query.data?.nextCursor;
+            if (next) setCursors((current) => [...current, next]);
+          }}
+        >
+          Next
+        </Button>
+      </nav>
       <p className={styles.help}>
         First recorded dates are UTC. Findings are reported issues, not verified
         bugs.

@@ -176,14 +176,15 @@ Use actual selected models to evaluate source-only quotation/negation fidelity a
 
 ## Concurrent Gateway integration
 
-The source integration with Gateway multi-reviewers preserves all three exact
+The source integration with Gateway multi-reviewers and unified OCR preserves all four exact
 checkout migrations: `000152_memory_automatic_source`,
-`000152_review_run_gateway_allocations` and `000153_conversation_processing`.
+`000152_review_run_gateway_allocations`, `000153_conversation_processing` and
+`000154_unified_model_dispatch`.
 Migration identities are complete directory names, not their numeric prefixes;
 no SQL bytes or previously applied ledger names are rewritten. The combined
-158-file checkout is independently pinned to SHA-256
-`b0ce46334153bca9e201a44ccf2b1eecc3a960d7a6fe2465530005099fc490f5`.
-Existing reviewed 157/156/155 checkout and managed92/historical96 boundaries
+159-file checkout is independently pinned to SHA-256
+`35d11ac132da5057b2ed6ff8a0eb82fcf0bd0c289975e7772deea55b1f14ad98`.
+Existing reviewed 158/157/156/155 checkout and managed92/historical96 boundaries
 remain admitted only under their original exact manifests.
 
 Conversation inference and publication use the first/primary configured Gateway
@@ -193,7 +194,7 @@ primary account invalidates admission; no silent secondary-account fallback is
 introduced. Verify this with a disposable two-reviewer repository during the
 existing App-first deployment check. Mixed authentication remains outside this
 profile. Both paired CI workflows select the existing integrated Action producer
-`99776cd79a9d783cd3d3ab2ea349dd61096a992e`; candidate verification is not release
+`925df40c6c5806fe2b6673c5f807fdc6abf2fe40`; candidate verification is not release
 registration. The source-authority confirmation and source-only extraction
 refinements above remain mandatory, as do live qualification and truthful
 per-environment deployment status.

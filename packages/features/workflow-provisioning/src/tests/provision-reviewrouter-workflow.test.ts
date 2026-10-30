@@ -248,6 +248,86 @@ function savedConfigurations(
     },
   };
 }
+
+it("automatically provisions the qualified Claude caller from saved config and preserves the exact target pin", async () => {
+  const config = parseReviewConfigurationStrict({
+    ...workspacePolicy,
+    providers: [
+      {
+        kind: "claude",
+        authMode: "claude_code_oauth",
+        model: "sonnet",
+        agenticContext: true,
+        fastMode: false,
+      },
+    ],
+  });
+  const configurations = savedConfigurations();
+  const find = configurations.findLatest;
+  const selected: ReviewConfigurationRepositoryPort = {
+    ...configurations,
+    findLatest: async (target) => {
+      const row = await find(target);
+      return row ? { ...row, ...withSelections(config) } : null;
+    },
+  };
+  const { codexSessionMode, ...input } = gatewayInput;
+  expect(codexSessionMode).toBe("account-gateway");
+  const actionRef = `777genius/review-router@${"c".repeat(40)}`;
+  const setupGateway = new CapturingSetupGateway();
+  const provisioning = new CapturingProvisioningRepository();
+  const dependencies = {
+    setupGateway,
+    provisioning,
+    configurations: selected,
+    trustedGithubRepositoryId: "123456",
+    claudeSubscriptionActionRef: actionRef,
+  };
+  await provisionReviewRouterWorkflow(input, dependencies);
+  expect(setupGateway.input?.setupMode).toBe("claude_subscription");
+  const upserts = setupGateway.input?.workflowFiles.filter(
+    (file) => file.operation !== "delete",
+  );
+  expect(upserts).toHaveLength(1);
+  expect(upserts?.[0]).toMatchObject({
+    path: ".github/workflows/reviewrouter-review.yml",
+    content: expect.stringContaining(`runtime_ref: ${"c".repeat(40)}`),
+  });
+  expect(
+    upserts?.[0] && "content" in upserts[0] ? upserts[0].content : "",
+  ).toContain("subscription_auth_mode: claude-oauth");
+  expect(provisioning.opened).toMatchObject({
+    actionVersion: actionRef,
+    workflowRequirement: "ci_secrets+claude",
+  });
+  for (const bad of [
+    { ...input, providerApiAuthMode: "openrouter-api" as const },
+    { ...input, codexSessionMode: "account-gateway" as const },
+    { ...input, staticRuntimeEnv: { REVIEW_AUTH_MODE: "claude-oauth" } },
+    { ...input, githubRepositoryId: "999999" },
+    { ...input, workflowStyle: "explicit" as const },
+  ]) {
+    const previous = provisioning.attempts;
+    await expect(
+      provisionReviewRouterWorkflow(bad, dependencies),
+    ).rejects.toThrow();
+    expect(provisioning.attempts).toBe(previous);
+  }
+  const previous = provisioning.attempts;
+  await expect(
+    provisionReviewRouterWorkflow(
+      { ...input, subscriptionAuthMode: "claude-oauth" },
+      {
+        setupGateway,
+        provisioning,
+        configurations: selected,
+        trustedGithubRepositoryId: "123456",
+      },
+    ),
+  ).rejects.toThrow("claude_subscription_workflow_not_qualified");
+  expect(provisioning.attempts).toBe(previous);
+  expect(config.providers[0]?.authMode).toBe("claude_code_oauth");
+});
 it.each(["repository", "workspace"])(
   "provisions only the keyless caller from server-loaded saved %s config",
   async (selection) => {

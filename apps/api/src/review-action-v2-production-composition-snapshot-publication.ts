@@ -1,5 +1,9 @@
 import { assertReviewRunCompanionDispatchEvidence } from "./review-lifecycle-verification.js";
 import {
+  prepareReviewResolutionHistory,
+  type EnsureReviewResolutionHistory,
+} from "./review-resolution-history.js";
+import {
   appliedComparisonResolutions,
   bindComparisonResolutionHistory,
 } from "./review-comparison-baseline-resolutions.js";
@@ -67,6 +71,7 @@ import {
 import {
   PrismaReviewPublicationRepository,
   PrismaReviewThreadResolutionHistory,
+  createPrismaResolutionWriterQualification,
   createReviewPublicationV2Application,
 } from "@reviewrouter/features-review-publishing/v2/composition";
 import {
@@ -153,15 +158,26 @@ export function composeReviewActionV2SnapshotPublicationRoutes(input: {
   readonly liveLifecycle: LiveReviewPublicationLifecyclePort;
   readonly contextPolicy: ReviewPublicationContextPolicyPort;
   readonly now: () => Date;
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }): Readonly<{
   snapshot: RegisterReviewSnapshotReadV2RoutesDependencies;
   publication: RegisterReviewPublicationRequestV2RoutesDependencies;
 }> {
   const snapshots = new PrismaReviewSnapshotV2Repository(input.prisma);
-  const publications = new PrismaReviewPublicationRepository(input.prisma);
-  const resolutionHistory = new PrismaReviewThreadResolutionHistory(
+  const resolutionWriters = createPrismaResolutionWriterQualification({
+    prisma: input.prisma,
+    env: input.env ?? process.env,
+    now: input.now,
+  });
+  const publications = new PrismaReviewPublicationRepository(
     input.prisma,
+    resolutionWriters,
   );
+  const preparedHistory = prepareReviewResolutionHistory({
+    history: new PrismaReviewThreadResolutionHistory(input.prisma),
+    writers: resolutionWriters,
+  });
+  const resolutionHistory = preparedHistory.history;
   const publicationApplication = createReviewPublicationV2Application({
     clock: { now: input.now },
     decisions: productionPublicationDecisions({
@@ -212,6 +228,7 @@ export function composeReviewActionV2SnapshotPublicationRoutes(input: {
     contextPolicy: input.contextPolicy,
     liveLifecycle: input.liveLifecycle,
     resolutionHistory,
+    ensureResolutionHistory: preparedHistory.ensure,
     verifyCompanionDispatchEvidence: (facts) =>
       assertReviewRunCompanionDispatchEvidence({
         ...facts,
@@ -242,6 +259,7 @@ export function createReviewActionV2SnapshotPublicationRoutes(input: {
   ) => Promise<void>;
   readonly liveLifecycle?: LiveReviewPublicationLifecyclePort;
   readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
+  readonly ensureResolutionHistory?: EnsureReviewResolutionHistory;
   readonly now: () => Date;
 }): Readonly<{
   snapshot: RegisterReviewSnapshotReadV2RoutesDependencies;
@@ -264,6 +282,9 @@ export function createReviewActionV2SnapshotPublicationRoutes(input: {
             ...(input.resolutionHistory
               ? { resolutionHistory: input.resolutionHistory }
               : {}),
+            ...(input.ensureResolutionHistory
+              ? { ensureResolutionHistory: input.ensureResolutionHistory }
+              : {}),
             now: input.now,
           }),
       },
@@ -282,6 +303,9 @@ export function createReviewActionV2SnapshotPublicationRoutes(input: {
             capabilities: input.capabilities,
             digest: input.digest,
             contextPolicy: input.contextPolicy,
+            ...(input.ensureResolutionHistory
+              ? { ensureResolutionHistory: input.ensureResolutionHistory }
+              : {}),
             ...(input.verifyCompanionDispatchEvidence
               ? {
                   verifyCompanionDispatchEvidence:
@@ -311,6 +335,7 @@ type SnapshotRestoreDependencies = {
   readonly publications: ReviewPublicationAttemptQueryPort;
   readonly liveLifecycle?: LiveReviewPublicationLifecyclePort;
   readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
+  readonly ensureResolutionHistory?: EnsureReviewResolutionHistory;
   readonly now: () => Date;
 };
 
@@ -429,6 +454,11 @@ async function restoreSnapshot(
       if (!dependencies.liveLifecycle || !dependencies.resolutionHistory)
         throw new Error("resolution_history_ports_unavailable");
       const scope = authorizationScope(authorization);
+      if (
+        dependencies.ensureResolutionHistory &&
+        (await dependencies.ensureResolutionHistory(scope)).status !== "guarded"
+      )
+        throw new Error("resolution_history_activation_unavailable");
       const live = await dependencies.liveLifecycle.resolve(scope);
       if (
         live.status !== LiveReviewPublicationLifecycleStatus.Available ||
@@ -551,6 +581,7 @@ async function requestPublication(
     readonly capabilities: ReviewActionV2ExecutionEvidenceCapabilityAdapter;
     readonly digest: ReviewActionV2DigestPort;
     readonly contextPolicy: ReviewPublicationContextPolicyPort;
+    readonly ensureResolutionHistory?: EnsureReviewResolutionHistory;
     readonly verifyCompanionDispatchEvidence?: (
       facts: Omit<
         Parameters<typeof assertReviewRunCompanionDispatchEvidence>[0],
@@ -608,6 +639,13 @@ async function requestPublication(
       "publication_release_or_limits_invalid",
     );
   }
+  if (
+    parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
+      ?.lifecycleVerificationCapability
+  )
+    await dependencies.ensureResolutionHistory?.(
+      authorizationScope(authorization),
+    );
   const envelope = publishedEnvelope({
     artifact,
     projectionCanonicalJson: artifact.projectionEnvelopeJson,

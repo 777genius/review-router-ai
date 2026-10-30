@@ -147,7 +147,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: 777genius/review-router
-          ref: 99776cd79a9d783cd3d3ab2ea349dd61096a992e
+          ref: 925df40c6c5806fe2b6673c5f807fdc6abf2fe40
           path: public-action
           persist-credentials: false
       - name: Setup Node

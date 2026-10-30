@@ -96,15 +96,25 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps combined checkout158 and independent checkout157/156/155 admission and reviewed checkout154/151/148 separate from historical96 and managed92", () => {
+  it("keeps merged checkout159 and published checkout158/157/156/155 admission and reviewed checkout154/151/148 separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
-    const checkout158 = names.map((migrationName) => ({
+    const checkout159 = names.map((migrationName) => ({
       migrationName,
       checksum: sha256(
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
+    expect(checkout159).toHaveLength(159);
+    const unifiedExtension: Row = {
+      migrationName: "000154_unified_model_dispatch",
+      checksum:
+        "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884",
+    };
+    expect(checkout159.at(-1)).toEqual(unifiedExtension);
+    const checkout158 = checkout159.filter(
+      (row) => row.migrationName !== unifiedExtension.migrationName,
+    );
     expect(checkout158).toHaveLength(158);
     const gatewayAllocationsExtension: Row = {
       migrationName: "000152_review_run_gateway_allocations",
@@ -216,6 +226,51 @@ describe("canonical release migration transition", () => {
         rows.map((row) => `${row.migrationName}:${row.checksum}`).join(","),
       );
     const managed: readonly Row[] = readRenderSchemaHandoffCatalog();
+    const mainCheckout157 = checkout159.filter(
+      (row) =>
+        !renderConversationalMemoryCheckoutExtension.some(
+          (extension) => extension.migrationName === row.migrationName,
+        ),
+    );
+    const unifiedCheckout156 = mainCheckout157.filter(
+      (row) => row.migrationName !== gatewayAllocationsExtension.migrationName,
+    );
+    const historical152 = [...checkout151, unifiedExtension];
+    for (const [rows, count, expected] of [
+      [
+        checkout159,
+        159,
+        "sha256:35d11ac132da5057b2ed6ff8a0eb82fcf0bd0c289975e7772deea55b1f14ad98",
+      ],
+      [
+        mainCheckout157,
+        157,
+        "sha256:b632de30125258ef10541fa8c71301a6b5d1c9504bcca155c171374808ed01ba",
+      ],
+      [
+        unifiedCheckout156,
+        156,
+        "sha256:67de1583cf2ae194e7b6dd5cef021d08b60eb64988d516cb2adcbc2d01bbbda3",
+      ],
+      [
+        historical152,
+        152,
+        "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc",
+      ],
+    ] as const) {
+      expect(rows).toHaveLength(count);
+      expect(manifest(rows)).toBe(expected);
+      expect(partitionRenderSchemaHandoffCheckout(rows)).toEqual(managed);
+      expect(() =>
+        partitionRenderSchemaHandoffCheckout(
+          rows.map((row) =>
+            row.migrationName === unifiedExtension.migrationName
+              ? { ...row, checksum: "0".repeat(64) }
+              : row,
+          ),
+        ),
+      ).toThrow("checkout_extension");
+    }
     expect(manifest(checkout158)).toBe(
       "sha256:b0ce46334153bca9e201a44ccf2b1eecc3a960d7a6fe2465530005099fc490f5",
     );
@@ -224,7 +279,12 @@ describe("canonical release migration transition", () => {
       "sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38",
     );
     expect(partitionRenderSchemaHandoffCheckout(checkout156)).toEqual(managed);
-    for (const catalog of [checkout158, checkout156]) {
+    for (const catalog of [
+      checkout159,
+      checkout158,
+      mainCheckout157,
+      checkout156,
+    ]) {
       expect(() =>
         partitionRenderSchemaHandoffCheckout(
           catalog.map((row) =>
@@ -348,7 +408,7 @@ describe("canonical release migration transition", () => {
     expect(manifest(historicalFull)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
-    expect(checkout158).toEqual(readRenderManagedCheckoutInventory());
+    expect(checkout159).toEqual(readRenderManagedCheckoutInventory());
     expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",

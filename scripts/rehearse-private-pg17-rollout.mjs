@@ -360,6 +360,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000147_review_skills_mutation_identity",
     "000148_lifecycle_verification",
     "000149_api_key_repository_secret_profiles",
+    "000154_unified_model_dispatch",
     "000150_skills_catalog_security",
     "000151_review_history",
     "000152_memory_automatic_source",

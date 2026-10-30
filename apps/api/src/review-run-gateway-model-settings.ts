@@ -1,4 +1,5 @@
 import { effectiveGatewayReasoningEffort } from "@reviewrouter/features-review-providers";
+import { codexOAuthGatewayProfileRef } from "@reviewrouter/shared";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -18,7 +19,7 @@ import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-co
 
 export const gatewayModelSettingsRuntimeEnvKey =
   "REVIEW_ROUTER_GATEWAY_MODEL_SETTINGS_JSON";
-export const codexOAuthModelSettingsProfile = "openai-codex-oauth-responses-v1";
+export const codexOAuthModelSettingsProfile = codexOAuthGatewayProfileRef;
 const efforts = [
   "minimal",
   "low",
@@ -85,7 +86,6 @@ export function serializeSelectedGatewayModelSettings(
 
 /** Read-only private adapter. Enrollment anchors and saved policy stay immutable. */
 export function createReviewRunGatewayModelSettingsReader(input: {
-  readonly accountModelCatalogEnabled?: boolean;
   readonly accounts: Pick<PrismaProviderAccountRepository, "findBinding">;
   readonly control: Pick<ConsumerControlClient, "get" | "readAccountModels">;
   readonly profiles: readonly c.Profile[];
@@ -217,14 +217,6 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       };
     }
     const before = await selected();
-    if (input.accountModelCatalogEnabled !== true) {
-      if (!profile.modelIds.includes(provider.model))
-        throw new Error("gateway_model_settings_unavailable");
-      return {
-        authorizationEpoch: before.authorizationEpoch,
-        settings: undefined,
-      };
-    }
     const models = c.accountModels.parse(
       await control.readAccountModels(
         {

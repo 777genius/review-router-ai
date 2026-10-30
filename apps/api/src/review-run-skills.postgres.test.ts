@@ -16,6 +16,10 @@ import {
 import { registerReviewRunSkillsRoute } from "./review-run-skills";
 import { ProductionReviewSkillsSnapshot } from "./review-run-skills-snapshot";
 import {
+  canonicalReviewSkillsJson,
+  parseCapturedReviewSkills,
+} from "@reviewrouter/shared/review-skills-contract";
+import {
   PrismaReviewConfigurationRepository,
   parseReviewConfigurationStrict,
 } from "@reviewrouter/features-review-config";
@@ -345,12 +349,49 @@ describe.skipIf(!databaseUrl)(
         baseSha: row.baseSha,
       });
       const production = new ProductionReviewSkillsSnapshot(harness.prisma);
+      const identity = {
+        ...row,
+        trustDomain: ReviewTrustDomain.TrustedManaged,
+      };
+      expect(await production.capture({ identity, agent: legacy })).toEqual({
+        captureDenied: "skills_engine_unsupported",
+      });
       expect(
         await production.capture({
-          identity: { ...row, trustDomain: ReviewTrustDomain.TrustedManaged },
-          agent: legacy,
+          identity,
+          agent: null,
+          agents: [legacy, supporting],
         }),
       ).toEqual({ captureDenied: "skills_engine_unsupported" });
+
+      await service.setRepositorySources({
+        actor,
+        workspaceId: harness.workspaceId,
+        repositoryId: harness.repositoryConnectionId,
+        expectedVersion: 1,
+        roots: [],
+      });
+      const empty = await production.capture({
+        identity,
+        agent: null,
+        agents: [legacy, supporting],
+      });
+      if (!("canonicalJson" in empty) || empty.canonicalJson === null)
+        throw new Error("mixed_empty_skills_capture_required");
+      const capture = parseCapturedReviewSkills(
+        JSON.parse(empty.canonicalJson),
+      );
+      expect(capture).toMatchObject({
+        baseSha: row.baseSha,
+        webSkills: [],
+        gitSources: [],
+      });
+      expect(canonicalReviewSkillsJson(capture)).toBe(empty.canonicalJson);
+      expect(
+        await production.capture({ identity, agent: null, agents: [legacy] }),
+      ).toEqual({
+        canonicalJson: null,
+      });
     });
     it.skipIf(!actionSourceDir)(
       "delivers a signed captured snapshot over HTTP into the paired runtime's scope and cache identity",

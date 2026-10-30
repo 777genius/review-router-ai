@@ -21,7 +21,6 @@ import {
 } from "@reviewrouter/features-provider-accounts";
 import {
   accountModelCatalogResponseBytes,
-  readAccountModelCatalogEnabled,
   readPersonalAccountSharingEnabled,
 } from "@reviewrouter/features-provider-accounts/composition";
 import {
@@ -392,8 +391,7 @@ export function createConversationPolicy(input: {
                 }),
               )
               .find((source) => source !== undefined);
-            if (!readAccountModelCatalogEnabled(env) || !discoverySource)
-              return false;
+            if (!discoverySource) return false;
             const models = await control.readAccountModels(
               {
                 ownerRef,

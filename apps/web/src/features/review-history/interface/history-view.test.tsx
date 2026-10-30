@@ -87,7 +87,7 @@ function page(title = "Safely handle account access"): HistoryPullRequestPage {
     ],
   };
 }
-function setup() {
+function setup(overrides: Partial<HistoryViewProps> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, retryDelay: 0 } },
   });
@@ -98,6 +98,7 @@ function setup() {
     initialFilters: defaultHistoryFilters,
     initialPage: page(),
     initialRepositories: { items: [], selected: null, nextCursor: null },
+    ...overrides,
   };
   const renderView = (next: HistoryViewProps) => (
     <QueryClientProvider client={client}>
@@ -293,4 +294,29 @@ describe("Reviews access and cancellation", () => {
       ),
     );
   });
+});
+
+describe("History pagination recovery", () => {
+  it.each([400, 500])(
+    "keeps Previous after page2 fails%s and returns using the original frozen window",
+    async (status) => {
+      vi.mocked(fetchHistoryList).mockRejectedValue(
+        new HistoryRequestError(status),
+      );
+      setup({ initialPage: { ...page(), nextCursor: "page-two" } });
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByRole("alert");
+      expect(fetchHistoryList).toHaveBeenLastCalledWith(
+        "workspace-a",
+        defaultHistoryFilters,
+        "page-two",
+        expect.any(AbortSignal),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+      expect(
+        await screen.findByText("Safely handle account access"),
+      ).toBeTruthy();
+      expect(screen.getByText("Page 1")).toBeTruthy();
+    },
+  );
 });

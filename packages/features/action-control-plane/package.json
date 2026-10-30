@@ -14,6 +14,11 @@
       "production": "./dist/v2/interface/index.js",
       "default": "./src/v2/interface/index.ts"
     },
+    "./oidc": {
+      "types": "./src/oidc.ts",
+      "production": "./dist/oidc.js",
+      "default": "./src/oidc.ts"
+    },
     "./v2/contract-source": {
       "types": "./src/v2/contract-source/index.ts",
       "production": "./dist/v2/contract-source/index.js",

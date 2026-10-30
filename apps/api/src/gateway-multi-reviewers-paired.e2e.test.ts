@@ -28,7 +28,10 @@ import {
 import { parseReviewRunRuntimeSnapshot } from "@reviewrouter/features-review-run-control";
 import {
   reviewerPlanDescriptorDigest,
+  reviewModelDispatchContract,
+  reviewModelDispatchDescriptorDigest,
   type ReviewAgentProfile,
+  type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
 import {
   systemPolicyWriteFixture,
@@ -36,6 +39,7 @@ import {
 } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { registerReviewRunGatewayCheckoutRoute } from "./review-run-gateway-checkout";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay";
+import { registerReviewRunSkillsRoute } from "./review-run-skills";
 import { reviewActionV2ProviderVoteLanesEnv } from "./review-action-v2-production-composition";
 import {
   createReviewActionV2E2EHarness,
@@ -80,6 +84,11 @@ const profileId = "openrouter-openai-responses-apikey-v1";
     let workerRunning = false;
     let workerError: unknown;
     try {
+      // Synthetic executables remain CommonJS even inside an ESM checkout.
+      await writeFile(
+        path.join(root, "package.json"),
+        JSON.stringify({ private: true, type: "commonjs" }),
+      );
       await resetReviewActionV2E2EDatabase(databaseUrl!);
       const repository = await makeRepository(root);
       const artifact = path.join(actionSourceDir!, "dist/index.js");
@@ -97,7 +106,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         (profile) => profile.profileRef === "codex-default",
       )!;
       const approvedOcr = profiles.find(
-        (profile) => profile.profileRef === "ocr-managed-v2",
+        (profile) => profile.profileRef === "ocr-managed-v5",
       )!;
       const bin = path.join(root, "bin");
       await mkdir(bin);
@@ -129,6 +138,21 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         outputBytes: 1048576,
         tokens: 16384,
       };
+      const modelDispatchProfile: ReviewModelDispatchProfileV2 = {
+        extensionId: reviewModelDispatchContract.extensionId,
+        descriptorDigest: reviewModelDispatchDescriptorDigest,
+        policyVersion: reviewModelDispatchContract.policyVersion,
+        transports: ["account_gateway"],
+        wireProtocols: ["openai-responses"],
+        defaultAgentProfileRefs: { account_gateway: approvedOcr.profileRef },
+        limits: {
+          maxRequests: limits.requests,
+          maxConcurrentRequests: 1,
+          maxRequestBytes: limits.requestBytes,
+          maxResponseBytes: limits.outputBytes,
+          maxOutputTokens: limits.tokens,
+        },
+      };
       fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
         modelTransport: "account_gateway",
         repositoryProviderSelection: "none",
@@ -140,6 +164,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           planVersion: 1,
           descriptorDigest: reviewerPlanDescriptorDigest,
         },
+        ...(mixed ? { modelDispatchProfile } : {}),
         gatewayFixtureOrigin: native.origin,
         environmentOverrides: {
           [reviewActionV2ProviderVoteLanesEnv]: JSON.stringify([
@@ -229,8 +254,8 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           agenticContext: mixed && index === 1,
           fastMode: false,
           requiredHealthy: true,
-          ...(mixed && index === 1
-            ? { agentProfileRef: approvedOcr.profileRef }
+          ...(mixed && index === 0
+            ? { agentProfileRef: approved.profileRef }
             : {}),
           gatewayBindingId: bindings[sharedAllocation ? 0 : index]!.id,
           gatewayProfileRef: profileId,
@@ -382,6 +407,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           },
         },
       });
+      await registerReviewRunSkillsRoute(app, fixture.routes.reviewSkills!);
       await registerReviewExecutionV2Routes(app, fixture.routes.execution);
       await registerReviewEvidenceV2Routes(app, fixture.routes.evidence);
       await registerReviewSnapshotReadV2Routes(app, fixture.routes.snapshot);
@@ -505,6 +531,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             GITHUB_WORKSPACE: repository.directory,
             GITHUB_OUTPUT: path.join(root, "output"),
             RUNNER_TEMP: runnerTemp,
+            TMPDIR: runnerTemp,
             REVIEWROUTER_ACTION_V2_MODE: "t0",
             REVIEWROUTER_ACTION_VERSION: "a".repeat(40),
             REVIEW_ROUTER_MODE: "account-gateway",
@@ -575,6 +602,26 @@ const profileId = "openrouter-openai-responses-apikey-v1";
       expect(snapshot?.snapshotVersion).toBe(4);
       if (snapshot?.snapshotVersion !== 4)
         throw new Error("captured_reviewer_snapshot_required");
+      expect(snapshot).not.toHaveProperty("modelDispatchCapability");
+      if (mixed)
+        expect(snapshot.reviewers).toMatchObject([
+          {
+            providerIndex: 0,
+            agenticContext: false,
+            agentProfile: {
+              agentKind: "codex",
+              profileRef: approved.profileRef,
+            },
+          },
+          {
+            providerIndex: 1,
+            agenticContext: true,
+            agentProfile: {
+              agentKind: "ocr",
+              profileRef: approvedOcr.profileRef,
+            },
+          },
+        ]);
       const executions = await prisma.reviewExecutionV2.findMany({
         where: { workspaceId },
       });
@@ -612,6 +659,13 @@ const profileId = "openrouter-openai-responses-apikey-v1";
             ? []
             : [{ model, effort: index === 0 ? "high" : "medium" }],
         ),
+      );
+      expect(native.modelReads.map((read) => read.accountRef).sort()).toEqual(
+        failed
+          ? ["multi-account-1"]
+          : sharedAllocation
+            ? ["multi-account-0", "multi-account-0"]
+            : ["multi-account-0", "multi-account-1"],
       );
       expect(native.preparations).toHaveLength(
         scenario === "independent" ? 2 : 1,
@@ -766,6 +820,7 @@ async function nativeGateway() {
     closes: string[] = [],
     calls: string[] = [];
   const requestSettings: { model: string; effort: string | undefined }[] = [];
+  const modelReads: gateway.AccountModelsRequest[] = [];
   let active = 0,
     maxActive = 0;
   const server = createServer(async (request, response) => {
@@ -792,6 +847,46 @@ async function nativeGateway() {
       if (account) {
         if (!control) return deny(401, "unauthenticated");
         json(200, accounts.get(decodeURIComponent(account[1]!)));
+        return;
+      }
+      if (
+        request.method === "POST" &&
+        request.url === "/v1/account-models/read"
+      ) {
+        if (!control) return deny(401, "unauthenticated");
+        const parsed = gateway.accountModelsRequest.safeParse(body);
+        if (!parsed.success) return deny(400, "invalid_request");
+        const selection = parsed.data;
+        const selected = accounts.get(selection.accountRef);
+        if (
+          !selected ||
+          selected.state !== "active" ||
+          selected.accountRef !== selection.accountRef ||
+          selected.ownerRef !== selection.ownerRef ||
+          selected.profileId !== profileId ||
+          selection.profileId !== profileId ||
+          selected.authorizationEpoch !== selection.expectedAuthorizationEpoch
+        )
+          return deny(403, "forbidden");
+        modelReads.push(selection);
+        const fetchedAt = Date.now();
+        json(
+          200,
+          gateway.accountModels.parse({
+            status: "snapshot",
+            source: "openrouter",
+            physicalGeneration: `multi-generation-${selected.accountRef}`,
+            principalVersion: `multi-principal-${selected.accountRef}`,
+            fetchedAt: new Date(fetchedAt).toISOString(),
+            expiresAt: new Date(fetchedAt + 300000).toISOString(),
+            models: models.map((modelId) => ({
+              modelId,
+              reasoning: { allowed: ["medium", "high"], default: "medium" },
+              fast: null,
+              tools: { allowed: ["function"], default: "function" },
+            })),
+          }),
+        );
         return;
       }
       const operation = /^\/v1\/operations\/([^/]+)$/.exec(request.url ?? "");
@@ -968,6 +1063,7 @@ async function nativeGateway() {
     preparations,
     requestModels,
     requestSettings,
+    modelReads,
     closes,
     calls,
     get maxActive() {

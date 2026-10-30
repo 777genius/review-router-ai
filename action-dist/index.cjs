@@ -114062,6 +114062,7 @@ __export(github_action_exports, {
   assertSupportedRunnerEnvironment: () => assertSupportedRunnerEnvironment,
   buildCodexCommand: () => buildCodexCommand,
   buildFullReviewRuntimeEnv: () => buildFullReviewRuntimeEnv,
+  buildPreparedHostedReviewRuntimeEnv: () => buildPreparedHostedReviewRuntimeEnv,
   deleteFullRuntimeProgressComments: () => deleteFullRuntimeProgressComments,
   deleteFullRuntimeProgressCommentsWithTokenRefresh: () => deleteFullRuntimeProgressCommentsWithTokenRefresh,
   deleteStaleCodexRotatingSummaryComments: () => deleteStaleCodexRotatingSummaryComments,
@@ -133344,6 +133345,40 @@ function isSafeGitHubBranchNameSegment(segment) {
   return true;
 }
 
+// packages/shared/src/review-model-dispatch-contract.ts
+var reviewModelWireProtocols = [
+  "openai-responses",
+  "codex-responses",
+  "anthropic-messages"
+];
+var anthropicModelAliases = ["sonnet", "opus", "haiku"];
+var reviewModelDispatchContract = Object.freeze({
+  extensionId: "review-model-dispatch.v2",
+  version: 2,
+  policyVersion: "model-dispatch-policy.v2",
+  capabilityRuntimeEnvKey: "REVIEW_ROUTER_MODEL_DISPATCH_CAPABILITY_JSON",
+  basePath: "/api/action/v2/model-dispatch",
+  claimPath: "/api/action/v2/model-dispatch/claim",
+  receiptHeader: "x-reviewrouter-dispatch-receipt",
+  wireProtocols: Object.freeze(reviewModelWireProtocols),
+  anthropicModelAliases: Object.freeze(anthropicModelAliases),
+  outputTokenLimits: Object.freeze([
+    "upstream_request",
+    "terminal_acceptance"
+  ]),
+  maxRequests: 32,
+  maxConcurrentRequests: 1,
+  maxRequestBytes: 16 * 1024 * 1024,
+  maxResponseBytes: 8 * 1024 * 1024,
+  maxOutputTokens: 32768,
+  maxReceiptBytes: 8 * 1024
+});
+var reviewModelDispatchHeaders = Object.freeze({
+  dispatchVersion: "x-reviewrouter-model-dispatch-version",
+  requestOrdinal: "x-reviewrouter-model-request-ordinal",
+  routeIdentityHash: "x-reviewrouter-model-route-identity-hash"
+});
+
 // packages/shared/src/review-action-companion-contracts.ts
 var providerApiDescriptors = Object.freeze({
   "openrouter-api": Object.freeze({
@@ -133470,6 +133505,17 @@ var contextToolsContract = Object.freeze({
     responseBytes: 1048576,
     maxCalls: 128
   }
+});
+
+// packages/shared/src/review-lifecycle-verification-v2.ts
+var lifecycleVerificationContractV2 = Object.freeze({
+  ...lifecycleVerificationContract,
+  extensionId: "lifecycle-verification.v2",
+  version: 2,
+  modelTransport: "prepared_route",
+  protocols: Object.freeze(reviewModelWireProtocols),
+  requestCanonicalizerVersion: "lifecycle-verification-request.v2",
+  dispatchReadbackPath: reviewModelDispatchContract.basePath
 });
 
 // packages/shared/src/review-reviewer-plan.ts
@@ -136909,6 +136955,82 @@ B.prototype.to_Uint8Array = function() {
 }, t.add = o, t.base64_variants = m, t.compare = l, t.from_base64 = x, t.from_hex = b, t.from_string = v, t.increment = p, t.is_zero = h, t.memcmp = i, t.memzero = y, t.output_formats = T, t.pad = u, t.unpad = d, t.ready = s, t.symbols = c, t.to_base64 = E, t.to_hex = f, t.to_string = g;
 var libsodium_wrappers_default = t;
 
+// packages/features/codex-oauth-rotating/src/domain/provider-secret-namespace.ts
+var versionedProviderSecretNamePattern = /^REVIEWROUTER_CODEX_AUTH_JSON_R([1-9][0-9]*)_P([a-f0-9]{16})_E([1-9][0-9]*)_([a-f0-9]{32})$/;
+
+// packages/features/codex-oauth-rotating/src/domain/runtime-migration.ts
+var opaqueId = external_exports.string().regex(/^[A-Za-z0-9_.:-]{8,180}$/u);
+var positiveInteger = external_exports.string().regex(/^[1-9][0-9]*$/u);
+var sha = external_exports.string().regex(/^[a-f0-9]{40}$/u);
+var sha256 = external_exports.string().regex(/^[a-f0-9]{64}$/u);
+var saltedDigest = external_exports.string().regex(/^[A-Za-z0-9_-]{32,128}$/u);
+var salt = external_exports.string().regex(/^[A-Za-z0-9_-]{22,128}$/u);
+var actionRef = external_exports.string().regex(/^777genius\/review-router@[a-f0-9]{40}$/u);
+var codexRuntimeMigrationIdSchema = external_exports.string().regex(/^codex_migration_[a-f0-9-]{36}$/u);
+var codexRuntimeMigrationSourceProofSchema = external_exports.object({
+  namespaceId: opaqueId,
+  namespaceEpoch: positiveInteger,
+  canonicalizationVersion: external_exports.literal(1),
+  generationHash: saltedDigest,
+  accountIdentityHash: saltedDigest
+}).strict();
+var codexRuntimeMigrationBindingSchema = external_exports.object({
+  version: external_exports.literal(1),
+  migrationId: codexRuntimeMigrationIdSchema,
+  source: codexRuntimeMigrationSourceProofSchema.extend({
+    secretName: external_exports.string().regex(versionedProviderSecretNamePattern),
+    mutationEpoch: external_exports.string().regex(/^[0-9]+$/u),
+    generation: external_exports.number().int().positive(),
+    generationHashSalt: salt,
+    accountFingerprintSalt: salt,
+    actionRef,
+    workflowPath: external_exports.literal(".github/workflows/reviewrouter-codex.yml"),
+    workflowSourceCommitSha: sha,
+    workflowSourceBlobSha: sha,
+    workflowSourceSha256: sha256,
+    workflowSemanticSha256: sha256,
+    workflowSchemaVersion: external_exports.union([external_exports.literal(4), external_exports.literal(5)])
+  }),
+  targetActionRef: actionRef,
+  defaultBranch: external_exports.string().min(1).max(255),
+  bootstrap: external_exports.object({
+    workflowId: positiveInteger,
+    sourceCommitSha: sha,
+    sourceBlobSha: sha,
+    sourceSha256: sha256
+  }).strict(),
+  ingress: external_exports.array(
+    external_exports.object({
+      workflowId: positiveInteger,
+      workflowPath: external_exports.enum([
+        ".github/workflows/reviewrouter-codex.yml",
+        ".github/workflows/reviewrouter-interaction.yml"
+      ]),
+      sourceBlobSha: sha,
+      sourceSha256: sha256
+    }).strict()
+  ).min(1).max(2)
+}).strict().superRefine((binding, context5) => {
+  const ids = new Set(binding.ingress.map((entry) => entry.workflowId));
+  const paths = new Set(binding.ingress.map((entry) => entry.workflowPath));
+  if (ids.size !== binding.ingress.length || paths.size !== binding.ingress.length || ids.has(binding.bootstrap.workflowId) || !paths.has(binding.source.workflowPath) || binding.source.actionRef === binding.targetActionRef || /[\s~^:?*[\\]|\.\.|@\{|\/\/|^\/|\/$/u.test(binding.defaultBranch)) {
+    context5.addIssue({
+      code: "custom",
+      message: "runtime migration requires distinct exact source and target"
+    });
+  }
+  const source = binding.ingress.find(
+    (entry) => entry.workflowPath === binding.source.workflowPath
+  );
+  if (source?.sourceBlobSha !== binding.source.workflowSourceBlobSha || source.sourceSha256 !== binding.source.workflowSourceSha256) {
+    context5.addIssue({
+      code: "custom",
+      path: ["ingress"],
+      message: "runtime migration ingress must match the active source"
+    });
+  }
+});
+
 // packages/features/codex-oauth-rotating/src/domain/provider-mutation-fence.ts
 var githubRepositoryIdSchema = external_exports.string().regex(/^[1-9][0-9]*$/);
 var codexRotatingProviderIdSchema = external_exports.string().regex(/^codex-rotating:[1-9][0-9]*$/);
@@ -137055,11 +137177,11 @@ function compactCodexAuthJson2(input) {
   return { compactAuthJsonBytes, byteLength };
 }
 function computeCodexAuthGenerationHash(input) {
-  const salt = decodeBase64OrBase64Url(input.generationHashSalt);
-  if (salt.length < 16) {
+  const salt2 = decodeBase64OrBase64Url(input.generationHashSalt);
+  if (salt2.length < 16) {
     throw new Error("generation_hash_salt_too_short");
   }
-  return (0, import_node_crypto5.createHmac)("sha256", salt).update(input.authJsonBytes, "utf8").digest("base64url");
+  return (0, import_node_crypto5.createHmac)("sha256", salt2).update(input.authJsonBytes, "utf8").digest("base64url");
 }
 var codexRotatingSetupManifestSchema = external_exports.object({
   protocolVersion: external_exports.literal(codexRotatingProtocolVersion),
@@ -137077,7 +137199,8 @@ var codexRotatingSetupManifestSchema = external_exports.object({
     sha256: external_exports.string().regex(sha256HexPattern)
   }).strict(),
   generationHashSalt: external_exports.string().regex(base64UrlPattern),
-  accountFingerprintSalt: external_exports.string().regex(base64UrlPattern)
+  accountFingerprintSalt: external_exports.string().regex(base64UrlPattern),
+  runtimeMigration: codexRuntimeMigrationBindingSchema.optional()
 }).strict().superRefine((manifest, context5) => {
   if (!codexRotatingProviderIdSchema.safeParse(manifest.providerInstanceId).success || manifest.providerInstanceId !== canonicalCodexRotatingProviderId(manifest.repositoryId)) {
     context5.addIssue({
@@ -137160,11 +137283,11 @@ function computeCodexRotatingAccountIdentityHash(input) {
     throw new Error("codex_account_identity_id_token_required");
   }
   const identity = deriveCodexStableAccountIdentityFromIdToken(idToken);
-  const salt = Buffer.from(input.accountFingerprintSalt, "base64url");
-  if (salt.length < 16) {
+  const salt2 = Buffer.from(input.accountFingerprintSalt, "base64url");
+  if (salt2.length < 16) {
     throw new Error("codex_account_identity_salt_invalid");
   }
-  return (0, import_node_crypto5.createHmac)("sha256", salt).update(
+  return (0, import_node_crypto5.createHmac)("sha256", salt2).update(
     JSON.stringify({
       issuer: identity.issuer,
       subject: identity.subject,
@@ -138229,6 +138352,9 @@ function clearOidcRequestEnv(env) {
 // packages/features/codex-oauth-rotating/src/action/github-action.ts
 var defaultOidcAudience2 = "reviewrouter";
 var forkAgenticSandboxActionMode = "fork-agentic-sandbox";
+var preparedSubscriptionActionMode = "prepared-subscription";
+var preparedSubscriptionTransportEnvKey = "REVIEWROUTER_PREPARED_MODEL_TRANSPORT";
+var hostedOriginalGrantEnvKey = "REVIEWROUTER_HOSTED_ORIGINAL_GRANT";
 var defaultChatGptCodexResponsesUrl = "https://chatgpt.com/backend-api/codex/responses";
 var bundledCodexPlatform = "linux-x64";
 var bundledCodexVersion = "0.135.0";
@@ -138994,6 +139120,58 @@ async function runHostedForkAgenticSandboxGitHubAction(input) {
     input.env
   );
   assertSameRepositoryPullRequest(event, input.env);
+  if (input.env.REVIEWROUTER_ACTION_V2_MODE === "t0") {
+    await assertSupportedRunnerEnvironment(input.env);
+    const githubWorkspace = input.env.GITHUB_WORKSPACE;
+    if (!githubWorkspace) throw new Error("missing_github_workspace");
+    const workspace2 = await (0, import_promises9.realpath)(githubWorkspace);
+    if (workspace2 === "/" || !(await (0, import_promises9.lstat)(workspace2)).isDirectory()) {
+      throw new Error("hosted_parent_workspace_invalid");
+    }
+    clearActionAuthEnv(input.env);
+    const grant = await requestHostedRelayGrantWithFreshGitHubOidc({
+      env: input.env,
+      fetchImpl: input.fetchImpl,
+      apiUrl: input.inputs.apiUrl,
+      providerInstanceId: input.inputs.providerInstanceId,
+      workflowSchemaVersion: input.inputs.workflowSchemaVersion,
+      bindingId,
+      bindingVersion,
+      deferOidcRequestEnvCleanup: true,
+      maskSecret: (secret) => mask(input.io, secret)
+    });
+    if (grant.repository !== event.repository) {
+      throw new Error("hosted_grant_repository_mismatch");
+    }
+    const reviewRequestId = grant.runtimeEnv.REVIEW_REQUEST_ID;
+    if (!reviewRequestId || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$/u.test(reviewRequestId)) {
+      throw new Error("hosted_grant_review_request_missing");
+    }
+    const reviewHome = await makeTempDirectory("reviewrouter-review-home-");
+    try {
+      await runReviewRuntimeWithinExecutionBudget({
+        executionDeadlineEpochMs: input.executionDeadlineEpochMs,
+        now: input.now,
+        run: () => input.fullReviewRuntimeRunner({
+          kind: "prepared-subscription",
+          inputs: input.inputs,
+          env: input.env,
+          io: input.io,
+          fetchImpl: input.fetchImpl,
+          workspace: workspace2,
+          tempHome: reviewHome,
+          event,
+          executionDeadlineEpochMs: input.executionDeadlineEpochMs,
+          originalGrant: grant.grant,
+          reviewRequestId
+        })
+      });
+    } finally {
+      await removeTree(reviewHome);
+    }
+    notice(input.io, "ReviewRouter hosted pool review completed.");
+    return;
+  }
   const workspace = await resolveForkSandboxWorkspace(input.env);
   await assertForkSandboxWorkspace(workspace);
   await assertSupportedRunnerEnvironment(input.env);
@@ -141184,13 +141362,40 @@ async function runReviewRuntimeWithinExecutionBudget(input) {
   await input.run();
 }
 async function runFullReviewRouterRuntime(input) {
+  const actionPath = resolveGitHubActionPath(input.env);
+  const runtimePath = (0, import_node_path8.join)(actionPath, "dist", "index.js");
+  await (0, import_promises9.access)(runtimePath, import_node_fs4.constants.R_OK);
+  if (input.kind === "prepared-subscription") {
+    const parentEnv = buildPreparedHostedReviewRuntimeEnv(input);
+    const controller = new AbortController();
+    const cancel3 = () => controller.abort(new Error("prepared_hosted_review_cancelled"));
+    process.on("SIGINT", cancel3);
+    process.on("SIGTERM", cancel3);
+    try {
+      await runProcess({
+        command: process.execPath,
+        args: [runtimePath],
+        cwd: input.workspace,
+        env: parentEnv,
+        streamOutput: input.io,
+        timeoutMs: requireRemainingReviewExecutionBudgetMs({
+          executionDeadlineEpochMs: input.executionDeadlineEpochMs,
+          nowEpochMs: Date.now()
+        }),
+        abortSignal: controller.signal
+      });
+    } finally {
+      process.removeListener("SIGINT", cancel3);
+      process.removeListener("SIGTERM", cancel3);
+      delete parentEnv[hostedOriginalGrantEnvKey];
+      clearOidcRequestEnv2(parentEnv);
+    }
+    return;
+  }
   assertProviderSecretInputsForRuntime({
     runtimeEnv: input.runtimeEnv,
     providerSecrets: input.inputs.providerSecrets
   });
-  const actionPath = resolveGitHubActionPath(input.env);
-  const runtimePath = (0, import_node_path8.join)(actionPath, "dist", "index.js");
-  await (0, import_promises9.access)(runtimePath, import_node_fs4.constants.R_OK);
   const reviewThreadLifecycleResolveToken = input.env[reviewThreadLifecycleResolveTokenEnvKey]?.trim() || void 0;
   if (reviewThreadLifecycleResolveToken) {
     mask(input.io, reviewThreadLifecycleResolveToken);
@@ -141312,6 +141517,41 @@ async function runFullReviewRouterRuntime(input) {
 }
 function isPermanentPullRequestHeadPollFailure(error52) {
   return error52 instanceof Error && (error52.message === "comment_token_repository_mismatch" || error52.message === "github_pull_request_head_auth_expired");
+}
+function buildPreparedHostedReviewRuntimeEnv(input) {
+  const inherited = pruneCodexRotatingChildEnv(input.env);
+  for (const key of Object.keys(inherited)) {
+    if (key === "CODEX_HOME" || key === "CODEX_CONFIG_TOML" || key === "REVIEWROUTER_CODEX_BINARY" || key === "REVIEW_AUTH_MODE" || key === "REVIEW_PROVIDERS" || key === "REQUIRED_HEALTHY_PROVIDERS" || key === "REVIEW_ROUTER_PR_WORKSPACE" || key.startsWith("REVIEWROUTER_COMMENT_") || key.startsWith("REVIEWROUTER_INCREMENTAL_SNAPSHOT_") || key.startsWith("REVIEWROUTER_REVIEW_CHECKPOINT_")) {
+      delete inherited[key];
+    }
+  }
+  const oidcUrl = input.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const oidcToken = input.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!oidcUrl || !oidcToken) throw new Error("missing_github_oidc_request");
+  return {
+    ...inherited,
+    HOME: input.tempHome,
+    GITHUB_WORKSPACE: input.workspace,
+    GITHUB_OUTPUT: (0, import_node_path8.join)(input.tempHome, "github-output"),
+    CI: "true",
+    INPUT_MODE: preparedSubscriptionActionMode,
+    REVIEW_ROUTER_MODE: preparedSubscriptionActionMode,
+    REVIEWROUTER_ACTION_V2_MODE: "t0",
+    [preparedSubscriptionTransportEnvKey]: "hosted_pool",
+    [hostedOriginalGrantEnvKey]: input.originalGrant,
+    ACTIONS_ID_TOKEN_REQUEST_URL: oidcUrl,
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidcToken,
+    REVIEWROUTER_RUNTIME_CONFIG_MODE: "oidc",
+    REVIEWROUTER_STATIC_CONFIG_FALLBACK: "false",
+    REVIEWROUTER_API_URL: input.inputs.apiUrl,
+    REVIEWROUTER_CONTROL_PLANE_URL: input.inputs.apiUrl,
+    REVIEW_REQUEST_ID: input.reviewRequestId,
+    PR_NUMBER: String(input.event.number),
+    REVIEW_HEAD_SHA: input.event.headSha,
+    REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS: String(
+      input.executionDeadlineEpochMs
+    )
+  };
 }
 function buildFullReviewRuntimeEnv(input) {
   const inherited = pruneCodexRotatingChildEnv(input.sourceEnv);
@@ -142198,11 +142438,11 @@ function isSafeGitHubNumericId(value) {
   return typeof value === "string" && /^[0-9]+$/.test(value);
 }
 function requireSha(value, field) {
-  const sha = requireString(value, field);
-  if (!/^[a-f0-9]{40}$/i.test(sha)) {
+  const sha2 = requireString(value, field);
+  if (!/^[a-f0-9]{40}$/i.test(sha2)) {
     throw new Error(`invalid_event_field:${field}`);
   }
-  return sha;
+  return sha2;
 }
 function shouldAutoRunCodexRotatingAction(input) {
   if (input.env.REVIEW_ROUTER_RUN_CODEX_ROTATING_ACTION === "1") {
@@ -142231,6 +142471,7 @@ if (shouldAutoRunCodexRotatingAction({ env: process.env, argv: process.argv })) 
   assertSupportedRunnerEnvironment,
   buildCodexCommand,
   buildFullReviewRuntimeEnv,
+  buildPreparedHostedReviewRuntimeEnv,
   deleteFullRuntimeProgressComments,
   deleteFullRuntimeProgressCommentsWithTokenRefresh,
   deleteStaleCodexRotatingSummaryComments,

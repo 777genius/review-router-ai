@@ -94,12 +94,8 @@ export function parseReviewAgentProfiles(
         transports.some((t) => t !== "account_gateway" && t !== "provider_api")
       )
         invalid("review_agent_profile_transport_invalid");
-      // OCR speaks only through the Account Gateway transport.
-      if (
-        agentKind === "ocr" &&
-        (transports.length !== 1 || transports[0] !== "account_gateway")
-      )
-        invalid("review_agent_profile_transport_invalid");
+      // Transport support is immutable producer metadata. A new OCR profile
+      // may approve runner-local routes; historical profiles remain unchanged.
       refs.add(row.profileRef);
       return Object.freeze({
         profileRef: row.profileRef,
