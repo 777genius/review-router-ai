@@ -57,12 +57,8 @@
     "order": [
       "native including migration258",
       "account-gateway",
-      "ReviewRouter API and web with server-only catalog flag"
-    ],
-    "flag": "REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED",
-    "enabledValue": "1",
-    "legacyFlag": "REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED",
-    "legacyFlagRemoval": "Remove alias after both deployment configurations migrate; generic flag has precedence."
+      "ReviewRouter API and web with account catalog discovery"
+    ]
   },
   "publicPublished": false,
   "productionActivated": false,

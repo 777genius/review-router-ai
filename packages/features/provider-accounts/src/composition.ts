@@ -62,16 +62,5 @@ export function readPersonalAccountSharingEnabled(
   return env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED === "1";
 }
 
-/** Shared rollout gate for qualified account catalogs. An explicit disable wins
- * over the old Codex-only deployment variable during the configuration rollout. */
-export function readAccountModelCatalogEnabled(
-  env: Readonly<Record<string, string | undefined>>,
-): boolean {
-  return (
-    (env.REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED ??
-      env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED) === "1"
-  );
-}
-
 /** Deliberate server read bound for the complete qualified account catalog. */
 export const accountModelCatalogResponseBytes = 2 * 1024 * 1024;

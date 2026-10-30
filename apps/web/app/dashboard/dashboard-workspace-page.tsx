@@ -171,6 +171,7 @@ import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
 import { DashboardInstallRequestToast } from "./dashboard-install-request-toast";
 import { ProvidersHubNav } from "./dashboard-section-tabs";
 import {
+  dashboardClientNavigationHref,
   dashboardPath,
   dashboardPathFromSearchParams,
   dashboardSectionHref,
@@ -1248,6 +1249,17 @@ export async function DashboardWorkspacePage({
     selectedWorkspace.workspace,
     workspaces,
   );
+  if (selectedSection === "context-tools") {
+    redirect(
+      dashboardClientNavigationHref(
+        dashboardSectionHref(
+          "context-tools",
+          workspaceKey,
+          selectedWorkspace.workspace.id,
+        ),
+      ),
+    );
+  }
   const sectionBoundaryKey = JSON.stringify([
     selectedWorkspace.workspace.id,
     selectedSection,
@@ -1361,6 +1373,13 @@ export async function DashboardSectionContent({
   const personal = wantsAccounts
     ? await loadDashboardPersonalAccounts(selectedWorkspace.workspace.id)
     : null;
+  const dataPromise = loadDashboardSectionData(
+    selectedWorkspace,
+    selectedSection,
+    repositoryAccess,
+    supportAudit,
+    context.signedInActor,
+  );
   const [
     data,
     modelOptions,
@@ -1368,13 +1387,7 @@ export async function DashboardSectionContent({
     contextConnections,
     modelCatalogSnapshots,
   ] = await Promise.all([
-    loadDashboardSectionData(
-      selectedWorkspace,
-      selectedSection,
-      repositoryAccess,
-      supportAudit,
-      context.signedInActor,
-    ),
+    dataPromise,
     wantsProviderDialog ? getReviewModelOptions() : Promise.resolve([]),
     wantsProviderDialog ||
     selectedSection === "diagnostics" ||

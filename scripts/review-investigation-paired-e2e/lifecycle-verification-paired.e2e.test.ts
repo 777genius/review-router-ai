@@ -771,6 +771,15 @@ lifecycleCase.each([
           (target: { parentEdited: boolean }) => target.parentEdited,
         ),
       ).toEqual([false, false, false, false]);
+      // Submitting a pending review advances native publication/update time
+      // without a body edit; the released inventory must preserve eligibility.
+      expect(
+        prompt.revalidationTargets.some(
+          (target: { parentCreatedAt: string; parentUpdatedAt: string }) =>
+            Date.parse(target.parentUpdatedAt) >
+            Date.parse(target.parentCreatedAt),
+        ),
+      ).toBe(true);
       // Seed the canonical App comment format, then verify the actual public
       // native inventory recovered the known severities and unchanged claim IDs.
       expect(
@@ -3446,6 +3455,10 @@ function nativeThreads(
   return {
     seed(hints: Array<Record<string, unknown>>, parentCreatedAt: string) {
       for (const [index, hint] of hints.entries()) {
+        const publishedAt =
+          index === 0
+            ? new Date(Date.parse(parentCreatedAt) + 1_000).toISOString()
+            : parentCreatedAt;
         threads.push({
           id: `paired-thread-${index}`,
           isResolved: false,
@@ -3460,6 +3473,8 @@ function nativeThreads(
             // publishing preserves it and appends the hidden finding marker.
             body: `_🟡 Major_\n\n**${hint.title}**\n\n${hint.message}\n\n<!-- reviewrouter:finding:v2:${hint.lineageId} -->`,
             ...publishedReviewCommentTimestamps(parentCreatedAt),
+            publishedAt,
+            updatedAt: publishedAt,
             path: filePath,
             line: Number(hint.line ?? 1),
             originalLine: Number(hint.line ?? 1),

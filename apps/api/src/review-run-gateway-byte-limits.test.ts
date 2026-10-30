@@ -218,13 +218,19 @@ it("requires the durable V2 forward for discovery while preserving native tools 
 });
 
 it.each([
-  { profileId: "profile-1", model: "gpt-5.6-sol" },
+  { profileId: "profile-1", model: "gpt-5.6-sol", reviewerPlan: false },
   {
     profileId: "openai-codex-oauth-responses-v1",
     model: "authorized-account-model-not-in-anchor",
+    reviewerPlan: false,
+  },
+  {
+    profileId: "openai-codex-oauth-responses-v1",
+    model: "authorized-account-model-not-in-anchor",
+    reviewerPlan: true,
   },
 ])(
-  "companion forwards exact hashed bytes with the stored native ref and settles completion for $model",
+  "companion forwards exact hashed bytes with the stored native ref and settles completion for $model (reviewer plan=$reviewerPlan)",
   async (selection) => {
     const state = companionReservation();
     const f = await fixture(
@@ -238,7 +244,14 @@ it.each([
       },
       128,
       selection,
+      selection.reviewerPlan
+        ? {
+            models: [selection.model, "gpt-5.6-sol"],
+            profileModelIds: ["gpt-5.6-sol"],
+          }
+        : undefined,
     );
+    const reviewerId = selection.reviewerPlan ? "reviewer-0" : undefined;
     try {
       const bytes = companionEnvelope(selection.model);
       const response = await f.relay.responses(
@@ -247,6 +260,7 @@ it.each([
         new AbortController(),
         undefined,
         companionContext,
+        reviewerId,
       );
       expect(response.kind).toBe("stream");
       if (response.kind !== "stream") throw new Error("stream_expected");
@@ -264,6 +278,7 @@ it.each([
         await f.relay.companionDispatch(
           "authorization-1",
           companionContext.dispatchId,
+          reviewerId,
         ),
       ).toMatchObject({
         state: "completed",
@@ -567,6 +582,7 @@ async function fixture(
   } = { profileId: "profile-1", model: "gpt-5.6-sol" },
   multi?: {
     models: readonly string[];
+    profileModelIds?: readonly string[];
     independentAllocations?: boolean;
     grantConcurrency?: number;
   },
@@ -1001,7 +1017,9 @@ async function fixture(
           profile: {
             profileId: selection.profileId,
             protocol: "openai-responses",
-            modelIds: multi?.models ? [...multi.models] : ["gpt-5.6-sol"],
+            modelIds: [
+              ...(multi?.profileModelIds ?? multi?.models ?? ["gpt-5.6-sol"]),
+            ],
             authKinds: [selection.authKind ?? "oauth"],
           },
           outputTokens: 32768,
@@ -2507,21 +2525,43 @@ it("never releases buffered terminal bytes when the real SDK transport fails bef
 
 // RED if the immutable enrollment anchor rejects an account-catalog model before
 // the normal owned-run preparation/native admission path.
-it.each([
-  ["openai-codex-oauth-responses-v1", "oauth", true],
-  ["openrouter-openai-responses-apikey-v1", "api_key", true],
-  ["openrouter-openai-responses-apikey-v1", "oauth", false],
-  ["profile-1", "oauth", false],
-  ["grok-subscription-responses-oauth-v1", "oauth", false],
-] as const)(
-  "account model %s with %s keeps the authorized Responses path (dynamic=%s)",
-  async (profileId, authKind, dynamic) => {
-    const model = "authorized-account-model-not-in-anchor";
-    const f = await fixture(MiB, 0, 2, 5000, undefined, undefined, 128, {
+it.each(
+  (
+    [
+      ["openai-codex-oauth-responses-v1", "oauth", true],
+      ["openrouter-openai-responses-apikey-v1", "api_key", true],
+      ["openrouter-openai-responses-apikey-v1", "oauth", false],
+      ["profile-1", "oauth", false],
+      ["grok-subscription-responses-oauth-v1", "oauth", false],
+    ] as const
+  ).flatMap(([profileId, authKind, dynamic]) =>
+    [false, true].map((reviewerPlan) => ({
       profileId,
-      model,
       authKind,
-    });
+      dynamic,
+      reviewerPlan,
+    })),
+  ),
+)(
+  "account model $profileId with $authKind keeps the authorized Responses path (dynamic=$dynamic, reviewer plan=$reviewerPlan)",
+  async ({ profileId, authKind, dynamic, reviewerPlan }) => {
+    const model = "authorized-account-model-not-in-anchor";
+    const f = await fixture(
+      MiB,
+      0,
+      2,
+      5000,
+      undefined,
+      undefined,
+      128,
+      { profileId, model, authKind },
+      reviewerPlan
+        ? {
+            models: [model, "gpt-5.6-sol"],
+            profileModelIds: ["gpt-5.6-sol"],
+          }
+        : undefined,
+    );
     try {
       const response = f.relay.responses(
         "local-authorization-token",
@@ -2534,6 +2574,9 @@ it.each([
           }),
         ),
         new AbortController(),
+        undefined,
+        undefined,
+        reviewerPlan ? "reviewer-0" : undefined,
       );
       if (!dynamic) {
         await expect(response).rejects.toMatchObject({

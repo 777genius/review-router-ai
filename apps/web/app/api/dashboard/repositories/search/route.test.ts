@@ -90,11 +90,6 @@ vi.mock(
 vi.mock("../../../../../src/server/dashboard-gateway-accounts", () => ({
   loadDashboardPersonalAccounts: async () => null,
   loadDashboardGatewayAccounts: mocks.loadDashboardGatewayAccounts,
-  hydrateDashboardGatewayAccounts: async (
-    _workspace: unknown,
-    _personal: unknown,
-    accounts: unknown,
-  ) => accounts,
 }));
 
 vi.mock(
@@ -708,6 +703,13 @@ describe("dashboard repository search route", () => {
       };
       for (const id of body.repositoryIds) routeReadiness.set(id, readiness);
     }
+    expect(mocks.loadDashboardGatewayAccounts).toHaveBeenCalledWith(
+      "workspace_1",
+      null,
+      expect.arrayContaining([
+        expect.objectContaining({ providers: [gatewayProvider] }),
+      ]),
+    );
     // Composed as the dashboard page composes it for its table and summary.
     const pageReadiness = resolveDashboardRepositoryReadiness({
       effectiveConfigs: new Map(

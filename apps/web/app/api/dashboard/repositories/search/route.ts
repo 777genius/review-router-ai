@@ -31,7 +31,6 @@ import {
 import { deriveDashboardProviderSetupReadiness } from "../../../../../src/server/dashboard-codex-rotating-setup-readiness";
 import {
   loadDashboardGatewayAccounts,
-  hydrateDashboardGatewayAccounts,
   loadDashboardPersonalAccounts,
 } from "../../../../../src/server/dashboard-gateway-accounts";
 import {
@@ -232,21 +231,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Listing accounts calls the Gateway, so only Gateway policies pay for it.
       gatewayRepositoryIds.length > 0
         ? loadDashboardPersonalAccounts(workspace.id).then((personal) =>
-            loadDashboardGatewayAccounts(workspace.id, personal).then(
-              (accounts) =>
-                hydrateDashboardGatewayAccounts(
-                  workspace.id,
-                  personal,
-                  accounts,
-                  [...configs.effectiveConfigs.values()].flatMap(
-                    (config) =>
-                      config?.providers.flatMap((provider) =>
-                        provider.authMode === "codex_account_gateway"
-                          ? [provider.gatewayBindingId]
-                          : [],
-                      ) ?? [],
-                  ),
-                ),
+            loadDashboardGatewayAccounts(
+              workspace.id,
+              personal,
+              [...configs.effectiveConfigs.values()].flatMap((config) =>
+                config ? [config] : [],
+              ),
             ),
           )
         : undefined,

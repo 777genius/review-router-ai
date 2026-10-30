@@ -161,9 +161,6 @@ export async function startGatewayCatalogFixture(
       // The fixture profile is an approved key profile of this deployment.
       REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID:
         VISUAL_GATEWAY_PROFILE.profileId,
-      ...(options.reviewerAccounts
-        ? { REVIEW_ROUTER_ACCOUNT_MODEL_CATALOG_ENABLED: "1" }
-        : {}),
     },
     stop: () =>
       new Promise<void>((resolve) => {
