@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status     | Actual deployed version / image      | Last verified (UTC) | Evidence / remaining action                                                                                                    |
-| ----------- | ---------- | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| staging     | `pending`  | Not verified                         | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                                              |
-| production  | `deployed` | `b8eac8ec` / image prefix `fd52caab` | 2026-10-29 01:27    | Capture/activation, real reviews, repeat runs, UI and two foreign-workspace isolation checks passed; see final evidence below. |
+| Environment | Status     | Actual deployed version / image | Last verified (UTC) | Evidence / remaining action                                                                                           |
+| ----------- | ---------- | ------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`  | Not verified                    | Not verified        | Reconcile installed state, then complete the rollout and live verification below.                                     |
+| production  | `deployed` | `533c040d` / image `e1578f75`   | 2026-10-30 17:35    | Deployed with the 2026-10-30 rollout; see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). |
 
 No environment rollout was performed or verified when this record was created.
 `pending` means completion has no recorded evidence; do not infer existing live
@@ -390,3 +390,7 @@ A separate public Action timestamp-classification bug leaves the prior finding
 unverified despite the second full review succeeding. It does not block History
 capture, status projection, repeat-run grouping or isolation. Overall release E2E
 continues under the catalog task until that genuine finding lifecycle check passes.
+
+## Evidence log
+
+2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.

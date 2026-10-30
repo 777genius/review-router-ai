@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                  |
-| ----------- | --------- | ------------------------------- | ------------------- | --------------------------------------------------------------- |
-| staging     | `pending` | Not verified                    | Not verified        | Select the authorized cohort and deploy the worker with it.     |
-| production  | `pending` | Not verified                    | Not verified        | Include in the next authorized worker rollout and verify below. |
+| Environment | Status        | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                                                  |
+| ----------- | ------------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                    | Not verified        | Select the authorized cohort and deploy the worker with it.                                                                                                                                     |
+| production  | `in_progress` | `533c040d` / image `e1578f75`   | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -54,3 +54,7 @@ Redeploying the previous worker image restores the old behavior: completed runs 
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result            | Evidence | Next action                             |
 | ------------ | -------------------- | ---------- | ---------------------- | ----------------------------------- | -------- | --------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | No rollout verified by this record. | None     | Include in the next authorized rollout. |
+
+## Evidence log
+
+2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
