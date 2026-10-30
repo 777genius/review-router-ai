@@ -20,6 +20,8 @@ Configure the web process with:
 
 The dedicated worker needs the last three variables and its existing worker database configuration. Start the built worker with `pnpm --filter @reviewrouter/worker skills:start`; development uses `skills:dev`. Run this as a separate process from the ordinary review worker. It claims only `review-skills.scan` events, one at a time, through the existing fenced outbox. Do not add the scanner handler to the ordinary worker's batch.
 
+Use the same immutable application image revision as web/API/worker for the dedicated skills worker; override its command with `node --conditions=production apps/worker/dist/skill-scan-worker.js` from the application image's `/app` working directory. It needs the existing worker database role and runtime grants, not the web role or database owner. The scanner and egress proxy use the separate scanner image built by the composition below. Do not reuse an application image as the scanner image.
+
 Start the execution service using the supplied composition:
 
 ```sh
@@ -33,6 +35,19 @@ The scanner has a read-only root, UID 10001, no Linux capabilities, no-new-privi
 The separate egress proxy is the scanner network's route to approved external dependencies. It allows TLS tunnels to `api.osv.dev` and the three supported model hosts only; it rejects private address resolution, alternate ports and other hosts. Each tunnel has an aggregate 2 MiB transfer bound and a 60-second lifetime. Static analysis can query OSV when applicable; it does not call an LLM. The scanner cannot connect directly to the public Internet.
 
 The UAP resolver must be deployed with its separate service token and bounded Linux runtime before catalog previews can work. Merging application source does not provision or deploy either service. Missing resolver/scanner configuration produces an unavailable state; it does not allow unchecked catalog import.
+
+## Rollout and acceptance
+
+The application environment examples leave scan admission disabled. Provision the UAP resolver and its token first, then the private scanner network, scanner/egress services and dedicated skills worker. Supply the resolver token to web only, and the scanner origin/token to web and the dedicated skills worker. Set `REVIEW_ROUTER_SKILL_SCAN_WORKER_ENABLED=true` in those two processes after their prerequisites are ready. The ordinary review worker does not need scan admission enabled.
+
+A running dashboard and a successful catalog search do not qualify this rollout: search uses an anonymous endpoint and does not exercise resolution or scanning. Verify the deployed configuration without printing secret values, then use a disposable workspace/repository to complete this authenticated browser path:
+
+1. Browse or search the live UAP catalog and open a supported public GitHub skill's Preview.
+2. Confirm the instructions load, run a static check, and wait for a complete result from the dedicated worker.
+3. Add the checked text to the library, confirm it appears once, and complete the existing repository-assignment flow.
+4. Reopen the imported library skill and confirm the saved text and assignment. Remove the disposable test skill/assignment after recording the result.
+
+Record the application and scanner image revisions with the result. Keep AI checking disabled unless its separate model configuration and consent path have also been qualified. To stop new scan admission, set the enable flag to `false` in web; preserve the dedicated worker and scanner until any admitted work has reached a terminal state.
 
 ## Optional AI profile
 

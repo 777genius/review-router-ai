@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { redirect } from "next/navigation";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardWorkspaceLayout,
+  DashboardWorkspacePage,
   DashboardSectionContent,
   listDashboardRepositoryAccess,
   loadDashboardSectionData,
@@ -10,11 +12,19 @@ import {
 } from "./dashboard-workspace-page";
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
+import type {
+  AccountsPage,
+  AccountsResult,
+} from "../../src/server/account-gateway-accounts";
 
-vi.mock("next/navigation", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("next/navigation")>()),
-  useRouter: () => ({ refresh: vi.fn() }),
-}));
+vi.mock("next/navigation", async (importOriginal) => {
+  const original = await importOriginal<typeof import("next/navigation")>();
+  return {
+    ...original,
+    redirect: vi.fn(original.redirect),
+    useRouter: () => ({ refresh: vi.fn() }),
+  };
+});
 
 const memoryKnowledge = vi.hoisted(() => ({
   load: vi.fn(async () => ({ workspaceId: "workspace-a", repositoryId: null })),
@@ -128,10 +138,36 @@ const fixtures = vi.hoisted(() => {
     workspaceAdmin: vi.fn(async () => false),
     skillsDashboard: vi.fn(async () => ({ status: "signed_out" as const })),
     providerList: vi.fn(async () => ({ rows: [] }) as never),
+    gatewayAccounts: vi.fn(async () => ({ status: "unavailable" as const })),
+    gatewayHydration: vi.fn(
+      async (
+        ...args: [
+          string,
+          unknown,
+          AccountsResult<AccountsPage> | undefined,
+          readonly string[],
+        ]
+      ) => args[2],
+    ),
   };
   return { spies, EmptyStore: class {} };
 });
 const { spies } = fixtures;
+
+vi.mock("../../src/server/dashboard-gateway-accounts", () => ({
+  loadDashboardPersonalAccounts: async () => null,
+  loadDashboardGatewayAccounts: fixtures.spies.gatewayAccounts,
+  hydrateDashboardGatewayAccounts: fixtures.spies.gatewayHydration,
+}));
+vi.mock(
+  "../../src/server/prisma-gateway-review-v2-provisioning",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../src/server/prisma-gateway-review-v2-provisioning")
+    >()),
+    readGatewayReviewV2RepositoryReadiness: async () => new Map(),
+  }),
+);
 
 vi.mock("../../src/server/review-skills-dashboard", () => ({
   loadReviewSkillsDashboard: fixtures.spies.skillsDashboard,
@@ -216,6 +252,7 @@ vi.mock("../../src/server/dashboard-codex-rotating-setup-readiness", () => ({
 }));
 vi.mock("../../src/server/openrouter-model-catalog", () => ({
   getReviewModelOptions: vi.fn(async () => []),
+  getProviderModelCatalogs: vi.fn(async () => []),
 }));
 vi.mock("../../src/server/hosted-pool-dashboard", () => ({
   loadHostedPoolDashboardView: fixtures.spies.hostedPool,
@@ -312,6 +349,121 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
+  it("hydrates the complete saved workspace and repository reviewer roster once after loading account metadata", async () => {
+    const provider = (gatewayBindingId: string) => ({
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId,
+      gatewayProfileRef: "openrouter-openai-responses-apikey-v1",
+      model: "openai/gpt-4.1",
+    });
+    const config = {
+      providers: [provider("binding_1"), provider("binding_2")],
+    };
+    const workspaceConfig = {
+      providers: [provider("binding_workspace")],
+    };
+    const ready = {
+      status: "ready",
+      config,
+      policy: { schemaVersion: 4 },
+      effectivePolicyDigest: "sha256:test",
+      revisionToken: "policy:test",
+      source: "repository",
+      workspaceVersion: 1,
+      repositoryVersion: 1,
+    } as unknown as Extract<EffectiveReviewConfiguration, { status: "ready" }>;
+    spies.policies.mockResolvedValueOnce({
+      workspace: {
+        ...ready,
+        config: workspaceConfig,
+        source: "workspace",
+        repositoryVersion: null,
+      } as unknown as Extract<
+        EffectiveReviewConfiguration,
+        { status: "ready" }
+      >,
+      repositories: new Map([["repo-a", ready]]),
+      workspacePolicy: null,
+      repositoryPolicies: new Map(),
+    });
+    await DashboardSectionContent({
+      context: {
+        mutationStatus: {
+          enabled: true,
+          signedIn: true,
+          sourceProvider: "github",
+          externalUserId: "github-user-a",
+          sourceLogin: "owner",
+          sourceAvatarUrl: null,
+          githubUserId: "github-user-a",
+          githubLogin: "owner",
+          githubAvatarUrl: null,
+          reason: "ready",
+        },
+        workspaceScope: { kind: "all", reason: "local_admin_override" },
+        signedInActor: null,
+        repositoryAccess: access,
+        workspaces: [workspace],
+      },
+      selectedWorkspace: workspace,
+      selectedSection: "repositories",
+      params: {},
+      workspaceKey: "acme",
+    });
+    expect(spies.gatewayAccounts).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+    );
+    expect(spies.gatewayHydration).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+      { status: "unavailable" },
+      ["binding_workspace", "binding_1", "binding_2"],
+    );
+  });
+  it.each([
+    ["acme", "workspace-a", "acme"],
+    ["second", "workspace-b", "second"],
+    ["unknown", "workspace-a", "acme"],
+  ])(
+    "redirects the Context tools section to the authorized workspace selected by %s",
+    async (requested, id, key) => {
+      spies.summaries.mockResolvedValueOnce([
+        {
+          id: "workspace-a",
+          name: "acme",
+          slug: "acme",
+          installations: [],
+          gitLabInstallations: [],
+          repositories: [{ owner: "acme" }],
+          _count: { repositories: 2 },
+        },
+        {
+          id: "workspace-b",
+          name: "second",
+          slug: "second",
+          installations: [],
+          gitLabInstallations: [],
+          repositories: [{ owner: "second" }],
+          _count: { repositories: 2 },
+        },
+      ]);
+      await expect(
+        DashboardWorkspacePage({
+          searchParams: Promise.resolve({
+            section: "context-tools",
+            workspace: requested,
+            workspaceId: "unauthorized-workspace",
+          }),
+        }),
+      ).rejects.toThrow("NEXT_REDIRECT");
+      expect(redirect).toHaveBeenCalledWith(
+        `/dashboard/context-tools?workspaceId=${id}&workspace=${key}`,
+      );
+    },
+  );
+
   it("starts unrelated workspace reads while policy reads wait for scoped metadata", async () => {
     let resolveRepositories!: (
       value: Awaited<ReturnType<typeof spies.repositories>>,

@@ -489,3 +489,38 @@ and diagnostics, Statistics still returns before unrelated IO, and query-provide
 and navigation topology are unchanged. The existing isolated Statistics case
 passed1/1 with36 unselected; changed-host lint, formatting and whitespace passed.
 No material integration finding remains; the combined browser/CI gates are pending.
+
+### Second current-main integration
+
+The complete browser qualification on integrated head
+`328234e25841309b93e89f645b22c2f26428b2cd` passed in
+[run40974850337](https://github.com/777genius/review-router-ai/actions/runs/40974850337):
+18 checks,21 captures,49 independently recomputed matching source hashes and
+successful cleanup. Skills passed24/24; OCR, Memory and Gateway workflows passed.
+The main CI retained eleven successful jobs, but Quality never received a runner
+for about44 minutes. Two independent Sol6.1xhigh critics accepted one bounded
+recovery: normal cancellation at00:25:23UTC on October30 and a single-job Quality
+rerun with its dependent gate at00:25:48UTC. GitHub reused all eleven successes;
+the replacement received a runner at00:30:26UTC. No workflow/runner settings or
+required gates were changed. A preceding request while the run was active was
+rejected and did not execute. This is separate from superseded-run cleanup.
+
+Before merge, the actual remote main advanced again to
+`0ab5b008f1909e321222806e27159d5987914784` through PR #740, while the PR API
+still reported the preceding base. The new integration automatically combines
+the dashboard host and loading-boundary tests. Its only conflict is the deployment
+index: preserve every new main entry/status and add the Statistics pending row.
+Main's account-catalog readiness, context-tools redirect, workspace navigation and
+complete binding-roster loading are retained. Against this new base, the shared
+host and test still contain only our intended scope/seed and raw-filter changes;
+the private feature/backend implementation is unchanged.
+
+The independent GPT-6.1 Sol xhigh critic accepted the actual resolved source
+against both parents with no material integration finding. The complete existing
+dashboard loading-boundary file passed41/41; host/test lint, formatting and
+whitespace checks passed. New main changed shell/navigation, so the earlier
+successful browser receipt is not relabeled as proof of this new integrated head.
+A fresh automatic browser and required CI qualification is necessary. Superseded
+runs are cancelled only after this integration is committed and pushed. Final
+results remain in PR #743. This task's staging/production rollout stays pending;
+related deployment evidence newly present in main is preserved independently.
