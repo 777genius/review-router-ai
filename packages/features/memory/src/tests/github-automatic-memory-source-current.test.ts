@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, it, vi } from "vitest";
-import { createGitHubAutomaticMemorySourceCurrent } from "./github-automatic-memory-source-current";
-import type { MemoryAutomaticSourceCurrentPort } from "../../application/ports/memory-automatic-source-port";
+import { createGitHubAutomaticMemorySourceCurrent } from "../infrastructure/github/github-automatic-memory-source-current";
+import type { MemoryAutomaticSourceCurrentPort } from "../application/ports/memory-automatic-source-port";
 
 const digest = (body: string) =>
   createHash("sha256").update(body).digest("hex");

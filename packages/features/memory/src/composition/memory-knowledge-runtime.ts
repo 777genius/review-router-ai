@@ -13,7 +13,6 @@ import {
 } from "@get-modular/assembly";
 import { compileComposition, defineModule, required } from "@get-modular/core";
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { PrismaEntitlementRepository } from "@reviewrouter/features-entitlements";
 import type { MemoryCleanupProofPort } from "../application/ports/memory-cleanup-proof-port";
 import { createHindsightCleanupProofAdapter } from "../infrastructure/hindsight/hindsight-cleanup-proof-adapter";
@@ -112,7 +111,7 @@ export async function createMemoryKnowledgeRuntime(input: {
   readonly prisma: PrismaClient;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
-  /** Host-owned versioned settings; the same reader works inside admission transactions. */
+  /** Host-owned settings; transaction reads acquire the settings writer's shared guard. */
   readonly workspaceSettings?: (
     workspaceId: string,
     transaction?: Prisma.TransactionClient,
@@ -162,9 +161,6 @@ export async function createMemoryKnowledgeRuntime(input: {
         workspaceId: string,
         revision: string,
       ) => {
-        await acquireCurrentScopeGuards(tx, [
-          { scope: "workspace", workspaceId, mode: "shared" },
-        ]);
         const settings = await input.workspaceSettings?.(workspaceId, tx);
         if (
           settings?.requireConfirmation ||

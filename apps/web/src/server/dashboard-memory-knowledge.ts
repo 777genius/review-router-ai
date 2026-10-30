@@ -50,9 +50,7 @@ async function productionMemoryDashboard(workspaceId: string) {
     prisma,
     env: process.env,
     workspaceSettings: (workspaceId, transaction) =>
-      new PrismaWorkspaceMemorySettings(transaction ?? prisma).read(
-        workspaceId,
-      ),
+      new PrismaWorkspaceMemorySettings(prisma).read(workspaceId, transaction),
   });
   const permissions = new PrismaMemoryPermission(prisma, {
     repositoryMaintainers: createPrismaMemoryRepositoryMaintainers({

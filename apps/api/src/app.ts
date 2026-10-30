@@ -926,8 +926,9 @@ export async function createApiApp(
     ? await createMemoryKnowledgeRuntime({
         prisma,
         workspaceSettings: (workspaceId, transaction) =>
-          new PrismaWorkspaceMemorySettings(transaction ?? prisma).read(
+          new PrismaWorkspaceMemorySettings(prisma).read(
             workspaceId,
+            transaction,
           ),
         env: {
           ...reviewActionV2Env,

@@ -258,8 +258,9 @@ export async function createEvaluationFixture(input: {
     prisma: input.prisma,
     env: { ...input.env, REVIEW_ROUTER_MEMORY_NAMESPACE: namespace },
     workspaceSettings: (workspaceId, transaction) =>
-      new PrismaWorkspaceMemorySettings(transaction ?? input.prisma).read(
+      new PrismaWorkspaceMemorySettings(input.prisma).read(
         workspaceId,
+        transaction,
       ),
   });
   if (!runtime.enabled) throw new Error("eval_native_runtime_unavailable");

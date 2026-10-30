@@ -131,8 +131,9 @@ async function main(): Promise<void> {
       prisma,
       env: process.env,
       workspaceSettings: (workspaceId, transaction) =>
-        new PrismaWorkspaceMemorySettings(transaction ?? prisma).read(
+        new PrismaWorkspaceMemorySettings(prisma).read(
           workspaceId,
+          transaction,
         ),
     });
     const memoryWorker = createMemoryKnowledgeWorker({

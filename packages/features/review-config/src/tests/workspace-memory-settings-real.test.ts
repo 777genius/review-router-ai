@@ -187,5 +187,101 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
         ).workspace?.policyJson,
       ).toContain('"reviewLanguage":"fr"');
     });
+    it("holds an admission reader's workspace guard until its caller commits, then allows the real settings writer", async () => {
+      await prisma.workspaceMember.create({
+        data: {
+          workspaceId: otherWorkspaceId,
+          userId: owner.userId,
+          role: "owner",
+        },
+      });
+      const reader = new PrismaWorkspaceMemorySettings(prisma);
+      const writerName = `${prefix}-settings-writer`;
+      const writerUrl = new URL(databaseUrl!);
+      writerUrl.searchParams.set("application_name", writerName);
+      const writerClient = createPrismaClient({
+        databaseUrl: writerUrl.toString(),
+        poolMax: 2,
+      });
+      let release!: () => void;
+      const holdReader = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let ready!: () => void;
+      const readerReady = new Promise<void>((resolve) => {
+        ready = resolve;
+      });
+      const admission = prisma.$transaction(
+        async (transaction) => {
+          const settings = await reader.read(otherWorkspaceId, transaction);
+          expect(settings).toEqual({
+            requireConfirmation: false,
+            version: null,
+          });
+          ready();
+          await holdReader;
+          return reader.read(otherWorkspaceId, transaction);
+        },
+        { timeout: 15_000 },
+      );
+      let write: ReturnType<typeof saveWorkspaceMemorySettings> | undefined;
+      try {
+        await Promise.race([
+          readerReady,
+          admission.then(() => {
+            throw new Error("settings_reader_closed_before_barrier");
+          }),
+        ]);
+        write = saveWorkspaceMemorySettings(
+          {
+            workspaceId: otherWorkspaceId,
+            actor: owner,
+            requireConfirmation: true,
+            expectedVersion: null,
+          },
+          {
+            configurations: new PrismaReviewConfigurationRepository(
+              writerClient,
+              undefined,
+              false,
+              owner.userId,
+            ),
+            policyHeads: new PrismaReviewPolicyHeadReader(writerClient),
+          },
+        );
+        // Attach immediately; preserve the actual result for the assertion below.
+        void write.catch(() => {});
+        await expect
+          .poll(
+            async () =>
+              (
+                await prisma.$queryRaw<readonly { count: number }[]>`
+            SELECT count(*)::int AS count FROM pg_stat_activity
+            WHERE datname = current_database() AND application_name = ${writerName}
+              AND wait_event_type = 'Lock' AND wait_event = 'advisory'`
+              )[0]?.count,
+            { timeout: 5_000, interval: 20 },
+          )
+          .toBe(1);
+        await expect(reader.read(otherWorkspaceId)).resolves.toEqual({
+          requireConfirmation: false,
+          version: null,
+        });
+        release();
+        await expect(admission).resolves.toEqual({
+          requireConfirmation: false,
+          version: null,
+        });
+        await expect(write).resolves.toMatchObject({ version: 1 });
+        await expect(reader.read(otherWorkspaceId)).resolves.toEqual({
+          requireConfirmation: true,
+          version: 1,
+        });
+      } finally {
+        release();
+        await Promise.allSettled([admission, ...(write ? [write] : [])]);
+        await writerClient.$disconnect();
+      }
+    });
   },
 );
