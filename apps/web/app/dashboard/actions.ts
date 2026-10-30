@@ -50,6 +50,7 @@ import {
   type HostedAccountSafeSummary,
 } from "@reviewrouter/features-hosted-account-pool";
 import {
+  qualifiedGatewayInteractionRuntimeSha,
   isConflictReviewFallbackAllowedForRepository,
   isWorkflowProvisioningEnabled,
   isHostedCodexPoolEnabled,
@@ -1602,6 +1603,16 @@ async function createSetupPullRequestMutation(
             },
             {
               targets: new PrismaWorkflowProvisioningTarget(prisma),
+              ...(() => {
+                const gatewayInteractionRuntimeSha =
+                  qualifiedGatewayInteractionRuntimeSha(process.env, {
+                    workspaceId,
+                    repositoryId,
+                  });
+                return gatewayInteractionRuntimeSha
+                  ? { gatewayInteractionRuntimeSha }
+                  : {};
+              })(),
               ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
               ...(claudeSubscriptionActionRef
                 ? { claudeSubscriptionActionRef }

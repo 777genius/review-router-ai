@@ -1287,6 +1287,8 @@ describe("disposable dual-version rehearsal", () => {
       (name) =>
         name !== "000154_unified_model_dispatch" &&
         name !== "000152_review_run_gateway_allocations" &&
+        name !== "000152_memory_automatic_source" &&
+        name !== "000153_conversation_processing" &&
         name !== "000151_review_history" &&
         name !== "000150_skills_catalog_security" &&
         name !== "000149_api_key_repository_secret_profiles" &&
@@ -1300,7 +1302,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(157);
+    expect(currentMigrationNames).toHaveLength(159);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1313,7 +1315,6 @@ describe("disposable dual-version rehearsal", () => {
     const exclusions = resolvePreReleaseMigrationExclusions(
       currentMigrationNames,
     );
-    expect(exclusions).toContain("000154_unified_model_dispatch");
     const historicalCheckout = legacyMigrationNames.filter(
       (name) =>
         name !== "000125_hosted_codex_device_reconnect" &&
@@ -1338,7 +1339,10 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000144_review_statistics" &&
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000145_workspace_provider_profiles" &&
+        name !== "000154_unified_model_dispatch" &&
         name !== "000152_review_run_gateway_allocations" &&
+        name !== "000152_memory_automatic_source" &&
+        name !== "000153_conversation_processing" &&
         name !== "000151_review_history" &&
         name !== "000150_skills_catalog_security" &&
         name !== "000149_api_key_repository_secret_profiles" &&
@@ -1405,14 +1409,16 @@ describe("disposable dual-version rehearsal", () => {
     // Strip only the new reviewed tail before comparing the existing published
     // checkout manifests; managed/historical release-policy baselines stay fixed.
     expect(migrationManifestIdentity(currentMigrationNames)).toBe(
-      "sha256:b632de30125258ef10541fa8c71301a6b5d1c9504bcca155c171374808ed01ba",
+      "sha256:35d11ac132da5057b2ed6ff8a0eb82fcf0bd0c289975e7772deea55b1f14ad98",
     );
     expect(
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
             name !== "000154_unified_model_dispatch" &&
-            name !== "000152_review_run_gateway_allocations",
+            name !== "000152_review_run_gateway_allocations" &&
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing",
         ),
       ),
     ).toBe(
@@ -1424,6 +1430,8 @@ describe("disposable dual-version rehearsal", () => {
           (name) =>
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing" &&
             name !== "000151_review_history" &&
             name !== "000150_skills_catalog_security",
         ),
@@ -1437,6 +1445,8 @@ describe("disposable dual-version rehearsal", () => {
           (name) =>
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing" &&
             name !== "000151_review_history" &&
             name !== "000142_memory_knowledge_authority" &&
             name !== "000143_memory_maintenance_fence",
@@ -1451,6 +1461,8 @@ describe("disposable dual-version rehearsal", () => {
           (name) =>
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing" &&
             name !== "000151_review_history" &&
             name !== "000150_skills_catalog_security" &&
             name !== "000149_api_key_repository_secret_profiles" &&
@@ -1467,6 +1479,8 @@ describe("disposable dual-version rehearsal", () => {
           (name) =>
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
+            name !== "000152_memory_automatic_source" &&
+            name !== "000153_conversation_processing" &&
             name !== "000151_review_history" &&
             name !== "000150_skills_catalog_security" &&
             name !== "000149_api_key_repository_secret_profiles" &&
@@ -1607,7 +1621,9 @@ describe("disposable dual-version rehearsal", () => {
       "000154_unified_model_dispatch",
       "000150_skills_catalog_security",
       "000151_review_history",
+      "000152_memory_automatic_source",
       "000152_review_run_gateway_allocations",
+      "000153_conversation_processing",
     ]);
     expect(exclusions).not.toContain("000067_review_live_progress");
     expect(exclusions).not.toContain(
@@ -1736,6 +1752,8 @@ describe("disposable dual-version rehearsal", () => {
     const currentTail = "000154_unified_model_dispatch";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter((name) => name !== "000153_conversation_processing"),
+      names.filter((name) => name !== "000152_memory_automatic_source"),
       names.filter((name) => name !== "000152_review_run_gateway_allocations"),
       names.filter((name) => name !== "000151_review_history"),
       names.filter(
@@ -1877,7 +1895,9 @@ describe("disposable dual-version rehearsal", () => {
     "000154_unified_model_dispatch",
     "000150_skills_catalog_security",
     "000151_review_history",
+    "000152_memory_automatic_source",
     "000152_review_run_gateway_allocations",
+    "000153_conversation_processing",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1957,6 +1977,8 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000145_workspace_provider_profiles" &&
                 name !== "000154_unified_model_dispatch" &&
                 name !== "000152_review_run_gateway_allocations" &&
+                name !== "000152_memory_automatic_source" &&
+                name !== "000153_conversation_processing" &&
                 name !== "000151_review_history" &&
                 name !== "000150_skills_catalog_security" &&
                 name !== "000149_api_key_repository_secret_profiles" &&

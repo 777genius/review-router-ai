@@ -1,3 +1,4 @@
+import { InvestigationLeaseAcquireStatus } from "../application/ports/investigation-lease-store-port";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { createPrismaClient } from "@reviewrouter/platform-db";
@@ -144,6 +145,79 @@ async function createLeaseHarness(): Promise<InvestigationLeaseStoreContractHarn
 }
 
 describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
+  it("checks memory in the actual new-lease transaction and restores an already issued lease after revocation", async () => {
+    const suffix = `memory-grant-${randomUUID()}`;
+    const candidate = {
+      ...createInvestigationLeaseStoreContractCandidate(suffix),
+      investigationManifestCanonicalJson: JSON.stringify({
+        manifestVersion: 1,
+        memoryBundleHash: "f".repeat(64),
+      }),
+    };
+    const { base, planned } = createInvestigationLeaseBindingSeed(candidate);
+    const harness = await createHarness(base);
+    let eligible = false,
+      checks = 0,
+      locks = 0;
+    const store = new PrismaInvestigationStore(harness.prisma, {
+      operationalRetentionMs: 86400000,
+      inputAdmission: {
+        async lock(transaction) {
+          locks += 1;
+          await transaction.$queryRaw(Prisma.sql`SELECT txid_current()`);
+        },
+        async admit(transaction, bound) {
+          checks += 1;
+          expect(bound.investigationManifestCanonicalJson).toBe(
+            candidate.investigationManifestCanonicalJson,
+          );
+          expect(
+            await transaction.reviewInvestigationLease.count({
+              where: { investigationId: candidate.investigationId },
+            }),
+          ).toBe(0);
+          return eligible;
+        },
+      },
+    });
+    try {
+      await open(store, base, `memory-open-${suffix}`);
+      await plan(store, planned, `memory-plan-${suffix}`);
+      expect(await store.acquireLease(candidate)).toEqual({
+        status: InvestigationLeaseAcquireStatus.BindingStale,
+        lease: null,
+      });
+      expect(
+        await harness.prisma.reviewInvestigationLease.count({
+          where: { investigationId: candidate.investigationId },
+        }),
+      ).toBe(0);
+      eligible = true;
+      const granted = await store.acquireLease(candidate);
+      expect(granted.status).toBe(InvestigationLeaseAcquireStatus.Acquired);
+      expect(checks).toBe(2);
+      eligible = false;
+      const restored = await store.acquireLease({
+        ...candidate,
+        leaseId: `${candidate.leaseId}-lost-ack-retry`,
+        attemptId: `${candidate.attemptId}-retry`,
+        leaseCapabilityId: `${candidate.leaseCapabilityId}-retry`,
+      });
+      expect(restored.status).toBe(InvestigationLeaseAcquireStatus.Restored);
+      expect(restored.lease?.leaseId).toBe(granted.lease?.leaseId);
+      expect(restored.lease?.fencingToken).toBe(granted.lease?.fencingToken);
+      expect(checks).toBe(2);
+      expect(locks).toBe(3);
+      expect(
+        await harness.prisma.reviewInvestigationLease.count({
+          where: { investigationId: candidate.investigationId },
+        }),
+      ).toBe(1);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
   it("persists exactly one adoption receipt and rejects transactionally superseded execution", async () => {
     const seed = createInvestigationStoreContractSeed(
       `adopt-db-${randomUUID()}`,

@@ -9,6 +9,8 @@ import {
   resetPairedActionSaasE2EDatabase,
 } from "./support/paired-action-saas-e2e-harness.js";
 
+import { audienceMemoryStatements } from "../memory-e2e/support/approved-memory-fixture.js";
+
 const execFileAsync = promisify(execFile);
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const enabled =
@@ -33,6 +35,7 @@ describeWithDatabase.sequential(
       await resetPairedActionSaasE2EDatabase(databaseUrl!);
       harness = await PairedActionSaasE2EHarness.create({
         databaseUrl: databaseUrl!,
+        memory: true,
         actionSourceDir,
         actionRef: await resolveActionRef(actionSourceDir),
       });
@@ -46,7 +49,9 @@ describeWithDatabase.sequential(
 
     it("runs the real Action orchestration through attested expansion and critic to a persisted certificate", async () => {
       const fixture = requireHarness(harness);
-      const action = await fixture.run(PairedActionScenario.Success);
+      const action = await fixture.run(PairedActionScenario.Success, {
+        memory: true,
+      });
       const persistedState = await investigationFailureState(fixture);
 
       expect(
@@ -109,6 +114,46 @@ describeWithDatabase.sequential(
             },
           }),
         ]);
+
+      const witness = action.memoryWitness;
+      expect(witness).toBeDefined();
+      expect(witness!.turns.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(witness!.turns.map(({ purpose }) => purpose))).toEqual(
+        new Set(["discovery", "critic"]),
+      );
+      for (const turn of witness!.turns) {
+        expect(turn.serializedInputHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(turn.promptHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(turn.reviewContextPromptHash).toBe(
+          witness!.seedReviewPromptHash,
+        );
+        // Read from the actual app-server turn/start input, after transport serialization.
+        expect(turn.includesStatements).toEqual([true, true, true]);
+      }
+      const memoryReceipt =
+        await fixture.prisma.memoryKnowledgeBundleReceipt.findFirstOrThrow({
+          where: {
+            workspaceId: fixture.workspaceId,
+            snapshotHash: witness!.snapshotHash,
+          },
+        });
+      expect(memoryReceipt.receipt).toMatchObject({
+        contextPolicy: {
+          audience: "internal",
+          allowedTasks: ["review", "investigation"],
+        },
+      });
+      for (const { body } of audienceMemoryStatements)
+        expect(JSON.stringify(memoryReceipt.receipt)).not.toContain(body);
+      expect(leases.length).toBeGreaterThan(0);
+      for (const lease of leases) {
+        expect(lease.investigationManifestHash).toBe(
+          witness!.providerManifestHash,
+        );
+        expect(
+          JSON.parse(lease.investigationManifestCanonicalJson).memoryBundleHash,
+        ).toBe(witness!.snapshotHash);
+      }
 
       expect(investigation).toMatchObject({
         state: "concluded",

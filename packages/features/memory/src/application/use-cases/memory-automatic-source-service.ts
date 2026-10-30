@@ -1,0 +1,265 @@
+import type { MemorySourcePreviewPort } from "../ports/memory-source-preview-port";
+import { createHash } from "node:crypto";
+import {
+  normalizeMemoryBody,
+  createMemoryBodyHash,
+} from "../../domain/memory-body";
+import {
+  MemoryKnowledgeError,
+  automaticMemoryChildCommandId,
+  automaticMemoryCohortId,
+  memoryKnowledgeDigest,
+  memoryKnowledgeScopeKey,
+  type MemoryKnowledgeCommand,
+  type MemoryEntryRef,
+} from "../../domain/memory-knowledge";
+import type {
+  AutomaticMemoryLearningPort,
+  MemoryAutomaticSourceCurrentPort,
+  MemoryAutomaticSourceInput,
+  MemoryAutomaticSourceStore,
+  MemoryAutomaticLearningResult,
+} from "../ports/memory-automatic-source-port";
+import type { MemoryRequestControls } from "../ports/memory-knowledge-provider-port";
+import type { MemoryKnowledgeService } from "./memory-knowledge-service";
+
+/** Semantic selection belongs to the native engine; this owner only coordinates authority and exact delivery. */
+export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort {
+  constructor(
+    private readonly dependencies: {
+      readonly preview: MemorySourcePreviewPort;
+      readonly current: MemoryAutomaticSourceCurrentPort;
+      readonly sources: MemoryAutomaticSourceStore;
+      readonly knowledge: MemoryKnowledgeService;
+      readonly generation: string;
+      readonly providerProfileVersion: string;
+      readonly now?: () => Date;
+    },
+  ) {}
+  private now() {
+    return this.dependencies.now?.() ?? new Date();
+  }
+  async learn(
+    input: MemoryAutomaticSourceInput,
+    controls: MemoryRequestControls,
+  ): Promise<MemoryAutomaticLearningResult> {
+    const cohortId = automaticMemoryCohortId(input.processingId);
+    const outcome = (
+      state: MemoryAutomaticLearningResult["state"],
+      entryIds: readonly string[] = [],
+      operations: MemoryAutomaticLearningResult["operations"] = [],
+    ): MemoryAutomaticLearningResult => ({
+      state,
+      cohortId,
+      entryIds,
+      operations,
+    });
+    memoryKnowledgeScopeKey(input.scope);
+    if (
+      input.source.type !== "github_comment" ||
+      input.source.repositoryId !== input.scope.repositoryId ||
+      input.sourceActor.kind !== "github_user" ||
+      !input.policyRevision ||
+      !input.processingId ||
+      !input.threadDigest ||
+      !input.selectableBody ||
+      input.source.observedCommitSha !== input.headSha ||
+      !/^[0-9a-f]{40,64}$/i.test(input.headSha) ||
+      createHash("sha256")
+        .update(input.selectableBody, "utf8")
+        .digest("hex") !== input.source.claimedBodyDigest
+    )
+      throw new MemoryKnowledgeError("invalid_input");
+    const prior = await this.dependencies.sources.lookup(
+      input.scope,
+      input.source.sourceId,
+    );
+    if (prior?.suppressed) return outcome("suppressed", prior.entryIds);
+    // Replay restores existing durable effects and never consumes another native inference.
+    if (
+      prior &&
+      prior.state !== "unselected" &&
+      prior.binding.cohortId === cohortId
+    ) {
+      return (
+        (await this.dependencies.knowledge.automaticOperations(
+          {
+            actor: input.sourceActor,
+            scope: input.scope,
+            sourceId: input.source.sourceId,
+            processingId: input.processingId,
+          },
+          controls,
+        )) ?? outcome("needs_refresh", prior.entryIds)
+      );
+    }
+    await this.dependencies.knowledge.authorizeAutomaticSource(
+      input.sourceActor,
+      input.scope,
+      controls,
+    );
+    const current = () =>
+      this.dependencies.current.current(
+        {
+          scope: input.scope,
+          source: input.source,
+          binding: {
+            policyRevision: input.policyRevision,
+            sourceActorId: input.sourceActor.id,
+            observedCommitSha: input.headSha,
+          },
+        },
+        controls,
+      );
+    if (!(await current())) return outcome("needs_refresh");
+    // An old accepted source may observe a newer cursor after its earlier host check.
+    // It may mutate only the cursor it observed, after proving its own revision current.
+    if (
+      prior &&
+      prior.state !== "unselected" &&
+      prior.source.revision !== input.source.revision
+    )
+      await this.dependencies.sources.invalidate({
+        scope: input.scope,
+        sourceId: input.source.sourceId,
+        cause: "changed",
+        expectedBinding: prior.binding,
+        now: this.now(),
+      });
+    const expectedPrior = await this.dependencies.sources.lookup(
+      input.scope,
+      input.source.sourceId,
+    );
+    if (expectedPrior?.suppressed)
+      return outcome("suppressed", expectedPrior.entryIds);
+    if (
+      expectedPrior?.binding.cohortId !== prior?.binding.cohortId ||
+      expectedPrior?.binding.sourceRevision !== prior?.binding.sourceRevision
+    )
+      return outcome("needs_refresh");
+    const selected = await this.dependencies.preview.preview(
+      {
+        scope: memoryKnowledgeScopeKey(input.scope),
+        source: {
+          id: input.source.sourceId,
+          revision: input.source.revision,
+          body: input.selectableBody,
+        },
+        maxStatements: 4,
+      },
+      controls,
+    );
+    if (selected.status !== "complete")
+      return outcome(
+        selected.status === "unsupported" ? "unavailable" : "needs_refresh",
+      );
+    if (
+      selected.source.id !== input.source.sourceId ||
+      selected.source.revision !== input.source.revision ||
+      selected.statements.length > 4 ||
+      selected.statements.some(
+        (s) =>
+          !s.body.trim() ||
+          s.body.length > 1000 ||
+          s.body !== normalizeMemoryBody(s.body),
+      )
+    )
+      return outcome("needs_refresh");
+    if (!(await current())) return outcome("needs_refresh");
+    const ids = selected.statements.map(
+      (_, i) =>
+        `auto_${memoryKnowledgeDigest([input.processingId, i]).slice(0, 48)}`,
+    );
+    const approval = {
+      actor: input.sourceActor,
+      approvedAt: this.now().toISOString(),
+      authorityRevision: `automatic:${input.policyRevision}`,
+    };
+    const retirements = [];
+    // Withdrawn old children use the existing CAS/retire owner. Ownership transfer wins a race.
+    if (prior && prior.state !== "unselected")
+      for (const entryId of prior.entryIds) {
+        const ref: MemoryEntryRef = {
+          type: "entry",
+          scope: input.scope,
+          entryId,
+        };
+        const entry = await this.dependencies.knowledge.metadata(ref);
+        if (
+          !entry?.automaticSource ||
+          entry.automaticSource.cohortId !== prior.binding.cohortId
+        )
+          continue;
+        retirements.push({
+          command: {
+            kind: "retire" as const,
+            commandId: automaticMemoryChildCommandId(
+              input.processingId,
+              entryId,
+            ),
+            ref,
+            expectedRevision: entry.revision,
+            generation: this.dependencies.generation,
+            providerProfileVersion: this.dependencies.providerProfileVersion,
+            approval,
+          },
+          binding: prior.binding,
+        });
+      }
+    const children = [];
+    for (const [index, statement] of selected.statements.entries()) {
+      const ref: MemoryEntryRef = {
+        type: "entry",
+        scope: input.scope,
+        entryId: ids[index]!,
+      };
+      const command: Extract<MemoryKnowledgeCommand, { kind: "save" }> = {
+        kind: "save",
+        commandId: automaticMemoryChildCommandId(input.processingId, index),
+        ref,
+        expectedRevision: null,
+        generation: this.dependencies.generation,
+        providerProfileVersion: this.dependencies.providerProfileVersion,
+        approval,
+        body: statement.body,
+        knowledgeKind: "observation",
+        topicIds: [],
+        source: input.source,
+        applicability: {
+          validUntil: null,
+          observedCommitSha: input.headSha,
+          exceptionRule: null,
+        },
+        temporalMode: "preserve_original",
+      };
+      children.push(command);
+    }
+    const reserved = await this.dependencies.knowledge.admitAutomaticSelection(
+      {
+        reservation: {
+          input,
+          generation: this.dependencies.generation,
+          expectedPriorEpoch: expectedPrior?.binding.epoch ?? null,
+          entryIds: ids,
+          bodyDigests: selected.statements.map((s) =>
+            createMemoryBodyHash(s.body),
+          ),
+          now: this.now(),
+        },
+        children,
+        retirements,
+      },
+      controls,
+    );
+    if (reserved.source.suppressed) return outcome("suppressed");
+    return outcome(ids.length ? "queued" : "active", ids, reserved.operations);
+  }
+  async revoke(
+    input: Parameters<AutomaticMemoryLearningPort["revoke"]>[0],
+    controls: MemoryRequestControls,
+  ): Promise<void> {
+    if (controls.signal?.aborted || this.now() >= controls.deadlineAt)
+      throw new MemoryKnowledgeError("deadline_exceeded");
+    await this.dependencies.sources.invalidate({ ...input, now: this.now() });
+  }
+}

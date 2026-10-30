@@ -67,7 +67,8 @@ jobs:
       ACCOUNTS_REFERENCE_E2E_GREP: Skills real Next
       DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/accounts-reference-e2e/browser-cache
-      NODE_OPTIONS: --max-old-space-size=3072
+      # Leave headroom for the large dev graph; keep navigation budgets unchanged.
+      NODE_OPTIONS: --max-old-space-size=4096
       NEXT_TELEMETRY_DISABLED: "1"
       TZ: UTC
     steps:

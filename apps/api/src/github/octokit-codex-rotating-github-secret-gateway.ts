@@ -3,6 +3,7 @@ import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import {
   ManagedReviewV2WorkflowInventory,
   readManagedReviewRouterCallerSource,
+  readAccountGatewayInteractionCallerSource,
 } from "@reviewrouter/features-workflow-provisioning";
 import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
 import { App } from "@octokit/app";
@@ -122,6 +123,7 @@ export class OctokitCodexRotatingGitHubSecretGateway
   private readonly app: App;
   private readonly expectedApiUrl: string;
   private readonly trustedActionRefs: ReadonlySet<string>;
+  private readonly gatewayInteractionRuntimeSha: string | undefined;
   private readonly secretPut: OneShotGitHubSecretPut;
   private readonly secretPutBaseUrl: string;
   private readonly secretPutTimeoutMs: number;
@@ -131,11 +133,18 @@ export class OctokitCodexRotatingGitHubSecretGateway
     readonly privateKey: string;
     readonly expectedApiUrl: string;
     readonly trustedActionRefs?: readonly string[];
+    readonly gatewayInteractionRuntimeSha?: string;
     readonly secretPut?: OneShotGitHubSecretPut;
     readonly secretPutBaseUrl?: string;
     readonly secretPutTimeoutMs?: number;
   }) {
     this.expectedApiUrl = normalizeWorkflowApiUrl(options.expectedApiUrl);
+    if (
+      options.gatewayInteractionRuntimeSha !== undefined &&
+      !/^[a-f0-9]{40}$/.test(options.gatewayInteractionRuntimeSha)
+    )
+      throw new Error("gateway_interaction_profile_unqualified");
+    this.gatewayInteractionRuntimeSha = options.gatewayInteractionRuntimeSha;
     this.app = new App({
       appId: options.appId,
       privateKey: options.privateKey,
@@ -712,6 +721,23 @@ export class OctokitCodexRotatingGitHubSecretGateway
         };
       } catch {
         return { compatible: false };
+      }
+    }
+    if (
+      input.workflowPath === managedInteractionWorkflowPath &&
+      claimedWorkflow &&
+      this.gatewayInteractionRuntimeSha
+    ) {
+      try {
+        const caller =
+          readAccountGatewayInteractionCallerSource(claimedWorkflow);
+        if (
+          caller.runtimeSha === this.gatewayInteractionRuntimeSha &&
+          reviewRouterApiUrlsMatch(caller.apiUrl, this.expectedApiUrl)
+        )
+          return { compatible: true };
+      } catch {
+        /* Existing Codex profiles retain their own exact source checks. */
       }
     }
     if (!codexWorkflow) {

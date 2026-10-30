@@ -46,6 +46,8 @@ const full = currentFull
       row.migrationName !== "000145_workspace_provider_profiles" &&
       row.migrationName !== "000154_unified_model_dispatch" &&
       row.migrationName !== "000152_review_run_gateway_allocations" &&
+      row.migrationName !== "000152_memory_automatic_source" &&
+      row.migrationName !== "000153_conversation_processing" &&
       row.migrationName !== "000151_review_history" &&
       row.migrationName !== "000150_skills_catalog_security" &&
       row.migrationName !== "000149_api_key_repository_secret_profiles" &&
@@ -195,6 +197,22 @@ describe("trusted historical96 checkout reader", () => {
     {
       checkout: currentFull.filter(
         (row) =>
+          row.migrationName !== "000152_memory_automatic_source" &&
+          row.migrationName !== "000153_conversation_processing",
+      ),
+    },
+    {
+      checkout: currentFull.filter(
+        (row) =>
+          row.migrationName !== "000154_unified_model_dispatch" &&
+          row.migrationName !== "000152_review_run_gateway_allocations" &&
+          row.migrationName !== "000152_memory_automatic_source" &&
+          row.migrationName !== "000153_conversation_processing",
+      ),
+    },
+    {
+      checkout: currentFull.filter(
+        (row) =>
           row.migrationName !== "000131_personal_canonical_unentered_claim" &&
           row.migrationName !== "000132_review_policy_schema_v3" &&
           row.migrationName !== "000136_provider_usage" &&
@@ -211,6 +229,8 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000145_workspace_provider_profiles" &&
           row.migrationName !== "000154_unified_model_dispatch" &&
           row.migrationName !== "000152_review_run_gateway_allocations" &&
+          row.migrationName !== "000152_memory_automatic_source" &&
+          row.migrationName !== "000153_conversation_processing" &&
           row.migrationName !== "000151_review_history" &&
           row.migrationName !== "000150_skills_catalog_security" &&
           row.migrationName !== "000149_api_key_repository_secret_profiles" &&
@@ -244,6 +264,8 @@ describe("trusted historical96 checkout reader", () => {
           row.migrationName !== "000145_workspace_provider_profiles" &&
           row.migrationName !== "000154_unified_model_dispatch" &&
           row.migrationName !== "000152_review_run_gateway_allocations" &&
+          row.migrationName !== "000152_memory_automatic_source" &&
+          row.migrationName !== "000153_conversation_processing" &&
           row.migrationName !== "000151_review_history" &&
           row.migrationName !== "000150_skills_catalog_security" &&
           row.migrationName !== "000149_api_key_repository_secret_profiles" &&

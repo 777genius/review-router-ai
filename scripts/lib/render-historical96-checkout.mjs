@@ -65,7 +65,9 @@ const checkoutOnlyMigrations = Object.freeze([
   "000149_api_key_repository_secret_profiles",
   "000150_skills_catalog_security",
   "000151_review_history",
+  "000152_memory_automatic_source",
   "000152_review_run_gateway_allocations",
+  "000153_conversation_processing",
   "000154_unified_model_dispatch",
 ]);
 
@@ -85,7 +87,7 @@ export function readRenderHistorical96CheckoutInventory() {
       111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
       126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
       141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155,
-      156,
+      156, 157, 158,
     ].includes(
       checkout.filter(
         (row) =>

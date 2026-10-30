@@ -11,6 +11,26 @@ never reconstructed from Router's database.
 and the [private Hindsight runbook](../../../deploy/hindsight/README.md) define
 ownership, qualification and activation requirements.
 
+## Default enablement
+
+Web, API and worker automatically select Hindsight when its private URL or API
+key is configured and `REVIEW_ROUTER_MEMORY_PROVIDER` is unset or blank. The
+complete URL, key, namespace and exact qualified profile are still required;
+partial configuration fails validation. Empty development/build environments
+start without memory. Setting `REVIEW_ROUTER_MEMORY_PROVIDER=disabled` remains
+an explicit opt-out, including for deployments that previously set this value.
+
+The service flag and eligible workspace policy already default to enabled.
+`REVIEW_ROUTER_MEMORY_ENABLED=false` pauses new usage while retaining the
+configured provider for cleanup. Runtime retrieval failures still produce an
+empty memory bundle without blocking ordinary reviews. Use the same provider,
+namespace, generation and profile on all three hosts.
+
+The local, production/staging and self-hosted environment templates expose this
+same configuration. They do not provision Hindsight or qualify a deployment;
+native activation, inference configuration and existing-data disposition remain
+subject to the private runbook above. Explicit deployment opt-outs are preserved.
+
 ## Public boundary
 
 `@reviewrouter/features-memory` exports domain/application contracts, policy,
@@ -104,3 +124,28 @@ worker and obsolete UI have been removed. Historical migrations and old data and
 receipt tables remain for explicit migration, remote cleanup and audit review.
 They are not a runtime content source. A new provider generation does not prove
 old remote data was physically deleted.
+
+## Conversation source authority (2026-10-29 refinement)
+
+Automatic observations still require no per-fact Save: a qualified native engine
+selects useful information from a verified human maintainer's new source revision.
+The selection port no longer accepts the mixed-author thread, recalled bodies or
+code as an auxiliary prompt. Full chronology remains available for replies through
+the existing selected-account inference, not as additional write authority.
+
+Natural-language rule/exception/update/retire/forget/relearn output is a **proposal**.
+The conversation owner renders the complete action as a standalone confirmation
+and compares it with the verified latest maintainer source. The exact kind, body,
+target and target revision must match. The real mutation adapter repeats that same
+shared owner check before reaching permission/CAS/command persistence. A valid
+existing confirmation executes without an extra confirmation turn. Otherwise the
+response explicitly says that the proposed change was not applied. This is not a
+second classifier, another model call, a semantic-overlap check or a new ledger.
+
+English and Russian confirmations are supported, for example `Remember rule: Use
+pnpm.`, `Запомни правило: Use pnpm.`, `Update mem_example@2: Use Vitest.` and
+`Забудь mem_example@2`. Automatic learning remains separate from this explicit
+mutation confirmation. Existing slash commands and dashboard commands retain their
+own established authority paths. See the [security refinement](../../../ai-docs/plans/2026-10-29-memory-source-authority.md)
+for limits and the [deployment task](../../../ai-docs/deployments/2026-10-29-conversational-memory.md)
+for live qualification; passing fixture tests does not activate the feature.

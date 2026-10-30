@@ -98,6 +98,7 @@ import {
   loadConfiguredInvestigationPrivateMaterial,
   NodeSha256InvestigationDigest,
   PrismaInvestigationStore,
+  type PrismaInvestigationStoreOptions,
 } from "@reviewrouter/features-review-investigations/composition";
 import {
   InvestigationRolloutCapability,
@@ -528,6 +529,7 @@ export function composeReviewActionV2ProductionRunControl(input: {
 export function composeReviewActionV2ProductionRoutes(input: {
   readonly historyWriter?: HistoryCapture;
   readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
+  readonly investigationMemoryInputAdmission?: PrismaInvestigationStoreOptions["inputAdmission"];
   readonly enabled: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly runtime: ReviewActionV2RouteRuntime;
@@ -795,6 +797,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
   );
   const investigationStore = new PrismaInvestigationStore(input.prisma, {
     operationalRetentionMs: productionTiming.retentionDurationMs,
+    ...(input.investigationMemoryInputAdmission
+      ? { inputAdmission: input.investigationMemoryInputAdmission }
+      : {}),
   });
   const investigationTerminalTelemetry =
     composePrismaReviewInvestigationTerminalTelemetry({

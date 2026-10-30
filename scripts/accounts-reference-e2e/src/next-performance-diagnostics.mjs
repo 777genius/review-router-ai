@@ -2,6 +2,7 @@ import { appendFileSync } from "node:fs";
 import { freemem, loadavg } from "node:os";
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import { setInterval } from "node:timers";
+import { getHeapStatistics } from "node:v8";
 
 // Test-owned Next process diagnostics only. No paths, SQL, tokens, or request data.
 const logPath = process.env.REVIEW_ROUTER_E2E_NEXT_PERF_LOG;
@@ -21,6 +22,8 @@ if (logPath) {
       pid: process.pid,
       cpuPct: Math.round((cpuMs / elapsedMs) * 1000) / 10,
       rssMiB: Math.round(process.memoryUsage().rss / 1048576),
+      heapUsedMiB: Math.round(process.memoryUsage().heapUsed / 1048576),
+      heapLimitMiB: Math.round(getHeapStatistics().heap_size_limit / 1048576),
       freeMiB: Math.round(freemem() / 1048576),
       load1: Math.round(loadavg()[0] * 100) / 100,
       loopP99Ms: Math.round(delays.percentile(99) / 100000) / 10,

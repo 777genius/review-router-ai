@@ -1,4 +1,5 @@
 import { seedSkillsFixtures } from "./skills-fixtures.ts";
+import { warmNextClientScripts } from "./warm-next-client-scripts.ts";
 import { seedReviewRuntimeFixtures } from "./review-runtime-fixture.ts";
 import { startSkillCatalogFixture } from "./skill-catalog-fixture.ts";
 import { seedSkillsReadinessFixtures } from "./skills-readiness-fixture.ts";
@@ -337,26 +338,38 @@ async function verifyBoot(
     checks.push("runtime-readiness-authenticated-render-warmed");
   }
   if (process.argv.includes("--skills-fixture")) {
-    // Compile the authenticated Skills route during bounded fixture setup;
+    // Warm both authenticated Skills entry points during bounded fixture setup;
     // browser navigation and acceptance assertions retain their own timeouts.
-    const skills = await fetch(
-      `${appUrl}/dashboard?section=skills&workspace=rr-e2e-personal-viewer`,
-      {
-        headers: { cookie: viewerCookie },
-        redirect: "manual",
-        signal: AbortSignal.timeout(120_000),
-      },
-    );
-    const skillsHtml = await skills.text();
-    if (
-      skills.status !== 200 ||
-      skillsHtml.includes("NEXT_REDIRECT") ||
-      !/<h2\b[^>]*\bid="review-skills-title"[^>]*>\s*Skills\s*<\/h2>/u.test(
-        skillsHtml,
+    const warmedScripts = new Set<string>();
+    for (const [section, ready] of [
+      [
+        "skills",
+        /<h2\b[^>]*\bid="review-skills-title"[^>]*>\s*Skills\s*<\/h2>/u,
+      ],
+      ["repositories", /<section\b[^>]*\bdata-repository-live-search\b/u],
+    ] as const) {
+      const signal = AbortSignal.timeout(120_000);
+      const response = await fetch(
+        `${appUrl}/dashboard?section=${section}&workspace=rr-e2e-personal-viewer`,
+        {
+          headers: { cookie: viewerCookie },
+          redirect: "manual",
+          signal,
+        },
+      );
+      const html = await response.text();
+      if (
+        response.status !== 200 ||
+        html.includes("NEXT_REDIRECT") ||
+        !ready.test(html)
       )
-    )
-      throw new Error("accounts_reference_e2e_skills_warmup_not_authorized");
-    checks.push("skills-authenticated-render-warmed");
+        throw new Error(
+          `accounts_reference_e2e_${section}_warmup_not_authorized`,
+        );
+      checks.push(`${section}-authenticated-render-warmed`);
+      await warmNextClientScripts(html, appUrl, signal, warmedScripts);
+      checks.push(`${section}-client-scripts-warmed`);
+    }
   }
   return { ok: true, checks };
 }

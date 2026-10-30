@@ -3,21 +3,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import Fastify from "fastify";
 import { expect, it } from "vitest";
-import type { Prisma } from "@prisma/client";
+import { memoryKnowledgeCommandDigest } from "../../packages/features/memory/src/index.js";
 import {
-  MemoryKnowledgeService,
-  createMemoryBodyHash,
-  defaultMemoryPolicyConfig,
-  memoryKnowledgeCommandDigest,
-  memoryKnowledgeScopeKey,
-  memoryKnowledgeTopicsDigest,
-  type MemoryKnowledgeEntryMetadata,
-  type MemoryKnowledgeReader,
-  type MemoryProviderEntry,
-} from "../../packages/features/memory/src/index.js";
-import { PrismaMemoryKnowledgeStore } from "../../packages/features/memory/src/infrastructure/index.js";
-import type { MemoryKnowledgeRuntime } from "../../packages/features/memory/src/composition/index.js";
-import { UnlimitedMemoryQuotaPolicy } from "../../packages/features/memory/src/application/ports/memory-quota-policy-port.js";
+  createApprovedMemoryFixture,
+  cleanupApprovedMemoryFixture,
+} from "./support/approved-memory-fixture.js";
 import {
   registerReviewExecutionV2Routes,
   registerReviewEvidenceV2Routes,
@@ -89,147 +79,14 @@ const hash = (value: string) =>
       const authorization = protocol.projectReviewRunAuthorization(
         receipt.result,
       );
-      const scope = {
-        kind: "repository" as const,
+      const approved = await createApprovedMemoryFixture({
+        prisma: fixture.prisma,
         workspaceId: fixture.workspaceId,
         repositoryId: fixture.repositoryConnectionId,
-      };
-      const now = new Date();
-      const body =
-        "Use UTC for persisted event timestamps. Публичный контракт времени.";
-      const ref = {
-        type: "entry" as const,
-        scope,
-        entryId: `mem_${randomUUID().replaceAll("-", "")}`,
-      };
-      const actor = {
-        kind: "workspace_user" as const,
-        id: "synthetic-approved-owner",
-        githubUserId: null,
-        login: null,
-      };
-      const approval = {
-        actor,
-        approvedAt: now.toISOString(),
-        authorityRevision: "synthetic-owner-approval-v1",
-      };
-      const metadata: MemoryKnowledgeEntryMetadata = {
-        ref,
         generation,
-        revision: "1",
-        contentApprovalRevision: "1",
-        bodyDigest: createMemoryBodyHash(body),
-        topicsDigest: memoryKnowledgeTopicsDigest([]),
-        kind: "rule",
-        lifecycle: "active",
-        approval,
-        source: {
-          type: "manual",
-          sourceId: "synthetic-approved-statement",
-          revision: "1",
-          updatedAt: now.toISOString(),
-          statementAt: now.toISOString(),
-          repositoryId: fixture.repositoryConnectionId,
-          pullRequestNumber: null,
-          url: null,
-          visibility: "private",
-          claimedBodyDigest: null,
-          observedCommitSha: null,
-        },
-        applicability: {
-          validUntil: null,
-          observedCommitSha: null,
-          exceptionRule: null,
-        },
-        originalStatementAt: now.toISOString(),
-        lastVerifiedAt: now.toISOString(),
-        pendingCommandId: null,
-        revocationCommandId: null,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      };
-      const entry: MemoryProviderEntry = {
-        ref,
-        body,
-        bodyDigest: metadata.bodyDigest!,
-        contentApprovalRevision: "1",
-        kind: "rule",
-        topicIds: [],
-        statementAt: now.toISOString(),
-        sourceFactIds: ["synthetic-native-fact"],
-      };
-      const store = new PrismaMemoryKnowledgeStore(fixture.prisma);
-      const reader: MemoryKnowledgeReader = {
-        read: async (selected) =>
-          selected.entryId === ref.entryId &&
-          memoryKnowledgeScopeKey(selected.scope) ===
-            memoryKnowledgeScopeKey(scope)
-            ? entry
-            : null,
-        list: async () => ({ entries: [entry], nextCursor: null }),
-        recall: async (input) =>
-          memoryKnowledgeScopeKey(input.scope) ===
-          memoryKnowledgeScopeKey(scope)
-            ? [{ type: "entry", entry }]
-            : [],
-      };
-      const policy = { getPolicy: async () => defaultMemoryPolicyConfig };
-      const unavailable = async (): Promise<never> => {
-        throw new Error("paired_reader_fixture_never_delivers_provider_writes");
-      };
-      const runtime: MemoryKnowledgeRuntime = {
-        enabled: true,
-        generation,
-        providerProfileVersion: "paired-approved-source-v1",
-        store,
-        policy,
-        cleanupProof: null,
-        forAccess: (access) =>
-          new MemoryKnowledgeService({
-            generation,
-            providerProfileVersion: "paired-approved-source-v1",
-            store,
-            reader,
-            writer: { submit: unavailable },
-            observer: { observe: unavailable },
-            access,
-            policy,
-            quota: new UnlimitedMemoryQuotaPolicy(),
-          }),
-      };
-      // Normal command admission creates this row before any entry is active.
-      // This test seeds an already approved entry, so seed its same fence too.
-      await fixture.prisma.memoryKnowledgeMaintenanceFence.create({
-        data: {
-          generation,
-          epoch: 0n,
-          paused: false,
-          actor: "synthetic-approved-fixture",
-        },
       });
-      for (const selected of [
-        { kind: "workspace" as const, workspaceId: fixture.workspaceId },
-        scope,
-      ])
-        await fixture.prisma.memoryKnowledgeScopeState.create({
-          data: {
-            generation,
-            scopeKey: memoryKnowledgeScopeKey(selected),
-            workspaceId: fixture.workspaceId,
-            epoch: 1n,
-          },
-        });
-      await fixture.prisma.memoryKnowledgeEntry.create({
-        data: {
-          generation,
-          scopeKey: memoryKnowledgeScopeKey(scope),
-          workspaceId: fixture.workspaceId,
-          entryId: ref.entryId,
-          revision: 1,
-          lifecycle: "active",
-          metadata: metadata as unknown as Prisma.InputJsonValue,
-        },
-      });
+      const { runtime, store, approval } = approved;
+      const { body, ref } = approved.entries[0]!;
 
       const routes = composeReviewActionV2ProductionRoutes({
         enabled: true,
@@ -589,21 +446,11 @@ const hash = (value: string) =>
       });
     } finally {
       await app.close();
-      await fixture.prisma.memoryKnowledgeBundleReceipt.deleteMany({
-        where: { workspaceId: fixture.workspaceId },
-      });
-      await fixture.prisma.memoryKnowledgeCommand.deleteMany({
-        where: { generation },
-      });
-      await fixture.prisma.memoryKnowledgeEntry.deleteMany({
-        where: { generation },
-      });
-      await fixture.prisma.memoryKnowledgeScopeState.deleteMany({
-        where: { generation },
-      });
-      await fixture.prisma.memoryKnowledgeMaintenanceFence.deleteMany({
-        where: { generation },
-      });
+      await cleanupApprovedMemoryFixture(
+        fixture.prisma,
+        generation,
+        fixture.workspaceId,
+      );
       await fixture.close();
       await resetReviewActionV2E2EDatabase(databaseUrl!);
     }

@@ -943,6 +943,9 @@ jobs:
       - name: Backup restore smoke test
         run: pnpm db:restore:smoke
 
+      - name: Build portable memory runtime
+        run: pnpm --filter context-memory build
+
       - name: Webhook lifecycle DB E2E
         run: node scripts/run-with-env.mjs pnpm spike:webhook-lifecycle:e2e
 

@@ -766,11 +766,15 @@ lifecycleCase.each([
         native.facts.headSha,
       );
       expect(prompt.revalidationTargets).toHaveLength(4);
-      expect(
-        prompt.revalidationTargets.map(
-          (target: { parentEdited: boolean }) => target.parentEdited,
-        ),
-      ).toEqual([false, false, false, false]);
+      // Published and never edited: missing GitHub edit metadata must not
+      // accidentally turn this positive-path fixture into manual-only work.
+      for (const target of prompt.revalidationTargets) {
+        expect(target).toMatchObject({
+          trusted: true,
+          parentEdited: false,
+          markerAmbiguous: false,
+        });
+      }
       // Submitting a pending review advances native publication/update time
       // without a body edit; the released inventory must preserve eligibility.
       expect(

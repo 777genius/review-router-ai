@@ -27,7 +27,7 @@
     "skills:tooling:prepare": "npx --yes pnpm@11.25.0 --dir scripts/review-skills-tooling install --ignore-scripts --frozen-lockfile",
     "skills:test": "vitest run packages/shared/src/review-skills-contract.test.ts packages/features/review-skills/src/tests scripts/review-skills-runtime-grants.test.ts scripts/review-skills-runtime-acl.postgres.test.ts",
     "typecheck": "turbo run typecheck && tsc --noEmit -p tsconfig.spikes.json && tsc --noEmit -p tsconfig.one-shot-test-handoff.json && node scripts/local-checks/compiler-cli.ts --legacy --noEmit -p tsconfig.tooling.json",
-    "test": "vitest run",
+    "test": "vitest run && node --import tsx --test scripts/conversation-evals/eval-risk.test.ts",
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "postinstall": "node scripts/prepare-pinned-subscription-runtime.ts && pnpm db:generate && pnpm compiler:prepare",
