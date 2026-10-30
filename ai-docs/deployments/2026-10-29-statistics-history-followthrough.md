@@ -18,10 +18,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                      |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Select and qualify the coherent release, then ordinary code rollout.      |
-| production           | `pending` | Not verified                    | Not verified        | Reconcile installed state and follow the release process when authorized. |
+| Environment / target | Status        | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                                                                                                                                            |
+| -------------------- | ------------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`     | Not verified                    | Not verified        | Select and qualify the coherent release, then ordinary code rollout.                                                                                                                            |
+| production           | `in_progress` | `533c040d` / image `e1578f75`   | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
 
 `pending` records the absence of rollout evidence for this task. PR checks,
 browser fixtures and a merge do not establish that an environment is deployed.
@@ -89,3 +89,7 @@ without treating one successful environment as evidence for another.
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Observed result                                                     | Evidence | Next action                                               |
 | ------------ | -------------------- | ---------- | ---------------------- | ------------------------------------------------------------------- | -------- | --------------------------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified           | Implementation and qualification in progress; no rollout attempted. | PR #743  | Complete implementation and select an authorized release. |
+
+## Evidence log
+
+2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
