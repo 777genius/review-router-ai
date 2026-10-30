@@ -33,7 +33,12 @@ The selected release must contain all six implementation directions:
 | F. Worker phase isolation              | Independent maintenance phases continue after another phase fails; failed/blocked work remains unavailable, publication/progress dependencies remain explicit, and degraded one-shot runs fail. |
 
 - Use the [release process](../operations/07-environments-and-release-management.md) and [quality gates](../operations/03-quality-gates.md). Check the selected release's actual CI, build, compiled runtime smoke and applicable release evidence; a local test run or green PR alone is not deployment evidence.
-- Source qualification at the implementation snapshot is recorded in the [plan](../plans/2026-10-30-architecture-reliability-refactor.md). Final build and full architecture qualification remain in progress in this record; the release owner must add their actual results before using them as release evidence.
+- Source qualification at the implementation snapshot is recorded in the [plan](../plans/2026-10-30-architecture-reliability-refactor.md). Full architecture qualification passed on the implementation snapshot. The PR's
+exact-head CI passed required Quality Gates, compiled API/worker smoke, web
+smoke, PostgreSQL contract checks, self-hosted E2E and hosted OCI image build.
+The optional private full PG16-to-PG17 rehearsal was skipped by its existing
+condition; its execution is not claimed. All results are source qualification,
+not proof that the release was deployed.
 - Existing database schema, configuration and enabled capabilities remain prerequisites. This task adds no migration, backfill, flag, credentials, deployed Action or review-workflow change, or activation command. Its CI environment wiring is recorded separately in the rollout checks and plan. Earlier pending cutovers in the selected release retain their own requirements.
 - During a mixed fleet, old identity writers do not honor the new cooperative identity lock, and old outbox consumers can still reserve serial batches and start stale handlers. Replace every relevant replica and drain old processes through the ordinary deployment lifecycle before claiming fleet-wide behavior. Include the Skills worker because it consumes the shared outbox processor.
 - Keep existing claim fencing, recovery, provider onboarding and App-authored publication contracts. Discovery is not mutation authority, and this rollout does not establish exactly-once external effects.

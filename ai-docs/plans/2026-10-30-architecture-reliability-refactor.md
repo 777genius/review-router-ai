@@ -2,9 +2,9 @@
 
 Date: 2026-10-30
 Baseline: `26e9726242b0deadbf1cb7aafade12e645934523`
-Status: six reviewed implementation directions committed in draft PR #747;
-integrated source regression complete, final build/full architecture qualification
-in progress; no deployment evidence.
+Status: six reviewed implementation directions committed in PR #747;
+source regression, full architecture gate and hosted CI qualification complete;
+merge review in progress, no staging or production deployment evidence.
 
 Implementation snapshot: [`dd5ddbf6c1f64762e501632474f07173b83e9c48`](https://github.com/777genius/review-router-ai/commit/dd5ddbf6c1f64762e501632474f07173b83e9c48).
 
@@ -363,14 +363,23 @@ Final scoped ESLint passed for 36 changed code files, Prettier passed for 39
 changed files and `git diff --check` passed. The release owner's local artifacts
 are `tmp/architecture-final-tests.json` and `tmp/architecture-final-tests.log`;
 they are local source-test evidence, not durable environment rollout receipts.
-Final production build, compiled runtime and full architecture-gate results
-remain pending in this record and must be bound to the actual tested revision
-when added. No aggregate is inferred from the earlier overlapping slice runs.
+Full `pnpm architecture:check` passed on the implementation snapshot, covering
+640 core-layer files, Foundation, Memory, Statistics and Review History gates.
+A sequential full local production build completed all 56 of 56 tasks; the
+compiled API health check returned `ok`, and the compiled worker's one-shot pass
+completed. Hosted CI independently passed its production build, compiled
+runtime smoke, web smoke and OCI image build, tied to the PR head. No aggregate
+is inferred from the earlier overlapping slice runs.
 
-Hosted CI for `dd5ddbf6` was still incomplete at `2026-10-30 16:28 UTC`: nine
-jobs succeeded, two were skipped, eleven remained active and none had failed
-at that observation. This is an interim [PR #747 checks](https://github.com/777genius/review-router-ai/pull/747/checks)
-snapshot, not a green-CI or release-gate claim.
+Hosted CI at documentation head `662f14809bcd3ad95a90c9ecab5bb0d50d08cd93`
+completed successfully: **13 required CI jobs succeeded** (including Quality
+Gates, DB Contracts and Migration Checks, Self-hosted E2E, Source and
+Certification, static checks and hosted runtime OCI build). The separate
+private PG16-to-PG17 full rehearsal job was skipped by its existing condition;
+no claim is made for that optional rehearsal. Other related acceptance
+workflows for Skills, OCR, Memory and Gateway also completed successfully.
+[PR #747 checks](https://github.com/777genius/review-router-ai/pull/747/checks)
+are source qualification, not proof of staging/production deployment.
 
 The [deployment task](../deployments/2026-10-30-architecture-reliability.md)
 records ordinary coherent Web/API/worker/Skills worker rollout. Staging and
