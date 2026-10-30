@@ -203,6 +203,9 @@ boundaries:
       - packages/features/provider-usage/src/application/ports.ts
       - packages/features/provider-usage/src/application/report-usage.ts
       - packages/features/provider-usage/src/application/redrive-usage-source.ts
+      - packages/features/provider-usage/src/application/usage-contribution.ts
+      - packages/features/provider-usage/src/application/usage-report-aggregate.ts
+      - packages/features/provider-usage/src/application/usage-totals.ts
     allow:
       boundaries:
         - usage.domain
@@ -213,12 +216,14 @@ boundaries:
     roots:
       - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-report.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-source-redrive.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
       - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
     entrypoints:
       - packages/features/provider-usage/src/infrastructure/prisma-operator-usage-report-reader.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
+      - packages/features/provider-usage/src/infrastructure/prisma-usage-report.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-source-redrive.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
       - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts

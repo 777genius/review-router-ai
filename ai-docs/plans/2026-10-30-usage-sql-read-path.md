@@ -168,23 +168,24 @@ edge cases so a cast or timestamp reconstruction cannot silently change results.
 
 ## File ownership and implementation checklist
 
-| Owner seam                                                                        | Bounded change                                                                                                       |
-| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `packages/features/provider-usage/src/domain/usage.ts`                            | Generic narrow selection input, unchanged selection policy.                                                          |
-| `src/application/usage-totals.ts` and a focused report aggregate module if needed | Profile classifier, typed aggregate contract, shared exact finalization; existing pure capability preserved.         |
-| `src/application/report-usage.ts`, `usage-overview.ts`, `ports.ts`                | Assemble existing DTOs, share ordering/finalization where useful; no Prisma imports or changed public query meaning. |
-| `src/infrastructure/` shared report adapter                                       | Structural scope, profile/family reads, SQL arithmetic, bounded pages, snapshot client; no second business policy.   |
-| `prisma-usage-store.ts`, `prisma-operator-usage-report-reader.ts`                 | Delegate reports; retain ingest, direct `read(q)`, operator authority and metadata behavior.                         |
-| Existing feature/server/API tests and `scripts/provider-usage-e2e/`               | Risk seam parity and opt-in SQL qualification; reuse browser harness.                                                |
-| `ai-docs/deployments/`                                                            | Implementation task plus index entry with both environments pending and actual verification/rollback requirements.   |
+| Owner seam                                                                                   | Bounded change                                                                                                       |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `packages/features/provider-usage/src/domain/usage.ts`                                       | Generic narrow selection input, unchanged selection policy.                                                          |
+| `src/application/usage-totals.ts` and a focused report aggregate module if needed            | Profile classifier, typed aggregate contract, shared exact finalization; existing pure capability preserved.         |
+| `src/application/report-usage.ts`, `usage-overview.ts`, `ports.ts`                           | Assemble existing DTOs, share ordering/finalization where useful; no Prisma imports or changed public query meaning. |
+| `src/infrastructure/` shared report adapter                                                  | Structural scope, profile/family reads, SQL arithmetic, bounded pages, snapshot client; no second business policy.   |
+| `prisma-usage-store.ts`, `prisma-operator-usage-report-reader.ts`                            | Delegate reports; retain ingest, direct `read(q)`, operator authority and metadata behavior.                         |
+| Existing feature/server/API tests and `scripts/provider-usage-e2e/`                          | Risk seam parity and opt-in SQL qualification; reuse browser harness.                                                |
+| `packages/platform/db/prisma/schema.prisma` and migration `000155_usage_member_report_index` | One measured member-scope index; no additional run/model indexes.                                                    |
+| `ai-docs/deployments/`                                                                       | Implementation task plus index entry with both environments pending and actual verification/rollback requirements.   |
 
-- [ ] Publish this plan before production changes; coordinator uses the GitHub
+- [x] Publish this plan before production changes; coordinator uses the GitHub
       plugin if CLI authentication is unavailable. Do not claim publication from
       a local file alone.
-- [ ] Independent SQL/accounting and architecture critics review the actual v2;
+- [x] Independent SQL/accounting and architecture critics review the actual v2;
       resolve their findings and record the accepted revision first.
-- [ ] Implement the shared policy contract, SQL path and both reader delegates.
-- [ ] Add only the risk seam tests below; inspect the diff for accidental scope.
+- [x] Implement the shared policy contract, SQL path and both reader delegates.
+- [x] Add only the risk seam tests below; inspect the diff for accidental scope.
 - [ ] Verify focused seams, migrated PG17, browser journey and required gates.
 - [ ] Record deployment task, measured evidence, independent implementation
       review, remaining limitations and final main/head/CI checks before merge.
@@ -192,6 +193,30 @@ edge cases so a cast or timestamp reconstruction cannot silently change results.
 Target estimate: 700–1,100 production lines and 350–600 test/qualification lines,
 tentative rather than a cap. Reassess complexity if exceeded; do not sacrifice
 semantics to meet an estimate or add a reporting framework to reuse one query.
+
+## Measured implementation refinements
+
+The real PostgreSQL qualification rejected the first SQL shape: per-observation
+JSON bucket expansion caused wide external sorts and exceeded the existing
+five-second transaction budget. The final adapter has six fixed native grouping
+branches sharing one arithmetic expression; it constructs JSON bucket keys only
+after aggregation. Profile discovery still returns the application profile and
+uses the one TS classifier; joins bind its fixed seven-field tuple rather than
+rebuilding nested JSON objects for every observation.
+
+Measured observation-page compilation also justified `set_config('jit','off',true)`
+inside the existing report transaction. It changes neither the pooled session
+nor global database configuration, and adds no environment setting. Qualification
+replays the actual scoped setting; it does not raise the production timeout.
+
+The before/after member probe then demonstrated six full scans for roughly
+100 authorized rows. One B-tree on `(workspaceId, actorId, occurredAt)` reduced
+the same report from 275.28 to 17.35 ms and narrowed each stage to those actor
+candidates. Migration `000155_usage_member_report_index` is a single unwrapped
+`CREATE INDEX CONCURRENTLY`; actual pinned Prisma migration rehearsal is a
+remaining release qualification gate. Separate run/model indexes remain outside
+this task. See the review journal and deployment record for actual evidence,
+index validity/recovery and the remaining full-period/family cardinality limits.
 
 ## Verification and acceptance
 

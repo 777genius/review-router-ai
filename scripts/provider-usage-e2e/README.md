@@ -14,9 +14,114 @@ One process compares the previous scan policy with the indexed selector on
 wrong-invocation, partial and unbounded families, with call order different from
 manifest order. It asserts equal results, warms both implementations once, then
 reports three serial timings, result counts, Node version and source hash. No
-wall-clock threshold gates CI. This measures selection only: reading the entire
-period (up to 366 days), JSON materialization and aggregation remain separate
-scaling work; output pagination does not bound those costs.
+wall-clock threshold gates CI. This measures selection only and excludes SQL,
+full-period JSON materialization and aggregation. The SQL qualification below
+measures that separate boundary; output pagination alone does not bound its costs.
+
+## Opt-in PostgreSQL report qualification
+
+The SQL read follow-up uses the existing migrated, disposable feature test
+database. Run this lane alone against a dedicated PostgreSQL 17 cluster; its
+setup/cleanup creates cluster-global `reviewrouter_*` roles, so do not overlap
+another migration or feature suite on that cluster:
+
+```sh
+USAGE_TEST_POSTGRES_ADMIN_URL=postgresql://USER@127.0.0.1:PORT/postgres \
+USAGE_SQL_QUALIFICATION=1 \
+pnpm exec vitest run packages/features/provider-usage/src/tests/prisma-usage-store.test.ts \
+  --testNamePattern 'qualifies bounded report reads and actual scan plans'
+```
+
+The helper seeds 100,000 ordinary in-period calls, 50,000 foreign tenant calls,
+50,000 older calls, a mixed 100-family period, and a separate 1,000-family heavy
+period. Full, sparse member/run/provider/model, and family-heavy cases assert
+independent token/attempt/run/cost arithmetic. A page of at most 25 full
+projections must retain complete-period totals across independent cursors.
+The actual report keeps its production transaction budget; this harness does
+not increase the default five-second Prisma interactive transaction timeout.
+After measured page compilation overhead, the report disables JIT only inside
+its own transaction. The server default stays enabled. New-report plan replays
+apply that exact captured setup in a short RepeatableRead transaction; baseline
+plans retain the default setting. Receipts identify which setting each plan used.
+
+Evidence goes to `tmp/usage-sql-followthrough/qualification/`: `result.json`
+records the exact source commit, tracked diff hash, and file-content manifest
+hash covering tracked **and untracked** feature code and Prisma schema/migrations.
+It records returned rows, JSON re-encoding bytes, hydration count and timings
+for each case. Baseline time
+includes the former full-projection SQL read, driver decoding and byte accounting;
+it excludes the old JS selection/aggregation, so it is not a full old/new latency
+comparison. Byte accounting excludes database protocol framing.
+
+Each actual SELECT/WITH statement, including the baseline, is separately executed
+with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`. Plans and summaries retain actual
+rows times loops, filtered/join/recheck removals, buffer hits/reads, temporary
+blocks and sort/hash spill details. Returned-row reduction alone cannot establish
+lower database scan work. There is no wall-clock CI threshold or production
+capacity claim. Summary manifests, facets/groups and grant-delivery coverage can
+still grow; this lane does not establish an `O(limit)` database scan.
+
+Small adversarial oracle parity, real concurrent-writer snapshot behavior and
+authorization remain in the same feature suite. The actual Next/Chromium Usage
+journey remains in the Accounts reference harness. This lane makes no live
+provider, installed Action/runtime, deployed API or production rollout claim.
+
+Measured on 2026-10-30 against PostgreSQL 17.11, default `work_mem=4MB` and
+server `jit=on`: all six cases and the additional independent-cursor request
+passed with the production five-second transaction budget. The full lane took
+43.41 seconds including seeding, separate plan executions and cleanup. Source
+commit was the published plan commit `3b481b00`; exact working feature bytes
+(including new modules) have content-manifest SHA256
+`ceecd7cd6b480291c2b649c8c5406f1b7bc914d89241d024fc0948cfca4b8b41`.
+
+| Case               | Baseline JSON bytes | New stage JSON bytes | Full projections hydrated | New report ms |
+| ------------------ | ------------------: | -------------------: | ------------------------: | ------------: |
+| Full               |         150,997,421 |              609,161 |                        25 |       3,675.8 |
+| Member             |             148,911 |               71,220 |                        25 |         286.2 |
+| Run                |             149,001 |               60,136 |                        25 |         251.5 |
+| Requested provider |         150,997,421 |              317,043 |                        10 |         569.2 |
+| Requested model    |         150,997,421 |              317,043 |                        10 |         658.3 |
+| Family heavy       |          17,323,161 |            3,353,701 |                        25 |       1,560.2 |
+
+Full-period JSON transfer fell 99.60%; family-heavy transfer fell 80.64%.
+Narrow metadata can increase returned row count: family-heavy stages returned
+10,612 rows versus 10,500 old full projections. This is bounded full-projection
+hydration and lower bytes, not a fixed bound on metadata/output cardinality.
+The full aggregate still scanned the underlying period and used 37,626 temporary
+read blocks/11,105 write blocks in its plan. Sparse member/run/model plans still
+scanned and removed most table rows; the existing provider index selected ten
+rows directly. These plans identify remaining selectivity work rather than
+proving less database scanning or faster requests for every scope. These numbers
+precede the single actor index justified by the comparison below; run/model
+selectivity work remains deferred for the less common admin query paths.
+
+Three earlier candidates failed the unchanged transaction budget, and a fourth
+completed its first page but failed the additional cursor request. Receipts/logs
+are retained as `attempt-01-*` through `attempt-04-*`; the successful receipt/log
+are `attempt-05-passed.*`, alongside actual per-statement plan JSON. The final
+native grouping, compact profile join key and measured transaction-local JIT
+setting address those concrete failures. No timeout increase made the lane pass.
+
+The accepted actor-index comparison used the same seeded database, report SQL,
+parameters, complete result and JIT setting before/after an index on
+`(workspaceId, actorId, occurredAt)`. Those equality assertions passed. Member
+report time fell from 275.28 to 17.35 ms. Six scans of roughly 211,550 table rows
+became scans of 100 actor candidates each; summed root buffer hits/reads across
+report statements fell from 97,090/213,798 to 734/0. Aggregate execution fell
+44.81 to 3.23 ms, with unchanged 71,220 JSON bytes and 25 hydrated projections.
+The disposable index built in 227 ms and occupied 2,793,472 bytes on this
+deduplication-friendly fixture; that does not predict production size/build time.
+Receipt and actual plans are in `tmp/usage-sql-followthrough/actor-index-probe/`.
+Migration `000155_usage_member_report_index` now installs this one proven index.
+
+For a reproducible comparison after migration, add
+`USAGE_SQL_ACTOR_INDEX_PROBE=1` to the same command. This lane validates the
+existing suite's exact `TEST_usage_<32 hex characters>` database name, drops only
+`UsageCall_workspaceId_actorId_occurredAt_idx` there, measures the member case,
+recreates that same index, then measures identical SQL/parameters/results again.
+Normal qualification retains the migrated index. The probe never alters an
+application database; the name guard runs before any seeding in both modes.
+All fixture data/indexes leave with suite cleanup.
 
 ## Joined transport and storage
 
