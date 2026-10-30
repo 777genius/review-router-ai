@@ -2,7 +2,11 @@
 
 Date: 2026-10-30
 Baseline: `26e9726242b0deadbf1cb7aafade12e645934523`
-Status: investigation and implementation plan; draft PR, not deployment evidence.
+Status: six reviewed implementation directions committed in draft PR #747;
+integrated source regression complete, final build/full architecture qualification
+in progress; no deployment evidence.
+
+Implementation snapshot: [`dd5ddbf6c1f64762e501632474f07173b83e9c48`](https://github.com/777genius/review-router-ai/commit/dd5ddbf6c1f64762e501632474f07173b83e9c48).
 
 ## Goal
 
@@ -27,7 +31,10 @@ Each finding needs source evidence, a credible failure scenario, an explicit
 owner, a bounded change and a test that can fail before the fix. A second agent
 reviews complex plans before implementation and reviews integrated changes.
 
-## Initial findings requiring implementation plans
+## Initial findings at the baseline
+
+This section preserves the investigation before implementation. The reviewed
+contracts and delivered outcomes below describe the selected implementation.
 
 ### A. Outbox claim ownership during serial execution
 
@@ -58,7 +65,7 @@ boundary. Workspace creation remains with its existing application owner.
 
 ### C. Web/API and dependency-boundary audit
 
-Investigation continues. Large files alone do not justify a rewrite. Select a
+The investigation continued beyond A/B. Large files alone do not justify a rewrite. Select a
 slice only after showing duplicated policy, insufficient boundary validation or
 an observable state/authorization failure. Record rejected candidates to avoid
 cosmetic fragmentation.
@@ -97,8 +104,9 @@ production deployment are not part of this request.
 - Baseline and open PRs inspected on 2026-10-30.
 - Maintained Engineering Quality Standard read through the selected GitHub
   connection; repository-specific adoption and pins remain authoritative.
-- Initial A/B findings are source-backed hypotheses awaiting independent plan
-  review and regression qualification.
+- Initial A/B hypotheses led to independently reviewed implementation contracts
+  and discriminating regressions. The outcomes below supersede their initial
+  investigation status.
 
 ## Reviewed implementation contract
 
@@ -181,22 +189,13 @@ diffs and preserve their unrelated behavior; reconcile against fresh main before
 final integration. This is file-level coordination, not a claim that those PRs'
 memory/OCR work is qualified by this task.
 
-## Additional prioritized findings
+## Disposition of additional findings
 
-These remain distinct candidates, not silently included promises:
-
-1. Worker maintenance chains can let one feature's failed recovery prevent
-   unrelated outbox/publication work. Any follow-up must preserve actual
-   publication/progress dependencies and report named failures.
-2. Publication due-work selection limits operations before filtering eligible
-   attempts, allowing a long prefix of expired candidates to starve healthy
-   work. Correct eligibility belongs before LIMIT in its owning adapter.
-3. GitLab inventory installation persists multiple changes without one
-   transaction/generation owner. It needs separate inventory race/rollback
-   qualification, not a cosmetic extraction from a large server file.
-4. Some older public feature barrels mix policy and adapters, and the legacy
-   boundary checker recognizes only top-level domain/application paths.
-   Extend enforcement only after inventorying real consumers and violations.
+Publication eligibility became slice D, nested-layer classification became
+slice E, and cross-owner worker phase isolation became slice F. Their reviewed
+contracts and current source outcomes are recorded below. GitLab inventory
+atomicity, public-barrel transitive imports and per-item publication failure
+remain explicit debt rather than implied delivery promises.
 
 The codebase's existing ports, CAS, tenant guards and feature packages are useful
 counterevidence. File size, class count or a preference for a pattern is not
@@ -272,9 +271,10 @@ dependency certification.
   failed against the original use cases. Feature typecheck, official native web
   typecheck, changed-code lint and architecture checks passed.
 
-These are scoped implementation results, not a claim that every repository gate,
-live OAuth/provider flow or deployment has completed. Integrated checks and the
-second batch remain in progress.
+These historical slice counts describe overlapping focused runs and must not be
+added together. They are scoped implementation results, not proof that every
+repository gate, live OAuth/provider flow or deployment has completed. Current
+integrated evidence and remaining qualification are recorded below.
 
 ### F. Worker phase failure isolation
 
@@ -319,3 +319,82 @@ exact serial ordering, successful counters after unrelated failure, unavailable
 outbox/error delay/one-shot failure, publication-dependent blocking,
 per-execution wakeup isolation, safe error reporting and unchanged disabled
 behavior. These are scheduling checks; no new PostgreSQL claim is implied.
+
+## Implementation outcomes at the selected snapshot
+
+All six directions are present at `dd5ddbf6`; complex contracts were published
+before implementation and the implementations received independent review.
+
+| Direction                 | Concrete outcome                                                                                                                                                                                                                                                                            | Boundary of the claim                                                                                                                                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A. Outbox ownership       | Just-in-time acquisition delegates initial renewal, heartbeat lifetime and fenced settlement to one private execution owner. Invalid bounded-drain inputs reject before persistence. Competing-worker and stale-dispatch regressions fail with the original implementation.                 | Current-term expiry behavior, recovery lanes and handler-owned external-effect idempotency remain their existing contracts; mixed old consumers retain the old dispatch risk.                                       |
+| B. Identity ownership     | One ReadCommitted transaction and canonical identity mutex preserve the persisted owner, atomically update snapshots and reuse exact installation-created GitHub users. Actual PostgreSQL tests cover concurrency, conflicts and rollback.                                                  | The mutex is cooperative; old writers can still race during rollout. Historical orphan cleanup/account merging and production ACL qualification were not added.                                                     |
+| C. Settings and admission | Settings/version and requested audit commit together. Audit policy facts come from saved state, including explicit removal of absent reserved facts in follow-up `77e6a184`. GitLab installation uses the existing mutation admission gate.                                                 | This protects admission and settings/audit consistency; the separate GitLab inventory transaction/generation race remains.                                                                                          |
+| D. Publication feed       | Feature-owned SQL applies eligibility and all three repository scope keys before ordered LIMIT, with the existing 1000-row cap and retry CAS. The actual PostgreSQL starvation fixture fails with the original scan method and passes with the join. Published in `91e878e0`.               | Discovery grants no mutation authority. The minimal defensive fixture intentionally omits production scope constraints; migrated-schema scan/no-op defer checks SQL/enum compatibility, not production performance. |
+| E. Nested boundaries      | The existing guard recognizes nested core layers and preserves outer-layer barriers and the prohibited-import list, published in `d6797bcd`. Rejecting fixtures cover direct value/type/dynamic imports and re-exports.                                                                     | This extends direct-import coverage; it is not transitive public-barrel or repository-wide architecture certification.                                                                                              |
+| F. Worker failures        | Explicit serial phases isolate independent owners, preserve real completed counters, expose unavailable/blocked results and propagate degraded health. Publication-dependent progress remains blocked after publication failure, and wakeups settle independently. Published in `dd5ddbf6`. | Individual items inside the publication maintenance loop still share one phase failure boundary. No generic scheduler or persisted state-machine rewrite was introduced.                                            |
+
+CI follow-up `0ff3fd13` wires the existing quality job's disposable auth and
+publication PostgreSQL admin environments. The publication fixture separates its
+isolated database from the existing fully migrated ordinary test database.
+No new workflow/job, production flag, migration, activation or index was added.
+
+## Final source qualification
+
+On `2026-10-30`, at exact implementation head `dd5ddbf6`, the integrated regression run exercised
+40 files and 534 cases: **531 passed, zero failed and three existing cases were
+skipped**. It included the auth/outbox/review-config suites, installation-owner
+composition, GitLab mutation/actions recovery, publication feed and executor/SDK
+consumers, worker batch/loop/review-v2/Skills scanner and architecture checker.
+
+PostgreSQL 17 had migrations `000001` through `000154` applied. Auth and
+publication admin fixtures and the fully migrated database were enabled. The
+three exclusions were one existing dedicated api-key-secret-profile-migration
+case and two gateway-configuration cases for historical C2b/locked actors; their
+dedicated fixtures were not provided and those paths are not qualified here.
+
+The run used the repository-pinned pnpm with `pnpm exec vitest run --maxWorkers=2`
+and the 40 explicit paths retained in the release owner's
+`tmp/architecture-final-test-files.json`. Its disposable PostgreSQL inputs were
+`AUTH_TEST_POSTGRES_ADMIN_URL`, `PUBLICATION_WORK_TEST_POSTGRES_ADMIN_URL` and
+`REVIEW_ROUTER_TEST_DATABASE_URL`; no local connection URL is part of this record.
+
+Final scoped ESLint passed for 36 changed code files, Prettier passed for 39
+changed files and `git diff --check` passed. The release owner's local artifacts
+are `tmp/architecture-final-tests.json` and `tmp/architecture-final-tests.log`;
+they are local source-test evidence, not durable environment rollout receipts.
+Final production build, compiled runtime and full architecture-gate results
+remain pending in this record and must be bound to the actual tested revision
+when added. No aggregate is inferred from the earlier overlapping slice runs.
+
+Hosted CI for `dd5ddbf6` was still incomplete at `2026-10-30 16:28 UTC`: nine
+jobs succeeded, two were skipped, eleven remained active and none had failed
+at that observation. This is an interim [PR #747 checks](https://github.com/777genius/review-router-ai/pull/747/checks)
+snapshot, not a green-CI or release-gate claim.
+
+The [deployment task](../deployments/2026-10-30-architecture-reliability.md)
+records ordinary coherent Web/API/worker/Skills worker rollout. Staging and
+production remain pending with no actual deployment recorded.
+
+## Remaining debt and exclusions
+
+1. **GitLab installation inventory:** installation still needs a separate
+   transaction/generation owner for multi-write inventory changes and races.
+   Plan and qualify its concurrent installation/rollback behavior before that
+   implementation; the mutation admission fix does not resolve it.
+2. **Public-barrel transitive infrastructure:** some legacy public entrypoints
+   expose adapters together with application policy. The extended checker
+   governs direct imports in the discovered layers, not all transitive import
+   paths. Inventory actual consumers and introduce bounded owner-facing
+   contracts before a broader migration.
+3. **Per-item publication failures:** one rejected execution inside publication
+   maintenance can still stop later items in that phase. Follow-up work must
+   retain durable settlement evidence, accurate partial counters and existing
+   publication/progress dependencies while isolating individual items.
+4. **Measured query performance:** no speculative index or schema change was
+   added to the publication query. Use representative data and query-plan
+   evidence to establish a concrete need before proposing an index migration.
+
+The delivered protections are bounded source contracts. Passing them does not
+claim full DDD/Clean Architecture/SOLID compliance, complete transitive
+modularity, live provider qualification or production reliability proof.
