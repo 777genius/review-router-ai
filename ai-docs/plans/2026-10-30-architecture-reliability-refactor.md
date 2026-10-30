@@ -201,3 +201,77 @@ These remain distinct candidates, not silently included promises:
 The codebase's existing ports, CAS, tenant guards and feature packages are useful
 counterevidence. File size, class count or a preference for a pattern is not
 enough to classify a defect.
+
+## Second implementation batch: publication selection and boundary coverage
+
+### D. Publication-owned due-work feed
+
+The initial starvation finding is selected for implementation after independent
+boundary review. The reviewed change moves the worker's persistence query into
+the existing review-publishing/v2 feature; the host retains orchestration.
+
+- Add one narrow application port and DTO for scan/defer. Export contracts from
+  the existing /v2 entrypoint and the Prisma adapter from /v2/composition.
+- The adapter uses one parameterized SQL join from operation to attempt to
+  repository. Match repository ID, workspace ID and SCM repository identity.
+  Apply supported provider, operation state/due time, live attempt state and
+  retainUntil predicates before LIMIT.
+- Preserve ordering: required descending, nextEligibleAt ascending,
+  reconcileUntil ascending, operation ID ascending. Preserve the existing
+  maximum of 1000 returned rows, zero-limit no-work behavior, and reject invalid
+  noninteger/unbounded limits before accessing the database.
+- Preserve the current operation and attempt state sets. Do not introduce
+  selected/archived/installation, publicationNotAfter or reconcileUntil cutoff
+  predicates; reconciliation remains possible under its existing contracts.
+- Scan is discovery, not a claim or authorization. The executor continues to
+  enforce current lifecycle, authority, capability and external-effect policy.
+  Repository provider semantics remain unchanged.
+- Move exact operation/attempt/retry-count/live-state defer CAS unchanged into
+  the adapter. Map its plain github/gitlab provider at the worker boundary.
+- No schema migration, oversampling, destructive pruning or new service.
+
+Verification: an actual PostgreSQL fixture with more than four times the limit
+of older ineligible rows followed by eligible work; exact order/limit; live and
+terminal states; due/retention equality; stale/wrong-attempt/terminal CAS;
+defensive scope/provider filtering. Use a separate loopback UUID database for a
+minimal three-table fixture when testing historical invalid rows. Its omitted
+composite FK is an explicitly limited defensive-query fixture, not evidence of
+a production insertion exploit. Also execute the adapter against the fully
+migrated disposable schema to verify real enum/query compatibility.
+
+### E. Nested architecture coverage
+
+The existing legacy checker recognizes only src/domain and src/application;
+34 additional production TypeScript files and one domain test live below
+subfeature prefixes. The inventory found no currently prohibited import there.
+
+Change only classification: after src, the first architectural layer directory
+determines whether the file is core. Domain/application remain core after v2
+or account-limits prefixes; infrastructure/interface/composition/testing/tests
+are outer barriers. For example, infrastructure/domain remains an adapter.
+Preserve existing forbidden-import policy, extractor and all other ratchets.
+
+Verification uses the existing checker harness: positive nested pure code and
+adapter siblings, negative value/type/dynamic imports and re-exports, both v2
+and account-limits, followed by the full repository check. This extends the
+existing guard rather than claiming broader standard adoption or transitive
+dependency certification.
+
+## Published implementation checkpoints
+
+- Outbox ownership: 8a9ffecd; 53 focused checks passed, and two discriminating
+  regressions failed on the original implementation. Independent implementation
+  review found no blocker. Follow-up dcc4f5c validates bounded-drain input;
+  invalid limits access no repository and zero remains supported.
+- Atomic identity resolution: 41bc69f2; 30 focused checks, including 12 real
+  PostgreSQL cases in an isolated minimal-schema database. Installation/login
+  races, canonical aliases, conflicting owners and create/update rollback are
+  exercised. Independent implementation review found no blocker.
+- Settings audit and GitLab admission: 70e6547b; 91 focused checks including six
+  real PostgreSQL cases on the full migrated schema. Both rollback regressions
+  failed against the original use cases. Feature typecheck, official native web
+  typecheck, changed-code lint and architecture checks passed.
+
+These are scoped implementation results, not a claim that every repository gate,
+live OAuth/provider flow or deployment has completed. Integrated checks and the
+second batch remain in progress.
