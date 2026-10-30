@@ -1,6 +1,7 @@
 # Full-thread memory and workspace confirmation settings
 
-Date: 2026-10-30. Status: implementation in progress.
+Date: 2026-10-30. Status: implemented; final-source CI tracked in
+[PR #744](https://github.com/777genius/review-router-ai/pull/744), live qualification pending.
 Owner request: use the complete checked PR inline thread for learning; expose one
 workspace-wide confirmation setting in Memory, automatic by default; evaluate
 accuracy and keep deterministic reliability evidence separate from model quality.
@@ -72,8 +73,9 @@ Existing v1 corpus: 48 threads, 149 source events, 81 eligible facts. Its measur
 live semantic quality remains unavailable. Earlier unit/PG/native fixture passes
 prove mechanisms, not real-model precision or recall.
 
-Keep v1 corpus and thresholds unchanged. Add an independently versioned small
-full-thread successor with contextual agreement, foreign/bot/code instructions,
+Keep v1 corpus and thresholds unchanged. The independently versioned full-thread
+successor contains 16 threads, 50 events and 21 independently labeled facts;
+10 threads are tuning and 6 are protected. It covers contextual agreement, foreign/bot/code instructions,
 quotation/negation, conflicting maintainers, exact-target updates and forgetting,
 default automatic and confirmation modes, mode changes, replay and two repositories
 of one workspace. Keep tuning and fresh protected scenarios separate.
@@ -86,6 +88,7 @@ against actual authority, source, scope and target witnesses. Unavailable or
 queued content never earns successful-publication credit.
 
 Focused deterministic verification covers:
+
 - real workspace setting round trip, default and owner/admin/CAS enforcement;
 - whole-thread preview transport and changed/deleted context validity;
 - automatic vs confirmation command/outbox admission and a mode-change race;
@@ -96,6 +99,14 @@ Focused deterministic verification covers:
 Reuse existing unchanged migration, cleanup and Action publication evidence.
 Run applicable repository CI after focused checks; do not repeat unrelated suites
 locally. Critic review checks the final changed boundaries and fixes concrete findings.
+
+Focused core tests (56 cases), settings/authority tests, the repaired dashboard
+page suite (43 cases) and scorer/fixture regressions (32 cases) passed. API, web
+and worker typechecks passed. Existing CI owns the new real PostgreSQL race,
+settings round trip, confirmation/replay and desktop/narrow browser cases.
+The eval fixture now explicitly separates the actual qualified account/processing
+identity from fresh memory scopes and native banks, preserving the production
+dispatch grant. Its synthetic source mapping does not qualify an installed App.
 
 Live semantic qualification still requires the real selected Gateway/native model,
 tuning outputs, a bound human rubric and one fresh protected checkpoint. Existing

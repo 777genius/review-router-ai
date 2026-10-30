@@ -37,8 +37,26 @@ import type {
   MemoryKnowledgeStore,
   MemoryVerifiedCleanupReceipt,
 } from "../ports/memory-knowledge-store-port";
-import type { MemoryPolicyConfigPort } from "../ports/memory-policy-config-port";
+import type {
+  MemoryPolicyConfig,
+  MemoryPolicyConfigPort,
+} from "../ports/memory-policy-config-port";
 import type { MemoryQuotaPolicyPort } from "../ports/memory-quota-policy-port";
+
+function assertAutomaticMutationPolicy(
+  policy: Pick<MemoryPolicyConfig, "requireConfirmation" | "settingsRevision">,
+  settingsRevision: string,
+): void {
+  if (
+    typeof settingsRevision !== "string" ||
+    !/^(0|[1-9]\d{0,9})$/.test(settingsRevision)
+  )
+    throw new MemoryKnowledgeError("invalid_input");
+  if (policy.requireConfirmation)
+    throw new MemoryKnowledgeError("input_required");
+  if (policy.settingsRevision !== settingsRevision)
+    throw new MemoryKnowledgeError("conflict");
+}
 
 export type MemoryKnowledgeView = {
   readonly metadata: MemoryKnowledgeEntryMetadata;
@@ -195,10 +213,22 @@ export class MemoryKnowledgeService {
       readonly actor: MemoryActor;
       readonly ref: MemoryEntryRef;
       readonly expectedRevision: string;
+      readonly automaticSettingsRevision?: string;
     },
     controls: MemoryRequestControls,
   ): Promise<void> {
     await this.authorizeAutomaticSource(input.actor, input.ref.scope, controls);
+    if (input.automaticSettingsRevision !== undefined)
+      assertAutomaticMutationPolicy(
+        await this.dependencies.policy.getPolicy({
+          workspaceId: input.ref.scope.workspaceId,
+          repositoryId:
+            input.ref.scope.kind === "repository"
+              ? input.ref.scope.repositoryId
+              : null,
+        }),
+        input.automaticSettingsRevision,
+      );
     const metadata = await this.dependencies.store.findEntry(
       input.ref,
       this.dependencies.generation,
@@ -220,6 +250,9 @@ export class MemoryKnowledgeService {
       sourceId: state.sourceId,
       expectedEpoch: state.binding.epoch,
       expectedSuppressionEpoch: state.suppressionEpoch ?? "0",
+      ...(input.automaticSettingsRevision === undefined
+        ? {}
+        : { automaticSettingsRevision: input.automaticSettingsRevision }),
       entry: {
         ref: input.ref,
         generation: this.dependencies.generation,
@@ -259,6 +292,13 @@ export class MemoryKnowledgeService {
     },
     controls: MemoryRequestControls,
   ) {
+    assertAutomaticMutationPolicy(
+      await this.dependencies.policy.getPolicy({
+        workspaceId: input.reservation.input.scope.workspaceId,
+        repositoryId: input.reservation.input.scope.repositoryId,
+      }),
+      input.reservation.input.settingsRevision ?? "0",
+    );
     const children = [];
     for (const command of input.children) {
       if (
@@ -348,6 +388,14 @@ export class MemoryKnowledgeService {
           ? command.ref.scope.repositoryId
           : null,
     });
+    if (
+      command.approval.automaticSettingsRevision !== undefined &&
+      !authority.internalRetirement
+    )
+      assertAutomaticMutationPolicy(
+        policy,
+        command.approval.automaticSettingsRevision,
+      );
     if (command.kind === "save" || command.kind === "topics") {
       const scopeKey =
         command.ref.scope.kind === "user_preference"

@@ -72,6 +72,13 @@ type EntryRow = {
 };
 const terminal = new Set(["published", "completed", "failed"]);
 
+/** Acquires host authority guards and rereads settings before any memory lock. */
+export type AuthorizeAutomaticMemoryMutation = (
+  transaction: Prisma.TransactionClient,
+  workspaceId: string,
+  settingsRevision: string,
+) => Promise<void>;
+
 /** SQL is intentionally scoped to authority/delivery tables, never provider content. */
 export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
   constructor(
@@ -79,6 +86,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     private readonly options: {
       readonly automaticSourcesEnabled?: boolean;
       readonly providerProfileVersion?: string;
+      readonly authorizeAutomaticMutation?: AuthorizeAutomaticMemoryMutation;
     } = {},
   ) {}
 
@@ -211,7 +219,17 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
   async admit(
     input: Parameters<MemoryKnowledgeStore["admit"]>[0],
   ): Promise<MemoryKnowledgeOperation> {
-    return this.prisma.$transaction((tx) => this.admitInTransaction(tx, input));
+    return this.prisma.$transaction(async (tx) => {
+      const command = normalizeMemoryKnowledgeCommand(input.command);
+      const settingsRevision = command.approval.automaticSettingsRevision;
+      if (settingsRevision !== undefined && !input.internalRetirement)
+        await this.options.authorizeAutomaticMutation?.(
+          tx,
+          command.ref.scope.workspaceId,
+          settingsRevision,
+        );
+      return this.admitInTransaction(tx, input);
+    });
   }
 
   async admitAutomaticSelection(
@@ -248,6 +266,11 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     )
       throw new MemoryKnowledgeError("invalid_input");
     return this.prisma.$transaction(async (tx) => {
+      await this.options.authorizeAutomaticMutation?.(
+        tx,
+        scope.workspaceId,
+        reservation.input.settingsRevision ?? "0",
+      );
       await tx.$executeRaw(
         Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(reservation.generation)},0))`,
       );

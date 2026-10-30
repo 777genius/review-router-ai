@@ -115,7 +115,7 @@ exact replay.
 
 `.github/workflows/memory-projections.yml` runs **Memory authority and delivery**:
 real PostgreSQL17 command authority, API admission races, historical execution
-lease contracts, and persisted outbox-to-worker delivery. All four suites must
+lease contracts, and persisted outbox-to-worker delivery. All five suites must
 execute with zero skipped tests. Native Docker/image qualification is separate;
 unit tests and source inspection do not establish a native-image runtime pass.
 
@@ -125,27 +125,40 @@ receipt tables remain for explicit migration, remote cleanup and audit review.
 They are not a runtime content source. A new provider generation does not prove
 old remote data was physically deleted.
 
-## Conversation source authority (2026-10-29 refinement)
+## Conversational learning and confirmation settings
 
-Automatic observations still require no per-fact Save: a qualified native engine
-selects useful information from a verified human maintainer's new source revision.
-The selection port no longer accepts the mixed-author thread, recalled bodies or
-code as an auxiliary prompt. Full chronology remains available for replies through
-the existing selected-account inference, not as additional write authority.
+The current [owner-requested contract](../../../ai-docs/plans/2026-10-30-full-thread-memory-settings.md)
+uses the complete checked inline thread to interpret the selected maintainer's
+message. A clear contextual endorsement may produce an observation without a
+Save command. The native engine owns extraction; the existing conversation model
+owns natural-language mutation intent. Ordinary contributors and bots remain
+context, not actors authorized to change memory. Current-source, audience, exact
+target/revision and replay checks still apply.
 
-Natural-language rule/exception/update/retire/forget/relearn output is a **proposal**.
-The conversation owner renders the complete action as a standalone confirmation
-and compares it with the verified latest maintainer source. The exact kind, body,
-target and target revision must match. The real mutation adapter repeats that same
-shared owner check before reaching permission/CAS/command persistence. A valid
-existing confirmation executes without an extra confirmation turn. Otherwise the
-response explicitly says that the proposed change was not applied. This is not a
-second classifier, another model call, a semantic-overlap check or a new ledger.
+Memory -> Settings contains **Require confirmation for memory changes**, shared
+by every repository in the workspace. Its default is off. Workspace owners/admins
+manage the setting in the existing versioned workspace configuration. Automatic
+mode admits permitted AI changes without another reply. Confirmation mode keeps
+native previews read-only and renders exact commands for proposed observations
+or mutations. A maintainer can post one as a separate reply; altered text, kind,
+target or revision cannot authorize that command. English and Russian authored
+forms are supported, including `Remember observation: IDs keep leading zeroes.`,
+`Запомни правило: Use pnpm.`, `Update mem_example@2: Use Vitest.` and
+`Забудь mem_example@2`.
 
-English and Russian confirmations are supported, for example `Remember rule: Use
-pnpm.`, `Запомни правило: Use pnpm.`, `Update mem_example@2: Use Vitest.` and
-`Забудь mem_example@2`. Automatic learning remains separate from this explicit
-mutation confirmation. Existing slash commands and dashboard commands retain their
-own established authority paths. See the [security refinement](../../../ai-docs/plans/2026-10-29-memory-source-authority.md)
-for limits and the [deployment task](../../../ai-docs/deployments/2026-10-29-conversational-memory.md)
-for live qualification; passing fixture tests does not activate the feature.
+New AI writes recheck the setting at their final transaction. Changing it does
+not erase existing knowledge or cancel already-admitted external operations.
+Manual dashboard/slash commands and necessary source revocation retain their
+existing authority. A confirmed observation is a new human-authored source, not
+an implicit activation of an earlier automatic cohort.
+
+Automatic records retain only a bodyless version vector of context messages.
+Changed/deleted evidence makes derived knowledge inapplicable; appending a new
+message or the bot's own reply does not. An explicit maintainer-requested save or
+update retains the existing maintained-knowledge contract: it approves the frozen
+statement, so a later edit to the discussion does not silently undo that decision.
+Plain factual agreement must not be misclassified as such a mutation; the semantic
+evals distinguish these intents. Raw transcripts stay transient. See the
+[deployment task](../../../ai-docs/deployments/2026-10-29-conversational-memory.md)
+for actual-model and installed-App qualification; fixture passes do not establish
+semantic accuracy or activate the feature.
