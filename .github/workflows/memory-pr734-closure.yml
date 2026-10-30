@@ -1,0 +1,66 @@
+name: Memory PR734 integration audit (temporary)
+on:
+  push:
+    branches: [chore/memory-pr734-close-20261030]
+    paths: [.github/workflows/memory-pr734-closure.yml]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  audit:
+    runs-on: ${{ vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 5c705c8ab571081571663a1615bb5eff79912c4b
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Inspect the exact merge without updating product refs
+        run: |
+          mkdir -p tmp/memory-pr734-audit
+          python3 <<'PY'
+          import subprocess, json
+          from pathlib import Path
+          out=Path('tmp/memory-pr734-audit')
+          head='5c705c8ab571081571663a1615bb5eff79912c4b'
+          main='6ff48750ca17e8a01fe12975530f44e8e769e511'
+          def run(args, check=True):
+              return subprocess.run(args,text=True,capture_output=True,check=check)
+          ancestor=run(['git','merge-base',head,main]).stdout.strip()
+          result=run(['git','merge-tree','--write-tree','--name-only',head,main],False)
+          assert result.returncode in (0,1), result.stderr
+          (out/'merge-tree.txt').write_text(result.stdout)
+          tree=result.stdout.splitlines()[0]
+          conflicts=[]
+          if result.returncode:
+              for line in result.stdout.splitlines()[1:]:
+                  if not line: break
+                  conflicts.append(line)
+          for path in conflicts:
+              if path.startswith('action-dist/'): continue
+              for label,ref in [('merged',tree),('ours',head),('theirs',main),('ancestor',ancestor)]:
+                  r=run(['git','show',f'{ref}:{path}'],False)
+                  if r.returncode: continue
+                  p=out/'conflicts'/label/path
+                  p.parent.mkdir(parents=True,exist_ok=True)
+                  p.write_text(r.stdout)
+          roots=['.github','AGENTS.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','tsconfig.base.json','vitest.config.ts','eslint.config.mjs','apps','packages','scripts','ai-docs','deploy','docs']
+          for label,ref in [('merged',tree),('head',head),('main',main)]:
+              existing=set(run(['git','ls-tree','--name-only',ref]).stdout.splitlines())
+              selected=[p for p in roots if p in existing]
+              with (out/f'{label}-source.tar.gz').open('wb') as f:
+                  subprocess.run(['git','archive','--format=tar.gz',ref,*selected],stdout=f,check=True)
+          (out/'incoming.patch').write_text(run(['git','diff',ancestor,main,'--',*roots]).stdout)
+          (out/'inventory.json').write_text(json.dumps({'head':head,'main':main,'ancestor':ancestor,'tree':tree,'conflicts':conflicts},indent=2)+'\n')
+          print((out/'inventory.json').read_text())
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: memory-pr734-audit-${{ github.run_id }}
+          path: tmp/memory-pr734-audit/
+          if-no-files-found: error
+          retention-days: 3
