@@ -76,6 +76,7 @@ async function main(): Promise<void> {
       "--",
       "apps/web",
       "packages/features/provider-accounts",
+      "packages/features/provider-usage",
       "packages/platform/db",
       "scripts/accounts-reference-e2e/src",
       ...(process.argv.includes("--skill-catalog-fixture")
