@@ -99,3 +99,105 @@ production deployment are not part of this request.
   connection; repository-specific adoption and pins remain authoritative.
 - Initial A/B findings are source-backed hypotheses awaiting independent plan
   review and regression qualification.
+
+## Reviewed implementation contract
+
+Cross-review completed before implementation: the web critic reviewed outbox
+ownership, the outbox critic reviewed identity resolution, and the boundary
+critic reviewed settings audit. The following details supersede the initial
+candidate descriptions.
+
+### A. Outbox execution ownership
+
+- Keep the existing atomic claim SQL, fencing terms, lane restrictions and
+  handler-version selection.
+- Claim at most one event immediately before execution. Read fresh time for
+  every claim. The batch limit bounds claim attempts, including stale claims;
+  this is a bounded drain, not a frozen snapshot or a global FIFO guarantee.
+- A private application function owns claim validation, initial renewal,
+  heartbeat lifetime, handler dispatch and fenced result transitions.
+- Require the persisted claim owner and term. Refused or failed initial renewal
+  suppresses dispatch, counts a stale claim once and leaves normal recovery
+  responsible for that claim.
+- Always stop the heartbeat and await an in-flight renewal before selecting
+  the outcome, including a throwing handler. Preserve retry, permanent failure,
+  exhausted attempts and reconciliation-preserving behavior.
+- Preserve the existing adapter rule that expiration alone does not invalidate
+  an otherwise current term. Active external effects retain their existing
+  handler-owned idempotency/fencing obligations.
+
+Verification: competing workers with a blocked first handler; takeover before
+dispatch; initial-renewal failure; heartbeat cleanup on success/error; bounded
+stale claims; unsupported/disabled handlers; recovery lanes; retry/dead-letter
+and reconciliation regressions.
+
+### B. External identity transaction
+
+- Own the entire operation in the Prisma auth adapter, with a short
+  ReadCommitted transaction and a parameterized transaction-scoped advisory
+  lock on a namespaced, unambiguous provider/immutable-ID key.
+- Canonicalize the GitHub numeric ID before locking. Do not use login or email
+  as identity. Preserve the owner of an existing external identity.
+- A missing GitHub identity may reuse a User by its exact immutable GitHub ID.
+  Use an atomic User upsert because the existing installation-owner writer also
+  creates these rows. The lock is cooperative; uniqueness remains authoritative.
+- User snapshot and external identity snapshot commit or roll back together.
+  Identity updates cannot reassign userId. Conflicting immutable ownership
+  fails closed. Return the persisted identity's owner.
+- Keep network operations and personal workspace creation outside this
+  transaction. No historical orphan deletion/merge and no schema migration.
+
+Verification: concurrent same-ID first logins for both providers; existing
+installation-owner User followed by first login; exact numeric aliases;
+profile rename; distinct IDs sharing login/email; conflicts; injected failure
+after User creation/update; retry; durable rollback in disposable PostgreSQL.
+Same-version correctness does not eliminate races in older web replicas;
+rollout must complete before claiming the new writer is universal.
+
+### C. Review settings write/audit consistency and GitLab write admission
+
+- Existing review-config settings use cases own their saved/cleared audit action.
+  Reuse saveNextVersions' existing transaction-scoped audit append.
+- Web actions pass trusted actor/access metadata and repository identity.
+  Derive provider/model/severity audit facts from the exact effective saved
+  configuration inside the transaction; preserve authoritative version and
+  providerSelected fields.
+- If a small synchronous metadata projection is needed on the existing audit
+  port, keep it typed, pure and scoped to this writer. Do not add an audit
+  framework, asynchronous callback or another persistence transaction.
+- Mark the automatic workspace document of a first repository settings save
+  implicit, so only the requested target emits its audit event.
+- Remove the two corresponding post-commit web audit writes.
+- GitLab installation uses the existing workspace-admin mutation gate.
+  Read-only discovery/command construction retains its existing gate.
+
+Verification: one correctly targeted event on save/clear; implicit-head case;
+exact saved metadata; denied/CAS writes have no event; injected audit failure
+rolls back configuration and version in PostgreSQL; web forwarding; disabled
+GitLab mutation refuses before installer or persistence work.
+
+Shared review-config/action files also appear in #744/#745. Inspect their exact
+diffs and preserve their unrelated behavior; reconcile against fresh main before
+final integration. This is file-level coordination, not a claim that those PRs'
+memory/OCR work is qualified by this task.
+
+## Additional prioritized findings
+
+These remain distinct candidates, not silently included promises:
+
+1. Worker maintenance chains can let one feature's failed recovery prevent
+   unrelated outbox/publication work. Any follow-up must preserve actual
+   publication/progress dependencies and report named failures.
+2. Publication due-work selection limits operations before filtering eligible
+   attempts, allowing a long prefix of expired candidates to starve healthy
+   work. Correct eligibility belongs before LIMIT in its owning adapter.
+3. GitLab inventory installation persists multiple changes without one
+   transaction/generation owner. It needs separate inventory race/rollback
+   qualification, not a cosmetic extraction from a large server file.
+4. Some older public feature barrels mix policy and adapters, and the legacy
+   boundary checker recognizes only top-level domain/application paths.
+   Extend enforcement only after inventorying real consumers and violations.
+
+The codebase's existing ports, CAS, tenant guards and feature packages are useful
+counterevidence. File size, class count or a preference for a pattern is not
+enough to classify a defect.
