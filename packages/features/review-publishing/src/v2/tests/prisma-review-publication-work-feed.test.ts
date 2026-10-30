@@ -14,6 +14,7 @@ import type { ReviewPublicationDueWork } from "../application/ports/review-publi
 import { PrismaReviewPublicationWorkFeed } from "../infrastructure/prisma/prisma-review-publication-work-feed";
 
 const now = new Date("2026-10-30T12:00:00.000Z");
+const adminUrl = process.env.PUBLICATION_WORK_TEST_POSTGRES_ADMIN_URL;
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 
 describe("publication feed input boundary", () => {
@@ -56,7 +57,7 @@ describe("publication feed input boundary", () => {
 // missing scope FK deliberately permits historical invalid rows to exercise
 // defensive discovery; it is not evidence of a production insertion exploit.
 // A separate case below executes the same adapter against the migrated schema.
-describe.skipIf(!databaseUrl)("publication work feed on PostgreSQL", () => {
+describe.skipIf(!adminUrl)("publication work feed on PostgreSQL", () => {
   const name = `TEST_publication_feed_${randomUUID().replaceAll("-", "")}`;
   let admin: PrismaClient;
   let prisma: PrismaClient;
@@ -64,13 +65,13 @@ describe.skipIf(!databaseUrl)("publication work feed on PostgreSQL", () => {
   let created = false;
 
   beforeAll(async () => {
-    const url = new URL(databaseUrl!);
+    const url = new URL(adminUrl!);
     if (
       !["postgres:", "postgresql:"].includes(url.protocol) ||
       !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
     )
       throw new Error("disposable_loopback_database_required");
-    admin = createPrismaClient({ databaseUrl: databaseUrl!, poolMax: 2 });
+    admin = createPrismaClient({ databaseUrl: adminUrl!, poolMax: 2 });
     // The identifier is generated locally from a fixed prefix and UUID hex.
     await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
     created = true;
@@ -258,25 +259,37 @@ describe.skipIf(!databaseUrl)("publication work feed on PostgreSQL", () => {
     expect(await readRetry(work)).toEqual(original);
   });
 
-  it("executes scan and a no-op defer against the fully migrated schema and its enum columns", async () => {
-    const migrated = new PrismaReviewPublicationWorkFeed(admin);
-    const rows = await migrated.scan({ now: new Date(), limit: 1 });
-    expect(rows.length).toBeLessThanOrEqual(1);
-    const missingId = `publication-feed-missing-${randomUUID()}`;
-    await expect(
-      migrated.defer({
-        work: {
-          executionId: missingId,
-          publicationAttemptId: missingId,
-          publicationOperationId: missingId,
-          provider: "github",
-          retryCount: 0,
-        },
-        nextEligibleAt: now,
-        lastErrorCode: "compatibility-probe",
-      }),
-    ).resolves.toBeUndefined();
-  });
+  it.skipIf(!databaseUrl)(
+    "executes scan and a no-op defer against the fully migrated schema and its enum columns",
+    async () => {
+      // CI keeps this role-free migrated cluster separate from admin fixtures.
+      const migratedPrisma = createPrismaClient({
+        databaseUrl: databaseUrl!,
+        poolMax: 2,
+      });
+      try {
+        const migrated = new PrismaReviewPublicationWorkFeed(migratedPrisma);
+        const rows = await migrated.scan({ now: new Date(), limit: 1 });
+        expect(rows.length).toBeLessThanOrEqual(1);
+        const missingId = `publication-feed-missing-${randomUUID()}`;
+        await expect(
+          migrated.defer({
+            work: {
+              executionId: missingId,
+              publicationAttemptId: missingId,
+              publicationOperationId: missingId,
+              provider: "github",
+              retryCount: 0,
+            },
+            nextEligibleAt: now,
+            lastErrorCode: "compatibility-probe",
+          }),
+        ).resolves.toBeUndefined();
+      } finally {
+        await migratedPrisma.$disconnect();
+      }
+    },
+  );
 
   async function seed(
     id: string,
