@@ -16,6 +16,7 @@ import { createPrismaClient } from "@reviewrouter/platform-db";
 import { ConsoleLogger } from "@reviewrouter/platform-logger";
 import { SystemClock } from "@reviewrouter/shared";
 import { runOutboxWorkerLoop, sleep } from "./outbox-worker-loop.js";
+import type { WorkerBatchResult } from "./worker-batch.js";
 
 /** Separate lane: the ordinary review/control-plane batch never waits for a scan. */
 export async function createSkillScanWorker(input: {
@@ -65,7 +66,7 @@ export async function createSkillScanWorker(input: {
     },
   };
   return {
-    async processBatch() {
+    async processBatch(): Promise<WorkerBatchResult> {
       if (!worker || Date.now() - refreshedAt > 60000) {
         // No claim is taken if the execution service's current identity is unavailable.
         const profiles = await scanner.loadProfiles();
@@ -92,7 +93,7 @@ export async function createSkillScanWorker(input: {
         await worker.prune(100);
         prunedAt = Date.now();
       }
-      return result;
+      return { outbox: { status: "completed", value: result }, failures: [] };
     },
   };
 }
