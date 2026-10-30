@@ -1,14 +1,12 @@
 import type { Clock } from "@reviewrouter/shared";
 import {
   defaultOutboxProcessingStaleAfterMs,
-  nextOutboxRetryAt,
   outboxHandlerKey,
-  safeOutboxErrorSummary,
-  type OutboxEvent,
   type OutboxHandler,
   type OutboxHandlerDefinition,
 } from "../../domain/outbox-event";
 import type { OutboxEventRepositoryPort } from "../ports/outbox-event-repository-port";
+import { executeClaimedOutboxEvent } from "./execute-claimed-outbox-event";
 
 export type ProcessOutboxBatchResult = {
   readonly recoveredStale: number;
@@ -21,6 +19,7 @@ export type ProcessOutboxBatchResult = {
 
 export async function processOutboxBatch(
   input: {
+    /** Maximum claims in this bounded drain, including stale claims. */
     readonly limit: number;
     readonly handlers: readonly OutboxHandler[];
     readonly knownHandlers?: readonly OutboxHandlerDefinition[];
@@ -51,179 +50,62 @@ export async function processOutboxBatch(
         safeErrorSummary: `Processing claim expired after ${processingLeaseMs}ms and was requeued for retry.`,
       })
     : { recovered: 0 };
-  const events = await dependencies.outbox.claimDue({
-    limit: input.limit,
-    now,
-    claimOwnerHash: input.claimOwnerHash,
-    claimForMs: processingLeaseMs,
-    availableHandlers: input.handlers,
-    knownHandlers: input.knownHandlers ?? input.handlers,
-  });
   const handlers = new Map(
     input.handlers.map((handler) => [
       outboxHandlerKey(handler.type, handler.version),
       handler,
     ]),
   );
+  let claimed = 0;
   let processed = 0;
   let retried = 0;
   let deadLettered = 0;
   let staleClaims = 0;
 
-  for (const event of events) {
-    const claim = requireClaim(event);
-    const handler = handlers.get(outboxHandlerKey(event.type, event.version));
-    if (!handler) {
-      const result = await dependencies.outbox.markDeadLetter({
-        id: event.id,
-        claimId: claim.claimId,
-        claimVersion: claim.claimVersion,
-        deadLetteredAt: dependencies.clock.now(),
-        errorCode: "unsupported_event_version",
-        safeErrorSummary: `No handler registered for ${event.type}@v${event.version}`,
-      });
-      if (result.status === "applied") deadLettered += 1;
-      else staleClaims += 1;
-      continue;
-    }
-
-    try {
-      const heartbeat = startClaimHeartbeat({
-        outbox: dependencies.outbox,
-        clock: dependencies.clock,
-        claim: {
-          ...claim,
-          claimOwnerHash: event.claimOwnerHash!,
-        },
+  while (claimed < input.limit) {
+    // Do not reserve work behind a running handler without owning its lease.
+    const [event] = await dependencies.outbox.claimDue({
+      limit: 1,
+      now: dependencies.clock.now(),
+      claimOwnerHash: input.claimOwnerHash,
+      claimForMs: processingLeaseMs,
+      availableHandlers: input.handlers,
+      knownHandlers: input.knownHandlers ?? input.handlers,
+    });
+    if (!event) break;
+    claimed += 1;
+    const result = await executeClaimedOutboxEvent(
+      {
+        event,
+        handler: handlers.get(outboxHandlerKey(event.type, event.version)),
         processingLeaseMs,
         heartbeatIntervalMs:
           input.heartbeatIntervalMs ?? Math.max(1_000, processingLeaseMs / 3),
-      });
-      try {
-        await handler.handle(event);
-      } finally {
-        await heartbeat.stop();
-      }
-      if (heartbeat.isStale()) {
+      },
+      dependencies,
+    );
+    switch (result) {
+      case "processed":
+        processed += 1;
+        break;
+      case "retried":
+        retried += 1;
+        break;
+      case "dead_lettered":
+        deadLettered += 1;
+        break;
+      case "stale_claim":
         staleClaims += 1;
-        continue;
-      }
-      const result = await dependencies.outbox.markProcessed({
-        id: event.id,
-        claimId: claim.claimId,
-        claimVersion: claim.claimVersion,
-        processedAt: dependencies.clock.now(),
-      });
-      if (result.status === "applied") processed += 1;
-      else staleClaims += 1;
-    } catch (error) {
-      const safeError = safeOutboxErrorSummary(error);
-      const preserveReconciliation =
-        error !== null &&
-        typeof error === "object" &&
-        (error as { readonly preserveReconciliation?: unknown })
-          .preserveReconciliation === true;
-      if (
-        (event.attempts >= event.maxAttempts && !preserveReconciliation) ||
-        !safeError.retryable
-      ) {
-        const result = await dependencies.outbox.markDeadLetter({
-          id: event.id,
-          claimId: claim.claimId,
-          claimVersion: claim.claimVersion,
-          deadLetteredAt: dependencies.clock.now(),
-          errorCode: safeError.code,
-          safeErrorSummary: safeError.summary,
-        });
-        if (result.status === "applied") deadLettered += 1;
-        else staleClaims += 1;
-      } else {
-        const result = await dependencies.outbox.markRetry({
-          id: event.id,
-          claimId: claim.claimId,
-          claimVersion: claim.claimVersion,
-          nextAttemptAt: nextOutboxRetryAt({
-            attempts: event.attempts,
-            now: dependencies.clock.now(),
-          }),
-          errorCode: safeError.code,
-          safeErrorSummary: safeError.summary,
-        });
-        if (result.status === "applied") retried += 1;
-        else staleClaims += 1;
-      }
+        break;
     }
   }
 
   return {
     recoveredStale: recoveredStale.recovered,
-    claimed: events.length,
+    claimed,
     processed,
     retried,
     deadLettered,
     staleClaims,
-  };
-}
-
-function requireClaim(event: OutboxEvent): {
-  readonly claimId: string;
-  readonly claimVersion: bigint;
-} {
-  if (!event.claimId || event.claimVersion === null) {
-    throw new Error("outbox_claim_term_missing");
-  }
-  return { claimId: event.claimId, claimVersion: event.claimVersion };
-}
-
-function startClaimHeartbeat(input: {
-  readonly outbox: OutboxEventRepositoryPort;
-  readonly clock: Clock;
-  readonly claim: {
-    readonly claimId: string;
-    readonly claimVersion: bigint;
-    readonly claimOwnerHash: string;
-  };
-  readonly processingLeaseMs: number;
-  readonly heartbeatIntervalMs: number;
-}): { readonly stop: () => Promise<void>; readonly isStale: () => boolean } {
-  let stopped = false;
-  let stale = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let currentRenewal = Promise.resolve();
-
-  const renew = () => {
-    if (stopped) return;
-    currentRenewal = (async () => {
-      const result = await input.outbox.renewClaim({
-        ...input.claim,
-        claimUntil: new Date(
-          input.clock.now().getTime() + input.processingLeaseMs,
-        ),
-      });
-      stale ||= result.status === "stale_claim";
-    })()
-      .catch(() => {
-        // A transient heartbeat failure cannot authorize an unfenced completion.
-        stale = true;
-      })
-      .finally(() => {
-        if (!stopped && !stale) schedule();
-      });
-  };
-
-  const schedule = () => {
-    timer = setTimeout(renew, input.heartbeatIntervalMs);
-    timer.unref?.();
-  };
-
-  schedule();
-
-  return {
-    isStale: () => stale,
-    stop: async () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      await currentRenewal;
-    },
   };
 }
