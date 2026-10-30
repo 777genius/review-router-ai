@@ -16,6 +16,54 @@ afterEach(() => {
 });
 
 describe("outbox execution ownership", () => {
+  it.each([NaN, Infinity, -Infinity, 1.5, -1, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid batch limit %s before touching the repository",
+    async (limit) => {
+      const outbox = new InMemoryOutboxEventRepository();
+      const recovery = vi.spyOn(outbox, "recoverStaleProcessing");
+      const claim = vi.spyOn(outbox, "claimDue");
+      await expect(
+        processOutboxBatch(
+          {
+            limit,
+            handlers: [],
+            claimOwnerHash: "worker",
+            takeoverEnabled: true,
+          },
+          { outbox, clock: { now: () => start } },
+        ),
+      ).rejects.toThrow("outbox_batch_limit_invalid");
+      expect(recovery).not.toHaveBeenCalled();
+      expect(claim).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves a zero batch limit without claiming work", async () => {
+    const outbox = new InMemoryOutboxEventRepository();
+    await seed(outbox, "pending");
+    const claim = vi.spyOn(outbox, "claimDue");
+    expect(
+      await processOutboxBatch(
+        {
+          limit: 0,
+          handlers: [{ ...definition, handle: async () => undefined }],
+          claimOwnerHash: "worker",
+          takeoverEnabled: true,
+        },
+        { outbox, clock: { now: () => start } },
+      ),
+    ).toEqual({
+      recoveredStale: 0,
+      claimed: 0,
+      processed: 0,
+      retried: 0,
+      deadLettered: 0,
+      staleClaims: 0,
+    });
+    expect(claim).not.toHaveBeenCalled();
+    expect(outbox.events.get("pending")).toMatchObject({ status: "pending" });
+  });
+
   it("leaves unstarted work available to another worker behind a blocked handler", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(start);

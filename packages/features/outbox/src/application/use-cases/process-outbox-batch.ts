@@ -34,6 +34,9 @@ export async function processOutboxBatch(
     readonly clock: Clock;
   },
 ): Promise<ProcessOutboxBatchResult> {
+  if (!Number.isSafeInteger(input.limit) || input.limit < 0) {
+    throw new Error("outbox_batch_limit_invalid");
+  }
   const now = dependencies.clock.now();
   const processingLeaseMs =
     input.processingLeaseMs ?? defaultOutboxProcessingStaleAfterMs;
