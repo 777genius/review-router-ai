@@ -54,9 +54,9 @@ producers are immutable; revoke instead of deleting.
 ## Known follow-ups
 
 - `review_run_authorize` answers 500 `ambiguous_outcome` for a stale pull request
-  head; the real cause is `stale_precondition`, which is outside the operation
-  contract and gets masked. Needs a server-side contract fix.
-- Profile `ocr-managed-v4` needs `ocr-v1.13.1-rr.5`, which is not published; not a default.
+  head ([issue #750](https://github.com/777genius/review-router-ai/issues/750)); the real cause is `stale_precondition`, which is not in the operation's
+  error list in the protocol contract, so it gets masked. A proper fix changes the shared protocol and needs a paired Action release and a new producer.
+- Managed OCR `ocr-v1.13.1-rr.5` (profile `ocr-managed-v4`) was published afterwards: reproducible build at Action `955c336e` with Go 1.26.9, sha256 `9c666b25...` matches the pin. The profile is still not a default.
 - The Gateway origin env of web/api now points to `https://api.reviewrouter.org:8443`
   (with an `extra_hosts` entry for the `.org` host on the bridge). The old values still
   sit in the account-gateway activation env files under
