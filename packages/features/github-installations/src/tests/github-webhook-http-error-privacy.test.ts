@@ -9,7 +9,10 @@ const leaked = "github_pat_privateSuperSecret123";
 describe("signed GitHub webhook HTTP failure privacy", () => {
   it.each([
     { scenario: "handler rejection", rejectMarkFailed: false },
-    { scenario: "delivery failure persistence rejection", rejectMarkFailed: true },
+    {
+      scenario: "delivery failure persistence rejection",
+      rejectMarkFailed: true,
+    },
   ])("keeps $scenario errors opaque", async ({ rejectMarkFailed }) => {
     const app = Fastify({ logger: false });
     const onProcessingError = vi.fn();
