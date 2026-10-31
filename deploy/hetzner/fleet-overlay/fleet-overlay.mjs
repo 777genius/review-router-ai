@@ -9,7 +9,12 @@
  *   node fleet-overlay.mjs <prepare|plan|apply> <custody-dir> <spec.json>
  *
  * spec.json: { machineId, network, expectedImage, expectedRevision, names:{web,api,worker,scan},
- *              updates:[{key, op:"set"|"appendCsv"|"appendJsonArray", value, roles?:[...]}] }
+ *              updates:[{key, op:"set"|"appendCsv"|"appendJsonArray", value, roles?:[...]}],
+ *              targetImage?, targetImageRef?, targetRevision? }
+ *
+ * With targetImage (sha256 id), targetImageRef (a local tag that resolves to it) and targetRevision (40 hex)
+ * the copies run the new image instead of expectedImage. The image must already be on the host and carry
+ * the revision label; its OCI labels replace the old ones. Runtime release metadata env values go in `updates`.
  * Secrets stay on the host: output only prints key names and value hashes.
  */
 import { createHash } from "node:crypto";
@@ -222,6 +227,19 @@ const allowedNetworks = (role, network) =>
     ? ["platform-review-router", network]
     : ["platform-review-router"];
 
+/**
+ * Pure: the container Config a successor must have. Without a target image it is the baseline Config with
+ * the new Env. With one, Image points at the target and the target's OCI labels replace the baseline's.
+ */
+export function plannedConfig(baselineConfig, env, target, targetLabels = {}) {
+  const config = { ...row(baselineConfig), Env: env };
+  if (!target) return config;
+  const labels = { ...row(config.Labels ?? {}) };
+  for (const [key, value] of Object.entries(targetLabels))
+    if (key.startsWith("org.opencontainers.image.")) labels[key] = value;
+  return { ...config, Image: target.ref, Labels: labels };
+}
+
 /** Pure: ExtraHosts for one role after appending the spec entries that apply to it. */
 export function roleExtraHosts(role, current, extraHosts = []) {
   const list = Array.isArray(current) ? [...current] : [];
@@ -232,8 +250,7 @@ export function roleExtraHosts(role, current, extraHosts = []) {
   return list;
 }
 
-function createBody(actual, role, network, env, extraHosts) {
-  const config = row(actual.Config);
+function createBody(actual, role, network, extraHosts, config) {
   const host = { ...row(actual.HostConfig), ExtraHosts: extraHosts };
   const endpoints = row(row(actual.NetworkSettings).Networks);
   need(
@@ -271,13 +288,12 @@ function createBody(actual, role, network, env, extraHosts) {
   }
   return {
     ...config,
-    Env: env,
     HostConfig: host,
     NetworkingConfig: { EndpointsConfig: next },
   };
 }
 
-async function verifyScopedInventory(knownIds, image) {
+async function verifyScopedInventory(knownIds, image, targetImage = image) {
   const listing = await docker("GET", "/containers/json?all=false");
   need(Array.isArray(listing), "inventory_shape");
   const running = [];
@@ -285,7 +301,7 @@ async function verifyScopedInventory(knownIds, image) {
     const c = await inspect(String(row(item).Id));
     if (row(c.State).Running === true) running.push(c);
   }
-  requireNoExtraScopedWorkers(running, knownIds, image, image);
+  requireNoExtraScopedWorkers(running, knownIds, image, targetImage);
 }
 
 async function loadSpec(path) {
@@ -294,6 +310,28 @@ async function loadSpec(path) {
   need(/^sha256:[a-f0-9]{64}$/.test(spec.expectedImage ?? ""), "spec_image");
   need(/^[a-f0-9]{40}$/.test(spec.expectedRevision ?? ""), "spec_revision");
   need(/^[a-z0-9][a-z0-9_-]{0,127}$/.test(spec.network ?? ""), "spec_network");
+  const targetFields = [
+    spec.targetImage,
+    spec.targetImageRef,
+    spec.targetRevision,
+  ];
+  need(
+    targetFields.every((v) => v === undefined) ||
+      targetFields.every((v) => v !== undefined),
+    "spec_target_all_or_none",
+  );
+  if (spec.targetImage !== undefined) {
+    need(/^sha256:[a-f0-9]{64}$/.test(spec.targetImage), "spec_target_image");
+    need(
+      /^[a-z0-9][a-z0-9_./:-]{0,200}$/.test(spec.targetImageRef),
+      "spec_target_image_ref",
+    );
+    need(/^[a-f0-9]{40}$/.test(spec.targetRevision), "spec_target_revision");
+    need(
+      spec.targetImage !== spec.expectedImage,
+      "spec_target_equals_expected",
+    );
+  }
   need(
     roles.every((r) => typeof spec.names?.[r] === "string"),
     "spec_names",
@@ -335,6 +373,27 @@ async function loadSpec(path) {
     );
   }
   return spec;
+}
+
+/** The target image must already be on the host and match the reviewed identity. Returns its labels. */
+async function verifyTargetImage(spec) {
+  const found = row(
+    await docker(
+      "GET",
+      `/images/${encodeURIComponent(spec.targetImageRef)}/json`,
+    ),
+  );
+  need(found.Id === spec.targetImage, "target_image_ref_mismatch");
+  need(
+    found.Os === "linux" && found.Architecture === "amd64",
+    "target_image_platform",
+  );
+  const labels = row(row(found.Config).Labels ?? {});
+  need(
+    labels["org.opencontainers.image.revision"] === spec.targetRevision,
+    "target_image_revision_label",
+  );
+  return labels;
 }
 
 async function snapshotRole(role, spec) {
@@ -382,6 +441,11 @@ async function main() {
     "machine_mismatch",
   );
   const image = spec.expectedImage;
+  const target = spec.targetImage
+    ? { image: spec.targetImage, ref: spec.targetImageRef }
+    : null;
+  const toImage = target?.image ?? image;
+  const targetLabels = target ? await verifyTargetImage(spec) : {};
 
   if (mode === "prepare") {
     const snapshots = {};
@@ -450,14 +514,27 @@ async function main() {
       row(baselines[role].HostConfig).ExtraHosts,
       spec.extraHosts,
     );
+    const config = plannedConfig(
+      row(baselines[role]).Config,
+      nextList,
+      target,
+      targetLabels,
+    );
     const body = createBody(
       baselines[role],
       role,
       spec.network,
-      nextList,
       extraHosts,
+      config,
     );
-    plans[role] = { env, updates, nextList, body, hostConfig: body.HostConfig };
+    plans[role] = {
+      env,
+      updates,
+      nextList,
+      config,
+      body,
+      hostConfig: body.HostConfig,
+    };
     // the canonical env file must be updatable with the same values
     applyCanonical(state.roles[role].canonical, env, updates, containerOnly);
   }
@@ -475,6 +552,7 @@ async function main() {
       JSON.stringify({
         status: "planned",
         image,
+        targetImage: target ? toImage : undefined,
         summary,
         secretsPrinted: false,
       }),
@@ -499,7 +577,7 @@ async function main() {
         phase,
         ids,
         retained,
-        image,
+        image: toImage,
         at: new Date().toISOString(),
       }) + "\n",
     );
@@ -552,15 +630,11 @@ async function main() {
         for (const role of roles) {
           const c = await inspect(ids[role]);
           need(
-            c.Image === image && row(c.State).Running === false,
+            c.Image === toImage && row(c.State).Running === false,
             "candidate_must_be_stopped",
           );
-          const expected = {
-            ...row(baselines[role].Config),
-            Env: plans[role].nextList,
-          };
           need(
-            stable(c.Config) === stable(expected) &&
+            stable(c.Config) === stable(plans[role].config) &&
               stable(hostCfg(c.HostConfig)) ===
                 stable(hostCfg(plans[role].hostConfig)),
             "stopped_candidate_config",
@@ -583,6 +657,7 @@ async function main() {
             ...Object.values(ids),
           ],
           image,
+          toImage,
         ),
       persistCanonical: async () => {
         cutoverStarted = true;
@@ -627,7 +702,6 @@ async function main() {
         await receipt();
       },
       startAndVerify: async (role) => {
-        const before = baselines[role];
         const id = ids[role];
         await docker(
           "POST",
@@ -635,15 +709,14 @@ async function main() {
         );
         await docker("POST", `/containers/${id}/start`);
         const after = await inspect(id);
-        const expected = { ...row(before.Config), Env: plans[role].nextList };
         need(
-          stable(after.Config) === stable(expected) &&
+          stable(after.Config) === stable(plans[role].config) &&
             stable(hostCfg(after.HostConfig)) ===
               stable(hostCfg(plans[role].hostConfig)),
           "opaque_successor_readback",
         );
         need(
-          after.Image === image && row(after.State).Running === true,
+          after.Image === toImage && row(after.State).Running === true,
           "successor_readback_failed",
         );
         phase = `running:${role}`;
@@ -669,7 +742,7 @@ async function main() {
         status: phase,
         ids,
         retained,
-        image,
+        image: toImage,
         secretsPrinted: false,
       }),
     );
