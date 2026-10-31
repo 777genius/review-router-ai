@@ -65,6 +65,7 @@ import {
   CodexRotatingReviewActionV2Mode,
   codexWorkflowPathForRepository,
   defaultCodexRotatingWorkflowPath,
+  defaultInteractionWorkflowPath,
   defaultWorkflowPath,
   isolatedQualityWorkflowPath,
   OctokitWorkflowSetupGateway,
@@ -2279,6 +2280,30 @@ async function confirmSetupPullRequestMergedMutation(
         throw new Error(reason);
       }
 
+      // Gateway setup is confirmed only when no older ReviewRouter workflow is
+      // left next to it. Naming that cause beats telling the user to wait for a
+      // PR that was merged long ago.
+      if (managedReview && setupPullRequestStatus !== "open") {
+        const legacyChecks = await Promise.all(
+          [
+            defaultWorkflowPath,
+            defaultCodexRotatingWorkflowPath,
+            defaultInteractionWorkflowPath,
+          ].map((workflowPath) =>
+            workflowProbe.probeWorkflow({
+              githubInstallationId:
+                githubRepository.installation.githubInstallationId.toString(),
+              owner: repository.owner,
+              name: repository.name,
+              defaultBranch: setupBaseBranch,
+              workflowPath,
+              expectedActionRef: verifiedWorkflowActionRef,
+            }),
+          ),
+        );
+        if (legacyChecks.some((check) => check.status === "present"))
+          throw new Error("setup_legacy_workflows_present");
+      }
       throw new Error("setup_pr_not_merged");
     }
 
