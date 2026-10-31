@@ -115,7 +115,7 @@ describe.skipIf(!adminUrl)("GitLab installation inventory on real PostgreSQL", (
   }
 
   it("rolls back installation and previous changes when a later repository insert fails", async () => {
-    await expect(inventory.record(snapshot("workspace_1", ["101", "102"]))).rejects.toThrow(
+    await expect(inventory.record(snapshot("workspace_1", ["101", "999"]))).rejects.toThrow(
       "injected_repository_write_failure",
     );
     expect(await prisma.gitLabInstallation.count()).toBe(0);
@@ -222,14 +222,14 @@ const schema = [
     UNIQUE ("workspaceId","provider","fullName","sourceBaseUrl"),
     UNIQUE ("id","workspaceId"), UNIQUE ("id","workspaceId","scmRepositoryIdentityId")
   )`,
-  `CREATE FUNCTION reject_project_102() RETURNS trigger LANGUAGE plpgsql AS $$
+  `CREATE FUNCTION reject_project_999() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
-      IF NEW."externalRepositoryId" = '102' AND NEW."workspaceId" = 'workspace_1' THEN
+      IF NEW."externalRepositoryId" = '999' AND NEW."workspaceId" = 'workspace_1' THEN
         RAISE EXCEPTION 'injected_repository_write_failure';
       END IF;
       RETURN NEW;
     END
   $$`,
-  `CREATE TRIGGER reject_project_102 BEFORE INSERT ON "RepositoryConnection"
-    FOR EACH ROW EXECUTE FUNCTION reject_project_102()`,
+  `CREATE TRIGGER reject_project_999 BEFORE INSERT ON "RepositoryConnection"
+    FOR EACH ROW EXECUTE FUNCTION reject_project_999()`,
 ];
