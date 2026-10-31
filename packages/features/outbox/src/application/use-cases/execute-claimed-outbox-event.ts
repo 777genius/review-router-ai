@@ -74,13 +74,6 @@ export async function executeClaimedOutboxEvent(
       // A throwing handler must also await the last renewal before its outcome.
       await heartbeat.stop();
     }
-    if (heartbeat.isStale()) return "stale_claim";
-    const result = await dependencies.outbox.markProcessed({
-      id: event.id,
-      ...claim,
-      processedAt: dependencies.clock.now(),
-    });
-    return result.status === "applied" ? "processed" : "stale_claim";
   } catch (error) {
     if (heartbeat.isStale()) return "stale_claim";
     const safeError = safeOutboxErrorSummary(error);
@@ -113,6 +106,19 @@ export async function executeClaimedOutboxEvent(
       safeErrorSummary: safeError.summary,
     });
     return result.status === "applied" ? "retried" : "stale_claim";
+  }
+
+  if (heartbeat.isStale()) return "stale_claim";
+  try {
+    const result = await dependencies.outbox.markProcessed({
+      id: event.id,
+      ...claim,
+      processedAt: dependencies.clock.now(),
+    });
+    return result.status === "applied" ? "processed" : "stale_claim";
+  } catch {
+    // The handler completed; an uncertain settlement belongs to lease recovery.
+    return "stale_claim";
   }
 }
 

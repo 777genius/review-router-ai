@@ -370,6 +370,51 @@ describe("outbox execution ownership", () => {
     },
   );
 
+  it.each([1, 3])(
+    "leaves a failed successful-handler settlement to recovery (maxAttempts=%s)",
+    async (maxAttempts) => {
+      const outbox = new InMemoryOutboxEventRepository();
+      await outbox.enqueue({
+        ...definition,
+        idempotencyKey: "settlement-failed",
+        payload: {},
+        occurredAt: start,
+        maxAttempts,
+      });
+      const handle = vi.fn(async () => undefined);
+      const markProcessed = vi
+        .spyOn(outbox, "markProcessed")
+        .mockRejectedValueOnce(new Error("storage unavailable"));
+      const markRetry = vi.spyOn(outbox, "markRetry");
+      const markDeadLetter = vi.spyOn(outbox, "markDeadLetter");
+
+      const result = await processOutboxBatch(
+        {
+          limit: 1,
+          claimOwnerHash: "worker",
+          handlers: [{ ...definition, handle }],
+        },
+        { outbox, clock: { now: () => start } },
+      );
+
+      expect(result).toMatchObject({
+        claimed: 1,
+        processed: 0,
+        retried: 0,
+        deadLettered: 0,
+        staleClaims: 1,
+      });
+      expect(handle).toHaveBeenCalledOnce();
+      expect(markProcessed).toHaveBeenCalledOnce();
+      expect(markRetry).not.toHaveBeenCalled();
+      expect(markDeadLetter).not.toHaveBeenCalled();
+      expect(outbox.events.get("settlement-failed")).toMatchObject({
+        status: "processing",
+        attempts: 1,
+      });
+    },
+  );
+
   it.each([false, true])(
     "retains the exhausted delivery policy (preserveReconciliation=%s)",
     async (preserveReconciliation) => {
