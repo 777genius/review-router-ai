@@ -4,6 +4,8 @@ import {
   createPrismaClient,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
+import { OutboxHandlerError } from "../domain/outbox-event";
+import { processOutboxBatch } from "../application/use-cases/process-outbox-batch";
 import { PrismaOutboxEventRepository } from "../infrastructure/prisma/prisma-outbox-event-repository";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
@@ -149,6 +151,73 @@ describeWithDatabase("Prisma outbox fenced claims", () => {
     expect(await outbox.recoverStaleProcessing(input)).toEqual({
       recovered: 1,
     });
+  });
+
+  it("persists only approved codes through PostgreSQL retry, exhaustion and permanent dead-letter", async () => {
+    const outbox = new PrismaOutboxEventRepository(prisma);
+    const now = new Date(Date.now() - 10_000);
+    const handlers = [true, false].map((retryable) => ({
+      type: `${prefix}.privacy.${retryable ? "retry" : "permanent"}`,
+      version: 1,
+      async handle() {
+        throw new OutboxHandlerError(
+          "private provider response",
+          "github_pat_private0123456",
+          retryable,
+        );
+      },
+    }));
+    for (const handler of handlers) {
+      await outbox.enqueue({
+        type: handler.type,
+        version: handler.version,
+        idempotencyKey: handler.type,
+        payload: { kind: "sanitized" },
+        maxAttempts: 2,
+        occurredAt: now,
+      });
+    }
+    const run = (handler: (typeof handlers)[number]) =>
+      processOutboxBatch(
+        {
+          limit: 1,
+          handlers: [handler],
+          claimOwnerHash: "a".repeat(64),
+          processingLeaseMs: 60_000,
+        },
+        { outbox, clock: { now: () => now } },
+      );
+    expect(await run(handlers[0]!)).toMatchObject({ retried: 1 });
+    expect(
+      await prisma.outboxEvent.findUnique({
+        where: { idempotencyKey: handlers[0]!.type },
+      }),
+    ).toMatchObject({
+      status: "retry_wait",
+      attempts: 1,
+      lastErrorCode: "handler_error",
+      safeLastErrorSummary: "outbox_application_failure",
+    });
+
+    // The controlled clock schedules the 5-second retry in the past;
+    // PostgreSQL claimDue still evaluates eligibility against actual DB time.
+    expect(await run(handlers[0]!)).toMatchObject({ deadLettered: 1 });
+    expect(await run(handlers[1]!)).toMatchObject({ deadLettered: 1 });
+    for (const handler of handlers) {
+      const row = await prisma.outboxEvent.findUnique({
+        where: { idempotencyKey: handler.type },
+      });
+      expect(row).toMatchObject({
+        status: "dead_letter",
+        attempts: handler === handlers[0] ? 2 : 1,
+        lastErrorCode: "handler_error",
+        safeLastErrorSummary: "outbox_application_failure",
+      });
+      expect(row?.lastErrorCode).not.toContain("github_pat_private0123456");
+      expect(row?.safeLastErrorSummary).not.toContain(
+        "private provider response",
+      );
+    }
   });
 
   it("restores only an identical idempotency envelope", async () => {
