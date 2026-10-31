@@ -2,16 +2,23 @@
 
 Use Node.js 26.11.1 (the CI version, also in `.node-version`), the pnpm version
 pinned in `package.json`, and a local PostgreSQL server with `psql` available.
-Node.js 26 does not bundle Corepack, so install the pinned pnpm directly.
+Node.js 26 does not bundle Corepack, so install the pinned pnpm directly. The
+pinned version is the `packageManager` field in `package.json` (currently
+`pnpm@11.28.7`).
 Docker Compose is needed for the disposable self-hosted E2E.
 
 ## Local setup
 
 ```bash
-npm install --global pnpm@10.33.0
+npm install --global pnpm@11.28.7
 pnpm local:bootstrap
 pnpm dev
 ```
+
+`pnpm dev` starts the web app, the API, and the worker through Turborepo. The
+hosted-only features (GitHub App sign-in, webhooks, provider sign-in through the
+account gateway) need real configuration and are not covered by the local
+bootstrap.
 
 Bootstrap installs dependencies, prepares `.env.local`, generates Prisma, and
 migrates the dev and test databases. Configure your local database URLs and
