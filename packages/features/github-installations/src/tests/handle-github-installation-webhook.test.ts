@@ -122,6 +122,8 @@ describe("handleGitHubInstallationWebhook", () => {
               account: { login: "org", type: "Organization" },
               repository_selection: "selected",
             },
+            repositories_added: [],
+            repositories_removed: [],
           },
         },
         { installations, deliveries, clock: fixedClock },
