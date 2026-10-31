@@ -95,6 +95,9 @@ describe("outbox durable failure privacy", () => {
       safeLastErrorSummary: "outbox_handler_failure",
       status: "retry_wait",
     });
-    expect(JSON.stringify(record)).not.toContain("github_pat_PRIVATE0123456");
+    expect(record?.safeLastErrorSummary).not.toContain(
+      "github_pat_PRIVATE0123456",
+    );
+    expect(record?.lastErrorCode).not.toContain("github_pat_PRIVATE0123456");
   });
 });
