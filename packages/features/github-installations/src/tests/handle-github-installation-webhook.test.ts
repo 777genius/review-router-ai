@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { GitHubInstallationSnapshot } from "../domain/github-installation";
 import type { GitHubInstallationRepositoryPort } from "../application/ports/github-installation-repository-port";
 import type {
@@ -103,6 +103,38 @@ class InMemoryDeliveries implements WebhookDeliveryRepositoryPort {
 }
 
 describe("handleGitHubInstallationWebhook", () => {
+  it("records only a safe code when an installation dependency throws private text", async () => {
+    const installations = new InMemoryInstallations();
+    const deliveries = new InMemoryDeliveries();
+    const secret = "github_pat_privateSuperSecret123";
+    vi.spyOn(installations, "upsertInstallation").mockRejectedValueOnce(
+      new Error(`provider failure Authorization: Bearer ${secret}`),
+    );
+    await expect(
+      handleGitHubInstallationWebhook(
+        {
+          deliveryId: "delivery-sensitive-error",
+          eventName: "installation",
+          payload: {
+            action: "created",
+            installation: {
+              id: 129,
+              account: { login: "org", type: "Organization" },
+              repository_selection: "selected",
+            },
+          },
+        },
+        { installations, deliveries, clock: fixedClock },
+      ),
+    ).rejects.toThrow("provider failure");
+    const saved = deliveries.deliveries.get("delivery-sensitive-error");
+    expect(saved).toMatchObject({
+      status: "failed",
+      errorSummary: "github_webhook_processing_failed",
+    });
+    expect(JSON.stringify(saved)).not.toContain(secret);
+  });
+
   it("upserts installation events and dedupes delivery ids before side effects", async () => {
     const installations = new InMemoryInstallations();
     const deliveries = new InMemoryDeliveries();
