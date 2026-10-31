@@ -56,11 +56,17 @@ and its environment gates rather than introducing a separate deployment flow.
 
 - **Fleet and runtime:** all four targets run the selected build, old replicas have drained, and the compiled API/worker runtime starts successfully. Inspect existing health, startup and webhook/session/configuration error signals.
 - **Identity:** disposable same-ID concurrent login tests converge on one persisted owner, installation-before-login reuses the immutable GitHub owner, profile updates retain that owner, and injected persistence failures roll back both writes. Historical conflicting or noncanonical bindings remain fail-closed; no automatic account merge or orphan cleanup is implied.
-- **Outbox:** competing-worker tests leave unstarted work available, suppress dispatch after takeover or refused ownership confirmation, and await heartbeat settlement on success and failure. Existing retry, dead-letter, reconciliation preservation and scanner recovery lanes still pass. A renewal storage failure is reported to the batch rather than incorrectly counted as a stale claim.
+- **Outbox:** competing-worker tests leave unstarted work available, suppress dispatch after takeover or refused ownership confirmation, and await heartbeat settlement on success and failure. Existing retry, dead-letter, reconciliation preservation and scanner recovery lanes still pass.
 - **Settings and admission:** save/clear emits exactly the requested audit event with the committed version/provider facts; implicit workspace creation adds no extra settings event. Absent provider facts do not preserve stale caller values. Denied/CAS or injected audit failures commit neither the write nor audit. Disabled GitLab mutation refuses before installer/persistence work.
 - **Publication:** the PostgreSQL regression returns eligible tail work behind more than four times the batch limit of earlier expired attempts. Scope/provider filtering, exact ordering, due/retention equality, the 1000-row cap and durable retry CAS pass. Expired reconciliation windows remain discoverable under the existing executor policy.
-- **Worker failures:** bounded fault tests show later independent owners run, successful outbox counters survive unrelated failures, and unavailable metrics remain explicit. A phase-global publication scan failure blocks dependent progress promotion/publication for that pass; an isolated publication item failure does not block progress for independently verified terminal settlements, but reports degraded health and unknown `advanced`. Named errors are sanitized, normal error pacing remains, and a degraded one-shot run returns failure. Do fault injection only in disposable tests/staging fixtures, not production data.
+- **Worker failures:** bounded fault tests show later independent owners run, successful outbox counters survive unrelated failures, and unavailable metrics remain explicit. A phase-global publication scan failure blocks dependent progress promotion/publication for that pass. Named errors are sanitized, normal error pacing remains, and a degraded one-shot run returns failure. Do fault injection only in disposable tests/staging fixtures, not production data.
 - **Architecture and CI:** the nested-boundary rejecting fixtures and full existing architecture command pass; auth/publication PostgreSQL suites execute rather than skip in CI. This proves their scoped contracts, not repository-wide DDD/SOLID or production behavior.
+
+This task verifies PR #747's behavior. If the selected release also includes
+[PR #751](https://github.com/777genius/review-router-ai/pull/751), apply its
+[publication-item and outbox-renewal checks](2026-10-31-review-publication-item-isolation.md)
+in addition. Those later guarantees are not prerequisites for a release that
+contains only PR #747.
 
 Local integrated regression evidence is source qualification only: at exact
 `dd5ddbf6`, 40 files contained 534 cases: 531 passed, none failed and three
