@@ -1,4 +1,5 @@
 import type { Clock } from "@reviewrouter/shared";
+import { safeGitHubWebhookFailureSummary } from "../../domain/github-webhook-failure";
 import { installationStatusForAction } from "../../domain/github-installation";
 import type { GitHubWebhookEnvelope } from "../../domain/github-webhook";
 import { normalizeGitHubWebhookEvent } from "../../domain/github-webhook-normalization";
@@ -95,7 +96,7 @@ export async function handleGitHubInstallationWebhook(
   } catch (error) {
     await dependencies.deliveries.markFailed({
       deliveryId: envelope.deliveryId,
-      errorSummary: safeErrorSummary(error),
+      errorSummary: safeGitHubWebhookFailureSummary(error),
     });
     throw error;
   }
@@ -118,7 +119,3 @@ async function grantInstallationSenderOwner(
   });
 }
 
-function safeErrorSummary(error: unknown): string {
-  const message = error instanceof Error ? error.message : "unknown_error";
-  return message.slice(0, 500);
-}
