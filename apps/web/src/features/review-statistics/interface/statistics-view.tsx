@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { usePrivateQueryScope } from "../../../private-query-scope";
 import {
   statisticsFilterFromUrl,
+  statisticsActivityMetricFromUrl,
+  statisticsActivityMetricUrl,
+  defaultStatisticsActivityMetric,
+  type StatisticsActivityMetric,
   statisticsFilterUrl,
 } from "../application/statistics-url";
 import { Button } from "@reviewrouter/ui";
@@ -38,6 +42,7 @@ type Props = {
   workspaceId: string;
   seedId: string;
   initialReport: StatisticsReport;
+  initialMetric?: StatisticsActivityMetric;
 };
 export function StatisticsView(props: Props) {
   return (
@@ -52,6 +57,7 @@ function StatisticsInstance({
   workspaceId,
   seedId,
   initialReport,
+  initialMetric,
 }: Props) {
   const router = useRouter();
   const scope = usePrivateQueryScope(
@@ -61,8 +67,8 @@ function StatisticsInstance({
   );
   const { denied } = scope;
   const [filter, setFilter] = useState<StatisticsFilter>(initialReport.filter);
-  const [metric, setMetric] = useState<"pullRequestsReviewed" | "reviews">(
-    "pullRequestsReviewed",
+  const [metric, setMetric] = useState<StatisticsActivityMetric>(
+    initialMetric ?? defaultStatisticsActivityMetric,
   );
   const [invalidUrl, setInvalidUrl] = useState(false);
   const [issuesOpen, setIssuesOpen] = useState(false);
@@ -144,9 +150,13 @@ function StatisticsInstance({
       const next = statisticsFilterFromUrl(
         new URLSearchParams(window.location.search),
       );
-      setInvalidUrl(next === null);
+      const restoredMetric = statisticsActivityMetricFromUrl(
+        new URLSearchParams(window.location.search),
+      );
+      setInvalidUrl(next === null || restoredMetric === null);
       setRepository(null);
       if (next) setFilter(next);
+      if (restoredMetric) setMetric(restoredMetric);
     };
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
@@ -284,7 +294,16 @@ function StatisticsInstance({
               <StatisticsCharts
                 report={report}
                 metric={metric}
-                onMetricChange={setMetric}
+                onMetricChange={(next) => {
+                  interactionRevision.current += 1;
+                  setMetric(next);
+                  setInvalidUrl(false);
+                  window.history.pushState(
+                    null,
+                    "",
+                    statisticsActivityMetricUrl(window.location.href, next),
+                  );
+                }}
                 onViewIssues={(row) => {
                   interactionRevision.current += 1;
                   setRepository(
