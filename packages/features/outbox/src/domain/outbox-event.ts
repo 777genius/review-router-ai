@@ -157,6 +157,7 @@ const safeOutboxHandlerErrorCodes = new Set<string>([
   "rate_limited",
   "review_request_eligibility_unavailable",
   "review_request_ingress_envelope_invalid",
+  "review_request_identity_projection_unavailable",
   "review_request_ingress_idempotency_conflict",
   "review_request_repository_invalid",
   "review_request_repository_projection_unavailable",
