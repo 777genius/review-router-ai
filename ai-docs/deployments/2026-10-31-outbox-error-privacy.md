@@ -21,7 +21,7 @@
 1. Reconcile the actual installed-to-target release range and pending work under the [release process](../operations/07-environments-and-release-management.md).
 2. Verify exact-source unit and persisted retry/dead-letter tests, SQL migration compatibility, architecture, build, self-hosted E2E and mandatory CI with independent security/code review.
 3. Deploy a coherent authorized ordinary-worker and Skills scanner-worker build, drain old consumers and preserve in-flight claims and external effect receipts. No replay of uncertain actions.
-4. Verify failure detail surfaces show stable codes without raw exception messages and that retryable/non-retryable controls and one-shot failure reporting remain correct.
+4. Verify failure detail surfaces show stable codes without raw exception messages; the post-deploy database privilege probe matches `db_permission_denied` and historical seven-day summaries; retryable/non-retryable controls and one-shot failure reporting remain correct.
 5. Record the actual image/commit, environment, operator, UTC time and durable verification evidence before marking a target `deployed`.
 
 ## Retry / rollback
