@@ -49,11 +49,10 @@ describe("outbox durable failure privacy", () => {
     "private_customer_repository_name",
     "access_token_hidden",
   ])("does not copy arbitrary diagnostic strings through code: %s", (code) => {
-    expect(
-      safeOutboxErrorSummary(
-        new OutboxHandlerError("private", code, false),
-      ),
-    ).toEqual({
+    const safeError = safeOutboxErrorSummary(
+      new OutboxHandlerError("private", code, false),
+    );
+    expect(safeError).toEqual({
       code: "handler_error",
       summary: "outbox_application_failure",
       retryable: false,
