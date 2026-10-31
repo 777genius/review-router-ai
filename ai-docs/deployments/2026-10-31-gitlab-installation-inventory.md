@@ -4,6 +4,7 @@
 - Goal: Atomic GitLab installation inventory.
 - Affected services: Web.
 - Implementation: [PR #753](https://github.com/777genius/review-router-ai/pull/753); [plan](../plans/2026-10-31-gitlab-installation-inventory.md).
+- Implementation reference: `dcd906400ecf4ed26c97a44f82621826a4eb952a` (reviewed baseline before remediation; the PR head is authoritative for later fixes, not proof of deployment).
 - No schema migration, feature flag, manual activation or production secret changes are introduced.
 - Last updated: `2026-10-31`.
 
@@ -27,6 +28,20 @@ This task does not authorize deployment.
 ## Recovery and rollback
 
 Use the [ordinary rollback process](../operations/07-environments-and-release-management.md#rollback).
+If inventory persistence fails after GitLab provisioning, stop and inspect the
+provider project settings, variables and setup merge requests alongside the
+committed installation/repository rows. Compare each project with the failed
+request's per-project result and retain timestamps and error evidence.
+
+Only retry confirmed idempotent provider updates after checking their actual
+values. Do not blindly repeat setup merge-request creation or other effects
+that can create duplicates. Reconcile residual GitLab changes and existing
+setup merge requests with the intended inventory before retrying; verify the
+database transaction rolled back without partial ownership/deselection.
+For an existing foreign ownership claim, require a support-led verification
+of write authority and the current workspace owner before any manual release:
+never reassign it automatically or disclose another tenant's identity.
+
 Preserve persisted delivery/inventory/session facts. Never fabricate a successful
 provider operation or replay an uncertain external effect. Verify compatible
 rollback behavior against active sessions and the target fleet.

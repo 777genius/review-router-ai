@@ -156,6 +156,55 @@ describe("PrismaGitLabInstallationInventory", () => {
     expect(f.tx.repositoryConnection.findUnique).toHaveBeenCalledOnce();
   });
 
+  it("never creates an ownership claim for read-only skipped provisioning", async () => {
+    const f = fakePrisma();
+    const original = input();
+    await f.inventory.record({
+      ...original,
+      selectedProjects: [project("101")],
+      provision: {
+        ...original.provision,
+        requested: 1,
+        succeeded: 1,
+        failed: 0,
+        results: [
+          {
+            projectId: "101",
+            status: "fulfilled",
+            result: {
+              mode: "skipped",
+              reason: "project_settings_permission_missing",
+              lintErrors: [],
+            },
+          },
+        ],
+      },
+    });
+    expect(f.tx.repositoryConnection.create).not.toHaveBeenCalled();
+    expect(f.tx.repositoryConnection.update).not.toHaveBeenCalled();
+    expect(f.tx.repositoryConnection.findUnique).not.toHaveBeenCalled();
+    expect(f.tx.gitLabInstallation.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ status: "permission_error" }),
+        update: expect.objectContaining({ status: "permission_error" }),
+      }),
+    );
+  });
+
+  it("maps a lost ownership update race to a stable conflict code", async () => {
+    const f = fakePrisma();
+    f.tx.repositoryConnection.findUnique.mockResolvedValueOnce({
+      id: "repo_101",
+      workspaceId: "workspace_1",
+    });
+    f.tx.repositoryConnection.update.mockRejectedValueOnce(
+      Object.assign(new Error("record was not found"), { code: "P2025" }),
+    );
+    await expect(f.inventory.record(input())).rejects.toThrow(
+      "gitlab_repository_already_owned",
+    );
+  });
+
   it("rejects a different workspace owner without transferring the repository", async () => {
     const f = fakePrisma();
     f.tx.repositoryConnection.findUnique.mockResolvedValueOnce({

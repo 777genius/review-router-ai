@@ -170,6 +170,41 @@ describe.skipIf(!adminUrl)("GitLab installation inventory on real PostgreSQL", (
     });
   });
 
+  it("does not reserve another workspace's project for skipped read-only provisioning", async () => {
+    const attempt = snapshot("workspace_1", ["101"]);
+    await inventory.record({
+      ...attempt,
+      provision: {
+        ...attempt.provision,
+        results: [
+          {
+            projectId: "101",
+            status: "fulfilled",
+            result: {
+              mode: "skipped",
+              reason: "project_settings_permission_missing",
+              lintErrors: [],
+            },
+          },
+        ],
+      },
+    });
+    expect(await prisma.repositoryConnection.count()).toBe(0);
+    expect(
+      (await prisma.gitLabInstallation.findFirstOrThrow({
+        where: { workspaceId: "workspace_1" },
+      })).status,
+    ).toBe("permission_error");
+
+    await expect(
+      inventory.record(snapshot("workspace_2", ["101"])),
+    ).resolves.toMatchObject({ installationId: expect.any(String) });
+    expect(await prisma.repositoryConnection.findFirstOrThrow()).toMatchObject({
+      workspaceId: "workspace_2",
+      selected: true,
+    });
+  });
+
   it("applies a full replacement snapshot atomically and retains same-workspace ownership", async () => {
     const first = await inventory.record(snapshot("workspace_1", ["101", "103"]));
     await inventory.record(

@@ -71,7 +71,8 @@ export class PrismaGitLabInstallationInventory {
       input.provision.results.some(
         (result) =>
           result.projectId === project.projectId &&
-          result.status === "fulfilled",
+          result.status === "fulfilled" &&
+          result.result.mode !== "skipped",
       ),
     );
 
@@ -104,7 +105,7 @@ export class PrismaGitLabInstallationInventory {
           update: {
             sourceKind: input.sourceKind,
             status:
-              input.provision.succeeded > 0 ? "active" : "permission_error",
+              successfulProjects.length > 0 ? "active" : "permission_error",
             installedByUserId: input.installedByUserId,
             selectedProjects: input.selectedProjects.length,
             installSummary: sanitizeInstallSummary(input.provision),
@@ -114,7 +115,7 @@ export class PrismaGitLabInstallationInventory {
             ...installationKey,
             sourceKind: input.sourceKind,
             status:
-              input.provision.succeeded > 0 ? "active" : "permission_error",
+              successfulProjects.length > 0 ? "active" : "permission_error",
             installedByUserId: input.installedByUserId,
             selectedProjects: input.selectedProjects.length,
             installSummary: sanitizeInstallSummary(input.provision),
@@ -169,12 +170,24 @@ export class PrismaGitLabInstallationInventory {
           };
           if (existing) {
             // This update cannot change a repository's owning workspace.
-            await tx.repositoryConnection.update({
-              // Scope the actual write too: a legacy writer may race with our
-              // cooperative lock and transfer an id after the earlier read.
-              where: { id: existing.id, workspaceId: input.workspaceId },
-              data: fields,
-            });
+            try {
+              await tx.repositoryConnection.update({
+                // Scope the actual write too: a legacy writer may race with our
+                // cooperative lock and transfer an id after the earlier read.
+                where: { id: existing.id, workspaceId: input.workspaceId },
+                data: fields,
+              });
+            } catch (error) {
+              if (
+                error &&
+                typeof error === "object" &&
+                "code" in error &&
+                error.code === "P2025"
+              ) {
+                throw new Error("gitlab_repository_already_owned");
+              }
+              throw error;
+            }
           } else {
             // Database global uniqueness also guards noncooperating writers.
             await tx.repositoryConnection.create({
