@@ -1281,7 +1281,7 @@ export async function createApiApp(
   app.addHook("onError", async (request, _reply, error) => {
     // Webhook JSON parsing precedes the route handler. Its error may contain
     // signed payload text and must never be recorded in operational logs.
-    if (request.url.split("?")[0] === "/webhooks/github") {
+    if (request.routeOptions.url === "/webhooks/github") {
       logger.error("GitHub webhook request failed", {
         code: "github_webhook_request_failed",
       });
