@@ -4,6 +4,7 @@
 - Goal: Issuer-bound GitLab CI authorization.
 - Affected services: API.
 - Implementation: [PR #754](https://github.com/777genius/review-router-ai/pull/754); [plan](../plans/2026-10-31-gitlab-oidc-issuer-scope.md).
+- Implementation reference: `504f0bc63b4e2391594e10eaa2dca1839f10dbac` (security-reviewed implementation baseline; current PR head must pass its own CI; no deployment implied).
 - No schema migration, feature flag, manual activation or production secret changes are introduced.
 - Last updated: `2026-10-31`.
 
