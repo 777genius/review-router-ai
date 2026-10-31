@@ -841,6 +841,10 @@ describe("API app", () => {
           expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
             "github_pat",
           );
+          expect(errorLog).toHaveBeenCalledWith(
+            "GitHub webhook request failed",
+            { code: "github_webhook_request_failed" },
+          );
         } finally {
           await app.close();
         }
