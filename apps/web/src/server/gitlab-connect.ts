@@ -5,6 +5,7 @@ import {
   type GitLabGroupProject,
 } from "@reviewrouter/features-gitlab-integration";
 import { getPrisma } from "./prisma";
+import { PrismaGitLabInstallationInventory } from "./gitlab-installation-inventory";
 import { resolveWorkflowPublicApiUrl } from "./workflow-public-api-url";
 
 export type GitLabConnectDiscovery = Awaited<
@@ -63,6 +64,8 @@ export async function installGitLabConnectProjects(input: {
   }[];
   readonly results: readonly unknown[];
 }> {
+  const inventory = new PrismaGitLabInstallationInventory(getPrisma());
+  const requestStartedAt = await inventory.requestStartedAt();
   const discovery = await discoverGitLabConnectProjects(input);
   const selectedProjects = selectProjects({
     projects: discovery.projects,
@@ -87,100 +90,19 @@ export async function installGitLabConnectProjects(input: {
     reviewToken: readGitLabReviewToken(),
   });
 
-  const prisma = getPrisma();
-  const selectedProjectIdSet = selectedProjects.map(
-    (project) => project.projectId,
-  );
-  const installation = await prisma.gitLabInstallation.upsert({
-    where: {
-      workspaceId_sourceBaseUrl_namespacePath: {
-        workspaceId: input.workspaceId,
-        sourceBaseUrl: discovery.source.baseUrl,
-        namespacePath,
-      },
-    },
-    update: {
-      sourceBaseUrl: discovery.source.baseUrl,
-      sourceKind: provision.variableTargetKind,
-      status: provision.succeeded > 0 ? "active" : "permission_error",
-      installedByUserId: input.installedByUserId,
-      selectedProjects: selectedProjects.length,
-      installSummary: sanitizeInstallSummary(provision),
-      lastInstalledAt: new Date(),
-    },
-    create: {
-      workspaceId: input.workspaceId,
-      sourceBaseUrl: discovery.source.baseUrl,
-      namespacePath,
-      sourceKind: provision.variableTargetKind,
-      status: provision.succeeded > 0 ? "active" : "permission_error",
-      installedByUserId: input.installedByUserId,
-      selectedProjects: selectedProjects.length,
-      installSummary: sanitizeInstallSummary(provision),
-      lastInstalledAt: new Date(),
-    },
+  const { installationId } = await inventory.record({
+    workspaceId: input.workspaceId,
+    installedByUserId: input.installedByUserId,
+    sourceBaseUrl: discovery.source.baseUrl,
+    namespacePath,
+    sourceKind: provision.variableTargetKind,
+    requestStartedAt,
+    selectedProjects,
+    provision,
   });
-
-  await prisma.repositoryConnection.updateMany({
-    where: {
-      provider: "gitlab",
-      gitlabInstallationId: installation.id,
-      externalRepositoryId: { notIn: selectedProjectIdSet },
-    },
-    data: {
-      selected: false,
-      lastSyncedAt: new Date(),
-    },
-  });
-
-  for (const project of selectedProjects) {
-    const result = provision.results.find(
-      (item) => item.projectId === project.projectId,
-    );
-    if (!result || result.status !== "fulfilled") continue;
-    await prisma.repositoryConnection.upsert({
-      where: {
-        provider_externalRepositoryId_sourceBaseUrl: {
-          provider: "gitlab",
-          externalRepositoryId: project.projectId,
-          sourceBaseUrl: discovery.source.baseUrl,
-        },
-      },
-      update: {
-        workspaceId: input.workspaceId,
-        sourceBaseUrl: discovery.source.baseUrl,
-        gitlabInstallationId: installation.id,
-        owner: ownerFromFullName(project.fullName),
-        name: project.name,
-        fullName: project.fullName,
-        defaultBranch: project.defaultBranch ?? "main",
-        visibility: project.visibility ?? "private",
-        archived: project.archived,
-        selected: true,
-        setupStatus: setupStatusForProvisionResult(result.result),
-        lastSyncedAt: new Date(),
-      },
-      create: {
-        workspaceId: input.workspaceId,
-        provider: "gitlab",
-        sourceBaseUrl: discovery.source.baseUrl,
-        externalRepositoryId: project.projectId,
-        gitlabInstallationId: installation.id,
-        owner: ownerFromFullName(project.fullName),
-        name: project.name,
-        fullName: project.fullName,
-        defaultBranch: project.defaultBranch ?? "main",
-        visibility: project.visibility ?? "private",
-        archived: project.archived,
-        selected: true,
-        setupStatus: setupStatusForProvisionResult(result.result),
-        lastSyncedAt: new Date(),
-      },
-    });
-  }
 
   return {
-    installationId: installation.id,
+    installationId,
     source: discovery.source,
     namespacePath,
     requested: provision.requested,
@@ -197,7 +119,7 @@ export async function installGitLabConnectProjects(input: {
           ]
         : [],
     ),
-    results: sanitizeInstallSummary(provision).results,
+    results: provision.results,
   };
 }
 
@@ -281,33 +203,6 @@ function selectProjects(input: {
     throw new Error("gitlab_connect_projects_required");
   }
   return projects;
-}
-
-function setupStatusForProvisionResult(result: {
-  readonly mode: "ci_config_path" | "setup_merge_request" | "skipped";
-}): "configured" | "setup_pr_open" | "needs_attention" {
-  if (result.mode === "ci_config_path") return "configured";
-  if (result.mode === "setup_merge_request") return "setup_pr_open";
-  return "needs_attention";
-}
-
-function sanitizeInstallSummary(
-  provision: Awaited<ReturnType<typeof provisionGitLabReviewRouterProjects>>,
-) {
-  return {
-    protocolVersion: provision.protocolVersion,
-    requested: provision.requested,
-    succeeded: provision.succeeded,
-    failed: provision.failed,
-    sharedVariablesConfigured: provision.sharedVariablesConfigured,
-    results: provision.results,
-  };
-}
-
-function ownerFromFullName(fullName: string): string {
-  const index = fullName.lastIndexOf("/");
-  if (index <= 0) return fullName;
-  return fullName.slice(0, index);
 }
 
 function assertToken(value: string): string {
