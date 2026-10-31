@@ -6,6 +6,7 @@ import {
   applyEnvList,
   applyCanonical,
   roleExtraHosts,
+  plannedConfig,
 } from "./fleet-overlay.mjs";
 
 test("appendJsonArray keeps existing bytes and is idempotent", () => {
@@ -82,4 +83,49 @@ test("container-only keys are skipped in the canonical file, extra hosts are app
     "h.example:172.19.0.1",
   ]);
   assert.deepEqual(roleExtraHosts("api", ["a:1.1.1.1"], spec), ["a:1.1.1.1"]);
+});
+
+test("plannedConfig without a target only changes Env", () => {
+  const baseline = {
+    Image: "old:tag",
+    Env: ["A=1"],
+    Labels: { x: "1" },
+    User: "app",
+  };
+  const planned = plannedConfig(baseline, ["A=2"], null);
+  assert.deepEqual(planned, { ...baseline, Env: ["A=2"] });
+  assert.equal(baseline.Env[0], "A=1");
+});
+
+test("plannedConfig with a target swaps Image and OCI labels, keeps other labels", () => {
+  const baseline = {
+    Image: "old:tag",
+    Env: ["A=1"],
+    Labels: {
+      "org.opencontainers.image.revision": "a".repeat(40),
+      "org.opencontainers.image.source": "https://example.test/old",
+      "com.example.keep": "yes",
+    },
+    User: "app",
+  };
+  const planned = plannedConfig(
+    baseline,
+    ["A=1"],
+    { ref: "new:tag" },
+    {
+      "org.opencontainers.image.revision": "b".repeat(40),
+      "not.oci": "ignored",
+    },
+  );
+  assert.equal(planned.Image, "new:tag");
+  assert.equal(planned.User, "app");
+  assert.deepEqual(planned.Labels, {
+    "org.opencontainers.image.revision": "b".repeat(40),
+    "org.opencontainers.image.source": "https://example.test/old",
+    "com.example.keep": "yes",
+  });
+  assert.equal(
+    baseline.Labels["org.opencontainers.image.revision"],
+    "a".repeat(40),
+  );
 });
