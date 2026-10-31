@@ -53,9 +53,13 @@ producers are immutable; revoke instead of deleting.
 
 ## Known follow-ups
 
-- `review_run_authorize` answers 500 `ambiguous_outcome` for a stale pull request
-  head ([issue #750](https://github.com/777genius/review-router-ai/issues/750)); the real cause is `stale_precondition`, which is not in the operation's
-  error list in the protocol contract, so it gets masked. A proper fix changes the shared protocol and needs a paired Action release and a new producer.
+- `review_run_authorize` answered 500 `ambiguous_outcome` for a stale pull request
+  head ([issue #750](https://github.com/777genius/review-router-ai/issues/750)),
+  which the Action retried. The cause was `stale_precondition` missing from the
+  operation's error list. When the pull request head moved, the server now maps it to 410 `resource_gone` (in the
+  contract, retry class `never`) on authorize only; other stale preconditions are server-side races and stay retryable, with no protocol change and no
+  Action release. The fix is in code but not deployed yet; production still runs
+  `533c040d` and shows the old behavior until the next image rollout.
 - Managed OCR `ocr-v1.13.1-rr.5` (profile `ocr-managed-v4`) was published afterwards: reproducible build at Action `955c336e` with Go 1.26.9, sha256 `9c666b25...` matches the pin. The profile is still not a default.
 - The Gateway origin env of web/api now points to `https://api.reviewrouter.org:8443`
   (with an `extra_hosts` entry for the `.org` host on the bridge). The old values still

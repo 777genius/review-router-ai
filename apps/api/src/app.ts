@@ -105,6 +105,7 @@ import {
   JoseGitLabCiIdTokenVerifier,
   registerGitLabIntegrationRoutes,
   StaticGitLabRepositoryRegistry,
+  normalizeGitLabSourceBaseUrl,
   type GitLabRepositoryContext,
   type RegisterGitLabIntegrationRoutesDependencies,
 } from "@reviewrouter/features-gitlab-integration";
@@ -1277,7 +1278,15 @@ export async function createApiApp(
     trpcOptions: { router: appRouter },
   });
 
-  app.addHook("onError", async (_request, _reply, error) => {
+  app.addHook("onError", async (request, _reply, error) => {
+    // Webhook JSON parsing precedes the route handler. Its error may contain
+    // signed payload text and must never be recorded in operational logs.
+    if (request.url.split("?")[0] === "/webhooks/github") {
+      logger.error("GitHub webhook request failed", {
+        code: "github_webhook_request_failed",
+      });
+      return;
+    }
     logger.error("API request failed", { message: error.message });
   });
 
@@ -1561,6 +1570,13 @@ function readGitLabStaticRepositories(
         repository.gitlabProjectId,
         "gitlabProjectId",
       ),
+      ...(repository.sourceBaseUrl !== undefined
+        ? {
+            sourceBaseUrl: normalizeGitLabSourceBaseUrl(
+              readString(repository.sourceBaseUrl, "sourceBaseUrl"),
+            ),
+          }
+        : {}),
       fullName: readString(repository.fullName, "fullName"),
       owner: readString(repository.owner, "owner"),
       selected: repository.selected !== false,

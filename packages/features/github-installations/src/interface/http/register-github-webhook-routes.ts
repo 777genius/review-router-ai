@@ -1,4 +1,9 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type {
+  FastifyError,
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest,
+} from "fastify";
 import rawBody from "fastify-raw-body";
 import {
   githubAppAuthorizationWebhookPayloadSchema,
@@ -56,7 +61,30 @@ export async function registerGitHubWebhookRoutes(
     routes: ["/webhooks/github"],
   });
 
-  const routeOptions = { bodyLimit: githubWebhookBodyLimitBytes };
+  const routeOptions = {
+    bodyLimit: githubWebhookBodyLimitBytes,
+    // JSON parsing precedes this handler. Never echo payload-bearing parse
+    // diagnostics to clients, including for signed malformed requests.
+    errorHandler: (
+      error: FastifyError,
+      _request: FastifyRequest,
+      reply: FastifyReply,
+    ) => {
+      const status =
+        typeof error.statusCode === "number" &&
+        error.statusCode >= 400 &&
+        error.statusCode < 500
+          ? error.statusCode
+          : 500;
+      if (status === 500) dependencies.onProcessingError?.();
+      return reply.code(status).send({
+        error:
+          status < 500
+            ? "invalid_webhook_payload"
+            : "github_webhook_processing_failed",
+      });
+    },
+  };
   app.post("/webhooks/github", routeOptions, async (request, reply) => {
     try {
       const rawPayload = (request as RawBodyRequest).rawBody;

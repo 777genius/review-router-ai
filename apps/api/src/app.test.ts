@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "@reviewrouter/features-review-config";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   ActionConflictReviewDispatchPayload,
   ActionConflictReviewExchangeVerifierPort,
@@ -801,6 +801,45 @@ describe("API app", () => {
         avatarUrl: null,
       },
     ]);
+  });
+
+  it("hides signed malformed GitHub webhook JSON from HTTP and logs", async () => {
+    const secret = "webhook-secret";
+    const leaked = "github_pat_parserPrivateSecret123";
+    const payload = `{"token":"${leaked}", invalid}`;
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const app = await createApiApp({
+        githubWebhookDependencies: {
+          webhookSecret: secret,
+          installations: new InMemoryInstallations(),
+          deliveries: new InMemoryDeliveries(),
+          clock: fixedClock,
+        },
+      });
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/webhooks/github",
+          payload,
+          headers: {
+            "content-type": "application/json",
+            "x-github-delivery": "delivery-malformed-signed",
+            "x-github-event": "installation",
+            "x-hub-signature-256": signGitHubWebhookPayload(payload, secret),
+          },
+        });
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toEqual({ error: "invalid_webhook_payload" });
+        expect(response.body).not.toContain(leaked);
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain(leaked);
+      } finally {
+        await app.close();
+      }
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it("handles signed GitHub setup pull request merge webhooks", async () => {
@@ -2250,7 +2289,7 @@ describe("API app", () => {
             },
           },
           repositories: {
-            async findSelectedRepositoryByGitLabProjectId() {
+            async findRepositoryByGitLabProjectIdentity() {
               return {
                 workspaceId: "workspace_1",
                 repositoryId: "repo_1",

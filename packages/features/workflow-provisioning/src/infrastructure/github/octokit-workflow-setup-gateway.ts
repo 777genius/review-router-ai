@@ -412,12 +412,13 @@ const hostedPoolSetupPullRequestBody = [
 ].join("\n");
 
 const gatewaySetupPullRequestBody = [
-  "This PR installs the keyless ReviewRouter Gateway workflow.",
+  "This PR sets up the keyless ReviewRouter Gateway workflow.",
   "",
+  "- adds or updates `.github/workflows/reviewrouter-review.yml`; if that file is already current on the base branch, this PR may only remove files",
   "- uses GitHub OIDC and the repository-scoped Gateway connection; no provider secrets are required",
-  "- removes legacy ReviewRouter workflows matching trusted markers; `/rr` comment commands (`reviewrouter-interaction.yml`) are removed",
+  "- removes legacy ReviewRouter workflows matching trusted markers, so reviews do not run twice; this includes `/rr` comment commands (`reviewrouter-interaction.yml`)",
   "",
-  "Workflow file: `.github/workflows/reviewrouter-review.yml`.",
+  "Review the file list of this PR before merging.",
 ].join("\n");
 
 function resolveSetupPullRequestBody(input: WorkflowSetupGatewayInput): string {

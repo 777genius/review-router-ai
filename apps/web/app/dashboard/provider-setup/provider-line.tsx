@@ -54,8 +54,17 @@ export function ProviderLine({
     summary: ProviderLineSummary;
     /** A short inline variant for a table row header. */
     compact?: boolean;
-  }>): React.ReactElement {
+  }>): React.ReactElement | null {
   const copy = providerLineCopy(summary, dialog.target.kind);
+  // A repository that follows a working workspace default has nothing to
+  // report in its row; the provider is shown only when it differs or is broken.
+  if (
+    compact &&
+    dialog.target.kind === "repository" &&
+    summary.source === "workspace" &&
+    !copy.attention
+  )
+    return null;
   const trigger = (
     <ProviderSetupDialog
       {...dialog}
