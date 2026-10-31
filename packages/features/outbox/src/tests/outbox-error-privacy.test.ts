@@ -73,7 +73,7 @@ describe("outbox durable failure privacy", () => {
     });
     const result = await processOutboxBatch(
       {
-        ownerIdHash: "a".repeat(64),
+        claimOwnerHash: "a".repeat(64),
         processingLeaseMs: 60_000,
         limit: 1,
         handlers: [
