@@ -29,6 +29,7 @@ on:
         type: string
         default: ""
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
@@ -74,7 +75,7 @@ env:
 jobs:
   release-authority-pg17-contract:
     name: Dedicated Release Authority PG17 contract
-    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract) }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract) }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
@@ -232,6 +233,7 @@ jobs:
 
   codex-rotating-installer-portability:
     name: Rotating installer lock (${{ matrix.os }})
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && matrix.os || startsWith(matrix.os, 'ubuntu-') && (vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || matrix.os) || matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -274,6 +276,7 @@ jobs:
 
   self-hosted-e2e:
     name: Self-hosted E2E
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
 
@@ -296,6 +299,7 @@ jobs:
 
   hosted-runtime-image:
     name: Hosted runtime OCI build
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 25
 
@@ -319,6 +323,7 @@ jobs:
 
   managed-migration-pg17:
     name: Managed migration PG17 (${{ matrix.lane }})
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     strategy:
@@ -406,16 +411,29 @@ jobs:
           QUALITY_SOURCE_CERTIFICATION_RESULT: ${{ needs.quality-source-certification.result }}
           STATIC_CHECKS_RESULT: ${{ needs.static-checks.result }}
           MANAGED_PG17_RESULT: ${{ needs.managed-migration-pg17.result }}
+          # Draft pull requests intentionally skip the heavy lanes; marking
+          # the pull request ready runs them (ready_for_review). Push, manual
+          # and ready pull request runs still require every lane to succeed.
+          DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
         run: |
           set -euo pipefail
-          test "$QUALITY_RESULT" = success
-          test "$QUALITY_DB_CONTRACTS_RESULT" = success
-          test "$QUALITY_SOURCE_CERTIFICATION_RESULT" = success
-          test "$STATIC_CHECKS_RESULT" = success
-          test "$MANAGED_PG17_RESULT" = success
+          allowed=success
+          if [ "${DRAFT_PR:-false}" = "true" ]; then allowed="success skipped"; fi
+          for result in \
+            "$QUALITY_RESULT" \
+            "$QUALITY_DB_CONTRACTS_RESULT" \
+            "$QUALITY_SOURCE_CERTIFICATION_RESULT" \
+            "$STATIC_CHECKS_RESULT" \
+            "$MANAGED_PG17_RESULT"; do
+            case " $allowed " in
+              *" $result "*) ;;
+              *) echo "lane result '$result' is not allowed" >&2; exit 1 ;;
+            esac
+          done
 
   static-checks:
     name: Static Checks
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
@@ -457,6 +475,7 @@ jobs:
 
   quality:
     name: Quality Checks
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
@@ -671,6 +690,7 @@ jobs:
 
   quality-db-contracts:
     name: DB Contract and Migration Checks
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
@@ -973,6 +993,7 @@ jobs:
 
   quality-source-certification:
     name: Source and Certification Checks
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
