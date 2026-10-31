@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   provisionGitLabReviewRouterProjects: vi.fn(),
   getPrisma: vi.fn(),
   requestStartedAt: vi.fn(),
+  assertProjectsNotOwned: vi.fn(),
   recordInventory: vi.fn(),
   gatewayOptions: [] as unknown[],
 }));
@@ -27,6 +28,7 @@ vi.mock("./prisma", () => ({
 vi.mock("./gitlab-installation-inventory", () => ({
   PrismaGitLabInstallationInventory: class {
     requestStartedAt = mocks.requestStartedAt;
+    assertProjectsNotOwned = mocks.assertProjectsNotOwned;
     record = mocks.recordInventory;
   },
 }));
@@ -74,6 +76,7 @@ describe("installGitLabConnectProjects", () => {
     mocks.requestStartedAt.mockReset().mockResolvedValue(
       new Date("2026-10-31T10:00:00.000Z"),
     );
+    mocks.assertProjectsNotOwned.mockReset().mockResolvedValue(undefined);
     mocks.recordInventory.mockReset().mockResolvedValue({
       installationId: "gitlab_install_1",
     });
@@ -145,6 +148,11 @@ describe("installGitLabConnectProjects", () => {
     expect(
       JSON.stringify(mocks.provisionGitLabReviewRouterProjects.mock.calls),
     ).not.toContain("user-pat-should-not-be-seeded");
+    expect(mocks.assertProjectsNotOwned).toHaveBeenCalledExactlyOnceWith({
+      workspaceId: "workspace_1",
+      sourceBaseUrl: "https://gitlab.com",
+      projectIds: ["101"],
+    });
     expect(mocks.requestStartedAt).toHaveBeenCalledOnce();
     expect(mocks.recordInventory).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
@@ -175,6 +183,23 @@ describe("installGitLabConnectProjects", () => {
         installedByUserId: "user_1",
       }),
     ).rejects.toThrow("gitlab_connect_project_selection_stale");
+    expect(mocks.provisionGitLabReviewRouterProjects).not.toHaveBeenCalled();
+    expect(mocks.recordInventory).not.toHaveBeenCalled();
+  });
+
+  it("denies foreign repository ownership before provisioning any GitLab changes", async () => {
+    mocks.assertProjectsNotOwned.mockRejectedValueOnce(
+      new Error("gitlab_repository_already_owned"),
+    );
+    await expect(
+      installGitLabConnectProjects({
+        sourceUrl: "https://gitlab.com/acme/platform",
+        token: "user-pat",
+        workspaceId: "workspace_1",
+        selectedProjectIds: ["101"],
+        installedByUserId: "user_1",
+      }),
+    ).rejects.toThrow("gitlab_repository_already_owned");
     expect(mocks.provisionGitLabReviewRouterProjects).not.toHaveBeenCalled();
     expect(mocks.recordInventory).not.toHaveBeenCalled();
   });
