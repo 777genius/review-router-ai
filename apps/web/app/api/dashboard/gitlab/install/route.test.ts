@@ -84,6 +84,26 @@ describe("GitLab install route", () => {
     expect(JSON.stringify(body)).not.toContain("glpat-secret-token");
   });
 
+  it.each([
+    "gitlab_repository_already_owned",
+    "gitlab_install_superseded",
+    "gitlab_connect_project_selection_stale",
+  ])("returns sanitized conflict for %s", async (code) => {
+    mocks.installGitLabConnectProjects.mockRejectedValueOnce(new Error(code));
+    const response = await POST(
+      jsonRequest({
+        workspaceId: "workspace_1",
+        sourceUrl: "https://gitlab.com/acme/platform",
+        token: "glpat-secret-token",
+        selectedProjectIds: ["101"],
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: { code, message: code.replaceAll("_", " ") },
+    });
+  });
+
   it("redacts token-like details from install errors", async () => {
     mocks.installGitLabConnectProjects.mockRejectedValueOnce(
       new Error("gitlab_api_error_401: glpat-secret-token"),
