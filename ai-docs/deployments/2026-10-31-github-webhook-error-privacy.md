@@ -4,6 +4,7 @@
 - Goal: GitHub webhook error privacy.
 - Affected services: API.
 - Implementation: [PR #755](https://github.com/777genius/review-router-ai/pull/755); [plan](../plans/2026-10-31-github-webhook-error-privacy.md).
+- Implementation reference: `4541cab68c6be5fbd31f7eb46dc2a9aa4a002d7f` (security-reviewed implementation baseline, not proof of merge or deployment; qualify current PR head separately).
 - No schema migration, feature flag, manual activation or production secret changes are introduced.
 - Last updated: `2026-10-31`.
 
