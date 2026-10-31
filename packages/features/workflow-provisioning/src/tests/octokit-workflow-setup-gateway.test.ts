@@ -379,8 +379,9 @@ describe("OctokitWorkflowSetupGateway", () => {
         );
         expect(body).toContain("keyless ReviewRouter Gateway");
         expect(body).toContain(
-          "`/rr` comment commands (`reviewrouter-interaction.yml`) are removed",
+          "`/rr` comment commands (`reviewrouter-interaction.yml`)",
         );
+        expect(body).toContain("may only remove files");
         expect(body).not.toContain("keeps provider secrets");
       } else {
         await expect(result).rejects.toThrow(
