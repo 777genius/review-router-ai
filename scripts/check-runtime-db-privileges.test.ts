@@ -39,7 +39,7 @@ describe("runtime database privilege check", () => {
     ]);
   });
 
-  it("links the stable PostgreSQL privilege classification to the dead-letter SQL probe", () => {
+  it("matches DB privilege errors in the post-deploy probe", () => {
     const postgresError = Object.assign(
       new Error("permission denied for table RepositoryConnection: private"),
       { code: "42501" },
@@ -77,7 +77,7 @@ describe("runtime database privilege check", () => {
     new Error("permission denied for schema private_tenant"),
     new Error("Raw query failed. Code: `42501`. Message: secret"),
     new Error("SQLSTATE 42501: database operation denied"),
-  ])("classifies PostgreSQL missing grants without persisting their details", (error) => {
+  ])("classifies DB grant failures without leaking details", (error) => {
     expect(safeOutboxErrorSummary(error)).toMatchObject({
       code: "db_permission_denied",
       summary: "outbox_database_permission_denied",
@@ -85,7 +85,7 @@ describe("runtime database privilege check", () => {
     });
   });
 
-  it("preserves typed permanent failures and does not classify provider permission denials", () => {
+  it("preserves permanent failures and distinguishes provider denials", () => {
     const error = new OutboxHandlerError(
       "permission denied for relation ReviewEvidence",
       "denied",
