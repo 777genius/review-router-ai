@@ -42,3 +42,11 @@ Test the script with `bash deploy/hetzner/release.test.sh`; it uses stub ssh, sc
 `swap --apply` stops the old containers and keeps them, renamed `*-before-ovl-<ts>`. To roll back, stop the new
 containers and start the saved `*-before-ovl-*` containers on the host (`docker start <name>`). Database
 migrations are not reverted, so only ship migrations that the previous image can run against.
+
+## Where build state lives
+
+The source archive is created in a private temporary directory on your machine, its
+sha256 is checked on the host before it is extracted, and build state (including the
+image id that later steps read) is kept in `/srv/platform/projects/review-router/builds`,
+owned by root with mode 0700. Later steps refuse to run if that directory is not
+root-only.

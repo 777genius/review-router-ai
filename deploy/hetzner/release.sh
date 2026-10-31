@@ -18,6 +18,8 @@
 set -euo pipefail
 
 RR_HOST="${RR_HOST:-iliya@37.27.125.57}"
+RR_TMP=""
+trap '[ -n "$RR_TMP" ] && rm -rf "$RR_TMP"' EXIT
 RR_API_READY="${RR_API_READY:-https://api.reviewrouter.org/ready}"
 DRY_RUN="${RR_DRY_RUN:-0}"
 ROOT="$(git rev-parse --show-toplevel)"
@@ -40,19 +42,29 @@ check_ready() {
 need_sha() { [[ "${1:-}" =~ ^[a-f0-9]{40}$ ]] || die "a full 40-hex commit sha is required"; }
 
 cmd_build() {
-  local sha="$1" t0=$SECONDS
+  local sha="$1" t0=$SECONDS archive digest
+  RR_TMP="$(mktemp -d)"
+  archive="$RR_TMP/rr-src-$sha.tar.gz"
   if [ "$DRY_RUN" = 1 ]; then
-    echo "[dry-run] git archive $sha -> /tmp/rr-src-$sha.tar.gz"
+    echo "[dry-run] git archive $sha -> private temp dir, sha256 checked on the host"
+    digest=0000000000000000000000000000000000000000000000000000000000000000
   else
     git -C "$ROOT" cat-file -e "$sha^{commit}" || die "unknown commit $sha"
-    git -C "$ROOT" archive --format=tar.gz --prefix=src/ -o "/tmp/rr-src-$sha.tar.gz" "$sha"
+    git -C "$ROOT" archive --format=tar.gz --prefix=src/ -o "$archive" "$sha"
+    digest="$(shasum -a 256 "$archive" | cut -d' ' -f1)"
   fi
-  copy_to_host "" "/tmp/rr-src-$sha.tar.gz"
+  copy_to_host "" "$archive"
   echo "uploaded in $((SECONDS - t0))s"
-  remote "SRC=$sha" <<'REMOTE'
+  remote "SRC=$sha" "ARCSHA=$digest" <<'REMOTE'
 set -euo pipefail
-B=/var/tmp/rr-build-${SRC:0:12}
-rm -rf "$B"; install -d -m 0700 "$B"; tar -xzf "/home/iliya/rr-src-$SRC.tar.gz" -C "$B"
+# Build state lives in a root-only directory; the upload is copied in and verified there.
+BUILDS=/srv/platform/projects/review-router/builds
+install -d -o root -g root -m 0700 "$BUILDS"
+B="$BUILDS/rr-build-${SRC:0:12}"
+rm -rf "$B"; mkdir -m 0700 "$B"
+install -o root -g root -m 0600 "/home/iliya/rr-src-$SRC.tar.gz" "$B/src.tar.gz"; rm -f "/home/iliya/rr-src-$SRC.tar.gz"
+[ "$(sha256sum "$B/src.tar.gz" | cut -d' ' -f1)" = "$ARCSHA" ] || { echo "archive checksum mismatch" >&2; exit 1; }
+tar --no-same-owner -xzf "$B/src.tar.gz" -C "$B"
 cd "$B/src"
 DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f deploy/render-runtime/Dockerfile \
   --build-arg IMAGE_REVISION="$SRC" --build-arg IMAGE_VERSION="main-${SRC:0:12}" \
@@ -78,7 +90,9 @@ cmd_migrate() {
   copy_to_host /home/iliya/worker-repository-sync.sql "$ROOT/deploy/hetzner/db-grants/worker-repository-sync.sql"
   remote "SRC=$sha" <<'REMOTE'
 set -euo pipefail
-IMG=$(cat /var/tmp/rr-build-${SRC:0:12}/image.id)
+B=/srv/platform/projects/review-router/builds/rr-build-${SRC:0:12}
+[ "$(stat -c %u:%a "$B")" = 0:700 ] || { echo "build directory is not root-only" >&2; exit 1; }
+IMG=$(cat "$B/image.id")
 C=/srv/platform/projects/review-router/releases/main-${SRC:0:8}-migrate-$(date -u +%Y%m%d)
 PGUID=$(id -u reviewrouter_pg); SOCKGID=$(stat -c %g /var/lib/review-router-postgres/socket)
 psql_rr() { sudo -n -u reviewrouter_pg /usr/lib/postgresql/17/bin/psql -X -qAt -v ON_ERROR_STOP=1 -h /var/lib/review-router-postgres/socket -p 5434 -U reviewrouter_pg -d review_router_dimy "$@"; }
@@ -109,7 +123,9 @@ ID=${SRC:0:8}-$(date -u +%Y%m%d%H%M)
 I=$R/overlay-inputs-$ID; C=$R/fleet-overlay-$ID
 install -d -o root -g root -m 0700 "$I"
 install -o root -g root -m 0600 /home/iliya/fleet-overlay.mjs /home/iliya/cutover.mjs "$I/"; rm -f /home/iliya/fleet-overlay.mjs /home/iliya/cutover.mjs
-NEW=$(cat /var/tmp/rr-build-${SRC:0:12}/image.id)
+B=/srv/platform/projects/review-router/builds/rr-build-${SRC:0:12}
+[ "$(stat -c %u:%a "$B")" = 0:700 ] || { echo "build directory is not root-only" >&2; exit 1; }
+NEW=$(cat "$B/image.id")
 python3 - "$I" "$SRC" "$NEW" <<'PY'
 import json, subprocess, sys
 i, src, new = sys.argv[1:4]

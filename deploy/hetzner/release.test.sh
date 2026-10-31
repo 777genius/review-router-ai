@@ -14,6 +14,12 @@ for tool in ssh scp curl git; do
   cat > "$WORK/bin/$tool" <<STUB
 #!/usr/bin/env bash
 if [ "$tool" = git ] && [ "\${1:-}" = rev-parse ]; then echo "$HERE/../.."; exit 0; fi
+if [ "$tool" = git ] && [ "\${3:-}" = archive ]; then
+  # git -C <root> archive ... -o <file> <sha>: create the output file like git does
+  for ((i = 1; i <= \$#; i++)); do
+    if [ "\${!i}" = -o ]; then j=\$((i + 1)); echo stub-archive > "\${!j}"; fi
+  done
+fi
 echo "$tool \$*" >> "$CALLS"
 [ "$tool" = ssh ] && cat > /dev/null
 exit 0
