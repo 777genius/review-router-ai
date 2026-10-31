@@ -850,7 +850,7 @@ describe("API app", () => {
     },
   );
 
-    it("handles signed GitHub setup pull request merge webhooks", async () => {
+  it("handles signed GitHub setup pull request merge webhooks", async () => {
     const pullRequests = new CapturingPullRequestWebhookHandler();
     const secret = "webhook-secret";
     const app = await createApiApp({
