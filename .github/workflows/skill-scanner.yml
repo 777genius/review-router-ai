@@ -3,6 +3,7 @@ name: Skill scanner runtime acceptance
 on:
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/skill-scanner.yml
       - services/skill-scanner/**
@@ -22,6 +23,7 @@ concurrency:
 
 jobs:
   scanner-runtime:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Real SkillSpector and Docker isolation
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 25
