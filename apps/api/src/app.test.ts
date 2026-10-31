@@ -806,47 +806,51 @@ describe("API app", () => {
   it.each(["/webhooks/github", "/%77ebhooks/github"])(
     "hides malformed signed webhook JSON from HTTP and logs at %s",
     async (url) => {
-    const secret = "webhook-secret";
-    const leaked = "github_pat_parserPrivateSecret123";
+      const secret = "webhook-secret";
+      const leaked = "github_pat_parserPrivateSecret123";
       const payload = `{"token": ${leaked}}`;
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    try {
-      const app = await createApiApp({
-        githubWebhookDependencies: {
-          webhookSecret: secret,
-          installations: new InMemoryInstallations(),
-          deliveries: new InMemoryDeliveries(),
-          clock: fixedClock,
-        },
-      });
       try {
-        const response = await app.inject({
-          method: "POST",
-          url,
-          payload,
-          headers: {
-            "content-type": "application/json",
-            "x-github-delivery": "delivery-malformed-signed",
-            "x-github-event": "installation",
-            "x-hub-signature-256": signGitHubWebhookPayload(payload, secret),
+        const app = await createApiApp({
+          githubWebhookDependencies: {
+            webhookSecret: secret,
+            installations: new InMemoryInstallations(),
+            deliveries: new InMemoryDeliveries(),
+            clock: fixedClock,
           },
         });
-        expect(response.statusCode).toBe(400);
-        expect(response.json()).toEqual({ error: "invalid_webhook_payload" });
-        expect(response.body).not.toContain(leaked);
-        // Native JSON parse errors can quote a prefix of the invalid body.
-        expect(JSON.stringify(errorLog.mock.calls)).not.toContain("github_pat");
+        try {
+          const response = await app.inject({
+            method: "POST",
+            url,
+            payload,
+            headers: {
+              "content-type": "application/json",
+              "x-github-delivery": "delivery-malformed-signed",
+              "x-github-event": "installation",
+              "x-hub-signature-256": signGitHubWebhookPayload(payload, secret),
+            },
+          });
+          expect(response.statusCode).toBe(400);
+          expect(response.json()).toEqual({
+            error: "invalid_webhook_payload",
+          });
+          expect(response.body).not.toContain(leaked);
+          // Native JSON parse errors can quote a prefix of the invalid body.
+          expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+            "github_pat",
+          );
+        } finally {
+          await app.close();
+        }
       } finally {
-        await app.close();
+        errorLog.mockRestore();
       }
-    } finally {
-      errorLog.mockRestore();
-    }
     },
   );
 
-  it("handles signed GitHub setup pull request merge webhooks", async () => {
+    it("handles signed GitHub setup pull request merge webhooks", async () => {
     const pullRequests = new CapturingPullRequestWebhookHandler();
     const secret = "webhook-secret";
     const app = await createApiApp({
