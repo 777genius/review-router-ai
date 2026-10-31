@@ -1428,8 +1428,8 @@ describe("Review Action v2 run-control composition", () => {
     });
     resume();
     await expect(pending).rejects.toMatchObject({
-      statusCode: 412,
-      errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+      statusCode: 410,
+      errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
     });
     expect(admit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2055,15 +2055,15 @@ describe("Review Action v2 run-control composition", () => {
     });
   });
 
-  it("rejects a non-canonical review revision hash", async () => {
+  it("reports a moved review revision as terminal resource_gone, not a retryable 500", async () => {
     facts = { ...facts, reviewRevisionHash: hash("9") };
     const handlers = createReviewActionV2RunControlHandlers(dependencies);
 
     await expect(
       handlers.authorize!.execute(authorizeRequest()),
     ).rejects.toMatchObject({
-      statusCode: 412,
-      errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+      statusCode: 410,
+      errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
       issues: ["review_revision_hash_mismatch"],
     });
   });

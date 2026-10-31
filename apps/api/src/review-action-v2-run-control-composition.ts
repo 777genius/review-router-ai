@@ -757,7 +757,13 @@ export function createReviewActionV2RunControlHandlers(
   return {
     authorize: {
       capabilityEnabled: true,
-      execute: async (request) => authorizeReviewRun(request, dependencies),
+      execute: async (request) => {
+        try {
+          return await authorizeReviewRun(request, dependencies);
+        } catch (error) {
+          throw toAuthorizeContractFailure(error);
+        }
+      },
     },
     renew: {
       capabilityEnabled: true,
@@ -1605,6 +1611,25 @@ function mapSuccessStatus(
     case ReviewRunAuthorizationUseCaseStatus.Renewed:
       return ReviewRunAuthorizationResultStatus.Renewed;
   }
+}
+
+// `stale_precondition` is not part of the `review_run_authorize` contract, so
+// the route layer would mask it as a retryable 500 `ambiguous_outcome` and the
+// Action would retry a run that can never succeed. `resource_gone` is in the
+// contract and is terminal (retry class `never`) for the same situation: the
+// pull request moved on after the run was queued.
+function toAuthorizeContractFailure(error: unknown): unknown {
+  if (
+    error instanceof ReviewActionV2RouteFailure &&
+    error.errorCode === ReviewActionV2ProtocolErrorCode.StalePrecondition
+  ) {
+    return new ReviewActionV2RouteFailure(
+      410,
+      ReviewActionV2ProtocolErrorCode.ResourceGone,
+      error.issues,
+    );
+  }
+  return error;
 }
 
 function routeFailure(
