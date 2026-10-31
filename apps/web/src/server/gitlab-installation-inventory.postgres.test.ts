@@ -219,7 +219,9 @@ describe.skipIf(!adminUrl)(
         inventory.record(snapshot("workspace_1", ["201"])),
         inventory.record(snapshot("workspace_2", ["201"])),
       ]);
-      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      expect(
+        outcomes.filter((outcome) => outcome.status === "fulfilled"),
+      ).toHaveLength(1);
       const denied = outcomes.find((outcome) => outcome.status === "rejected");
       expect(denied).toMatchObject({
         status: "rejected",
