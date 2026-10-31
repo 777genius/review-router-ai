@@ -1614,14 +1614,22 @@ function mapSuccessStatus(
 }
 
 // `stale_precondition` is not part of the `review_run_authorize` contract, so
-// the route layer would mask it as a retryable 500 `ambiguous_outcome` and the
-// Action would retry a run that can never succeed. `resource_gone` is in the
-// contract and is terminal (retry class `never`) for the same situation: the
-// pull request moved on after the run was queued.
+// the route layer masks it as a retryable 500 `ambiguous_outcome` and the
+// Action retries a run that can never succeed. When the pull request head has
+// moved past the queued run, `resource_gone` (in the contract, retry class
+// `never`) says so. Other stale preconditions are races inside the server
+// (changed admission facts, safety decision, producer release) that a retry of
+// the same request can clear, so they keep the retryable masking.
+const movedRevisionIssues: ReadonlySet<string> = new Set([
+  "review_request_revision_moved",
+  CanonicalReviewRevisionResolutionStatus.RevisionMoved,
+]);
+
 function toAuthorizeContractFailure(error: unknown): unknown {
   if (
     error instanceof ReviewActionV2RouteFailure &&
-    error.errorCode === ReviewActionV2ProtocolErrorCode.StalePrecondition
+    error.errorCode === ReviewActionV2ProtocolErrorCode.StalePrecondition &&
+    error.issues.some((issue) => movedRevisionIssues.has(issue))
   ) {
     return new ReviewActionV2RouteFailure(
       410,

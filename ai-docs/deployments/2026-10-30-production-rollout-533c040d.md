@@ -56,8 +56,8 @@ producers are immutable; revoke instead of deleting.
 - `review_run_authorize` answered 500 `ambiguous_outcome` for a stale pull request
   head ([issue #750](https://github.com/777genius/review-router-ai/issues/750)),
   which the Action retried. The cause was `stale_precondition` missing from the
-  operation's error list. The server now maps it to 410 `resource_gone` (in the
-  contract, retry class `never`) on authorize only, with no protocol change and no
+  operation's error list. When the pull request head moved, the server now maps it to 410 `resource_gone` (in the
+  contract, retry class `never`) on authorize only; other stale preconditions are server-side races and stay retryable, with no protocol change and no
   Action release. The fix is in code but not deployed yet; production still runs
   `533c040d` and shows the old behavior until the next image rollout.
 - Managed OCR `ocr-v1.13.1-rr.5` (profile `ocr-managed-v4`) was published afterwards: reproducible build at Action `955c336e` with Go 1.26.9, sha256 `9c666b25...` matches the pin. The profile is still not a default.

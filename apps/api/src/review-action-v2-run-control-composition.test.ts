@@ -3,6 +3,7 @@ import { reviewActionV2ContractSlot } from "@reviewrouter/protocol-review-action
 import { hasAuthorizedReviewInvestigationExtension } from "./review-action-v2-investigation-extension-admission.js";
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { vi } from "vitest";
+import { ReviewActionV2RouteFailure } from "@reviewrouter/features-action-control-plane/v2";
 import { createRepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -1428,8 +1429,8 @@ describe("Review Action v2 run-control composition", () => {
     });
     resume();
     await expect(pending).rejects.toMatchObject({
-      statusCode: 410,
-      errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+      statusCode: 412,
+      errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
     });
     expect(admit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2039,6 +2040,51 @@ describe("Review Action v2 run-control composition", () => {
     });
   });
 
+  it("reports a moved pull request head as terminal resource_gone", async () => {
+    const handlers = createReviewActionV2RunControlHandlers({
+      ...dependencies,
+      admissionFacts: {
+        resolve: async () => {
+          throw new ReviewActionV2RouteFailure(
+            412,
+            ReviewActionV2ProtocolErrorCode.StalePrecondition,
+            ["review_request_revision_moved"],
+          );
+        },
+      },
+    });
+
+    await expect(
+      handlers.authorize!.execute(authorizeRequest()),
+    ).rejects.toMatchObject({
+      statusCode: 410,
+      errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+      issues: ["review_request_revision_moved"],
+    });
+  });
+
+  it("keeps other stale preconditions retryable by leaving them unmapped", async () => {
+    const handlers = createReviewActionV2RunControlHandlers({
+      ...dependencies,
+      admissionFacts: {
+        resolve: async () => {
+          throw new ReviewActionV2RouteFailure(
+            412,
+            ReviewActionV2ProtocolErrorCode.StalePrecondition,
+            ["admission_facts_changed"],
+          );
+        },
+      },
+    });
+
+    await expect(
+      handlers.authorize!.execute(authorizeRequest()),
+    ).rejects.toMatchObject({
+      statusCode: 412,
+      errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
+    });
+  });
+
   it("rejects repository claim drift", async () => {
     claimsByToken.set("oidc-authorize", {
       ...oidcClaims("authorize-jti"),
@@ -2055,15 +2101,15 @@ describe("Review Action v2 run-control composition", () => {
     });
   });
 
-  it("reports a moved review revision as terminal resource_gone, not a retryable 500", async () => {
+  it("rejects a non-canonical review revision hash", async () => {
     facts = { ...facts, reviewRevisionHash: hash("9") };
     const handlers = createReviewActionV2RunControlHandlers(dependencies);
 
     await expect(
       handlers.authorize!.execute(authorizeRequest()),
     ).rejects.toMatchObject({
-      statusCode: 410,
-      errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+      statusCode: 412,
+      errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
       issues: ["review_revision_hash_mismatch"],
     });
   });
