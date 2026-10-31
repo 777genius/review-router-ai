@@ -803,7 +803,7 @@ describe("API app", () => {
     ]);
   });
 
-  it("hides signed malformed GitHub webhook JSON from HTTP and logs", async () => {
+  it("hides malformed signed webhook JSON from HTTP and logs", async () => {
     const secret = "webhook-secret";
     const leaked = "github_pat_parserPrivateSecret123";
     const payload = `{"token":"${leaked}", invalid}`;
