@@ -35,14 +35,14 @@ TanStack Query for interactive refetch, and the existing UI components.
 
 ## Ownership and invariants
 
-| Owner | Owns | Must NOT do |
-| --- | --- | --- |
-| `review-statistics` domain/application | Definition of published review, unique PR, first-seen issue, UTC period, severity and source coverage | Delegate correctness to generic chart or BI engine |
-| `provider-usage` domain/application | Spend eligibility, family authority, attempts, unknown/null, money currency and basis, source coverage | Infer unknown as zero; aggregate across currencies/bases |
-| `review-history` | Per-PR run lifecycle, identity and authorized drill-down | Pretend latest PR status equals all historical runs |
-| Small analytics presentation/composition seam | Metric IDs/labels/units/capabilities, safe selection, view preferences | Import Prisma into domain/application, create second aggregation policy |
-| SQL infrastructure | Tenant-scoped reads, exact aggregation, keyset cursors, snapshot consistency | Reimplement accounting policies for a second storage engine |
-| React | UI state, URL, chart rendering, feedback and keyboard navigation | Decide permissions or completeness |
+| Owner                                         | Owns                                                                                                   | Must NOT do                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `review-statistics` domain/application        | Definition of published review, unique PR, first-seen issue, UTC period, severity and source coverage  | Delegate correctness to generic chart or BI engine                      |
+| `provider-usage` domain/application           | Spend eligibility, family authority, attempts, unknown/null, money currency and basis, source coverage | Infer unknown as zero; aggregate across currencies/bases                |
+| `review-history`                              | Per-PR run lifecycle, identity and authorized drill-down                                               | Pretend latest PR status equals all historical runs                     |
+| Small analytics presentation/composition seam | Metric IDs/labels/units/capabilities, safe selection, view preferences                                 | Import Prisma into domain/application, create second aggregation policy |
+| SQL infrastructure                            | Tenant-scoped reads, exact aggregation, keyset cursors, snapshot consistency                           | Reimplement accounting policies for a second storage engine             |
+| React                                         | UI state, URL, chart rendering, feedback and keyboard navigation                                       | Decide permissions or completeness                                      |
 
 **Security:** derive actor, workspace and role on server; never trust metric ID,
 repository/model/tenant from a client to expand scope. Preserve private-query

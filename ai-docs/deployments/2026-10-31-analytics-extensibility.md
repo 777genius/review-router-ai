@@ -8,10 +8,10 @@
 - Dependencies: none beyond the selected coherent release. No new migration,
   flag, process, external BI service or activation step.
 
-| Environment | Status | Actual revision | Evidence |
-| --- | --- | --- | --- |
-| staging | `pending` | Not verified | No rollout performed |
-| production | `pending` | Not verified | No rollout performed |
+| Environment | Status    | Actual revision | Evidence             |
+| ----------- | --------- | --------------- | -------------------- |
+| staging     | `pending` | Not verified    | No rollout performed |
+| production  | `pending` | Not verified    | No rollout performed |
 
 ## Rollout and rollback
 
