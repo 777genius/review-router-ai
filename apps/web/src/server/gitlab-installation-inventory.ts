@@ -170,7 +170,9 @@ export class PrismaGitLabInstallationInventory {
           if (existing) {
             // This update cannot change a repository's owning workspace.
             await tx.repositoryConnection.update({
-              where: { id: existing.id },
+              // Scope the actual write too: a legacy writer may race with our
+              // cooperative lock and transfer an id after the earlier read.
+              where: { id: existing.id, workspaceId: input.workspaceId },
               data: fields,
             });
           } else {
