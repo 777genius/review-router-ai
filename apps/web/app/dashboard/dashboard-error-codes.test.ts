@@ -1,10 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   dashboardUntrustedWorkflowPathFromError,
   safeDashboardErrorCode,
 } from "./dashboard-error-codes";
 
 describe("safeDashboardErrorCode", () => {
+  it("passes the explained legacy-workflow setup code through to the browser", () => {
+    expect(
+      safeDashboardErrorCode(new Error("setup_legacy_workflows_present")),
+    ).toBe("setup_legacy_workflows_present");
+  });
+
+  it("logs the real reason of an unclassified failure on the server", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(safeDashboardErrorCode(new Error("Something odd\nhappened"))).toBe(
+        "github_operation_failed",
+      );
+      expect(log).toHaveBeenCalledWith(
+        "dashboard_action_unclassified_error",
+        expect.stringContaining("Something odd happened"),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it.each([
     ["github_api_error:403", "github_operation_forbidden"],
     ["github_api_error:404", "github_operation_not_found"],
