@@ -114,13 +114,10 @@ describe("runtime database privilege check", () => {
     },
   );
 
-  it(
-    "covers the grants whose absence broke repository sync in production",
-    () => {
-      expect(requiredPrivileges.reviewrouter_worker).toContainEqual({
-        table: "RepositoryConnection",
-        privilege: "UPDATE",
-      });
-    },
-  );
+  it("covers the grants whose absence broke repository sync in production", () => {
+    expect(requiredPrivileges.reviewrouter_worker).toContainEqual({
+      table: "RepositoryConnection",
+      privilege: "UPDATE",
+    });
+  });
 });
