@@ -36,18 +36,14 @@ export async function executeClaimedOutboxEvent(
 ): Promise<ExecutionResult> {
   const { event, handler } = input;
   const claim = requireClaim(event);
-  try {
-    const renewed = await dependencies.outbox.renewClaim({
-      ...claim,
-      claimUntil: new Date(
-        dependencies.clock.now().getTime() + input.processingLeaseMs,
-      ),
-    });
-    if (renewed.status === "stale_claim") return "stale_claim";
-  } catch {
-    // Do not dispatch under uncertain ownership. Existing recovery owns retry.
-    return "stale_claim";
-  }
+  // Storage failures leave ownership uncertain and must be visible to the batch.
+  const renewed = await dependencies.outbox.renewClaim({
+    ...claim,
+    claimUntil: new Date(
+      dependencies.clock.now().getTime() + input.processingLeaseMs,
+    ),
+  });
+  if (renewed.status === "stale_claim") return "stale_claim";
 
   if (!handler) {
     const result = await dependencies.outbox.markDeadLetter({

@@ -191,40 +191,58 @@ describe("outbox execution ownership", () => {
     expect(handle).toHaveBeenCalledOnce();
   });
 
-  it.each(["refused", "failed"])(
-    "suppresses dispatch and leaves recovery responsible when initial renewal is %s",
-    async (failure) => {
-      const outbox = new InMemoryOutboxEventRepository();
-      await seed(outbox, "unconfirmed");
-      const renew = vi.spyOn(outbox, "renewClaim");
-      if (failure === "refused") {
-        renew.mockResolvedValueOnce({ status: "stale_claim" });
-      } else {
-        renew.mockRejectedValueOnce(new Error("storage unavailable"));
-      }
-      const handle = vi.fn(async () => undefined);
-      const result = await processOutboxBatch(
+  it("suppresses dispatch when initial renewal refuses ownership", async () => {
+    const outbox = new InMemoryOutboxEventRepository();
+    await seed(outbox, "unconfirmed");
+    vi.spyOn(outbox, "renewClaim").mockResolvedValueOnce({
+      status: "stale_claim",
+    });
+    const handle = vi.fn(async () => undefined);
+    const result = await processOutboxBatch(
+      {
+        limit: 1,
+        handlers: [{ ...definition, handle }],
+        claimOwnerHash: "worker",
+      },
+      { outbox, clock: { now: () => start } },
+    );
+    expect(handle).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      claimed: 1,
+      processed: 0,
+      retried: 0,
+      deadLettered: 0,
+      staleClaims: 1,
+    });
+    expect(outbox.events.get("unconfirmed")).toMatchObject({
+      status: "processing",
+      claimOwnerHash: "worker",
+    });
+  });
+
+  it("propagates initial renewal storage failures without dispatching", async () => {
+    const outbox = new InMemoryOutboxEventRepository();
+    await seed(outbox, "unconfirmed");
+    vi.spyOn(outbox, "renewClaim").mockRejectedValueOnce(
+      new Error("storage unavailable"),
+    );
+    const handle = vi.fn(async () => undefined);
+    await expect(
+      processOutboxBatch(
         {
           limit: 1,
           handlers: [{ ...definition, handle }],
           claimOwnerHash: "worker",
         },
         { outbox, clock: { now: () => start } },
-      );
-      expect(handle).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        claimed: 1,
-        processed: 0,
-        retried: 0,
-        deadLettered: 0,
-        staleClaims: 1,
-      });
-      expect(outbox.events.get("unconfirmed")).toMatchObject({
-        status: "processing",
-        claimOwnerHash: "worker",
-      });
-    },
-  );
+      ),
+    ).rejects.toThrow("storage unavailable");
+    expect(handle).not.toHaveBeenCalled();
+    expect(outbox.events.get("unconfirmed")).toMatchObject({
+      status: "processing",
+      claimOwnerHash: "worker",
+    });
+  });
 
   it("bounds stale claims without reserving the next event", async () => {
     const outbox = new InMemoryOutboxEventRepository();

@@ -66,8 +66,6 @@ import {
   type ReviewPublicationPermitIdentity,
   type ReviewPublicationReleaseLimitsQueryPort,
   type ReviewPublicationScope,
-  type ReviewPublicationDueWork,
-  type ReviewPublicationWorkFeedPort,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   GitHubReviewPublicationLifecycleAdapter,
@@ -136,8 +134,11 @@ import {
 } from "./review-v2-publication-gateways";
 import { ExecuteReviewV2PublicationOperation } from "./review-v2-publication-executor";
 import {
+  ReviewV2PublicationMaintenance,
+  boundedRetryDelay,
+} from "./review-v2-publication-maintenance";
+import {
   ReviewV2PublicationCompensationDecision,
-  ReviewV2PublicationExecutionStatus,
   ReviewV2PublicationFreshnessReadStatus,
   ReviewV2ScmProvider,
   type ReviewV2PublicationCompensationPolicyPort,
@@ -152,7 +153,6 @@ import {
 import {
   createReviewV2WorkerOwnerId,
   type ReviewV2CompletionRuntime,
-  type ReviewProgressSettlement,
   type ReviewV2PublicationMaintenanceRuntime,
   type ReviewV2ProgressMaintenanceRuntime,
 } from "./review-v2-worker-runtime";
@@ -177,6 +177,11 @@ import {
   type ContextReuseProducerReleaseQueryPort,
   type ReviewV2ContextReusePublicationGuardPort,
 } from "./review-v2-context-reuse-publication-guard";
+
+export {
+  progressOutcome,
+  publicationWorkProvider,
+} from "./review-v2-publication-maintenance";
 
 type PrismaClient = ReturnType<typeof createPrismaClient>;
 
@@ -1546,114 +1551,6 @@ function requiredGithubRepositoryId(repository: {
   return repository.githubRepositoryId.toString();
 }
 
-class ReviewV2PublicationMaintenance implements ReviewV2PublicationMaintenanceRuntime {
-  constructor(
-    private readonly feed: ReviewPublicationWorkFeedPort,
-    private readonly executor: ExecuteReviewV2PublicationOperation,
-    private readonly clock: SystemClock,
-    private readonly ownerIdHash: string,
-    private readonly policy: {
-      readonly limit: number;
-      readonly minimumRetryMs: number;
-    },
-  ) {}
-
-  async runMaintenance() {
-    const now = this.clock.now();
-    const work = await this.feed.scan({ now, limit: this.policy.limit });
-    let processed = 0;
-    let manualRequired = 0;
-    let terminalUnknown = 0;
-    const settledExecutionIds = new Set<string>();
-    const progressSettlements = new Map<
-      string,
-      ReviewProgressSettlement["outcome"]
-    >();
-    for (const item of work) {
-      const result = await this.executor.execute({
-        publicationAttemptId: item.publicationAttemptId,
-        publicationOperationId: item.publicationOperationId,
-        provider: publicationWorkProvider(item.provider),
-        ownerIdHash: this.ownerIdHash,
-      });
-      processed += 1;
-      if (result.status === ReviewV2PublicationExecutionStatus.ManualRequired) {
-        manualRequired += 1;
-      }
-      if (
-        result.status === ReviewV2PublicationExecutionStatus.TerminalUnknown
-      ) {
-        terminalUnknown += 1;
-      }
-      if (
-        result.status === ReviewV2PublicationExecutionStatus.Completed ||
-        result.status === ReviewV2PublicationExecutionStatus.AlreadyCompleted ||
-        result.status === ReviewV2PublicationExecutionStatus.Terminalized
-      ) {
-        settledExecutionIds.add(item.executionId);
-        const outcome = progressOutcome(result);
-        if (!outcome) continue;
-        const previous = progressSettlements.get(item.executionId);
-        progressSettlements.set(
-          item.executionId,
-          strongestProgressOutcome(previous, outcome),
-        );
-        continue;
-      }
-      const retryDelayMs = Math.max(
-        this.policy.minimumRetryMs,
-        boundedRetryDelay(item.retryCount + 1),
-      );
-      await this.feed.defer({
-        work: item,
-        nextEligibleAt: new Date(now.getTime() + retryDelayMs),
-        lastErrorCode: result.safeReason,
-      });
-    }
-    return {
-      processed,
-      manualRequired,
-      terminalUnknown,
-      settledExecutionIds: [...settledExecutionIds].sort(),
-      progressSettlements: [...progressSettlements]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([executionId, outcome]) => ({ executionId, outcome })),
-    };
-  }
-}
-
-export function progressOutcome(
-  result: Awaited<ReturnType<ExecuteReviewV2PublicationOperation["execute"]>>,
-): ReviewProgressSettlement["outcome"] | null {
-  if (result.status === ReviewV2PublicationExecutionStatus.TerminalUnknown)
-    return null;
-  if (
-    result.status === ReviewV2PublicationExecutionStatus.Completed ||
-    result.status === ReviewV2PublicationExecutionStatus.AlreadyCompleted
-  )
-    return "succeeded";
-  if (result.status === ReviewV2PublicationExecutionStatus.Terminalized) {
-    if (result.terminalOutcome === ReviewPublicationTerminalOutcome.Succeeded)
-      return "succeeded";
-    if (
-      result.terminalOutcome ===
-        ReviewPublicationTerminalOutcome.SupersededNoEffect ||
-      result.terminalOutcome ===
-        ReviewPublicationTerminalOutcome.StaleCompensated
-    )
-      return "superseded";
-  }
-  return "failed";
-}
-
-function strongestProgressOutcome(
-  previous: ReviewProgressSettlement["outcome"] | undefined,
-  next: ReviewProgressSettlement["outcome"],
-): ReviewProgressSettlement["outcome"] {
-  const rank = { succeeded: 0, superseded: 1, failed: 2 } as const;
-  return previous && rank[previous] >= rank[next] ? previous : next;
-}
-
 function mapSnapshotPublicationOutcome(
   outcome: ReviewPublicationTerminalOutcome | null,
 ): SnapshotEffectivePublicationOutcome {
@@ -1672,22 +1569,6 @@ function mapSnapshotPublicationOutcome(
     case null:
       return SnapshotEffectivePublicationOutcome.TerminalUnknown;
   }
-}
-
-export function publicationWorkProvider(
-  provider: ReviewPublicationDueWork["provider"],
-): ReviewV2ScmProvider {
-  switch (provider) {
-    case "github":
-      return ReviewV2ScmProvider.GitHub;
-    case "gitlab":
-      return ReviewV2ScmProvider.GitLab;
-  }
-}
-
-function boundedRetryDelay(attemptCount: number): number {
-  const exponent = Math.max(0, Math.min(attemptCount - 1, 8));
-  return Math.min(5_000 * 2 ** exponent, 5 * 60_000);
 }
 
 function positiveInteger(
