@@ -79,9 +79,7 @@ async function main() {
       if (!result.rows[0].ok) missing.push(item);
     }
     const dead = await client
-      .query(
-        permissionDeadLetterQuery,
-      )
+      .query(permissionDeadLetterQuery)
       .then((r) => r.rows)
       .catch((error) => {
         // The role may not read the outbox at all; say so instead of passing.
