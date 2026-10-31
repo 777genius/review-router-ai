@@ -803,10 +803,12 @@ describe("API app", () => {
     ]);
   });
 
-  it("hides malformed signed webhook JSON from HTTP and logs", async () => {
+  it.each(["/webhooks/github", "/%77ebhooks/github"])(
+    "hides malformed signed webhook JSON from HTTP and logs at %s",
+    async (url) => {
     const secret = "webhook-secret";
     const leaked = "github_pat_parserPrivateSecret123";
-    const payload = `{"token":"${leaked}", invalid}`;
+      const payload = `{"token": ${leaked}}`;
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
@@ -821,7 +823,7 @@ describe("API app", () => {
       try {
         const response = await app.inject({
           method: "POST",
-          url: "/webhooks/github",
+          url,
           payload,
           headers: {
             "content-type": "application/json",
@@ -833,14 +835,16 @@ describe("API app", () => {
         expect(response.statusCode).toBe(400);
         expect(response.json()).toEqual({ error: "invalid_webhook_payload" });
         expect(response.body).not.toContain(leaked);
-        expect(JSON.stringify(errorLog.mock.calls)).not.toContain(leaked);
+        // Native JSON parse errors can quote a prefix of the invalid body.
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain("github_pat");
       } finally {
         await app.close();
       }
     } finally {
       errorLog.mockRestore();
     }
-  });
+    },
+  );
 
   it("handles signed GitHub setup pull request merge webhooks", async () => {
     const pullRequests = new CapturingPullRequestWebhookHandler();
