@@ -115,6 +115,66 @@ export function outboxHandlerKey(type: string, version: number): string {
   return `${type}@v${version}`;
 }
 
+// Only reviewed, developer-defined diagnostics may be persisted. Even a lowercase
+// identifier-shaped exception code could be a credential or private user input.
+// Keep this bounded list in sync with the actual outbox handler contracts.
+const safeOutboxHandlerErrorCodes = new Set<string>([
+  "denied",
+  "dispatch_cleanup_attempt_changed",
+  "dispatch_cleanup_identity_conflict",
+  "dispatch_cleanup_intent_missing",
+  "dispatch_cleanup_intent_read_unavailable",
+  "dispatch_cleanup_lookup_unavailable",
+  "dispatch_cleanup_not_terminal",
+  "dispatch_cleanup_payload_invalid",
+  "dispatch_cleanup_run_unresolved",
+  "dispatch_cleanup_target_binding_conflict",
+  "dispatch_cleanup_target_binding_unavailable",
+  "dispatch_cleanup_target_partial",
+  "e2e_injected_permanent_failure",
+  "e2e_permanent_failure",
+  "github_mergeability_unknown",
+  "github_review_request_ingress_envelope_invalid",
+  "history_event_invalid",
+  "history_fact_collision",
+  "invalid_event_payload",
+  "invalid_memory_knowledge_event",
+  "invalid_skill_scan_event",
+  "memory_conflict",
+  "memory_deadline_exceeded",
+  "memory_disabled",
+  "memory_forbidden",
+  "memory_incomplete_evidence",
+  "memory_input_required",
+  "memory_invalid_input",
+  "memory_legacy_cutover_requires_disposition",
+  "memory_not_found",
+  "memory_quota_exceeded",
+  "memory_unavailable",
+  "memory_unknown_write",
+  "memory_unsupported",
+  "permission_denied",
+  "rate_limited",
+  "review_request_eligibility_unavailable",
+  "review_request_ingress_envelope_invalid",
+  "review_request_ingress_idempotency_conflict",
+  "review_request_repository_invalid",
+  "review_request_repository_projection_unavailable",
+  "review_request_revision_merge_base_conflict",
+  "review_request_revision_merge_base_unavailable",
+  "review_request_revision_moved",
+  "review_request_revision_pull_request_conflict",
+  "review_request_revision_pull_request_unavailable",
+  "review_request_revision_revision_moved",
+  "review_v2_completion_artifact_conflict",
+  "review_v2_finalized_event_invalid",
+  "review_v2_finalized_facts_unavailable",
+  "skill_scan_busy",
+  "statistics_execution_collision",
+  "statistics_invalid_query",
+  "test_retry",
+]);
+
 export function safeOutboxErrorSummary(error: unknown): {
   readonly code: string;
   readonly summary: string;
@@ -122,7 +182,7 @@ export function safeOutboxErrorSummary(error: unknown): {
 } {
   if (error instanceof OutboxHandlerError) {
     return {
-      code: /^[a-z][a-z0-9_]{0,95}$/.test(error.code)
+      code: safeOutboxHandlerErrorCodes.has(error.code)
         ? error.code
         : "handler_error",
       // Provider and SDK exception messages can contain credentials, repository
