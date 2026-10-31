@@ -10,9 +10,9 @@ Status: draft.
 
 ## Bounded contract
 
-- Replace durable arbitrary text with one of two fixed, non-sensitive summaries: known application error vs unexpected handler failure. Keep application error's explicit `code` / `retryable` semantics and the generic `handler_error` code; allow only reviewed, developer-defined diagnostic codes (otherwise use `handler_error`) so lowercase secret-shaped values cannot leak through the code field.
+- Replace durable arbitrary text with fixed, non-sensitive summaries and reviewed diagnostic codes. Preserve `db_permission_denied` for SQLSTATE 42501 or a precise database privilege failure, so post-deploy grant checks still detect recent dead letters without persisting SQL or provider text. Preserve retryability, otherwise fall back to `handler_error` for untrusted codes.
 - Do not alter outbox claim, heartbeat, fencing, handler dispatch, retry exhaustion, manual dead-letter controls, retry scheduling or database schema.
-- Add unit and persisted-retry regressions that inject representative credentials and private payload/error messages and assert no leakage in persisted summary. Ensure the existing deterministic error codes and retryable distinctions stay intact.
+- Add unit and persisted-retry regressions that inject representative credentials, untrusted error codes and PostgreSQL grant failures; verify the stable code and seven-day legacy fallback in the post-deploy SQL predicate, plus unchanged retryability.
 - Avoid a new generic secret-redaction framework; fixed summaries are robust and simpler.
 
 ## Qualification / release
