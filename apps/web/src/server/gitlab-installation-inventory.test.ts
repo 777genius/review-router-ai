@@ -53,6 +53,7 @@ function fakePrisma() {
       upsert: vi.fn(async () => ({ id: "installation_1" })),
     },
     repositoryConnection: {
+      findFirst: vi.fn(async (): Promise<{ id: string } | null> => null),
       updateMany: vi.fn(async () => ({ count: 1 })),
       findUnique: vi.fn(async (): Promise<{ id: string; workspaceId: string } | null> => null),
       update: vi.fn(async () => ({})),
@@ -80,6 +81,34 @@ function input() {
 }
 
 describe("PrismaGitLabInstallationInventory", () => {
+  it("checks foreign ownership on the exact issuer and project list", async () => {
+    const f = fakePrisma();
+    f.tx.repositoryConnection.findFirst.mockResolvedValueOnce({ id: "other" });
+    // The read is outside the transaction. The transaction still rechecks to
+    // prevent a concurrent owner change between preflight and commit.
+    const findFirst = vi.fn().mockResolvedValue({ id: "foreign-repo" });
+    const inventory = new PrismaGitLabInstallationInventory({
+      ...f.prisma,
+      repositoryConnection: { findFirst },
+    } as never);
+    await expect(
+      inventory.assertProjectsNotOwned({
+        workspaceId: "workspace_1",
+        sourceBaseUrl: "https://gitlab.example",
+        projectIds: ["101", "101", "102"],
+      }),
+    ).rejects.toThrow("gitlab_repository_already_owned");
+    expect(findFirst).toHaveBeenCalledExactlyOnceWith({
+      where: {
+        provider: "gitlab",
+        sourceBaseUrl: "https://gitlab.example",
+        externalRepositoryId: { in: ["101", "102"] },
+        workspaceId: { not: "workspace_1" },
+      },
+      select: { id: true },
+    });
+  });
+
   it("uses database time for concurrent request ordering", async () => {
     const f = fakePrisma();
     await expect(f.inventory.requestStartedAt()).resolves.toEqual(started);
