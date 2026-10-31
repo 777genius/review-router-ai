@@ -444,6 +444,10 @@ export async function qualifyFollowthrough(input: Scenario) {
     throw new Error(`No visible real dashboard navigation link for ${section}`);
   };
   await input.openWorkspace(page, main.slug);
+  await statistics()
+    .getByRole("combobox", { name: /Chart metric/ })
+    .getByText("Published reviews", { exact: true })
+    .waitFor();
   await page.evaluate((value) => {
     (
       window as Window & { followthroughRuntime?: string }
@@ -495,6 +499,19 @@ export async function qualifyFollowthrough(input: Scenario) {
     .getByRole("combobox", { name: /Severity/ })
     .getByText("Major", { exact: true })
     .waitFor();
+  await choose(page, "Chart metric", "Published reviews", true);
+  await page.waitForURL(
+    (url) => url.searchParams.get("statisticsMetric") === "reviews",
+  );
+  await page.goBack();
+  await assertRuntime();
+  assert.equal(new URL(page.url()).searchParams.get("statisticsMetric"), null);
+  await page.goForward();
+  await assertRuntime();
+  await statistics()
+    .getByRole("combobox", { name: /Chart metric/ })
+    .getByText("Published reviews", { exact: true })
+    .waitFor();
   const shared = page.url();
   const ssr = await context.request.get(shared);
   assert.equal(ssr.status(), 200);
@@ -511,17 +528,21 @@ export async function qualifyFollowthrough(input: Scenario) {
     .getByRole("combobox", { name: /Severity/ })
     .getByText("Major", { exact: true })
     .waitFor();
+  await statistics()
+    .getByRole("combobox", { name: /Chart metric/ })
+    .getByText("Published reviews", { exact: true })
+    .waitFor();
   await page.evaluate((value) => {
     (
       window as Window & { followthroughRuntime?: string }
     ).followthroughRuntime = value;
   }, prefix);
   checks.push(
-    "followthrough: keyboard filter change updates URL, Back/Forward preserves runtime, shared SSR/reload retains7days/major",
+    "followthrough: period/severity/metric URL survives Back/Forward, shared SSR and reload",
   );
 
   await page.goto(
-    `${appUrl}/dashboard?section=statistics&workspace=${main.slug}&statisticsDays=7&statisticsDays=30&keep=fixture#dashboard-section-content`,
+    `${appUrl}/dashboard?section=statistics&workspace=${main.slug}&statisticsDays=7&statisticsDays=30&statisticsMetric=bad&statisticsMetric=reviews&keep=fixture#dashboard-section-content`,
     { waitUntil: "domcontentloaded", timeout: 180_000 },
   );
   await page
@@ -530,6 +551,7 @@ export async function qualifyFollowthrough(input: Scenario) {
   await populated(page);
   const reset = new URL(page.url());
   assert.equal(reset.searchParams.getAll("statisticsDays").length, 0);
+  assert.equal(reset.searchParams.getAll("statisticsMetric").length, 0);
   assert.equal(reset.searchParams.get("keep"), "fixture");
   assert.equal(reset.hash, "#dashboard-section-content");
   await page.evaluate((value) => {
@@ -595,8 +617,8 @@ export async function qualifyFollowthrough(input: Scenario) {
       .getByRole("combobox", { name: /Severity/ })
       .isEnabled(),
   );
-  await choose(page, "Chart metric", "Total reviews", true);
-  await choose(page, "Chart metric", "PRs reviewed", true);
+  await choose(page, "Chart metric", "Published reviews", true);
+  await choose(page, "Chart metric", "Pull requests reviewed", true);
   await assertSelectedLabelsFit(page, "Review statistics");
   await snapshot(page, "followthrough-statistics-text-zoom.png");
   await setTextSize(page, "");
