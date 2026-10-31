@@ -153,7 +153,7 @@ describeWithDatabase("Prisma outbox fenced claims", () => {
     });
   });
 
-  it("persists only approved codes through PostgreSQL retry, exhaustion and permanent dead-letter", async () => {
+  it("redacts PostgreSQL retry and dead-letter metadata", async () => {
     const outbox = new PrismaOutboxEventRepository(prisma);
     const now = new Date(Date.now() - 10_000);
     const handlers = [true, false].map((retryable) => ({
