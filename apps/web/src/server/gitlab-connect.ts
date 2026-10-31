@@ -75,6 +75,11 @@ export async function installGitLabConnectProjects(input: {
     discovery.source.resolvedKind === "project"
       ? (discovery.source.parentGroupPath ?? discovery.source.inputPath)
       : discovery.source.inputPath;
+  await inventory.assertProjectsNotOwned({
+    workspaceId: input.workspaceId,
+    sourceBaseUrl: discovery.source.baseUrl,
+    projectIds: selectedProjects.map((project) => project.projectId),
+  });
   const gateway = gitLabInstallationGateway(input.token);
   const apiBaseUrl = resolveWorkflowPublicApiUrl();
   const audience =
