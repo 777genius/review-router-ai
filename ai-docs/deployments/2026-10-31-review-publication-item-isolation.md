@@ -5,6 +5,7 @@
 - Affected targets: ordinary worker (Review V2 maintenance) and Skills scanner worker (shared outbox execution); no task-specific Web/API change.
 - Implementation: [PR #751](https://github.com/777genius/review-router-ai/pull/751), based on merged [PR #747](https://github.com/777genius/review-router-ai/pull/747).
 - Plan: [implementation contract](../plans/2026-10-31-review-publication-item-isolation.md).
+- Required checks: [CI workflow](https://github.com/777genius/review-router-ai/actions/workflows/ci.yml) and [PR #751 exact-head checks](https://github.com/777genius/review-router-ai/pull/751/checks); older green runs are not sufficient for rollout qualification.
 - Dependencies: selected release includes PR #747. No task-specific migration, flag, secret, backfill or activation.
 - Last updated: `2026-10-31`.
 
