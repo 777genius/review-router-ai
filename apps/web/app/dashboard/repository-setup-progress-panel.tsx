@@ -842,7 +842,9 @@ function dashboardErrorText(error: string): string {
     case "dashboard_action_stale":
       return "The dashboard was updated while this page was open. Refresh the page, then click again.";
     case "setup_pr_not_merged":
-      return "GitHub does not show the workflow on the setup PR target branch yet. If you just merged the setup PR, wait a few seconds; the dashboard will advance automatically when GitHub metadata catches up.";
+      return "GitHub does not show the workflow on the setup PR target branch yet. If you just merged the setup PR, wait a few seconds; the dashboard will advance automatically when GitHub metadata catches up. If the setup PR was merged a while ago, an older ReviewRouter workflow left in the repository can also block this check: remove reviewrouter.yml, reviewrouter-codex.yml and reviewrouter-interaction.yml if they exist, then check again.";
+    case "workflow_provisioning_match_not_found":
+      return "The workflow on the default branch does not match what ReviewRouter expects for this repository. Recreate the setup PR and merge it without edits, then check again.";
     case "setup_pr_closed":
       return "The saved setup PR was closed before it was merged. Recreate the setup PR, then merge the new one.";
     case "setup_pr_branch_deleted":
