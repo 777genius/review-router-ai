@@ -39,9 +39,7 @@ describe("runtime database privilege check", () => {
     ]);
   });
 
-  it(
-    "links the stable PostgreSQL privilege classification to the dead-letter SQL probe",
-    () => {
+  it("links the stable PostgreSQL privilege classification to the dead-letter SQL probe", () => {
       const postgresError = Object.assign(
         new Error("permission denied for table RepositoryConnection: private"),
         { code: "42501" },
@@ -66,8 +64,7 @@ describe("runtime database privilege check", () => {
       expect(JSON.stringify(safeOutboxErrorSummary(postgresError))).not.toContain(
         "RepositoryConnection",
       );
-    },
-  );
+  });
 
   it.each([
     Object.assign(new Error("private"), {
@@ -80,20 +77,15 @@ describe("runtime database privilege check", () => {
     new Error("permission denied for schema private_tenant"),
     new Error("Raw query failed. Code: `42501`. Message: secret"),
     new Error("SQLSTATE 42501: database operation denied"),
-  ])(
-    "classifies PostgreSQL missing grants without persisting their details",
-    (error) => {
+  ])("classifies PostgreSQL missing grants without persisting their details", (error) => {
       expect(safeOutboxErrorSummary(error)).toMatchObject({
         code: "db_permission_denied",
         summary: "outbox_database_permission_denied",
         retryable: true,
       });
-    },
-  );
+  });
 
-  it(
-    "preserves typed permanent failures and does not classify provider permission denials",
-    () => {
+  it("preserves typed permanent failures and does not classify provider permission denials", () => {
       const error = new OutboxHandlerError(
         "permission denied for relation ReviewEvidence",
         "denied",
@@ -111,8 +103,7 @@ describe("runtime database privilege check", () => {
         summary: "outbox_handler_failure",
         retryable: true,
       });
-    },
-  );
+  });
 
   it("covers the grants whose absence broke repository sync in production", () => {
     expect(requiredPrivileges.reviewrouter_worker).toContainEqual({
