@@ -43,19 +43,62 @@ describe("outbox durable failure privacy", () => {
     },
   );
 
-  it("does not copy arbitrary diagnostic strings through the error code", () => {
+  it.each([
+    "github_pat_Secret-With/Private?Token",
+    "github_pat_private0123456",
+    "private_customer_repository_name",
+    "access_token_hidden",
+  ])("does not copy arbitrary diagnostic strings through code: %s", (code) => {
     expect(
       safeOutboxErrorSummary(
-        new OutboxHandlerError(
-          "private",
-          "github_pat_Secret-With/Private?Token",
-          false,
-        ),
+        new OutboxHandlerError("private", code, false),
       ),
     ).toEqual({
       code: "handler_error",
       summary: "outbox_application_failure",
       retryable: false,
+    });
+  });
+
+  it("keeps permanent handler failures dead-lettered without persisting a lowercase secret code", async () => {
+    const outbox = new InMemoryOutboxEventRepository();
+    await outbox.enqueue({
+      type: "secret.delivery",
+      version: 1,
+      idempotencyKey: "secret-delivery-permanent",
+      workspaceId: "workspace_1",
+      repositoryId: "repository_1",
+      payload: { kind: "sanitized" },
+      maxAttempts: 3,
+      occurredAt: now,
+    });
+    const result = await processOutboxBatch(
+      {
+        claimOwnerHash: "a".repeat(64),
+        processingLeaseMs: 60_000,
+        limit: 1,
+        handlers: [
+          {
+            type: "secret.delivery",
+            version: 1,
+            async handle() {
+              throw new OutboxHandlerError(
+                "private provider response",
+                "github_pat_private0123456",
+                false,
+              );
+            },
+          },
+        ],
+      },
+      { outbox, clock: { now: () => now } },
+    );
+    expect(result.deadLettered).toBe(1);
+    const record = [...outbox.events.values()][0];
+    expect(record).toMatchObject({
+      lastErrorCode: "handler_error",
+      safeLastErrorSummary: "outbox_application_failure",
+      status: "dead_letter",
     });
   });
 
