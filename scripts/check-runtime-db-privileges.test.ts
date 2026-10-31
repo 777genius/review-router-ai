@@ -58,9 +58,9 @@ describe("runtime database privilege check", () => {
     expect(permissionDeadLetterQuery).toContain(
       '"safeLastErrorSummary" ilike \'%42501%\'',
     );
-    expect(
-      JSON.stringify(safeOutboxErrorSummary(postgresError)),
-    ).not.toContain("RepositoryConnection");
+    expect(JSON.stringify(safeOutboxErrorSummary(postgresError))).not.toContain(
+      "RepositoryConnection",
+    );
   });
 
   it.each([
@@ -73,13 +73,16 @@ describe("runtime database privilege check", () => {
     }),
     new Error("permission denied for schema private_tenant"),
     new Error("Raw query failed. Code: `42501`. Message: secret"),
-  ])("classifies PostgreSQL missing grants without persisting their details", (error) => {
-    expect(safeOutboxErrorSummary(error)).toMatchObject({
-      code: "db_permission_denied",
-      summary: "outbox_database_permission_denied",
-      retryable: true,
-    });
-  });
+  ])(
+    "classifies PostgreSQL missing grants without persisting their details",
+    (error) => {
+      expect(safeOutboxErrorSummary(error)).toMatchObject({
+        code: "db_permission_denied",
+        summary: "outbox_database_permission_denied",
+        retryable: true,
+      });
+    },
+  );
 
   it("preserves typed permanent failures and does not classify provider permission denials", () => {
     const error = new OutboxHandlerError(
