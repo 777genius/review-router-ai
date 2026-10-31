@@ -180,23 +180,57 @@ export function safeOutboxErrorSummary(error: unknown): {
   readonly summary: string;
   readonly retryable: boolean;
 } {
+  // Preserve the operational database-grant signal without storing untrusted
+  // SQL/SDK exception text. The post-deploy verifier matches this stable code.
+  const insufficientPrivilege = isPostgresInsufficientPrivilege(error);
   if (error instanceof OutboxHandlerError) {
     return {
-      code: safeOutboxHandlerErrorCodes.has(error.code)
-        ? error.code
-        : "handler_error",
+      code: insufficientPrivilege
+        ? "db_permission_denied"
+        : safeOutboxHandlerErrorCodes.has(error.code)
+          ? error.code
+          : "handler_error",
       // Provider and SDK exception messages can contain credentials, repository
       // payloads or full URL query strings. Only stable codes are durable.
-      summary: "outbox_application_failure",
+      summary: insufficientPrivilege
+        ? "outbox_database_permission_denied"
+        : "outbox_application_failure",
       retryable: error.retryable,
     };
   }
 
   return {
-    code: "handler_error",
-    summary: "outbox_handler_failure",
+    code: insufficientPrivilege ? "db_permission_denied" : "handler_error",
+    summary: insufficientPrivilege
+      ? "outbox_database_permission_denied"
+      : "outbox_handler_failure",
     retryable: true,
   };
+}
+
+function isPostgresInsufficientPrivilege(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const details = error as {
+    readonly code?: unknown;
+    readonly meta?: { readonly code?: unknown } | null;
+    readonly cause?: { readonly code?: unknown } | null;
+  };
+  if (
+    details.code === "42501" ||
+    details.meta?.code === "42501" ||
+    details.cause?.code === "42501"
+  ) {
+    return true;
+  }
+  // Covers drivers that expose only a PostgreSQL error message, including
+  // Prisma P2010 text; unlike a generic "permission denied" substring, these
+  // patterns point to a database privilege failure.
+  return (
+    error instanceof Error &&
+    /\\b(?:SQLSTATE|Code)\\s*[:=]\\s*["'`]?42501\\b|\\bpermission denied for (?:table|relation|schema|sequence|function)\\b/i.test(
+      error.message,
+    )
+  );
 }
 
 export function nextOutboxRetryAt(input: {
