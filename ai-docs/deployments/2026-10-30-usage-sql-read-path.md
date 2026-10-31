@@ -15,13 +15,15 @@
 
 ## Environment status
 
-| Environment | Status    | Actual version / image | Evidence / next step                                                            |
-| ----------- | --------- | ---------------------- | ------------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified           | Qualify and select a coherent release, then perform the authorized rollout.     |
-| production  | `pending` | Not verified           | Reconcile the installed version and follow the release process when authorized. |
+| Environment | Status     | Actual version / image  | Evidence / next step                                                                           |
+| ----------- | ---------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
+| staging     | `pending`  | Not verified            | Qualify and select a coherent release, then perform the authorized rollout.                    |
+| production  | `deployed` | `d5f16400` (2026-10-31) | Migration `000155` applied. See [rollout d5f16400](2026-10-31-production-rollout-d5f16400.md). |
 
-Local tests, PR checks and merge do not establish deployment. No rollout has
-been attempted as part of this implementation task.
+Local tests, PR checks and merge do not establish deployment. Production runs
+this change since the rollout of `d5f16400` on 2026-10-31, which also applied
+migration `000155`; the index exists and is valid. A load test of large reports
+under concurrent users has not been run.
 
 ## Ordered rollout
 
@@ -88,6 +90,6 @@ Keep staging and production statuses separate and preserve unrelated rollout wor
 - [Usage qualification commands](../../scripts/provider-usage-e2e/README.md).
 - [Actual browser harness](../../scripts/accounts-reference-e2e/README.md).
 
-| Environment          | Result               | Actual version | Next action                                                             |
-| -------------------- | -------------------- | -------------- | ----------------------------------------------------------------------- |
-| staging / production | No rollout attempted | Not verified   | Complete implementation qualification and select an authorized release. |
+| Environment | Result                                         | Actual version | Next action                                       |
+| ----------- | ---------------------------------------------- | -------------- | ------------------------------------------------- |
+| production  | Rollout `d5f16400`, migration `000155` applied | 2026-10-31     | Load test of large reports with concurrent users. |
