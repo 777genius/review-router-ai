@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   discoverGitLabSourceProjects: vi.fn(),
   provisionGitLabReviewRouterProjects: vi.fn(),
   getPrisma: vi.fn(),
+  requestStartedAt: vi.fn(),
+  recordInventory: vi.fn(),
   gatewayOptions: [] as unknown[],
 }));
 
@@ -20,6 +22,13 @@ vi.mock("@reviewrouter/features-gitlab-integration", () => ({
 
 vi.mock("./prisma", () => ({
   getPrisma: mocks.getPrisma,
+}));
+
+vi.mock("./gitlab-installation-inventory", () => ({
+  PrismaGitLabInstallationInventory: class {
+    requestStartedAt = mocks.requestStartedAt;
+    record = mocks.recordInventory;
+  },
 }));
 
 vi.mock("./workflow-public-api-url", () => ({
@@ -62,6 +71,13 @@ describe("installGitLabConnectProjects", () => {
       ],
     });
     mocks.provisionGitLabReviewRouterProjects.mockReset();
+    mocks.requestStartedAt.mockReset().mockResolvedValue(
+      new Date("2026-10-31T10:00:00.000Z"),
+    );
+    mocks.recordInventory.mockReset().mockResolvedValue({
+      installationId: "gitlab_install_1",
+    });
+    mocks.getPrisma.mockReturnValue({});
   });
 
   afterEach(() => {
@@ -70,18 +86,6 @@ describe("installGitLabConnectProjects", () => {
   });
 
   it("uses the server review token, records project fallback installs, and deselects removed repositories", async () => {
-    const gitLabInstallationUpsert = vi.fn().mockResolvedValue({
-      id: "gitlab_install_1",
-    });
-    const repositoryUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const repositoryUpsert = vi.fn().mockResolvedValue({});
-    mocks.getPrisma.mockReturnValue({
-      gitLabInstallation: { upsert: gitLabInstallationUpsert },
-      repositoryConnection: {
-        updateMany: repositoryUpdateMany,
-        upsert: repositoryUpsert,
-      },
-    });
     mocks.provisionGitLabReviewRouterProjects
       .mockRejectedValueOnce(new Error("gitlab_api_error_403"))
       .mockResolvedValueOnce({
@@ -141,50 +145,38 @@ describe("installGitLabConnectProjects", () => {
     expect(
       JSON.stringify(mocks.provisionGitLabReviewRouterProjects.mock.calls),
     ).not.toContain("user-pat-should-not-be-seeded");
-    expect(gitLabInstallationUpsert).toHaveBeenCalledWith(
+    expect(mocks.requestStartedAt).toHaveBeenCalledOnce();
+    expect(mocks.recordInventory).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        where: {
-          workspaceId_sourceBaseUrl_namespacePath: {
-            workspaceId: "workspace_1",
-            sourceBaseUrl: "https://gitlab.com",
-            namespacePath: "acme/platform",
-          },
-        },
-        update: expect.objectContaining({
-          sourceBaseUrl: "https://gitlab.com",
-          sourceKind: "project",
-        }),
-        create: expect.objectContaining({
-          sourceBaseUrl: "https://gitlab.com",
-          sourceKind: "project",
+        workspaceId: "workspace_1",
+        installedByUserId: "user_1",
+        sourceBaseUrl: "https://gitlab.com",
+        namespacePath: "acme/platform",
+        sourceKind: "project",
+        requestStartedAt: new Date("2026-10-31T10:00:00.000Z"),
+        selectedProjects: [
+          expect.objectContaining({ projectId: "101" }),
+        ],
+        provision: expect.objectContaining({
+          succeeded: 1,
+          failed: 0,
         }),
       }),
     );
-    expect(repositoryUpdateMany).toHaveBeenCalledWith({
-      where: {
-        provider: "gitlab",
-        gitlabInstallationId: "gitlab_install_1",
-        externalRepositoryId: { notIn: ["101"] },
-      },
-      data: expect.objectContaining({ selected: false }),
-    });
-    expect(repositoryUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          provider_externalRepositoryId_sourceBaseUrl: {
-            provider: "gitlab",
-            externalRepositoryId: "101",
-            sourceBaseUrl: "https://gitlab.com",
-          },
-        },
-        update: expect.objectContaining({
-          sourceBaseUrl: "https://gitlab.com",
-        }),
-        create: expect.objectContaining({
-          sourceBaseUrl: "https://gitlab.com",
-        }),
+  });
+
+  it("rejects unknown discovery selections before external provisioning or persistence", async () => {
+    await expect(
+      installGitLabConnectProjects({
+        sourceUrl: "https://gitlab.com/acme/platform",
+        token: "user-pat",
+        workspaceId: "workspace_1",
+        selectedProjectIds: ["101", "999"],
+        installedByUserId: "user_1",
       }),
-    );
+    ).rejects.toThrow("gitlab_connect_project_selection_stale");
+    expect(mocks.provisionGitLabReviewRouterProjects).not.toHaveBeenCalled();
+    expect(mocks.recordInventory).not.toHaveBeenCalled();
   });
 
   it("fails closed when the server GitLab review token is missing", async () => {
