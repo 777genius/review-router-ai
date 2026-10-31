@@ -122,16 +122,19 @@ export function safeOutboxErrorSummary(error: unknown): {
 } {
   if (error instanceof OutboxHandlerError) {
     return {
-      code: error.code,
-      summary: error.message.slice(0, 500),
+      code: /^[a-z][a-z0-9_]{0,95}$/.test(error.code)
+        ? error.code
+        : "handler_error",
+      // Provider and SDK exception messages can contain credentials, repository
+      // payloads or full URL query strings. Only stable codes are durable.
+      summary: "outbox_application_failure",
       retryable: error.retryable,
     };
   }
 
-  const message = error instanceof Error ? error.message : "unknown_error";
   return {
     code: "handler_error",
-    summary: message.slice(0, 500),
+    summary: "outbox_handler_failure",
     retryable: true,
   };
 }
