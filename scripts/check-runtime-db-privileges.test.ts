@@ -50,6 +50,9 @@ describe("runtime database privilege check", () => {
       retryable: true,
     });
     expect(permissionDeadLetterQuery).toContain(
+      `"deadLetteredAt" > now() - interval '7 days'`,
+    );
+    expect(permissionDeadLetterQuery).toContain(
       '"lastErrorCode" = \'db_permission_denied\'',
     );
     expect(permissionDeadLetterQuery).toContain(
