@@ -290,6 +290,8 @@ export async function saveWorkspaceReviewSettings(
     settings: WorkspaceReviewSettings;
     /** The version the form was opened with; null when there was none. */
     expectedVersion: number | null;
+    /** Trusted caller access facts, without policy values or credentials. */
+    auditMetadata?: Readonly<Record<string, unknown>>;
   }>,
   dependencies: SelectionDependencies,
 ): Promise<SavedReviewPolicy> {
@@ -319,6 +321,12 @@ export async function saveWorkspaceReviewSettings(
       },
     ],
     selectionAuthority: providerSelectionAuthority({ actor: input.actor }),
+    audit: {
+      actor: input.actor.auditActor,
+      action: "review_config.saved",
+      ...(input.auditMetadata ? { metadata: input.auditMetadata } : {}),
+      metadataForSavedConfiguration: savedReviewSettingsAuditMetadata,
+    },
   });
   return saved!;
 }
@@ -338,6 +346,8 @@ export async function saveRepositoryReviewSettings(
     settings: RepositoryReviewSettings;
     /** The version the form was opened with; null when there was none. */
     expectedVersion: number | null;
+    /** Trusted caller access and repository identity facts. */
+    auditMetadata?: Readonly<Record<string, unknown>>;
   }>,
   dependencies: SelectionDependencies,
 ): Promise<SavedReviewPolicy> {
@@ -373,6 +383,7 @@ export async function saveRepositoryReviewSettings(
               },
               policy: defaultWorkspaceReviewPolicy(),
               expectedVersion: null,
+              implicit: true,
             },
           ]),
       {
@@ -395,8 +406,33 @@ export async function saveRepositoryReviewSettings(
       actor: input.actor,
       repositoryCapability: input.repository.capability,
     }),
+    audit: {
+      actor: input.actor.auditActor,
+      action:
+        Object.keys(input.settings).length === 0
+          ? "review_config.cleared"
+          : "review_config.saved",
+      ...(input.auditMetadata ? { metadata: input.auditMetadata } : {}),
+      metadataForSavedConfiguration: savedReviewSettingsAuditMetadata,
+    },
   });
   return saved.at(-1)!;
+}
+
+/** Audit only the provider and policy facts the committed settings review with. */
+function savedReviewSettingsAuditMetadata(
+  configuration: SavedReviewPolicy["configuration"],
+): Readonly<Record<string, string | undefined>> {
+  const config = configuration?.config;
+  const provider = config?.providers[0];
+  return {
+    // Shadow caller policy facts even when no provider is selected. The owning
+    // audit sanitizer removes undefined values when producing persisted JSON.
+    providerKind: provider?.kind,
+    authMode: provider?.authMode,
+    model: provider?.model,
+    failOnSeverity: config?.blockingPolicy.failOnSeverity,
+  };
 }
 
 export type ProviderSelectionAssignment =

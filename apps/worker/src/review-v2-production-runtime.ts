@@ -66,12 +66,15 @@ import {
   type ReviewPublicationPermitIdentity,
   type ReviewPublicationReleaseLimitsQueryPort,
   type ReviewPublicationScope,
+  type ReviewPublicationDueWork,
+  type ReviewPublicationWorkFeedPort,
 } from "@reviewrouter/features-review-publishing/v2";
 import {
   GitHubReviewPublicationLifecycleAdapter,
   HmacReviewCommandLedgerVerifier,
   OctokitGitHubInstallationGraphqlClientFactory,
   PrismaReviewPublicationRepository,
+  PrismaReviewPublicationWorkFeed,
   PrismaReviewThreadResolutionHistory,
   createPrismaResolutionWriterQualification,
   createReviewPublicationV2Application,
@@ -646,7 +649,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     },
   );
   const publication = new ReviewV2PublicationMaintenance(
-    new PrismaReviewV2PublicationWorkFeed(input.prisma),
+    new PrismaReviewPublicationWorkFeed(input.prisma),
     publicationExecutor,
     input.clock,
     ownerIdHash,
@@ -1543,129 +1546,9 @@ function requiredGithubRepositoryId(repository: {
   return repository.githubRepositoryId.toString();
 }
 
-type PublicationWork = {
-  readonly executionId: string;
-  readonly publicationAttemptId: string;
-  readonly publicationOperationId: string;
-  readonly provider: ReviewV2ScmProvider;
-  readonly retryCount: number;
-};
-
-interface ReviewV2PublicationWorkFeed {
-  scan(input: {
-    readonly now: Date;
-    readonly limit: number;
-  }): Promise<readonly PublicationWork[]>;
-  defer(input: {
-    readonly work: PublicationWork;
-    readonly nextEligibleAt: Date;
-    readonly lastErrorCode: string;
-  }): Promise<void>;
-}
-
-class PrismaReviewV2PublicationWorkFeed implements ReviewV2PublicationWorkFeed {
-  constructor(private readonly prisma: PrismaClient) {}
-
-  async scan(input: { readonly now: Date; readonly limit: number }) {
-    const operations = await this.prisma.reviewPublicationOperationV2.findMany({
-      where: {
-        state: {
-          in: ["planned", "in_flight", "effect_observed", "reconciling"],
-        },
-        nextEligibleAt: { lte: input.now },
-      },
-      orderBy: [
-        { required: "desc" },
-        { nextEligibleAt: "asc" },
-        { reconcileUntil: "asc" },
-        { publicationOperationId: "asc" },
-      ],
-      take: Math.min(input.limit * 4, 1_000),
-      select: {
-        publicationAttemptId: true,
-        publicationOperationId: true,
-        retryCount: true,
-      },
-    });
-    if (operations.length === 0) return [];
-    const attemptIds = [
-      ...new Set(operations.map((row) => row.publicationAttemptId)),
-    ];
-    const attempts = await this.prisma.reviewPublicationAttemptV2.findMany({
-      where: {
-        publicationAttemptId: { in: attemptIds },
-        state: { in: ["pending", "publishing", "reconciling"] },
-        retainUntil: { gt: input.now },
-      },
-      select: {
-        publicationAttemptId: true,
-        repositoryConnectionId: true,
-        executionId: true,
-      },
-    });
-    const repositoryIds = [
-      ...new Set(attempts.map((row) => row.repositoryConnectionId)),
-    ];
-    const repositories = await this.prisma.repositoryConnection.findMany({
-      where: { id: { in: repositoryIds } },
-      select: { id: true, provider: true },
-    });
-    const attemptById = new Map(
-      attempts.map((row) => [row.publicationAttemptId, row]),
-    );
-    const providerByRepository = new Map(
-      repositories.map((row) => [row.id, row.provider]),
-    );
-    return operations
-      .flatMap((operation) => {
-        const attempt = attemptById.get(operation.publicationAttemptId);
-        if (!attempt) return [];
-        const provider = providerByRepository.get(
-          attempt.repositoryConnectionId,
-        );
-        const mapped = mapProvider(provider);
-        return mapped
-          ? [
-              {
-                ...operation,
-                executionId: attempt.executionId,
-                provider: mapped,
-              },
-            ]
-          : [];
-      })
-      .slice(0, input.limit);
-  }
-
-  async defer(input: {
-    readonly work: PublicationWork;
-    readonly nextEligibleAt: Date;
-    readonly lastErrorCode: string;
-  }): Promise<void> {
-    const updated = await this.prisma.reviewPublicationOperationV2.updateMany({
-      where: {
-        publicationOperationId: input.work.publicationOperationId,
-        publicationAttemptId: input.work.publicationAttemptId,
-        retryCount: input.work.retryCount,
-        state: {
-          in: ["planned", "in_flight", "effect_observed", "reconciling"],
-        },
-      },
-      data: {
-        retryCount: { increment: 1 },
-        nextEligibleAt: input.nextEligibleAt,
-        lastErrorCode: input.lastErrorCode,
-      },
-    });
-    if (updated.count > 1) {
-      throw new Error("review_v2_publication_retry_cas_invalid");
-    }
-  }
-}
-
 class ReviewV2PublicationMaintenance implements ReviewV2PublicationMaintenanceRuntime {
   constructor(
-    private readonly feed: ReviewV2PublicationWorkFeed,
+    private readonly feed: ReviewPublicationWorkFeedPort,
     private readonly executor: ExecuteReviewV2PublicationOperation,
     private readonly clock: SystemClock,
     private readonly ownerIdHash: string,
@@ -1690,7 +1573,7 @@ class ReviewV2PublicationMaintenance implements ReviewV2PublicationMaintenanceRu
       const result = await this.executor.execute({
         publicationAttemptId: item.publicationAttemptId,
         publicationOperationId: item.publicationOperationId,
-        provider: item.provider,
+        provider: publicationWorkProvider(item.provider),
         ownerIdHash: this.ownerIdHash,
       });
       processed += 1;
@@ -1791,14 +1674,14 @@ function mapSnapshotPublicationOutcome(
   }
 }
 
-function mapProvider(provider: string | undefined): ReviewV2ScmProvider | null {
+export function publicationWorkProvider(
+  provider: ReviewPublicationDueWork["provider"],
+): ReviewV2ScmProvider {
   switch (provider) {
     case "github":
       return ReviewV2ScmProvider.GitHub;
     case "gitlab":
       return ReviewV2ScmProvider.GitLab;
-    default:
-      return null;
   }
 }
 

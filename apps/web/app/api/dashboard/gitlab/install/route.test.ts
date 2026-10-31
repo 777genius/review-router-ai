@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  assertDashboardWorkspaceAdminAllowed: vi.fn(),
+  assertDashboardWorkspaceAdminMutationAllowed: vi.fn(),
   installGitLabConnectProjects: vi.fn(),
 }));
 
 vi.mock("../../../../../src/server/dashboard-mutations", () => ({
-  assertDashboardWorkspaceAdminAllowed:
-    mocks.assertDashboardWorkspaceAdminAllowed,
+  assertDashboardWorkspaceAdminMutationAllowed:
+    mocks.assertDashboardWorkspaceAdminMutationAllowed,
 }));
 
 vi.mock("../../../../../src/server/gitlab-connect", () => ({
@@ -19,7 +19,7 @@ import { POST } from "./route";
 describe("GitLab install route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.assertDashboardWorkspaceAdminAllowed.mockResolvedValue({
+    mocks.assertDashboardWorkspaceAdminMutationAllowed.mockResolvedValue({
       userId: "user_1",
     });
     mocks.installGitLabConnectProjects.mockResolvedValue({
@@ -37,6 +37,29 @@ describe("GitLab install route", () => {
       setupMergeRequests: [],
       results: [],
     });
+  });
+
+  it("refuses disabled dashboard writes before installation work", async () => {
+    mocks.assertDashboardWorkspaceAdminMutationAllowed.mockRejectedValueOnce(
+      new Error("dashboard_mutations_disabled"),
+    );
+    const response = await POST(
+      jsonRequest({
+        workspaceId: "workspace_1",
+        sourceUrl: "https://gitlab.com/acme/platform",
+        token: "glpat-secret-token",
+        selectedProjectIds: ["101"],
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "dashboard_mutations_disabled",
+        message: "dashboard mutations disabled",
+      },
+    });
+    expect(mocks.installGitLabConnectProjects).not.toHaveBeenCalled();
   });
 
   it("passes the GitLab token only to the request-scoped installer and never returns it", async () => {

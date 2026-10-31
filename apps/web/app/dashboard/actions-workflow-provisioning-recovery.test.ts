@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   createGitHubAppInstallationOctokit: vi.fn(),
   getPrisma: vi.fn(),
   recordAuditEvent: vi.fn(),
+  dashboardMutationAccessAuditMetadata: vi.fn(),
   readWorkspaceReviewSettingsForm: vi.fn(),
   readRepositoryReviewSettingsForm: vi.fn(),
   saveWorkspaceReviewSettings: vi.fn(),
@@ -77,7 +78,8 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
     mocks.assertDashboardRepositoryMutationAllowed,
   createGitHubAppInstallationOctokit: mocks.createGitHubAppInstallationOctokit,
   createGitHubUserOctokit: vi.fn(),
-  dashboardMutationAccessAuditMetadata: () => ({}),
+  dashboardMutationAccessAuditMetadata:
+    mocks.dashboardMutationAccessAuditMetadata,
   getDashboardSignedInActor: vi.fn(),
   getDashboardWorkspaceScope: vi.fn(),
 }));
@@ -195,6 +197,7 @@ describe("dashboard setup PR recovery", () => {
   });
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.dashboardMutationAccessAuditMetadata.mockReturnValue({});
     mocks.loadApprovedGatewayAgentProfiles.mockReturnValue([]);
     vi.stubEnv(
       "REVIEW_ROUTER_ACTION_REF",
@@ -504,6 +507,9 @@ describe("dashboard setup PR recovery", () => {
       userId: "user_admin",
     });
     mocks.readWorkspaceReviewSettingsForm.mockReturnValue(settings);
+    mocks.dashboardMutationAccessAuditMetadata.mockReturnValue({
+      accessSource: "workspace_admin",
+    });
     mocks.saveWorkspaceReviewSettings.mockResolvedValue({
       target: { scope: "workspace", workspaceId: "workspace_1" },
       version: 2,
@@ -536,13 +542,19 @@ describe("dashboard setup PR recovery", () => {
         actor: expect.objectContaining({ userId: "user_admin" }),
         settings,
         expectedVersion: 1,
+        auditMetadata: { accessSource: "workspace_admin" },
       },
       // The dashboard validates every candidate before the write.
       expect.objectContaining({ validator: expect.anything() }),
     );
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled();
   });
 
   it("saves the repository overrides of the form with the actor's capability", async () => {
+    mocks.dashboardMutationAccessAuditMetadata.mockReturnValue({
+      accessSource: "repo_manager",
+      accessCapability: "direct_config",
+    });
     mocks.getPrisma.mockReturnValue({
       repositoryConnection: {
         findUnique: vi.fn(async () => ({
@@ -602,9 +614,15 @@ describe("dashboard setup PR recovery", () => {
         },
         settings: { limits: { inlineMaxComments: 2 } },
         expectedVersion: 2,
+        auditMetadata: {
+          repository: "acme/widget",
+          accessSource: "repo_manager",
+          accessCapability: "direct_config",
+        },
       },
       expect.objectContaining({ validator: expect.anything() }),
     );
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled();
   });
 
   it("loads failed provisioning deterministically and confirms a reopened merged PR", async () => {
