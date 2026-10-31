@@ -5,7 +5,10 @@ import type {
 } from "@reviewrouter/features-gitlab-integration";
 import { FallbackGitLabRepositoryRegistry } from "./fallback-gitlab-repository-registry";
 
-const identity = { sourceBaseUrl: "https://gitlab.com", gitlabProjectId: "123" };
+const identity = {
+  sourceBaseUrl: "https://gitlab.com",
+  gitlabProjectId: "123",
+};
 
 describe("FallbackGitLabRepositoryRegistry", () => {
   it("uses the primary registry when the repository exists there", async () => {
@@ -17,9 +20,9 @@ describe("FallbackGitLabRepositoryRegistry", () => {
     await expect(
       registry.findRepositoryByGitLabProjectIdentity(identity),
     ).resolves.toEqual(primaryRepository);
-    expect(
-      primary.findRepositoryByGitLabProjectIdentity,
-    ).toHaveBeenCalledWith(identity);
+    expect(primary.findRepositoryByGitLabProjectIdentity).toHaveBeenCalledWith(
+      identity,
+    );
     expect(
       fallback.findRepositoryByGitLabProjectIdentity,
     ).not.toHaveBeenCalled();
@@ -34,12 +37,12 @@ describe("FallbackGitLabRepositoryRegistry", () => {
     await expect(
       registry.findRepositoryByGitLabProjectIdentity(identity),
     ).resolves.toEqual(fallbackRepository);
-    expect(
-      primary.findRepositoryByGitLabProjectIdentity,
-    ).toHaveBeenCalledWith(identity);
-    expect(
-      fallback.findRepositoryByGitLabProjectIdentity,
-    ).toHaveBeenCalledWith(identity);
+    expect(primary.findRepositoryByGitLabProjectIdentity).toHaveBeenCalledWith(
+      identity,
+    );
+    expect(fallback.findRepositoryByGitLabProjectIdentity).toHaveBeenCalledWith(
+      identity,
+    );
   });
 
   it("does not fall back when the primary database record is deselected", async () => {
@@ -48,10 +51,12 @@ describe("FallbackGitLabRepositoryRegistry", () => {
     const fallback = createRegistry(createRepository("repo_static"));
     const registry = new FallbackGitLabRepositoryRegistry([primary, fallback]);
 
-    await expect(registry.findRepositoryByGitLabProjectIdentity(identity)).resolves.toEqual(
-      deselected,
-    );
-    expect(fallback.findRepositoryByGitLabProjectIdentity).not.toHaveBeenCalled();
+    await expect(
+      registry.findRepositoryByGitLabProjectIdentity(identity),
+    ).resolves.toEqual(deselected);
+    expect(
+      fallback.findRepositoryByGitLabProjectIdentity,
+    ).not.toHaveBeenCalled();
   });
 
   it("returns null only after every registry misses", async () => {

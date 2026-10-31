@@ -166,11 +166,19 @@ describe("exchangeGitLabCiIdToken", () => {
 
   it("uses the signed GitLab issuer, not only a reusable numeric project ID", async () => {
     const repositories = new InMemoryRepositories();
-    repositories.repository = { ...repository, sourceBaseUrl: "https://gitlab.example" };
+    repositories.repository = {
+      ...repository,
+      sourceBaseUrl: "https://gitlab.example",
+    };
     const sessions = new StaticSessions();
     await expect(
       exchangeGitLabCiIdToken(
-        { idToken: "id-token", audience: "reviewrouter", mergeRequestIid: "5", headSha },
+        {
+          idToken: "id-token",
+          audience: "reviewrouter",
+          mergeRequestIid: "5",
+          headSha,
+        },
         {
           verifier: new StaticVerifier(),
           repositories,
@@ -185,12 +193,23 @@ describe("exchangeGitLabCiIdToken", () => {
 
   it("normalizes the signed issuer before an exact repository lookup", async () => {
     const repositories = new InMemoryRepositories();
-    repositories.repository = { ...repository, sourceBaseUrl: "https://gitlab.example" };
+    repositories.repository = {
+      ...repository,
+      sourceBaseUrl: "https://gitlab.example",
+    };
     await expect(
       exchangeGitLabCiIdToken(
-        { idToken: "id-token", audience: "reviewrouter", mergeRequestIid: "5", headSha },
         {
-          verifier: new StaticVerifier({ ...claims, iss: "https://gitlab.example/" }),
+          idToken: "id-token",
+          audience: "reviewrouter",
+          mergeRequestIid: "5",
+          headSha,
+        },
+        {
+          verifier: new StaticVerifier({
+            ...claims,
+            iss: "https://gitlab.example/",
+          }),
           repositories,
           mergeRequests: new StaticMergeRequests(),
           sessions: new StaticSessions(),
