@@ -126,6 +126,31 @@ describe.skipIf(!adminUrl)("GitLab installation inventory on real PostgreSQL", (
     expect(await prisma.repositoryConnection.count()).toBe(1);
   });
 
+  it("rolls back deselections and new repository inserts when an existing inventory update fails", async () => {
+    const first = await inventory.record(snapshot("workspace_1", ["101"]));
+    const before = await prisma.gitLabInstallation.findUniqueOrThrow({
+      where: { id: first.installationId },
+    });
+    await expect(
+      inventory.record(
+        snapshot(
+          "workspace_1",
+          ["103", "999"],
+          new Date("2026-10-31T10:00:01.000Z"),
+        ),
+      ),
+    ).rejects.toThrow("injected_repository_write_failure");
+    const after = await prisma.gitLabInstallation.findUniqueOrThrow({
+      where: { id: first.installationId },
+    });
+    expect(after.installSummary).toEqual(before.installSummary);
+    expect(after.selectedProjects).toBe(1);
+    expect(after.lastInstalledAt).toEqual(before.lastInstalledAt);
+    expect(await prisma.repositoryConnection.findMany()).toMatchObject([
+      { externalRepositoryId: "101", selected: true },
+    ]);
+  });
+
   it("refuses a different workspace owner without any partial inventory commit", async () => {
     await inventory.record(snapshot("workspace_2", ["101"]));
     await expect(
