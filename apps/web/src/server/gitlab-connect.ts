@@ -202,6 +202,11 @@ function selectProjects(input: {
   if (projects.length === 0) {
     throw new Error("gitlab_connect_projects_required");
   }
+  // Do not silently deselect valid existing inventory when the user supplied
+  // stale or unknown project identifiers from another discovery snapshot.
+  if (new Set(projects.map((project) => project.projectId)).size !== selected.size) {
+    throw new Error("gitlab_connect_project_selection_stale");
+  }
   return projects;
 }
 
