@@ -1,7 +1,7 @@
-import { createHmac } from "node:crypto";
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { registerGitHubWebhookRoutes } from "../interface/http/register-github-webhook-routes";
+import { signGitHubWebhookPayload } from "../infrastructure/crypto/github-webhook-signature";
 
 const secret = "webhook-signed-test-secret";
 const leaked = "github_pat_privateSuperSecret123";
@@ -41,9 +41,7 @@ describe("signed GitHub webhook HTTP failure privacy", () => {
         action: "revoked",
         sender: { id: 123, login: "private-actor" },
       });
-      const signature = `sha256=${createHmac("sha256", secret)
-        .update(payload)
-        .digest("hex")}`;
+      const signature = signGitHubWebhookPayload(payload, secret);
 
       const response = await app.inject({
         method: "POST",
