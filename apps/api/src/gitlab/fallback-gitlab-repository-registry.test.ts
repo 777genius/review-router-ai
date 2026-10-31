@@ -5,6 +5,8 @@ import type {
 } from "@reviewrouter/features-gitlab-integration";
 import { FallbackGitLabRepositoryRegistry } from "./fallback-gitlab-repository-registry";
 
+const identity = { sourceBaseUrl: "https://gitlab.com", gitlabProjectId: "123" };
+
 describe("FallbackGitLabRepositoryRegistry", () => {
   it("uses the primary registry when the repository exists there", async () => {
     const primaryRepository = createRepository("repo_db");
@@ -13,13 +15,13 @@ describe("FallbackGitLabRepositoryRegistry", () => {
     const registry = new FallbackGitLabRepositoryRegistry([primary, fallback]);
 
     await expect(
-      registry.findSelectedRepositoryByGitLabProjectId("123"),
+      registry.findRepositoryByGitLabProjectIdentity(identity),
     ).resolves.toEqual(primaryRepository);
     expect(
-      primary.findSelectedRepositoryByGitLabProjectId,
-    ).toHaveBeenCalledWith("123");
+      primary.findRepositoryByGitLabProjectIdentity,
+    ).toHaveBeenCalledWith(identity);
     expect(
-      fallback.findSelectedRepositoryByGitLabProjectId,
+      fallback.findRepositoryByGitLabProjectIdentity,
     ).not.toHaveBeenCalled();
   });
 
@@ -30,14 +32,26 @@ describe("FallbackGitLabRepositoryRegistry", () => {
     const registry = new FallbackGitLabRepositoryRegistry([primary, fallback]);
 
     await expect(
-      registry.findSelectedRepositoryByGitLabProjectId("123"),
+      registry.findRepositoryByGitLabProjectIdentity(identity),
     ).resolves.toEqual(fallbackRepository);
     expect(
-      primary.findSelectedRepositoryByGitLabProjectId,
-    ).toHaveBeenCalledWith("123");
+      primary.findRepositoryByGitLabProjectIdentity,
+    ).toHaveBeenCalledWith(identity);
     expect(
-      fallback.findSelectedRepositoryByGitLabProjectId,
-    ).toHaveBeenCalledWith("123");
+      fallback.findRepositoryByGitLabProjectIdentity,
+    ).toHaveBeenCalledWith(identity);
+  });
+
+  it("does not fall back when the primary database record is deselected", async () => {
+    const deselected = { ...createRepository("repo_db"), selected: false };
+    const primary = createRegistry(deselected);
+    const fallback = createRegistry(createRepository("repo_static"));
+    const registry = new FallbackGitLabRepositoryRegistry([primary, fallback]);
+
+    await expect(registry.findRepositoryByGitLabProjectIdentity(identity)).resolves.toEqual(
+      deselected,
+    );
+    expect(fallback.findRepositoryByGitLabProjectIdentity).not.toHaveBeenCalled();
   });
 
   it("returns null only after every registry misses", async () => {
@@ -47,7 +61,7 @@ describe("FallbackGitLabRepositoryRegistry", () => {
     ]);
 
     await expect(
-      registry.findSelectedRepositoryByGitLabProjectId("123"),
+      registry.findRepositoryByGitLabProjectIdentity(identity),
     ).resolves.toBeNull();
   });
 });
@@ -56,7 +70,7 @@ function createRegistry(
   repository: GitLabRepositoryContext | null,
 ): GitLabRepositoryPort {
   return {
-    findSelectedRepositoryByGitLabProjectId: vi.fn(async () => repository),
+    findRepositoryByGitLabProjectIdentity: vi.fn(async () => repository),
   };
 }
 
