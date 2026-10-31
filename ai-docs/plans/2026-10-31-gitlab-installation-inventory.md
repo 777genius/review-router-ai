@@ -8,7 +8,7 @@ Status: draft implementation.
 `apps/web/src/server/gitlab-connect.ts` upserts a GitLabInstallation, deselects previous repositories, then loops separate RepositoryConnection upserts. Any exception leaves a partially installed/deselected inventory. Its unique `provider_externalRepositoryId_sourceBaseUrl` update writes `workspaceId`, letting a second workspace silently take over a previously assigned repository.
 
 ## Bounded contract
-- Network discovery/provisioning remains outside DB transactions; it is not reversible.
+- Network discovery/provisioning remains outside DB transactions; it is not reversible. Preflight existing cross-workspace ownership before external writes and recheck in the transaction; a competing writer can still win between preflight and commit, so external-side compensation is not claimed.
 - Move only persistence into a Web-owned Prisma inventory adapter. Apply installation summary, deselections and successful project updates inside one short ReadCommitted transaction with a per-installation advisory transaction lock.
 - Never write `workspaceId` in a repository update. Check an existing global project owner and fail closed on another workspace; preserve current owner for same-workspace refresh.
 - Ensure selected-project list is a valid discoverable subset and bound to successful provisioning. Unknown IDs must not silently descope installed projects.
