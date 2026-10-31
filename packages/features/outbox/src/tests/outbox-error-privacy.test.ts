@@ -101,6 +101,22 @@ describe("outbox durable failure privacy", () => {
     });
   });
 
+  it("preserves a reviewed transient identity projection diagnostic", () => {
+    expect(
+      safeOutboxErrorSummary(
+        new OutboxHandlerError(
+          "Current review request facts are temporarily unavailable",
+          "review_request_identity_projection_unavailable",
+          true,
+        ),
+      ),
+    ).toEqual({
+      code: "review_request_identity_projection_unavailable",
+      summary: "outbox_application_failure",
+      retryable: true,
+    });
+  });
+
   it("redacts durable retry event facts without changing dispatch or retry semantics", async () => {
     const outbox = new InMemoryOutboxEventRepository();
     await outbox.enqueue({
