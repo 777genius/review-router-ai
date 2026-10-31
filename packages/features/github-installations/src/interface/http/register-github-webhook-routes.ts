@@ -335,7 +335,12 @@ export async function registerGitHubWebhookRoutes(
 
       return reply.send(result);
     } catch {
-      // Never echo a dependency exception or private webhook payload to the caller.
+      // A caught error will no longer reach Fastify's onError hook. Record only
+      // a bounded opaque failure event, never raw provider/tenant error text.
+      request.log.error(
+        { code: "github_webhook_processing_failed" },
+        "GitHub webhook processing failed",
+      );
       return reply.code(500).send({ error: "github_webhook_processing_failed" });
     }
   });
