@@ -482,5 +482,27 @@ describe("offline Prisma generate", () => {
         ).toBe(1);
       }
     }
+    // Draft pull requests skip the heavy lanes on purpose, but a failed,
+    // cancelled or missing lane must still fail the aggregate.
+    const runDraftGate = (results: Record<string, string>) =>
+      runGate({ ...results, DRAFT_PR: "true" });
+    expect(runDraftGate(success).status).toBe(0);
+    for (const variable of variables) {
+      expect(
+        runDraftGate({ ...success, [variable]: "skipped" }).status,
+        `${variable}=skipped: draft pull request may skip`,
+      ).toBe(0);
+      for (const result of ["failure", "cancelled", ""]) {
+        expect(
+          runDraftGate({ ...success, [variable]: result }).status,
+          `${variable}=${result || "missing"}: draft aggregate must fail`,
+        ).toBe(1);
+      }
+      expect(
+        runGate({ ...success, [variable]: "skipped", DRAFT_PR: "false" })
+          .status,
+        `${variable}=skipped: ready pull request must not skip`,
+      ).toBe(1);
+    }
   });
 });
