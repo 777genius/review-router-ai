@@ -20,6 +20,7 @@ import type { InstallationWorkspaceOwnerGrantPort } from "../../application/port
 import type { InstallationSyncRequestPort } from "../../application/ports/installation-sync-request-port";
 import { verifyGitHubWebhookSignature } from "../../infrastructure/crypto/github-webhook-signature";
 import type { Clock } from "@reviewrouter/shared";
+import { safeGitHubWebhookFailureSummary } from "../../domain/github-webhook-failure";
 
 export type RegisterGitHubWebhookRoutesDependencies = {
   readonly webhookSecret: string;
@@ -127,7 +128,7 @@ export async function registerGitHubWebhookRoutes(
       } catch (error) {
         await dependencies.deliveries.markFailed({
           deliveryId,
-          errorSummary: safeErrorSummary(error),
+          errorSummary: safeGitHubWebhookFailureSummary(error),
         });
         throw error;
       }
@@ -197,7 +198,7 @@ export async function registerGitHubWebhookRoutes(
       } catch (error) {
         await dependencies.deliveries.markFailed({
           deliveryId,
-          errorSummary: safeErrorSummary(error),
+          errorSummary: safeGitHubWebhookFailureSummary(error),
         });
         throw error;
       }
@@ -250,7 +251,7 @@ export async function registerGitHubWebhookRoutes(
       } catch (error) {
         await dependencies.deliveries.markFailed({
           deliveryId,
-          errorSummary: safeErrorSummary(error),
+          errorSummary: safeGitHubWebhookFailureSummary(error),
         });
         throw error;
       }
@@ -308,7 +309,7 @@ export async function registerGitHubWebhookRoutes(
       } catch (error) {
         await dependencies.deliveries.markFailed({
           deliveryId,
-          errorSummary: safeErrorSummary(error),
+          errorSummary: safeGitHubWebhookFailureSummary(error),
         });
         throw error;
       }
@@ -335,10 +336,6 @@ export async function registerGitHubWebhookRoutes(
   });
 }
 
-function safeErrorSummary(error: unknown): string {
-  const message = error instanceof Error ? error.message : "unknown_error";
-  return message.slice(0, 500);
-}
 
 function normalizeRepositoryWebhookVisibility(repository: {
   readonly visibility?: string | undefined;
