@@ -607,7 +607,14 @@ export async function createApiApp(
       : undefined);
 
   if (githubWebhookDependencies) {
-    await registerGitHubWebhookRoutes(app, githubWebhookDependencies);
+    await registerGitHubWebhookRoutes(app, {
+      ...githubWebhookDependencies,
+      onProcessingError: () => {
+        logger.error("GitHub webhook processing failed", {
+          code: "github_webhook_processing_failed",
+        });
+      },
+    });
   }
 
   const gitLabIntegrationDependencies =

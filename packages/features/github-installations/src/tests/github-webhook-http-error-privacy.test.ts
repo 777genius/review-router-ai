@@ -8,6 +8,7 @@ const leaked = "github_pat_privateSuperSecret123";
 
 describe("signed GitHub webhook HTTP failure privacy", () => {
   const app = Fastify({ logger: false });
+  const onProcessingError = vi.fn();
   const deliveries = {
     tryStartProcessing: vi.fn(async () => true),
     markProcessed: vi.fn(async () => {}),
@@ -23,6 +24,7 @@ describe("signed GitHub webhook HTTP failure privacy", () => {
       webhookSecret: secret,
       installations: {} as never,
       deliveries,
+      onProcessingError,
       appAuthorizations: {
         async handleGitHubAppAuthorizationWebhook() {
           throw new Error(`authorization rejected: ${leaked}`);
@@ -54,6 +56,7 @@ describe("signed GitHub webhook HTTP failure privacy", () => {
       error: "github_webhook_processing_failed",
     });
     expect(response.body).not.toContain(leaked);
+    expect(onProcessingError).toHaveBeenCalledExactlyOnceWith();
     expect(deliveries.markFailed).toHaveBeenCalledExactlyOnceWith({
       deliveryId: "private-delivery-1",
       errorSummary: "github_webhook_processing_failed",

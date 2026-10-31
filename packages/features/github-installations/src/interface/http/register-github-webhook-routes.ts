@@ -34,6 +34,8 @@ export type RegisterGitHubWebhookRoutesDependencies = {
   readonly pushes?: GitHubPushWebhookHandlerPort;
   readonly repositories?: GitHubRepositoryWebhookHandlerPort;
   readonly clock: Clock;
+  /** Operational logging is supplied by the API composition, never raw webhook data. */
+  readonly onProcessingError?: () => void;
 };
 
 type RawBodyRequest = FastifyRequest & { readonly rawBody?: Buffer };
@@ -344,10 +346,7 @@ export async function registerGitHubWebhookRoutes(
     } catch {
       // A caught error will no longer reach Fastify's onError hook. Record only
       // a bounded opaque failure event, never raw provider/tenant error text.
-      request.log.error(
-        { code: "github_webhook_processing_failed" },
-        "GitHub webhook processing failed",
-      );
+      dependencies.onProcessingError?.();
       return reply
         .code(500)
         .send({ error: "github_webhook_processing_failed" });
