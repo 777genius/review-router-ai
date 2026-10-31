@@ -27,6 +27,23 @@ up.
 | Review runtime  | The customer's GitHub Actions workflow        | Runs the review on each pull request with the provider key                                | Partly: direct T0 settings in section 3 |
 | Account gateway | A separate service, not in this Compose stack | Signs in subscription accounts (for example Codex device login) and routes calls for them | No, see below                           |
 
+## Check database access after a deploy
+
+The default Compose stack connects as one database user, so every query is
+allowed. If you give the app, worker and web separate database roles, a missing
+grant does not show up in tests or at startup. It shows up later as events that
+fail with `permission denied` until they are dead lettered, for example
+repository sync or statistics. After each deploy run this with the DATABASE_URL
+of each runtime role:
+
+```bash
+DATABASE_URL=... node scripts/check-runtime-db-privileges.mjs
+```
+
+It checks the privileges the worker is known to need and lists outbox dead
+letters from the last 7 days that failed with a permission error. It exits with
+1 if it finds a problem.
+
 ## Account gateway (not in this stack)
 
 The account gateway holds credentials for subscription accounts and executes

@@ -3,6 +3,7 @@ name: Skills browser acceptance
 on:
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/skills-browser.yml
       - apps/web/**
@@ -44,6 +45,7 @@ concurrency:
 
 jobs:
   skills-browser:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Skills real Next and PostgreSQL browser acceptance
     # The real Next dev server needs the maintained build pool's memory headroom.
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
@@ -174,6 +176,7 @@ jobs:
           retention-days: 14
 
   catalog-browser:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Catalog real static and AI browser acceptance
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 40
