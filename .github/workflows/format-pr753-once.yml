@@ -1,0 +1,51 @@
+name: One-time PR 753 formatting
+on:
+  push:
+    branches:
+      - refactor/gitlab-installation-inventory-20261031
+permissions:
+  contents: write
+jobs:
+  apply-format:
+    if: github.repository == '777genius/review-router-ai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: refactor/gitlab-installation-inventory-20261031
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '26.11.1'
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install pinned dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Format only PR files
+        run: |
+          pnpm exec prettier --write \
+            ai-docs/plans/2026-10-31-gitlab-installation-inventory.md \
+            ai-docs/deployments/2026-10-31-gitlab-installation-inventory.md \
+            apps/web/app/api/dashboard/gitlab/install/route.ts \
+            apps/web/src/server/gitlab-connect.test.ts \
+            apps/web/src/server/gitlab-connect.ts \
+            apps/web/src/server/gitlab-installation-inventory.ts \
+            apps/web/src/server/gitlab-installation-inventory.postgres.test.ts \
+            apps/web/src/server/gitlab-installation-inventory.test.ts
+      - name: Commit formatted files and remove one-off workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin refactor/gitlab-installation-inventory-20261031
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/refactor/gitlab-installation-inventory-20261031)"
+          git add -- ai-docs/plans/2026-10-31-gitlab-installation-inventory.md ai-docs/deployments/2026-10-31-gitlab-installation-inventory.md apps/web/app/api/dashboard/gitlab/install/route.ts apps/web/src/server/gitlab-connect.test.ts apps/web/src/server/gitlab-connect.ts apps/web/src/server/gitlab-installation-inventory.ts apps/web/src/server/gitlab-installation-inventory.postgres.test.ts apps/web/src/server/gitlab-installation-inventory.test.ts
+          git rm -- .github/workflows/format-pr753-once.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style: format PR 753 sources for CI'
+          git push origin HEAD:refactor/gitlab-installation-inventory-20261031
