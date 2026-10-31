@@ -66,3 +66,21 @@ design acceptance.
 - PR B: pending.
 - PR C: pending.
 - Production role/replay and deploy: not verified; operator-owned.
+
+## Execution status (2026-10-31, in-flight)
+
+- Catalog [PR #768](https://github.com/777genius/review-router-ai/pull/768):
+  branch built after approved plan; Chromium Statistics followthrough CI
+  succeeded at `f8d4cb771ebdc7dd1c0615572ec5091e60ece892`.
+  Full repository CI and independent functional review remain pending.
+- UI [PR #769](https://github.com/777genius/review-router-ai/pull/769):
+  URL/SSR chart metric with focused URL/component tests; Strix security
+  review reported no open findings. Full CI/E2E pending.
+- Diagnostics [PR #770](https://github.com/777genius/review-router-ai/pull/770):
+  read-only operator queue summary, fixed-operation slow read timing and
+  future fact contract. Strix security review reported no open findings.
+  Full CI/E2E pending.
+- CodeRabbit auto-review was unavailable on the stacked branches; do not
+  describe it as a successful code review.
+- No hosted deployment, historical outbox replay or production reconciliation
+  has been performed in this initiative. Do not conflate CI with live rollout.
