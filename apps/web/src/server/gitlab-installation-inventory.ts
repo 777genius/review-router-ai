@@ -184,7 +184,9 @@ export class PrismaGitLabInstallationInventory {
                 "code" in error &&
                 error.code === "P2025"
               ) {
-                throw new Error("gitlab_repository_already_owned");
+                throw new Error("gitlab_repository_already_owned", {
+                  cause: error,
+                });
               }
               throw error;
             }
