@@ -220,6 +220,58 @@ describeWithDatabase("Prisma outbox fenced claims", () => {
     }
   });
 
+  it("persists an opaque database privilege failure as a queryable dead letter", async () => {
+    const outbox = new PrismaOutboxEventRepository(prisma);
+    const key = `${prefix}-db-permission`;
+    const type = `${prefix}.privilege`;
+    await outbox.enqueue({
+      type,
+      version: 1,
+      idempotencyKey: key,
+      payload: {},
+      maxAttempts: 1,
+      occurredAt: new Date(),
+    });
+    const result = await processOutboxBatch(
+      {
+        limit: 1,
+        handlers: [
+          {
+            type,
+            version: 1,
+            async handle() {
+              throw Object.assign(
+                new Error("permission denied for relation secret_table"),
+                { code: "42501" },
+              );
+            },
+          },
+        ],
+        claimOwnerHash: "a".repeat(64),
+        processingLeaseMs: 60_000,
+      },
+      { outbox, clock: { now: () => new Date() } },
+    );
+    expect(result).toMatchObject({ deadLettered: 1 });
+    const row = await prisma.outboxEvent.findUnique({
+      where: { idempotencyKey: key },
+    });
+    expect(row).toMatchObject({
+      status: "dead_letter",
+      lastErrorCode: "db_permission_denied",
+      safeLastErrorSummary: "outbox_database_permission_denied",
+    });
+    expect(row?.safeLastErrorSummary).not.toContain("secret_table");
+
+    const matchingRows = await prisma.$queryRaw<{ count: number }[]>`
+      SELECT count(*)::integer AS "count" FROM "OutboxEvent"
+      WHERE "idempotencyKey" = ${key}
+        AND status = 'dead_letter'
+        AND "lastErrorCode" = 'db_permission_denied'
+    `;
+    expect(matchingRows[0]?.count).toBe(1);
+  });
+
   it("restores only an identical idempotency envelope", async () => {
     const outbox = new PrismaOutboxEventRepository(prisma);
     const event = {
