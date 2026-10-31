@@ -40,30 +40,30 @@ describe("runtime database privilege check", () => {
   });
 
   it("links the stable PostgreSQL privilege classification to the dead-letter SQL probe", () => {
-      const postgresError = Object.assign(
-        new Error("permission denied for table RepositoryConnection: private"),
-        { code: "42501" },
-      );
-      expect(safeOutboxErrorSummary(postgresError)).toEqual({
-        code: "db_permission_denied",
-        summary: "outbox_database_permission_denied",
-        retryable: true,
-      });
-      expect(permissionDeadLetterQuery).toContain(
-        `"deadLetteredAt" > now() - interval '7 days'`,
-      );
-      expect(permissionDeadLetterQuery).toContain(
-        '"lastErrorCode" = \'db_permission_denied\'',
-      );
-      expect(permissionDeadLetterQuery).toContain(
-        '"safeLastErrorSummary" ilike \'%permission denied%\'',
-      );
-      expect(permissionDeadLetterQuery).toContain(
-        '"safeLastErrorSummary" ilike \'%42501%\'',
-      );
-      expect(JSON.stringify(safeOutboxErrorSummary(postgresError))).not.toContain(
-        "RepositoryConnection",
-      );
+    const postgresError = Object.assign(
+      new Error("permission denied for table RepositoryConnection: private"),
+      { code: "42501" },
+    );
+    expect(safeOutboxErrorSummary(postgresError)).toEqual({
+      code: "db_permission_denied",
+      summary: "outbox_database_permission_denied",
+      retryable: true,
+    });
+    expect(permissionDeadLetterQuery).toContain(
+      `"deadLetteredAt" > now() - interval '7 days'`,
+    );
+    expect(permissionDeadLetterQuery).toContain(
+      '"lastErrorCode" = \'db_permission_denied\'',
+    );
+    expect(permissionDeadLetterQuery).toContain(
+      '"safeLastErrorSummary" ilike \'%permission denied%\'',
+    );
+    expect(permissionDeadLetterQuery).toContain(
+      '"safeLastErrorSummary" ilike \'%42501%\'',
+    );
+    expect(JSON.stringify(safeOutboxErrorSummary(postgresError))).not.toContain(
+      "RepositoryConnection",
+    );
   });
 
   it.each([
@@ -78,31 +78,31 @@ describe("runtime database privilege check", () => {
     new Error("Raw query failed. Code: `42501`. Message: secret"),
     new Error("SQLSTATE 42501: database operation denied"),
   ])("classifies PostgreSQL missing grants without persisting their details", (error) => {
-      expect(safeOutboxErrorSummary(error)).toMatchObject({
-        code: "db_permission_denied",
-        summary: "outbox_database_permission_denied",
-        retryable: true,
-      });
+    expect(safeOutboxErrorSummary(error)).toMatchObject({
+      code: "db_permission_denied",
+      summary: "outbox_database_permission_denied",
+      retryable: true,
+    });
   });
 
   it("preserves typed permanent failures and does not classify provider permission denials", () => {
-      const error = new OutboxHandlerError(
-        "permission denied for relation ReviewEvidence",
-        "denied",
-        false,
-      );
-      expect(safeOutboxErrorSummary(error)).toEqual({
-        code: "db_permission_denied",
-        summary: "outbox_database_permission_denied",
-        retryable: false,
-      });
-      expect(
-        safeOutboxErrorSummary(new Error("GitHub permission denied")),
-      ).toEqual({
-        code: "handler_error",
-        summary: "outbox_handler_failure",
-        retryable: true,
-      });
+    const error = new OutboxHandlerError(
+      "permission denied for relation ReviewEvidence",
+      "denied",
+      false,
+    );
+    expect(safeOutboxErrorSummary(error)).toEqual({
+      code: "db_permission_denied",
+      summary: "outbox_database_permission_denied",
+      retryable: false,
+    });
+    expect(
+      safeOutboxErrorSummary(new Error("GitHub permission denied")),
+    ).toEqual({
+      code: "handler_error",
+      summary: "outbox_handler_failure",
+      retryable: true,
+    });
   });
 
   it("covers the grants whose absence broke repository sync in production", () => {
