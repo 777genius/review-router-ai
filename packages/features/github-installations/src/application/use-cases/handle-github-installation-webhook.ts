@@ -118,4 +118,3 @@ async function grantInstallationSenderOwner(
     avatarUrl: sender.avatar_url ?? null,
   });
 }
-

@@ -71,7 +71,8 @@ export async function registerGitHubWebhookRoutes(
       if (
         verifyGitHubWebhookSignature({
           payload: rawPayload,
-          signatureHeader: typeof signature === "string" ? signature : undefined,
+          signatureHeader:
+            typeof signature === "string" ? signature : undefined,
           secret: dependencies.webhookSecret,
         }) === false
       ) {
@@ -177,11 +178,14 @@ export async function registerGitHubWebhookRoutes(
             type: "github.pull_request",
             version: 1,
             action: parsedPullRequestPayload.data.action,
-            installationId: String(parsedPullRequestPayload.data.installation.id),
+            installationId: String(
+              parsedPullRequestPayload.data.installation.id,
+            ),
             repositoryId: String(parsedPullRequestPayload.data.repository.id),
             repositoryFullName:
               parsedPullRequestPayload.data.repository.full_name,
-            pullRequestNumber: parsedPullRequestPayload.data.pull_request.number,
+            pullRequestNumber:
+              parsedPullRequestPayload.data.pull_request.number,
             merged: parsedPullRequestPayload.data.pull_request.merged,
           },
         });
@@ -282,9 +286,12 @@ export async function registerGitHubWebhookRoutes(
             type: "github.repository",
             version: 1,
             action: parsedRepositoryPayload.data.action,
-            installationId: String(parsedRepositoryPayload.data.installation.id),
+            installationId: String(
+              parsedRepositoryPayload.data.installation.id,
+            ),
             repositoryId: String(parsedRepositoryPayload.data.repository.id),
-            repositoryFullName: parsedRepositoryPayload.data.repository.full_name,
+            repositoryFullName:
+              parsedRepositoryPayload.data.repository.full_name,
             defaultBranch:
               parsedRepositoryPayload.data.repository.default_branch ?? null,
             visibility: normalizeRepositoryWebhookVisibility(
@@ -341,11 +348,12 @@ export async function registerGitHubWebhookRoutes(
         { code: "github_webhook_processing_failed" },
         "GitHub webhook processing failed",
       );
-      return reply.code(500).send({ error: "github_webhook_processing_failed" });
+      return reply
+        .code(500)
+        .send({ error: "github_webhook_processing_failed" });
     }
   });
 }
-
 
 function normalizeRepositoryWebhookVisibility(repository: {
   readonly visibility?: string | undefined;
