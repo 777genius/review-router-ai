@@ -23,6 +23,24 @@ export class PrismaGitLabInstallationInventory {
     return value;
   }
 
+  /** Fail closed before any external GitLab mutation when ownership already exists. */
+  async assertProjectsNotOwned(input: {
+    readonly workspaceId: string;
+    readonly sourceBaseUrl: string;
+    readonly projectIds: readonly string[];
+  }): Promise<void> {
+    const existing = await this.prisma.repositoryConnection.findFirst({
+      where: {
+        provider: "gitlab",
+        sourceBaseUrl: input.sourceBaseUrl,
+        externalRepositoryId: { in: [...new Set(input.projectIds)] },
+        workspaceId: { not: input.workspaceId },
+      },
+      select: { id: true },
+    });
+    if (existing) throw new Error("gitlab_repository_already_owned");
+  }
+
   async record(input: {
     readonly workspaceId: string;
     readonly installedByUserId: string;
