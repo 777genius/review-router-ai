@@ -27,9 +27,11 @@
 ## Retry / rollback
 
 Use the [ordinary rollback procedure](../operations/07-environments-and-release-management.md#rollback).
-Rollback restores the previous raw-message persistence risk; no schema rollback is needed.
-Historic stored error text is not erased by this change; separate authorization and
-privacy review are required before any retrospective cleanup.
+Before rollback, verify that the target build does not persist raw handler messages.
+If it does, stop the affected worker consumers or deploy a release retaining the
+safe-summary fix before processing resumes; record the exposure and cleanup decision.
+No schema rollback is needed. Historic stored error text is not erased by this
+change; retrospective cleanup needs separate authorization and privacy review.
 
 ## Execution log
 
