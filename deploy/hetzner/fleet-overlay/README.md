@@ -6,7 +6,8 @@ env files. All old containers are stopped before any new one starts and are kept
 `*-before-ovl-<ts>`) for rollback. The image does not change.
 
 Use it for producer registry changes: appending a producer attestation row, moving the Action ref and the
-installer tuple. For an image change, replace the containers through the release procedure instead.
+installer tuple, and for an image change (below). Build the image on the host first; run any migration and the ACL
+step before replacing the containers.
 
 ```bash
 # on the host, as root; the spec and the custody directory live under /srv/platform/projects/review-router/releases/
@@ -24,6 +25,12 @@ node fleet-overlay.mjs apply   $R/fleet-overlay-<id> $R/overlay-inputs-<id>/over
   already exist on every targeted role, and in the canonical env file exactly once, unless `containerOnly` is set
   (for values that were injected at container creation and are not in the canonical file). `set`/`appendCsv` values
   are non-empty strings without control characters; `appendJsonArray` takes an object.
+- `targetImage`, `targetImageRef`, `targetRevision` (all three or none): run the copies on a new image. `targetImage` is the
+  `sha256:` image id, `targetImageRef` a local tag that resolves to exactly that id, `targetRevision` the 40-hex source
+  commit that the image's `org.opencontainers.image.revision` label must carry. The image must be linux/amd64 and already on
+  the host. Container config stays identical except `Image` and the image's `org.opencontainers.image.*` labels. Put the
+  runtime release metadata env values (commit, provenance, rollout id) in `updates`. `expectedImage` and
+  `expectedRevision` still describe the running fleet.
 - `extraHosts`: `{ entry: "host:ip", roles? }` appended to the container `ExtraHosts` (kept existing entries).
 
 The plan output shows a sha256 prefix and length of each value, never the value. `snapshot.json` in the custody
