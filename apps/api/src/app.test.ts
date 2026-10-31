@@ -2250,7 +2250,7 @@ describe("API app", () => {
             },
           },
           repositories: {
-            async findSelectedRepositoryByGitLabProjectId() {
+            async findRepositoryByGitLabProjectIdentity() {
               return {
                 workspaceId: "workspace_1",
                 repositoryId: "repo_1",
