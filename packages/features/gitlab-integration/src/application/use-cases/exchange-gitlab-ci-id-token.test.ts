@@ -70,10 +70,13 @@ class StaticVerifier implements GitLabCiIdTokenVerifierPort {
 class InMemoryRepositories implements GitLabRepositoryPort {
   public repository: GitLabRepositoryContext | null = repository;
 
-  async findSelectedRepositoryByGitLabProjectId(
-    gitlabProjectId: string,
-  ): Promise<GitLabRepositoryContext | null> {
-    return this.repository?.gitlabProjectId === gitlabProjectId
+  async findRepositoryByGitLabProjectIdentity(input: {
+    readonly gitlabProjectId: string;
+    readonly sourceBaseUrl: string;
+  }): Promise<GitLabRepositoryContext | null> {
+    return this.repository?.gitlabProjectId === input.gitlabProjectId &&
+      (this.repository.sourceBaseUrl ?? "https://gitlab.com") ===
+        input.sourceBaseUrl
       ? this.repository
       : null;
   }
@@ -159,6 +162,42 @@ describe("exchangeGitLabCiIdToken", () => {
         fullName: "group/project",
       },
     });
+  });
+
+  it("uses the signed GitLab issuer, not only a reusable numeric project ID", async () => {
+    const repositories = new InMemoryRepositories();
+    repositories.repository = { ...repository, sourceBaseUrl: "https://gitlab.example" };
+    const sessions = new StaticSessions();
+    await expect(
+      exchangeGitLabCiIdToken(
+        { idToken: "id-token", audience: "reviewrouter", mergeRequestIid: "5", headSha },
+        {
+          verifier: new StaticVerifier(),
+          repositories,
+          mergeRequests: new StaticMergeRequests(),
+          sessions,
+          clock,
+        },
+      ),
+    ).rejects.toThrow("repository_not_registered");
+    expect(sessions.signedClaims).toBeNull();
+  });
+
+  it("normalizes the signed issuer before an exact repository lookup", async () => {
+    const repositories = new InMemoryRepositories();
+    repositories.repository = { ...repository, sourceBaseUrl: "https://gitlab.example" };
+    await expect(
+      exchangeGitLabCiIdToken(
+        { idToken: "id-token", audience: "reviewrouter", mergeRequestIid: "5", headSha },
+        {
+          verifier: new StaticVerifier({ ...claims, iss: "https://gitlab.example/" }),
+          repositories,
+          mergeRequests: new StaticMergeRequests(),
+          sessions: new StaticSessions(),
+          clock,
+        },
+      ),
+    ).resolves.toMatchObject({ repository: "group/project" });
   });
 
   it("rejects fork merge requests for the MVP trust boundary", async () => {
