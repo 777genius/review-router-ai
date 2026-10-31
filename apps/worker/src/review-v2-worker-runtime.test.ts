@@ -453,6 +453,63 @@ describe("review v2 worker runtime", () => {
     expect(JSON.stringify(result)).not.toContain("tenant-payload");
   });
 
+  it("reports partial item failure but promotes only verified publication settlements", async () => {
+    const fixture = await createFixture();
+    const promote = vi.fn(async () => 1);
+    const publish = vi.fn(async () => ({
+      claimed: 1,
+      published: 1,
+      deferred: 0,
+      suppressed: 0,
+      failed: 0,
+    }));
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+      publication: {
+        async runMaintenance() {
+          return {
+            processed: 1,
+            manualRequired: 0,
+            terminalUnknown: 0,
+            settledExecutionIds: ["execution-1"],
+            progressSettlements: [
+              { executionId: "execution-1", outcome: "succeeded" as const },
+            ],
+            itemFailures: [
+              {
+                phase: "review_v2.publication_item",
+                safeErrorSummary: "provider_unavailable",
+              },
+            ],
+          };
+        },
+      },
+      progress: {
+        promoteSettledExecutions: promote,
+        runMaintenance: publish,
+      },
+    });
+    expect(promote).toHaveBeenCalledExactlyOnceWith({
+      settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
+    });
+    expect(publish).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      publicationProcessed: 1,
+      advanced: null,
+      progressPromoted: 1,
+      progressPublished: 1,
+      failures: [
+        {
+          phase: "review_v2.publication_item",
+          safeErrorSummary: "provider_unavailable",
+        },
+      ],
+      blockedPhases: [],
+    });
+  });
+
   it("keeps already eligible progress publishing when optional publication is absent", async () => {
     const fixture = await createFixture();
     const promotion = vi.fn(async () => 0);

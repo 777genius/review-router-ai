@@ -85,6 +85,8 @@ export type ReviewV2PublicationMaintenanceRuntime = {
     readonly terminalUnknown: number;
     readonly settledExecutionIds: readonly string[];
     readonly progressSettlements: readonly ReviewProgressSettlement[];
+    /** Optional to preserve the existing in-memory/adapter contract. */
+    readonly itemFailures?: readonly WorkerPhaseFailure[];
   }>;
 };
 
@@ -287,6 +289,9 @@ export async function runReviewV2Maintenance(input: {
         input.publication!.runMaintenance(),
       )
     : undefined;
+  if (publication?.status === "completed") {
+    failures.push(...(publication.value.itemFailures ?? []));
+  }
   const publicationWakeups =
     publication?.status === "completed"
       ? await Promise.allSettled(
@@ -311,6 +316,8 @@ export async function runReviewV2Maintenance(input: {
   const advanced =
     due.status === "failed" ||
     publication?.status === "failed" ||
+    (publication?.status === "completed" &&
+      (publication.value.itemFailures?.length ?? 0) > 0) ||
     publicationWakeups.some((wakeup) => wakeup.status === "rejected")
       ? null
       : [
