@@ -8,7 +8,7 @@ export type UsageMetricDefinition = {
   readonly grain: "eligible_spend" | "original_provider_attempt";
   readonly aggregation: "known_sum" | "count";
   readonly dimensions: readonly ("day_provider" | "requested_model_route")[];
-  readonly unknownPolicy: "nullable" | "separate_unknown_counter";
+  readonly unknownPolicy: "always_known" | "separate_unknown_counter";
   readonly requiresCurrencyAndBasis: boolean;
 };
 export const usageMetricCatalog = [
@@ -33,7 +33,7 @@ export const usageMetricCatalog = [
     grain: "original_provider_attempt",
     aggregation: "count",
     dimensions: ["day_provider", "requested_model_route"],
-    unknownPolicy: "nullable",
+    unknownPolicy: "always_known",
     requiresCurrencyAndBasis: false,
   },
   {
