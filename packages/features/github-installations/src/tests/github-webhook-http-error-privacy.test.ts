@@ -10,7 +10,7 @@ describe("signed GitHub webhook HTTP failure privacy", () => {
   it.each([
     { scenario: "handler rejection", rejectMarkFailed: false },
     { scenario: "delivery failure persistence rejection", rejectMarkFailed: true },
-  ])("keeps $scenario opaque to clients and logs", async ({ rejectMarkFailed }) => {
+  ])("keeps $scenario errors opaque", async ({ rejectMarkFailed }) => {
     const app = Fastify({ logger: false });
     const onProcessingError = vi.fn();
     const deliveries = {
