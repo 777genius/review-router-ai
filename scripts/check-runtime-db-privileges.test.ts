@@ -39,32 +39,35 @@ describe("runtime database privilege check", () => {
     ]);
   });
 
-  it("links the stable PostgreSQL privilege classification to the dead-letter SQL probe", () => {
-    const postgresError = Object.assign(
-      new Error("permission denied for table RepositoryConnection: private"),
-      { code: "42501" },
-    );
-    expect(safeOutboxErrorSummary(postgresError)).toEqual({
-      code: "db_permission_denied",
-      summary: "outbox_database_permission_denied",
-      retryable: true,
-    });
-    expect(permissionDeadLetterQuery).toContain(
-      `"deadLetteredAt" > now() - interval '7 days'`,
-    );
-    expect(permissionDeadLetterQuery).toContain(
-      '"lastErrorCode" = \'db_permission_denied\'',
-    );
-    expect(permissionDeadLetterQuery).toContain(
-      '"safeLastErrorSummary" ilike \'%permission denied%\'',
-    );
-    expect(permissionDeadLetterQuery).toContain(
-      '"safeLastErrorSummary" ilike \'%42501%\'',
-    );
-    expect(JSON.stringify(safeOutboxErrorSummary(postgresError))).not.toContain(
-      "RepositoryConnection",
-    );
-  });
+  it(
+    "links the stable PostgreSQL privilege classification to the dead-letter SQL probe",
+    () => {
+      const postgresError = Object.assign(
+        new Error("permission denied for table RepositoryConnection: private"),
+        { code: "42501" },
+      );
+      expect(safeOutboxErrorSummary(postgresError)).toEqual({
+        code: "db_permission_denied",
+        summary: "outbox_database_permission_denied",
+        retryable: true,
+      });
+      expect(permissionDeadLetterQuery).toContain(
+        `"deadLetteredAt" > now() - interval '7 days'`,
+      );
+      expect(permissionDeadLetterQuery).toContain(
+        '"lastErrorCode" = \'db_permission_denied\'',
+      );
+      expect(permissionDeadLetterQuery).toContain(
+        '"safeLastErrorSummary" ilike \'%permission denied%\'',
+      );
+      expect(permissionDeadLetterQuery).toContain(
+        '"safeLastErrorSummary" ilike \'%42501%\'',
+      );
+      expect(JSON.stringify(safeOutboxErrorSummary(postgresError))).not.toContain(
+        "RepositoryConnection",
+      );
+    },
+  );
 
   it.each([
     Object.assign(new Error("private"), {
@@ -88,30 +91,36 @@ describe("runtime database privilege check", () => {
     },
   );
 
-  it("preserves typed permanent failures and does not classify provider permission denials", () => {
-    const error = new OutboxHandlerError(
-      "permission denied for relation ReviewEvidence",
-      "denied",
-      false,
-    );
-    expect(safeOutboxErrorSummary(error)).toEqual({
-      code: "db_permission_denied",
-      summary: "outbox_database_permission_denied",
-      retryable: false,
-    });
-    expect(
-      safeOutboxErrorSummary(new Error("GitHub permission denied")),
-    ).toEqual({
-      code: "handler_error",
-      summary: "outbox_handler_failure",
-      retryable: true,
-    });
-  });
+  it(
+    "preserves typed permanent failures and does not classify provider permission denials",
+    () => {
+      const error = new OutboxHandlerError(
+        "permission denied for relation ReviewEvidence",
+        "denied",
+        false,
+      );
+      expect(safeOutboxErrorSummary(error)).toEqual({
+        code: "db_permission_denied",
+        summary: "outbox_database_permission_denied",
+        retryable: false,
+      });
+      expect(
+        safeOutboxErrorSummary(new Error("GitHub permission denied")),
+      ).toEqual({
+        code: "handler_error",
+        summary: "outbox_handler_failure",
+        retryable: true,
+      });
+    },
+  );
 
-  it("covers the grants whose absence broke repository sync in production", () => {
-    expect(requiredPrivileges.reviewrouter_worker).toContainEqual({
-      table: "RepositoryConnection",
-      privilege: "UPDATE",
-    });
-  });
+  it(
+    "covers the grants whose absence broke repository sync in production",
+    () => {
+      expect(requiredPrivileges.reviewrouter_worker).toContainEqual({
+        table: "RepositoryConnection",
+        privilege: "UPDATE",
+      });
+    },
+  );
 });
