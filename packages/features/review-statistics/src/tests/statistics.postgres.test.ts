@@ -159,7 +159,6 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
     });
   });
   it("reads the repository without a row lock, which the worker role may not take", async () => {
-    await activateReviewStatisticsCapture(prisma, now);
     queries.length = 0;
     await projector.project(event({ executionId: "execution-no-lock" }));
     const repositoryReads = queries.filter(({ query }) =>
