@@ -227,7 +227,7 @@ function isPostgresInsufficientPrivilege(error: unknown): boolean {
   // patterns point to a database privilege failure.
   return (
     error instanceof Error &&
-    /\b(?:SQLSTATE|Code)\s*[:=]\s*["'`]?42501\b|\bpermission denied for (?:table|relation|schema|sequence|function)\b/i.test(
+    /\b(?:SQLSTATE\s*[:=]?\s*|Code\s*[:=]\s*)["'`]?42501\b|\bpermission denied for (?:table|relation|schema|sequence|function)\b/i.test(
       error.message,
     )
   );
