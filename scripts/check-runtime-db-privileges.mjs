@@ -69,7 +69,9 @@ async function main() {
     for (const item of required) {
       const result = item.table
         ? await client.query(
-            "select has_table_privilege(current_user, $1, $2) as ok",
+            // True for a table-level grant and for a column-level one, which is how the
+            // worker gets INSERT and UPDATE on RepositoryConnection.
+            "select has_any_column_privilege(current_user, $1, $2) as ok",
             [`public."${item.table}"`, item.privilege],
           )
         : await client.query(
