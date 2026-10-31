@@ -154,6 +154,13 @@ describe.skipIf(!adminUrl)("GitLab installation inventory on real PostgreSQL", (
   it("refuses a different workspace owner without any partial inventory commit", async () => {
     await inventory.record(snapshot("workspace_2", ["101"]));
     await expect(
+      inventory.assertProjectsNotOwned({
+        workspaceId: "workspace_1",
+        sourceBaseUrl: "https://gitlab.com",
+        projectIds: ["101"],
+      }),
+    ).rejects.toThrow("gitlab_repository_already_owned");
+    await expect(
       inventory.record(snapshot("workspace_1", ["101"])),
     ).rejects.toThrow("gitlab_repository_already_owned");
     expect(await prisma.gitLabInstallation.count()).toBe(1);
