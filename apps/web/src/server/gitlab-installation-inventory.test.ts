@@ -149,7 +149,7 @@ describe("PrismaGitLabInstallationInventory", () => {
       data: expect.objectContaining({ selected: false }),
     });
     expect(f.tx.repositoryConnection.update).toHaveBeenCalledExactlyOnceWith({
-      where: { id: "repo_101" },
+      where: { id: "repo_101", workspaceId: "workspace_1" },
       data: expect.not.objectContaining({ workspaceId: expect.anything() }),
     });
     expect(f.tx.repositoryConnection.create).not.toHaveBeenCalled();
