@@ -73,6 +73,7 @@ describe("runtime database privilege check", () => {
     }),
     new Error("permission denied for schema private_tenant"),
     new Error("Raw query failed. Code: `42501`. Message: secret"),
+    new Error("SQLSTATE 42501: database operation denied"),
   ])(
     "classifies PostgreSQL missing grants without persisting their details",
     (error) => {
