@@ -51,7 +51,8 @@ function statusForError(message: string): number {
     message.includes("gitlab_repository_already_owned") ||
     message.includes("gitlab_install_superseded") ||
     message.includes("gitlab_connect_project_selection_stale")
-  ) return 409;
+  )
+    return 409;
   if (message.includes("requires_sign_in")) return 401;
   if (message.includes("forbidden")) return 403;
   if (message.includes("gitlab_api_error_401")) return 401;

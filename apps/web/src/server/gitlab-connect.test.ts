@@ -73,9 +73,9 @@ describe("installGitLabConnectProjects", () => {
       ],
     });
     mocks.provisionGitLabReviewRouterProjects.mockReset();
-    mocks.requestStartedAt.mockReset().mockResolvedValue(
-      new Date("2026-10-31T10:00:00.000Z"),
-    );
+    mocks.requestStartedAt
+      .mockReset()
+      .mockResolvedValue(new Date("2026-10-31T10:00:00.000Z"));
     mocks.assertProjectsNotOwned.mockReset().mockResolvedValue(undefined);
     mocks.recordInventory.mockReset().mockResolvedValue({
       installationId: "gitlab_install_1",
@@ -162,9 +162,7 @@ describe("installGitLabConnectProjects", () => {
         namespacePath: "acme/platform",
         sourceKind: "project",
         requestStartedAt: new Date("2026-10-31T10:00:00.000Z"),
-        selectedProjects: [
-          expect.objectContaining({ projectId: "101" }),
-        ],
+        selectedProjects: [expect.objectContaining({ projectId: "101" })],
         provision: expect.objectContaining({
           succeeded: 1,
           failed: 0,

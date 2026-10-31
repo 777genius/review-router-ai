@@ -15,235 +15,269 @@ if (process.env.GITLAB_INVENTORY_REQUIRE_POSTGRES === "1" && !adminUrl) {
   throw new Error("gitlab_inventory_postgres_fixture_required");
 }
 
-describe.skipIf(!adminUrl)("GitLab installation inventory on real PostgreSQL", () => {
-  const databaseName = `TEST_gitlab_inventory_${randomUUID().replaceAll("-", "")}`;
-  let admin: PrismaClient;
-  let prisma: PrismaClient;
-  let inventory: PrismaGitLabInstallationInventory;
-  let created = false;
+describe.skipIf(!adminUrl)(
+  "GitLab installation inventory on real PostgreSQL",
+  () => {
+    const databaseName = `TEST_gitlab_inventory_${randomUUID().replaceAll("-", "")}`;
+    let admin: PrismaClient;
+    let prisma: PrismaClient;
+    let inventory: PrismaGitLabInstallationInventory;
+    let created = false;
 
-  beforeAll(async () => {
-    const url = new URL(adminUrl!);
-    if (
-      !["postgres:", "postgresql:"].includes(url.protocol) ||
-      !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
-    ) {
-      throw new Error("disposable_loopback_database_required");
-    }
-    admin = createPrismaClient({ databaseUrl: adminUrl!, poolMax: 2 });
-    await admin.$executeRawUnsafe(`CREATE DATABASE "${databaseName}"`);
-    created = true;
-    url.pathname = `/${databaseName}`;
-    prisma = createPrismaClient({
-      databaseUrl: url.toString(),
-      poolMax: 12,
-      transactionMaxWaitMs: 10_000,
-      transactionTimeoutMs: 15_000,
+    beforeAll(async () => {
+      const url = new URL(adminUrl!);
+      if (
+        !["postgres:", "postgresql:"].includes(url.protocol) ||
+        !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+      ) {
+        throw new Error("disposable_loopback_database_required");
+      }
+      admin = createPrismaClient({ databaseUrl: adminUrl!, poolMax: 2 });
+      await admin.$executeRawUnsafe(`CREATE DATABASE "${databaseName}"`);
+      created = true;
+      url.pathname = `/${databaseName}`;
+      prisma = createPrismaClient({
+        databaseUrl: url.toString(),
+        poolMax: 12,
+        transactionMaxWaitMs: 10_000,
+        transactionTimeoutMs: 15_000,
+      });
+      for (const statement of schema) {
+        await prisma.$executeRawUnsafe(statement);
+      }
+      inventory = new PrismaGitLabInstallationInventory(prisma);
     });
-    for (const statement of schema) {
-      await prisma.$executeRawUnsafe(statement);
-    }
-    inventory = new PrismaGitLabInstallationInventory(prisma);
-  });
 
-  beforeEach(async () => {
-    await prisma.$executeRawUnsafe(
-      'TRUNCATE "RepositoryConnection", "GitLabInstallation" CASCADE',
-    );
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "Workspace" ("id") VALUES ('workspace_1'), ('workspace_2')
+    beforeEach(async () => {
+      await prisma.$executeRawUnsafe(
+        'TRUNCATE "RepositoryConnection", "GitLabInstallation" CASCADE',
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Workspace" ("id") VALUES ('workspace_1'), ('workspace_2')
        ON CONFLICT ("id") DO NOTHING`,
-    );
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "User" ("id") VALUES ('user_1')
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "User" ("id") VALUES ('user_1')
        ON CONFLICT ("id") DO NOTHING`,
-    );
-  });
-
-  afterAll(async () => {
-    await prisma?.$disconnect();
-    if (created) await admin.$executeRawUnsafe(`DROP DATABASE "${databaseName}"`);
-    await admin?.$disconnect();
-  });
-
-  function project(id: string): GitLabGroupProject {
-    return {
-      projectId: id,
-      fullName: `team/repository-${id}`,
-      name: `repository-${id}`,
-      defaultBranch: "main",
-      webUrl: null,
-      visibility: "private",
-      archived: false,
-    };
-  }
-
-  function provision(ids: readonly string[]): GitLabBulkProvisionResult {
-    return {
-      protocolVersion: 1,
-      requested: ids.length,
-      succeeded: ids.length,
-      failed: 0,
-      sharedVariablesConfigured: 0,
-      results: ids.map((projectId) => ({
-        projectId,
-        status: "fulfilled" as const,
-        result: {
-          mode: "ci_config_path" as const,
-          ciConfigPath: ".gitlab/reviewrouter.yml",
-          variablesConfigured: 3,
-        },
-      })),
-    };
-  }
-
-  function snapshot(
-    workspaceId = "workspace_1",
-    ids: readonly string[] = ["101"],
-    requestStartedAt = new Date("2026-10-31T10:00:00.000Z"),
-  ) {
-    return {
-      workspaceId,
-      installedByUserId: "user_1",
-      sourceBaseUrl: "https://gitlab.com",
-      namespacePath: "team",
-      sourceKind: "group" as const,
-      requestStartedAt,
-      selectedProjects: ids.map(project),
-      provision: provision(ids),
-    };
-  }
-
-  it("rolls back installation and previous changes when a later repository insert fails", async () => {
-    await expect(inventory.record(snapshot("workspace_1", ["101", "999"]))).rejects.toThrow(
-      "injected_repository_write_failure",
-    );
-    expect(await prisma.gitLabInstallation.count()).toBe(0);
-    expect(await prisma.repositoryConnection.count()).toBe(0);
-    await expect(inventory.record(snapshot())).resolves.toMatchObject({
-      installationId: expect.any(String),
+      );
     });
-    expect(await prisma.repositoryConnection.count()).toBe(1);
-  });
 
-  it("rolls back deselections and new repository inserts when an existing inventory update fails", async () => {
-    const first = await inventory.record(snapshot("workspace_1", ["101"]));
-    const before = await prisma.gitLabInstallation.findUniqueOrThrow({
-      where: { id: first.installationId },
+    afterAll(async () => {
+      await prisma?.$disconnect();
+      if (created)
+        await admin.$executeRawUnsafe(`DROP DATABASE "${databaseName}"`);
+      await admin?.$disconnect();
     });
-    await expect(
-      inventory.record(
-        snapshot(
-          "workspace_1",
-          ["103", "999"],
-          new Date("2026-10-31T10:00:01.000Z"),
-        ),
-      ),
-    ).rejects.toThrow("injected_repository_write_failure");
-    const after = await prisma.gitLabInstallation.findUniqueOrThrow({
-      where: { id: first.installationId },
-    });
-    expect(after.installSummary).toEqual(before.installSummary);
-    expect(after.selectedProjects).toBe(1);
-    expect(after.lastInstalledAt).toEqual(before.lastInstalledAt);
-    expect(await prisma.repositoryConnection.findMany()).toMatchObject([
-      { externalRepositoryId: "101", selected: true },
-    ]);
-  });
 
-  it("refuses a different workspace owner without any partial inventory commit", async () => {
-    await inventory.record(snapshot("workspace_2", ["101"]));
-    await expect(
-      inventory.assertProjectsNotOwned({
-        workspaceId: "workspace_1",
-        sourceBaseUrl: "https://gitlab.com",
-        projectIds: ["101"],
-      }),
-    ).rejects.toThrow("gitlab_repository_already_owned");
-    await expect(
-      inventory.record(snapshot("workspace_1", ["101"])),
-    ).rejects.toThrow("gitlab_repository_already_owned");
-    expect(await prisma.gitLabInstallation.count()).toBe(1);
-    expect(await prisma.repositoryConnection.findFirstOrThrow()).toMatchObject({
-      workspaceId: "workspace_2",
-      selected: true,
-    });
-  });
+    function project(id: string): GitLabGroupProject {
+      return {
+        projectId: id,
+        fullName: `team/repository-${id}`,
+        name: `repository-${id}`,
+        defaultBranch: "main",
+        webUrl: null,
+        visibility: "private",
+        archived: false,
+      };
+    }
 
-  it("does not reserve another workspace's project for skipped read-only provisioning", async () => {
-    const attempt = snapshot("workspace_1", ["101"]);
-    await inventory.record({
-      ...attempt,
-      provision: {
-        ...attempt.provision,
-        results: [
-          {
-            projectId: "101",
-            status: "fulfilled",
-            result: {
-              mode: "skipped",
-              reason: "project_settings_permission_missing",
-              lintErrors: [],
-            },
+    function provision(ids: readonly string[]): GitLabBulkProvisionResult {
+      return {
+        protocolVersion: 1,
+        requested: ids.length,
+        succeeded: ids.length,
+        failed: 0,
+        sharedVariablesConfigured: 0,
+        results: ids.map((projectId) => ({
+          projectId,
+          status: "fulfilled" as const,
+          result: {
+            mode: "ci_config_path" as const,
+            ciConfigPath: ".gitlab/reviewrouter.yml",
+            variablesConfigured: 3,
           },
-        ],
-      },
+        })),
+      };
+    }
+
+    function snapshot(
+      workspaceId = "workspace_1",
+      ids: readonly string[] = ["101"],
+      requestStartedAt = new Date("2026-10-31T10:00:00.000Z"),
+    ) {
+      return {
+        workspaceId,
+        installedByUserId: "user_1",
+        sourceBaseUrl: "https://gitlab.com",
+        namespacePath: "team",
+        sourceKind: "group" as const,
+        requestStartedAt,
+        selectedProjects: ids.map(project),
+        provision: provision(ids),
+      };
+    }
+
+    it("rolls back installation and previous changes when a later repository insert fails", async () => {
+      await expect(
+        inventory.record(snapshot("workspace_1", ["101", "999"])),
+      ).rejects.toThrow("injected_repository_write_failure");
+      expect(await prisma.gitLabInstallation.count()).toBe(0);
+      expect(await prisma.repositoryConnection.count()).toBe(0);
+      await expect(inventory.record(snapshot())).resolves.toMatchObject({
+        installationId: expect.any(String),
+      });
+      expect(await prisma.repositoryConnection.count()).toBe(1);
     });
-    expect(await prisma.repositoryConnection.count()).toBe(0);
-    expect(
-      (await prisma.gitLabInstallation.findFirstOrThrow({
-        where: { workspaceId: "workspace_1" },
-      })).status,
-    ).toBe("permission_error");
 
-    await expect(
-      inventory.record(snapshot("workspace_2", ["101"])),
-    ).resolves.toMatchObject({ installationId: expect.any(String) });
-    expect(await prisma.repositoryConnection.findFirstOrThrow()).toMatchObject({
-      workspaceId: "workspace_2",
-      selected: true,
+    it("rolls back deselections and new repository inserts when an existing inventory update fails", async () => {
+      const first = await inventory.record(snapshot("workspace_1", ["101"]));
+      const before = await prisma.gitLabInstallation.findUniqueOrThrow({
+        where: { id: first.installationId },
+      });
+      await expect(
+        inventory.record(
+          snapshot(
+            "workspace_1",
+            ["103", "999"],
+            new Date("2026-10-31T10:00:01.000Z"),
+          ),
+        ),
+      ).rejects.toThrow("injected_repository_write_failure");
+      const after = await prisma.gitLabInstallation.findUniqueOrThrow({
+        where: { id: first.installationId },
+      });
+      expect(after.installSummary).toEqual(before.installSummary);
+      expect(after.selectedProjects).toBe(1);
+      expect(after.lastInstalledAt).toEqual(before.lastInstalledAt);
+      expect(await prisma.repositoryConnection.findMany()).toMatchObject([
+        { externalRepositoryId: "101", selected: true },
+      ]);
     });
-  });
 
-  it("applies a full replacement snapshot atomically and retains same-workspace ownership", async () => {
-    const first = await inventory.record(snapshot("workspace_1", ["101", "103"]));
-    await inventory.record(
-      snapshot("workspace_1", ["103"], new Date("2026-10-31T10:00:01.000Z")),
-    );
-    expect(await prisma.gitLabInstallation.count()).toBe(1);
-    expect(await prisma.repositoryConnection.count()).toBe(2);
-    const repositories = await prisma.repositoryConnection.findMany({
-      orderBy: { externalRepositoryId: "asc" },
+    it("refuses a different workspace owner without any partial inventory commit", async () => {
+      await inventory.record(snapshot("workspace_2", ["101"]));
+      await expect(
+        inventory.assertProjectsNotOwned({
+          workspaceId: "workspace_1",
+          sourceBaseUrl: "https://gitlab.com",
+          projectIds: ["101"],
+        }),
+      ).rejects.toThrow("gitlab_repository_already_owned");
+      await expect(
+        inventory.record(snapshot("workspace_1", ["101"])),
+      ).rejects.toThrow("gitlab_repository_already_owned");
+      expect(await prisma.gitLabInstallation.count()).toBe(1);
+      expect(
+        await prisma.repositoryConnection.findFirstOrThrow(),
+      ).toMatchObject({
+        workspaceId: "workspace_2",
+        selected: true,
+      });
     });
-    expect(repositories.map((repository) => [repository.externalRepositoryId, repository.selected])).toEqual([
-      ["101", false],
-      ["103", true],
-    ]);
-    expect(repositories.every((repository) => repository.workspaceId === "workspace_1")).toBe(true);
-    expect(repositories.every((repository) => repository.gitlabInstallationId === first.installationId)).toBe(true);
-  });
 
-  it("does not overwrite a newer committed install with late older network work", async () => {
-    await inventory.record(
-      snapshot("workspace_1", ["102"], new Date("2026-10-31T10:00:02.000Z")),
-    );
-    await expect(
-      inventory.record(snapshot("workspace_1", ["101"], new Date("2026-10-31T10:00:01.000Z"))),
-    ).rejects.toThrow("gitlab_install_superseded");
-    expect(await prisma.repositoryConnection.findMany()).toMatchObject([
-      { externalRepositoryId: "102", selected: true },
-    ]);
-  });
+    it("does not reserve another workspace's project for skipped read-only provisioning", async () => {
+      const attempt = snapshot("workspace_1", ["101"]);
+      await inventory.record({
+        ...attempt,
+        provision: {
+          ...attempt.provision,
+          results: [
+            {
+              projectId: "101",
+              status: "fulfilled",
+              result: {
+                mode: "skipped",
+                reason: "project_settings_permission_missing",
+                lintErrors: [],
+              },
+            },
+          ],
+        },
+      });
+      expect(await prisma.repositoryConnection.count()).toBe(0);
+      expect(
+        (
+          await prisma.gitLabInstallation.findFirstOrThrow({
+            where: { workspaceId: "workspace_1" },
+          })
+        ).status,
+      ).toBe("permission_error");
 
-  it("serializes concurrent same-install writers without duplicate inventory rows", async () => {
-    const timestamp = await inventory.requestStartedAt();
-    await Promise.all(
-      Array.from({ length: 6 }, () => inventory.record(snapshot("workspace_1", ["101"], timestamp))),
-    );
-    expect(await prisma.gitLabInstallation.count()).toBe(1);
-    expect(await prisma.repositoryConnection.count()).toBe(1);
-  });
-});
+      await expect(
+        inventory.record(snapshot("workspace_2", ["101"])),
+      ).resolves.toMatchObject({ installationId: expect.any(String) });
+      expect(
+        await prisma.repositoryConnection.findFirstOrThrow(),
+      ).toMatchObject({
+        workspaceId: "workspace_2",
+        selected: true,
+      });
+    });
+
+    it("applies a full replacement snapshot atomically and retains same-workspace ownership", async () => {
+      const first = await inventory.record(
+        snapshot("workspace_1", ["101", "103"]),
+      );
+      await inventory.record(
+        snapshot("workspace_1", ["103"], new Date("2026-10-31T10:00:01.000Z")),
+      );
+      expect(await prisma.gitLabInstallation.count()).toBe(1);
+      expect(await prisma.repositoryConnection.count()).toBe(2);
+      const repositories = await prisma.repositoryConnection.findMany({
+        orderBy: { externalRepositoryId: "asc" },
+      });
+      expect(
+        repositories.map((repository) => [
+          repository.externalRepositoryId,
+          repository.selected,
+        ]),
+      ).toEqual([
+        ["101", false],
+        ["103", true],
+      ]);
+      expect(
+        repositories.every(
+          (repository) => repository.workspaceId === "workspace_1",
+        ),
+      ).toBe(true);
+      expect(
+        repositories.every(
+          (repository) =>
+            repository.gitlabInstallationId === first.installationId,
+        ),
+      ).toBe(true);
+    });
+
+    it("does not overwrite a newer committed install with late older network work", async () => {
+      await inventory.record(
+        snapshot("workspace_1", ["102"], new Date("2026-10-31T10:00:02.000Z")),
+      );
+      await expect(
+        inventory.record(
+          snapshot(
+            "workspace_1",
+            ["101"],
+            new Date("2026-10-31T10:00:01.000Z"),
+          ),
+        ),
+      ).rejects.toThrow("gitlab_install_superseded");
+      expect(await prisma.repositoryConnection.findMany()).toMatchObject([
+        { externalRepositoryId: "102", selected: true },
+      ]);
+    });
+
+    it("serializes concurrent same-install writers without duplicate inventory rows", async () => {
+      const timestamp = await inventory.requestStartedAt();
+      await Promise.all(
+        Array.from({ length: 6 }, () =>
+          inventory.record(snapshot("workspace_1", ["101"], timestamp)),
+        ),
+      );
+      expect(await prisma.gitLabInstallation.count()).toBe(1);
+      expect(await prisma.repositoryConnection.count()).toBe(1);
+    });
+  },
+);
 
 // Minimal scalar/foreign-key and uniqueness fixture for the actual Prisma
 // adapter and PostgreSQL transaction/advisory-lock semantics. This is not a

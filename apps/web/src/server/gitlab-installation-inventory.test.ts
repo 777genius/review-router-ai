@@ -49,22 +49,32 @@ function fakePrisma() {
   const tx = {
     $queryRaw: vi.fn(async () => []),
     gitLabInstallation: {
-      findUnique: vi.fn(async (): Promise<{ lastInstalledAt: Date | null } | null> => null),
+      findUnique: vi.fn(
+        async (): Promise<{ lastInstalledAt: Date | null } | null> => null,
+      ),
       upsert: vi.fn(async () => ({ id: "installation_1" })),
     },
     repositoryConnection: {
       findFirst: vi.fn(async (): Promise<{ id: string } | null> => null),
       updateMany: vi.fn(async () => ({ count: 1 })),
-      findUnique: vi.fn(async (): Promise<{ id: string; workspaceId: string } | null> => null),
+      findUnique: vi.fn(
+        async (): Promise<{ id: string; workspaceId: string } | null> => null,
+      ),
       update: vi.fn(async () => ({})),
       create: vi.fn(async () => ({})),
     },
   };
   const prisma = {
     $queryRaw: vi.fn(async () => [{ requestedAt: started }]),
-    $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
+    $transaction: vi.fn(
+      async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    ),
   };
-  return { tx, prisma, inventory: new PrismaGitLabInstallationInventory(prisma as never) };
+  return {
+    tx,
+    prisma,
+    inventory: new PrismaGitLabInstallationInventory(prisma as never),
+  };
 }
 
 function input() {
@@ -139,7 +149,9 @@ describe("PrismaGitLabInstallationInventory", () => {
         }),
       }),
     );
-    expect(f.tx.repositoryConnection.updateMany).toHaveBeenCalledExactlyOnceWith({
+    expect(
+      f.tx.repositoryConnection.updateMany,
+    ).toHaveBeenCalledExactlyOnceWith({
       where: {
         workspaceId: "workspace_1",
         provider: "gitlab",
