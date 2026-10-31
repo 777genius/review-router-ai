@@ -168,37 +168,38 @@ export class PrismaGitLabInstallationInventory {
             setupStatus: setupStatusForProvisionResult(result.result),
             lastSyncedAt: snapshotAt,
           };
-          if (existing) {
-            // This update cannot change a repository's owning workspace.
-            try {
+          try {
+            if (existing) {
+              // This update cannot change a repository's owning workspace.
               await tx.repositoryConnection.update({
                 // Scope the actual write too: a legacy writer may race with our
                 // cooperative lock and transfer an id after the earlier read.
                 where: { id: existing.id, workspaceId: input.workspaceId },
                 data: fields,
               });
-            } catch (error) {
-              if (
-                error &&
-                typeof error === "object" &&
-                "code" in error &&
-                error.code === "P2025"
-              ) {
-                throw new Error("gitlab_repository_already_owned", {
-                  cause: error,
-                });
-              }
-              throw error;
+            } else {
+              // A foreign writer can race our preflight; DB global uniqueness
+              // is the final ownership fence across installation locks.
+              await tx.repositoryConnection.create({
+                data: {
+                  ...key,
+                  workspaceId: input.workspaceId,
+                  ...fields,
+                },
+              });
             }
-          } else {
-            // Database global uniqueness also guards noncooperating writers.
-            await tx.repositoryConnection.create({
-              data: {
-                ...key,
-                workspaceId: input.workspaceId,
-                ...fields,
-              },
-            });
+          } catch (error) {
+            if (
+              error &&
+              typeof error === "object" &&
+              "code" in error &&
+              (error.code === "P2025" || error.code === "P2002")
+            ) {
+              throw new Error("gitlab_repository_already_owned", {
+                cause: error,
+              });
+            }
+            throw error;
           }
         }
 

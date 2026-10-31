@@ -217,6 +217,16 @@ describe("PrismaGitLabInstallationInventory", () => {
     );
   });
 
+  it("maps a concurrently inserted foreign owner to a stable conflict", async () => {
+    const f = fakePrisma();
+    f.tx.repositoryConnection.create.mockRejectedValueOnce(
+      Object.assign(new Error("unique constraint"), { code: "P2002" }),
+    );
+    await expect(f.inventory.record(input())).rejects.toThrow(
+      "gitlab_repository_already_owned",
+    );
+  });
+
   it("rejects a different workspace owner without transferring the repository", async () => {
     const f = fakePrisma();
     f.tx.repositoryConnection.findUnique.mockResolvedValueOnce({

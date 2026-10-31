@@ -214,6 +214,23 @@ describe.skipIf(!adminUrl)(
       });
     });
 
+    it("rejects a concurrent cross-workspace claim with an ownership conflict", async () => {
+      const outcomes = await Promise.allSettled([
+        inventory.record(snapshot("workspace_1", ["201"])),
+        inventory.record(snapshot("workspace_2", ["201"])),
+      ]);
+      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      const denied = outcomes.find((outcome) => outcome.status === "rejected");
+      expect(denied).toMatchObject({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "gitlab_repository_already_owned",
+        }),
+      });
+      expect(await prisma.gitLabInstallation.count()).toBe(1);
+      expect(await prisma.repositoryConnection.count()).toBe(1);
+    });
+
     it("applies a full replacement snapshot atomically and retains same-workspace ownership", async () => {
       const first = await inventory.record(
         snapshot("workspace_1", ["101", "103"]),
