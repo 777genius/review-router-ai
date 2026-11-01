@@ -33,8 +33,8 @@ The default Compose stack connects as one database user, so every query is
 allowed. If you give the app, worker and web separate database roles, a missing
 grant does not show up in tests or at startup. It shows up later as events that
 fail with `permission denied` until they are dead lettered, for example
-repository sync or statistics. After each deploy run this with the DATABASE_URL
-of each runtime role:
+repository sync or statistics. After each deploy run this with the worker DATABASE_URL
+(the currently supported privilege policy is `reviewrouter_worker`):
 
 ```bash
 DATABASE_URL=... node scripts/check-runtime-db-privileges.mjs
