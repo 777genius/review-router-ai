@@ -14,7 +14,7 @@ database migration. For env-only changes use `fleet-overlay/` directly. For gran
 2. `backup`: start a full pgBackRest backup and print the last backup entry.
 3. `migrate <sha>`: `prisma migrate deploy`, then the canonical runtime ACL, then the worker repository sync grant.
 4. `swap <sha>`: upload the fleet overlay, run `prepare` and `plan`. It only applies with `--apply`.
-5. `verify <sha>`: container state, restart counts, revisions, and the API `/ready` check.
+5. `verify <sha>`: require exactly one healthy container per role at the full requested revision with no restarts, check database privileges through the worker connection, then check API `/ready`. Any failed check stops the command.
 
 `all <sha> [--apply]` runs every step. Without `--apply` it stops after the plan and does not run `verify`.
 A full 40-character lowercase hex sha is required.
@@ -34,8 +34,8 @@ Test the script with `bash deploy/hetzner/release.test.sh`; it uses stub ssh, sc
 - It does not touch the native Gateway engine. That swap is a separate procedure.
 - The worker grant step is required after the ACL step, because the canonical ACL revokes the worker repository
   sync privilege. The `migrate` step runs both in that order. Do not run the ACL alone.
-- It does not run the runtime privilege check for you. Run `scripts/check-runtime-db-privileges.mjs` under the
-  worker role afterwards (see `deploy/self-hosted/README.md`).
+- Verification runs `scripts/check-runtime-db-privileges.mjs` through the worker's existing database connection.
+  It rejects an unexpected database role, missing privileges, permission-error dead letters, or an unreadable outbox.
 
 ## Rollback
 

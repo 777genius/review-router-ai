@@ -468,6 +468,9 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: Hetzner release verification contract
+        run: bash deploy/hetzner/release.test.sh
+
       - name: Typecheck
         env:
           TURBO_CONCURRENCY: "1"

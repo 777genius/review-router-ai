@@ -78,6 +78,54 @@ for cmd in "build $GOOD_SHA" backup "migrate $GOOD_SHA" "swap $GOOD_SHA --apply"
     "$([ "$RC" -eq 0 ] && [ ! -s "$CALLS" ] && grep -q '\[dry-run\]' <<<"$OUT" && echo 0 || echo 1)"
 done
 
+# Execute the real remote verification body against a disposable Docker fixture.
+# This catches false success on a partial or wrong-revision fleet, rather than
+# merely checking that the script issued an ssh command.
+cat > "$WORK/bin/docker" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = ps ]; then
+  printf '%s\n' rr-test-web-1 rr-test-api-1 rr-test-worker-1
+  [ "${RR_VERIFY_CASE:-}" != missing ] && echo rr-skills-scan-worker-test
+  [ "${RR_VERIFY_CASE:-}" = duplicate ] && echo rr-extra-api-1
+  exit 0
+fi
+revision="$FIXTURE_SHA"
+running=true
+restarts=0
+health=healthy
+case "${RR_VERIFY_CASE:-}" in
+  revision) revision=ffffffffffffffffffffffffffffffffffffffff ;;
+  stopped) running=false ;;
+  restarted) restarts=1 ;;
+  unhealthy) health=unhealthy ;;
+esac
+printf '[{"State":{"Running":%s,"Health":{"Status":"%s"}},"RestartCount":%s,"Config":{"Labels":{"org.opencontainers.image.revision":"%s"}}}]\n' "$running" "$health" "$restarts" "$revision"
+STUB
+cat > "$WORK/bin/ssh" <<STUB
+#!/usr/bin/env bash
+echo "ssh \$*" >> "$CALLS"
+case "\$*" in
+  *'docker exec'*) cat > /dev/null; exit "\${RR_DB_RC:-0}" ;;
+esac
+export SRC="$GOOD_SHA"
+bash -s
+STUB
+chmod +x "$WORK/bin/docker" "$WORK/bin/ssh"
+export FIXTURE_SHA="$GOOD_SHA"
+run verify "$GOOD_SHA"
+[ "$RC" = 0 ] || echo "$OUT"
+check "healthy exact-revision fleet and worker check succeed" "$([ "$RC" = 0 ] && [ "$(calls curl)" = 1 ] && echo 0 || echo 1)"
+for scenario in missing duplicate revision stopped restarted unhealthy; do
+  export RR_VERIFY_CASE="$scenario"
+  run verify "$GOOD_SHA"
+  check "verify rejects $scenario before readiness and database checks" "$([ "$RC" -ne 0 ] && [ "$(calls curl)" = 0 ] && [ "$(calls ssh)" = 1 ] && echo 0 || echo 1)"
+done
+unset RR_VERIFY_CASE
+export RR_DB_RC=1
+run verify "$GOOD_SHA"
+check "worker privilege failure stops verification before readiness" "$([ "$RC" -ne 0 ] && [ "$(calls curl)" = 0 ] && echo 0 || echo 1)"
+unset RR_DB_RC
+
 echo
 if [ "$FAILS" -ne 0 ]; then echo "$FAILS check(s) failed"; exit 1; fi
 echo "all checks passed"

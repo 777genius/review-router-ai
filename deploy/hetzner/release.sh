@@ -135,7 +135,10 @@ net = [n for n in cur["NetworkSettings"]["Networks"] if n != "platform-review-ro
 names = {}
 for role, sub in (("web", "-web-"), ("api", "-api-"), ("worker", "-worker-"), ("scan", "skills-scan-worker")):
     out = subprocess.check_output(["docker", "ps", "--format", "{{.Names}}"], text=True).split()
-    names[role] = [n for n in out if n.startswith("rr-") and sub in n and "before" not in n and "scanner" not in n][0]
+    matches = [n for n in out if n.startswith("rr-") and sub in n and "before" not in n and "scanner" not in n and (role != "worker" or "skills-scan" not in n)]
+    if len(matches) != 1:
+        raise SystemExit(f"swap: expected one running {role} container, found {len(matches)}")
+    names[role] = matches[0]
 rev = cur["Config"]["Labels"]["org.opencontainers.image.revision"]
 spec = {"machineId": open("/etc/machine-id").read().strip(), "network": net,
         "expectedImage": cur["Image"], "expectedRevision": rev,
@@ -157,14 +160,34 @@ REMOTE
 cmd_verify() {
   local sha="$1"
   remote "SRC=$sha" <<'REMOTE'
-set -uo pipefail
-for c in $(docker ps --format '{{.Names}}' | grep -E '^rr-(web|api|worker|skills-scan)' | grep -v scanner); do
-  docker inspect -f '{{.Name}} run={{.State.Running}} restarts={{.RestartCount}} rev={{printf "%.8s" (index .Config.Labels "org.opencontainers.image.revision")}}' "$c"
-done
-echo "expected rev ${SRC:0:8}"
+set -euo pipefail
+python3 - "$SRC" <<'PYVERIFY'
+import json, subprocess, sys
+expected = sys.argv[1]
+names = subprocess.check_output(["docker", "ps", "--format", "{{.Names}}"], text=True).splitlines()
+roles = {"web": "-web-", "api": "-api-", "worker": "-worker-", "scan": "skills-scan-worker"}
+for role, marker in roles.items():
+    matches = [n for n in names if n.startswith("rr-") and marker in n and "before" not in n and "scanner" not in n and (role != "worker" or "skills-scan" not in n)]
+    if len(matches) != 1:
+        raise SystemExit(f"verify: expected one running {role} container, found {len(matches)}")
+    c = json.loads(subprocess.check_output(["docker", "inspect", matches[0]], text=True))[0]
+    state = c["State"]
+    revision = c["Config"].get("Labels", {}).get("org.opencontainers.image.revision")
+    if not state.get("Running") or state.get("Restarting") or c.get("RestartCount") != 0 or revision != expected:
+        raise SystemExit(f"verify: {role} state or revision mismatch")
+    if state.get("Health", {}).get("Status", "healthy") != "healthy":
+        raise SystemExit(f"verify: {role} is unhealthy")
+    print(f"{role}: running, no restarts, revision={revision}")
+PYVERIFY
 REMOTE
+  if [ "$DRY_RUN" = 1 ]; then
+    echo "[dry-run] ssh $RR_HOST docker exec worker: runtime database privilege check"
+  else
+    ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$RR_HOST" \
+      "sudo -n docker exec -i -w /app -e REVIEW_ROUTER_EXPECT_DB_ROLE=reviewrouter_worker rr-worker-cap-successor-newtest-20261008-v23-worker-1 node --input-type=module -" \
+      < "$ROOT/scripts/check-runtime-db-privileges.mjs"
+  fi
   check_ready
-  echo "also run scripts/check-runtime-db-privileges.mjs under the worker role (see deploy/self-hosted/README.md)"
 }
 
 main() {
