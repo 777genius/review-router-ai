@@ -490,6 +490,60 @@ it("companion local unpaid admission consumes one reservation and one SDK reques
 });
 
 it.each([403, 503])(
+  "ordinary request logs closed SDK refusal fields for HTTP %s without retrying",
+  async (httpStatus) => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      undefined,
+      128,
+      undefined,
+      undefined,
+      httpStatus,
+    );
+    const responses = vi.fn(f.relay.responses);
+    const http = await serveRelay({ ...f.relay, responses });
+    try {
+      const response = await http.request();
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: { code: "forbidden", effect: "not_dispatched" },
+      });
+      expect(responses).toHaveBeenCalledTimes(1);
+      await expect(responses.mock.results[0]!.value).rejects.toMatchObject({
+        code: "safe_error",
+        effect: "not_dispatched",
+        httpStatus,
+        diagnostic: { code: "forbidden" },
+      });
+      expect(f.requestRefs).toHaveLength(1);
+      expect(
+        log.mock.calls.map(([event]) => JSON.parse(event as string)),
+      ).toEqual([
+        {
+          event: "review_run_gateway_request_failed",
+          stage: "sdk_request",
+          sdkCode: "safe_error",
+          effect: "not_dispatched",
+          diagnosticCode: "forbidden",
+          httpStatus,
+          requestRef: f.requestRefs[0],
+        },
+      ]);
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+      expect(f.effects.at(-1)?.effect).toBe("not_dispatched");
+    } finally {
+      await http.app.close();
+      log.mockRestore();
+    }
+  },
+);
+
+it.each([403, 503])(
   "companion logs only closed refusal fields for HTTP %s without retrying",
   async (httpStatus) => {
     const state = companionReservation();
@@ -737,6 +791,7 @@ async function fixture(
     independentAllocations?: boolean;
     grantConcurrency?: number;
   },
+  nativeRefusalStatus?: number,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
@@ -1061,9 +1116,11 @@ async function fixture(
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       requestBodies.push(raw);
       requestRefs.push(String(req.headers["x-gateway-request-id"]));
-      if (companionOptions?.refusalStatus) {
+      const refusalStatus =
+        companionOptions?.refusalStatus ?? nativeRefusalStatus;
+      if (refusalStatus) {
         res
-          .writeHead(companionOptions.refusalStatus, {
+          .writeHead(refusalStatus, {
             "content-type": "application/json",
             "x-private-detail": "secret-header",
           })

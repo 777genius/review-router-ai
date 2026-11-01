@@ -1,8 +1,8 @@
 # Companion Gateway refusal diagnostics
 
 - Task ID: `2026-11-01-companion-gateway-refusal-diagnostics`
-- Goal: preserve safe, specific SDK refusal evidence for companion requests whose
-  caller otherwise sees only `companion_request_failed` / 502.
+- Goal: preserve safe, specific SDK refusal evidence for companion and ordinary
+  requests whose callers otherwise lose the internal refusal details.
 - Affected services: API; deploy with the coherent application fleet.
 - Implementation: [PR #772](https://github.com/777genius/review-router-ai/pull/772) (includes the source prepared in #775),
   source `4cc7ae2e215ec9fe10f7d05d44dcac9ea72aff4b`.
@@ -33,8 +33,9 @@ the historical rejection cause.
 
 ## Ordered rollout
 
-1. Merge exact-head CI-qualified source and include any concurrently merged
-   application fixes in the selected release. No migration, new environment
+1. Build the locally verified exact source. The owner explicitly authorized
+   fast production delivery without waiting for CI; ordinary PR merge still
+   requires exact-head CI. Preserve concurrent application fixes and live settings. No migration, new environment
    variable, catalog promotion or Gateway restart is required by this change.
 2. Follow [the release process](../operations/07-environments-and-release-management.md)
    and `deploy/hetzner/release.sh`; preserve the post-ACL worker grant.
@@ -45,8 +46,10 @@ the historical rejection cause.
 
 ## Verification and rollback
 
-The full real-loopback relay suite passed 73 tests. The final serialization, throwing-sink and local-authority phase cases passed; removal of the diagnostic makes both new 403/503
-cases fail. API typecheck, formatting and diff checks passed. No raw error,
+The full real-loopback relay suite passed 76 tests. Serialization, throwing-sink
+and local-authority phase cases passed. Two ordinary 403/503 cases also verify
+the original SDK error, unchanged public response and exactly one native POST.
+Companion and ordinary failures use one closed-field diagnostic helper. API typecheck, formatting and diff checks passed. No raw error,
 message, headers, bodies, token or opaque upstream reference is logged.
 Settlement, one-request budgeting and cancellation remain unchanged. Rollback
 uses the preserved previous application containers; no schema rollback is needed.
