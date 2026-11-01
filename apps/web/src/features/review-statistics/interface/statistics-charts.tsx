@@ -55,8 +55,7 @@ function DailyTooltip({
         <>
           {metric ? (
             <div>
-              {metricDefinition?.label}:{" "}
-              {count(row[metric] ?? 0)}
+              {metricDefinition?.label}: {count(row[metric] ?? 0)}
             </div>
           ) : (
             (severity === "all" ? severities : [severity]).map((value) => (
@@ -200,8 +199,7 @@ export function StatisticsCharts({
         <div className={styles.chartBody}>
           <DailyChart report={report} metric={metric} />
           <p className={styles.legend}>
-            {metricDefinition?.description}{" "}
-            · Daily UTC counts · today in progress
+            {metricDefinition?.description} · Daily UTC · today in progress
           </p>
         </div>
         <StatisticsRanking
