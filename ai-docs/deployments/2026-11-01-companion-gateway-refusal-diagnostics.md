@@ -15,7 +15,7 @@
 | Environment | Status    | Actual application revision                | Evidence / next step                                                                 |
 | ----------- | --------- | ------------------------------------------ | ------------------------------------------------------------------------------------ |
 | staging     | `pending` | Not selected for this task                 | Owner selected direct production delivery in the source session.                     |
-| production  | `pending` | `d5f16400e610e6fe9151c23da39868825d332711` | Diagnostic source is tested, not installed; merge and perform ordinary code rollout. |
+| production  | `deployed` | `6e900a26ff0e98b91c70287196dbde876e8cc48e` | Fleet, worker privileges and readiness pass; fresh review acceptance pending. |
 
 ## Failure and evidence
 
@@ -94,3 +94,28 @@ uses the preserved previous application containers; no schema rollback is needed
   authority, local forward validation, SDK request, post-request authority and
   stream wrapping. A real loopback case confirms local authority refusal makes
   zero native POSTs while retaining the consumed reservation and unknown effect.
+
+## Applied application rollout
+
+- Fast build finished at 12:30:36 UTC, exit 0 (320 seconds). Image
+  `sha256:ed5398998d720a85ef6259e42679b791ea3aed29b399c0bba12c2dc6d9dd2b0b`
+  carries exact application source `6e900a26ff0e98b91c70287196dbde876e8cc48e`.
+- Plan-only exposed the release script looking for the private scan network at
+  the API. The API correctly has only the platform network. The script now
+  selects the scan container's single private network; its actual Python body
+  passes eleven topology cases and fails normal topology before the fix.
+  This external operator-script fix is `d41d7e6dc`; no app rebuild was needed.
+- Preserved plan and application receipt:
+  `/srv/platform/projects/review-router/releases/fleet-overlay-6e900a26-u20Qv6n8`.
+  Cutover applied after the OCR owner released its window and confirmed no
+  running/planned executions or active leases, with allocation cleanup complete.
+  Retained authorizations were preserved.
+- All four roles report the full requested source, running with zero restarts.
+  The actual worker connection passes six privileges and `/ready` returns 200.
+  Gateway remains active with zero restarts. No migrations, ACL changes, Gateway
+  restart, producer change or MCP policy changes occurred in this rollout.
+- New container IDs: API `9be662825782`, worker `e9d8c4f5a2a5`,
+  scan `9cdfd83dd6e5`, web `4cb28a2bc179`. Previous fleet is retained for rollback.
+- Post-cutover signed-in UI check at 12:40 UTC: organization Statistics renders
+  the seven-day period, two reviewed PRs, three reviews and zero caught issues;
+  no alert is present.

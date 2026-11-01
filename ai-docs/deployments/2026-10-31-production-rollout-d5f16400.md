@@ -107,8 +107,10 @@ apply the worker grant file right after it, then run the check script.
   Seven new failure cases fail against the original script and pass with the fix.
 - A fresh test-repository review was requested as
   [run 40800168729, attempt 10](https://github.com/777genius/rr-selfhost-direct-v2-e2e-20260730t120036z/actions/runs/40800168729/attempts/10).
-  At capture time it was queued for GitHub's `ubuntu-latest` runner; the earlier
-  attempt 9 passed. Follow the linked run for the fresh result.
+  It failed at 10:57 UTC with a generic upstream refusal; its uncertain effect
+  was preserved. The earlier attempt 9 passed. Safe refusal diagnostics and the
+  subsequent application rollout are recorded in
+  [the continuation](2026-11-01-companion-gateway-refusal-diagnostics.md).
 
 Issue #761 remains a separate canonical ACL/activation-routine and INSERT-guard
 follow-up. The supported Hetzner release path automatically reapplies the narrow
