@@ -49,6 +49,8 @@ required checks. New source retains its independent strict native TS7 checks.
 [Run41318061244](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41318061244)
 was one fresh App-first request on existing disposable PR132 after actual
 capacity and service recovery. No old unknown model request was replayed.
+Terminal metadata was verified at `2026-11-01T14:57:44.095Z`; the successful
+broker-log verification receipt was recorded at `2026-11-01T14:57:47.682Z`.
 The neutral caller and approved producer remained unchanged:
 
 - Caller commit: `584ff4766d07494f8c81152bdbc94231ac2a9687`.
