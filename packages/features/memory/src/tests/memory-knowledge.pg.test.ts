@@ -16,9 +16,11 @@ import {
 } from "vitest";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import pg from "pg";
 import { createMemoryBodyHash } from "../domain/memory-body";
 import {
+  MemoryKnowledgeError,
   memoryKnowledgeBodyVisible,
   memoryKnowledgeCommandDigest,
   memoryKnowledgeScopeKey,
@@ -213,6 +215,133 @@ describe.skipIf(!databaseUrl)(
         claimId: randomUUID(),
         claimUntil: new Date(at.getTime() + 10000),
       });
+
+    it("serializes new AI commands, empty cohorts and relearn behind a workspace confirmation change", async () => {
+      // A synthetic settings row isolates the real transaction/guard race from
+      // review-policy persistence, which has its own PostgreSQL qualification.
+      await prisma.$executeRawUnsafe(
+        'CREATE TABLE "MemorySettingsRaceFixture" ("workspaceId" TEXT PRIMARY KEY,"required" BOOLEAN NOT NULL,"revision" TEXT NOT NULL)',
+      );
+      await prisma.$executeRaw`INSERT INTO "MemorySettingsRaceFixture" VALUES (${scope.workspaceId},false,'1')`;
+      const authorizeAutomaticMutation = async (
+        tx: Prisma.TransactionClient,
+        workspaceId: string,
+        settingsRevision: string,
+      ) => {
+        await acquireCurrentScopeGuards(tx, [
+          { scope: "workspace", workspaceId, mode: "shared" },
+        ]);
+        const [settings] = await tx.$queryRaw<
+          { required: boolean; revision: string }[]
+        >`SELECT "required","revision" FROM "MemorySettingsRaceFixture" WHERE "workspaceId"=${workspaceId}`;
+        if (
+          !settings ||
+          settings.required ||
+          settings.revision !== settingsRevision
+        )
+          throw new MemoryKnowledgeError("input_required");
+      };
+      const guarded = new PrismaMemoryKnowledgeStore(prisma, {
+        automaticSourcesEnabled: true,
+        authorizeAutomaticMutation,
+      });
+      const guardedSources = new PrismaMemoryAutomaticSourceStore(prisma, {
+        authorizeAutomaticMutation,
+      });
+      let releaseWriter!: () => void;
+      const holdWriter = new Promise<void>((resolve) => {
+        releaseWriter = resolve;
+      });
+      let writerReady!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        writerReady = resolve;
+      });
+      const writer = other.$transaction(async (tx) => {
+        await acquireCurrentScopeGuards(tx, [
+          {
+            scope: "workspace",
+            workspaceId: scope.workspaceId,
+            mode: "exclusive",
+          },
+        ]);
+        await tx.$executeRaw`UPDATE "MemorySettingsRaceFixture" SET "required"=true,"revision"='2' WHERE "workspaceId"=${scope.workspaceId}`;
+        writerReady();
+        await holdWriter;
+      });
+      let mutation: Promise<unknown> | undefined;
+      try {
+        await ready;
+        const command = save();
+        mutation = admit(
+          {
+            ...command,
+            approval: { ...command.approval, automaticSettingsRevision: "1" },
+          },
+          guarded,
+        );
+        // Attach immediately while the original rejection remains observable below.
+        void mutation.catch(() => {});
+        // Observe the actual database lock wait before committing the setting.
+        await vi.waitFor(async () => {
+          const blocked = await admin.query(
+            "SELECT count(*)::int AS count FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND wait_event='advisory'",
+            [`${schema}-first`],
+          );
+          expect(blocked.rows[0]?.count).toBe(1);
+        });
+        releaseWriter();
+        await writer;
+        await expect(mutation).rejects.toThrow("input_required");
+        await expect(
+          guarded.admitAutomaticSelection({
+            reservation: {
+              input: { ...automaticInput(99), settingsRevision: "1" },
+              generation,
+              expectedPriorEpoch: null,
+              entryIds: [],
+              bodyDigests: [],
+              now,
+            },
+            children: [],
+            retirements: [],
+          }),
+        ).rejects.toThrow("input_required");
+        await expect(
+          guardedSources.clearSuppression({
+            scope,
+            sourceId: "github-node:SOURCE",
+            expectedEpoch: "0",
+            expectedSuppressionEpoch: "0",
+            automaticSettingsRevision: "1",
+            now,
+          }),
+        ).rejects.toThrow("input_required");
+        const [effects] = await prisma.$queryRaw<
+          {
+            entries: number;
+            commands: number;
+            sources: number;
+            outbox: number;
+          }[]
+        >`SELECT (SELECT count(*)::int FROM "MemoryKnowledgeEntry") AS entries,(SELECT count(*)::int FROM "MemoryKnowledgeCommand") AS commands,(SELECT count(*)::int FROM "MemoryAutomaticSource") AS sources,(SELECT count(*)::int FROM "OutboxEvent") AS outbox`;
+        expect(effects).toEqual({
+          entries: 0,
+          commands: 0,
+          sources: 0,
+          outbox: 0,
+        });
+        await expect(admit(save(), guarded)).resolves.toMatchObject({
+          state: "queued",
+        });
+      } finally {
+        releaseWriter();
+        await writer;
+        await mutation?.catch(() => {});
+        await prisma.$executeRawUnsafe(
+          'DROP TABLE "MemorySettingsRaceFixture"',
+        );
+      }
+    });
     async function publish(
       command: Extract<MemoryKnowledgeCommand, { kind: "save" }>,
     ) {
@@ -825,6 +954,31 @@ describe.skipIf(!databaseUrl)(
     }
     const automaticControls = () => ({
       deadlineAt: new Date(now.getTime() + 10000),
+    });
+
+    it("returns exact confirmation proposals without admitting an automatic cohort or delivery", async () => {
+      const fixture = automaticFixture();
+      const result = await fixture.automatic.learn(
+        { ...automaticInput(1), requireConfirmation: true },
+        automaticControls(),
+      );
+      expect(result).toMatchObject({
+        state: "confirmation_required",
+        proposals: [
+          "First exact selected observation.",
+          "Second exact selected observation.",
+        ],
+        entryIds: [],
+        operations: [],
+      });
+      expect(fixture.preview).toHaveBeenCalledOnce();
+      expect(
+        await fixture.sources.lookup(scope, automaticInput(1).source.sourceId),
+      ).toBeNull();
+      const [effects] = await prisma.$queryRaw<
+        { entries: number; commands: number; outbox: number }[]
+      >`SELECT (SELECT count(*)::int FROM "MemoryKnowledgeEntry") AS entries,(SELECT count(*)::int FROM "MemoryKnowledgeCommand") AS commands,(SELECT count(*)::int FROM "OutboxEvent") AS outbox`;
+      expect(effects).toEqual({ entries: 0, commands: 0, outbox: 0 });
     });
 
     it("preserves trusted deletion before first admission as a bodyless fence across generations and explicit relearn", async () => {

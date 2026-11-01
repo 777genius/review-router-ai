@@ -1,5 +1,11 @@
 # Memory source authority: bounded security refinement
 
+Historical refinement. The owner explicitly replaced its source-only extraction
+and unconditional confirmation choices on 2026-10-30 with
+[full-thread learning and one workspace confirmation setting](2026-10-30-full-thread-memory-settings.md).
+Permission, exact source/evidence validity, audiences, replay and cleanup remain.
+The historical evidence below does not qualify the successor's model behavior.
+
 Date: 2026-10-29. Scope: review-router-ai #734, source attribution and explicit
 mutation authority. This refines the unactivated conversational profile; it does
 not activate a deployment, waive live qualification, or claim new independent

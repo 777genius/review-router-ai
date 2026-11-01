@@ -11,6 +11,7 @@ import {
   type ConversationRecord,
 } from "@reviewrouter/features-conversations";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
+import { createMemoryPolicyConfig } from "@reviewrouter/features-memory";
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
   createConversationPolicy,
@@ -358,6 +359,7 @@ function dynamicModelFixture(
     outputBytes: 262_144,
     tokens: 2048,
   };
+  let memorySettings = { requireConfirmation: false, settingsRevision: "0" };
   const policy = createConversationPolicy({
     prisma: {
       $transaction: async (callback: (tx: typeof transaction) => unknown) =>
@@ -365,12 +367,7 @@ function dynamicModelFixture(
     } as never,
     runtime: {
       policy: {
-        getPolicy: async () => ({
-          policyVersion: 1,
-          safetyPolicyVersion: 1,
-          memoryEnabled: true,
-          automaticLearning: true,
-        }),
+        getPolicy: async () => createMemoryPolicyConfig(memorySettings),
       },
     } as never,
     qualification: {
@@ -421,6 +418,12 @@ function dynamicModelFixture(
     model,
     catalogBytes: Buffer.byteLength(catalogJson),
     bindingReads,
+    setMemoryConfirmation: (required: boolean) => {
+      memorySettings = {
+        requireConfirmation: required,
+        settingsRevision: String(Number(memorySettings.settingsRevision) + 1),
+      };
+    },
     reorder: () => {
       config = parseReviewConfigurationStrict({
         ...config,
@@ -446,6 +449,27 @@ it("admits the exact qualified dynamic model without a catalog rollout gate", as
       String(target).endsWith("/v1/account-models/read"),
     ),
   ).toHaveLength(2);
+});
+
+it("defaults to automatic and rejects a captured request after workspace confirmation changes", async () => {
+  const f = dynamicModelFixture();
+  const initial = await f.capture();
+  expect(initial.requireConfirmation).toBe(false);
+  expect(initial.bindingManifest.memorySettings).toEqual({
+    requireConfirmation: false,
+    revision: "0",
+  });
+  f.setMemoryConfirmation(true);
+  expect(
+    await initial.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(false);
+  const changed = await f.capture();
+  expect(changed.requireConfirmation).toBe(true);
+  expect(changed.revision).toBe(initial.revision);
+  expect(changed.bindingManifest.memorySettings).toEqual({
+    requireConfirmation: true,
+    revision: "1",
+  });
 });
 
 it.each([

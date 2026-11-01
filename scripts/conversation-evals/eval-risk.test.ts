@@ -1,17 +1,31 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { corpusEventId, corpusEventMessages, loadCorpus } from "./corpus.js";
+import {
+  corpusEventId,
+  corpusEventMessages,
+  loadCorpus,
+  resolveCorpusMessages,
+  evaluationProcessingIdentity,
+  projectEvaluationSnapshot,
+  corpusSourceId,
+} from "./corpus.js";
 import {
   inspectInventory,
   inspectCommandInventory,
+  inspectExplicitEffect,
+  inspectExpectedEffects,
   sourceRevision,
   type EntryReview,
   type SourceWitness,
 } from "./score-inventory.js";
 import type { Witness, InventoryEntry } from "./fixture.js";
 import { readDurableCommands } from "./command-inventory.js";
-import { automaticMemoryChildCommandId } from "../../packages/features/memory/src/index.js";
+import {
+  automaticMemoryChildCommandId,
+  memoryKnowledgeDigest,
+} from "../../packages/features/memory/src/index.js";
+import { conversationDigest } from "../../packages/features/conversations/src/index.js";
 import type { PrismaClient } from "@prisma/client";
 
 // Synthetic scorer/capture regressions only. No model quality or product/native bank is fabricated.
@@ -66,6 +80,7 @@ function sample() {
     modelCalls: 0,
     inputBytes: 0,
     deliveredBodyDigests: [],
+    deliveredQualifiedBodyDigests: [],
     memoryManifest: null,
     observedModel: null,
     usage: null,
@@ -368,6 +383,9 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
           });
         }
         const rows = structuredClone([...inventory.values()]);
+        const deliveredBodyDigests = rows
+          .filter((row) => row.body !== null)
+          .map((row) => row.bodyDigest!);
         for (const row of rows) {
           const key = `${row.id}:${row.revision}:${row.bodyDigest}`;
           if (annotatedVersions.has(key)) continue;
@@ -395,9 +413,8 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
           previewCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
           modelCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
           inputBytes: 100,
-          deliveredBodyDigests: rows
-            .filter((r) => r.body !== null)
-            .map((r) => r.bodyDigest!),
+          deliveredBodyDigests,
+          deliveredQualifiedBodyDigests: [...deliveredBodyDigests],
           memoryManifest: {},
           observedModel: "SCORER_TEST_NO_MODEL",
           usage: null,
@@ -470,6 +487,7 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
       followup.commandInventoryIds = [...prior.commandInventoryIds, ...ids];
       followup.effects = [];
       followup.deliveredBodyDigests = [];
+      followup.deliveredQualifiedBodyDigests = [];
       followup.retained = [];
       followup.inventory = followup.inventory.map((entry) => ({
         ...entry,
@@ -965,9 +983,18 @@ test("durable capture queries fresh workspace/source/entry identities independen
   });
   assert.deepEqual(requested.where.OR[4], {
     id: {
-      in: [0, 1, 2, 3, "entry"].map((child) =>
-        automaticMemoryChildCommandId("processing", child),
-      ),
+      in: [
+        (() => {
+          const digest = conversationDigest([
+            "conversation-explicit-command",
+            "processing",
+          ]);
+          return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+        })(),
+        ...[0, 1, 2, 3, "entry"].map((child) =>
+          automaticMemoryChildCommandId("processing", child),
+        ),
+      ],
     },
   });
   assert.throws(
@@ -1037,5 +1064,391 @@ test("current source eligibility independently gates an automatic save proof", (
   assert.throws(
     () => inspectInventory(input),
     /eval_observed_effect_authority_invalid/,
+  );
+});
+
+test("versioned full-thread supplement preserves legacy targets and binds only observed targets/proposals", async () => {
+  const legacy = await loadCorpus();
+  const current = await loadCorpus("full-thread-v2");
+  assert.equal(legacy.threads.length, 48);
+  assert.deepEqual(current.targets, legacy.targets);
+  assert.equal(current.threads.length, 16);
+  assert.equal(
+    current.threads.filter((thread) => thread.split === "holdout").length,
+    6,
+  );
+  assert.equal(
+    current.threads.reduce((count, thread) => count + thread.events.length, 0),
+    50,
+  );
+  assert.equal(current.facts.length, 21);
+  const confirmation = current.threads.find(
+    (thread) => thread.id === "workspace-modes-A",
+  )!;
+  const event = confirmation.events.find((row) => row.confirmProposal)!;
+  const observed =
+    "A deliberately incorrect native proposal, for scorer inspection.";
+  const rendered = resolveCorpusMessages(
+    confirmation,
+    event,
+    {
+      targets: {},
+      confirmation: { ...event.confirmProposal!, body: observed },
+    },
+    new Map(),
+  );
+  assert.equal(
+    rendered.find((message) => message.id === event.messageId)!.body,
+    `Remember observation: ${observed}`,
+  );
+  assert.ok(
+    !rendered
+      .find((message) => message.id === event.messageId)!
+      .body.includes(
+        current.facts.find((fact) => fact.sourceMessageId === event.messageId)!
+          .text,
+      ),
+  );
+  assert.throws(
+    () =>
+      resolveCorpusMessages(confirmation, event, { targets: {} }, new Map()),
+    /eval_observed_proposal_missing/,
+  );
+  const mutation = current.threads.find(
+    (thread) => thread.id === "exact-metadata-B",
+  )!;
+  const update = mutation.events.find((row) => row.bindTargets)!;
+  assert.throws(
+    () => resolveCorpusMessages(mutation, update, { targets: {} }, new Map()),
+    /eval_target_binding_missing/,
+  );
+  const actual = resolveCorpusMessages(
+    mutation,
+    update,
+    {
+      targets: {
+        target: {
+          entryId: "actual-returned-id",
+          revision: "7",
+          sourceMessageId: update.bindTargets![0]!.sourceMessageId,
+          index: 0,
+        },
+      },
+    },
+    new Map(),
+  );
+  assert.ok(
+    actual
+      .find((message) => message.id === update.messageId)!
+      .body.startsWith("Update actual-returned-id@7:"),
+  );
+  assert.match(
+    corpusSourceId("namespace", "message"),
+    /^github-node:namespace_[a-f0-9]{64}$/,
+  );
+  await assert.rejects(
+    loadCorpus("arbitrary-file" as "full-thread-v2"),
+    /eval_corpus_unknown/,
+  );
+});
+
+function explicitSample(
+  body = "Remember observation: Actual native statement.",
+) {
+  const input = sample();
+  const source = input.sources.get(input.triggerSourceId)!;
+  const processingId = "EXPLICIT_SCORER_FIXTURE_NO_MODEL";
+  const digest = conversationDigest([
+    "conversation-explicit-command",
+    processingId,
+  ]);
+  const commandId = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+  const action = {
+    kind: "create" as const,
+    knowledgeKind: "observation" as const,
+    body: "Actual native statement.",
+  };
+  source.body = body;
+  source.revision = sourceRevision("2026-10-30T00:00:00.000Z", body);
+  source.automaticLearningEligible = false;
+  source.maintainer = true;
+  source.requireConfirmation = true;
+  source.settingsRevision = "1";
+  source.scope = input.scope;
+  const actor = {
+    kind: "github_user" as const,
+    id: source.actorId,
+    githubUserId: "eval-maintainer",
+    login: "maintainer",
+  };
+  const proofSource = {
+    type: "github_comment" as const,
+    sourceId: input.triggerSourceId,
+    revision: source.revision,
+    repositoryId: input.scope.repositoryId,
+    pullRequestNumber: 1,
+    updatedAt: "2026-10-30T00:00:00.000Z",
+    statementAt: "2026-10-30T00:00:00.000Z",
+    visibility: "public" as const,
+    claimedBodyDigest: createHash("sha256").update(body).digest("hex"),
+    observedCommitSha: source.headSha,
+    url: "https://example.invalid/synthetic/1",
+  };
+  const entry = input.witness.inventory[0]!;
+  entry.id = `mem_${commandId.replaceAll("-", "")}`;
+  entry.revision = "1";
+  entry.body = action.body;
+  entry.bodyDigest = createHash("sha256").update(action.body).digest("hex");
+  entry.sourceRevision = source.revision;
+  entry.automaticCohortId = null;
+  entry.automaticCohortEpoch = null;
+  entry.activeCohortEligible = false;
+  entry.explicitCommandId = commandId;
+  entry.approvalAuthorityRevision = `github-command:v2:new:${memoryKnowledgeDigest({ wire: action, ref: { type: "entry", scope: input.scope, entryId: entry.id }, source: proofSource, actor: { kind: actor.kind, id: actor.id, githubUserId: actor.githubUserId } })}`;
+  input.sourceHistory = new Map([
+    [`${input.triggerSourceId}\u0000${source.revision}`, source],
+  ]);
+  input.entries = [
+    {
+      ...input.entries[0]!,
+      entryId: entry.id,
+      entryRevision: "1",
+      bodyDigest: entry.bodyDigest,
+    },
+  ];
+  input.witness.processingId = processingId;
+  input.witness.effectIds = [commandId];
+  input.witness.commandInventoryIds = [commandId];
+  const effect: Witness["effects"][number] = {
+    id: commandId,
+    entryId: entry.id,
+    kind: "save",
+    state: "published",
+    actorId: actor.id,
+    approvalAuthorityRevision: entry.approvalAuthorityRevision,
+    scope: input.scope,
+    sourceId: input.triggerSourceId,
+    sourceRevision: source.revision,
+    automaticRetirement: null,
+    explicitAction: {
+      action,
+      actor,
+      source: proofSource,
+      requireConfirmation: true,
+      settingsRevision: "1",
+    },
+  };
+  input.witness.effects = [effect];
+  return {
+    ...input,
+    allowExplicit: true,
+    explicitProofs: new Map<string, Witness["effects"][number]>(),
+  };
+}
+
+test("actual explicit command fingerprint permits qualified manual readback without an automatic cohort", () => {
+  const input = explicitSample();
+  const versions = inspectInventory(input);
+  assert.equal(versions.length, 1);
+  assert.equal(versions[0]!.qualifiedReadback, true);
+  assert.equal(input.explicitProofs.size, 1);
+});
+
+test("explicit authority checks exact source decision, scope, mode and command proof independently of rubric", () => {
+  for (const body of [
+    "> Remember observation: Actual native statement.",
+    "Do not Remember observation: Actual native statement.",
+  ]) {
+    const input = explicitSample(body);
+    assert.throws(
+      () => inspectInventory(input),
+      /eval_explicit_command_authority_invalid/,
+    );
+  }
+  for (const change of [
+    (effect: Witness["effects"][number]) => {
+      effect.explicitAction!.requireConfirmation = false;
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.explicitAction!.settingsRevision = "stale";
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.actorId = "github-user:foreign";
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.scope = {
+        kind: "repository",
+        workspaceId: "workspace",
+        repositoryId: "sibling",
+      };
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.explicitAction!.source = {
+        ...effect.explicitAction!.source,
+        claimedBodyDigest: "0".repeat(64),
+      };
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.entryId = "neighboring-entry";
+    },
+  ]) {
+    const input = explicitSample();
+    change(input.witness.effects[0]!);
+    assert.throws(
+      () =>
+        inspectExplicitEffect(
+          input.witness.effects[0]!,
+          input.sources.get(input.triggerSourceId),
+          input.witness.processingId,
+        ),
+      /eval_explicit_command_authority_invalid/,
+    );
+  }
+});
+
+test("omitted explicit commands and invented manual metadata cannot gain authority from supportive labels", () => {
+  const omitted = explicitSample();
+  omitted.witness.effects = [];
+  assert.throws(
+    () => inspectInventory(omitted),
+    /eval_effect_inventory_invalid/,
+  );
+  const invented = explicitSample();
+  invented.witness.effects = [];
+  invented.witness.effectIds = [];
+  invented.witness.commandInventoryIds = [];
+  assert.throws(
+    () => inspectInventory(invented),
+    /eval_observed_entry_authority_invalid/,
+  );
+});
+
+test("pending explicit metadata earns no retained fact credit", () => {
+  const input = explicitSample();
+  const entry = input.witness.inventory[0]!;
+  entry.body = null;
+  entry.lifecycle = "pending";
+  entry.unavailableReason = "unsettled";
+  input.witness.retained = [];
+  assert.equal(inspectInventory(input)[0]!.qualifiedReadback, false);
+});
+
+test("factual endorsement cannot earn maintained CRUD authority merely by containing the right fact", () => {
+  const input = explicitSample();
+  inspectInventory(input);
+  assert.deepEqual(inspectExpectedEffects(input.witness, [], {}), {
+    unexpected: 1,
+    missing: 0,
+  });
+  assert.deepEqual(
+    inspectExpectedEffects(input.witness, [{ kind: "save" }], {}),
+    { unexpected: 0, missing: 0 },
+  );
+  const target = {
+    entryId: "different-observed-entry",
+    revision: "1",
+    sourceMessageId: "earlier",
+    index: 0,
+  };
+  assert.deepEqual(
+    inspectExpectedEffects(
+      input.witness,
+      [{ kind: "save", targetAlias: "target" }],
+      { target },
+    ),
+    { unexpected: 1, missing: 1 },
+  );
+  input.witness.inventory[0]!.body = null;
+  assert.equal(
+    inspectExpectedEffects(input.witness, [{ kind: "save" }], {}).missing,
+    1,
+  );
+});
+
+test("qualified processing and grant identity agree while memory projection preserves checked source evidence", async () => {
+  const template = {
+    workspaceId: "qualified-workspace",
+    repositoryId: "qualified-repository",
+    githubRepositoryId: "1234567",
+    fullName: "qualified/disposable",
+  };
+  const processing = evaluationProcessingIdentity(template);
+  assert.equal(BigInt(processing.repositoryStableId), 1234567n);
+  assert.deepEqual(
+    {
+      workspaceId: processing.workspaceId,
+      repositoryId: processing.repositoryId,
+    },
+    { workspaceId: template.workspaceId, repositoryId: template.repositoryId },
+  );
+  assert.throws(
+    () =>
+      evaluationProcessingIdentity({
+        ...template,
+        githubRepositoryId: "synthetic:namespace",
+      }),
+    /eval_qualified_processing_identity_invalid/,
+  );
+  const thread = (await loadCorpus("full-thread-v2")).threads[0]!;
+  const messages = corpusEventMessages(thread, thread.events[0]!).map(
+    (message, index) => ({
+      id: corpusSourceId("fixture", message.id),
+      commentId: String(index + 1),
+      actor: {
+        id: `github-user:${message.actor}`,
+        login: message.actor,
+        kind: message.actorKind,
+      },
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      replyTo: index === 0 ? null : "1",
+      body: message.body,
+      bodyDigest: createHash("sha256").update(message.body).digest("hex"),
+    }),
+  );
+  const selected = messages.at(-1)!;
+  const checked = {
+    ...processing,
+    pullRequestNumber: 1,
+    threadId: "github-review-thread:1",
+    sourceId: selected.id,
+    sourceCommentId: selected.commentId,
+    sourceRevision: sourceRevision(selected.updatedAt, selected.body),
+    sourceUpdatedAt: selected.updatedAt,
+    sourceActor: selected.actor,
+    messages,
+    visibility: "public" as const,
+    headSha: thread.headSha,
+    baseSha: "b".repeat(40),
+    anchor: {
+      ...thread.anchor,
+      originalLine: 7,
+      commitSha: thread.headSha,
+      originalCommitSha: thread.headSha,
+      diffHunk: thread.anchor.code,
+    },
+    threadDigest: conversationDigest(messages),
+    parentCommentId: "1",
+    sourceMaintainer: true,
+    repliesInThread: 0,
+    repliesInPullRequest: 0,
+    replyComments: [],
+  };
+  const memory = projectEvaluationSnapshot(checked, {
+    workspaceId: "fresh-workspace",
+    repositoryId: "fresh-repository",
+  });
+  assert.equal(memory.workspaceId, "fresh-workspace");
+  assert.equal(memory.repositoryId, "fresh-repository");
+  assert.equal(memory.messages, checked.messages);
+  assert.equal(memory.sourceId, checked.sourceId);
+  assert.equal(memory.threadDigest, checked.threadDigest);
+  assert.deepEqual(
+    {
+      ...memory,
+      workspaceId: processing.workspaceId,
+      repositoryId: processing.repositoryId,
+    },
+    checked,
   );
 });

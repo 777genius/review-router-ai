@@ -436,6 +436,10 @@ export function createConversationPolicy(input: {
         model: selected.provider.model,
         configurationDigest: selected.configurationDigest,
         qualificationProofId: q.proofId,
+        memorySettings: {
+          requireConfirmation: selected.policy.requireConfirmation,
+          revision: selected.policy.settingsRevision,
+        },
         limits,
         deadline: controls.deadlineAt.toISOString(),
       };
@@ -522,6 +526,7 @@ export function createConversationPolicy(input: {
         revision: `${selected.policy.policyVersion}:${selected.policy.safetyPolicyVersion}:${q.proofId}`,
         automaticLearning:
           selected.policy.memoryEnabled && selected.policy.automaticLearning,
+        requireConfirmation: selected.policy.requireConfirmation,
         discussionReplies: true,
         contextWindowTokens: modelQualification[0]!.contextWindowTokens,
         tokensPerByteUpperBound: modelQualification[0]!.tokensPerByteUpperBound,

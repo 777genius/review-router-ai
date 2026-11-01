@@ -15,19 +15,19 @@ anything. It never provisions or changes banks. Native configuration transport
 failure is `unavailable`; an unchecked strategy name is never proof of exact
 persistence. Preview qualification remains a separate prerequisite.
 
-For source extraction preview, a caller supplies **one selectable source revision**.
-The preview contract has no mixed-author context field. The adapter does not forward
-unknown context fields from JavaScript callers: changing a conversation, code anchor
-or recalled memory cannot change the privileged extraction request. The complete
-conversation may still inform the application's separate answer path.
+For source extraction preview, a caller supplies **one selected source revision**
+and may supply complete transient `readOnlyContext` to resolve its references and
+endorsements. The host owns context verification, author identity and permission;
+the portable library does not infer those from text. Source and context remain
+distinct in the native request. Without context, selection remains source-only.
 
 The native engine owns semantic selection. The library validates bounded, complete
 results; it does not extract, semantically verify, deduplicate, or approve facts.
-Source-only input removes cross-author context contamination; it does not prove
-that a model never hallucinates or misreads a quotation in the source itself.
-Preview output is never publication authority. Live source fidelity still requires
-qualification, and context-dependent references must abstain rather than borrow
-another participant's text.
+The extraction task distinguishes a current author's decision from foreign
+instructions, quotations, negations and unresolved disputes. These are semantic
+requirements to evaluate on actual models, not deterministic guarantees supplied
+by a prompt. Preview output never grants publication authority. The application
+chooses whether to admit permitted changes or request human confirmation.
 
 `HindsightSourcePreview` calls the native dry-run API. It is unavailable unless the
 caller supplies a qualification binding for the exact strict-preview image,
