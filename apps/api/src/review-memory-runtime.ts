@@ -21,7 +21,10 @@ import {
   PrismaMemoryPermission,
 } from "@reviewrouter/features-memory/infrastructure";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
-import type { ReviewRunAuthorization } from "@reviewrouter/features-review-run-control";
+import {
+  parseReviewRunRuntimeSnapshot,
+  type ReviewRunAuthorization,
+} from "@reviewrouter/features-review-run-control";
 import {
   renderReviewMemoryPrompt,
   reviewMemoryBinding,
@@ -158,6 +161,22 @@ export class ReviewMemoryRuntimeGateway {
     controls: MemoryRequestControls,
   ): Promise<ReviewMemoryBundle> {
     const authorization = await this.capture(token, input);
+    // Freeze the original maximum run lifetime before retrieval. The renewable
+    // token/row expiry is still enforced by capture on every receipt admission.
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    const snapshotNotAfter = new Date(
+      Math.min(
+        authorization.maxExpiresAt.getTime(),
+        snapshot ? Date.parse(snapshot.deadline) : NaN,
+      ),
+    );
+    if (
+      !Number.isFinite(snapshotNotAfter.getTime()) ||
+      snapshotNotAfter.getTime() <= this.now().getTime()
+    )
+      throw new MemoryKnowledgeError("forbidden");
     const policy = await this.dependencies.runtime.policy.getPolicy({
       workspaceId: authorization.workspaceId,
       repositoryId: authorization.repositoryConnectionId,
@@ -190,7 +209,7 @@ export class ReviewMemoryRuntimeGateway {
             allowedTasks: ["review", "investigation"],
           };
     const context = await captureAuthorizedMemoryContext(
-      { service, actor, scopes, contextPolicy },
+      { service, actor, scopes, contextPolicy, snapshotNotAfter },
       controls,
     );
     const { bundle, receipt } = context;
@@ -304,6 +323,7 @@ export async function captureAuthorizedMemoryContext(
     readonly actor: MemoryActor;
     readonly scopes: readonly MemoryKnowledgeScope[];
     readonly contextPolicy: MemoryContextPolicy;
+    readonly snapshotNotAfter?: Date;
   },
   controls: MemoryRequestControls,
 ) {
@@ -315,6 +335,9 @@ export async function captureAuthorizedMemoryContext(
         "Approved repository review conventions and maintained project knowledge",
       limitPerScope: 6,
       contextPolicy: input.contextPolicy,
+      ...(input.snapshotNotAfter
+        ? { snapshotNotAfter: input.snapshotNotAfter }
+        : {}),
     },
     controls,
   );
