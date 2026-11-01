@@ -206,6 +206,34 @@ const serializeEnv = (env: Record<string, string>) =>
   Object.entries(env)
     .map(([key, value]) => `${key}=${value}\n`)
     .join("");
+/** Keep credential-bearing role SQL off both Docker and psql process arguments. */
+export function bootstrapDatabaseSql(
+  containerId: string,
+  port: number,
+  database: string,
+  statement: string,
+): Promise<string> {
+  return dockerCommand(
+    [
+      "exec",
+      "--interactive",
+      containerId,
+      "psql",
+      "-U",
+      "postgres",
+      "-p",
+      String(port),
+      "-d",
+      database,
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-At",
+      "--file=-",
+    ],
+    false,
+    statement,
+  );
+}
 function names(config: BootstrapConfig) {
   return {
     postgres: `${config.deployment}-postgres`,
@@ -478,6 +506,17 @@ export async function bootstrap(
       publicKey,
     );
     const databaseUrl = `postgresql://hindsight:${nativePassword}@127.0.0.1:${config.postgresPort}/hindsight`;
+    const provenanceEnvironmentFiles = {
+      admin: join(config.directory, "provenance-admin-database.env"),
+      observer: join(config.directory, "provenance-observer-database.env"),
+    };
+    for (const [role, file] of Object.entries(provenanceEnvironmentFiles))
+      await writePrivate(
+        file,
+        serializeEnv({
+          HINDSIGHT_API_DATABASE_URL: `${databaseUrl}?application_name=${role === "admin" ? "rr-native-provenance-admin" : "rr-native-cleanup-read-observer"}`,
+        }),
+      );
     await writePrivate(
       join(config.directory, "postgres.env"),
       serializeEnv({
@@ -613,22 +652,12 @@ export async function bootstrap(
       "native PostgreSQL17 readiness",
     );
     const sql = (statement: string, database = "postgres") =>
-      dockerCommand([
-        "exec",
+      bootstrapDatabaseSql(
         state.containers.postgres,
-        "psql",
-        "-U",
-        "postgres",
-        "-p",
-        String(config.postgresPort),
-        "-d",
+        config.postgresPort,
         database,
-        "-v",
-        "ON_ERROR_STOP=1",
-        "-At",
-        "-c",
         statement,
-      ]);
+      );
     await sql(`CREATE ROLE hindsight LOGIN PASSWORD '${nativePassword}'`);
     await sql("CREATE DATABASE hindsight OWNER hindsight");
     await sql("CREATE EXTENSION vector; CREATE EXTENSION pg_trgm", "hindsight");
@@ -656,7 +685,13 @@ export async function bootstrap(
       async (steps, readOnly = true) =>
         (
           await dockerCommand(
-            nativeSqlArguments(databaseUrl, imageId, steps, readOnly),
+            nativeSqlArguments(
+              databaseUrl,
+              imageId,
+              steps,
+              readOnly,
+              provenanceEnvironmentFiles[readOnly ? "observer" : "admin"],
+            ),
           )
         ).trim(),
       "public",
