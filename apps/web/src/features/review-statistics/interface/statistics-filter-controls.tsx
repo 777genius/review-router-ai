@@ -127,9 +127,7 @@ export function StatisticsInvalidFilters() {
         size="sm"
         disabled={!hydrated}
         onClick={() =>
-          router.replace(
-            statisticsResetUrl(window.location.href),
-          )
+          router.replace(statisticsResetUrl(window.location.href))
         }
       >
         Reset statistics filters
