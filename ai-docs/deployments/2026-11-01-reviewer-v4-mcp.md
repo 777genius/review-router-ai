@@ -17,11 +17,11 @@
 
 ## Environment status
 
-| Environment                  | Status    | Actual version                              | Evidence / remaining work                                                                              |
-| ---------------------------- | --------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| staging                      | `pending` | Not exercised                               | No staging deployment in this task.                                                                    |
-| production MCP qualification | `blocked` | API `d5f16400`, Action224 `72634bbc`        | Real v4 admission passed; both reviewer invocations failed and made zero MCP calls. Cleanup completed. |
-| API defensive error mapping  | `pending` | Source/test commit `a09c68214`; not shipped | Owner authorized existing pinned CI for this task; normal PR qualification can proceed.                |
+| Environment                  | Status    | Actual version                              | Evidence / remaining work                                                                                                             |
+| ---------------------------- | --------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| staging                      | `pending` | Not exercised                               | No staging deployment in this task.                                                                                                   |
+| production MCP qualification | `blocked` | Union `14bead96`, Action224 `72634bbc`      | Latest real v4 run41309265172:0/2 required reviewers, zero MCP calls; upstream503 diagnosed, native cause pending. Cleanup completed. |
+| API defensive error mapping  | `pending` | Source/test commit `a09c68214`; not shipped | Owner authorized existing pinned CI for this task; normal PR qualification can proceed.                                               |
 
 ## Source behavior and regression scope
 
@@ -89,7 +89,7 @@ successful public-tool calls with reviewer attribution, coverage and one
 aggregate App-authored publication. Synthetic model tests or the earlier
 single-reviewer run `40791113369` cannot establish this live result.
 
-### Actual result: qualification failed
+### Initial result: qualification failed
 
 Root issued one ordinary PR-body edit and reopening; no manual dispatch or
 model replay. [Initial run `41296357068`](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41296357068)
@@ -167,9 +167,9 @@ and all applicable entries in the [deployment registry](README.md).
 Focused tests, Root source review, compiler assessment, setup/cleanup and
 sanitized live receipts are retained under `tmp/reviewer-v4-mcp/`. Durable run
 and publication links above record the actual failed qualification. Source and
-tests are preserved on `test/reviewer-v4-mcp-e2e`; no PR was opened because even
-its Draft auto-workflow would execute the prohibited compiler. Neither the
-source correction nor a successful live MCP canary is claimed as delivered.
+tests are preserved in [PR777](https://github.com/777genius/review-router-ai/pull/777),
+opened after the explicit owner CI exception. The source correction has not
+been deployed. A successful two-reviewer live MCP canary is not claimed.
 
 ## November 1 continuation
 
@@ -190,6 +190,33 @@ One normal repository assignment at13:00:50Z changed version78 to79, selecting
 OCR4/OCR5 on the existing GPT-6.1 profile and keeping the same three selected
 MCP connections. Workspace21, all seven connection definitions and secrets,
 and provider profiles remained unchanged. Root reopened PR132 once for a fresh
-canary after that actual server change. Final acceptance and cleanup are pending.
+canary after that actual server change. That fresh canary and its completed cleanup are recorded below.
 The exact retained terminal PR134 authorization belongs to the memory workstream;
 its completed execution and cleaned allocations are preserved without revocation.
+
+### Union OCR4/OCR5 result
+
+Fresh [run41309265172](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41309265172)
+was admitted with snapshot4/repository79/workspace21, two required GPT-6.1 high
+reviewers and one finite shared allocation. Both native brokers connected, but
+each recorded zero tool calls. Both required slots exhausted three attempts;
+coverage was0/2, with zero findings. The App published one
+[incomplete report](https://github.com/777genius/rr-codex-rotating-e2e/pull/132#issuecomment-6558387667).
+This is not successful MCP acceptance or the intentional TTL finding gate.
+
+Existing closed server events locate the failure at `sdk_request`: the first
+ordinary request returned `safe_error/upstream_failure`, HTTP503, with
+`effect_unknown`; the other ordinary refusal was HTTP403/`forbidden`,
+`not_dispatched`. A companion request also returned503/unknown. These codes do
+not establish the underlying native/provider cause. The unknown requests are
+not replayed. Native-side diagnosis is continuing through existing safe records.
+
+Our authorization was revoked at13:09:58.076Z and its allocation cleanup
+completed at13:09:58.093Z. Final cleanup accepted at13:13:12Z: repository81
+restored the original singleton GPT-6.1 policy/hash `111b9ebb...9129fa59`,
+workspace21 unchanged, no context selection, all seven MCP connections disabled.
+Only canary revisions changed to Cloudflare8/Firecrawl12/DeepWiki16. Definitions,
+secret presence, all provider profiles and the four other connections were
+preserved. Active target leases and running executions were zero. The exact
+foreign PR134 terminal authorization remains untouched with completed allocation
+cleanup. PR132 is closed and its original body is restored.
