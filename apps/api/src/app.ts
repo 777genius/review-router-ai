@@ -1080,6 +1080,7 @@ export async function createApiApp(
     await registerReviewModelDispatchRoutes(
       app,
       productionReviewActionV2Dependencies.modelDispatch,
+      (diagnostic) => logger.warn(JSON.stringify(diagnostic)),
     );
   }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {
