@@ -235,8 +235,9 @@ verify availability of its exact binary at the runtime bootstrap URL:
 A producer attestation or successful CLI build alone does not publish this asset.
 
 Use the qualified source commit and pinned `tools/ocr/build.sh` toolchain/patches.
-Require byte-for-byte equality with its checked-in qualification manifest and the
-approved profile binary SHA-256. Create a new component release as Draft targeting
+Require the generated qualification manifest to match the checked-in manifest
+byte-for-byte. Require the binary SHA-256 digest to match the approved profile
+binary SHA-256. Create a new component release as Draft targeting
 that exact qualified commit, upload `opencodereview-linux-amd64`, `MANIFEST` and
 `opencodereview-linux-amd64.sha256`, then download and verify all three assets before
 publishing with `makeLatest=false`. Reconcile an existing tag/release instead of
