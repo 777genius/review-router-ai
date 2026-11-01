@@ -102,8 +102,7 @@ async function contextEvidenceCurrent(
     }
   }
   return (
-    !controls.signal?.aborted &&
-    Date.now() < controls.deadlineAt.getTime()
+    !controls.signal?.aborted && Date.now() < controls.deadlineAt.getTime()
   );
 }
 

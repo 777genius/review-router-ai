@@ -32,22 +32,19 @@ function fixture() {
       repository: { databaseId: 12, nameWithOwner: "acme/project" },
     },
   };
-  const request = vi.fn(
-    async (route: string) => {
-      if (
-        route ===
-        "GET /repos/{owner}/{repo}/collaborators/{username}/permission"
-      )
-        return {
-          data: {
-            permission: "write",
-            role_name: "maintain",
-            user: { id: 42 },
-          },
-        };
-      throw new Error("unexpected_route:" + route);
-    },
-  );
+  const request = vi.fn(async (route: string) => {
+    if (
+      route === "GET /repos/{owner}/{repo}/collaborators/{username}/permission"
+    )
+      return {
+        data: {
+          permission: "write",
+          role_name: "maintain",
+          user: { id: 42 },
+        },
+      };
+    throw new Error("unexpected_route:" + route);
+  });
   const graphql = vi.fn(
     async (query: string, parameters: Readonly<Record<string, unknown>>) => {
       if (!query.includes("nodes(ids: $ids)")) return { node: sourceNode };

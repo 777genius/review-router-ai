@@ -634,10 +634,11 @@ for (const variant of report.variants) {
         expectedThread.phase === "B" &&
         expectedEvent?.requiredFactIds.length
       ) {
-        const deliveredFactIds = witness.deliveredQualifiedBodyDigests.flatMap(
-          (digest) => [...(digestToFacts.get(digest) ?? [])],
+        const delivered = new Set(
+          witness.deliveredQualifiedBodyDigests.flatMap((digest) => [
+            ...(digestToFacts.get(digest) ?? []),
+          ]),
         );
-        const delivered = new Set(deliveredFactIds);
         linked.push({
           scenario: expectedThread.scenario,
           passed:
