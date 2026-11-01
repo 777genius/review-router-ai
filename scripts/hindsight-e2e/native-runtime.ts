@@ -6,15 +6,24 @@ export const pause = (milliseconds: number) =>
 export async function dockerCommand(
   args: string[],
   allowFailure = false,
+  input?: string,
 ): Promise<string> {
   return await new Promise((resolve, reject) => {
-    const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("docker", args, {
+      stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    });
+    if (input !== undefined) {
+      // An early Docker/psql failure can close stdin before the bounded input.
+      // The process exit below remains the authority and suppresses diagnostics.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(input);
+    }
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (data) => {
+    child.stdout!.on("data", (data) => {
       if (stdout.length < 10_000_000) stdout += data;
     });
-    child.stderr.on("data", (data) => {
+    child.stderr!.on("data", (data) => {
       if (stderr.length < 10_000_000) stderr += data;
     });
     child.on("error", () => reject(new Error("Docker runtime is unavailable")));
