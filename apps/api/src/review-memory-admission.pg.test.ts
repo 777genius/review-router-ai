@@ -51,6 +51,10 @@ describe.skipIf(!databaseUrl)(
     let other: PrismaClient;
     let expiresAt: Date;
     let metadata: MemoryKnowledgeEntryMetadata;
+    const callerRole = `memory_admission_caller_${schema.slice(-12)}`;
+    let callerCreated = false;
+    let helperViewCreated = false;
+    let ownerCreated = false;
     const guard = createReviewMemoryInputAdmission({
       enabled: true,
       generation,
@@ -136,6 +140,60 @@ describe.skipIf(!databaseUrl)(
             );
           await fixture.query(`CREATE TABLE "${name}" (${columns.join(",")})`);
         }
+        // Load the actual public-qualified lock helper against a view of this
+        // suite's isolated table. Never replace an existing public authority.
+        const existing = await fixture.query(`SELECT
+          to_regclass('public."RepositoryConnection"') AS repository,
+          to_regprocedure('public.rr_review_run_checkout_repository_lock(text,text)') AS helper`);
+        expect(existing.rows[0]).toEqual({ repository: null, helper: null });
+        const owner = await fixture.query(
+          "SELECT 1 FROM pg_roles WHERE rolname='reviewrouter_release_schema_owner'",
+        );
+        if (owner.rowCount === 0) {
+          await fixture.query(
+            "CREATE ROLE reviewrouter_release_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1",
+          );
+          ownerCreated = true;
+        }
+        await fixture.query(
+          `CREATE VIEW public."RepositoryConnection" AS SELECT * FROM "${schema}"."RepositoryConnection"`,
+        );
+        helperViewCreated = true;
+        await fixture.query(
+          `GRANT USAGE ON SCHEMA "${schema}" TO reviewrouter_release_schema_owner`,
+        );
+        await fixture.query(
+          'GRANT SELECT, UPDATE("id") ON public."RepositoryConnection" TO reviewrouter_release_schema_owner',
+        );
+        await fixture.query(
+          await readFile(
+            new URL(
+              "../../../packages/platform/db/prisma/migrations/000135_review_run_checkout_repository_lock/migration.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        );
+        await fixture.query(`CREATE ROLE "${callerRole}" NOLOGIN NOINHERIT`);
+        callerCreated = true;
+        await fixture.query(
+          `GRANT USAGE ON SCHEMA public,"${schema}" TO "${callerRole}"`,
+        );
+        await fixture.query(
+          `GRANT SELECT ON ALL TABLES IN SCHEMA "${schema}" TO "${callerRole}"`,
+        );
+        await fixture.query(
+          `GRANT UPDATE("authorizationId") ON "ReviewRunAuthorization" TO "${callerRole}"`,
+        );
+        await fixture.query(
+          `GRANT UPDATE("generation") ON "MemoryKnowledgeMaintenanceFence" TO "${callerRole}"`,
+        );
+        await fixture.query(
+          `GRANT INSERT, UPDATE ON "MemoryKnowledgeScopeState" TO "${callerRole}"`,
+        );
+        await fixture.query(
+          `GRANT EXECUTE ON FUNCTION public.rr_review_run_checkout_repository_lock(text,text) TO "${callerRole}"`,
+        );
       } finally {
         await fixture.end();
       }
@@ -283,7 +341,21 @@ describe.skipIf(!databaseUrl)(
     afterAll(async () => {
       await Promise.all([prisma?.$disconnect(), other?.$disconnect()]);
       if (admin) {
+        if (helperViewCreated) {
+          await admin.query(
+            "DROP FUNCTION IF EXISTS public.rr_review_run_checkout_repository_lock(text,text)",
+          );
+          await admin.query('DROP VIEW public."RepositoryConnection"');
+        }
         await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+        if (callerCreated) {
+          await admin.query(
+            `REVOKE USAGE ON SCHEMA public FROM "${callerRole}"`,
+          );
+          await admin.query(`DROP ROLE "${callerRole}"`);
+        }
+        if (ownerCreated)
+          await admin.query("DROP ROLE reviewrouter_release_schema_owner");
         await admin.end();
       }
     });
@@ -300,6 +372,97 @@ describe.skipIf(!databaseUrl)(
         },
         { isolationLevel: "Serializable", timeout: 5000 },
       );
+
+    const restricted = <T>(
+      run: (transaction: Prisma.TransactionClient) => Promise<T>,
+    ) =>
+      other.$transaction(
+        async (transaction) => {
+          await transaction.$executeRawUnsafe(`SET LOCAL ROLE "${callerRole}"`);
+          return run(transaction);
+        },
+        { isolationLevel: "Serializable", timeout: 5000 },
+      );
+
+    it("admits the SELECT-only runtime through the actual lock definer while direct locks and repository writes remain forbidden", async () => {
+      expect(
+        await restricted(
+          (transaction) => transaction.$queryRaw`
+        SELECT has_any_column_privilege(current_user, ${`"${schema}"."RepositoryConnection"`}, 'UPDATE') AS writable
+      `,
+        ),
+      ).toEqual([{ writable: false }]);
+      await expect(
+        restricted(
+          (transaction) => transaction.$queryRaw`
+        SELECT "id" FROM "RepositoryConnection" WHERE "id"=${repositoryId} FOR SHARE
+      `,
+        ),
+      ).rejects.toMatchObject({
+        code: "P2010",
+        meta: { driverAdapterError: { cause: { code: "42501" } } },
+      });
+      expect(
+        await restricted(async (transaction) => {
+          await guard.lock(transaction, command as never);
+          return guard.admit(transaction, {
+            command: command as never,
+            execution: execution as never,
+            now: new Date(),
+          });
+        }),
+      ).toBe(true);
+      await expect(
+        restricted(
+          (transaction) => transaction.$executeRaw`
+        UPDATE "RepositoryConnection" SET "selected"=false WHERE "id"=${repositoryId}
+      `,
+        ),
+      ).rejects.toMatchObject({
+        code: "P2010",
+        meta: { driverAdapterError: { cause: { code: "42501" } } },
+      });
+      expect(
+        (
+          await prisma.repositoryConnection.findUnique({
+            where: { id: repositoryId },
+          })
+        )?.selected,
+      ).toBe(true);
+    });
+
+    it.each([repositoryId, sourceRepositoryId])(
+      "keeps %s row updates blocked through a restricted runtime memory grant",
+      async (id) => {
+        const locked = deferred();
+        const release = deferred();
+        const held = restricted(async (transaction) => {
+          await guard.lock(transaction, command as never);
+          const allowed = await guard.admit(transaction, {
+            command: command as never,
+            execution: execution as never,
+            now: new Date(),
+          });
+          locked.resolve();
+          await release.promise;
+          return allowed;
+        });
+        void held.catch(() => locked.resolve());
+        await locked.promise;
+        const writer = prisma.repositoryConnection
+          .update({ where: { id }, data: { archived: true } })
+          .then((value) => value);
+        try {
+          await waitForBlockedReader(
+            `memory_admission_writer_${schema.slice(-12)}`,
+          );
+        } finally {
+          release.resolve();
+        }
+        expect(await held).toBe(true);
+        expect((await writer).archived).toBe(true);
+      },
+    );
 
     it("reports bounded decisions without letting a throwing observer change grants or epoch denials", async () => {
       const events: MemoryAdmissionDiagnostic[] = [];
@@ -680,11 +843,13 @@ describe.skipIf(!databaseUrl)(
         values,
       );
     }
-    async function waitForBlockedReader() {
+    async function waitForBlockedReader(
+      applicationName = `memory_admission_reader_${schema.slice(-12)}`,
+    ) {
       for (let attempt = 0; attempt < 500; attempt++) {
         const result = await admin.query(
           "SELECT count(*)::int AS count FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'",
-          [`memory_admission_reader_${schema.slice(-12)}`],
+          [applicationName],
         );
         if (result.rows[0]?.count > 0) return;
         await new Promise((resolve) => setTimeout(resolve, 2));
