@@ -1,4 +1,4 @@
-import type { ReviewAgentProfile } from "./review-agent-profile";
+import type { ReviewAgentProfile } from "./review-agent-profile.js";
 
 export const reviewModelWireProtocols = [
   "openai-responses",
