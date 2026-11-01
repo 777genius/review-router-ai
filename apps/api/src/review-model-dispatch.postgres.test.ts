@@ -5,6 +5,7 @@ import {
   canonicalJson,
   ClaimReviewRunCompanionDispatch,
   ReviewRunAuthorizationTokenResolutionStatus,
+  ReviewRunCompanionDispatchFailure,
   type ReviewRunAuthorization,
   type ReviewRunCompanionDispatchClaim,
 } from "@reviewrouter/features-review-run-control";
@@ -21,7 +22,10 @@ import {
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { createReviewDispatchDatabaseFixture } from "./test-support/review-dispatch-database-fixture";
 import { assertReviewModelDispatchEvidence } from "./review-model-dispatch-evidence";
-import { registerReviewModelDispatchRoutes } from "./review-model-dispatch";
+import {
+  registerReviewModelDispatchRoutes,
+  type ReviewModelDispatchApi,
+} from "./review-model-dispatch";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -32,6 +36,184 @@ type Fixture = Awaited<
 > & {
   budget: ReviewModelDispatchCapabilityV2;
 };
+
+describe("model dispatch claim failure diagnostics", () => {
+  for (const throwingSink of [false, true]) {
+    it.each([
+      {
+        name: "malformed JSON before the handler",
+        authorized: false,
+        authority: true,
+        invalidBody: false,
+        error: new Error("secret-native-error"),
+        status: 500,
+        code: "model_dispatch_unavailable",
+        phase: "input",
+      },
+      {
+        name: "denied authorization",
+        authorized: false,
+        authority: true,
+        invalidBody: false,
+        error: new Error("secret-native-error"),
+        status: 401,
+        code: "model_dispatch_authorization_denied",
+        phase: "authentication",
+      },
+      {
+        name: "changed authority",
+        authorized: true,
+        authority: false,
+        invalidBody: false,
+        error: new Error("secret-native-error"),
+        status: 409,
+        code: "model_dispatch_authority_changed",
+        phase: "authority",
+      },
+      {
+        name: "invalid body",
+        authorized: true,
+        authority: true,
+        invalidBody: true,
+        error: new Error("secret-native-error"),
+        status: 400,
+        code: "model_dispatch_request_invalid",
+        phase: "body",
+      },
+      {
+        name: "known admission rejection",
+        authorized: true,
+        authority: true,
+        invalidBody: false,
+        error: new ReviewRunCompanionDispatchFailure(
+          "model_dispatch_profile_mismatch",
+        ),
+        status: 409,
+        code: "model_dispatch_profile_mismatch",
+        phase: "admission",
+      },
+      {
+        name: "unknown admission rejection code",
+        authorized: true,
+        authority: true,
+        invalidBody: false,
+        error: new ReviewRunCompanionDispatchFailure("secret-native-error"),
+        status: 409,
+        code: "secret-native-error",
+        phase: "admission",
+      },
+      {
+        name: "unexpected admission error",
+        authorized: true,
+        authority: true,
+        invalidBody: false,
+        error: Object.assign(new Error("secret-native-error"), {
+          code: "model_dispatch_profile_mismatch",
+        }),
+        status: 500,
+        code: "model_dispatch_unavailable",
+        phase: "admission",
+      },
+    ])("$name (throwing sink: " + throwingSink + ")", async (testCase) => {
+      const authorization = {
+        authorizationId: "server-resolved-authorization",
+      } as ReviewRunAuthorization;
+      const events: unknown[] = [];
+      const messages: unknown[] = [];
+      const app = Fastify({ logger: false });
+      app.addHook("onRequest", async (request) => {
+        request.log.warn = (event: unknown, message?: unknown) => {
+          events.push(event);
+          messages.push(message);
+          if (throwingSink) throw new Error("secret-logger-error");
+        };
+      });
+      const reject = async (): Promise<never> => {
+        throw testCase.error;
+      };
+      const api: ReviewModelDispatchApi = {
+        authorizations: {
+          resolveReviewRunAuthorizationToken: async () =>
+            testCase.authorized
+              ? {
+                  status: ReviewRunAuthorizationTokenResolutionStatus.Valid,
+                  authorization,
+                }
+              : { status: ReviewRunAuthorizationTokenResolutionStatus.Expired },
+        },
+        checkAuthority: async () => testCase.authority,
+        admission: {
+          claim: reject,
+          forward: reject,
+          read: reject,
+          readReceipt: reject,
+          settle: reject,
+          settleReceipt: reject,
+        },
+      };
+      await registerReviewModelDispatchRoutes(app, api);
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      try {
+        const address = app.server.address();
+        if (!address || typeof address === "string") throw new Error("fixture");
+        const response = await fetch(
+          `http://127.0.0.1:${address.port}${reviewModelDispatchContract.claimPath}`,
+          {
+            method: "POST",
+            headers: {
+              authorization: "Bearer secret-run-token",
+              "content-type": "application/json",
+              "x-untrusted-authorization-id": "secret-caller-authorization",
+            },
+            body:
+              testCase.phase === "input"
+                ? "{secret-request-body"
+                : JSON.stringify(
+                    testCase.invalidBody
+                      ? { secret: "secret-request-body" }
+                      : {
+                          dispatchVersion: 2,
+                          dispatchId: `rr-model-${"a".repeat(64)}`,
+                          executionId: "secret-caller-execution",
+                          workSlotId: "secret-caller-slot",
+                          attemptOrdinal: 1,
+                          requestOrdinal: 1,
+                          leaseId: "secret-caller-lease",
+                          leaseCapability: "secret-lease-capability",
+                          fencingToken: "1",
+                          preparedManifestKey: "secret-caller-manifest",
+                          routeIdentityHash: "b".repeat(64),
+                          providerRequestEnvelopeHash: "c".repeat(64),
+                          requestBytes: 1024,
+                          maxOutputTokens: 1024,
+                        },
+                  ),
+          },
+        );
+        expect(response.status).toBe(testCase.status);
+        expect(await response.json()).toEqual({ code: testCase.code });
+        expect(events).toEqual([
+          {
+            event: "review_model_dispatch_claim_rejected",
+            phase: testCase.phase,
+            code:
+              testCase.code === "secret-native-error"
+                ? "model_dispatch_unavailable"
+                : testCase.code,
+            httpStatus: testCase.status,
+            ...(testCase.authorized
+              ? { authorizationId: authorization.authorizationId }
+              : {}),
+          },
+        ]);
+        expect(messages).toEqual(["Review model dispatch claim rejected"]);
+        expect(JSON.stringify({ events, messages })).not.toContain("secret-");
+      } finally {
+        await app.close();
+      }
+    });
+  }
+});
 
 describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
   const fixtures: Fixture[] = [];
