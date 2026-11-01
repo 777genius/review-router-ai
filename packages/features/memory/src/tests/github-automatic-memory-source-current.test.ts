@@ -33,7 +33,7 @@ function fixture() {
     },
   };
   const request = vi.fn(
-    async (route: string, _parameters: Readonly<Record<string, unknown>>) => {
+    async (route: string) => {
       if (
         route ===
         "GET /repos/{owner}/{repo}/collaborators/{username}/permission"

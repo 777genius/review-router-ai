@@ -383,6 +383,9 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
           });
         }
         const rows = structuredClone([...inventory.values()]);
+        const deliveredBodyDigests = rows
+          .filter((row) => row.body !== null)
+          .map((row) => row.bodyDigest!);
         for (const row of rows) {
           const key = `${row.id}:${row.revision}:${row.bodyDigest}`;
           if (annotatedVersions.has(key)) continue;
@@ -410,9 +413,8 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
           previewCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
           modelCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
           inputBytes: 100,
-          deliveredBodyDigests: rows
-            .filter((r) => r.body !== null)
-            .map((r) => r.bodyDigest!),
+          deliveredBodyDigests,
+          deliveredQualifiedBodyDigests: [...deliveredBodyDigests],
           memoryManifest: {},
           observedModel: "SCORER_TEST_NO_MODEL",
           usage: null,
@@ -485,6 +487,7 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
       followup.commandInventoryIds = [...prior.commandInventoryIds, ...ids];
       followup.effects = [];
       followup.deliveredBodyDigests = [];
+      followup.deliveredQualifiedBodyDigests = [];
       followup.retained = [];
       followup.inventory = followup.inventory.map((entry) => ({
         ...entry,
