@@ -8,7 +8,8 @@
   disposable GitHub review on the existing deployed Gateway caller.
 - Implementation reference: branch `test/reviewer-v4-mcp-e2e`, source/test
   commit `a09c68214`. Source changes and live qualification are recorded
-  separately below. PR creation is blocked by the existing CI toolchain.
+  separately below. The owner authorized the existing pinned CI toolchain for
+  this task on November 1; new source retains its independent strict TS7 checks.
 - Dependencies: the installed [multi-reviewer](2026-10-29-gateway-multi-reviewers.md)
   and [unified OCR](2026-10-29-unified-ocr.md) contracts. This slice does not claim
   their complete deployment acceptance matrix.
@@ -20,7 +21,7 @@
 | ---------------------------- | --------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | staging                      | `pending` | Not exercised                               | No staging deployment in this task.                                                                    |
 | production MCP qualification | `blocked` | API `d5f16400`, Action224 `72634bbc`        | Real v4 admission passed; both reviewer invocations failed and made zero MCP calls. Cleanup completed. |
-| API defensive error mapping  | `blocked` | Source/test commit `a09c68214`; not shipped | Existing CI invokes prohibited TS6 compiler/parser paths; normal PR qualification remains blocked.     |
+| API defensive error mapping  | `pending` | Source/test commit `a09c68214`; not shipped | Owner authorized existing pinned CI for this task; normal PR qualification can proceed.                |
 
 ## Source behavior and regression scope
 
@@ -43,7 +44,7 @@ lint/format checks. The v4 fixtures pass the normal strict snapshot parser.
 The mock authorization-refusal cases prove withholding at the HTTP boundary;
 they do not independently qualify the actual PostgreSQL allocation adapter.
 
-### Source delivery blocker
+### Source delivery qualification
 
 The [maintained Engineering Quality Standard](https://github.com/agent-teams-ai/.github/blob/main/docs/engineering-quality-standard.md#typescript-for-javascript-runtimes) forbids executing compiler/parser
 implementations older than TypeScript `7.0.2`. Existing CI still initializes
@@ -53,11 +54,18 @@ use TS6 through the root typecheck, architecture/test/build consumers and
 `typescript-eslint@8.59.1` parser. The existing native pilots retain those
 baseline gates. Do not disable checks or assume a warm cache avoids the issue.
 
-No PR CI, merge or application rollout was attempted for this source patch.
-Resume normal Draft/Ready qualification after the owning compiler/parser and
-pinned dependency build routes are upgraded and qualified. The live installed
+The initial source delivery was paused before PR CI. That restriction was
+subsequently resolved by the explicit task-specific owner exception below. The live installed
 positive v4 path is independent of this defensive correction; do not describe
 the correction as deployed on the basis of the live canary.
+
+Continuation: the owner explicitly authorized existing TypeScript5/6 CI for
+this task, avoiding an unrelated paired tooling migration. The normal PR/CI
+route can now proceed; this exception does not change required checks, claim
+TS7 ecosystem compatibility, or constitute deployment evidence. The owner also
+requested the existing fast Hetzner deployment route without unnecessary
+migrations or repeated checks; application delivery is coordinated with the
+separate `rr: deploy` workstream.
 
 ## Live qualification
 
@@ -162,3 +170,26 @@ and publication links above record the actual failed qualification. Source and
 tests are preserved on `test/reviewer-v4-mcp-e2e`; no PR was opened because even
 its Draft auto-workflow would execute the prohibited compiler. Neither the
 source correction nor a successful live MCP canary is claimed as delivered.
+
+## November 1 continuation
+
+The OCR2/OCR3 differential [run41302520797](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41302520797)
+confirmed three successful real public MCP calls by OCR2. OCR3 exhausted its
+required slot, so the run remains partial and does not establish two-reviewer
+acceptance. Its authorization and shared allocation were closed and cleaned.
+No old unknown model request was replayed.
+
+The coordinated server baseline is union source
+`14bead9640d0b4e6c6741aa5645c2a6c160fdd2f`, image
+`sha256:21dc5822d2bee10fd2bc6903d3243aadd7bf05712041292f4d575d089ee983a6`.
+It combines the owning workstreams' bounded relay diagnostics and shared-input
+memory authorization correction. It does not contain this task's defensive API
+patch. Gateway/native/SDK and approved Action224 `72634bbc` remain unchanged.
+
+One normal repository assignment at13:00:50Z changed version78 to79, selecting
+OCR4/OCR5 on the existing GPT-6.1 profile and keeping the same three selected
+MCP connections. Workspace21, all seven connection definitions and secrets,
+and provider profiles remained unchanged. Root reopened PR132 once for a fresh
+canary after that actual server change. Final acceptance and cleanup are pending.
+The exact retained terminal PR134 authorization belongs to the memory workstream;
+its completed execution and cleaned allocations are preserved without revocation.
