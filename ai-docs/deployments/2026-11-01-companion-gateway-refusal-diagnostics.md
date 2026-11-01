@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status     | Actual application revision                | Evidence / next step                                                                                       |
-| ----------- | ---------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`  | Not selected for this task                 | Owner selected direct production delivery in the source session.                                           |
-| production  | `deployed` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Fleet, worker privileges and readiness pass; fresh two-reviewer Gateway/MCP acceptance and cleanup passed. |
+| Environment | Status        | Actual application revision                | Evidence / next step                                                                                                                                       |
+| ----------- | ------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                                                           |
+| production  | `in_progress` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Gateway/MCP acceptance passed; follow-up verification found two new repository first-binding permission failures; bounded grant qualification in progress. |
 
 ## Failure and evidence
 
@@ -200,3 +200,42 @@ uses the preserved previous application containers; no schema rollback is needed
   checks passed. The exact-installed-source candidate remains staged only;
   neither it nor current Gateway main was deployed. Successful acceptance needs
   no additional Gateway restart or V3 cleanup.
+
+## Follow-up: first-time repository identity binding
+
+A later live run of the strengthened release verifier selected the inspected
+worker ID in the same remote invocation and surfaced two new
+`installation.sync_requested` permission dead letters, at 17:10:26 and 17:13:02
+UTC. The six earlier any-column/table probes still passed. The new repository
+rows exist and received inventory updates, but remain without SCM identity
+bindings. The registered identities remain unbound because the binding
+transaction rolls back when it updates `RepositoryConnection.scmRepositoryIdentityId`.
+
+The narrow supplemental grant omitted UPDATE on that single column. Installed
+migration 000133 already protects this transition: only a first binding to an
+identity declaring the same connection and workspace is accepted; clearing,
+retargeting and parent moves remain forbidden. Read-only source/runtime audit
+confirmed the exact guard body, trusted owner, enabled trigger and actual worker
+`session_user` / `current_user` both equal to `reviewrouter_worker`.
+
+The corrective grant adds only that UPDATE column, retaining the forbidden
+identity INSERT and absence of table-level writes. Before granting, it checks
+the qualified guard body SHA256
+`2dba7b0fe03733cbe66ae6f61331e449ac679c866af6a0d1d43fc81acbd72771`,
+owner, search path and complete enabled trigger. It uses the existing
+activation/migration advisory fence with a bounded timeout. It changes neither
+routine bodies nor activation trust roots. Canonical ACL alignment and the
+separate INSERT-guard gap remain tracked in issue #761.
+
+The checker now has a seventh probe for the specific binding column, preserving
+expected-role and unknown-role refusals. Both the dedicated worker and default
+shared self-hosted `reviewrouter` policy use these worker requirements. The
+operator verifies the entire fleet before invoking the checker in the already
+inspected worker by immutable container ID, passing the local checker bytes as
+data. Missing/failing fleet or database checks stop before readiness.
+
+Rollout remains in progress until the real PostgreSQL guard contract passes,
+the committed narrow grant is applied, the two preserved permission events are
+retried through the existing outbox transition, and final live verification
+passes all seven probes and readiness. Application rebuild, inference replay and
+Gateway restart are unnecessary for this operator/grant correction.

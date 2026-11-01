@@ -34,7 +34,8 @@ allowed. If you give the app, worker and web separate database roles, a missing
 grant does not show up in tests or at startup. It shows up later as events that
 fail with `permission denied` until they are dead lettered, for example
 repository sync or statistics. After each deploy run this with the worker DATABASE_URL
-(the currently supported privilege policy is `reviewrouter_worker`):
+(the supported policies are the dedicated `reviewrouter_worker` role and the
+default shared Compose role `reviewrouter`):
 
 ```bash
 DATABASE_URL=... node scripts/check-runtime-db-privileges.mjs

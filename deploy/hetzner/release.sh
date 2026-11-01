@@ -166,14 +166,18 @@ REMOTE
 }
 
 cmd_verify() {
-  local sha="$1"
-  remote "SRC=$sha" <<'REMOTE'
+  local sha="$1" checker
+  # Carry the local checker as data, without uploading an executable or
+  # interpolating JavaScript into the remote shell.
+  checker=$(base64 < "$ROOT/scripts/check-runtime-db-privileges.mjs" | tr -d '\n')
+  remote "SRC=$sha" "DB_CHECK_B64=$checker" <<'REMOTE'
 set -euo pipefail
 python3 - "$SRC" <<'PYVERIFY'
-import json, subprocess, sys
+import base64, json, os, subprocess, sys
 expected = sys.argv[1]
 names = subprocess.check_output(["docker", "ps", "--format", "{{.Names}}"], text=True).splitlines()
 roles = {"web": "-web-", "api": "-api-", "worker": "-worker-", "scan": "skills-scan-worker"}
+verified = {}
 for role, marker in roles.items():
     matches = [n for n in names if n.startswith("rr-") and marker in n and "before" not in n and "scanner" not in n and (role != "worker" or "skills-scan" not in n)]
     if len(matches) != 1:
@@ -185,16 +189,14 @@ for role, marker in roles.items():
         raise SystemExit(f"verify: {role} state or revision mismatch")
     if state.get("Health", {}).get("Status", "healthy") != "healthy":
         raise SystemExit(f"verify: {role} is unhealthy")
+    verified[role] = c["Id"]
     print(f"{role}: running, no restarts, revision={revision}")
+subprocess.run(["docker", "exec", "-i", "-w", "/app",
+                "-e", "REVIEW_ROUTER_EXPECT_DB_ROLE=reviewrouter_worker",
+                verified["worker"], "node", "--input-type=module", "-"],
+               input=base64.b64decode(os.environ["DB_CHECK_B64"], validate=True), check=True)
 PYVERIFY
 REMOTE
-  if [ "$DRY_RUN" = 1 ]; then
-    echo "[dry-run] ssh $RR_HOST docker exec worker: runtime database privilege check"
-  else
-    ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$RR_HOST" \
-      "sudo -n docker exec -i -w /app -e REVIEW_ROUTER_EXPECT_DB_ROLE=reviewrouter_worker rr-worker-cap-successor-newtest-20261008-v23-worker-1 node --input-type=module -" \
-      < "$ROOT/scripts/check-runtime-db-privileges.mjs"
-  fi
   check_ready
 }
 
