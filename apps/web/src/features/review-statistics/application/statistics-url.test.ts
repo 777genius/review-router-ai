@@ -48,7 +48,7 @@ describe("Statistics shared URL", () => {
       ).toBeNull();
     },
   );
-  it("keeps chart-only metric separate from server filters and preserves scope", () => {
+  it("keeps chart metric separate and preserves URL scope", () => {
     expect(statisticsActivityMetricFromUrl(new URLSearchParams())).toBe(
       defaultStatisticsActivityMetric,
     );
@@ -59,7 +59,9 @@ describe("Statistics shared URL", () => {
     ).toBe("reviews");
     expect(
       statisticsActivityMetricFromUrl(
-        new URLSearchParams("statisticsMetric=reviews&statisticsMetric=reviews"),
+        new URLSearchParams(
+          "statisticsMetric=reviews&statisticsMetric=reviews",
+        ),
       ),
     ).toBeNull();
     expect(
@@ -78,7 +80,7 @@ describe("Statistics shared URL", () => {
       ),
     ).toBe("/dashboard?section=statistics&workspace=team&keep=x#scope");
   });
-  it("resets every known occurrence and preserves unrelated scope and hash", () => {
+  it("resets duplicate filters and preserves scope", () => {
     const href =
       "https://local.invalid/dashboard?section=statistics&workspace=team&statisticsDays=7&statisticsDays=90&statisticsSeverity=major&keep=a&keep=b#issues";
     expect(statisticsFilterUrl(href, defaultStatisticsFilter)).toBe(
