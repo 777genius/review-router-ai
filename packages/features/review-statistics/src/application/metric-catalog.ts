@@ -8,7 +8,10 @@ export type StatisticsMetricDefinition = {
   readonly description: string;
   readonly valueKey: "reviews" | "pullRequestsReviewed" | "issuesCaught";
   readonly unit: "reviews" | "pull_requests" | "issues";
-  readonly grain: "published_execution" | "repository_pull_request" | "issue_lineage";
+  readonly grain:
+    | "published_execution"
+    | "repository_pull_request"
+    | "issue_lineage";
   readonly aggregation: "count" | "distinct" | "first_occurrence";
   readonly dimensions: readonly ("day" | "top_repositories" | "severity")[];
   readonly coverage: "published_review_capture";
@@ -23,7 +26,8 @@ export const statisticsMetricCatalog = [
     id: "reviews.published",
     version: 1,
     label: "Published reviews",
-    description: "Successful published executions; real reruns count, event replays do not.",
+    description:
+      "Successful published executions; real reruns count, event replays do not.",
     valueKey: "reviews",
     unit: "reviews",
     grain: "published_execution",
@@ -35,7 +39,8 @@ export const statisticsMetricCatalog = [
     id: "reviews.unique_prs",
     version: 1,
     label: "Pull requests reviewed",
-    description: "Distinct SCM repository and pull request within the selected period; daily counts are not additive.",
+    description:
+      "Distinct SCM repository and pull request within the selected period; daily counts are not additive.",
     valueKey: "pullRequestsReviewed",
     unit: "pull_requests",
     grain: "repository_pull_request",
@@ -47,7 +52,8 @@ export const statisticsMetricCatalog = [
     id: "issues.first_seen",
     version: 1,
     label: "Issues caught",
-    description: "Distinct first-recorded issue lineages; findings are not independently verified bugs.",
+    description:
+      "Distinct first-recorded issue lineages; findings are not independently verified bugs.",
     valueKey: "issuesCaught",
     unit: "issues",
     grain: "issue_lineage",
