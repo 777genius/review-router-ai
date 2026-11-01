@@ -184,7 +184,13 @@ export function StatisticsCharts({
             value={metric}
             options={statisticsMetricCatalog
               .filter((item) => item.valueKey !== "issuesCaught")
-              .map((item) => ({ value: item.valueKey, label: item.label }))}
+              .map((item) => ({
+                value: item.valueKey,
+                label:
+                  item.valueKey === "pullRequestsReviewed"
+                    ? "PRs reviewed"
+                    : item.label,
+              }))}
             onValueChange={(value) =>
               onMetricChange(value as StatisticsActivityMetric)
             }

@@ -446,7 +446,7 @@ export async function qualifyFollowthrough(input: Scenario) {
   await input.openWorkspace(page, main.slug);
   await statistics()
     .getByRole("combobox", { name: /Chart metric/ })
-    .getByText("Pull requests reviewed", { exact: true })
+    .getByText("PRs reviewed", { exact: true })
     .waitFor();
   await page.evaluate((value) => {
     (
@@ -618,7 +618,7 @@ export async function qualifyFollowthrough(input: Scenario) {
       .isEnabled(),
   );
   await choose(page, "Chart metric", "Published reviews", true);
-  await choose(page, "Chart metric", "Pull requests reviewed", true);
+  await choose(page, "Chart metric", "PRs reviewed", true);
   await assertSelectedLabelsFit(page, "Review statistics");
   await snapshot(page, "followthrough-statistics-text-zoom.png");
   await setTextSize(page, "");
