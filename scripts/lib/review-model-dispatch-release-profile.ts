@@ -1,8 +1,6 @@
 import { parseReviewAgentProfiles } from "../../packages/shared/dist/review-agent-profile.js";
-import {
-  assertReviewModelDispatchDefaultAgents,
-  parseReviewModelDispatchProfileV2,
-} from "../../packages/shared/dist/review-model-dispatch-contract.js";
+import { parseReviewModelDispatchProfileV2 } from "../../packages/shared/dist/review-model-dispatch-contract.js";
+import { assertReviewModelDispatchDefaultAgents } from "../../packages/shared/dist/review-model-dispatch-default-agents.js";
 
 // Reviewed S2 contract bytes. Append qualified identities rather than trusting
 // a caller-provided digest or executing code from the public repository.

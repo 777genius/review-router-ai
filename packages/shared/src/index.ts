@@ -7,6 +7,7 @@ export * from "./scm/index";
 export * from "./time/index";
 export * from "./validation/index";
 export * from "./review-model-dispatch-contract";
+export * from "./review-model-dispatch-default-agents";
 export { reviewRouterApiUrlsMatch } from "./reviewrouter-service-origin";
 export {
   providerApiCheckoutCompanionContract,

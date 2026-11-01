@@ -1,5 +1,3 @@
-import type { ReviewAgentProfile } from "./review-agent-profile.js";
-
 export const reviewModelWireProtocols = [
   "openai-responses",
   "codex-responses",
@@ -302,28 +300,6 @@ export function parseReviewModelDispatchProfileV2(
     }),
     limits: parseReviewModelDispatchLimitsV2(value.limits),
   }) as ReviewModelDispatchProfileV2;
-}
-
-/** A committed dispatch default must resolve to the exact qualified OCR engine.
- * This validation is shared by release scripts, operator input and registry. */
-export function assertReviewModelDispatchDefaultAgents(
-  profile: ReviewModelDispatchProfileV2,
-  catalog: readonly ReviewAgentProfile[],
-): void {
-  for (const transport of profile.transports) {
-    const ref = profile.defaultAgentProfileRefs[transport];
-    const agent = catalog.find((item) => item.profileRef === ref);
-    const requiredTransport =
-      transport === "account_gateway" ? "account_gateway" : "provider_api";
-    if (
-      !agent ||
-      agent.agentKind !== "ocr" ||
-      agent.reviewSkillsVersion !== 1 ||
-      !agent.modelTransports.includes(requiredTransport)
-    ) {
-      throw new Error(`model dispatch default agent is incompatible: ${transport}`);
-    }
-  }
 }
 
 export function parseReviewModelDispatchCapabilityV2(
