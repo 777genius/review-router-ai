@@ -61,10 +61,32 @@ Disposition: **accepted** as the final design plan. At design-review time, no im
 actual external review, E2E, production replay or merge is implied by this
 design acceptance.
 
-## Execution journal (fill with real evidence)
+## Execution journal (updated 2026-11-01)
 
-- Plan publication: pending.
-- PR A: pending.
-- PR B: pending.
-- PR C: pending.
-- Production role/replay and deploy: not verified; operator-owned.
+- Plan published in [PR #768](https://github.com/777genius/review-router-ai/pull/768).
+- PR A [#768](https://github.com/777genius/review-router-ai/pull/768):
+  merged as `3c8d6eab`; required CI and browser E2E passed.
+- PR B [#769](https://github.com/777genius/review-router-ai/pull/769):
+  merged as `c12bf4a9`; required CI and browser E2E passed.
+- PR C [#770](https://github.com/777genius/review-router-ai/pull/770):
+  implemented; final merge and post-merge checks pending at this checkpoint.
+  Previous exact-head CI, PostgreSQL and browser E2E passed.
+- Production role/replay and deployment: unverified; operator-owned.
+
+## Historical execution snapshot (2026-10-31; superseded above)
+
+- Catalog [PR #768](https://github.com/777genius/review-router-ai/pull/768):
+  branch built after approved plan; Chromium Statistics followthrough CI
+  succeeded at `f8d4cb771ebdc7dd1c0615572ec5091e60ece892`.
+  Full repository CI and independent functional review remain pending.
+- UI [PR #769](https://github.com/777genius/review-router-ai/pull/769):
+  URL/SSR chart metric with focused URL/component tests; Strix security
+  review reported no open findings. Full CI/E2E pending.
+- Diagnostics [PR #770](https://github.com/777genius/review-router-ai/pull/770):
+  read-only operator queue summary, fixed-operation slow read timing and
+  future fact contract. Strix security review reported no open findings.
+  Full CI/E2E pending.
+- CodeRabbit auto-review was unavailable on the stacked branches; do not
+  describe it as a successful code review.
+- No hosted deployment, historical outbox replay or production reconciliation
+  has been performed in this initiative. Do not conflate CI with live rollout.
