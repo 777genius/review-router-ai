@@ -11,6 +11,7 @@ import {
 } from "../../src/features/review-statistics/interface/statistics-filter-controls";
 import {
   statisticsFilterFromUrl,
+  statisticsActivityMetricFromUrl,
   statisticsSearchParams,
 } from "../../src/features/review-statistics/application/statistics-url";
 import { StatisticsRetry } from "../../src/features/review-statistics/interface/statistics-retry";
@@ -22,8 +23,10 @@ export async function ReviewStatisticsSection({
   workspaceId: string;
   params?: Record<string, string | string[] | undefined>;
 }) {
-  const filter = statisticsFilterFromUrl(statisticsSearchParams(params));
-  if (!filter)
+  const search = statisticsSearchParams(params);
+  const filter = statisticsFilterFromUrl(search);
+  const metric = statisticsActivityMetricFromUrl(search);
+  if (!filter || !metric)
     return (
       <section
         id="dashboard-section-content"
@@ -42,6 +45,7 @@ export async function ReviewStatisticsSection({
         workspaceId={workspaceId}
         seedId={randomUUID()}
         initialReport={report}
+        initialMetric={metric}
       />
     );
   } catch (error) {

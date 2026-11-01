@@ -199,6 +199,7 @@ boundaries:
       - packages/features/provider-usage/src/application
     entrypoints:
       - packages/features/provider-usage/src/application/ingest-usage.ts
+      - packages/features/provider-usage/src/application/metric-catalog.ts
       - packages/features/provider-usage/src/application/operator-report.ts
       - packages/features/provider-usage/src/application/ports.ts
       - packages/features/provider-usage/src/application/report-usage.ts
@@ -539,6 +540,7 @@ boundaries:
       - packages/features/review-statistics/src/application
     entrypoints:
       - packages/features/review-statistics/src/application/ports.ts
+      - packages/features/review-statistics/src/application/metric-catalog.ts
     allow:
       boundaries:
         - "statistics.domain"
