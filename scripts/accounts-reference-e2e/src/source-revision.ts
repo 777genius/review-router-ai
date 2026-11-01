@@ -29,10 +29,18 @@ export async function readSourceRevision(
   } catch {
     // Source copies without their own readable Git identity stay unknown.
   }
-  if (expectedRevision !== null && revision !== expectedRevision) {
-    throw new Error(
-      `accounts_reference_e2e_revision_mismatch:expected=${expectedRevision}:actual=${revision}`,
-    );
+  if (expectedRevision !== null) {
+    if (revision !== expectedRevision) {
+      throw new Error(
+        `accounts_reference_e2e_revision_mismatch:expected=${expectedRevision}:actual=${revision}`,
+      );
+    }
+    // A SHA receipt is valid only for the bytes actually executed.
+    const { stdout } = await execFileAsync("git", [
+      "-C", repoRoot, "status", "--porcelain=v1", "--untracked-files=all",
+    ]);
+    if (stdout.length > 0)
+      throw new Error("accounts_reference_e2e_expected_revision_dirty_checkout");
   }
   return revision;
 }

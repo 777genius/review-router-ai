@@ -1029,6 +1029,11 @@ jobs:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
 
+      - name: Build shared release-contract parsing helpers
+        run: |
+          pnpm --filter @reviewrouter/shared build
+          node scripts/rewrite-dist-esm-imports.mjs
+
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check
 

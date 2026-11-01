@@ -233,6 +233,7 @@ export async function getValidGitHubUserAccessToken(input: {
       await input.prisma.repositoryPermissionCache.deleteMany({
         where: { userId: input.userId },
       });
+      return { status: "revoked", errorCode: refreshed.errorCode };
     }
     return { status: "refresh_failed", errorCode: refreshed.errorCode };
   }

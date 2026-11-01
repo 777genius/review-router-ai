@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -98,6 +99,35 @@ describe("Accounts browser source revision", () => {
     await expect(readSourceRevision(directory, null)).resolves.toBe(expected);
   });
 
+  it.each(["staged", "unstaged", "untracked"] as const)(
+    "rejects a %s source change with an expected revision",
+    async (mode) => {
+      commitRepository(directory);
+      const tracked = join(directory, "tracked.txt");
+      writeFileSync(tracked, "original\n");
+      execFileSync("git", ["-C", directory, "add", "tracked.txt"]);
+      execFileSync("git", [
+        "-C", directory, "-c", "user.name=Fixture",
+        "-c", "user.email=fixture@example.test",
+        "-c", "commit.gpgsign=false", "commit", "-qm", "tracked fixture",
+      ]);
+      const actual = execFileSync("git", ["-C", directory, "rev-parse", "HEAD"], {
+        encoding: "utf8",
+      }).trim();
+      if (mode === "untracked")
+        writeFileSync(join(directory, "new.txt"), "new\n");
+      else {
+        writeFileSync(tracked, "modified\n");
+        if (mode === "staged")
+          execFileSync("git", ["-C", directory, "add", "tracked.txt"]);
+      }
+      await expect(readSourceRevision(directory, actual)).rejects.toThrow(
+        "accounts_reference_e2e_expected_revision_dirty_checkout",
+      );
+      await expect(readSourceRevision(directory, null)).resolves.toBe(actual);
+    },
+  );
+
   it("rejects a different committed revision", async () => {
     const actual = commitRepository(directory);
     const expected = "0".repeat(40);
@@ -143,6 +173,7 @@ describe("Accounts browser source revision", () => {
       "cli.ts",
       "contracts.ts",
       "source-revision.ts",
+      "warm-next-client-scripts.ts",
     ]) {
       copyFileSync(
         join(harnessRoot, "src", name),

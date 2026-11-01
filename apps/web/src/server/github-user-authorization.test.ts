@@ -144,7 +144,7 @@ describe("GitHub user authorization", () => {
         fetch: fetchMock,
       }),
     ).resolves.toMatchObject({
-      status: "refresh_failed",
+      status: "revoked",
       errorCode: "github_user_token_refresh_bad_verification_code",
     });
     expect(updateMany).toHaveBeenCalledWith(
@@ -156,6 +156,40 @@ describe("GitHub user authorization", () => {
       }),
     );
     expect(deleteMany).toHaveBeenCalledWith({ where: { userId: "user_1" } });
+  });
+
+  it("keeps temporary GitHub refresh failures retryable", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const deleteMany = vi.fn();
+    const prisma = {
+      gitHubUserAuthorization: {
+        findUnique: vi.fn().mockResolvedValue({
+          encryptedAccessToken: encryptServerToken("ghu_old", env),
+          encryptedRefreshToken: encryptServerToken("ghr_old", env),
+          accessTokenExpiresAt: new Date("2026-05-12T10:01:00Z"),
+          refreshTokenExpiresAt: new Date("2026-06-12T10:00:00Z"),
+          revokedAt: null,
+          lastErrorCode: null,
+        }),
+        updateMany,
+      },
+      repositoryPermissionCache: { deleteMany },
+    } as unknown as PrismaClient;
+    await expect(
+      getValidGitHubUserAccessToken({
+        prisma,
+        env,
+        userId: "user_1",
+        now: new Date("2026-05-12T10:00:00Z"),
+        fetch: vi.fn().mockResolvedValue(new Response("Temporary failure", { status: 503 })),
+      }),
+    ).resolves.toMatchObject({ status: "refresh_failed" });
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ revokedAt: null }),
+      }),
+    );
+    expect(deleteMany).not.toHaveBeenCalled();
   });
 
   it("marks authorization revoked and clears cache when refresh token expired", async () => {
