@@ -42,6 +42,9 @@ function DailyTooltip({
 }) {
   const row = payload?.[0]?.payload;
   if (!active || !row) return null;
+  const metricDefinition = metric
+    ? statisticsMetricCatalog.find((item) => item.valueKey === metric)
+    : undefined;
   return (
     <div className={styles.tooltip}>
       <strong>{fullDayLabel(row.day)} · UTC</strong>
@@ -52,8 +55,7 @@ function DailyTooltip({
         <>
           {metric ? (
             <div>
-              {statisticsMetricCatalog.find((item) => item.valueKey === metric)
-                ?.label}:{" "}
+              {metricDefinition?.label}:{" "}
               {count(row[metric] ?? 0)}
             </div>
           ) : (
@@ -76,7 +78,7 @@ function DailyChart({
   metric,
 }: {
   report: StatisticsReport;
-  metric?: ReviewMetric;
+  metric?: StatisticsActivityMetric;
 }) {
   const severity = report.filter.severity;
   return (
@@ -168,6 +170,9 @@ export function StatisticsCharts({
     repository?: StatisticsReport["topRepositoriesByIssues"][number],
   ) => void;
 }) {
+  const metricDefinition = statisticsMetricCatalog.find(
+    (item) => item.valueKey === metric,
+  );
   return (
     <div className={styles.chartGrid}>
       <section className={styles.chartSection} aria-label="Review activity">
@@ -189,8 +194,7 @@ export function StatisticsCharts({
         <div className={styles.chartBody}>
           <DailyChart report={report} metric={metric} />
           <p className={styles.legend}>
-            {statisticsMetricCatalog.find((item) => item.valueKey === metric)
-              ?.description}{" "}
+            {metricDefinition?.description}{" "}
             · Daily UTC counts · today in progress
           </p>
         </div>
