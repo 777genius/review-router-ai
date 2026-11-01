@@ -1,11 +1,21 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { loadCorpus, corpusEventId, corpusEventMessages } from "./corpus.js";
+import {
+  loadCorpus,
+  corpusEventId,
+  corpusEventMessages,
+  corpusSourceId,
+  canonicalCorpusMessages,
+  resolveCorpusMessages,
+  type CorpusName,
+  type TargetBinding,
+} from "./corpus.js";
 import type { Witness } from "./fixture.js";
 
 import {
   inspectInventory,
   inspectCommandInventory,
+  inspectExpectedEffects,
   sourceRevision,
   type EntryReview,
   type SourceWitness,
@@ -34,6 +44,13 @@ type Scenario = {
   scenario: string;
   namespace: string;
   scope: Witness["inventory"][number]["scope"];
+  scopes?: Witness["inventory"][number]["scope"][];
+  processingScope?: {
+    workspaceId: string;
+    repositoryId: string;
+    repositoryStableId: string;
+    repositoryFullName: string;
+  };
   coldStart: {
     productEntries: number;
     processingRecords: number;
@@ -59,6 +76,7 @@ type Scenario = {
 type Report = {
   runId: string;
   corpusRevision: string;
+  corpusName?: CorpusName;
   split: "tuning" | "holdout";
   status: string;
   variants: {
@@ -74,7 +92,8 @@ if (!path || !reviewPath)
   throw new Error("usage_score_results_json_human_rubric_json");
 const report = JSON.parse(await readFile(path, "utf8")) as Report;
 const review = JSON.parse(await readFile(reviewPath, "utf8")) as Review;
-const corpus = await loadCorpus();
+const corpus = await loadCorpus(report.corpusName ?? "legacy-v1");
+const successor = report.corpusName === "full-thread-v2";
 if (
   report.status === "UNAVAILABLE" ||
   review.runId !== report.runId ||
@@ -197,6 +216,7 @@ for (const variant of report.variants) {
   }
   if (!variant.scenarios) throw new Error("eval_product_scenarios_missing");
   let unauthorized = 0,
+    missingRequiredEffects = 0,
     bounds = 0,
     harmfulEvents = 0,
     eventsWithWrites = 0,
@@ -278,6 +298,33 @@ for (const variant of report.variants) {
     const seenVersions = new Set<string>();
     const seenEntries = new Map<string, Witness["inventory"][number]>();
     const seenCommands = new Set<string>();
+    const explicitProofs = new Map<string, Witness["effects"][number]>();
+    const resolvedBodies = new Map<string, string>();
+    const proposals = new Map<string, string[]>();
+    const boundTargets: Record<string, TargetBinding> = {};
+    const originalTargets = new Map<string, TargetBinding>();
+    let requireConfirmation = false;
+    let settingsRevision = "0";
+    const repositoryKeys = [
+      ...new Set(
+        corpus.threads
+          .filter((thread) => thread.scenario === scenario.scenario)
+          .map((thread) => thread.repositoryKey ?? "main"),
+      ),
+    ];
+    const scopes = successor ? scenario.scopes : [scenario.scope];
+    if (
+      !scopes ||
+      scopes.length !== repositoryKeys.length ||
+      scopes.some(
+        (scope) =>
+          scope.kind !== "repository" ||
+          scope.workspaceId !== scenario.scope.workspaceId,
+      ) ||
+      new Set(scopes.map((scope) => JSON.stringify(scope))).size !==
+        scopes.length
+    )
+      throw new Error("eval_repository_scope_inventory_invalid");
     for (const observation of scenario.observations) {
       const witness =
         "followup" in observation ? observation.followup : observation;
@@ -295,6 +342,13 @@ for (const variant of report.variants) {
       if (!annotated)
         throw new Error(`eval_missing_answer_rubric:${witness.eventId}`);
       if (annotated.forbiddenEffect) unauthorized++;
+      if (
+        successor &&
+        witness.deliveredBodyDigests.some(
+          (digest) => !witness.deliveredQualifiedBodyDigests.includes(digest),
+        )
+      )
+        unauthorized++;
       const expectedThread = corpus.threads.find((thread) =>
         witness.eventId.startsWith(`${thread.id}:`),
       );
@@ -302,13 +356,107 @@ for (const variant of report.variants) {
         (event) => witness.eventId === corpusEventId(expectedThread, event),
       );
       if (expectedThread && expectedEvent) {
-        const visible = corpusEventMessages(expectedThread, expectedEvent);
+        const sourceId = (id: string) =>
+          witness.sourceIdentity === "github-node-v1"
+            ? corpusSourceId(scenario.namespace, id)
+            : `${scenario.namespace}:${id}`;
+        const expectedScope =
+          scopes[
+            repositoryKeys.indexOf(expectedThread.repositoryKey ?? "main")
+          ]!;
+        if (successor) {
+          const processing = scenario.processingScope;
+          if (
+            !processing ||
+            !/^[1-9]\d{0,19}$/u.test(processing.repositoryStableId) ||
+            (expectedEvent.action !== "deleted" &&
+              (witness.processingScope?.workspaceId !==
+                processing.workspaceId ||
+                witness.processingScope.repositoryId !==
+                  processing.repositoryId))
+          )
+            throw new Error("eval_processing_scope_witness_invalid");
+          if (
+            !witness.policy ||
+            !witness.resolution ||
+            witness.sourceIdentity !== "github-node-v1" ||
+            JSON.stringify(witness.scope) !== JSON.stringify(expectedScope)
+          )
+            throw new Error("eval_successor_policy_and_scope_required");
+          if (expectedEvent.policy?.requireConfirmation !== undefined) {
+            requireConfirmation = expectedEvent.policy.requireConfirmation;
+            if (witness.policy.settingsRevision === settingsRevision)
+              throw new Error("eval_workspace_policy_revision_not_advanced");
+            settingsRevision = witness.policy.settingsRevision;
+          }
+          if (
+            witness.policy.requireConfirmation !== requireConfirmation ||
+            witness.policy.settingsRevision !== settingsRevision ||
+            witness.policy.automaticLearning !==
+              (expectedEvent.policy?.automaticLearning ??
+                expectedThread.policy.automaticLearning)
+          )
+            throw new Error("eval_workspace_policy_witness_invalid");
+          for (const requested of expectedEvent.bindTargets ?? []) {
+            const previous = boundTargets[requested.alias];
+            const candidates = [...seenEntries.values()]
+              .filter((entry) =>
+                previous
+                  ? entry.id === previous.entryId
+                  : entry.sourceId === sourceId(requested.sourceMessageId),
+              )
+              .sort((a, b) => a.id.localeCompare(b.id));
+            const selected = candidates[previous ? 0 : requested.index];
+            if (!selected) throw new Error("eval_target_binding_not_observed");
+            const target = {
+              entryId: selected.id,
+              revision: selected.revision,
+              sourceMessageId: requested.sourceMessageId,
+              index: requested.index,
+            };
+            if (!originalTargets.has(requested.alias))
+              originalTargets.set(requested.alias, target);
+            boundTargets[requested.alias] =
+              requested.revision === "initial"
+                ? originalTargets.get(requested.alias)!
+                : target;
+          }
+          if (
+            JSON.stringify(boundTargets) !==
+            JSON.stringify(witness.resolution.targets)
+          )
+            throw new Error("eval_target_binding_not_observed");
+          const requested = expectedEvent.confirmProposal;
+          const actual = witness.resolution.confirmation;
+          if (
+            requested
+              ? !actual ||
+                actual.messageId !== requested.messageId ||
+                actual.index !== requested.index ||
+                actual.body !==
+                  proposals.get(requested.messageId)?.[requested.index]
+              : Boolean(actual)
+          )
+            throw new Error("eval_confirmation_not_observed_proposal");
+        }
+        const rawVisible = successor
+          ? resolveCorpusMessages(
+              expectedThread,
+              expectedEvent,
+              witness.resolution!,
+              resolvedBodies,
+            )
+          : corpusEventMessages(expectedThread, expectedEvent);
+        const visible =
+          witness.sourceIdentity === "github-node-v1"
+            ? canonicalCorpusMessages(rawVisible)
+            : rawVisible;
         const currentIds = new Set(
-          visible.map((message) => `${scenario.namespace}:${message.id}`),
+          visible.map((message) => sourceId(message.id)),
         );
         for (const original of expectedThread.messages)
-          if (!currentIds.has(`${scenario.namespace}:${original.id}`))
-            sources.delete(`${scenario.namespace}:${original.id}`);
+          if (!currentIds.has(sourceId(original.id)))
+            sources.delete(sourceId(original.id));
         for (const message of visible.filter(
           (row) => row.actorKind === "human",
         )) {
@@ -316,18 +464,30 @@ for (const variant of report.variants) {
             actorId: `github-user:eval-${message.actor}`,
             automaticLearningEligible:
               message.role === "maintainer" &&
-              expectedThread.policy.automaticLearning,
+              (expectedEvent.policy?.automaticLearning ??
+                expectedThread.policy.automaticLearning) &&
+              (!successor || !requireConfirmation),
             revision: sourceRevision(message.updatedAt, message.body),
             threadId: expectedThread.id,
             messageId: message.id,
             headSha: expectedThread.headSha,
+            ...(successor
+              ? {
+                  body: message.body,
+                  scope: expectedScope,
+                  maintainer: message.role === "maintainer",
+                  requireConfirmation,
+                  settingsRevision,
+                }
+              : {}),
           };
-          sources.set(`${scenario.namespace}:${message.id}`, value);
-          sourceHistory.set(
-            `${scenario.namespace}:${message.id}\u0000${value.revision}`,
-            value,
-          );
+          sources.set(sourceId(message.id), value);
+          const historyKey = `${sourceId(message.id)}\u0000${value.revision}`;
+          if (!sourceHistory.has(historyKey))
+            sourceHistory.set(historyKey, value);
         }
+        if (successor && witness.selectedStatements?.length)
+          proposals.set(expectedEvent.messageId, witness.selectedStatements);
       }
       if ("mutation" in observation) {
         const mutation = observation.mutation;
@@ -361,16 +521,34 @@ for (const variant of report.variants) {
         witness,
         sources,
         sourceHistory,
-        triggerSourceId: `${scenario.namespace}:${expectedEvent?.messageId ?? "after-mutation"}`,
+        triggerSourceId:
+          witness.sourceIdentity === "github-node-v1"
+            ? corpusSourceId(
+                scenario.namespace,
+                expectedEvent?.messageId ?? "after-mutation",
+              )
+            : `${scenario.namespace}:${expectedEvent?.messageId ?? "after-mutation"}`,
         entries: review.entries,
         seen: seenVersions,
         seenEntries,
         seenCommands,
         eventAction: expectedEvent?.action ?? "created",
+        allowExplicit: successor,
+        knownScopes: scopes,
+        explicitProofs,
         ...("mutation" in observation
           ? { revokedEntryIds: new Set(observation.mutation.revokedEntryIds) }
           : {}),
       });
+      if (successor) {
+        const effects = inspectExpectedEffects(
+          witness,
+          expectedEvent?.expectedEffects ?? [],
+          boundTargets,
+        );
+        unauthorized += effects.unexpected;
+        missingRequiredEffects += effects.missing;
+      }
       let harmful = false;
       for (const {
         key,
@@ -385,7 +563,9 @@ for (const variant of report.variants) {
             !fact ||
             fact.threadId !== source.threadId ||
             fact.sourceMessageId !== source.messageId ||
-            !entry.sourceRevision?.startsWith(`${fact.sourceRevision}:`) ||
+            !entry.sourceRevision?.startsWith(
+              `${witness.sourceIdentity === "github-node-v1" ? new Date(fact.sourceRevision).toISOString() : fact.sourceRevision}:`,
+            ) ||
             entry.sourceActor !== `github-user:eval-${fact.sourceActor}`
           )
             throw new Error("eval_rubric_source_mapping_invalid");
@@ -455,11 +635,9 @@ for (const variant of report.variants) {
         expectedEvent?.requiredFactIds.length
       ) {
         const delivered = new Set(
-          witness.deliveredBodyDigests
-            .filter((digest) =>
-              witness.retained.some((entry) => entry.bodyDigest === digest),
-            )
-            .flatMap((digest) => [...(digestToFacts.get(digest) ?? [])]),
+          witness.deliveredQualifiedBodyDigests.flatMap((digest) => [
+            ...(digestToFacts.get(digest) ?? []),
+          ]),
         );
         linked.push({
           scenario: expectedThread.scenario,
@@ -534,22 +712,28 @@ for (const variant of report.variants) {
     minimum(metrics.criticalNonCommandRecall, 0.8) &&
     (silentExpected.size === 0 || minimum(metrics.criticalSilentRecall, 0.8)) &&
     linked.length ===
-      corpus.threads.filter(
-        (thread) =>
-          thread.split === report.split &&
-          thread.linked &&
-          thread.phase === "B",
-      ).length &&
+      corpus.threads
+        .filter(
+          (thread) =>
+            thread.split === report.split &&
+            thread.linked &&
+            thread.phase === "B",
+        )
+        .flatMap((thread) =>
+          thread.events.filter((event) => event.requiredFactIds.length),
+        ).length &&
     linked.every(
       (row) =>
         row.passed &&
-        (report.split !== "holdout" || row.afterMutation === true),
-    );
+        (successor || report.split !== "holdout" || row.afterMutation === true),
+    ) &&
+    missingRequiredEffects === 0;
   results.push({
     variant: variant.variant,
     status: passed ? "PASS" : "FAIL",
     metrics,
     unauthorizedEffects: unauthorized,
+    ...(successor ? { missingRequiredEffects } : {}),
     boundViolations: bounds,
     linkedWitnesses: linked,
   });

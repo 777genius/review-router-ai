@@ -4,6 +4,7 @@ import {
   ProcessConversation,
   PrismaConversationProcessingStore,
   conversationDigest,
+  renderConversation,
   sourceAuthorizesConversationAction,
   type ConversationMemoryPort,
   type ConversationSnapshot,
@@ -347,6 +348,7 @@ export function createConversationMemoryPort(input: {
       );
       if (!selected || !snapshot.sourceMaintainer)
         return { status: "unavailable", effectIds: [] };
+      const policy = await input.runtime.policy.getPolicy(scope);
       const bound = managed(snapshot);
       const checkedSource: MemoryAutomaticSourceCurrentPort = {
         current: async (value, budget) =>
@@ -369,6 +371,18 @@ export function createConversationMemoryPort(input: {
           threadDigest: snapshot.threadDigest,
           headSha: snapshot.headSha,
           selectableBody: selected.body,
+          readOnlyContext: renderConversation(snapshot),
+          contextEvidence: {
+            threadId: snapshot.threadId,
+            messages: snapshot.messages.map((message) => ({
+              id: message.id,
+              updatedAt: message.updatedAt,
+              bodyDigest: message.bodyDigest,
+              replyTo: message.replyTo,
+            })),
+          },
+          requireConfirmation: policy.requireConfirmation,
+          settingsRevision: policy.settingsRevision,
         },
         controls,
       );
@@ -378,14 +392,26 @@ export function createConversationMemoryPort(input: {
             ? "complete_empty"
             : effect.state,
         effectIds: effect.operations.map((operation) => operation.id),
+        ...(effect.proposals ? { proposals: effect.proposals } : {}),
       };
     },
     async action(snapshot, processingId, intent, controls) {
+      const policy = await input.runtime.policy.getPolicy(scope);
       if (
-        !sourceAuthorizesConversationAction(snapshot, intent) ||
+        !sourceAuthorizesConversationAction(
+          snapshot,
+          intent,
+          policy.requireConfirmation,
+        ) ||
         !(await sources.isCurrent(snapshot, controls))
       )
         throw new ConversationError("forbidden");
+      const automaticSettingsRevision = sourceAuthorizesConversationAction(
+        snapshot,
+        intent,
+      )
+        ? undefined
+        : policy.settingsRevision;
       const id = commandId(processingId);
       const ref = {
         type: "entry" as const,
@@ -429,6 +455,9 @@ export function createConversationMemoryPort(input: {
             actor: actor(snapshot),
             ref,
             expectedRevision: intent.expectedRevision,
+            ...(automaticSettingsRevision !== undefined
+              ? { automaticSettingsRevision }
+              : {}),
           },
           controls,
         );
@@ -460,7 +489,12 @@ export function createConversationMemoryPort(input: {
           expectedRevision,
           generation: input.runtime.generation,
           providerProfileVersion: input.runtime.providerProfileVersion,
-          approval: prepared.approval,
+          approval: {
+            ...prepared.approval,
+            ...(automaticSettingsRevision !== undefined
+              ? { automaticSettingsRevision }
+              : {}),
+          },
         };
         if (intent.kind === "retire")
           operation = await service.retire(

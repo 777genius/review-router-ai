@@ -8,6 +8,7 @@ import {
   corpusEventId,
   corpusEventMessages,
   type CorpusThread,
+  type CorpusName,
 } from "./corpus.js";
 
 const args = process.argv.slice(2);
@@ -15,19 +16,24 @@ const option = (name: string, fallback: string) => {
   const index = args.indexOf(name);
   return index < 0 ? fallback : (args[index + 1] ?? fallback);
 };
-const corpus = await loadCorpus();
+const corpusName = option("--corpus", "legacy-v1") as CorpusName;
+const corpus = await loadCorpus(corpusName);
 if (args.includes("--validate")) {
   console.log(
     JSON.stringify(
       {
         status: "VALID",
         revision: corpus.revision,
-        threads: 48,
-        tuning: 32,
-        holdout: 16,
+        threads: corpus.threads.length,
+        tuning: corpus.threads.filter((thread) => thread.split === "tuning")
+          .length,
+        holdout: corpus.threads.filter((thread) => thread.split === "holdout")
+          .length,
         humanEvents: corpus.threads.reduce((n, t) => n + t.events.length, 0),
         eligibleFacts: corpus.facts.length,
-        linkedPairs: 8,
+        linkedPairs: corpus.threads.filter(
+          (thread) => thread.linked && thread.phase === "A",
+        ).length,
       },
       null,
       2,
@@ -62,6 +68,7 @@ if (args.includes("--validate")) {
     version: string;
     runId: string;
     corpusRevision: string;
+    corpusName: CorpusName;
     split: string;
     holdoutCheckpoint: string | null;
     status: string;
@@ -71,6 +78,7 @@ if (args.includes("--validate")) {
     version: "conversation-quality-results.v1",
     runId,
     corpusRevision: corpus.revision,
+    corpusName,
     split,
     holdoutCheckpoint:
       process.env.CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID ?? null,
@@ -227,6 +235,12 @@ if (args.includes("--validate")) {
           env: process.env,
           runId: `${runId}:${variant}`,
           scenario,
+          corpusName,
+          repositoryKeys: [
+            ...new Set(
+              scenarioThreads.map((thread) => thread.repositoryKey ?? "main"),
+            ),
+          ],
           template: {
             workspaceId: process.env.CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID!,
             repositoryId: process.env.CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID!,
@@ -282,6 +296,8 @@ if (args.includes("--validate")) {
           scenario,
           namespace: fixture.namespace,
           scope: fixture.scope,
+          scopes: fixture.scopes,
+          processingScope: fixture.processingScope,
           coldStart,
           observations,
         });

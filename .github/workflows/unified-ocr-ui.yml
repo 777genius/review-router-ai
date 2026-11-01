@@ -1,6 +1,7 @@
 name: Unified OCR acceptance
 
 on:
+  workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -18,6 +19,7 @@ on:
       - packages/platform/db/**
       - packages/shared/**
       - scripts/accounts-reference-e2e/**
+      - scripts/rewrite-dist-esm-imports.mjs
       - scripts/review-investigation-paired-e2e/**
       - scripts/review-action-v2-production-e2e/**
       - package.json
@@ -27,8 +29,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: unified-ocr-ui-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: unified-ocr-ui-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   actual-next-readiness:
@@ -53,13 +55,15 @@ jobs:
       # Disposable service credentials only. No repository secrets or live identities.
       DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
       ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL: postgresql://fixture_owner:synthetic-fixture-password@127.0.0.1:5432/review_router_accounts_reference_e2e_test?schema=public
-      ACCOUNTS_REFERENCE_E2E_GREP: review runtime readiness
+      ACCOUNTS_REFERENCE_E2E_GREP: review runtime readiness|Memory confirmation settings
       ACCOUNTS_REFERENCE_E2E_TRACE: "on"
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/accounts-reference-e2e/browser-cache
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          # Exact release checking reads the historical canonical S2 handoff.
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -71,6 +75,10 @@ jobs:
           pnpm --dir scripts/accounts-reference-e2e install --frozen-lockfile
           pnpm --filter @reviewrouter/platform-db db:generate
           pnpm --dir scripts/accounts-reference-e2e run check
+      - name: Build shared release-contract helpers
+        run: |
+          pnpm --filter @reviewrouter/shared build
+          node scripts/rewrite-dist-esm-imports.mjs
       - name: Install Chromium with its supported system libraries
         run: pnpm --dir scripts/accounts-reference-e2e exec playwright install --with-deps chromium
       - name: Migrate fresh PostgreSQL and run actual desktop and mobile Next UI
@@ -97,6 +105,8 @@ jobs:
         with:
           repository: 777genius/review-router
           ref: ${{ steps.paired-action.outputs.ref }}
+          # Verify ancestry from the immutable handoff base as well as HEAD.
+          fetch-depth: 0
           path: .paired/review-router-action
           persist-credentials: false
       - name: Install the paired Action's locked dependencies

@@ -3,6 +3,7 @@ import {
   conversationActionConfirmation,
   sourceAuthorizesConversationAction,
   unconfirmedConversationActionNotice,
+  unconfirmedConversationObservationsNotice,
 } from "../domain/conversation-action-authority.js";
 import {
   conversationDigest,
@@ -117,6 +118,45 @@ function snapshot(body: string): ConversationSnapshot {
   };
 }
 describe("authored conversation mutation boundary", () => {
+  it("automatic mode keeps verified current-author checks without requiring exact wording", () => {
+    const action = actions[3]!.action;
+    const current = snapshot(
+      "Update that test-runner rule to Vitest, as discussed.",
+    );
+    expect(sourceAuthorizesConversationAction(current, action, false)).toBe(
+      true,
+    );
+    expect(sourceAuthorizesConversationAction(current, action, true)).toBe(
+      false,
+    );
+    for (const changed of [
+      { ...current, sourceMaintainer: false },
+      { ...current, sourceId: "missing" },
+      { ...current, sourceUpdatedAt: "changed" },
+      {
+        ...current,
+        sourceActor: { ...current.sourceActor, kind: "bot" as const },
+      },
+      {
+        ...current,
+        messages: [{ ...current.messages[0]!, bodyDigest: "changed" }],
+      },
+    ])
+      expect(sourceAuthorizesConversationAction(changed, action, false)).toBe(
+        false,
+      );
+  });
+  it("renders read-only observation proposals as exact safely fenced confirmations", () => {
+    const notice = unconfirmedConversationObservationsNotice([
+      "IDs keep leading zeroes.",
+      "Keep the literal ``` marker.",
+    ]);
+    expect(notice).toContain("have not been saved");
+    expect(notice).toContain("Remember observation: IDs keep leading zeroes.");
+    expect(notice).toContain(
+      "````text\nRemember observation: Keep the literal ``` marker.\n````",
+    );
+  });
   it.each(actions)(
     "binds every field of $en in English and Russian",
     ({ action, en, ru }) => {

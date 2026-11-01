@@ -37,8 +37,26 @@ import type {
   MemoryKnowledgeStore,
   MemoryVerifiedCleanupReceipt,
 } from "../ports/memory-knowledge-store-port";
-import type { MemoryPolicyConfigPort } from "../ports/memory-policy-config-port";
+import type {
+  MemoryPolicyConfig,
+  MemoryPolicyConfigPort,
+} from "../ports/memory-policy-config-port";
 import type { MemoryQuotaPolicyPort } from "../ports/memory-quota-policy-port";
+
+function assertAutomaticMutationPolicy(
+  policy: Pick<MemoryPolicyConfig, "requireConfirmation" | "settingsRevision">,
+  settingsRevision: string,
+): void {
+  if (
+    typeof settingsRevision !== "string" ||
+    !/^(0|[1-9]\d{0,9})$/.test(settingsRevision)
+  )
+    throw new MemoryKnowledgeError("invalid_input");
+  if (policy.requireConfirmation)
+    throw new MemoryKnowledgeError("input_required");
+  if (policy.settingsRevision !== settingsRevision)
+    throw new MemoryKnowledgeError("conflict");
+}
 
 export type MemoryKnowledgeView = {
   readonly metadata: MemoryKnowledgeEntryMetadata;
@@ -71,6 +89,8 @@ export type MemoryContextPolicy = {
 
 export type MemoryKnowledgeBundleInput = {
   readonly contextPolicy?: MemoryContextPolicy;
+  /** Trusted host lifetime of an immutable run; never accepted from a client request. */
+  readonly snapshotNotAfter?: Date;
   readonly actor: MemoryActor;
   readonly scopes: readonly MemoryKnowledgeScope[];
   readonly query: string;
@@ -195,10 +215,22 @@ export class MemoryKnowledgeService {
       readonly actor: MemoryActor;
       readonly ref: MemoryEntryRef;
       readonly expectedRevision: string;
+      readonly automaticSettingsRevision?: string;
     },
     controls: MemoryRequestControls,
   ): Promise<void> {
     await this.authorizeAutomaticSource(input.actor, input.ref.scope, controls);
+    if (input.automaticSettingsRevision !== undefined)
+      assertAutomaticMutationPolicy(
+        await this.dependencies.policy.getPolicy({
+          workspaceId: input.ref.scope.workspaceId,
+          repositoryId:
+            input.ref.scope.kind === "repository"
+              ? input.ref.scope.repositoryId
+              : null,
+        }),
+        input.automaticSettingsRevision,
+      );
     const metadata = await this.dependencies.store.findEntry(
       input.ref,
       this.dependencies.generation,
@@ -220,6 +252,9 @@ export class MemoryKnowledgeService {
       sourceId: state.sourceId,
       expectedEpoch: state.binding.epoch,
       expectedSuppressionEpoch: state.suppressionEpoch ?? "0",
+      ...(input.automaticSettingsRevision === undefined
+        ? {}
+        : { automaticSettingsRevision: input.automaticSettingsRevision }),
       entry: {
         ref: input.ref,
         generation: this.dependencies.generation,
@@ -259,6 +294,13 @@ export class MemoryKnowledgeService {
     },
     controls: MemoryRequestControls,
   ) {
+    assertAutomaticMutationPolicy(
+      await this.dependencies.policy.getPolicy({
+        workspaceId: input.reservation.input.scope.workspaceId,
+        repositoryId: input.reservation.input.scope.repositoryId,
+      }),
+      input.reservation.input.settingsRevision ?? "0",
+    );
     const children = [];
     for (const command of input.children) {
       if (
@@ -348,6 +390,14 @@ export class MemoryKnowledgeService {
           ? command.ref.scope.repositoryId
           : null,
     });
+    if (
+      command.approval.automaticSettingsRevision !== undefined &&
+      !authority.internalRetirement
+    )
+      assertAutomaticMutationPolicy(
+        policy,
+        command.approval.automaticSettingsRevision,
+      );
     if (command.kind === "save" || command.kind === "topics") {
       const scopeKey =
         command.ref.scope.kind === "user_preference"
@@ -888,6 +938,9 @@ export class MemoryKnowledgeService {
     input: MemoryKnowledgeBundleInput,
     controls: MemoryRequestControls,
   ): Promise<MemoryKnowledgeBundle> {
+    const snapshotNotAfter = input.snapshotNotAfter?.getTime();
+    if (snapshotNotAfter !== undefined && !Number.isFinite(snapshotNotAfter))
+      throw new MemoryKnowledgeError("invalid_input");
     const remaining = Math.min(
       2000,
       controls.deadlineAt.getTime() - this.now().getTime(),
@@ -896,12 +949,20 @@ export class MemoryKnowledgeService {
       const snapshot = {
         generation: this.dependencies.generation,
         scopes: [],
-        expiresAt: new Date(this.now().getTime() + 30000).toISOString(),
+        expiresAt: new Date(
+          snapshotNotAfter ?? this.now().getTime() + 30_000,
+        ).toISOString(),
         degraded: true,
       };
       return { ...snapshot, hash: memoryKnowledgeDigest(snapshot) };
     };
-    if (remaining <= 0 || controls.signal?.aborted) return empty();
+    if (
+      remaining <= 0 ||
+      controls.signal?.aborted ||
+      (snapshotNotAfter !== undefined &&
+        snapshotNotAfter <= this.now().getTime())
+    )
+      return empty();
     const cancelled = new AbortController();
     const signal = controls.signal
       ? AbortSignal.any([controls.signal, cancelled.signal])
@@ -911,10 +972,14 @@ export class MemoryKnowledgeService {
         cancelled.abort();
         resolve(empty());
       }, remaining);
-      this.buildBundle(input, {
-        deadlineAt: new Date(this.now().getTime() + remaining),
-        signal,
-      }).then(
+      this.buildBundle(
+        input,
+        {
+          deadlineAt: new Date(this.now().getTime() + remaining),
+          signal,
+        },
+        snapshotNotAfter,
+      ).then(
         (bundle) => {
           clearTimeout(timer);
           resolve(bundle);
@@ -930,6 +995,7 @@ export class MemoryKnowledgeService {
   private async buildBundle(
     input: MemoryKnowledgeBundleInput,
     controls: MemoryRequestControls,
+    snapshotNotAfter: number | undefined,
   ): Promise<MemoryKnowledgeBundle> {
     const budget: MemoryRequestControls = {
       ...controls,
@@ -1033,13 +1099,18 @@ export class MemoryKnowledgeService {
         ),
       ),
     );
-    const expiry = Math.min(this.now().getTime() + 30_000, ...validityBounds);
+    const expiry = Math.min(
+      snapshotNotAfter ?? this.now().getTime() + 30_000,
+      ...validityBounds,
+    );
     if (expiry <= this.now().getTime()) {
       scopes.length = 0;
       degraded = true;
     }
     const expiresAt = new Date(
-      expiry <= this.now().getTime() ? this.now().getTime() + 30_000 : expiry,
+      expiry <= this.now().getTime()
+        ? (snapshotNotAfter ?? this.now().getTime() + 30_000)
+        : expiry,
     ).toISOString();
     const snapshot = {
       ...(input.contextPolicy ? { contextPolicy: input.contextPolicy } : {}),

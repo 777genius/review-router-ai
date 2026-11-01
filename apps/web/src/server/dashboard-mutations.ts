@@ -826,7 +826,9 @@ export async function createGitHubUserOctokit(
     userId: githubActor.userId,
   });
   if (token.status !== "ready") {
-    throw new Error(githubUserTokenStatusToDashboardError(token.status));
+    throw new Error(
+      githubUserTokenStatusToDashboardError(token.status, token.errorCode),
+    );
   }
 
   return new GitHubUserTokenRequester(token.accessToken);
@@ -922,11 +924,21 @@ async function readGitHubResponseBody(response: Response): Promise<unknown> {
   return text;
 }
 
+export function repositoryAccessRefreshErrorCode(result: {
+  readonly status: string;
+  readonly errorCode?: string;
+}): string {
+  return result.errorCode === "github_oauth_client_misconfigured"
+    ? "dashboard_auth_misconfigured"
+    : `repository_access_${result.status}`;
+}
+
 function githubUserTokenStatusToDashboardError(
   status: Exclude<
     Awaited<ReturnType<typeof getValidGitHubUserAccessToken>>["status"],
     "ready"
   >,
+  errorCode?: string,
 ): string {
   switch (status) {
     case "missing":
@@ -936,7 +948,10 @@ function githubUserTokenStatusToDashboardError(
     case "expired":
       return "repository_access_token_expired";
     case "refresh_failed":
-      return "repository_access_token_refresh_failed";
+      return repositoryAccessRefreshErrorCode({
+        status: "token_refresh_failed",
+        ...(errorCode ? { errorCode } : {}),
+      });
     case "token_decryption_failed":
       return "repository_access_token_decryption_failed";
     case "token_encryption_misconfigured":

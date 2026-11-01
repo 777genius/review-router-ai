@@ -6,6 +6,7 @@
 - Affected targets: Web, API, worker, PostgreSQL, private Hindsight, Account
   Gateway and the installed immutable GitHub interaction caller.
 - Implementation: [control plane #734](https://github.com/777genius/review-router-ai/pull/734),
+  [full-thread/settings successor #744](https://github.com/777genius/review-router-ai/pull/744),
   [Action #350](https://github.com/777genius/review-router/pull/350) and
   [prerequisite #349](https://github.com/777genius/review-router/pull/349).
 - Source provenance: control plane `9c715d9ad743dfc2ba21b29a7492772ce4b2c5ea`,
@@ -17,7 +18,7 @@
   reconcile [Review History](2026-10-28-review-history.md) and
   [dispatch/schema work](2026-10-28-dispatch-cleanup-ci.md) when included in the
   selected installed-to-target release range.
-- Last updated: `2026-10-29`.
+- Last updated: `2026-10-30`.
 
 ## Environment status
 
@@ -68,8 +69,11 @@ unset until its required evidence exists; do not copy fixture proof values.
    and conversation-processing tables. Do not backfill raw GitHub transcripts.
 3. **Deploy one coherent, initially inactive conversational profile.** Deploy
    Web/API/worker and the generated portable memory runtime through the normal
-   release path. Verify actual image/version and compatible parser/schema on all
-   hosts before selecting a new producer. Keep the existing provider profile,
+   release path. **Roll out the new strict workspace-policy reader to every host
+   before enabling Memory -> Settings writes.** Older hosts reject documents
+   containing the new optional `memory` key; do not allow mixed-version
+   settings writes during a rolling deployment. Verify actual image/version and
+   compatible parser/schema on all hosts before selecting a new producer. Keep the existing provider profile,
    namespace and generation coherent. Follow the [private Hindsight runbook](../../deploy/hindsight/README.md)
    for its image, model, mission, strict-preview and cleanup qualification. An
    ordinary code rollout alone does not complete this task.
@@ -82,6 +86,10 @@ unset until its required evidence exists; do not copy fixture proof values.
    `UNAVAILABLE`, not PASS. A failed hold-out is regression evidence, not a set to
    tune repeatedly. Verify deployed proxies, collectors, request/error logs and
    provider egress/residency do not retain raw thread/code/model streams.
+   For the full-thread/settings successor, select its independently versioned
+   `full-thread-v2` corpus. Verify contextual agreement, both confirmation modes,
+   changed context and shared settings across repositories; source-only scores
+   cannot qualify this changed input and mutation behavior.
 5. **Prove the installed App-first path before widening activation.** Bind actual
    native preview evidence and mission through their existing configuration
    owners. For only the disposable repository, bind the approved runtime/model
@@ -112,6 +120,9 @@ must retain their separate audiences and exact hashes.
 Inspect the real dashboard at desktop and narrow widths, including keyboard
 validation, queued/unknown status, retirement and cleanup-pending Forget. A queued
 command is not published content and a fenced Forget is not physical deletion.
+Verify Memory -> Settings defaults to automatic, persists a confirmation change
+across repository navigation, and remains available when native listing fails.
+The setting controls new AI changes; it does not cancel previously admitted work.
 Keep unresolved native cleanup debt visible until the existing operator proves
 complete absence. Mark this task `deployed` only when all applicable checks pass
 for the recorded environment, not when its PR merges or a mechanism test passes.
@@ -140,11 +151,12 @@ new contextual processing has been disabled.
 
 The [implementation record](../plans/2026-10-28-conversational-memory-implementation.md#2026-10-29-final-lifecycle-fixture-repair-and-merge-handoff)
 records the final fixture repair, exact pair and [observed qualification](https://github.com/777genius/review-router-ai/actions/runs/40877611193).
-Another agent owns the control-plane merge after final-head required checks;
-Action #349/#350 are already merged. Read the current PR head and checks,
-then protected main checks before following the ordered rollout above.
-Neither this source follow-up nor its disposable workflow changes the
-staging/production status or supplies live activation evidence.
+Control-plane #734 merged as `533c040de09d2609c8ebb44474812e2b35f0e7ea`;
+Action #349/#350 are already merged. The subsequent owner-requested full-thread
+learning and workspace setting are tracked in #744. Read the selected release's
+actual head and required checks, then protected main checks before following the
+ordered rollout above. A source merge does not change staging/production status
+or supply live activation evidence.
 
 ## Related evidence
 
@@ -168,11 +180,30 @@ staging/production status or supplies live activation evidence.
 | Not executed | staging     | Unassigned | Not verified           | Source integration only; no deployment receipt.                 | Reconcile and execute the ordered rollout.                           |
 | Not executed | production  | Unassigned | Not verified           | No live model, privacy or installed-App qualification recorded. | Retain activation hold until independent production evidence exists. |
 
-## Source-authority rollout refinement
+## Full-thread and confirmation rollout refinement
 
-The [security refinement](../plans/2026-10-29-memory-source-authority.md) is part of the same source delivery. It adds no migration or service. Deploy API/worker/web and the portable package coherently; native selection now sees only the eligible source revision, while replies retain the complete thread. Model-proposed create/update/retire/forget/relearn actions require the exact standalone human maintainer confirmation, binding text, kind, target and revision. Test both the no-effect proposal and actual authored confirmation through the installed App before activation.
+The owner's [2026-10-30 successor](../plans/2026-10-30-full-thread-memory-settings.md)
+supersedes the historical source-only and unconditional-confirmation choices in
+the [2026-10-29 refinement](../plans/2026-10-29-memory-source-authority.md).
+It adds no migration or service. Deploy API/worker/web and the portable package
+coherently. Native selection receives the complete checked thread with the
+current maintainer source kept distinct. Persisted bodyless context revisions
+must invalidate derived knowledge when an earlier dependency changes or disappears;
+new appended replies must not invalidate unchanged evidence.
 
-Use actual selected models to evaluate source-only quotation/negation fidelity and contextual abstention. Existing full-thread semantic scores are not evidence for this input contract. Keep the existing protected corpus and thresholds unchanged and report any recall or clarification differences rather than fabricating a pass. Physical Forget remains subject to the existing operator cleanup procedure. Staging and production remain pending; this source repair does not provide deployment or live-model evidence.
+Memory -> Settings stores one versioned workspace-wide confirmation switch,
+default off. Automatic mode permits AI-selected observations and requested
+create/update/retire/forget/relearn actions through existing permission, target,
+revision and source checks. Confirmation mode shows exact standalone authored
+commands before any new AI command/outbox admission. Test both modes, a concurrent
+setting change and real authored confirmation through the installed App.
+
+Use actual selected models to evaluate contextual endorsement, quotation,
+negation, conflicting instructions and exact-target mutations. Preserve the
+existing v1 corpus and thresholds; qualify the separate full-thread successor
+with its own tuning and protected evidence. Deterministic tests do not establish
+semantic accuracy. Physical Forget retains its existing cleanup owner. Staging
+and production remain pending until actual rollout and qualification evidence exists.
 
 ## Concurrent Gateway integration
 
@@ -195,9 +226,9 @@ introduced. Verify this with a disposable two-reviewer repository during the
 existing App-first deployment check. Mixed authentication remains outside this
 profile. Both paired CI workflows select the existing integrated Action producer
 `925df40c6c5806fe2b6673c5f807fdc6abf2fe40`; candidate verification is not release
-registration. The source-authority confirmation and source-only extraction
-refinements above remain mandatory, as do live qualification and truthful
-per-environment deployment status.
+registration. The current full-thread and workspace confirmation refinement
+above applies to the successor release, along with live qualification and
+truthful per-environment deployment status.
 
 ## Evidence log
 

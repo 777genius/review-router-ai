@@ -114,6 +114,7 @@ import {
   dashboardMutationAccessAuditMetadata,
   getDashboardSignedInActor,
   getDashboardWorkspaceScope,
+  repositoryAccessRefreshErrorCode,
 } from "../../src/server/dashboard-mutations";
 import { createDashboardRateLimitPolicy } from "../../src/server/dashboard-rate-limits";
 import {
@@ -937,7 +938,7 @@ async function refreshRepositoryAccessMutation(
           : [],
     });
     if (result.status !== "ready") {
-      throw new Error(`repository_access_${result.status}`);
+      throw new Error(repositoryAccessRefreshErrorCode(result));
     }
 
     params = { notice: "repository_access_refreshed" };
