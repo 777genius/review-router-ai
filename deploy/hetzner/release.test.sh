@@ -84,10 +84,18 @@ done
 cat > "$WORK/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 if [ "$1" = ps ]; then
-  printf '%s\n' rr-test-web-1 rr-test-api-1 rr-test-worker-1
+  printf '%s\n' rr-test-web-1 rr-test-api-1 "${RR_FIXTURE_WORKER:-rr-test-worker-1}"
   [ "${RR_VERIFY_CASE:-}" != missing ] && echo rr-skills-scan-worker-test
   [ "${RR_VERIFY_CASE:-}" = duplicate ] && echo rr-extra-api-1
   exit 0
+fi
+if [ "$1" = exec ]; then
+  echo "docker-exec $*" >> "$RR_FIXTURE_CALLS"
+  cat > "$RR_FIXTURE_DB_STDIN"
+  [ "${7:-}" = "fixture-${RR_FIXTURE_WORKER:-rr-test-worker-1}" ] || exit 79
+  [ "${6:-}" = REVIEW_ROUTER_EXPECT_DB_ROLE=reviewrouter_worker ] || exit 80
+  cmp -s "$RR_FIXTURE_DB_STDIN" "$RR_FIXTURE_CHECKER" || exit 81
+  exit "${RR_DB_RC:-0}"
 fi
 revision="$FIXTURE_SHA"
 running=true
@@ -99,26 +107,35 @@ case "${RR_VERIFY_CASE:-}" in
   restarted) restarts=1 ;;
   unhealthy) health=unhealthy ;;
 esac
-printf '[{"State":{"Running":%s,"Health":{"Status":"%s"}},"RestartCount":%s,"Config":{"Labels":{"org.opencontainers.image.revision":"%s"}}}]\n' "$running" "$health" "$restarts" "$revision"
+printf '[{"Id":"fixture-%s","State":{"Running":%s,"Health":{"Status":"%s"}},"RestartCount":%s,"Config":{"Labels":{"org.opencontainers.image.revision":"%s"}}}]\n' "$2" "$running" "$health" "$restarts" "$revision"
 STUB
 cat > "$WORK/bin/ssh" <<STUB
 #!/usr/bin/env bash
 echo "ssh \$*" >> "$CALLS"
 case "\$*" in
-  *'docker exec'*) cat > /dev/null; exit "\${RR_DB_RC:-0}" ;;
+  *'docker exec'*) cat > /dev/null; exit 79 ;;
 esac
+command="\${!#}"
+checker="\${command#*DB_CHECK_B64=}"
+export DB_CHECK_B64="\${checker%% *}"
 export SRC="$GOOD_SHA"
 bash -s
 STUB
 chmod +x "$WORK/bin/docker" "$WORK/bin/ssh"
 export FIXTURE_SHA="$GOOD_SHA"
+export RR_FIXTURE_CALLS="$CALLS" RR_FIXTURE_DB_STDIN="$WORK/db-check-input" RR_FIXTURE_CHECKER="$HERE/../../scripts/check-runtime-db-privileges.mjs"
 run verify "$GOOD_SHA"
 [ "$RC" = 0 ] || echo "$OUT"
 check "healthy exact-revision fleet and worker check succeed" "$([ "$RC" = 0 ] && [ "$(calls curl)" = 1 ] && echo 0 || echo 1)"
+check "privilege probe uses the inspected worker identity and exact checker input" "$([ "$(calls docker-exec)" = 1 ] && grep -q 'fixture-rr-test-worker-1 node' "$CALLS" && cmp -s "$RR_FIXTURE_DB_STDIN" "$RR_FIXTURE_CHECKER" && echo 0 || echo 1)"
+export RR_FIXTURE_WORKER=rr-alternate-worker-production-7
+run verify "$GOOD_SHA"
+check "renamed worker is verified and probed in the same remote invocation" "$([ "$RC" = 0 ] && [ "$(calls ssh)" = 1 ] && [ "$(calls docker-exec)" = 1 ] && grep -q 'fixture-rr-alternate-worker-production-7 node' "$CALLS" && echo 0 || echo 1)"
+unset RR_FIXTURE_WORKER
 for scenario in missing duplicate revision stopped restarted unhealthy; do
   export RR_VERIFY_CASE="$scenario"
   run verify "$GOOD_SHA"
-  check "verify rejects $scenario before readiness and database checks" "$([ "$RC" -ne 0 ] && [ "$(calls curl)" = 0 ] && [ "$(calls ssh)" = 1 ] && echo 0 || echo 1)"
+  check "verify rejects $scenario before readiness and database checks" "$([ "$RC" -ne 0 ] && [ "$(calls curl)" = 0 ] && [ "$(calls ssh)" = 1 ] && [ "$(calls docker-exec)" = 0 ] && echo 0 || echo 1)"
 done
 unset RR_VERIFY_CASE
 export RR_DB_RC=1

@@ -37,6 +37,45 @@ class DispatchRouteFailure extends Error {
   }
 }
 
+type ClaimFailureContext = {
+  phase: "authentication" | "authority" | "body" | "admission" | "receipt";
+  authorizationId?: string;
+};
+
+const claimFailureCodes = new Set([
+  "model_dispatch_claim_requires_run_authority",
+  "model_dispatch_authorization_required",
+  "model_dispatch_authorization_denied",
+  "model_dispatch_headers_invalid",
+  "model_dispatch_authority_changed",
+  "model_dispatch_request_invalid",
+  "model_dispatch_receipt_unavailable",
+  "model_dispatch_unavailable",
+  "model_dispatch_version_required",
+  "model_dispatch_native_forward_denied",
+  "model_dispatch_profile_mismatch",
+  "model_dispatch_already_forwarded",
+  "model_dispatch_reservation_required",
+  "model_dispatch_budget_exhausted",
+  "model_dispatch_effect_unresolved",
+  "model_dispatch_ordinal_invalid",
+  "model_dispatch_claim_invalid",
+  "companion_lease_capability_invalid",
+  "companion_lease_capability_mismatch",
+  "companion_authorization_denied",
+  "companion_execution_not_current",
+  "companion_slot_purpose_invalid",
+  "companion_lease_mismatch",
+  "companion_manifest_invalid",
+  "companion_envelope_mismatch",
+  "companion_lease_not_active",
+  "companion_dispatch_conflict",
+  "companion_slot_already_claimed",
+  "companion_dispatch_limit",
+  "companion_dispatch_corrupt",
+  "phase_not_ready",
+]);
+
 /** Metadata only. The receipt header is deliberately never logged, included in
  * URLs, or accepted by the claim endpoint. It does not authenticate evidence or
  * publication and cannot renew the original receipt's retention window. */
@@ -44,23 +83,49 @@ export async function registerReviewModelDispatchRoutes(
   app: FastifyInstance,
   api: ReviewModelDispatchApi,
 ) {
+  const claimFailures = new WeakMap<FastifyRequest, ClaimFailureContext>();
   await app.register(async (scope) => {
-    scope.setErrorHandler((error, _request, reply) => {
-      if (error instanceof DispatchRouteFailure)
-        return reply.code(error.statusCode).send({ code: error.code });
-      if (error instanceof ReviewRunCompanionDispatchFailure)
-        return reply.code(409).send({ code: error.code });
-      if (
-        error instanceof Error &&
-        error.message === "review_model_dispatch_contract_invalid"
-      )
-        return reply.code(400).send({ code: "model_dispatch_request_invalid" });
-      return reply.code(500).send({ code: "model_dispatch_unavailable" });
+    scope.setErrorHandler((error, request, reply) => {
+      const failure =
+        error instanceof DispatchRouteFailure
+          ? { statusCode: error.statusCode, code: error.code }
+          : error instanceof ReviewRunCompanionDispatchFailure
+            ? { statusCode: 409, code: error.code }
+            : error instanceof Error &&
+                error.message === "review_model_dispatch_contract_invalid"
+              ? { statusCode: 400, code: "model_dispatch_request_invalid" }
+              : { statusCode: 500, code: "model_dispatch_unavailable" };
+      if (request.routeOptions.url === reviewModelDispatchContract.claimPath) {
+        const context = claimFailures.get(request);
+        try {
+          request.log.warn(
+            {
+              event: "review_model_dispatch_claim_rejected",
+              phase: context?.phase ?? "input",
+              code: claimFailureCodes.has(failure.code)
+                ? failure.code
+                : "model_dispatch_unavailable",
+              httpStatus: [400, 401, 409, 500].includes(failure.statusCode)
+                ? failure.statusCode
+                : 500,
+              ...(context?.authorizationId
+                ? { authorizationId: context.authorizationId }
+                : {}),
+            },
+            "Review model dispatch claim rejected",
+          );
+        } catch {
+          // Diagnostics must not change claim authority or its response.
+        }
+      }
+      return reply.code(failure.statusCode).send({ code: failure.code });
     });
     scope.post(
       reviewModelDispatchContract.claimPath,
       { bodyLimit: 24 * 1024 },
       async (request, reply) => {
+        const context: ClaimFailureContext = { phase: "authentication" };
+        claimFailures.set(request, context);
         if (
           singleHeader(request, reviewModelDispatchContract.receiptHeader) !==
           undefined
@@ -70,17 +135,22 @@ export async function registerReviewModelDispatchRoutes(
             401,
           );
         const authorization = await resolve(request, api);
+        context.authorizationId = authorization.authorizationId;
+        context.phase = "authority";
         if (!(await api.checkAuthority(authorization)))
           throw new DispatchRouteFailure(
             "model_dispatch_authority_changed",
             409,
           );
+        context.phase = "body";
         const claim = parseReviewModelDispatchClaimV2(request.body);
+        context.phase = "admission";
         const result = await api.admission.claim(
           authorization,
           claim,
           claim.providerRequestEnvelopeHash,
         );
+        context.phase = "receipt";
         if (result.status === "claimed" && !result.receiptToken)
           throw new DispatchRouteFailure(
             "model_dispatch_receipt_unavailable",
