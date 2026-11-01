@@ -2,12 +2,20 @@ import { describe, expect, it } from "vitest";
 import { summarizeStatisticsQueue } from "./analytics-statistics-health";
 
 describe("statistics processing health", () => {
-  it("separates pending work from dead letters without implying full capture", () => {
+  it("separates pending work from dead letters", () => {
     expect(
       summarizeStatisticsQueue([
         { status: "pending", count: "2", oldest: "2026-10-31T09:00:00.000Z" },
-        { status: "retry_wait", count: "1", oldest: "2026-10-31T08:00:00.000Z" },
-        { status: "dead_letter", count: "3", oldest: "2026-10-25T00:00:00.000Z" },
+        {
+          status: "retry_wait",
+          count: "1",
+          oldest: "2026-10-31T08:00:00.000Z",
+        },
+        {
+          status: "dead_letter",
+          count: "3",
+          oldest: "2026-10-25T00:00:00.000Z",
+        },
       ]),
     ).toEqual({
       outstanding: 3,
