@@ -21,6 +21,7 @@ import {
   PrismaMemoryPermission,
 } from "@reviewrouter/features-memory/infrastructure";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import type { MemoryAdmissionObserver } from "./review-memory-admission.js";
 import {
   parseReviewRunRuntimeSnapshot,
   type ReviewRunAuthorization,
@@ -477,6 +478,7 @@ function wireItem(
 export async function registerReviewMemoryRuntimeRoutes(
   app: FastifyInstance,
   gateway: ReviewMemoryRuntimeGateway,
+  observer?: MemoryAdmissionObserver,
 ): Promise<void> {
   for (const kind of ["bundle", "admit"] as const) {
     app.post(
@@ -484,15 +486,21 @@ export async function registerReviewMemoryRuntimeRoutes(
       { bodyLimit: 4_096, logLevel: "silent" },
       async (request, reply) => {
         reply.header("cache-control", "private, no-store");
+        const startedAt = performance.now();
+        let outcome: "eligible" | "denied" | "error" = "error";
+        let diagnosticCode: string | undefined;
+        let authorizationId: string | undefined;
         try {
           const authorization = request.headers.authorization;
           if (
             !authorization?.startsWith("Bearer ") ||
             authorization.length > 8_200
-          )
+          ) {
+            diagnosticCode = "authorization_required";
             return reply
               .code(401)
               .send({ code: "memory_authorization_required" });
+          }
           const token = authorization.slice(7);
           const timeoutMs = kind === "bundle" ? 2_000 : 450;
           const controls = {
@@ -509,11 +517,16 @@ export async function registerReviewMemoryRuntimeRoutes(
                 ),
               ),
             );
+          const admission = admitSchema.parse(request.body);
+          const eligible = await withinDeadline(controls, () =>
+            gateway.admit(token, admission, controls),
+          );
+          // A returned decision proves this binding passed the live authorizer.
+          authorizationId = admission.authorizationId;
+          outcome = eligible ? "eligible" : "denied";
           return reply.send({
             protocolVersion: 2,
-            eligible: await withinDeadline(controls, () =>
-              gateway.admit(token, admitSchema.parse(request.body), controls),
-            ),
+            eligible,
           });
         } catch (error) {
           const code =
@@ -522,11 +535,30 @@ export async function registerReviewMemoryRuntimeRoutes(
               : error instanceof z.ZodError
                 ? "invalid_input"
                 : "unavailable";
+          diagnosticCode = code;
           return reply
             .code(
               code === "forbidden" ? 403 : code === "invalid_input" ? 400 : 503,
             )
             .send({ code: `memory_${code}` });
+        } finally {
+          if (kind === "admit") {
+            try {
+              observer?.({
+                boundary: "preflight",
+                outcome,
+                phase: "complete",
+                elapsedMs: Math.max(
+                  0,
+                  Math.round(performance.now() - startedAt),
+                ),
+                ...(diagnosticCode ? { errorCode: diagnosticCode } : {}),
+                ...(authorizationId ? { authorizationId } : {}),
+              });
+            } catch {
+              // Diagnostics cannot change the public admission response.
+            }
+          }
         }
       },
     );

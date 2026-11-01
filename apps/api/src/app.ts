@@ -937,6 +937,9 @@ export async function createApiApp(
         },
       })
     : undefined;
+  const memoryAdmissionObserver = (
+    event: import("./review-memory-admission.js").MemoryAdmissionDiagnostic,
+  ) => logger.info("Memory admission diagnostic", event);
   const productionReviewActionV2Dependencies =
     reviewRunControlV2Enabled &&
     !options.reviewRunControlV2Dependencies &&
@@ -953,8 +956,10 @@ export async function createApiApp(
           ...(historyFeature ? { historyWriter: historyFeature.writer } : {}),
           ...(memoryRuntime
             ? {
-                memoryInputAdmission:
-                  createReviewMemoryInputAdmission(memoryRuntime),
+                memoryInputAdmission: createReviewMemoryInputAdmission(
+                  memoryRuntime,
+                  memoryAdmissionObserver,
+                ),
                 investigationMemoryInputAdmission:
                   createInvestigationMemoryInputAdmission(memoryRuntime),
               }
@@ -1216,6 +1221,7 @@ export async function createApiApp(
             }
           : {}),
       }),
+      memoryAdmissionObserver,
     );
   }
   const actionConversation =
