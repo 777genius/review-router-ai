@@ -19,6 +19,10 @@ import { nativeRevision } from "../../scripts/hindsight-e2e/prepare-hardening.ts
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const pins = {
+  nativeBase:
+    "ghcr.io/vectorize-io/hindsight-api@sha256:cdfeb26e92ad33d54a8a7e4cfe6e67b55d619f25ea5f5bba0a3281d701a82b36",
+  postgresImage:
+    "pgvector/pgvector@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8",
   node: "24.21.0",
   nodeSha256:
     "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6",
@@ -193,26 +197,9 @@ export async function prepareFirstInstallInputs(
       ]);
       await run("git", ["-C", source, "checkout", "--detach", nativeRevision]);
     }
-    await run("docker", ["pull", "ghcr.io/vectorize-io/hindsight-api:1.1.0"]);
-    await run("docker", ["pull", "pgvector/pgvector:pg17"]);
-    const nativeBase = (
-      await dockerCommand([
-        "image",
-        "inspect",
-        "--format",
-        "{{index .RepoDigests 0}}",
-        "ghcr.io/vectorize-io/hindsight-api:1.1.0",
-      ])
-    ).trim();
-    const postgresImage = (
-      await dockerCommand([
-        "image",
-        "inspect",
-        "--format",
-        "{{index .RepoDigests 0}}",
-        "pgvector/pgvector:pg17",
-      ])
-    ).trim();
+    const { nativeBase, postgresImage } = pins;
+    await run("docker", ["pull", nativeBase]);
+    await run("docker", ["pull", postgresImage]);
     await run(cosign, [
       "verify",
       nativeBase,
@@ -315,8 +302,21 @@ export async function prepareFirstInstallInputs(
       qualified.nativeRevision === nativeRevision &&
       qualified.completedAt &&
       /^sha256:[a-f0-9]{64}$/.test(qualified.imageId) &&
-      /^pgvector\/pgvector@sha256:[a-f0-9]{64}$/.test(qualified.postgresImage),
+      qualified.postgresImage === pins.postgresImage,
     "Native qualification evidence is incomplete or belongs to another profile",
+  );
+  const qualifiedBase = (
+    await dockerCommand([
+      "image",
+      "inspect",
+      "--format",
+      '{{index .Config.Labels "org.opencontainers.image.base.name"}}',
+      qualified.imageId,
+    ])
+  ).trim();
+  assert(
+    qualifiedBase === pins.nativeBase,
+    "Qualified derivative uses an unexpected native base image",
   );
   const models = modelsDirectory;
   await mkdir(models, { recursive: true, mode: 0o755 });

@@ -25,6 +25,10 @@ pauses survive. It does not publish an image or restart the control plane.
 The shared setup lock serializes cooperating installers. The env merge compares
 the file immediately before atomic replacement and keeps a private backup;
 coordinate external editors because arbitrary file writes cannot share that lock.
+Static memory controls accept Compose assignment syntax, including `export`,
+colon separators, surrounding whitespace and inline comments. Dynamic variable
+references, escaped control values and unsupported memory declarations stop
+setup for explicit reconciliation; unrelated secret statements retain their bytes.
 
 Local defaults are
 [multilingual MiniLM embeddings](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/tree/e8f8c211226b894fcb81acc59f3b34ba3efd5f42)
@@ -50,6 +54,12 @@ Follow [native qualification](README.md#reproducible-qualification) first. Keep
 its completed `evidence.json`, the exact derivative image ID, and the immutable
 PG17/pgvector image on the destination host. Evidence binds those same images;
 an upstream image or mutable tag cannot replace the qualified derivative.
+The first-install owner pins the signed native base to
+`sha256:cdfeb26e92ad33d54a8a7e4cfe6e67b55d619f25ea5f5bba0a3281d701a82b36`
+and PG17/pgvector to
+`sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8`,
+the exact inputs used by the recorded 32-checkpoint native qualification. Reused
+evidence must bind that PG image and its derivative must name that native base.
 
 This bootstrap activates ordinary approved chunk storage with
 `HINDSIGHT_API_LLM_PROVIDER=none`, observations disabled and automatic consolidation

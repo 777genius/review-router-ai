@@ -7,10 +7,10 @@
   `b28fc7b17042414386eb9b114046e50c`.
 - Existing production source: `d5f16400e610e6fe9151c23da39868825d332711`.
 
-| Environment | Status        | Actual version                                  | Remaining work                                                                                                                                |
-| ----------- | ------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| production  | `in_progress` | Existing source above; no native memory backend | Qualify/install native backend, connect fleet, exercise real authorized lifecycle and recall. Qualify selected-account extraction separately. |
-| self-hosted | `pending`     | New bootstrap under local verification          | Linux installation and real-model lifecycle verification.                                                                                     |
+| Environment | Status        | Actual version                                                     | Remaining work                                                                                                             |
+| ----------- | ------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| production  | `in_progress` | Existing application source above; qualified native backend active | Manual UI save/readback passed. Finish review-context, edit/cleanup and selected-account extraction verification/delivery. |
+| self-hosted | `pending`     | New bootstrap under local verification                             | Linux installation and real-model lifecycle verification.                                                                  |
 
 ## Confirmed incident
 
@@ -81,8 +81,23 @@ were removed afterward. Pinned multilingual local models were downloaded into
 An isolated actual-local-model lifecycle check passed: English and Russian
 save/readback/recall, with first/warm recall at 70/29 ms and 31/31 ms respectively.
 The test containers and two test volumes were removed under the shared lock;
-models and evidence remain intact. No existing application container or canonical
-runtime configuration has changed yet.
+models and evidence remain intact.
+
+Production ordinary memory was activated on the **unchanged** application image
+`sha256:f1f9cc0ff9b808047f8e994512ba258ec4bfc18d5e746d23f78cec85b3c93edf`.
+The fleet overlay added the same private provider settings to web/API/worker,
+retaining the old four containers for rollback. The native deployment is
+`reviewrouter-memory-prod-v1`, with its shared lock and signing material in
+`/srv/platform/projects/review-router/memory-operator-v1`. The source-restricted
+UFW ingress rule admits port8888 only from the existing Router Docker bridge.
+Web and API readiness remain200; native API is reachable from the actual web
+container. No application schema migration or new application image was applied.
+
+Authenticated production UI save, worker publication and reload/readback passed
+in the existing disposable repository. Cross-workspace selection denied access
+and did not reveal the test rule. New selected-account learning code remains
+unshipped pending its source CI and qualification; ordinary configured memory
+does not imply automatic conversation activation.
 
 The separate Gateway source checkpoint passed API TypeScript 7 and 58 affected conversation cases
 (9 new PostgreSQL preview checks, 17 policy, 8 inference and 24 finite-path).

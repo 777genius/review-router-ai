@@ -3,7 +3,14 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { bootstrap, parseInferenceEnv, validateConfig } from "./bootstrap.ts";
+import {
+  bootstrap,
+  bootstrapDatabaseSql,
+  parseInferenceEnv,
+  validateConfig,
+} from "./bootstrap.ts";
+import { dockerCommand } from "../../scripts/hindsight-e2e/native-runtime.ts";
+import { nativeSqlArguments } from "../../scripts/hindsight-e2e/operator-host.ts";
 
 const imageId = `sha256:${"a".repeat(64)}`;
 const postgresImage = `pgvector/pgvector@sha256:${"b".repeat(64)}`;
@@ -15,6 +22,110 @@ const inference = [
   "HINDSIGHT_API_RERANKER_PROVIDER=local",
   "HINDSIGHT_API_RERANKER_LOCAL_MODEL=reviewed-reranker-model",
 ].join("\n");
+test("credential SQL and provenance DSNs never enter spawned Docker arguments", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rr-bootstrap-credentials-"));
+  const previousPath = process.env.PATH;
+  const password = "TEST-private-bootstrap-password-52dcb";
+  const databaseUrl = `postgresql://hindsight:${password}@127.0.0.1:15547/hindsight`;
+  try {
+    const argvFile = join(directory, "argv");
+    const inputFile = join(directory, "stdin");
+    // Observe the actual child argv/stdin boundary without a Docker daemon.
+    const executable = join(directory, "docker");
+    await writeFile(
+      executable,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\ncat > '${inputFile}'\nprintf 'accepted\\n'\n`,
+      { mode: 0o700 },
+    );
+    process.env.PATH = `${directory}:${previousPath ?? ""}`;
+    const statement = `CREATE ROLE hindsight LOGIN PASSWORD '${password}';`;
+    assert.equal(
+      await bootstrapDatabaseSql("test-postgres", 15547, "postgres", statement),
+      "accepted\n",
+    );
+    const sqlArgs = await readFile(argvFile, "utf8");
+    assert(
+      sqlArgs.includes("--interactive\n") && sqlArgs.includes("--file=-\n"),
+    );
+    assert(!sqlArgs.includes(password));
+    assert.equal(await readFile(inputFile, "utf8"), statement);
+    for (const readOnly of [true, false]) {
+      const environment = join(
+        directory,
+        readOnly ? "observer.env" : "admin.env",
+      );
+      const dsn = new URL(databaseUrl);
+      dsn.searchParams.set(
+        "application_name",
+        readOnly
+          ? "rr-native-cleanup-read-observer"
+          : "rr-native-provenance-admin",
+      );
+      await writeFile(environment, `HINDSIGHT_API_DATABASE_URL=${dsn}\n`, {
+        mode: 0o600,
+      });
+      assert.equal(
+        await dockerCommand(
+          nativeSqlArguments(
+            databaseUrl,
+            imageId,
+            [{ statement: "SELECT 1" }],
+            readOnly,
+            environment,
+          ),
+        ),
+        "accepted\n",
+      );
+      const provenanceArgs = await readFile(argvFile, "utf8");
+      assert(provenanceArgs.includes(`--env-file\n${environment}\n`));
+      assert(!provenanceArgs.includes(password));
+      await chmod(environment, 0o644);
+      assert.throws(
+        () =>
+          nativeSqlArguments(
+            databaseUrl,
+            imageId,
+            [{ statement: "SELECT 1" }],
+            readOnly,
+            environment,
+          ),
+        /private regular file/,
+      );
+      await chmod(environment, 0o600);
+      await writeFile(
+        environment,
+        `HINDSIGHT_API_DATABASE_URL=${databaseUrl}\n`,
+      );
+      assert.throws(
+        () =>
+          nativeSqlArguments(
+            databaseUrl,
+            imageId,
+            [{ statement: "SELECT 1" }],
+            readOnly,
+            environment,
+          ),
+        /differs from the bound database endpoint/,
+      );
+    }
+    await writeFile(
+      executable,
+      `#!/bin/sh\nprintf '${password}' >&2\nexit 9\n`,
+      { mode: 0o700 },
+    );
+    await assert.rejects(
+      bootstrapDatabaseSql("test-postgres", 15547, "postgres", statement),
+      (error: unknown) =>
+        error instanceof Error &&
+        !error.message.includes(password) &&
+        error.message.includes("diagnostic payload suppressed"),
+    );
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 function configuration(directory = "/srv/memory") {
   return {
     deployment: "test-memory",
