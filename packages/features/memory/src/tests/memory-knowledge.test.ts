@@ -96,6 +96,7 @@ const entry: MemoryProviderEntry = {
 const controls = { deadlineAt: new Date(now.getTime() + 10_000) };
 
 function fixture(
+  clock: () => Date = () => now,
   settings: { requireConfirmation?: boolean; settingsRevision?: string } = {},
 ) {
   const store = {
@@ -159,7 +160,7 @@ function fixture(
         pendingSuggestions: { limit: 10 },
       }),
     },
-    now: () => now,
+    now: clock,
   });
   return { store, reader, access, policy, service };
 }
@@ -181,7 +182,7 @@ describe("complete provider memory policy", () => {
   ])(
     "rejects every new AI mutation before durable admission under fresh settings %j",
     async ({ automaticSettingsRevision, error, ...settings }) => {
-      const f = fixture(settings);
+      const f = fixture(undefined, settings);
       const approval = { ...command.approval, automaticSettingsRevision };
       const base = {
         commandId: command.commandId,
@@ -212,7 +213,7 @@ describe("complete provider memory policy", () => {
   );
 
   it("permits current automatic policy and keeps authored mutations independent of AI confirmation", async () => {
-    const automatic = fixture({
+    const automatic = fixture(undefined, {
       requireConfirmation: false,
       settingsRevision: "1",
     });
@@ -224,7 +225,7 @@ describe("complete provider memory policy", () => {
       controls,
     );
     expect(automatic.store.admit).toHaveBeenCalledOnce();
-    const authored = fixture({
+    const authored = fixture(undefined, {
       requireConfirmation: true,
       settingsRevision: "2",
     });
@@ -552,6 +553,140 @@ describe("complete provider memory policy", () => {
     await expect(
       service.bundle({ actor, scopes: [scope], query: "requests" }, controls),
     ).resolves.toMatchObject({ scopes: [], degraded: true });
+  });
+
+  it("keeps ordinary snapshots at thirty seconds", async () => {
+    const { service } = fixture();
+    const bundle = await service.bundle(
+      { actor, scopes: [scope], query: "requests" },
+      controls,
+    );
+    expect(bundle.scopes[0]?.items).toHaveLength(1);
+    expect(bundle.expiresAt).toBe("2026-10-23T10:00:30.000Z");
+  });
+
+  it("admits a trusted run snapshot after thirty seconds without renewing or refetching it", async () => {
+    let current = now;
+    const { service, reader } = fixture(() => current);
+    const bundle = await service.bundle(
+      {
+        actor,
+        scopes: [scope],
+        query: "requests",
+        snapshotNotAfter: new Date("2026-10-23T10:05:00.000Z"),
+      },
+      controls,
+    );
+    expect(bundle.expiresAt).toBe("2026-10-23T10:05:00.000Z");
+    const receipt = service.createBundleReceipt(bundle);
+    reader.recall.mockClear();
+    reader.read.mockClear();
+    current = new Date("2026-10-23T10:02:00.000Z");
+    const laterControls = { deadlineAt: new Date(current.getTime() + 2_000) };
+    expect(await service.admitReceipt({ actor, receipt }, laterControls)).toBe(
+      true,
+    );
+    expect(reader.recall).not.toHaveBeenCalled();
+    expect(reader.read).not.toHaveBeenCalled();
+    expect(receipt.expiresAt).toBe("2026-10-23T10:05:00.000Z");
+    current = new Date(receipt.expiresAt);
+    expect(
+      await service.admitReceipt(
+        { actor, receipt },
+        { deadlineAt: new Date(current.getTime() + 2_000) },
+      ),
+    ).toBe(false);
+  });
+
+  it("caps a trusted run snapshot by its entry validity before hashing and receipt creation", async () => {
+    const { service, store } = fixture();
+    store.findEntry.mockResolvedValue({
+      ...metadata,
+      applicability: {
+        ...metadata.applicability,
+        validUntil: "2026-10-23T10:01:00.000Z",
+      },
+    });
+    const bundle = await service.bundle(
+      {
+        actor,
+        scopes: [scope],
+        query: "requests",
+        snapshotNotAfter: new Date("2026-10-23T10:05:00.000Z"),
+      },
+      controls,
+    );
+    expect(bundle.scopes[0]?.items).toHaveLength(1);
+    expect(bundle.expiresAt).toBe("2026-10-23T10:01:00.000Z");
+    expect(service.createBundleReceipt(bundle).expiresAt).toBe(
+      bundle.expiresAt,
+    );
+    const altered = { ...bundle, expiresAt: "2026-10-23T10:05:00.000Z" };
+    expect(() => service.createBundleReceipt(altered)).toThrow();
+  });
+
+  it("still rejects long-lived snapshots after source revocation or scope epoch change", async () => {
+    let current = now;
+    const { service, access, store } = fixture(() => current);
+    const bundle = await service.bundle(
+      {
+        actor,
+        scopes: [scope],
+        query: "requests",
+        snapshotNotAfter: new Date("2026-10-23T10:05:00.000Z"),
+      },
+      controls,
+    );
+    const receipt = service.createBundleReceipt(bundle);
+    current = new Date("2026-10-23T10:02:00.000Z");
+    const laterControls = { deadlineAt: new Date(current.getTime() + 2_000) };
+    expect(await service.admitReceipt({ actor, receipt }, laterControls)).toBe(
+      true,
+    );
+    access.sourceApplicable.mockResolvedValueOnce(false);
+    expect(await service.admitReceipt({ actor, receipt }, laterControls)).toBe(
+      false,
+    );
+    store.findEntry.mockResolvedValueOnce({
+      ...metadata,
+      lifecycle: "forget_pending",
+      revocationCommandId: "forget-1",
+    });
+    expect(await service.admitReceipt({ actor, receipt }, laterControls)).toBe(
+      false,
+    );
+    store.scopeEpoch.mockResolvedValue("2");
+    expect(await service.admitReceipt({ actor, receipt }, laterControls)).toBe(
+      false,
+    );
+  });
+
+  it("never emits content beyond an expired trusted run bound", async () => {
+    const { service, reader } = fixture();
+    const bundle = await service.bundle(
+      {
+        actor,
+        scopes: [scope],
+        query: "requests",
+        snapshotNotAfter: new Date(now.getTime() - 1),
+      },
+      controls,
+    );
+    expect(bundle.scopes).toEqual([]);
+    expect(bundle.degraded).toBe(true);
+    expect(Date.parse(bundle.expiresAt)).toBe(now.getTime() - 1);
+    expect(reader.recall).not.toHaveBeenCalled();
+    await expect(
+      service.bundle(
+        {
+          actor,
+          scopes: [scope],
+          query: "requests",
+          snapshotNotAfter: new Date(NaN),
+        },
+        controls,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 
   it("returns a memory-free review by the total deadline even when metadata I/O stalls", async () => {

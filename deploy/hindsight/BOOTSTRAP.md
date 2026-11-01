@@ -147,6 +147,13 @@ the actual selected models before widening usage. Keep conversation qualificatio
 unset until its separate deployment checks pass. Existing native/runtime protocol
 tests and process readiness alone do not establish that live end-to-end result.
 
+Physical cleanup plans for this bootstrap must include the exact saved PostgreSQL
+container as `postgresInfrastructure`, with its resolved immutable image ID and
+configured port. PostgreSQL shares the deployment label with API/worker but is
+infrastructure, and must remain continuously running through cleanup. See the
+[operator plan contract](README.md#signed-docker-operator-receipt); never exclude
+arbitrary same-label containers from the executor census.
+
 Use the same `<directory>/deployment.lock` for every later start, stop,
 replacement and [physical cleanup](README.md#signed-docker-operator-receipt):
 

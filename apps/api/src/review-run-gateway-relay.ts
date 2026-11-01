@@ -110,6 +110,61 @@ type RelayDiagnostic = {
     | "http_headers";
   bodyLocked: boolean;
 };
+type GatewayRequestStage =
+  | "session"
+  | "local_authority"
+  | "local_forward"
+  | "sdk_request"
+  | "post_request_authority"
+  | "stream_wrap";
+function emitRequestFailureDiagnostic(
+  error: unknown,
+  kind: "companion" | "ordinary",
+  stage: GatewayRequestStage,
+  requestRef: string,
+) {
+  try {
+    const sdkError = error instanceof GatewayError ? error : undefined;
+    const code = sdkError?.code;
+    const sdkCode =
+      code &&
+      [
+        "invalid_input",
+        "transport",
+        "invalid_response",
+        "cancelled",
+        "safe_error",
+      ].includes(code)
+        ? code
+        : undefined;
+    const effect = c.effectState.safeParse(sdkError?.effect);
+    const diagnosticCode = c.errorCode.safeParse(sdkError?.diagnostic?.code);
+    const httpStatus = sdkError?.httpStatus;
+    console.error(
+      JSON.stringify({
+        event:
+          kind === "companion"
+            ? "review_run_companion_gateway_request_failed"
+            : "review_run_gateway_request_failed",
+        stage,
+        requestRef,
+        ...(sdkCode === undefined ? {} : { sdkCode }),
+        ...(effect.success ? { effect: effect.data } : {}),
+        ...(diagnosticCode.success
+          ? { diagnosticCode: diagnosticCode.data }
+          : {}),
+        ...(typeof httpStatus === "number" &&
+        Number.isInteger(httpStatus) &&
+        httpStatus >= 100 &&
+        httpStatus <= 599
+          ? { httpStatus }
+          : {}),
+      }),
+    );
+  } catch {
+    /* Diagnostics cannot replace the refusal or its settlement. */
+  }
+}
 type Preparation = ReturnType<typeof createReviewRunGatewayPreparation>;
 type Session = {
   readonly key: string;
@@ -776,6 +831,7 @@ export function createReviewRunGatewayRelay(input: {
       finish();
     };
     let upstream: NativeResponse | undefined;
+    let requestStage: GatewayRequestStage = "session";
     try {
       if (diagnostic) diagnostic.stage = "request";
       // Exactly one SDK request per inserted reservation. Never enter the
@@ -785,16 +841,21 @@ export function createReviewRunGatewayRelay(input: {
         body,
         { signal },
         async () => {
+          requestStage = "local_authority";
           await fresh();
+          requestStage = "local_forward";
           await beforeForward?.();
+          requestStage = "sdk_request";
         },
       );
+      requestStage = "post_request_authority";
       await fresh();
       if (upstream.kind === "status") {
         await settle(upstream.status.effect);
         dispose();
         return upstream;
       }
+      requestStage = "stream_wrap";
       await outcome("dispatch_started");
       const stream = upstream;
       const reader = stream.body.getReader();
@@ -866,6 +927,12 @@ export function createReviewRunGatewayRelay(input: {
         },
       };
     } catch (error) {
+      emitRequestFailureDiagnostic(
+        error,
+        "companion",
+        requestStage,
+        requestRef,
+      );
       if (upstream?.kind === "stream") await upstream.cancel().catch(() => {});
       // Only a positively local native no-dispatch proof settles unpaid.
       let failureEffect: c.RequestStatus["effect"] = "effect_unknown";
@@ -1207,14 +1274,20 @@ export function createReviewRunGatewayRelay(input: {
                   })
                   .catch(() => {})
               : Promise.resolve();
+          let requestStage: GatewayRequestStage = "session";
           try {
             if (diagnostic) diagnostic.stage = "request";
             response = await session.preparation.request(
               requestRef,
               body,
               { signal },
-              fresh,
+              async () => {
+                requestStage = "local_authority";
+                await fresh();
+                requestStage = "sdk_request";
+              },
             );
+            requestStage = "post_request_authority";
             if (response.kind === "stream") {
               await usageOutcome("dispatch_started");
               try {
@@ -1229,6 +1302,7 @@ export function createReviewRunGatewayRelay(input: {
                   requestRef,
                 );
               }
+              requestStage = "stream_wrap";
               const upstream = response;
               if (diagnostic) {
                 diagnostic.stage = "stream_reader";
@@ -1349,6 +1423,12 @@ export function createReviewRunGatewayRelay(input: {
               return response;
             }
           } catch (error) {
+            emitRequestFailureDiagnostic(
+              error,
+              "ordinary",
+              requestStage,
+              requestRef,
+            );
             await usageOutcome(
               error instanceof GatewayError ? error.effect : "effect_unknown",
             );

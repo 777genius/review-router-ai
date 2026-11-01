@@ -489,6 +489,210 @@ it("companion local unpaid admission consumes one reservation and one SDK reques
   }
 });
 
+it.each([403, 503])(
+  "ordinary request logs closed SDK refusal fields for HTTP %s without retrying",
+  async (httpStatus) => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      undefined,
+      128,
+      undefined,
+      undefined,
+      httpStatus,
+    );
+    const responses = vi.fn(f.relay.responses);
+    const http = await serveRelay({ ...f.relay, responses });
+    try {
+      const response = await http.request();
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: { code: "forbidden", effect: "not_dispatched" },
+      });
+      expect(responses).toHaveBeenCalledTimes(1);
+      await expect(responses.mock.results[0]!.value).rejects.toMatchObject({
+        code: "safe_error",
+        effect: "not_dispatched",
+        httpStatus,
+        diagnostic: { code: "forbidden" },
+      });
+      expect(f.requestRefs).toHaveLength(1);
+      expect(
+        log.mock.calls.map(([event]) => JSON.parse(event as string)),
+      ).toEqual([
+        {
+          event: "review_run_gateway_request_failed",
+          stage: "sdk_request",
+          sdkCode: "safe_error",
+          effect: "not_dispatched",
+          diagnosticCode: "forbidden",
+          httpStatus,
+          requestRef: f.requestRefs[0],
+        },
+      ]);
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+      expect(f.effects.at(-1)?.effect).toBe("not_dispatched");
+    } finally {
+      await http.app.close();
+      log.mockRestore();
+    }
+  },
+);
+
+it.each([403, 503])(
+  "companion logs only closed refusal fields for HTTP %s without retrying",
+  async (httpStatus) => {
+    const state = companionReservation();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: state.admission,
+      refusalStatus: httpStatus,
+    });
+    try {
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          companionContext,
+        ),
+      ).rejects.toMatchObject({
+        code: "companion_request_failed",
+        statusCode: 502,
+        effect: "effect_unknown",
+        requestRef: "stored-companion-native-ref",
+      });
+      expect(
+        log.mock.calls.map(([event]) => [JSON.parse(event as string)]),
+      ).toEqual([
+        [
+          {
+            event: "review_run_companion_gateway_request_failed",
+            stage: "sdk_request",
+            sdkCode: "safe_error",
+            effect: "not_dispatched",
+            diagnosticCode: "forbidden",
+            httpStatus,
+            requestRef: "stored-companion-native-ref",
+          },
+        ],
+      ]);
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(state.rows.size).toBe(1);
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "effect_unknown",
+      );
+      expect(f.effects.at(-1)?.effect).toBe("effect_unknown");
+    } finally {
+      await f.relay.shutdown();
+      log.mockRestore();
+    }
+  },
+);
+
+it("companion distinguishes local authority refusal before the SDK POST", async () => {
+  const state = companionReservation();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  const resolve = f.authorizations.resolveReviewRunAuthorizationToken;
+  const authority = vi.spyOn(
+    f.authorizations,
+    "resolveReviewRunAuthorizationToken",
+  );
+  const prepareUsage = f.usage!.prepare;
+  const usage = vi
+    .spyOn(f.usage!, "prepare")
+    .mockImplementation(async (input) => {
+      const result = await prepareUsage(input);
+      // After the usage wait, let the session read succeed, then revoke at the
+      // next token-authority read before any native request can be forwarded.
+      authority.mockImplementationOnce(async (input) => {
+        f.revoke("authorization-1");
+        return resolve(input);
+      });
+      return result;
+    });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "companion_request_failed",
+      statusCode: 502,
+      effect: "effect_unknown",
+      requestRef: "stored-companion-native-ref",
+    });
+    expect(
+      log.mock.calls.map(([event]) => JSON.parse(event as string)),
+    ).toEqual([
+      {
+        event: "review_run_companion_gateway_request_failed",
+        stage: "local_authority",
+        requestRef: "stored-companion-native-ref",
+      },
+    ]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestRefs).toHaveLength(0);
+    expect(state.claimCount()).toBe(1);
+    expect(state.rows.size).toBe(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+    expect(f.effects.at(-1)?.effect).toBe("effect_unknown");
+  } finally {
+    usage.mockRestore();
+    authority.mockRestore();
+    await f.relay.shutdown();
+    log.mockRestore();
+  }
+});
+
+it("companion settles its refusal even when the diagnostic sink throws", async () => {
+  const state = companionReservation();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {
+    throw new Error("sink_failed");
+  });
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    refusalStatus: 403,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "companion_request_failed",
+      statusCode: 502,
+      effect: "effect_unknown",
+    });
+    expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+  } finally {
+    await f.relay.shutdown();
+    log.mockRestore();
+  }
+});
+
 it("companion rejects a silently clamped envelope before reservation or SDK dispatch", async () => {
   const state = companionReservation();
   const f = await fixture(32768, 0, 2, 5000, undefined, {
@@ -571,6 +775,7 @@ async function fixture(
     admission: ReviewRunCompanionDispatchAdmission &
       Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
     unpaid?: boolean;
+    refusalStatus?: number;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
   },
@@ -586,6 +791,7 @@ async function fixture(
     independentAllocations?: boolean;
     grantConcurrency?: number;
   },
+  nativeRefusalStatus?: number,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
@@ -910,6 +1116,26 @@ async function fixture(
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       requestBodies.push(raw);
       requestRefs.push(String(req.headers["x-gateway-request-id"]));
+      const refusalStatus =
+        companionOptions?.refusalStatus ?? nativeRefusalStatus;
+      if (refusalStatus) {
+        res
+          .writeHead(refusalStatus, {
+            "content-type": "application/json",
+            "x-private-detail": "secret-header",
+          })
+          .end(
+            JSON.stringify({
+              code: "forbidden",
+              traceRef: "secret-trace",
+              operationRef: "secret-operation",
+              requestRef: String(req.headers["x-gateway-request-id"]),
+              effect: "not_dispatched",
+              retry: { kind: "never" },
+            }),
+          );
+        return;
+      }
       if (companionOptions?.unpaid) {
         res.writeHead(429, { "content-type": "application/json" }).end(
           JSON.stringify({
@@ -1104,6 +1330,7 @@ async function fixture(
     preparation,
     relay,
     authorizations: relayInput.authorizations,
+    usage: relayInput.usage,
     restartRelay: (maxSessions = relayInput.policy.maxSessions) =>
       createReviewRunGatewayRelay({
         ...relayInput,

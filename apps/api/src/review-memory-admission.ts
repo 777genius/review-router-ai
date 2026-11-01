@@ -21,12 +21,60 @@ import type { ReviewExecutionInputAdmissionPort } from "@reviewrouter/features-r
 import { reviewMemoryRuntimeScopes } from "./review-memory-runtime.js";
 import { reviewMemoryBinding } from "./review-memory-wire.js";
 
+type MemoryAdmissionPhase =
+  | "runtime"
+  | "maintenance"
+  | "receipt_binding"
+  | "authorization"
+  | "repository"
+  | "policy"
+  | "task"
+  | "scope"
+  | "epoch"
+  | "metadata"
+  | "expiry"
+  | "complete";
+type MemoryAdmissionTrace = { phase: MemoryAdmissionPhase };
+export type MemoryAdmissionDiagnostic = Readonly<{
+  boundary: "review_lease" | "preflight";
+  outcome: "eligible" | "denied" | "error";
+  phase: MemoryAdmissionPhase;
+  elapsedMs: number;
+  authorizationId?: string;
+  snapshotHashPrefix?: string;
+  errorCode?: string;
+}>;
+export type MemoryAdmissionObserver = (
+  event: MemoryAdmissionDiagnostic,
+) => void;
+
+/** Diagnostic sinks have no authority over admission and receive no raw errors. */
+function observeMemoryAdmission(
+  observer: MemoryAdmissionObserver | undefined,
+  event: MemoryAdmissionDiagnostic,
+): void {
+  try {
+    observer?.(event);
+  } catch {
+    // Logging must never change the transaction's decision.
+  }
+}
+
+function memoryAdmissionErrorCode(error: unknown): string {
+  if (error instanceof Prisma.PrismaClientKnownRequestError)
+    return /^P\d{4}$/.test(error.code) ? error.code : "prisma_known";
+  if (error instanceof Prisma.PrismaClientUnknownRequestError)
+    return "prisma_unknown";
+  return "unexpected";
+}
+
 /** The lease transaction is the admission linearization point. It performs no provider I/O.
  * Scope row locks serialize all memory publication/revocation with a new lease grant.
  * Existing lease retries are restored by the execution store before this hook is called.
  */
 export function createReviewMemoryInputAdmission(
   runtime: MemoryKnowledgeRuntime,
+  observer?: MemoryAdmissionObserver,
 ): ReviewExecutionInputAdmissionPort {
   return {
     lock: async (transaction, command) => {
@@ -48,13 +96,18 @@ export function createReviewMemoryInputAdmission(
     admit: async (transaction, { command, execution, now }) => {
       const hash = preparedMemoryHash(command.preparedManifestCanonicalJson);
       if (hash === null || hash === undefined) return true;
-      if (
-        !runtime.enabled ||
-        typeof hash !== "string" ||
-        !/^[a-f0-9]{64}$/.test(hash)
-      )
-        return false;
+      const startedAt = performance.now();
+      const trace: MemoryAdmissionTrace = { phase: "runtime" };
+      let eligible = false;
+      let errorCode: string | undefined;
       try {
+        if (
+          !runtime.enabled ||
+          typeof hash !== "string" ||
+          !/^[a-f0-9]{64}$/.test(hash)
+        )
+          return false;
+        trace.phase = "maintenance";
         const maintenance = await tryLockMemoryKnowledgeMaintenance(
           transaction,
           runtime.generation,
@@ -63,9 +116,10 @@ export function createReviewMemoryInputAdmission(
         await transaction.$queryRaw(
           Prisma.sql`SELECT "authorizationId" FROM "ReviewRunAuthorization" WHERE "authorizationId"=${execution.authorizationId} FOR SHARE`,
         );
-        await lockSourceRepositories(transaction, [
+        await lockSourceRepositories(transaction, execution.workspaceId, [
           execution.repositoryConnectionId,
         ]);
+        trace.phase = "receipt_binding";
         const row = await transaction.memoryKnowledgeBundleReceipt.findUnique({
           where: {
             authorizationId_snapshotHash: {
@@ -77,13 +131,15 @@ export function createReviewMemoryInputAdmission(
         if (
           !row ||
           row.workspaceId !== execution.workspaceId ||
-          row.expiresAt <= now ||
           row.bindingDigest !==
             memoryKnowledgeDigest(
               reviewMemoryBinding({ ...execution, ...execution.revision }),
             )
         )
           return false;
+        trace.phase = "expiry";
+        if (row.expiresAt <= now) return false;
+        trace.phase = "authorization";
         const authorization =
           await transaction.reviewRunAuthorization.findUnique({
             where: { authorizationId: execution.authorizationId },
@@ -91,8 +147,6 @@ export function createReviewMemoryInputAdmission(
         if (
           !authorization ||
           authorization.state !== "active" ||
-          authorization.expiresAt <= now ||
-          authorization.maxExpiresAt <= now ||
           authorization.mutationEpoch !== execution.mutationEpoch ||
           authorization.workspaceId !== execution.workspaceId ||
           authorization.repositoryConnectionId !==
@@ -103,6 +157,10 @@ export function createReviewMemoryInputAdmission(
             row.bindingDigest
         )
           return false;
+        trace.phase = "expiry";
+        if (authorization.expiresAt <= now || authorization.maxExpiresAt <= now)
+          return false;
+        trace.phase = "repository";
         const repository = await transaction.repositoryConnection.findFirst({
           where: {
             id: execution.repositoryConnectionId,
@@ -112,6 +170,7 @@ export function createReviewMemoryInputAdmission(
           },
         });
         if (!repository) return false;
+        trace.phase = "policy";
         const policy = await runtime.policy.getPolicy({
           workspaceId: execution.workspaceId,
           repositoryId: execution.repositoryConnectionId,
@@ -121,8 +180,10 @@ export function createReviewMemoryInputAdmission(
         const allowed = reviewMemoryRuntimeScopes(authorization, policy);
         const receipt =
           row.receipt as unknown as MemoryKnowledgeAdmissionReceipt;
+        trace.phase = "task";
         if (!memoryTaskAllowed(receipt, command.preparedManifestCanonicalJson))
           return false;
+        trace.phase = "scope";
         if (
           receipt.generation !== runtime.generation ||
           receipt.expiresAt !== row.expiresAt.toISOString() ||
@@ -137,18 +198,38 @@ export function createReviewMemoryInputAdmission(
           )
         )
           return false;
-        return admitMemoryReceiptInTransaction(transaction, runtime, receipt, {
-          workspaceId: execution.workspaceId,
-          repositoryId: execution.repositoryConnectionId,
-          headSha: authorization.headSha,
-          task: memoryManifestTask(command.preparedManifestCanonicalJson),
-          now,
-          authorizationExpiresAt: authorization.expiresAt,
-          authorizationMaxExpiresAt: authorization.maxExpiresAt,
-        });
-      } catch {
+        eligible = await admitMemoryReceiptInTransaction(
+          transaction,
+          runtime,
+          receipt,
+          {
+            workspaceId: execution.workspaceId,
+            repositoryId: execution.repositoryConnectionId,
+            headSha: authorization.headSha,
+            task: memoryManifestTask(command.preparedManifestCanonicalJson),
+            now,
+            authorizationExpiresAt: authorization.expiresAt,
+            authorizationMaxExpiresAt: authorization.maxExpiresAt,
+          },
+          trace,
+        );
+        return eligible;
+      } catch (error) {
         // No provider/native/SQL diagnostics enter the protocol response or logs.
+        errorCode = memoryAdmissionErrorCode(error);
         return false;
+      } finally {
+        observeMemoryAdmission(observer, {
+          boundary: "review_lease",
+          outcome: errorCode ? "error" : eligible ? "eligible" : "denied",
+          phase: eligible ? "complete" : trace.phase,
+          elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+          authorizationId: execution.authorizationId,
+          ...(typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash)
+            ? { snapshotHashPrefix: hash.slice(0, 12) }
+            : {}),
+          ...(errorCode ? { errorCode } : {}),
+        });
       }
     },
   };
@@ -269,22 +350,31 @@ export async function admitMemoryReceiptInTransaction(
     readonly authorizationExpiresAt?: Date;
     readonly authorizationMaxExpiresAt?: Date;
   },
+  trace?: MemoryAdmissionTrace,
 ): Promise<boolean> {
+  const phase = (value: MemoryAdmissionPhase) => {
+    if (trace) trace.phase = value;
+  };
+  phase("maintenance");
   const maintenance = await tryLockMemoryKnowledgeMaintenance(
     transaction,
     runtime.generation,
   );
+  if (!runtime.enabled || !maintenance || maintenance.paused) return false;
+  phase("scope");
   if (
-    !runtime.enabled ||
-    !maintenance ||
-    maintenance.paused ||
     receipt.generation !== runtime.generation ||
-    !Number.isFinite(Date.parse(receipt.expiresAt)) ||
-    new Date(receipt.expiresAt) <= input.now ||
     !Array.isArray(receipt.scopes) ||
     receipt.scopes.length > 2
   )
     return false;
+  phase("expiry");
+  if (
+    !Number.isFinite(Date.parse(receipt.expiresAt)) ||
+    new Date(receipt.expiresAt) <= input.now
+  )
+    return false;
+  phase("task");
   if (
     receipt.contextPolicy &&
     (receipt.contextPolicy.repositoryId !== input.repositoryId ||
@@ -301,6 +391,7 @@ export async function admitMemoryReceiptInTransaction(
     (input.task === "conversation" || input.task === "pr_description")
   )
     return false;
+  phase("repository");
   const repository = await transaction.repositoryConnection.findFirst({
     where: {
       id: input.repositoryId,
@@ -316,6 +407,7 @@ export async function admitMemoryReceiptInTransaction(
       repository.visibility !== "private")
   )
     return false;
+  phase("policy");
   const policy = await runtime.policy.getPolicy({
     workspaceId: input.workspaceId,
     repositoryId: input.repositoryId,
@@ -332,11 +424,13 @@ export async function admitMemoryReceiptInTransaction(
     )
   )
     return false;
+  phase("scope");
   await lockMemoryKnowledgeScopes(
     transaction,
     receipt.scopes.map((section) => section.scope),
     runtime.generation,
   );
+  phase("expiry");
   const [clock] = await transaction.$queryRaw<{ now: Date }[]>(
     Prisma.sql`SELECT clock_timestamp() AS now`,
   );
@@ -358,6 +452,7 @@ export async function admitMemoryReceiptInTransaction(
   };
   const controls = { deadlineAt: new Date(admittedAt.getTime() + 2_000) };
   for (const section of receipt.scopes) {
+    phase("epoch");
     const scopeKey = memoryKnowledgeScopeKey(section.scope);
     const scopeState = await transaction.memoryKnowledgeScopeState.findUnique({
       where: {
@@ -368,6 +463,7 @@ export async function admitMemoryReceiptInTransaction(
       },
     });
     if (!scopeState || String(scopeState.epoch) !== section.epoch) return false;
+    phase("metadata");
     const entries = await transaction.memoryKnowledgeEntry.findMany({
       where: {
         generation: runtime.generation,
@@ -523,7 +619,7 @@ async function currentSourceRepositories(
   ids: readonly string[],
 ): Promise<ReadonlySet<string>> {
   if (ids.length === 0) return new Set();
-  await lockSourceRepositories(transaction, ids);
+  await lockSourceRepositories(transaction, workspaceId, ids);
   const repositories = await transaction.repositoryConnection.findMany({
     where: {
       id: { in: [...ids] },
@@ -550,10 +646,13 @@ function preparedMemoryHash(canonical: string | undefined | null): unknown {
 
 async function lockSourceRepositories(
   transaction: Prisma.TransactionClient,
+  workspaceId: string,
   ids: readonly string[],
 ): Promise<void> {
-  if (!ids.length) return;
-  await transaction.$queryRaw(
-    Prisma.sql`SELECT "id" FROM "RepositoryConnection" WHERE "id" IN (${Prisma.join([...new Set(ids)].sort())}) ORDER BY "id" FOR SHARE`,
-  );
+  // Runtime principals have SELECT only. Reuse the canonical lock-only definer
+  // while retaining deterministic ordering and workspace-scoped row authority.
+  for (const id of [...new Set(ids)].sort())
+    await transaction.$queryRaw(
+      Prisma.sql`SELECT id FROM public.rr_review_run_checkout_repository_lock(${workspaceId}, ${id})`,
+    );
 }

@@ -132,6 +132,31 @@ jobs:
         run: docker pull "$REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE"
       - name: Run dedicated authority contract
         run: bash packages/platform/release-authority-db/test-contract.sh
+      - name: Verify worker repository sync least-privilege contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id=""
+          cleanup() {
+            local status=$?
+            if [ -n "$container_id" ]; then docker rm -f "$container_id" >/dev/null 2>&1 || true; fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          container_id=$(docker run --rm -d --network none \
+            -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=postgres \
+            "$REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE")
+          ready=false
+          for ((attempt=0; attempt<60; attempt++)); do
+            if docker exec "$container_id" pg_isready -h 127.0.0.1 -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" = true ] || { docker logs "$container_id"; exit 1; }
+          bash deploy/hetzner/db-grants/worker-repository-sync.test.sh \
+            docker exec -i "$container_id" psql -h 127.0.0.1 -U postgres
       - name: Run digest-pinned activation adversarial proof
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -400,7 +425,8 @@ jobs:
         managed-migration-pg17,
       ]
     if: ${{ always() && !cancelled() }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-slim' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-slim' }}
+    # This checkout-free gate only aggregates results; reserve heavy runners for tests.
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Enforce every quality and PG17 lane
@@ -467,6 +493,9 @@ jobs:
 
       - name: Format check
         run: pnpm format:check
+
+      - name: Hetzner release verification contract
+        run: bash deploy/hetzner/release.test.sh
 
       - name: Typecheck
         env:
