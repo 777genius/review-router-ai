@@ -30,6 +30,17 @@ Canonical current-revision checks stay with execution and paid dispatch; Context
 Tools retain their reviewer requirement and full SCM check. No schema, Action
 wire or automatic-learning activation changes are included.
 
+A later production privilege probe identified a separate admission failure:
+`reviewrouter_api` intentionally has SELECT-only repository access, whereas raw
+`FOR SHARE` requires UPDATE privilege. Memory admission now uses the existing
+workspace-scoped `rr_review_run_checkout_repository_lock` SECURITY DEFINER helper
+from migration135 for both the reviewed repository and linked source repositories.
+No grants or migrations change. Thirteen PostgreSQL17 regressions include the
+restricted caller succeeding through that actual helper while direct row locks
+and repository writes remain denied, and concurrent archive writes remaining
+blocked until the memory admission transaction ends. This follow-up is not yet
+installed; the production delivery boundary below remains open.
+
 Before delivery, require the exact source's relevant local checks, technical
 review and mandatory CI. Use the normal Hetzner application release, preserving
 native memory settings and backend state. No migration is introduced here.
