@@ -63,7 +63,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 925df40c6c5806fe2b6673c5f807fdc6abf2fe40
+  REVIEW_ROUTER_PAIRED_ACTION_REF: ffae2adb0f1b40ff5010a783f6be2e229e1a33c5
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -1037,7 +1037,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          persist-credentials: false
+          # The release bridge verifies the historical canonical S2 handoff.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -1061,6 +1063,11 @@ jobs:
         env:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
+
+      - name: Build shared release-contract parsing helpers
+        run: |
+          pnpm --filter @reviewrouter/shared build
+          node scripts/rewrite-dist-esm-imports.mjs
 
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check

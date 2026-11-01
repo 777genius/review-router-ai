@@ -2,6 +2,7 @@ import {
   parseReviewModelDispatchProfileV2,
   type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
+import { assertReviewModelDispatchDefaultAgents } from "@reviewrouter/shared/review-model-dispatch-default-agents";
 import {
   ProducerDistributionKind,
   ProducerReleaseState,
@@ -412,14 +413,21 @@ export function createProducerRelease(
   ) {
     invalid("hosted_composite_wrapper_digest_required");
   }
+  const agentProfiles =
+    candidate.agentProfiles == null
+      ? null
+      : parseReviewAgentProfiles(candidate.agentProfiles);
+  const modelDispatchProfile =
+    candidate.modelDispatchProfile == null
+      ? null
+      : parseReviewModelDispatchProfileV2(candidate.modelDispatchProfile);
+  if (modelDispatchProfile)
+    assertReviewModelDispatchDefaultAgents(
+      modelDispatchProfile,
+      agentProfiles ?? [],
+    );
   return {
-    ...(candidate.modelDispatchProfile == null
-      ? {}
-      : {
-          modelDispatchProfile: parseReviewModelDispatchProfileV2(
-            candidate.modelDispatchProfile,
-          ),
-        }),
+    ...(modelDispatchProfile ? { modelDispatchProfile } : {}),
     ...(candidate.prDescriptionProfile == null
       ? {}
       : {
@@ -444,10 +452,7 @@ export function createProducerRelease(
     contextGatewayPolicyVersion,
     contextGatewayEntrypointDigest,
     reviewInvestigationProfile,
-    agentProfiles:
-      candidate.agentProfiles == null
-        ? null
-        : parseReviewAgentProfiles(candidate.agentProfiles),
+    agentProfiles,
     ...(candidate.reviewerPlanProfile !== undefined
       ? {
           reviewerPlanProfile: parseProducerReviewerPlanProfile(
