@@ -856,6 +856,7 @@ jobs:
             packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
             apps/api/src/sdk-growth-verifier-custody.pg.test.ts \
             apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts \
+            packages/features/review-config/src/tests/workspace-memory-settings-real.test.ts \
             scripts/sdk-growth-application-schema-checkpoint.test.ts \
             --reporter=json --outputFile="$results"; then
             RESULTS_PATH="$results" node --input-type=module <<'NODE'
@@ -897,6 +898,7 @@ jobs:
             "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
             "apps/api/src/sdk-growth-verifier-custody.pg.test.ts",
             "apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts",
+            "packages/features/review-config/src/tests/workspace-memory-settings-real.test.ts",
             "scripts/sdk-growth-application-schema-checkpoint.test.ts",
           ];
           const suites = report.testResults.map((suite) =>
@@ -918,7 +920,7 @@ jobs:
           }
           console.log(JSON.stringify({
             head: process.env.EXPECTED_HEAD,
-            command: "pnpm exec vitest run <seven required PostgreSQL suites> --reporter=json",
+            command: "pnpm exec vitest run <required PostgreSQL suites> --reporter=json",
             executed: report.numTotalTests,
             passed: report.numPassedTests,
             skipped: report.numPendingTests + report.numTodoTests,

@@ -328,3 +328,43 @@ Merged exact main `78434bee6344ff497e0791140887ea9522d94ef6` into the source-aut
 Conversation capture and publication now follow the first/primary Gateway reviewer, retain the complete configuration digest and never fall back to another account. New regressions cover multiple reviewers, roster changes, publication-time revocation and an unavailable primary. Full-thread replies and the prior source-isolation/exact-authored-action security repair remain unchanged.
 
 [Focused integration qualification](https://github.com/777genius/review-router-ai/actions/runs/40925166929) passed full lint, canonical protocol, root typecheck, architecture, official bundle parity, 438 unit/contract regressions across 13 suites, 122 tests across all five real PostgreSQL memory suites and 2 actual clean-migration/personal-authority Gateway tests in separate disposable clusters. All reports have zero skipped/todo tests. The Node scorer-risk runner and unchanged 48-thread structural corpus validation also passed. The earlier shared-cluster failure was fixture-role contamination; neither migration SQL nor its role checks were relaxed. This record is added only after those checks succeed; final-head standard CI and fresh review still apply. No live-model evaluation, independent-agent review round, release or deployment is claimed.
+
+## 2026-10-30 owner-requested full-thread and settings successor
+
+Source baseline #734 merged as `533c040de09d2609c8ebb44474812e2b35f0e7ea`.
+The owner subsequently requested full-thread learning and optional confirmation,
+automatic by default. [Plan](2026-10-30-full-thread-memory-settings.md) and
+[PR #744](https://github.com/777genius/review-router-ai/pull/744) supersede the
+historical source-only/unconditional-confirmation choices above.
+
+The successor reuses the checked conversation, native selector, versioned workspace
+policy, permission/CAS owners, command/outbox delivery and exact confirmation
+commands. It adds no migration, service, provider or approval table. Frozen
+bodyless context dependencies preserve source-current checks. The shared workspace
+guard serializes setting changes against final AI admission; already-admitted work
+and retained knowledge keep their existing lifecycle.
+
+Focused core verification passed 56 tests across source authority, preview
+transport, captured policy and fresh workspace memory policy. API, web and worker
+typechecks passed. Independent boundary review found and repaired one dashboard
+availability issue: settings now remain visible when native knowledge listing
+fails; its page suite passed 43 cases. These counts overlap related focused runs
+and are not a cumulative coverage score. The new real PostgreSQL admission/settings
+cases and desktop/narrow settings browser cases are wired into existing CI; their
+final-source results are recorded only after execution.
+
+The immutable v1 corpus remains 48 threads / 149 events / 81 facts. The separately
+versioned full-thread successor adds 16 threads / 50 events / 21 independently
+labeled facts, with 10 tuning and 6 protected threads. Live semantic quality remains
+**UNAVAILABLE** until the actual selected Gateway/native configuration, observed
+outputs and bound human rubric are available. No protected live checkpoint or
+environment deployment is claimed by this source change.
+
+The scorer/fixture regression suite passed 32 cases with zero skips or TODOs;
+both corpus structural validators passed. An explicit unavailable smoke exited 2
+without inference, preserving that distinction from a quality pass. Review also
+repaired an existing live-fixture scope mismatch: the actual selected account and
+processing row share the qualified template identity, while memory scopes/banks
+remain fresh and are projected explicitly at the memory port. Production account
+authority and dispatch code are unchanged. The fixture does not establish the
+installed GitHub App source boundary.

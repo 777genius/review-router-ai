@@ -62,6 +62,7 @@ export interface ConversationProcessingStore {
 export type ConversationPolicy = {
   readonly revision: string;
   readonly automaticLearning: boolean;
+  readonly requireConfirmation: boolean;
   readonly discussionReplies: boolean;
   readonly contextWindowTokens: number;
   /** Qualified conservative upper bound; byte size alone never proves token fit. */
@@ -93,7 +94,11 @@ export interface ConversationMemoryPort {
     processingId: string,
     policyRevision: string,
     controls: RequestControls,
-  ): Promise<ConversationProcessResult["learning"]>;
+  ): Promise<
+    ConversationProcessResult["learning"] & {
+      readonly proposals?: readonly string[];
+    }
+  >;
   action(
     snapshot: ConversationSnapshot,
     processingId: string,

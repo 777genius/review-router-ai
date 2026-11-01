@@ -30,6 +30,10 @@ export type MemoryPolicyConfig = {
   readonly memoryEnabled: boolean;
   /** Effective only with a qualified contextual source-processing profile. */
   readonly automaticLearning: boolean;
+  /** Workspace-wide policy for AI-selected writes; manual commands retain their authority. */
+  readonly requireConfirmation: boolean;
+  /** Captured for new writes, never used to revoke already retained knowledge. */
+  readonly settingsRevision: string;
   readonly allowedScopes: MemoryAllowedScopePolicy;
   readonly suggestionTtlDays: MemorySuggestionTtlPolicy;
   readonly runtimeBundle: MemoryBundlePolicy;
@@ -62,11 +66,18 @@ export interface MemoryPolicyConfigPort {
   }): Promise<MemoryPolicyConfig>;
 }
 
+export type MemoryWorkspaceSettings = {
+  readonly requireConfirmation: boolean;
+  readonly version: number | null;
+};
+
 export const defaultMemoryPolicyConfig: MemoryPolicyConfig = Object.freeze({
   policyVersion: 1,
   safetyPolicyVersion: 1,
   memoryEnabled: true,
   automaticLearning: true,
+  requireConfirmation: false,
+  settingsRevision: "0",
   allowedScopes: Object.freeze({
     repository: true,
     workspace: true,
@@ -150,6 +161,11 @@ export class StaticMemoryPolicyConfig implements MemoryPolicyConfigPort {
 }
 
 function assertValidMemoryPolicyConfig(config: MemoryPolicyConfig): void {
+  if (
+    typeof config.requireConfirmation !== "boolean" ||
+    !/^(0|[1-9]\d{0,9})$/.test(config.settingsRevision)
+  )
+    throw new MemoryKnowledgeError("invalid_input");
   assertPositiveInteger(config.policyVersion);
   assertPositiveInteger(config.safetyPolicyVersion);
   for (const value of Object.values(config.suggestionTtlDays)) {

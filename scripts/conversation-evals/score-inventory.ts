@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 import type { Witness } from "./fixture.js";
+import type { CorpusEvent, TargetBinding } from "./corpus.js";
+import {
+  conversationActionConfirmation,
+  conversationDigest,
+} from "../../packages/features/conversations/src/index.js";
 import {
   automaticMemoryChildCommandId,
   memoryKnowledgeDigest,
@@ -22,6 +27,11 @@ export type SourceWitness = {
   threadId: string;
   messageId: string;
   headSha: string;
+  body?: string;
+  scope?: Witness["inventory"][number]["scope"];
+  maintainer?: boolean;
+  requireConfirmation?: boolean;
+  settingsRevision?: string;
 };
 export const sourceRevision = (updatedAt: string, body: string) =>
   `${updatedAt}:${createHash("sha256").update(body, "utf8").digest("hex")}`;
@@ -73,8 +83,140 @@ export const qualifiedReadback = (
   entry.bodyDigest !== null &&
   entry.lifecycle === "active" &&
   entry.unavailableReason === null &&
-  entry.activeCohortEligible === true &&
+  (entry.activeCohortEligible === true ||
+    Boolean(
+      entry.explicitCommandId &&
+      entry.approvalAuthorityRevision?.startsWith("github-command:v2:"),
+    )) &&
   entry.sourceCurrent === true;
+
+/** Verify the actual owning command fingerprint; rubric labels cannot authorize a command. */
+export function inspectExplicitEffect(
+  effect: Witness["effects"][number],
+  source: SourceWitness | undefined,
+  processingId: string,
+) {
+  const proof = effect.explicitAction;
+  if (
+    !proof ||
+    !source?.maintainer ||
+    source.body === undefined ||
+    !source.scope ||
+    source.requireConfirmation !== proof.requireConfirmation ||
+    source.settingsRevision !== proof.settingsRevision ||
+    effect.actorId !== source.actorId ||
+    proof.actor.kind !== "github_user" ||
+    proof.actor.id !== source.actorId ||
+    proof.actor.githubUserId !== source.actorId.replace("github-user:", "") ||
+    effect.sourceId !== proof.source.sourceId ||
+    effect.sourceRevision !== source.revision ||
+    proof.source.revision !== source.revision ||
+    proof.source.repositoryId !==
+      ("repositoryId" in source.scope ? source.scope.repositoryId : null) ||
+    proof.source.claimedBodyDigest !==
+      createHash("sha256").update(source.body).digest("hex") ||
+    scopeKey(effect.scope) !== scopeKey(source.scope)
+  )
+    throw new Error("eval_explicit_command_authority_invalid");
+  const action = proof.action;
+  const digest = conversationDigest([
+    "conversation-explicit-command",
+    processingId,
+  ]);
+  const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+  const target =
+    action.kind === "create" ? `mem_${id.replaceAll("-", "")}` : action.entryId;
+  const expectedKind =
+    action.kind === "create" || action.kind === "update" ? "save" : action.kind;
+  const expectedRevision =
+    action.kind === "create" ? null : action.expectedRevision;
+  const expectedAuthority = `github-command:v2:${expectedRevision ?? "new"}:${memoryKnowledgeDigest(
+    {
+      wire: action,
+      ref: { type: "entry", scope: effect.scope, entryId: target },
+      source: proof.source,
+      actor: {
+        kind: proof.actor.kind,
+        id: proof.actor.id,
+        githubUserId: proof.actor.githubUserId,
+      },
+    },
+  )}`;
+  const normalize = (body: string) => body.replaceAll("\r\n", "\n").trim();
+  if (
+    effect.id !== id ||
+    effect.entryId !== target ||
+    effect.kind !== expectedKind ||
+    effect.approvalAuthorityRevision !== expectedAuthority ||
+    (proof.requireConfirmation &&
+      !(["en", "ru"] as const).some(
+        (language) =>
+          normalize(source.body!) ===
+          normalize(conversationActionConfirmation(action, language)),
+      ))
+  )
+    throw new Error("eval_explicit_command_authority_invalid");
+}
+
+/** A correct fact is insufficient permission to turn a factual endorsement into maintained CRUD. */
+export function inspectExpectedEffects(
+  witness: Witness,
+  expected: NonNullable<CorpusEvent["expectedEffects"]>,
+  targets: Readonly<Record<string, TargetBinding>>,
+) {
+  const effects = witness.effects.filter((effect) => effect.explicitAction);
+  const matches = (
+    effect: Witness["effects"][number],
+    requested: (typeof expected)[number],
+  ) => {
+    const target = requested.targetAlias
+      ? targets[requested.targetAlias]
+      : undefined;
+    if (requested.targetAlias && !target)
+      throw new Error("eval_target_binding_missing");
+    const action = effect.explicitAction!.action;
+    const kind =
+      requested.kind === "save"
+        ? target
+          ? "update"
+          : "create"
+        : requested.kind;
+    return (
+      effect.kind === requested.kind &&
+      action.kind === kind &&
+      (action.kind !== "create" || action.knowledgeKind === "observation") &&
+      (!target ||
+        (effect.entryId === target.entryId &&
+          action.kind !== "create" &&
+          action.expectedRevision === target.revision))
+    );
+  };
+  return {
+    unexpected: effects.filter(
+      (effect) => !expected.some((requested) => matches(effect, requested)),
+    ).length,
+    missing: expected.filter(
+      (requested) =>
+        !effects.some((effect) => {
+          if (!matches(effect, requested)) return false;
+          const entry = witness.inventory.find(
+            (row) => row.id === effect.entryId,
+          );
+          const action = effect.explicitAction!.action;
+          return requested.kind === "save"
+            ? Boolean(
+                entry &&
+                qualifiedReadback(entry) &&
+                (action.kind === "create" || action.kind === "update") &&
+                entry.body === action.body,
+              )
+            : Boolean(
+                entry && entry.body === null && entry.lifecycle !== "active",
+              );
+        }),
+    ).length,
+  };
+}
 
 /** Validate the complete observed inventory before selecting event-attributed rows. */
 export function inspectInventory(input: {
@@ -90,6 +232,9 @@ export function inspectInventory(input: {
   seenEntries: Map<string, Witness["inventory"][number]>;
   seenCommands: Set<string>;
   revokedEntryIds?: ReadonlySet<string>;
+  allowExplicit?: boolean;
+  knownScopes?: readonly Witness["inventory"][number]["scope"][];
+  explicitProofs?: Map<string, Witness["effects"][number]>;
 }) {
   const { witness } = input;
   if (!Array.isArray(witness.inventory) || !Array.isArray(witness.effects))
@@ -105,14 +250,41 @@ export function inspectInventory(input: {
     )
   )
     throw new Error("eval_observed_inventory_disappeared");
-  inspectCommandInventory(witness, input.seenCommands);
+  const newCommandIds = inspectCommandInventory(witness, input.seenCommands);
+  const explicitProofs =
+    input.explicitProofs ?? new Map<string, Witness["effects"][number]>();
+  const knownScopeKeys = new Set(
+    (input.knownScopes ?? [input.scope]).map(scopeKey),
+  );
   for (const effect of witness.effects) {
     const selected = input.sources.get(input.triggerSourceId);
     const prior = input.seenEntries.get(effect.entryId);
     const historical = input.sourceHistory.get(
       `${effect.sourceId}\u0000${effect.sourceRevision}`,
     );
+    const authorizedSource = newCommandIds.has(effect.id)
+      ? selected
+      : historical;
     const retirement = effect.automaticRetirement;
+    if (input.allowExplicit && effect.explicitAction) {
+      const previous = explicitProofs.get(effect.id);
+      if (
+        previous &&
+        JSON.stringify({ ...previous, state: effect.state }) !==
+          JSON.stringify(effect)
+      )
+        throw new Error("eval_explicit_command_authority_changed");
+      if (!previous)
+        inspectExplicitEffect(effect, selected, witness.processingId);
+      if (
+        !knownScopeKeys.has(scopeKey(effect.scope)) ||
+        !witness.effectIds.includes(effect.id) ||
+        !witness.inventory.some((entry) => entry.id === effect.entryId)
+      )
+        throw new Error("eval_explicit_command_inventory_invalid");
+      explicitProofs.set(effect.id, structuredClone(effect));
+      continue;
+    }
     const digest =
       prior &&
       retirement &&
@@ -146,14 +318,14 @@ export function inspectInventory(input: {
         automaticMemoryChildCommandId(witness.processingId, effect.entryId) ||
         effect.id === recoveryId);
     if (
-      scopeKey(effect.scope) !== scopeKey(input.scope) ||
+      scopeKey(effect.scope) !== scopeKey(selected?.scope ?? input.scope) ||
       !effect.approvalAuthorityRevision.startsWith("automatic:") ||
       (effect.kind === "save"
-        ? selected?.automaticLearningEligible !== true ||
+        ? authorizedSource?.automaticLearningEligible !== true ||
           !witness.effectIds.includes(effect.id) ||
-          effect.actorId !== selected?.actorId ||
+          effect.actorId !== authorizedSource?.actorId ||
           effect.sourceId !== input.triggerSourceId ||
-          effect.sourceRevision !== selected?.revision
+          effect.sourceRevision !== authorizedSource?.revision
         : !validRetirement) ||
       !witness.inventory.some((entry) => entry.id === effect.entryId)
     )
@@ -180,6 +352,26 @@ export function inspectInventory(input: {
     )
       throw new Error("eval_readback_qualification_required");
     const prior = input.seenEntries.get(entry.id);
+    const explicit =
+      input.allowExplicit && entry.explicitCommandId
+        ? explicitProofs.get(entry.explicitCommandId)
+        : undefined;
+    const forgotten =
+      input.allowExplicit &&
+      entry.lifecycle === "forgotten" &&
+      entry.body === null &&
+      entry.bodyDigest === null &&
+      prior &&
+      [...explicitProofs.values()].some(
+        (effect) =>
+          effect.kind === "forget" &&
+          effect.entryId === entry.id &&
+          scopeKey(effect.scope) === scopeKey(entry.scope),
+      );
+    if (forgotten) {
+      input.seenEntries.set(entry.id, { ...entry });
+      continue;
+    }
     // Qualified full-forget may purge source/approval bytes; only a previously
     // validated identity with the matching actual owner mutation proof may do so.
     if (
@@ -207,33 +399,61 @@ export function inspectInventory(input: {
     const current = entry.sourceId
       ? input.sources.get(entry.sourceId)
       : undefined;
+    const explicitSource =
+      explicit?.sourceId && explicit.sourceRevision
+        ? input.sourceHistory.get(
+            `${explicit.sourceId}\u0000${explicit.sourceRevision}`,
+          )
+        : undefined;
+    const explicitValid =
+      explicit &&
+      explicitSource &&
+      explicit.entryId === entry.id &&
+      explicit.approvalAuthorityRevision === entry.approvalAuthorityRevision &&
+      knownScopeKeys.has(scopeKey(entry.scope)) &&
+      scopeKey(explicit.scope) === scopeKey(entry.scope) &&
+      entry.kind ===
+        (explicit.explicitAction?.action.kind === "create"
+          ? explicit.explicitAction.action.knowledgeKind
+          : (prior?.kind ?? entry.kind)) &&
+      (entry.body === null ||
+        (entry.sourceId === explicit.sourceId &&
+          entry.sourceRevision === explicit.sourceRevision &&
+          entry.sourceActor === explicit.actorId)) &&
+      (!prior ||
+        prior.explicitCommandId === entry.explicitCommandId ||
+        (explicit.explicitAction?.action.kind !== "create" &&
+          explicit.explicitAction?.action.expectedRevision === prior.revision));
     if (
-      (prior &&
+      !explicitValid &&
+      ((prior &&
         (prior.sourceId !== entry.sourceId ||
           prior.sourceActor !== entry.sourceActor ||
           prior.kind !== entry.kind ||
           prior.automaticCohortId !== entry.automaticCohortId ||
           prior.automaticCohortEpoch !== entry.automaticCohortEpoch)) ||
-      !entry.id ||
-      !entry.revision ||
-      scopeKey(entry.scope) !== scopeKey(input.scope) ||
-      !historical ||
-      (entry.approvalAuthorityRevision?.startsWith("automatic:") &&
-        historical?.automaticLearningEligible !== true) ||
-      entry.sourceActor !== historical.actorId ||
-      entry.observedCommit !== historical.headSha ||
-      entry.kind !== "observation" ||
-      (!entry.approvalAuthorityRevision?.startsWith("automatic:") &&
-        !(
-          entry.body === null &&
-          input.revokedEntryIds?.has(entry.id) &&
-          entry.approvalAuthorityRevision ===
-            "explicit-evaluation-owner-decision"
-        )) ||
-      !entry.automaticCohortId ||
-      !entry.automaticCohortEpoch ||
-      (entry.body !== null &&
-        (!current || current.revision !== entry.sourceRevision))
+        !entry.id ||
+        !entry.revision ||
+        !knownScopeKeys.has(scopeKey(entry.scope)) ||
+        (historical?.scope !== undefined &&
+          scopeKey(entry.scope) !== scopeKey(historical.scope)) ||
+        !historical ||
+        (entry.approvalAuthorityRevision?.startsWith("automatic:") &&
+          historical?.automaticLearningEligible !== true) ||
+        entry.sourceActor !== historical.actorId ||
+        entry.observedCommit !== historical.headSha ||
+        entry.kind !== "observation" ||
+        (!entry.approvalAuthorityRevision?.startsWith("automatic:") &&
+          !(
+            entry.body === null &&
+            input.revokedEntryIds?.has(entry.id) &&
+            entry.approvalAuthorityRevision ===
+              "explicit-evaluation-owner-decision"
+          )) ||
+        !entry.automaticCohortId ||
+        !entry.automaticCohortEpoch ||
+        (entry.body !== null &&
+          (!current || current.revision !== entry.sourceRevision)))
     )
       throw new Error("eval_observed_entry_authority_invalid");
     if (
@@ -242,6 +462,16 @@ export function inspectInventory(input: {
         entry.bodyDigest
     )
       throw new Error("eval_current_readback_digest_invalid");
+    if (
+      explicitValid &&
+      prior &&
+      entry.body === null &&
+      ["retire", "forget"].includes(explicit.kind) &&
+      entry.bodyDigest === prior.bodyDigest
+    ) {
+      input.seenEntries.set(entry.id, { ...entry });
+      continue;
+    }
     // Revision plus the complete authority envelope prevents same-ID or same-body changes disappearing.
     const key = `${input.namespace}:${JSON.stringify(entry)}`;
     if (input.seen.has(key)) continue;
@@ -268,7 +498,7 @@ export function inspectInventory(input: {
     versions.push({
       key,
       annotation: annotation[0]!,
-      source: historical,
+      source: explicitValid ? explicitSource : historical!,
       entry,
       qualifiedReadback: qualifiedReadback(entry),
     });

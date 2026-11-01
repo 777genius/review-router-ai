@@ -66,7 +66,8 @@ export type ProviderSelectionAuthorityFacts = Readonly<{
 
 /**
  * The signed-in user of a selection write. `authorize` runs only when the
- * stored selection of the target scope changes; throwing refuses the write.
+ * stored selection changes or explicit workspace memory settings are written;
+ * throwing refuses the write.
  */
 export type ProviderSelectionAuthority = Readonly<{
   userId: string;

@@ -10,6 +10,8 @@ import {
   type ConversationPolicyPort,
   type RequestControls,
   type ConversationMemoryPort,
+  type ConversationAction,
+  renderConversation,
 } from "../../packages/features/conversations/src/index.js";
 import type {
   MemoryKnowledgeAccessPort,
@@ -19,6 +21,12 @@ import type {
   MemoryActor,
   MemoryKnowledgeEntryMetadata,
 } from "../../packages/features/memory/src/index.js";
+import {
+  PrismaWorkspaceMemorySettings,
+  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
+  saveWorkspaceMemorySettings,
+} from "../../packages/features/review-config/src/index.js";
 import { readDurableCommands } from "./command-inventory.js";
 import { qualifiedReadback } from "./score-inventory.js";
 import { createConfiguredMemorySourcePreview } from "../../packages/features/memory/src/composition/index.js";
@@ -27,6 +35,8 @@ import {
   parseMemoryProviderConfig,
   hindsightMemoryBankId,
 } from "../../packages/features/memory/src/composition/index.js";
+import { memoryKnowledgeScopeKey } from "../../packages/features/memory/src/index.js";
+import { approvedMemorySourceApplicable } from "../../packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.js";
 import { createConversationMemoryPort } from "../../apps/api/src/action-conversation-composition.js";
 import {
   createConversationPolicy,
@@ -37,13 +47,38 @@ import type { MemoryKnowledgeAdmissionReceipt } from "../../packages/features/me
 import { HindsightMemoryStore } from "../../packages/context-memory/src/index.js";
 import {
   corpusEventId,
+  corpusSourceId,
+  canonicalCorpusMessages,
+  evaluationProcessingIdentity,
+  projectEvaluationSnapshot,
   corpusEventMessages,
+  resolveCorpusMessages,
+  type CorpusName,
+  type EventResolution,
+  type TargetBinding,
   type CorpusEvent,
   type CorpusMessage,
   type CorpusThread,
 } from "./corpus.js";
 
+export type ExplicitActionProof = {
+  action: ConversationAction;
+  source: MemoryKnowledgeSource;
+  actor: MemoryActor;
+  requireConfirmation: boolean;
+  settingsRevision: string;
+};
 export type Witness = {
+  sourceIdentity?: "github-node-v1";
+  scope?: MemoryKnowledgeScope;
+  processingScope?: { workspaceId: string; repositoryId: string };
+  policy?: {
+    requireConfirmation: boolean;
+    settingsRevision: string;
+    automaticLearning: boolean;
+  };
+  resolution?: EventResolution;
+  selectedStatements?: string[];
   eventId: string;
   processingId: string;
   status: string;
@@ -55,6 +90,8 @@ export type Witness = {
   modelCalls: number;
   inputBytes: number;
   deliveredBodyDigests: string[];
+  /** Qualified at the exact time of model delivery, before later mutations. */
+  deliveredQualifiedBodyDigests: string[];
   memoryManifest: Readonly<Record<string, unknown>> | null;
   observedModel: string | null;
   usage: unknown;
@@ -72,6 +109,7 @@ export type Witness = {
     scope: MemoryKnowledgeScope;
     sourceId: string | null;
     sourceRevision: string | null;
+    explicitAction?: ExplicitActionProof;
     automaticRetirement: {
       generation: string;
       cohortId: string;
@@ -97,6 +135,7 @@ export type InventoryEntry = {
     | "provider_unavailable"
     | "incomplete_evidence"
     | null;
+  explicitCommandId?: string | null;
   activeCohortEligible: boolean;
   sourceCurrent: boolean;
   kind: string;
@@ -121,14 +160,38 @@ export async function createEvaluationFixture(input: {
   env: NodeJS.ProcessEnv;
   runId: string;
   scenario: string;
+  corpusName?: CorpusName;
+  repositoryKeys?: string[];
   template: { workspaceId: string; repositoryId: string };
 }) {
   const namespace = `eval_${rawHash(`${input.runId}:${input.scenario}`).slice(0, 40)}`;
-  const scope: Extract<MemoryKnowledgeScope, { kind: "repository" }> = {
-    kind: "repository",
+  const pullRequestNumber =
+    Number.parseInt(rawHash(namespace).slice(0, 7), 16) + 1;
+  const successor = input.corpusName === "full-thread-v2";
+  const repositoryKeys = input.repositoryKeys ?? ["main"];
+  const scopes = repositoryKeys.map((key) => ({
+    kind: "repository" as const,
     workspaceId: `${namespace}_workspace`,
-    repositoryId: namespace,
-  };
+    repositoryId:
+      repositoryKeys.length === 1 ? namespace : `${namespace}_${key}`,
+  }));
+  let scope = scopes[0]!;
+  const templateRepository = await input.prisma.repositoryConnection.findFirst({
+    where: {
+      id: input.template.repositoryId,
+      workspaceId: input.template.workspaceId,
+      selected: true,
+      archived: false,
+    },
+    select: { githubRepositoryId: true, fullName: true },
+  });
+  if (!templateRepository?.githubRepositoryId)
+    throw new Error("eval_qualified_processing_identity_missing");
+  const processingIdentity = evaluationProcessingIdentity({
+    ...input.template,
+    githubRepositoryId: String(templateRepository.githubRepositoryId),
+    fullName: templateRepository.fullName,
+  });
   await input.prisma.workspace.create({
     data: {
       id: scope.workspaceId,
@@ -136,20 +199,47 @@ export async function createEvaluationFixture(input: {
       name: `Disposable conversation evaluation ${namespace}`,
     },
   });
-  await input.prisma.repositoryConnection.create({
-    data: {
-      id: scope.repositoryId,
-      workspaceId: scope.workspaceId,
-      externalRepositoryId: namespace,
-      owner: "disposable",
-      name: namespace,
-      fullName: `disposable/${namespace}`,
-      defaultBranch: "main",
-      visibility: "public",
-      selected: true,
-      archived: false,
-    },
-  });
+  for (const repository of scopes)
+    await input.prisma.repositoryConnection.create({
+      data: {
+        id: repository.repositoryId,
+        workspaceId: repository.workspaceId,
+        externalRepositoryId: repository.repositoryId,
+        owner: "disposable",
+        name: repository.repositoryId,
+        fullName: `disposable/${repository.repositoryId}`,
+        defaultBranch: "main",
+        visibility: "public",
+        selected: true,
+        archived: false,
+      },
+    });
+  const settings = new PrismaWorkspaceMemorySettings(input.prisma);
+  const settingsOwnerId = `${namespace}_owner`;
+  if (successor) {
+    await input.prisma.user.create({ data: { id: settingsOwnerId } });
+    await input.prisma.workspaceMember.create({
+      data: {
+        workspaceId: scope.workspaceId,
+        userId: settingsOwnerId,
+        role: "owner",
+      },
+    });
+  }
+  let currentPolicy = {
+    requireConfirmation: false,
+    settingsRevision: "0",
+    automaticLearning: true,
+  };
+  const targetBindings: Record<string, TargetBinding> = {};
+  const originalTargetBindings = new Map<string, TargetBinding>();
+  const resolvedBodies = new Map<string, string>();
+  const proposals = new Map<string, string[]>();
+  let resolution: EventResolution = { targets: {} };
+  let activeEvent: CorpusEvent | undefined;
+  let selectedStatements: string[] = [];
+  const explicitActions = new Map<string, ExplicitActionProof>();
+  const explicitEntryCommands = new Map<string, string>();
   const nativeConfig = parseMemoryProviderConfig({
     ...input.env,
     REVIEW_ROUTER_MEMORY_NAMESPACE: namespace,
@@ -159,12 +249,21 @@ export async function createEvaluationFixture(input: {
   const inventory = new HindsightMemoryStore({
     baseUrl: nativeConfig.baseUrl,
     apiKey: nativeConfig.apiKey,
-    bankForScope: () => hindsightMemoryBankId(nativeConfig, scope),
+    bankForScope: (repositoryId) => {
+      const selected = scopes.find((row) => row.repositoryId === repositoryId);
+      if (!selected) throw new Error("eval_native_scope_invalid");
+      return hindsightMemoryBankId(nativeConfig, selected);
+    },
     exactStatementStrategy: "router-approved-v1",
   });
   const runtime = await createMemoryKnowledgeRuntime({
     prisma: input.prisma,
     env: { ...input.env, REVIEW_ROUTER_MEMORY_NAMESPACE: namespace },
+    workspaceSettings: (workspaceId, transaction) =>
+      new PrismaWorkspaceMemorySettings(input.prisma).read(
+        workspaceId,
+        transaction,
+      ),
   });
   if (!runtime.enabled) throw new Error("eval_native_runtime_unavailable");
   const qualification = readConversationQualification(
@@ -174,7 +273,10 @@ export async function createEvaluationFixture(input: {
   let capturedReceipt: MemoryKnowledgeAdmissionReceipt | undefined;
   const selectedPolicy = createConversationPolicy({
     prisma: input.prisma,
-    runtime,
+    runtime: {
+      ...runtime,
+      policy: { getPolicy: () => runtime.policy.getPolicy(scope) },
+    },
     env: input.env,
     qualification,
     admitMemory: async (transaction, now) =>
@@ -204,6 +306,7 @@ export async function createEvaluationFixture(input: {
       body: string;
       updatedAt: string;
       headSha: string;
+      replyTo: string | null;
     }
   >();
   let snapshot: ConversationSnapshot | undefined;
@@ -221,14 +324,14 @@ export async function createEvaluationFixture(input: {
       type: "github_comment",
       sourceId: value.sourceId,
       revision: value.sourceRevision,
-      repositoryId: scope.repositoryId,
+      repositoryId: value.repositoryId,
       pullRequestNumber: value.pullRequestNumber,
       updatedAt: value.sourceUpdatedAt,
       statementAt: value.sourceUpdatedAt,
       visibility: value.visibility,
       claimedBodyDigest: selected.bodyDigest,
       observedCommitSha: value.headSha,
-      url: `https://example.invalid/disposable/${namespace}/${value.sourceCommentId}`,
+      url: `https://github.com/${value.repositoryFullName}/pull/${value.pullRequestNumber}#discussion_r${value.sourceCommentId}`,
     };
   };
   const current: MemoryAutomaticSourceCurrentPort = {
@@ -238,7 +341,17 @@ export async function createEvaluationFixture(input: {
         item &&
         item.revision === requested.revision &&
         item.actorId === binding.sourceActorId &&
-        item.headSha === binding.observedCommitSha,
+        item.headSha === binding.observedCommitSha &&
+        (binding.contextEvidence?.messages.every((message) => {
+          const actual = sourceInventory.get(message.id);
+          return (
+            actual &&
+            actual.updatedAt === message.updatedAt &&
+            rawHash(actual.body) === message.bodyDigest &&
+            actual.replyTo === message.replyTo
+          );
+        }) ??
+          true),
       );
     },
   };
@@ -248,7 +361,9 @@ export async function createEvaluationFixture(input: {
         requested.workspaceId !== scope.workspaceId ||
         (requested.kind !== "workspace" &&
           (requested.kind !== "repository" ||
-            requested.repositoryId !== scope.repositoryId)) ||
+            !scopes.some(
+              (row) => row.repositoryId === requested.repositoryId,
+            ))) ||
         !["github_user", "system"].includes(who.kind)
       )
         throw new Error("eval_fixture_scope_forbidden");
@@ -263,17 +378,19 @@ export async function createEvaluationFixture(input: {
         throw new Error("eval_fixture_source_forbidden");
       return requested;
     },
-    async sourceApplicable({ source: requested }) {
-      return (
-        sourceInventory.get(requested.sourceId)?.revision === requested.revision
+    async sourceApplicable(value, budget) {
+      return approvedMemorySourceApplicable(
+        {
+          ...value,
+          ...(value.consumer === "runtime" && snapshot
+            ? { headSha: snapshot.headSha }
+            : {}),
+        },
+        budget,
       );
     },
   };
   const service = runtime.forAccess(access, current);
-  const records = new PrismaConversationProcessingStore(input.prisma, {
-    workspaceId: scope.workspaceId,
-    repositoryId: scope.repositoryId,
-  });
   const sources: ConversationSourcePort & MemoryAutomaticSourceCurrentPort = {
     current: current.current,
     async identify() {
@@ -305,6 +422,7 @@ export async function createEvaluationFixture(input: {
     observedModel: string | null = null,
     usage: unknown = null,
     deliveredBodyDigests: string[] = [],
+    deliveredQualifiedBodyDigests: string[] = [],
     memoryManifest: Witness["memoryManifest"] = null;
   const preview = createConfiguredMemorySourcePreview({
     ...input.env,
@@ -315,7 +433,12 @@ export async function createEvaluationFixture(input: {
       previewCalls++;
       const start = Date.now();
       try {
-        return await preview.preview(...args);
+        const result = await preview.preview(...args);
+        selectedStatements =
+          result.status === "complete"
+            ? result.statements.map((row) => row.body)
+            : [];
+        return result;
       } finally {
         nativeLatencyMs += Date.now() - start;
       }
@@ -323,10 +446,18 @@ export async function createEvaluationFixture(input: {
   };
   const metadataHistory = new Map<string, MemoryKnowledgeEntryMetadata>();
   const readInventory = async (): Promise<InventoryEntry[]> => {
-    const page = await service.list(
-      { actor: memoryActor, scope, limit: 100 },
-      controls(),
+    const pages = await Promise.all(
+      scopes.map((requested) =>
+        service.list(
+          { actor: memoryActor, scope: requested, limit: 100 },
+          controls(),
+        ),
+      ),
     );
+    const page = {
+      entries: pages.flatMap((row) => row.entries),
+      nextCursor: pages.some((row) => row.nextCursor),
+    };
     if (page.nextCursor)
       throw new Error("eval_readback_exceeds_bounded_fixture");
     for (const entry of page.entries)
@@ -335,6 +466,12 @@ export async function createEvaluationFixture(input: {
     return Promise.all(
       page.entries.map(async (entry) => ({
         id: entry.metadata.ref.entryId,
+        ...(successor
+          ? {
+              explicitCommandId:
+                explicitEntryCommands.get(entry.metadata.ref.entryId) ?? null,
+            }
+          : {}),
         revision: entry.metadata.revision,
         scope: entry.metadata.ref.scope,
         lifecycle: entry.metadata.lifecycle,
@@ -348,8 +485,27 @@ export async function createEvaluationFixture(input: {
               entry.metadata.automaticSource,
             )
           : false,
-        sourceCurrent:
-          entry.metadata.source && entry.metadata.automaticSource
+        sourceCurrent: entry.metadata.approval?.authorityRevision.startsWith(
+          "github-command:v2:",
+        )
+          ? Boolean(
+              entry.metadata.source &&
+              (await approvedMemorySourceApplicable(
+                {
+                  actor: memoryActor,
+                  scope: entry.metadata.ref.scope,
+                  source: entry.metadata.source,
+                  consumer: "runtime",
+                  ...(entry.metadata.applicability.observedCommitSha
+                    ? {
+                        headSha: entry.metadata.applicability.observedCommitSha,
+                      }
+                    : {}),
+                },
+                controls(),
+              )),
+            )
+          : entry.metadata.source && entry.metadata.automaticSource
             ? await current.current(
                 {
                   scope: entry.metadata.ref.scope,
@@ -358,7 +514,11 @@ export async function createEvaluationFixture(input: {
                 },
                 controls(),
               )
-            : false,
+            : Boolean(
+                entry.metadata.source &&
+                sourceInventory.get(entry.metadata.source.sourceId)
+                  ?.revision === entry.metadata.source.revision,
+              ),
         kind: entry.metadata.kind,
         approvalAuthorityRevision:
           entry.metadata.approval?.authorityRevision ?? null,
@@ -366,7 +526,11 @@ export async function createEvaluationFixture(input: {
         automaticCohortEpoch: entry.metadata.automaticSource?.epoch ?? null,
         sourceId: entry.metadata.source?.sourceId ?? null,
         sourceRevision: entry.metadata.source?.revision ?? null,
-        sourceActor: entry.metadata.automaticSource?.sourceActorId ?? null,
+        sourceActor: entry.metadata.approval?.authorityRevision.startsWith(
+          "github-command:v2:",
+        )
+          ? entry.metadata.approval.actor.id
+          : (entry.metadata.automaticSource?.sourceActorId ?? null),
         observedCommit: entry.metadata.applicability.observedCommitSha,
       })),
     );
@@ -375,6 +539,8 @@ export async function createEvaluationFixture(input: {
     (await readInventory()).filter(qualifiedReadback);
   const drain = async (operationIds: readonly string[]) => {
     for (const commandId of operationIds) {
+      // Forget fences reads immediately. Physical cleanup remains the existing operator's work.
+      if (effectHistory.get(commandId)?.kind === "forget") continue;
       for (let count = 0; count < 80; count++) {
         const operation = await service.deliver(
           { scope, commandId },
@@ -396,45 +562,97 @@ export async function createEvaluationFixture(input: {
       }
     }
   };
-  const actualMemory = createConversationMemoryPort({
-    runtime,
-    scope,
-    sources,
-    preview: observedPreview,
-    managed: (value) => ({ service, access, source: source(value) }),
-    clock: { now: () => new Date() },
-    contextAccess: () => access,
-    onReceipt: (receipt) => {
-      capturedReceipt = receipt;
-    },
-  });
+  const memories = new Map(
+    scopes.map((requested) => [
+      requested.repositoryId,
+      createConversationMemoryPort({
+        runtime,
+        scope: requested,
+        sources,
+        preview: observedPreview,
+        managed: (value) => ({ service, access, source: source(value) }),
+        clock: { now: () => new Date() },
+        contextAccess: () => access,
+        onReceipt: (receipt) => {
+          capturedReceipt = receipt;
+        },
+      }),
+    ]),
+  );
+  const actualMemory = () => memories.get(scope.repositoryId)!;
   const memory: ConversationMemoryPort = {
-    ...actualMemory,
     async context(value, budget) {
-      const captured = await actualMemory.context(value, budget);
+      const captured = await actualMemory().context(
+        projectEvaluationSnapshot(value, scope),
+        budget,
+      );
       memoryManifest = captured.manifest;
-
       return captured;
+    },
+    async learn(value, processingId, revision, budget) {
+      return actualMemory().learn(
+        projectEvaluationSnapshot(value, scope),
+        processingId,
+        revision,
+        budget,
+      );
+    },
+    async action(value, processingId, intent, budget) {
+      value = projectEvaluationSnapshot(value, scope);
+      const proof: ExplicitActionProof = {
+        action: intent,
+        source: source(value),
+        actor: {
+          kind: "github_user",
+          id: value.sourceActor.id,
+          githubUserId: value.sourceActor.id.replace("github-user:", ""),
+          login: value.sourceActor.login,
+        },
+        requireConfirmation: currentPolicy.requireConfirmation,
+        settingsRevision: currentPolicy.settingsRevision,
+      };
+      const result = await actualMemory().action(
+        value,
+        processingId,
+        intent,
+        budget,
+      );
+      for (const id of result.effectIds) explicitActions.set(id, proof);
+      return result;
     },
   };
   // Account/model/custody remain with the production selected-account policy.
   const policy: ConversationPolicyPort = {
     async capture(identity, processingId, budget) {
-      const base = await selectedPolicy.capture(
-        {
-          ...identity,
-          workspaceId: input.template.workspaceId,
-          repositoryId: input.template.repositoryId,
-        },
-        processingId,
-        budget,
-      );
+      const base = await selectedPolicy.capture(identity, processingId, budget);
+      const selectedSettings = successor
+        ? await settings.read(scope.workspaceId)
+        : null;
+      currentPolicy = {
+        requireConfirmation: selectedSettings?.requireConfirmation ?? false,
+        settingsRevision: selectedSettings
+          ? String(selectedSettings.version ?? 0)
+          : "0",
+        automaticLearning:
+          base.automaticLearning &&
+          (activeEvent?.policy?.automaticLearning ??
+            activeThread?.policy.automaticLearning ??
+            false),
+      };
       const inference = base.inference;
       return {
         ...base,
-        automaticLearning:
-          base.automaticLearning &&
-          (activeThread?.policy.automaticLearning ?? false),
+        automaticLearning: currentPolicy.automaticLearning,
+        requireConfirmation: currentPolicy.requireConfirmation,
+        isCurrent: async (requestBudget) => {
+          if (!(await base.isCurrent(requestBudget))) return false;
+          if (!successor) return true;
+          const fresh = await settings.read(scope.workspaceId);
+          return (
+            fresh.version === selectedSettings?.version &&
+            fresh.requireConfirmation === selectedSettings?.requireConfirmation
+          );
+        },
         discussionReplies:
           base.discussionReplies &&
           (activeThread?.policy.discussionReplies ?? false),
@@ -456,10 +674,21 @@ export async function createEvaluationFixture(input: {
                 }
               })
               .join("\n");
-            deliveredBodyDigests = (await readback())
+            const delivered = (await readInventory())
+              .filter(
+                (
+                  entry,
+                ): entry is InventoryEntry & {
+                  body: string;
+                  bodyDigest: string;
+                } => entry.body !== null && entry.bodyDigest !== null,
+              )
               .filter((entry) =>
                 actualMemory.includes(JSON.stringify(entry.body).slice(1, -1)),
-              )
+              );
+            deliveredBodyDigests = delivered.map((entry) => entry.bodyDigest);
+            deliveredQualifiedBodyDigests = delivered
+              .filter(qualifiedReadback)
               .map((entry) => entry.bodyDigest);
             const output = await inference.generate(request, requestBudget);
             observedModel = output.actualModel;
@@ -483,6 +712,8 @@ export async function createEvaluationFixture(input: {
       scope,
       generation: runtime.generation,
       knownEntryIds: [...metadataHistory.keys()],
+      knownScopes: scopes,
+      sourceIds: [...sourceInventory.keys()],
       returnedIds,
       processingIds: [...processingIds],
     });
@@ -493,7 +724,11 @@ export async function createEvaluationFixture(input: {
     for (const durable of rows) {
       const row = await runtime.store.findCommand({
         commandId: durable.id,
-        scope,
+        scope:
+          scopes.find(
+            (requested) =>
+              memoryKnowledgeScopeKey(requested) === durable.scopeKey,
+          ) ?? scope,
         generation: runtime.generation,
       });
       if (!row) throw new Error("eval_effect_readback_missing");
@@ -542,8 +777,11 @@ export async function createEvaluationFixture(input: {
               suppressed: lineage.suppressed,
             };
         }
+        const explicit = explicitActions.get(durable.id);
+        if (explicit) explicitEntryCommands.set(durable.entryId, durable.id);
         const source =
-          row.envelope?.kind === "save" ? row.envelope.source : known?.source;
+          explicit?.source ??
+          (row.envelope?.kind === "save" ? row.envelope.source : known?.source);
         effectHistory.set(durable.id, {
           id: durable.id,
           entryId: durable.entryId,
@@ -554,6 +792,7 @@ export async function createEvaluationFixture(input: {
           scope: row.operation.ref.scope,
           sourceId: source?.sourceId ?? null,
           sourceRevision: source?.revision ?? null,
+          ...(explicit ? { explicitAction: explicit } : {}),
           automaticRetirement,
         });
       }
@@ -571,29 +810,111 @@ export async function createEvaluationFixture(input: {
     return { commandInventoryIds, effects };
   };
 
-  const process = new ProcessConversation({
-    sources,
-    records,
-    policies: policy,
-    memory,
-  });
+  const processes = new Map(
+    scopes.map((requested) => [
+      requested.repositoryId,
+      new ProcessConversation({
+        sources,
+        records: new PrismaConversationProcessingStore(input.prisma, {
+          workspaceId: processingIdentity.workspaceId,
+          repositoryId: processingIdentity.repositoryId,
+        }),
+        policies: policy,
+        memory,
+      }),
+    ]),
+  );
   let activeThread: CorpusThread | undefined;
   const commentIds = new Map<string, string>();
   async function setSource(thread: CorpusThread, event: CorpusEvent) {
     activeThread = thread;
-    const visible = corpusEventMessages(thread, event);
+    activeEvent = event;
+    scope = scopes[repositoryKeys.indexOf(thread.repositoryKey ?? "main")]!;
+    if (!scope) throw new Error("eval_fixture_repository_missing");
+    if (successor && event.policy?.requireConfirmation !== undefined) {
+      const previous = await settings.read(scope.workspaceId);
+      await saveWorkspaceMemorySettings(
+        {
+          workspaceId: scope.workspaceId,
+          actor: {
+            userId: settingsOwnerId,
+            auditActor: `eval-owner:${settingsOwnerId}`,
+          },
+          requireConfirmation: event.policy.requireConfirmation,
+          expectedVersion: previous.version,
+        },
+        {
+          configurations: new PrismaReviewConfigurationRepository(
+            input.prisma,
+            undefined,
+            false,
+            undefined,
+          ),
+          policyHeads: new PrismaReviewPolicyHeadReader(input.prisma),
+        },
+      );
+    }
+    if (successor) {
+      const actual = await settings.read(scope.workspaceId);
+      currentPolicy = {
+        requireConfirmation: actual.requireConfirmation,
+        settingsRevision: String(actual.version ?? 0),
+        automaticLearning:
+          event.policy?.automaticLearning ?? thread.policy.automaticLearning,
+      };
+    }
+    for (const requested of event.bindTargets ?? []) {
+      const previous = targetBindings[requested.alias];
+      const rows = (await readInventory())
+        .filter((row) =>
+          previous
+            ? row.id === previous.entryId
+            : row.sourceId ===
+              corpusSourceId(namespace, requested.sourceMessageId),
+        )
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const target = rows[previous ? 0 : requested.index];
+      if (!target) throw new Error("eval_actual_target_unavailable");
+      const bound = {
+        entryId: target.id,
+        revision: target.revision,
+        sourceMessageId: requested.sourceMessageId,
+        index: requested.index,
+      };
+      if (!originalTargetBindings.has(requested.alias))
+        originalTargetBindings.set(requested.alias, bound);
+      targetBindings[requested.alias] =
+        requested.revision === "initial"
+          ? originalTargetBindings.get(requested.alias)!
+          : bound;
+    }
+    const confirmed = event.confirmProposal;
+    const proposal = confirmed
+      ? proposals.get(confirmed.messageId)?.[confirmed.index]
+      : undefined;
+    if (confirmed && proposal === undefined)
+      throw new Error("eval_observed_proposal_missing");
+    resolution = {
+      targets: structuredClone(targetBindings),
+      ...(confirmed ? { confirmation: { ...confirmed, body: proposal! } } : {}),
+    };
+    const visible = canonicalCorpusMessages(
+      successor
+        ? resolveCorpusMessages(thread, event, resolution, resolvedBodies)
+        : corpusEventMessages(thread, event),
+    );
     const selected = visible.find((message) => message.id === event.messageId)!;
     const actorId = (message: CorpusMessage) =>
       message.actorKind === "bot"
         ? "github-bot:eval-router"
         : `github-user:eval-${message.actor}`;
     const visibleIds = new Set(
-      visible.map((message) => `${namespace}:${message.id}`),
+      visible.map((message) => corpusSourceId(namespace, message.id)),
     );
     for (const original of thread.messages.filter(
       (message) => message.actorKind === "human",
     )) {
-      const id = `${namespace}:${original.id}`;
+      const id = corpusSourceId(namespace, original.id);
       if (sourceInventory.has(id) && !visibleIds.has(id)) {
         sourceInventory.delete(id);
         await runtime.automaticSources.invalidate({
@@ -605,7 +926,7 @@ export async function createEvaluationFixture(input: {
       }
     }
     for (const message of visible) {
-      const id = `${namespace}:${message.id}`;
+      const id = corpusSourceId(namespace, message.id);
       const old = sourceInventory.get(id);
       if (
         old &&
@@ -619,25 +940,37 @@ export async function createEvaluationFixture(input: {
         });
     }
     for (const message of visible)
-      if (message.actorKind === "human")
-        sourceInventory.set(`${namespace}:${message.id}`, {
-          revision: `${message.updatedAt}:${rawHash(message.body)}`,
-          actorId: actorId(message),
-          body: message.body,
-          updatedAt: message.updatedAt,
-          headSha: thread.headSha,
-        });
-    const stableSourceId = `${namespace}:${selected.id}`;
+      sourceInventory.set(corpusSourceId(namespace, message.id), {
+        revision: `${message.updatedAt}:${rawHash(message.body)}`,
+        actorId: actorId(message),
+        body: message.body,
+        updatedAt: message.updatedAt,
+        headSha: thread.headSha,
+        replyTo:
+          message.id === visible[0]!.id
+            ? null
+            : (() => {
+                const rootId = corpusSourceId(namespace, visible[0]!.id);
+                if (!commentIds.has(rootId))
+                  commentIds.set(rootId, String(commentIds.size + 1));
+                return commentIds.get(rootId)!;
+              })(),
+      });
+    const stableSourceId = corpusSourceId(namespace, selected.id);
+    for (const message of visible) {
+      const id = corpusSourceId(namespace, message.id);
+      if (!commentIds.has(id)) commentIds.set(id, String(commentIds.size + 1));
+    }
     if (!commentIds.has(stableSourceId))
       commentIds.set(stableSourceId, String(commentIds.size + 1));
+    const root = visible[0]!;
+    const rootSource = corpusSourceId(namespace, root.id);
+    const rootCommentId = commentIds.get(rootSource)!;
     const identity: ConversationIdentity = {
-      workspaceId: scope.workspaceId,
-      repositoryId: scope.repositoryId,
-      repositoryStableId: `synthetic:${namespace}`,
-      repositoryFullName: `disposable/${namespace}`,
-      pullRequestNumber: 1,
-      threadId: `${namespace}:${thread.id}`,
-      sourceId: `${namespace}:${selected.id}`,
+      ...processingIdentity,
+      pullRequestNumber,
+      threadId: `github-review-thread:${rootCommentId}`,
+      sourceId: corpusSourceId(namespace, selected.id),
       sourceCommentId: commentIds.get(stableSourceId)!,
       sourceRevision: `${selected.updatedAt}:${rawHash(selected.body)}`,
       sourceUpdatedAt: selected.updatedAt,
@@ -647,9 +980,10 @@ export async function createEvaluationFixture(input: {
         kind: selected.actorKind,
       },
     };
-    const messages = visible.map((message, i) => ({
-      id: `${namespace}:${message.id}`,
-      commentId: String(i + 1),
+    const messages = visible.map((message) => ({
+      id: corpusSourceId(namespace, message.id),
+      commentId:
+        commentIds.get(corpusSourceId(namespace, message.id)) ?? rootCommentId,
       actor: {
         id: actorId(message),
         login: message.actor,
@@ -657,7 +991,7 @@ export async function createEvaluationFixture(input: {
       },
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
-      replyTo: message.replyTo ? `${namespace}:${message.replyTo}` : null,
+      replyTo: message.id === root.id ? null : rootCommentId,
       body: message.body,
       bodyDigest: rawHash(message.body),
     }));
@@ -677,7 +1011,7 @@ export async function createEvaluationFixture(input: {
         diffHunk: thread.anchor.code,
       },
       threadDigest: conversationDigest(messages),
-      parentCommentId: "1",
+      parentCommentId: rootCommentId,
       sourceMaintainer: selected.role === "maintainer",
       repliesInThread: thread.policy.existingThreadReplies,
       repliesInPullRequest: thread.policy.existingPrReplies,
@@ -687,36 +1021,52 @@ export async function createEvaluationFixture(input: {
   return {
     namespace,
     scope,
+    scopes,
+    processingScope: processingIdentity,
     async coldStart() {
       const [entries, count, native, commands] = await Promise.all([
         readInventory(),
         input.prisma.conversationProcessing.count({
           where: {
-            workspaceId: scope.workspaceId,
-            repositoryId: scope.repositoryId,
+            workspaceId: processingIdentity.workspaceId,
+            repositoryId: processingIdentity.repositoryId,
+            OR: [
+              { sourceId: { startsWith: `github-node:${namespace}_` } },
+              { pullRequestNumber },
+            ],
           },
         }),
-        inventory.listSources({ scope: namespace, limit: 100 }, controls()),
+        Promise.all(
+          scopes.map((requested) =>
+            inventory.listSources(
+              { scope: requested.repositoryId, limit: 100 },
+              controls(),
+            ),
+          ),
+        ),
         commandEvidence([], false),
       ]);
       if (
         entries.length ||
         count ||
-        native.sources.length ||
-        native.nextCursor ||
+        native.some((page) => page.sources.length || page.nextCursor) ||
         commands.commandInventoryIds.length
       )
         throw new Error("eval_cold_start_failed");
       return {
         productEntries: entries.length,
         durableCommands: commands.commandInventoryIds.length,
-        nativeDocuments: native.sources.length,
+        nativeDocuments: native.reduce(
+          (count, page) => count + page.sources.length,
+          0,
+        ),
         processingRecords: count,
         scopeDigest: conversationDigest(scope),
         nativeNamespace: namespace,
       };
     },
     async run(thread: CorpusThread, event: CorpusEvent): Promise<Witness> {
+      selectedStatements = [];
       previewCalls = 0;
       modelCalls = 0;
       inputBytes = 0;
@@ -724,12 +1074,13 @@ export async function createEvaluationFixture(input: {
       observedModel = null;
       usage = null;
       deliveredBodyDigests = [];
+      deliveredQualifiedBodyDigests = [];
       memoryManifest = null;
       await setSource(thread, event);
       const start = Date.now();
-      const result = await process.execute(
+      const result = await processes.get(scope.repositoryId)!.execute(
         {
-          pullRequestNumber: 1,
+          pullRequestNumber,
           sourceCommentId: snapshot!.sourceCommentId,
           sourceRevision: snapshot!.sourceUpdatedAt,
           eventAction: event.action,
@@ -743,10 +1094,30 @@ export async function createEvaluationFixture(input: {
       const drainStarted = Date.now();
       await drain(result.learning.effectIds);
       nativeLatencyMs += Date.now() - drainStarted;
+      if (selectedStatements.length)
+        proposals.set(event.messageId, [...selectedStatements]);
       const inventory = await readInventory();
       const retained = inventory.filter(qualifiedReadback);
       const commands = await commandEvidence(result.learning.effectIds, true);
       return {
+        sourceIdentity: "github-node-v1",
+        ...(successor && event.action !== "deleted"
+          ? {
+              processingScope:
+                await input.prisma.conversationProcessing.findUniqueOrThrow({
+                  where: { id: result.processingId },
+                  select: { workspaceId: true, repositoryId: true },
+                }),
+            }
+          : {}),
+        ...(successor
+          ? {
+              scope,
+              policy: { ...currentPolicy },
+              resolution: structuredClone(resolution),
+              selectedStatements: [...selectedStatements],
+            }
+          : {}),
         eventId: corpusEventId(thread, event),
         processingId: result.processingId,
         status: result.status,
@@ -758,6 +1129,7 @@ export async function createEvaluationFixture(input: {
         modelCalls,
         inputBytes,
         deliveredBodyDigests,
+        deliveredQualifiedBodyDigests,
         memoryManifest,
         observedModel,
         usage,
@@ -808,6 +1180,15 @@ export async function createEvaluationFixture(input: {
       };
     },
     async nativeOnly(thread: CorpusThread, event: CorpusEvent) {
+      if (
+        event.bindTargets ||
+        event.confirmProposal ||
+        event.expectedReply === "replay_no_new_effects"
+      )
+        return {
+          status: "not_applicable",
+          reason: "selection_only_has_no_product_target_or_command",
+        };
       if (event.action === "deleted")
         return {
           status: "not_applicable",
@@ -829,6 +1210,11 @@ export async function createEvaluationFixture(input: {
             revision: snapshot!.sourceRevision,
             body: selected.body,
           },
+          ...(successor
+            ? {
+                readOnlyContext: renderConversation(snapshot!),
+              }
+            : {}),
           maxStatements: 4,
         },
         controls(),

@@ -339,7 +339,7 @@ async function saveReviewPolicyWrites(
   mode: Readonly<{ requireProvider: boolean }>,
 ): Promise<readonly SavedReviewPolicy[]> {
   const workspaceId = input.workspaceId;
-  const writes = planWrites(workspaceId, input.writes);
+  let writes = planWrites(workspaceId, input.writes);
   await acquireCurrentScopeGuards(
     tx,
     writes.map((write) => ({ ...write.target, mode: "exclusive" as const })),
@@ -375,6 +375,22 @@ async function saveReviewPolicyWrites(
   const storedWorkspace = storedWorkspaceHead
     ? parseStoredReviewPolicy("workspace", storedWorkspaceHead)
     : null;
+  // A generic workspace save may omit the Memory form's setting. Preserve
+  // it under the same workspace write lock, before materialization and CAS.
+  if (storedWorkspace?.memory !== undefined) {
+    writes = writes.map((write) =>
+      write.target.scope === "workspace" &&
+      (!("memory" in write.policy) || write.policy.memory === undefined)
+        ? {
+            ...write,
+            policy: {
+              ...write.policy,
+              memory: storedWorkspace.memory,
+            } as WorkspaceReviewPolicy,
+          }
+        : write,
+    );
+  }
   if (!workspaceWrite && !storedWorkspace) {
     if (storedWorkspaceHead) throw new Error("review_policy_resave_required");
     // The caller writes the workspace document in the same batch and rereads.
@@ -399,8 +415,24 @@ async function saveReviewPolicyWrites(
         new Set(writes.map((write) => write.targetKey)),
       )
     : [];
-  const draftedWorkspace = (workspaceWrite?.policy ??
-    storedWorkspace) as WorkspaceReviewPolicy;
+  const draftedWorkspace = (writes.find(
+    (write) => write.target.scope === "workspace",
+  )?.policy ?? storedWorkspace) as WorkspaceReviewPolicy;
+  // Workspace memory settings require current admin authority even when the
+  // provider selection stays unchanged. The workspace/member locks above hold
+  // this decision through the policy write and its version CAS.
+  if (
+    workspaceWrite &&
+    (draftedWorkspace.memory !== undefined ||
+      storedWorkspace?.memory !== undefined) &&
+    authority &&
+    lockedAuthority
+  )
+    authority.authorize({
+      ...lockedAuthority,
+      target: workspaceWrite.target,
+      profiles: [],
+    });
   // Each write's effective selections, still naming drafts by draft ID.
   const selected = writes.map(
     (write) =>
