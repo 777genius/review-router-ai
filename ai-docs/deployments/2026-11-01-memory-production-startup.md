@@ -89,8 +89,8 @@ The fleet overlay added the same private provider settings to web/API/worker,
 retaining the old four containers for rollback. The native deployment is
 `reviewrouter-memory-prod-v1`, with its shared lock and signing material in
 `/srv/platform/projects/review-router/memory-operator-v1`. The source-restricted
-UFW ingress rule admits port8888 only from the existing Router Docker bridge.
-Web and API readiness remain200; native API is reachable from the actual web
+UFW ingress rule admits port 8888 only from the existing Router Docker bridge.
+Web and API readiness checks returned 200; native API is reachable from the actual web
 container. No application schema migration or new application image was applied.
 
 Authenticated production UI save, worker publication and reload/readback passed
@@ -112,5 +112,22 @@ disposable `777genius/review-router-saas-e2e`; there are zero current-provider
 entries, commands or automatic sources before activation. No legacy customer
 knowledge was silently imported or deleted.
 
-This task is not marked deployed. Source CI, coherent activation, actual model
-and authenticated UI/App lifecycle checks still need evidence.
+The real installed-App review on disposable
+`777genius/rr-codex-rotating-e2e#134` completed in run `41302865788`, but its
+Action logged `memory unavailable` and every invocation used
+`memoryBundleHash=none`. No knowledge-bundle receipt was persisted. This is a
+failed review-memory E2E, despite successful manual storage. The V4 multi-reviewer
+authorizer requires a reviewer ID, while the run-wide memory caller supplied
+none; the resulting denial precedes retrieval. A dedicated run-level adapter must
+retain every captured reviewer's strict account checks before this can pass.
+
+A separate single real Gateway `/llm` call completed through the selected
+repository primary account and model `gpt-6.1-sol`. Its exclusive task identity
+was `rr-memory-source-qualification-20261101-selected-user-1`, attempt 1,
+execution `6fe84e89-fe1f-4b7b-ac05-996c02723c6e`, with closed cleanup and
+109 input/141 output tokens. This proves live selected-account SDK routing only;
+it does not qualify conversational extraction or activate its new capability.
+
+This task is not marked complete. Source CI, the V4 authorization fix, coherent
+application activation, successful review-memory recall and physical Forget,
+and the installed-App selected-account conversation lifecycle still need evidence.
