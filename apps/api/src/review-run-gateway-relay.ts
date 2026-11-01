@@ -776,6 +776,13 @@ export function createReviewRunGatewayRelay(input: {
       finish();
     };
     let upstream: NativeResponse | undefined;
+    let requestStage:
+      | "session"
+      | "local_authority"
+      | "local_forward"
+      | "sdk_request"
+      | "post_request_authority"
+      | "stream_wrap" = "session";
     try {
       if (diagnostic) diagnostic.stage = "request";
       // Exactly one SDK request per inserted reservation. Never enter the
@@ -785,16 +792,21 @@ export function createReviewRunGatewayRelay(input: {
         body,
         { signal },
         async () => {
+          requestStage = "local_authority";
           await fresh();
+          requestStage = "local_forward";
           await beforeForward?.();
+          requestStage = "sdk_request";
         },
       );
+      requestStage = "post_request_authority";
       await fresh();
       if (upstream.kind === "status") {
         await settle(upstream.status.effect);
         dispose();
         return upstream;
       }
+      requestStage = "stream_wrap";
       await outcome("dispatch_started");
       const stream = upstream;
       const reader = stream.body.getReader();
@@ -888,7 +900,7 @@ export function createReviewRunGatewayRelay(input: {
         console.error(
           JSON.stringify({
             event: "review_run_companion_gateway_request_failed",
-            stage: "request",
+            stage: requestStage,
             requestRef,
             ...(sdkCode === undefined ? {} : { sdkCode }),
             ...(effect.success ? { effect: effect.data } : {}),

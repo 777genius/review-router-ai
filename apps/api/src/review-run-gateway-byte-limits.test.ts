@@ -519,7 +519,7 @@ it.each([403, 503])(
         [
           {
             event: "review_run_companion_gateway_request_failed",
-            stage: "request",
+            stage: "sdk_request",
             sdkCode: "safe_error",
             effect: "not_dispatched",
             diagnosticCode: "forbidden",
@@ -541,6 +541,70 @@ it.each([403, 503])(
     }
   },
 );
+
+it("companion distinguishes local authority refusal before the SDK POST", async () => {
+  const state = companionReservation();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  const resolve = f.authorizations.resolveReviewRunAuthorizationToken;
+  const authority = vi.spyOn(
+    f.authorizations,
+    "resolveReviewRunAuthorizationToken",
+  );
+  const prepareUsage = f.usage!.prepare;
+  const usage = vi
+    .spyOn(f.usage!, "prepare")
+    .mockImplementation(async (input) => {
+      const result = await prepareUsage(input);
+      // After the usage wait, let the session read succeed, then revoke at the
+      // next token-authority read before any native request can be forwarded.
+      authority.mockImplementationOnce(async (input) => {
+        f.revoke("authorization-1");
+        return resolve(input);
+      });
+      return result;
+    });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "companion_request_failed",
+      statusCode: 502,
+      effect: "effect_unknown",
+      requestRef: "stored-companion-native-ref",
+    });
+    expect(
+      log.mock.calls.map(([event]) => JSON.parse(event as string)),
+    ).toEqual([
+      {
+        event: "review_run_companion_gateway_request_failed",
+        stage: "local_authority",
+        requestRef: "stored-companion-native-ref",
+      },
+    ]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestRefs).toHaveLength(0);
+    expect(state.claimCount()).toBe(1);
+    expect(state.rows.size).toBe(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+    expect(f.effects.at(-1)?.effect).toBe("effect_unknown");
+  } finally {
+    usage.mockRestore();
+    authority.mockRestore();
+    await f.relay.shutdown();
+    log.mockRestore();
+  }
+});
 
 it("companion settles its refusal even when the diagnostic sink throws", async () => {
   const state = companionReservation();
@@ -1209,6 +1273,7 @@ async function fixture(
     preparation,
     relay,
     authorizations: relayInput.authorizations,
+    usage: relayInput.usage,
     restartRelay: (maxSessions = relayInput.policy.maxSessions) =>
       createReviewRunGatewayRelay({
         ...relayInput,

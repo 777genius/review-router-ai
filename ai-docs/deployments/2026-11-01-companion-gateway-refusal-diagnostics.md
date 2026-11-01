@@ -45,8 +45,7 @@ the historical rejection cause.
 
 ## Verification and rollback
 
-The full real-loopback relay suite passed 73 tests. The final serialization and
-throwing-sink cases passed; removal of the diagnostic makes both new 403/503
+The full real-loopback relay suite passed 73 tests. The final serialization, throwing-sink and local-authority phase cases passed; removal of the diagnostic makes both new 403/503
 cases fail. API typecheck, formatting and diff checks passed. No raw error,
 message, headers, bodies, token or opaque upstream reference is logged.
 Settlement, one-request budgeting and cancellation remain unchanged. Rollback
@@ -74,3 +73,21 @@ uses the preserved previous application containers; no schema rollback is needed
 - [Issue #761](https://github.com/777genius/review-router-ai/issues/761) remains
   the canonical ACL/activation routine and INSERT-guard follow-up. The ordinary
   Hetzner deployment path applies and now verifies the narrow worker grant.
+
+## Additional continuation checks
+
+- The signed-in organization Statistics page was verified at 11:36 UTC: two
+  distinct pull requests, three completed reviews and zero issue facts, matching
+  the database. The report renders; a direct seven-day URL also selects the
+  expected period. This is frontend evidence, not just an owner SQL count.
+- Legacy `reviewrouter-codex.yml` was disabled through the supported Actions
+  workflow-state API in both `agent-teams-ai/.github` (workflow 325491799) and
+  `agent-teams-ai/engineering-foundation` (325491577). Readback is
+  `disabled_manually`; their modern `reviewrouter-review.yml` callers remain
+  `active`. Existing source bytes, exact Action pins, interaction workflows and
+  required checks were preserved. Deleting the files requires a separate owning
+  contract migration: both repositories currently enforce their presence.
+- Companion failure diagnostics now distinguish session validation, local
+  authority, local forward validation, SDK request, post-request authority and
+  stream wrapping. A real loopback case confirms local authority refusal makes
+  zero native POSTs while retaining the consumed reservation and unknown effect.
