@@ -34,10 +34,9 @@ They do not grant deployment permission or replace existing operational runbooks
 | [Analytics extensibility](2026-10-31-analytics-extensibility.md)                       | [#768][analytics-catalog], [#769][analytics-ui], [#770][analytics-diagnostics]                                                          | `pending` | `pending`     | Catalog, UI and read-only diagnostics: qualify CI, deploy Web coherently and verify access.                                                                       |
 | [Production rollout 533c040d](2026-10-30-production-rollout-533c040d.md)               | Main `533c040d`, Action v1.0.224                                                                                                        | `pending` | `deployed`    |
 | [Production rollout d5f16400](2026-10-31-production-rollout-d5f16400.md)               | Main `d5f16400`, PRs #752, #757, #758, #759                                                                                             | `pending` | `deployed`    | Shared evidence for the tasks above; follow-ups listed in the record.                                                                                             |
-| [Gateway refusal diagnostics][gateway-refusal]                                         | [PR #772](https://github.com/777genius/review-router-ai/pull/772)                                                                       | `pending` | `deployed`    | `e7f2e600`: Gateway/MCP acceptance passed; guarded first binds recovered; seven worker checks and readiness pass.                                                 |
+| [Gateway refusal diagnostics][gateway-refusal]                                         | [PR #772](https://github.com/777genius/review-router-ai/pull/772)                                                                       | `pending` | `partial`     | `e7f2e600` repairs verified; added closed model-claim observer awaits rollout.                                                                                    |
 
 [gateway-refusal]: 2026-11-01-companion-gateway-refusal-diagnostics.md
-
 [analytics-catalog]: https://github.com/777genius/review-router-ai/pull/768
 [analytics-ui]: https://github.com/777genius/review-router-ai/pull/769
 [analytics-diagnostics]: https://github.com/777genius/review-router-ai/pull/770

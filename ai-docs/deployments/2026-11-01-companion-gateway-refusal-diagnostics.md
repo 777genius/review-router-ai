@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status     | Actual application revision                | Evidence / next step                                                                                                                      |
-| ----------- | ---------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`  | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                                          |
-| production  | `deployed` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Gateway/MCP acceptance passed; guarded first-bind grant applied; two permission events processed; seven worker checks and readiness pass. |
+| Environment | Status    | Actual application revision                | Evidence / next step                                                                                            |
+| ----------- | --------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending` | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                |
+| production  | `partial` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Gateway/MCP and guarded first-bind repairs verified; additional closed claim-rejection observer awaits rollout. |
 
 ## Failure and evidence
 
@@ -260,3 +260,40 @@ idempotency keys were retained. Both processed with one attempt, at 18:21:23 and
 passes all four roles at unchanged application source `e7f2e600`, zero restarts,
 seven real worker privilege checks and readiness HTTP 200. Application rebuild,
 inference replay and Gateway restart were unnecessary for this correction.
+
+## Fresh OpenRouter selection and pre-dispatch diagnostic gap
+
+The workspace default is OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free`.
+Agent-runtime had an independent MiMo override. The supported application
+command removed only its repository provider selection, creating policy version 6
+and audit `cmvy8r6jy00026tp6cqb64y0p`; the workspace default remains version 9.
+Private custody: `/srv/platform/projects/review-router/releases/agent-runtime-provider-inherit-gk7iwueo/`.
+No model call or deployment was needed for this configuration change.
+
+One fresh [sub2api review](https://github.com/agent-teams-ai/sub2api/actions/runs/41343643088)
+froze the correct FREE model/account, but ended partial with one attempt and no
+accepted evidence. Its authorization retained no Gateway allocation binding or
+companion dispatch. This does not establish an OpenRouter provider failure.
+The owned temporary PR 88 was closed unmerged and its branch deleted.
+
+Offline qualification used the exact OCR binary SHA256
+`9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c`
+and compiled Action `72634bbcb75a8cc11bc03457ee6d45543a1b459c`.
+Both native request construction and the compiled adapter's normalize/reserve
+passed against a network-isolated synthetic loopback upstream. These results
+do not recover the historical production refusal or prove live provider health.
+
+The claim endpoint returned finite refusal codes without recording them, while
+the Action discarded the response details. Additional source `857511c73` records
+only a closed phase/code/status and the server-resolved authorization ID.
+Unknown codes collapse to a generic diagnostic; response status/body and
+authority behavior are unchanged, including when logging throws. Fourteen
+real-loopback regression cases fail before the change and pass afterward; the
+six PostgreSQL cases were not part of that focused local run.
+
+Remaining: qualify the integrated source, deploy this observer with the coherent
+application batch using the release process above, verify fleet/readiness, then
+inspect one separately authorized fresh review's closed outcome. Do not replay
+the historical uncertain MiMo request. The observer itself adds no retries,
+model dispatches, authority or feature flags. Production `e7f2e600` does not yet
+include this additional claim observer.
