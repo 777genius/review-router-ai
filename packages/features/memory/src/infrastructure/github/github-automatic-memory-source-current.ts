@@ -31,7 +31,8 @@ async function contextEvidenceCurrent(
   if (
     !client.graphql ||
     !evidence.messages.some((message) => message.id === input.sourceId)
-  ) return false;
+  )
+    return false;
   const rootId = evidence.threadId.slice("github-review-thread:".length);
   const repositoryName = (input.owner + "/" + input.repo).toLowerCase();
   // Fetch only the frozen evidence, never all comments of the pull request.
@@ -66,7 +67,10 @@ async function contextEvidenceCurrent(
         };
       })[];
     };
-    if (!Array.isArray(response.nodes) || response.nodes.length !== batch.length)
+    if (
+      !Array.isArray(response.nodes) ||
+      response.nodes.length !== batch.length
+    )
       return false;
     for (let index = 0; index < batch.length; index++) {
       const message = batch[index]!;
@@ -93,7 +97,8 @@ async function contextEvidenceCurrent(
         comment.pullRequest?.number !== input.pullRequestNumber ||
         comment.pullRequest.repository?.nameWithOwner.toLowerCase() !==
           repositoryName
-      ) return false;
+      )
+        return false;
     }
   }
   return (

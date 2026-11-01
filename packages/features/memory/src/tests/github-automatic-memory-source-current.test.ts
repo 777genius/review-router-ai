@@ -178,7 +178,11 @@ it("keeps frozen evidence valid after appended replies without paging through un
     query.includes("nodes(ids: $ids)"),
   );
   expect(evidenceQueries).toHaveLength(1);
-  expect(evidenceQueries[0]![1].ids).toEqual(["PRRC_100", "PRRC_101", "PRRC_102"]);
+  expect(evidenceQueries[0]![1].ids).toEqual([
+    "PRRC_100",
+    "PRRC_101",
+    "PRRC_102",
+  ]);
 });
 
 it("does not borrow a valid source comment from another repository", async () => {

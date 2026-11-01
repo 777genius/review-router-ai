@@ -142,6 +142,7 @@ function envMap(i) {
 /** Pure: next value of one env entry. */
 export function nextValue(current, update) {
   switch (update.op) {
+    case "add":
     case "set":
       return update.value;
     case "appendCsv": {
@@ -167,7 +168,16 @@ export function roleUpdates(role, env, updates) {
   const result = new Map();
   for (const update of updates) {
     if (update.roles && !update.roles.includes(role)) continue;
-    need(env.has(update.key), `update_key_missing:${update.key}`);
+    need(
+      update.op !== "add" || !update.containerOnly,
+      "spec_add_requires_canonical",
+    );
+    if (update.op === "add")
+      need(
+        !env.has(update.key) && !result.has(update.key),
+        `update_key_exists:${update.key}`,
+      );
+    else need(env.has(update.key), `update_key_missing:${update.key}`);
     result.set(
       update.key,
       nextValue(result.get(update.key) ?? env.get(update.key), update),
@@ -176,11 +186,27 @@ export function roleUpdates(role, env, updates) {
   return result;
 }
 
+export function roleContainerOnly(role, updates) {
+  return new Set(
+    updates
+      .filter((u) => u.containerOnly && (!u.roles || u.roles.includes(role)))
+      .map((u) => u.key),
+  );
+}
+
 export function applyEnvList(list, updates) {
-  return list.map((entry) => {
-    const k = entry.slice(0, entry.indexOf("="));
-    return updates.has(k) ? `${k}=${updates.get(k)}` : entry;
-  });
+  const present = new Set(
+    list.map((entry) => entry.slice(0, entry.indexOf("="))),
+  );
+  return [
+    ...list.map((entry) => {
+      const k = entry.slice(0, entry.indexOf("="));
+      return updates.has(k) ? `${k}=${updates.get(k)}` : entry;
+    }),
+    ...[...updates]
+      .filter(([key]) => !present.has(key))
+      .map(([key, value]) => `${key}=${value}`),
+  ];
 }
 
 /** Pure: replace exactly one `KEY=old` line per update; old must match the container value (CAS). */
@@ -192,11 +218,19 @@ export function applyCanonical(
 ) {
   let out = text;
   for (const [key, value] of updates) {
-    if (containerOnly.has(key)) continue;
+    if (containerOnly.has(key)) {
+      need(oldEnv.has(key), "spec_add_requires_canonical");
+      continue;
+    }
     const lines = out.split("\n");
     const hits = lines
       .map((l, i) => (l.startsWith(`${key}=`) ? i : -1))
       .filter((i) => i >= 0);
+    if (!oldEnv.has(key)) {
+      need(hits.length === 0, `canonical_key_exists:${key}`);
+      out = `${out}${out.endsWith("\n") || !out ? "" : "\n"}${key}=${value}\n`;
+      continue;
+    }
     need(hits.length === 1, `canonical_line_count:${key}`);
     need(
       lines[hits[0]] === `${key}=${oldEnv.get(key)}`,
@@ -340,7 +374,7 @@ async function loadSpec(path) {
   for (const u of spec.updates) {
     need(
       /^[A-Z][A-Z0-9_]+$/.test(u.key) &&
-        ["set", "appendCsv", "appendJsonArray"].includes(u.op),
+        ["add", "set", "appendCsv", "appendJsonArray"].includes(u.op),
       "spec_update_shape",
     );
     need(
@@ -360,6 +394,7 @@ async function loadSpec(path) {
       u.containerOnly === undefined || typeof u.containerOnly === "boolean",
       "spec_update_container_only",
     );
+    need(u.op !== "add" || !u.containerOnly, "spec_add_requires_canonical");
   }
   for (const h of spec.extraHosts ?? []) {
     need(
@@ -493,9 +528,6 @@ async function main() {
     "snapshot_or_spec_changed",
   );
 
-  const containerOnly = new Set(
-    spec.updates.filter((u) => u.containerOnly).map((u) => u.key),
-  );
   const baselines = {};
   const plans = {};
   for (const role of roles) {
@@ -536,7 +568,12 @@ async function main() {
       hostConfig: body.HostConfig,
     };
     // the canonical env file must be updatable with the same values
-    applyCanonical(state.roles[role].canonical, env, updates, containerOnly);
+    applyCanonical(
+      state.roles[role].canonical,
+      env,
+      updates,
+      roleContainerOnly(role, spec.updates),
+    );
   }
 
   if (mode === "plan") {
@@ -668,7 +705,7 @@ async function main() {
               state.roles[role].canonical,
               plans[role].env,
               plans[role].updates,
-              containerOnly,
+              roleContainerOnly(role, spec.updates),
             ),
           );
         phase = "canonical_env_updated";
