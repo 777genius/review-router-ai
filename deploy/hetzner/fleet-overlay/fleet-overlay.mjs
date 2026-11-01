@@ -142,6 +142,7 @@ function envMap(i) {
 /** Pure: next value of one env entry. */
 export function nextValue(current, update) {
   switch (update.op) {
+    case "add":
     case "set":
       return update.value;
     case "appendCsv": {
@@ -167,7 +168,12 @@ export function roleUpdates(role, env, updates) {
   const result = new Map();
   for (const update of updates) {
     if (update.roles && !update.roles.includes(role)) continue;
-    need(env.has(update.key), `update_key_missing:${update.key}`);
+    if (update.op === "add")
+      need(
+        !env.has(update.key) && !result.has(update.key),
+        `update_key_exists:${update.key}`,
+      );
+    else need(env.has(update.key), `update_key_missing:${update.key}`);
     result.set(
       update.key,
       nextValue(result.get(update.key) ?? env.get(update.key), update),
@@ -177,10 +183,18 @@ export function roleUpdates(role, env, updates) {
 }
 
 export function applyEnvList(list, updates) {
-  return list.map((entry) => {
-    const k = entry.slice(0, entry.indexOf("="));
-    return updates.has(k) ? `${k}=${updates.get(k)}` : entry;
-  });
+  const present = new Set(
+    list.map((entry) => entry.slice(0, entry.indexOf("="))),
+  );
+  return [
+    ...list.map((entry) => {
+      const k = entry.slice(0, entry.indexOf("="));
+      return updates.has(k) ? `${k}=${updates.get(k)}` : entry;
+    }),
+    ...[...updates]
+      .filter(([key]) => !present.has(key))
+      .map(([key, value]) => `${key}=${value}`),
+  ];
 }
 
 /** Pure: replace exactly one `KEY=old` line per update; old must match the container value (CAS). */
@@ -197,6 +211,11 @@ export function applyCanonical(
     const hits = lines
       .map((l, i) => (l.startsWith(`${key}=`) ? i : -1))
       .filter((i) => i >= 0);
+    if (!oldEnv.has(key)) {
+      need(hits.length === 0, `canonical_key_exists:${key}`);
+      out = `${out}${out.endsWith("\n") || !out ? "" : "\n"}${key}=${value}\n`;
+      continue;
+    }
     need(hits.length === 1, `canonical_line_count:${key}`);
     need(
       lines[hits[0]] === `${key}=${oldEnv.get(key)}`,
@@ -340,7 +359,7 @@ async function loadSpec(path) {
   for (const u of spec.updates) {
     need(
       /^[A-Z][A-Z0-9_]+$/.test(u.key) &&
-        ["set", "appendCsv", "appendJsonArray"].includes(u.op),
+        ["add", "set", "appendCsv", "appendJsonArray"].includes(u.op),
       "spec_update_shape",
     );
     need(

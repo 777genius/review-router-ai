@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": [
+    "bootstrap.ts",
+    "bootstrap.test.ts",
+    "../self-hosted/setup-memory.ts",
+    "../self-hosted/setup-memory.test.ts"
+  ]
+}

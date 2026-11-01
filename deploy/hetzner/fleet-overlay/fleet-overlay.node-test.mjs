@@ -42,6 +42,31 @@ test("env list keeps order and only touches updated keys", () => {
     "C=3",
   ]);
 });
+test("adding configuration requires absence in both container and canonical environment", () => {
+  const env = new Map([["A", "1"]]);
+  const updates = roleUpdates("api", env, [
+    { key: "MEMORY", op: "add", value: "configured" },
+  ]);
+  assert.deepEqual(applyEnvList(["A=1"], updates), [
+    "A=1",
+    "MEMORY=configured",
+  ]);
+  assert.equal(
+    applyCanonical("A=1\n", env, updates),
+    "A=1\nMEMORY=configured\n",
+  );
+  assert.throws(
+    () =>
+      roleUpdates("api", new Map([["MEMORY", "disabled"]]), [
+        { key: "MEMORY", op: "add", value: "configured" },
+      ]),
+    /update_key_exists/,
+  );
+  assert.throws(
+    () => applyCanonical("A=1\nMEMORY=disabled\n", env, updates),
+    /canonical_key_exists/,
+  );
+});
 test("canonical update requires the file to match the container value", () => {
   const text = "A=1\nB=2\nC=3\n";
   assert.equal(
