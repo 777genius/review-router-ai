@@ -1,4 +1,7 @@
-import type { StatisticsFilter } from "@reviewrouter/features-review-statistics";
+import {
+  statisticsMetricCatalog,
+  type StatisticsFilter,
+} from "@reviewrouter/features-review-statistics";
 
 export const defaultStatisticsFilter: StatisticsFilter = {
   days: 30,
@@ -48,4 +51,43 @@ export function statisticsSearchParams(
         : [values])
       result.append(key, value);
   return result;
+}
+
+type CatalogMetric = (typeof statisticsMetricCatalog)[number];
+export type StatisticsActivityMetric = Exclude<
+  CatalogMetric["valueKey"],
+  "issuesCaught"
+>;
+export const defaultStatisticsActivityMetric: StatisticsActivityMetric =
+  "pullRequestsReviewed";
+const activityValues = statisticsMetricCatalog
+  .filter((metric) => metric.valueKey !== "issuesCaught")
+  .map((metric) => metric.valueKey);
+
+export function statisticsActivityMetricFromUrl(
+  params: Pick<URLSearchParams, "getAll">,
+): StatisticsActivityMetric | null {
+  const values = params.getAll("statisticsMetric");
+  if (values.length > 1) return null;
+  const value = values[0] ?? defaultStatisticsActivityMetric;
+  return activityValues.includes(value as StatisticsActivityMetric)
+    ? (value as StatisticsActivityMetric)
+    : null;
+}
+
+export function statisticsActivityMetricUrl(
+  href: string,
+  value: StatisticsActivityMetric,
+): string {
+  const url = new URL(href);
+  url.searchParams.delete("statisticsMetric");
+  if (value !== defaultStatisticsActivityMetric)
+    url.searchParams.set("statisticsMetric", value);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+export function statisticsResetUrl(href: string): string {
+  const url = new URL(statisticsFilterUrl(href, defaultStatisticsFilter), href);
+  url.searchParams.delete("statisticsMetric");
+  return `${url.pathname}${url.search}${url.hash}`;
 }
