@@ -134,7 +134,6 @@ import json, subprocess, sys
 i, src, new = sys.argv[1:4]
 api = "rr-api-credential-rotation-20261011-v1-api-1"
 cur = json.loads(subprocess.check_output(["docker", "inspect", api]))[0]
-net = [n for n in cur["NetworkSettings"]["Networks"] if n != "platform-review-router"][0]
 names = {}
 for role, sub in (("web", "-web-"), ("api", "-api-"), ("worker", "-worker-"), ("scan", "skills-scan-worker")):
     out = subprocess.check_output(["docker", "ps", "--format", "{{.Names}}"], text=True).split()
@@ -142,6 +141,11 @@ for role, sub in (("web", "-web-"), ("api", "-api-"), ("worker", "-worker-"), ("
     if len(matches) != 1:
         raise SystemExit(f"swap: expected one running {role} container, found {len(matches)}")
     names[role] = matches[0]
+scan = json.loads(subprocess.check_output(["docker", "inspect", names["scan"]]))[0]
+private_networks = [n for n in scan["NetworkSettings"]["Networks"] if n != "platform-review-router"]
+if len(private_networks) != 1:
+    raise SystemExit(f"swap: expected one private scan network, found {len(private_networks)}")
+net = private_networks[0]
 rev = cur["Config"]["Labels"]["org.opencontainers.image.revision"]
 spec = {"machineId": open("/etc/machine-id").read().strip(), "network": net,
         "expectedImage": cur["Image"], "expectedRevision": rev,

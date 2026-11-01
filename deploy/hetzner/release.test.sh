@@ -126,6 +126,87 @@ run verify "$GOOD_SHA"
 check "worker privilege failure stops verification before readiness" "$([ "$RC" -ne 0 ] && [ "$(calls curl)" = 0 ] && echo 0 || echo 1)"
 unset RR_DB_RC
 
+# Run the actual swap-spec generator with disposable inspect/ps results. The API
+# and main worker have only the platform network; web and scan use a private one.
+python3 - "$SCRIPT" "$WORK" "$GOOD_SHA" <<'PYSWAPTEST'
+import io
+import json
+import pathlib
+import sys
+from unittest.mock import patch
+
+script, work, target = sys.argv[1:]
+source = pathlib.Path(script).read_text()
+body = source.split('python3 - "$I" "$SRC" "$NEW" <<\'PY\'\n', 1)[1].split('\nPY\n', 1)[0]
+generator = compile(body, script + ':swap-spec', 'exec')
+api = 'rr-api-credential-rotation-20261011-v1-api-1'
+roles = {'api': api, 'web': 'rr-test-web-1', 'worker': 'rr-test-worker-1',
+         'scan': 'rr-skills-scan-worker-test'}
+private = 'rr-private-test'
+image = 'sha256:' + 'a' * 64
+revision = 'b' * 40
+real_open = open
+
+def run_case(name, *, missing=None, duplicate=None, networks=None, refusal=None):
+    output = pathlib.Path(work) / ('swap-spec-' + name)
+    output.mkdir()
+    names = [container for role, container in roles.items() if role != missing]
+    if duplicate:
+        names.append(roles[duplicate] + '-duplicate')
+    # Decoys must not turn into a second main worker or replace a live role.
+    names += ['rr-before-worker-1', 'rr-skills-scanner-worker-1']
+    topology = {roles['api']: ['platform-review-router'],
+                roles['worker']: ['platform-review-router'],
+                roles['web']: ['platform-review-router', private],
+                roles['scan']: ['platform-review-router', private] if networks is None else networks}
+
+    def docker(args, **kwargs):
+        if args == ['docker', 'ps', '--format', '{{.Names}}']:
+            assert kwargs.get('text') is True
+            return '\n'.join(names)
+        assert args[:2] == ['docker', 'inspect'] and len(args) == 3, args
+        container = args[2]
+        assert container in topology, container
+        return json.dumps([{'Image': image,
+                            'Config': {'Labels': {'org.opencontainers.image.revision': revision}},
+                            'NetworkSettings': {'Networks': {network: {} for network in topology[container]}}}]).encode()
+
+    def fixture_open(path, *args, **kwargs):
+        if path == '/etc/machine-id':
+            return io.StringIO('fixture-machine-id\n')
+        return real_open(path, *args, **kwargs)
+
+    with patch('sys.argv', ['swap-spec', str(output), target, image]), \
+         patch('subprocess.check_output', side_effect=docker), \
+         patch('builtins.open', side_effect=fixture_open):
+        try:
+            exec(generator, {})
+        except SystemExit as error:
+            assert refusal is not None and str(error) == refusal, (name, str(error))
+            assert not (output / 'overlay-spec.json').exists(), name
+        else:
+            assert refusal is None, name + ' unexpectedly accepted'
+            spec = json.loads((output / 'overlay-spec.json').read_text())
+            assert spec['names'] == roles, spec['names']
+            assert spec['names']['worker'] != spec['names']['scan']
+            assert spec['network'] == private, spec['network']
+            assert spec['machineId'] == 'fixture-machine-id'
+            assert spec['expectedImage'] == image and spec['expectedRevision'] == revision
+            assert spec['targetImage'] == image and spec['targetRevision'] == target
+    print('ok   - swap spec ' + name)
+
+run_case('normal topology selects scan private network and distinct main worker')
+for count, networks in [(0, ['platform-review-router']), (2, ['platform-review-router', private, 'rr-other-private'])]:
+    run_case('rejects ' + str(count) + ' private scan networks', networks=networks,
+             refusal=f'swap: expected one private scan network, found {count}')
+for role in roles:
+    run_case('rejects missing ' + role, missing=role,
+             refusal=f'swap: expected one running {role} container, found 0')
+    run_case('rejects duplicate ' + role, duplicate=role,
+             refusal=f'swap: expected one running {role} container, found 2')
+PYSWAPTEST
+check "embedded swap-spec topology regression cases" "$?"
+
 echo
 if [ "$FAILS" -ne 0 ]; then echo "$FAILS check(s) failed"; exit 1; fi
 echo "all checks passed"
