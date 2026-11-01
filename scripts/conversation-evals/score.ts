@@ -2,6 +2,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { loadCorpus, corpusEventId, corpusEventMessages } from "./corpus.js";
 import type { Witness } from "./fixture.js";
+import {
+  gatewayCandidateMechanism,
+  requireCandidateSourceProfile,
+  type CandidateSourceProfile,
+} from "./configuration.js";
+import { requireGatewayCandidateReceipt } from "./gateway-receipt.js";
 
 import {
   inspectInventory,
@@ -27,6 +33,7 @@ type Review = {
   corpusRevision: string;
   reviewer: string;
   reviewedAt: string;
+  candidateSourceProfile?: CandidateSourceProfile;
   entries: EntryReview[];
   answers: AnswerReview[];
 };
@@ -61,6 +68,7 @@ type Report = {
   corpusRevision: string;
   split: "tuning" | "holdout";
   status: string;
+  profile?: Partial<CandidateSourceProfile> & { extractionMechanism?: string };
   variants: {
     variant: string;
     status: string;
@@ -84,6 +92,8 @@ if (
   !Number.isFinite(Date.parse(review.reviewedAt))
 )
   throw new Error("eval_rubric_not_bound_to_observed_run");
+if (report.profile?.extractionMechanism === gatewayCandidateMechanism)
+  requireCandidateSourceProfile(report.profile, review.candidateSourceProfile);
 const facts = new Map(corpus.facts.map((fact) => [fact.id, fact]));
 const threadSplits = new Map(
   corpus.threads.map((thread) => [thread.id, thread.split]),
@@ -281,6 +291,11 @@ for (const variant of report.variants) {
     for (const observation of scenario.observations) {
       const witness =
         "followup" in observation ? observation.followup : observation;
+      if (report.profile?.extractionMechanism === gatewayCandidateMechanism)
+        requireGatewayCandidateReceipt(
+          witness,
+          `${report.runId}:full-product:${scenario.scenario}`,
+        );
       if (
         witness.previewCalls > 1 ||
         witness.modelCalls > 1 ||
@@ -560,6 +575,10 @@ const final = {
   corpusRevision: corpus.revision,
   split: report.split,
   reviewer: review.reviewer,
+  extractionMechanism:
+    report.profile?.extractionMechanism ?? "historical-native-preview",
+  productionActivated: false,
+  qualificationIssued: false,
   results,
 };
 await writeFile(`${path}.score.json`, JSON.stringify(final, null, 2) + "\n");

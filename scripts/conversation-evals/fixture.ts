@@ -29,9 +29,12 @@ import {
 } from "../../packages/features/memory/src/composition/index.js";
 import { createConversationMemoryPort } from "../../apps/api/src/action-conversation-composition.js";
 import {
-  createConversationPolicy,
-  readConversationQualification,
+  createConversationCandidatePolicy,
+  type ConversationCapturedPolicy,
+  type ConversationOperationalModelBounds,
 } from "../../apps/api/src/action-conversation-policy.js";
+import { createConversationCandidateMemoryPreview } from "../../apps/api/src/action-conversation-candidate.js";
+import { conversationMemoryPreviewId } from "../../apps/api/src/action-conversation-memory-preview.js";
 import { admitMemoryReceiptInTransaction } from "../../apps/api/src/review-memory-admission.js";
 import type { MemoryKnowledgeAdmissionReceipt } from "../../packages/features/memory/src/index.js";
 import { HindsightMemoryStore } from "../../packages/context-memory/src/index.js";
@@ -60,6 +63,16 @@ export type Witness = {
   usage: unknown;
   productLatencyMs: number;
   nativeLatencyMs: number;
+  gatewayPreviewLatencyMs?: number;
+  gatewayPreviewReceipt?: {
+    processingId: string;
+    observedModel: string | null;
+    usage: unknown;
+    requestEffect: string | null;
+    gatewayCleanup: string | null;
+    selectedAccountDigest: string;
+    candidateRunId: string | null;
+  } | null;
   inventory: InventoryEntry[];
   retained: (InventoryEntry & { body: string; bodyDigest: string })[];
   effects: {
@@ -122,6 +135,8 @@ export async function createEvaluationFixture(input: {
   runId: string;
   scenario: string;
   template: { workspaceId: string; repositoryId: string };
+  variant: "native-selection-only" | "full-product";
+  candidateModels?: readonly ConversationOperationalModelBounds[];
 }) {
   const namespace = `eval_${rawHash(`${input.runId}:${input.scenario}`).slice(0, 40)}`;
   const scope: Extract<MemoryKnowledgeScope, { kind: "repository" }> = {
@@ -129,6 +144,104 @@ export async function createEvaluationFixture(input: {
     workspaceId: `${namespace}_workspace`,
     repositoryId: namespace,
   };
+  const nativeConfig = parseMemoryProviderConfig(input.env);
+  if (nativeConfig.kind !== "hindsight")
+    throw new Error("eval_native_runtime_unavailable");
+  const inventory = new HindsightMemoryStore({
+    baseUrl: nativeConfig.baseUrl,
+    apiKey: nativeConfig.apiKey,
+    bankForScope: () => hindsightMemoryBankId(nativeConfig, scope),
+    exactStatementStrategy: "router-approved-v1",
+  });
+  const runtime = await createMemoryKnowledgeRuntime({
+    prisma: input.prisma,
+    env: input.env,
+  });
+  if (!runtime.enabled) throw new Error("eval_native_runtime_unavailable");
+  let capturedReceipt: MemoryKnowledgeAdmissionReceipt | undefined;
+  let capturedPolicy: ConversationCapturedPolicy | undefined;
+  const template =
+    input.variant === "full-product"
+      ? await input.prisma.repositoryConnection.findFirst({
+          where: {
+            id: input.template.repositoryId,
+            workspaceId: input.template.workspaceId,
+            provider: "github",
+            selected: true,
+            archived: false,
+            installation: { status: "active" },
+          },
+          select: { githubRepositoryId: true },
+        })
+      : null;
+  if (
+    input.variant === "full-product" &&
+    (!template?.githubRepositoryId || !input.candidateModels)
+  )
+    throw new Error("eval_template_selection_unavailable");
+  const selectedPolicy =
+    input.variant === "full-product"
+      ? createConversationCandidatePolicy({
+          prisma: input.prisma,
+          runtime,
+          env: input.env,
+          template: {
+            ...input.template,
+            repositoryStableId: String(template!.githubRepositoryId),
+          },
+          candidateRunId: `${input.runId}:${input.scenario}`,
+          models: input.candidateModels!,
+          onCaptured: (value) => {
+            capturedPolicy = value;
+          },
+          admitMemory: async (transaction, now) =>
+            capturedReceipt
+              ? capturedReceipt.scopes.every(
+                  (section) => section.entries.length === 0,
+                ) ||
+                admitMemoryReceiptInTransaction(
+                  transaction,
+                  runtime,
+                  capturedReceipt,
+                  {
+                    workspaceId: scope.workspaceId,
+                    repositoryId: scope.repositoryId,
+                    headSha: snapshot!.headSha,
+                    task: "conversation",
+                    now,
+                  },
+                )
+              : false,
+        })
+      : null;
+  // Capture only metadata/catalog authority before creating any disposable rows.
+  // This issues no grant or model request and cannot widen a disabled template.
+  if (selectedPolicy) {
+    const preflight = await selectedPolicy.capture(
+      {
+        workspaceId: scope.workspaceId,
+        repositoryId: scope.repositoryId,
+        repositoryStableId: `synthetic:${namespace}`,
+        repositoryFullName: `disposable/${namespace}`,
+        pullRequestNumber: 1,
+        threadId: `${namespace}:preflight`,
+        sourceId: `${namespace}:preflight`,
+        sourceCommentId: "1",
+        sourceRevision: "preflight",
+        sourceUpdatedAt: new Date().toISOString(),
+        sourceActor: {
+          id: "github-user:eval-maintainer",
+          login: "maintainer",
+          kind: "human",
+        },
+      },
+      `${namespace}:preflight`,
+      controls(),
+    );
+    if (!preflight.automaticLearning)
+      throw new Error("eval_template_learning_disabled");
+    capturedPolicy = undefined;
+  }
   await input.prisma.workspace.create({
     data: {
       id: scope.workspaceId,
@@ -149,52 +262,6 @@ export async function createEvaluationFixture(input: {
       selected: true,
       archived: false,
     },
-  });
-  const nativeConfig = parseMemoryProviderConfig({
-    ...input.env,
-    REVIEW_ROUTER_MEMORY_NAMESPACE: namespace,
-  });
-  if (nativeConfig.kind !== "hindsight")
-    throw new Error("eval_native_runtime_unavailable");
-  const inventory = new HindsightMemoryStore({
-    baseUrl: nativeConfig.baseUrl,
-    apiKey: nativeConfig.apiKey,
-    bankForScope: () => hindsightMemoryBankId(nativeConfig, scope),
-    exactStatementStrategy: "router-approved-v1",
-  });
-  const runtime = await createMemoryKnowledgeRuntime({
-    prisma: input.prisma,
-    env: { ...input.env, REVIEW_ROUTER_MEMORY_NAMESPACE: namespace },
-  });
-  if (!runtime.enabled) throw new Error("eval_native_runtime_unavailable");
-  const qualification = readConversationQualification(
-    input.env.REVIEW_ROUTER_CONVERSATION_QUALIFICATION,
-  );
-  if (!qualification) throw new Error("eval_gateway_profile_unavailable");
-  let capturedReceipt: MemoryKnowledgeAdmissionReceipt | undefined;
-  const selectedPolicy = createConversationPolicy({
-    prisma: input.prisma,
-    runtime,
-    env: input.env,
-    qualification,
-    admitMemory: async (transaction, now) =>
-      capturedReceipt
-        ? capturedReceipt.scopes.every(
-            (section) => section.entries.length === 0,
-          ) ||
-          admitMemoryReceiptInTransaction(
-            transaction,
-            runtime,
-            capturedReceipt,
-            {
-              workspaceId: scope.workspaceId,
-              repositoryId: scope.repositoryId,
-              headSha: snapshot!.headSha,
-              task: "conversation",
-              now,
-            },
-          )
-        : false,
   });
   const sourceInventory = new Map<
     string,
@@ -302,14 +369,13 @@ export async function createEvaluationFixture(input: {
     modelCalls = 0,
     inputBytes = 0,
     nativeLatencyMs = 0,
+    gatewayPreviewLatencyMs = 0,
+    gatewayPreviewReceipt: Witness["gatewayPreviewReceipt"] = null,
     observedModel: string | null = null,
     usage: unknown = null,
     deliveredBodyDigests: string[] = [],
     memoryManifest: Witness["memoryManifest"] = null;
-  const preview = createConfiguredMemorySourcePreview({
-    ...input.env,
-    REVIEW_ROUTER_MEMORY_NAMESPACE: namespace,
-  });
+  const preview = createConfiguredMemorySourcePreview(input.env);
   const observedPreview = {
     async preview(...args: Parameters<typeof preview.preview>) {
       previewCalls++;
@@ -320,6 +386,80 @@ export async function createEvaluationFixture(input: {
         nativeLatencyMs += Date.now() - start;
       }
     },
+  };
+  const gatewayPreview = (
+    value: ConversationSnapshot,
+    processingId: string,
+  ) => {
+    const captured = capturedPolicy;
+    if (!captured) throw new Error("eval_candidate_capture_unavailable");
+    const port = createConversationCandidateMemoryPreview({
+      prisma: input.prisma,
+      parentId: processingId,
+      snapshot: value,
+      captured,
+      env: input.env,
+      isSourceCurrent: (budget) => sources.isCurrent(value, budget),
+    });
+    return {
+      async preview(...args: Parameters<typeof port.preview>) {
+        previewCalls++;
+        const start = Date.now();
+        try {
+          return await port.preview(...args);
+        } finally {
+          gatewayPreviewLatencyMs += Date.now() - start;
+          const row = await input.prisma.conversationProcessing.findUnique({
+            where: { id: conversationMemoryPreviewId(processingId) },
+            select: {
+              id: true,
+              observedModel: true,
+              observedUsage: true,
+              requestEffect: true,
+              result: true,
+              boundManifest: true,
+            },
+          });
+          if (row?.boundManifest) {
+            const account = (
+              JSON.parse(row.boundManifest) as {
+                account: Record<string, unknown>;
+              }
+            ).account;
+            const selected = Object.fromEntries(
+              [
+                "bindingId",
+                "bindingRevision",
+                "connectionId",
+                "gatewayAccountRef",
+                "profileRef",
+                "model",
+                "policySubject",
+                "policyRevision",
+                "expectedAuthorizationEpoch",
+                "configurationDigest",
+              ].map((key) => [key, account[key] ?? null]),
+            );
+            const result = row.result as { gatewayCleanup?: unknown } | null;
+            gatewayPreviewReceipt = {
+              processingId: row.id,
+              observedModel: row.observedModel,
+              usage: row.observedUsage,
+              requestEffect: row.requestEffect,
+              gatewayCleanup:
+                typeof result?.gatewayCleanup === "string"
+                  ? result.gatewayCleanup
+                  : null,
+              selectedAccountDigest: conversationDigest(selected),
+              candidateRunId:
+                typeof account.candidateEvaluationRunId === "string"
+                  ? account.candidateEvaluationRunId
+                  : null,
+            };
+          }
+        }
+      },
+    };
   };
   const metadataHistory = new Map<string, MemoryKnowledgeEntryMetadata>();
   const readInventory = async (): Promise<InventoryEntry[]> => {
@@ -400,7 +540,8 @@ export async function createEvaluationFixture(input: {
     runtime,
     scope,
     sources,
-    preview: observedPreview,
+    preview:
+      input.variant === "full-product" ? gatewayPreview : observedPreview,
     managed: (value) => ({ service, access, source: source(value) }),
     clock: { now: () => new Date() },
     contextAccess: () => access,
@@ -420,15 +561,8 @@ export async function createEvaluationFixture(input: {
   // Account/model/custody remain with the production selected-account policy.
   const policy: ConversationPolicyPort = {
     async capture(identity, processingId, budget) {
-      const base = await selectedPolicy.capture(
-        {
-          ...identity,
-          workspaceId: input.template.workspaceId,
-          repositoryId: input.template.repositoryId,
-        },
-        processingId,
-        budget,
-      );
+      if (!selectedPolicy) throw new Error("eval_candidate_policy_unavailable");
+      const base = await selectedPolicy.capture(identity, processingId, budget);
       const inference = base.inference;
       return {
         ...base,
@@ -713,7 +847,8 @@ export async function createEvaluationFixture(input: {
         nativeDocuments: native.sources.length,
         processingRecords: count,
         scopeDigest: conversationDigest(scope),
-        nativeNamespace: namespace,
+        nativeNamespace: nativeConfig.namespace,
+        nativeGeneration: nativeConfig.generation,
       };
     },
     async run(thread: CorpusThread, event: CorpusEvent): Promise<Witness> {
@@ -721,6 +856,8 @@ export async function createEvaluationFixture(input: {
       modelCalls = 0;
       inputBytes = 0;
       nativeLatencyMs = 0;
+      gatewayPreviewLatencyMs = 0;
+      gatewayPreviewReceipt = null;
       observedModel = null;
       usage = null;
       deliveredBodyDigests = [];
@@ -763,6 +900,8 @@ export async function createEvaluationFixture(input: {
         usage,
         productLatencyMs,
         nativeLatencyMs,
+        gatewayPreviewLatencyMs,
+        gatewayPreviewReceipt,
         inventory,
         retained,
       };

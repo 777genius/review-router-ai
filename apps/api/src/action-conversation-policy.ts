@@ -231,19 +231,95 @@ export type ConversationCapturedPolicy = {
   ) => Promise<boolean>;
 };
 
-export function createConversationPolicy(input: {
+type ConversationPolicyConstruction = {
   readonly prisma: PrismaClient;
   readonly runtime: MemoryKnowledgeRuntime;
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly qualification: ConversationQualification;
   readonly onCaptured?: (value: ConversationCapturedPolicy) => void;
   readonly admitMemory: (
     transaction: Prisma.TransactionClient,
     now: Date,
   ) => Promise<boolean>;
-}): ConversationPolicyPort {
-  const env = input.env,
-    q = input.qualification;
+};
+export type ConversationOperationalModelBounds =
+  ConversationQualification["models"][number];
+type ConversationCaptureMode =
+  | {
+      readonly kind: "qualified";
+      readonly qualification: ConversationQualification;
+    }
+  | {
+      readonly kind: "candidate";
+      readonly candidateRunId: string;
+      readonly template: {
+        readonly workspaceId: string;
+        readonly repositoryId: string;
+        readonly repositoryStableId: string;
+      };
+      readonly models: readonly ConversationOperationalModelBounds[];
+    };
+
+export function createConversationPolicy(
+  input: ConversationPolicyConstruction & {
+    readonly qualification: ConversationQualification;
+  },
+): ConversationPolicyPort {
+  return createSelectedAccountPolicy(input, {
+    kind: "qualified",
+    qualification: input.qualification,
+  });
+}
+
+/** Explicit operator constructor for synthetic candidate measurement. No environment
+ * capability activates this path, and its manifests contain no qualification proof. */
+export function createConversationCandidatePolicy(
+  input: ConversationPolicyConstruction &
+    Omit<Extract<ConversationCaptureMode, { kind: "candidate" }>, "kind">,
+): ConversationPolicyPort {
+  if (
+    !/^[A-Za-z0-9_:-]{1,200}$/.test(input.candidateRunId) ||
+    !/^[0-9]{1,30}$/.test(input.template.repositoryStableId) ||
+    !input.template.workspaceId ||
+    !input.template.repositoryId ||
+    input.models.length < 1 ||
+    input.models.length > 128 ||
+    input.models.some(
+      (model) =>
+        !model ||
+        typeof model !== "object" ||
+        typeof model.profileId !== "string" ||
+        typeof model.model !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(model.profileId) ||
+        !model.model ||
+        model.model.length > 128 ||
+        !Number.isInteger(model.contextWindowTokens) ||
+        model.contextWindowTokens < 4096 ||
+        model.contextWindowTokens > 2_000_000 ||
+        !Number.isFinite(model.tokensPerByteUpperBound) ||
+        model.tokensPerByteUpperBound < 1 ||
+        model.tokensPerByteUpperBound > 4,
+    )
+  )
+    throw new ConversationError("unavailable");
+  return createSelectedAccountPolicy(input, {
+    kind: "candidate",
+    candidateRunId: input.candidateRunId,
+    template: input.template,
+    models: input.models,
+  });
+}
+
+function createSelectedAccountPolicy(
+  input: ConversationPolicyConstruction,
+  mode: ConversationCaptureMode,
+): ConversationPolicyPort {
+  const env = input.env;
+  const models =
+    mode.kind === "qualified" ? mode.qualification.models : mode.models;
+  const revisionEvidence =
+    mode.kind === "qualified"
+      ? mode.qualification.proofId
+      : `candidate-eval:${mode.candidateRunId}`;
   const repositories = new PrismaActionControlPlaneRepository(input.prisma);
   const personalAccountsEnabled = readPersonalAccountSharingEnabled(env);
   const accounts = new PrismaProviderAccountRepository(
@@ -262,9 +338,25 @@ export function createConversationPolicy(input: {
   const origin = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN,
     bearer = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER;
   return {
-    async capture(identity, processingId, controls) {
+    async capture(processingIdentity, processingId, controls) {
       if (
-        !conversationScopeQualified(q, identity) ||
+        mode.kind === "candidate" &&
+        (!/^eval_[a-f0-9]{40}$/.test(processingIdentity.repositoryId) ||
+          processingIdentity.workspaceId !==
+            `${processingIdentity.repositoryId}_workspace` ||
+          processingIdentity.repositoryStableId !==
+            `synthetic:${processingIdentity.repositoryId}` ||
+          processingIdentity.repositoryFullName !==
+            `disposable/${processingIdentity.repositoryId}`)
+      )
+        throw new ConversationError("forbidden");
+      const identity =
+        mode.kind === "candidate"
+          ? { ...processingIdentity, ...mode.template }
+          : processingIdentity;
+      if (
+        (mode.kind === "qualified" &&
+          !conversationScopeQualified(mode.qualification, identity)) ||
         !origin ||
         !bearer ||
         !relay ||
@@ -333,7 +425,7 @@ export function createConversationPolicy(input: {
       };
       const capture = () => input.prisma.$transaction(captureWithin);
       const selected = await capture();
-      const modelQualification = q.models.filter(
+      const modelQualification = models.filter(
         (model) =>
           model.profileId === selected.binding.profileRef &&
           model.model === selected.provider.model,
@@ -444,7 +536,9 @@ export function createConversationPolicy(input: {
         ...selected.binding,
         model: selected.provider.model,
         configurationDigest: selected.configurationDigest,
-        qualificationProofId: q.proofId,
+        ...(mode.kind === "qualified"
+          ? { qualificationProofId: mode.qualification.proofId }
+          : { candidateEvaluationRunId: mode.candidateRunId }),
         limits,
         deadline: controls.deadlineAt.toISOString(),
       };
@@ -486,8 +580,8 @@ export function createConversationPolicy(input: {
           input.prisma.$transaction((transaction) =>
             admitConversationDispatch(transaction, {
               processingId,
-              workspaceId: identity.workspaceId,
-              repositoryId: identity.repositoryId,
+              workspaceId: processingIdentity.workspaceId,
+              repositoryId: processingIdentity.repositoryId,
               bindingManifest,
               admitMemory: input.admitMemory,
               checkSelection: async (tx) => {
@@ -516,8 +610,8 @@ export function createConversationPolicy(input: {
           await input.prisma.conversationProcessing.updateMany({
             where: {
               id: processingId,
-              workspaceId: identity.workspaceId,
-              repositoryId: identity.repositoryId,
+              workspaceId: processingIdentity.workspaceId,
+              repositoryId: processingIdentity.repositoryId,
             },
             data: {
               observedModel: value.model,
@@ -528,9 +622,11 @@ export function createConversationPolicy(input: {
         },
       });
       const policy: ConversationPolicy = {
-        revision: `${selected.policy.policyVersion}:${selected.policy.safetyPolicyVersion}:${q.proofId}`,
+        revision: `${selected.policy.policyVersion}:${selected.policy.safetyPolicyVersion}:${revisionEvidence}`,
         automaticLearning:
-          q.sourceProcessingProfile === "transient-checked-inline-gateway-v1" &&
+          (mode.kind === "candidate" ||
+            mode.qualification.sourceProcessingProfile ===
+              "transient-checked-inline-gateway-v1") &&
           selected.policy.memoryEnabled &&
           selected.policy.automaticLearning,
         discussionReplies: true,
@@ -544,22 +640,26 @@ export function createConversationPolicy(input: {
       input.onCaptured?.({
         policy,
         checkSelection: async (transaction) => {
-          if (
-            conversationDigest(await captureWithin(transaction)) !==
-            conversationDigest(selected)
-          )
+          try {
+            if (
+              conversationDigest(await captureWithin(transaction)) !==
+              conversationDigest(selected)
+            )
+              return false;
+            return !!(await transaction.repositoryConnection.findFirst({
+              where: {
+                id: identity.repositoryId,
+                workspaceId: identity.workspaceId,
+                selected: true,
+                archived: false,
+                githubRepositoryId: BigInt(identity.repositoryStableId),
+                installation: { status: "active" },
+              },
+              select: { id: true },
+            }));
+          } catch {
             return false;
-          return !!(await transaction.repositoryConnection.findFirst({
-            where: {
-              id: identity.repositoryId,
-              workspaceId: identity.workspaceId,
-              selected: true,
-              archived: false,
-              githubRepositoryId: BigInt(identity.repositoryStableId),
-              installation: { status: "active" },
-            },
-            select: { id: true },
-          }));
+          }
         },
       });
       return policy;

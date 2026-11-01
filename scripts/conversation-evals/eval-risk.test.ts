@@ -14,6 +14,16 @@ import { readDurableCommands } from "./command-inventory.js";
 import { automaticMemoryChildCommandId } from "../../packages/features/memory/src/index.js";
 import type { PrismaClient } from "@prisma/client";
 
+import {
+  assertEvaluationNativeScope,
+  evaluationMissingKeys,
+  readCandidateModels,
+} from "./configuration.js";
+import {
+  gatewayCandidateCleanupSettled,
+  requireGatewayCandidateReceipt,
+} from "./gateway-receipt.js";
+
 // Synthetic scorer/capture regressions only. No model quality or product/native bank is fabricated.
 function sample() {
   const namespace = "fixture";
@@ -534,8 +544,9 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
     const reportPath = resolve(directory, "report.json"),
       rubricPath = resolve(directory, "rubric.json");
     await writeFile(rubricPath, JSON.stringify(rubric));
-    const score = async (input: unknown) => {
+    const score = async (input: unknown, reviewInput: unknown = rubric) => {
       await writeFile(reportPath, JSON.stringify(input));
+      await writeFile(rubricPath, JSON.stringify(reviewInput));
       const result = spawnSync(
         process.execPath,
         [
@@ -552,6 +563,49 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
     };
     const positive = await score(report);
     assert.equal(positive.status, 0, positive.stderr);
+    if (split === "tuning") {
+      const candidateWithoutReceipt = {
+        ...structuredClone(report),
+        profile: {
+          extractionMechanism: "selected-account-gateway-candidate-v1",
+        },
+      };
+      const missingSources = await score(candidateWithoutReceipt);
+      assert.notEqual(missingSources.status, 0);
+      assert.match(
+        missingSources.stderr,
+        /eval_candidate_source_profile_missing/,
+      );
+      // Synthetic identities exercise only scorer binding, never qualification evidence.
+      const candidateSourceProfile = {
+        commonPromptSourceDigest: "a".repeat(64),
+        gatewayPreviewSourceDigest: "b".repeat(64),
+        accountPolicySourceDigest: "c".repeat(64),
+        gatewaySdkProvenanceDigest: "d".repeat(64),
+      };
+      const sourcedCandidate = {
+        ...candidateWithoutReceipt,
+        profile: {
+          ...candidateWithoutReceipt.profile,
+          ...candidateSourceProfile,
+        },
+      };
+      const mismatched = await score(sourcedCandidate, {
+        ...rubric,
+        candidateSourceProfile: {
+          ...candidateSourceProfile,
+          gatewaySdkProvenanceDigest: "e".repeat(64),
+        },
+      });
+      assert.notEqual(mismatched.status, 0);
+      assert.match(mismatched.stderr, /eval_rubric_source_profile_mismatch/);
+      const rejected = await score(sourcedCandidate, {
+        ...rubric,
+        candidateSourceProfile,
+      });
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, /eval_gateway_candidate_receipt_missing/);
+    }
     if (split === "holdout") {
       const contributor = structuredClone(report);
       const scenario = contributor.variants[0]!.scenarios.find(
@@ -1037,5 +1091,106 @@ test("current source eligibility independently gates an automatic save proof", (
   assert.throws(
     () => inspectInventory(input),
     /eval_observed_effect_authority_invalid/,
+  );
+});
+
+test("Gateway candidate preflight needs no historical native or production activation proof", () => {
+  const env = Object.fromEntries(
+    [
+      "REVIEW_ROUTER_MEMORY_HINDSIGHT_URL",
+      "REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY",
+      "CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID",
+      "CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID",
+      "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
+      "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+      "REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY",
+      "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY",
+      "CONVERSATION_EVAL_MODEL_BOUNDS_JSON",
+    ].map((key) => [key, "configured"]),
+  );
+  assert.deepEqual(evaluationMissingKeys("full-product", env), []);
+  assert.deepEqual(evaluationMissingKeys("native-selection-only", env), [
+    "REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_QUALIFICATION",
+    "REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_MISSION",
+  ]);
+  assert.throws(() => readCandidateModels(undefined), /bounds_missing/);
+  assert.throws(() => readCandidateModels("{}"), /bounds_invalid/);
+});
+test("unchanged production native configuration is refused before evaluation effects", () => {
+  assert.throws(
+    () =>
+      assertEvaluationNativeScope({
+        REVIEW_ROUTER_MEMORY_NAMESPACE: "reviewrouter",
+        REVIEW_ROUTER_MEMORY_GENERATION: "memory-v1",
+      }),
+    /dedicated_native/,
+  );
+  assert.doesNotThrow(() =>
+    assertEvaluationNativeScope({
+      REVIEW_ROUTER_MEMORY_NAMESPACE: "eval_candidate",
+      REVIEW_ROUTER_MEMORY_GENERATION: "eval_generation",
+    }),
+  );
+});
+test("native evidence or another attempt cannot stand in for the current Gateway receipt", () => {
+  const processingId = "candidate-parent";
+  const receipt = {
+    processingId: `rr-memory-${createHash("sha256").update(processingId).digest("hex")}`,
+    observedModel: "selected-model",
+    usage: null,
+    requestEffect: "completed",
+    gatewayCleanup: "closed",
+    selectedAccountDigest: "a".repeat(64),
+    candidateRunId: "candidate-run:full-product:scenario",
+  };
+  const witness = {
+    processingId,
+    previewCalls: 1,
+    gatewayPreviewReceipt: receipt,
+  } as Witness;
+  assert.doesNotThrow(() =>
+    requireGatewayCandidateReceipt(witness, receipt.candidateRunId),
+  );
+  for (const gatewayCleanup of ["pending", "not_needed", null]) {
+    const unsettled = {
+      ...witness,
+      gatewayPreviewReceipt: { ...receipt, gatewayCleanup },
+    };
+    assert.equal(gatewayCandidateCleanupSettled(unsettled), false);
+    assert.throws(
+      () => requireGatewayCandidateReceipt(unsettled, receipt.candidateRunId),
+      /cleanup_unsettled/,
+    );
+  }
+  assert.equal(gatewayCandidateCleanupSettled(witness), true);
+  assert.throws(
+    () =>
+      requireGatewayCandidateReceipt(
+        { ...witness, gatewayPreviewReceipt: null },
+        receipt.candidateRunId,
+      ),
+    /receipt_missing/,
+  );
+  assert.throws(
+    () =>
+      requireGatewayCandidateReceipt(
+        {
+          ...witness,
+          gatewayPreviewReceipt: {
+            ...receipt,
+            requestEffect: "dispatch_allowed",
+          },
+        },
+        receipt.candidateRunId,
+      ),
+    /receipt_missing/,
+  );
+  assert.throws(
+    () =>
+      requireGatewayCandidateReceipt(
+        witness,
+        "another-run:full-product:scenario",
+      ),
+    /receipt_missing/,
   );
 });

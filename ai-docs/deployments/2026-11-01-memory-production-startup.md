@@ -5,12 +5,12 @@
   Account Gateway selection as repository reviews.
 - Host: `prod-hel1-01`, SSH alias `workers-fsn1-01-jump`, machine ID
   `b28fc7b17042414386eb9b114046e50c`.
-- Existing production source: `d5f16400e610e6fe9151c23da39868825d332711`.
+- Incident application source: `d5f16400e610e6fe9151c23da39868825d332711`.
 
-| Environment | Status        | Actual version                                                     | Remaining work                                                                                                             |
-| ----------- | ------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| production  | `in_progress` | Existing application source above; qualified native backend active | Manual UI save/readback passed. Finish review-context, edit/cleanup and selected-account extraction verification/delivery. |
-| self-hosted | `pending`     | New bootstrap under local verification                             | Linux installation and real-model lifecycle verification.                                                                  |
+| Environment | Status        | Actual version                                                                    | Remaining work                                                                                                                      |
+| ----------- | ------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| production  | `in_progress` | Union `14bead9640d0b4e6c6741aa5645c2a6c160fdd2f`; qualified native backend active | UI save/edit/readback passed. Finish shared review canary, physical cleanup and selected-account extraction delivery/qualification. |
+| self-hosted | `pending`     | Bootstrap verified on Linux; source delivery pending                              | Merge source and retain the verified native/model startup evidence.                                                                 |
 
 ## Confirmed incident
 
@@ -131,3 +131,32 @@ it does not qualify conversational extraction or activate its new capability.
 This task is not marked complete. Source CI, the V4 authorization fix, coherent
 application activation, successful review-memory recall and physical Forget,
 and the installed-App selected-account conversation lifecycle still need evidence.
+
+## Coordinated application fix, 2026-11-01
+
+The shared diagnostics/memory release installed source
+`14bead9640d0b4e6c6741aa5645c2a6c160fdd2f`, combining
+[diagnostics PR #772](https://github.com/777genius/review-router-ai/pull/772)
+and [memory authorization PR #776](https://github.com/777genius/review-router-ai/pull/776).
+The exact image is
+`sha256:21dc5822d2bee10fd2bc6903d3243aadd7bf05712041292f4d575d089ee983a6`.
+Build finished at 2026-11-01 12:50:11 UTC. Root independently read all four running
+container revisions/image IDs with restart count0 and API readiness200 after
+installation. The protected rollout custody is
+`/srv/platform/projects/review-router/releases/fleet-overlay-14bead96-7G4aXMdJ`.
+The preceding `6e900` diagnostic rollout and the original `d5f16400` memory-env
+activation are historical; neither is the current application baseline.
+
+No migration, ACL, producer, Gateway, MCP or memory-policy change accompanied
+this coordinated application replacement. Native memory state remains separate.
+One common fresh canary will verify actual review memory; no independent
+memory-only swap or duplicate model run is authorized by this record.
+
+The native derivative's signed base is
+`sha256:cdfeb26e92ad33d54a8a7e4cfe6e67b55d619f25ea5f5bba0a3281d701a82b36`.
+Qualification custody on production is
+`/srv/platform/projects/review-router/memory-inputs-20261101/qualification/evidence.json`;
+bootstrap custody is
+`/srv/platform/projects/review-router/memory-operator-v1/bootstrap-state.json`.
+Secret-free retained evidence archives are under the task worktree's
+`tmp/native-qualification-20261101/`; their hashes remain recorded by the operator.
