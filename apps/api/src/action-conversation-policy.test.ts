@@ -199,6 +199,9 @@ function dynamicModelFixture(
     oversized?: boolean;
     multiple?: boolean;
     primaryUnavailable?: boolean;
+    sourceProcessingProfile?:
+      | "transient-checked-inline-v1"
+      | "transient-checked-inline-gateway-v1";
   } = {},
 ) {
   const profileId = "openrouter-openai-responses-apikey-v1";
@@ -376,7 +379,8 @@ function dynamicModelFixture(
     qualification: {
       profileVersion: 1,
       proofId: "qualified-catalog-probe",
-      sourceProcessingProfile: "transient-checked-inline-v1",
+      sourceProcessingProfile:
+        options.sourceProcessingProfile ?? "transient-checked-inline-v1",
       runtimeSha: "a".repeat(40),
       repositories: [identity],
       models: [
@@ -498,3 +502,15 @@ it("does not silently spend a secondary account when the primary reviewer is una
   expect(f.bindingReads.mock.calls[0]![0].bindingId).toBe("binding_probe");
   expect(f.fetch).not.toHaveBeenCalled();
 });
+
+// A native Hindsight semantic-preview proof cannot authorize a new Gateway paid extractor.
+it.each([
+  ["transient-checked-inline-v1", false],
+  ["transient-checked-inline-gateway-v1", true],
+] as const)(
+  "requires the Gateway source-processing capability for learning: %s",
+  async (sourceProcessingProfile, automaticLearning) => {
+    const f = dynamicModelFixture({ sourceProcessingProfile });
+    expect((await f.capture()).automaticLearning).toBe(automaticLearning);
+  },
+);

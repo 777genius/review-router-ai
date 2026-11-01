@@ -27,6 +27,7 @@ import {
   ConversationError,
   conversationDigest,
   type ConversationPolicyPort,
+  type ConversationPolicy,
   type RequestControls,
 } from "@reviewrouter/features-conversations";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
@@ -223,11 +224,19 @@ export async function admitConversationDispatch(
   });
   return true;
 }
+export type ConversationCapturedPolicy = {
+  readonly policy: ConversationPolicy;
+  readonly checkSelection: (
+    transaction: Prisma.TransactionClient,
+  ) => Promise<boolean>;
+};
+
 export function createConversationPolicy(input: {
   readonly prisma: PrismaClient;
   readonly runtime: MemoryKnowledgeRuntime;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly qualification: ConversationQualification;
+  readonly onCaptured?: (value: ConversationCapturedPolicy) => void;
   readonly admitMemory: (
     transaction: Prisma.TransactionClient,
     now: Date,
@@ -518,10 +527,12 @@ export function createConversationPolicy(input: {
           });
         },
       });
-      return {
+      const policy: ConversationPolicy = {
         revision: `${selected.policy.policyVersion}:${selected.policy.safetyPolicyVersion}:${q.proofId}`,
         automaticLearning:
-          selected.policy.memoryEnabled && selected.policy.automaticLearning,
+          q.sourceProcessingProfile === "transient-checked-inline-gateway-v1" &&
+          selected.policy.memoryEnabled &&
+          selected.policy.automaticLearning,
         discussionReplies: true,
         contextWindowTokens: modelQualification[0]!.contextWindowTokens,
         tokensPerByteUpperBound: modelQualification[0]!.tokensPerByteUpperBound,
@@ -530,6 +541,28 @@ export function createConversationPolicy(input: {
         bindingManifest,
         isCurrent: remoteCurrent,
       };
+      input.onCaptured?.({
+        policy,
+        checkSelection: async (transaction) => {
+          if (
+            conversationDigest(await captureWithin(transaction)) !==
+            conversationDigest(selected)
+          )
+            return false;
+          return !!(await transaction.repositoryConnection.findFirst({
+            where: {
+              id: identity.repositoryId,
+              workspaceId: identity.workspaceId,
+              selected: true,
+              archived: false,
+              githubRepositoryId: BigInt(identity.repositoryStableId),
+              installation: { status: "active" },
+            },
+            select: { id: true },
+          }));
+        },
+      });
+      return policy;
     },
   };
 }

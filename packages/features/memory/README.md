@@ -26,10 +26,12 @@ configured provider for cleanup. Runtime retrieval failures still produce an
 empty memory bundle without blocking ordinary reviews. Use the same provider,
 namespace, generation and profile on all three hosts.
 
-The local, production/staging and self-hosted environment templates expose this
-same configuration. They do not provision Hindsight or qualify a deployment;
-native activation, inference configuration and existing-data disposition remain
-subject to the private runbook above. Explicit deployment opt-outs are preserved.
+The environment templates expose this same configuration. Self-hosted first
+startup runs [setup-memory](../../../deploy/hindsight/BOOTSTRAP.md) before the
+ordinary Compose command to provision and qualify the native backend and merge
+its private settings. Templates alone do not provision it. Native activation
+and existing-data disposition remain subject to the private runbook above.
+Explicit deployment opt-outs are preserved.
 
 ## Public boundary
 
@@ -127,8 +129,13 @@ old remote data was physically deleted.
 
 ## Conversation source authority (2026-10-29 refinement)
 
-Automatic observations still require no per-fact Save: a qualified native engine
-selects useful information from a verified human maintainer's new source revision.
+Automatic observations still require no per-fact Save. The product uses the
+captured primary review account through Gateway to select useful information
+from a verified human maintainer's new source revision, under
+[ADR034](../../../ai-docs/decisions/034-selected-account-memory-inference.md).
+This requires new `transient-checked-inline-gateway-v1` qualification; historical
+native preview evidence does not activate it. Ordinary Hindsight storage uses
+local semantic indexes and no generative account.
 The selection port no longer accepts the mixed-author thread, recalled bodies or
 code as an auxiliary prompt. Full chronology remains available for replies through
 the existing selected-account inference, not as additional write authority.

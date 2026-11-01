@@ -3,7 +3,10 @@ import { z } from "zod";
 const qualificationSchema = z.strictObject({
   profileVersion: z.literal(1),
   proofId: z.string().min(1).max(200),
-  sourceProcessingProfile: z.literal("transient-checked-inline-v1"),
+  sourceProcessingProfile: z.enum([
+    "transient-checked-inline-v1",
+    "transient-checked-inline-gateway-v1",
+  ]),
   runtimeSha: z.string().regex(/^[a-f0-9]{40}$/),
   repositories: z
     .array(

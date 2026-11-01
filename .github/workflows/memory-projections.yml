@@ -214,11 +214,12 @@ jobs:
           pnpm exec vitest run \
             packages/features/memory/src/tests/memory-knowledge.pg.test.ts \
             apps/api/src/action-conversation-finite-path.pg.test.ts \
+            apps/api/src/action-conversation-memory-preview.pg.test.ts \
             apps/api/src/review-memory-admission.pg.test.ts \
             apps/worker/src/memory-knowledge-worker.pg.test.ts \
             packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts \
             --reporter=default --reporter=json --outputFile=tmp/memory-authority/ci-vitest.json
-      - name: Require all five PostgreSQL suites with zero skipped tests
+      - name: Require all six PostgreSQL suites with zero skipped tests
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
@@ -227,6 +228,7 @@ jobs:
           const expected = [
             'packages/features/memory/src/tests/memory-knowledge.pg.test.ts',
             'apps/api/src/action-conversation-finite-path.pg.test.ts',
+            'apps/api/src/action-conversation-memory-preview.pg.test.ts',
             'apps/api/src/review-memory-admission.pg.test.ts',
             'apps/worker/src/memory-knowledge-worker.pg.test.ts',
             'packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts',

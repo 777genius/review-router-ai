@@ -45,6 +45,7 @@ it.each([
   { ...proof, runtimeSha: "main" },
   { ...proof, arbitraryAccount: "untrusted" },
   { ...proof, models: [{ ...proof.models[0], tokensPerByteUpperBound: 0.2 }] },
+  { ...proof, sourceProcessingProfile: "transient-checked-inline-gateway-v2" },
 ])(
   "rejects unqualified deployment input without adding an account or model fallback",
   (value) => {
@@ -53,3 +54,17 @@ it.each([
     );
   },
 );
+it("retains the exact qualified extraction mechanism rather than upgrading historical native evidence", () => {
+  expect(
+    readConversationQualification(JSON.stringify(proof))
+      ?.sourceProcessingProfile,
+  ).toBe("transient-checked-inline-v1");
+  expect(
+    readConversationQualification(
+      JSON.stringify({
+        ...proof,
+        sourceProcessingProfile: "transient-checked-inline-gateway-v1",
+      }),
+    )?.sourceProcessingProfile,
+  ).toBe("transient-checked-inline-gateway-v1");
+});
