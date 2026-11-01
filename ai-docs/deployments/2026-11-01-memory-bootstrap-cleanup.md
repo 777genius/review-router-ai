@@ -1,6 +1,6 @@
 # Memory bootstrap cleanup inventory
 
-Implementation: [fix/memory-native-cleanup-inventory](https://github.com/777genius/review-router-ai/tree/fix/memory-native-cleanup-inventory).
+Implementation: [PR #780](https://github.com/777genius/review-router-ai/pull/780).
 Affected component: standalone native Memory cleanup operator. No application
 fleet rollout, migrations, database grants, native image change, restart-policy
 change or conversation-learning activation is introduced by this patch.

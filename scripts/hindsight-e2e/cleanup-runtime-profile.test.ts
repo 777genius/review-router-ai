@@ -307,30 +307,50 @@ test("attested PG binding never hides native-image or actual-database writers el
     );
 });
 test("PG must retain its original running process through every cleanup phase", () => {
-  for (const field of [
-    "Pid",
-    "StartedAt",
-    "RestartCount",
-    "Running",
-  ] as const) {
-    const { records, plan, postgres } = bootstrapInventory();
-    const inventory = new CleanupHostInventory(plan);
-    inventory.inspect(records, "initial");
-    const changed = structuredClone(postgres);
-    if (field === "RestartCount") Object.assign(changed, { RestartCount: 1 });
-    else
-      Object.assign(changed.State, {
-        [field]:
-          field === "Pid"
-            ? 457
-            : field === "StartedAt"
-              ? "2026-11-01T11:00:00Z"
-              : false,
-      });
-    assert.throws(() =>
-      inventory.inspect([...records.slice(0, 2), changed], "stopped"),
-    );
-  }
+  for (const phase of ["stopped", "restarted"] as const)
+    for (const field of [
+      "Pid",
+      "StartedAt",
+      "RestartCount",
+      "Running",
+    ] as const) {
+      const { records, plan, postgres } = bootstrapInventory();
+      const inventory = new CleanupHostInventory(plan);
+      inventory.inspect(records, "initial");
+      const native = records.slice(0, 2).map((record) =>
+        phase === "stopped"
+          ? {
+              ...record,
+              State: {
+                ...record.State,
+                Running: false,
+                Pid: 0,
+                Status: "exited",
+              },
+            }
+          : record,
+      );
+      assert.doesNotThrow(() =>
+        inventory.inspect([...native, postgres], phase),
+      );
+      const changed = structuredClone(postgres);
+      if (field === "RestartCount") Object.assign(changed, { RestartCount: 1 });
+      else
+        Object.assign(changed.State, {
+          [field]:
+            field === "Pid"
+              ? 457
+              : field === "StartedAt"
+                ? "2026-11-01T11:00:00Z"
+                : false,
+        });
+      assert.throws(
+        () => inventory.inspect([...native, changed], phase),
+        field === "Running"
+          ? /Attested PostgreSQL must remain continuously running/
+          : /Attested PostgreSQL restarted or changed/,
+      );
+    }
 });
 test("cleanup clones inspected model/cache mounts and offline environment without assuming /models", () => {
   const record = api();
