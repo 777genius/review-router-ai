@@ -186,9 +186,10 @@ describe("GitHub user authorization", () => {
     ).resolves.toMatchObject({ status: "refresh_failed" });
     expect(updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ revokedAt: null }),
+        data: { lastErrorCode: "github_user_token_refresh_failed" },
       }),
     );
+    expect(updateMany.mock.calls[0]?.[0].data).not.toHaveProperty("revokedAt");
     expect(deleteMany).not.toHaveBeenCalled();
   });
 
