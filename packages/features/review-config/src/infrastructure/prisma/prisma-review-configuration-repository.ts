@@ -364,6 +364,11 @@ async function saveReviewPolicyWrites(
     workspaceId,
     targetKey: workspaceKey,
   });
+  if (
+    input.expectedWorkspaceVersion !== undefined &&
+    (storedWorkspaceHead?.version ?? null) !== input.expectedWorkspaceVersion
+  )
+    throw new WriteConflict();
   const workspaceWrite = writes.find(
     (write) => write.target.scope === "workspace",
   );
@@ -545,16 +550,27 @@ async function saveReviewPolicyWrites(
   for (const descendant of descendants) {
     const policy = parseStoredReviewPolicy("repository", descendant.head);
     if (!policy) continue;
-    resolveEffectiveReviewPolicy({
-      target: {
-        scope: "repository",
-        workspaceId,
-        repositoryId: descendant.repositoryId,
-      },
-      workspace: nextWorkspace,
-      repository: policy,
-      profiles,
-    });
+    try {
+      resolveEffectiveReviewPolicy({
+        target: {
+          scope: "repository",
+          workspaceId,
+          repositoryId: descendant.repositoryId,
+        },
+        workspace: nextWorkspace,
+        repository: policy,
+        profiles,
+      });
+    } catch (error) {
+      if (
+        error instanceof ReviewPolicyMaterializationError &&
+        error.code === "review_execution_limits_incompatible"
+      )
+        throw new Error("review_inherited_execution_limits_incompatible", {
+          cause: error,
+        });
+      throw error;
+    }
   }
   // Single-document saves promise a usable configuration.
   if (mode.requireProvider && effective.some(({ resolved }) => !resolved))
@@ -636,7 +652,7 @@ async function saveReviewPolicyWrites(
       select: { version: true, schemaVersion: true, policyJson: true },
     });
     savedHeads.set(write.targetKey, head);
-    saved.push({
+    const savedPolicy: SavedReviewPolicy = {
       target: write.target,
       version,
       configuration: resolved
@@ -649,7 +665,8 @@ async function saveReviewPolicyWrites(
               write.target.scope === "repository" ? version : null,
           })
         : null,
-    });
+    };
+    saved.push(savedPolicy);
     if (input.audit && !write.implicit)
       await recordAuditEvent(
         {
@@ -663,6 +680,9 @@ async function saveReviewPolicyWrites(
               : workspaceId,
           metadata: {
             ...input.audit.metadata,
+            ...input.audit.metadataForSavedConfiguration?.(
+              savedPolicy.configuration,
+            ),
             version,
             providerSelected: resolved !== null,
           },

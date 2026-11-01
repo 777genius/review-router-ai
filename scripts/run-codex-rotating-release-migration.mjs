@@ -495,6 +495,11 @@ export const runtimeAuthorityReadOnlyTables = Object.freeze([
 export const workerOwnedMaintenanceCheckpointTable =
   "ReviewInvestigationMaintenanceCheckpoint";
 export const dashboardOwnedContextConnectionTable = "ReviewContextConnection";
+export const conversationMetadataTable = "ConversationProcessing";
+export const automaticMemoryMetadataTables = Object.freeze([
+  "MemoryAutomaticSource",
+  "MemoryAutomaticEntry",
+]);
 
 export const providerRuntimeUpdateColumns = Object.freeze([
   "state",
@@ -2779,7 +2784,7 @@ BEGIN
         'HostedCodexCommentTokenRevocationProof','HostedCodexCommentRefreshCapability',
         'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl',
         'ProviderAccountConnection','WorkspaceAccountBinding','${dashboardOwnedContextConnectionTable}',
-        'ReviewSkillImportCandidate','ReviewSkillScan',
+        'ReviewSkillImportCandidate','ReviewSkillScan','${conversationMetadataTable}',${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")},
         ${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}
       ) AND attribute.attnum>0 AND NOT attribute.attisdropped
     ), sequence_facts AS (
@@ -2820,6 +2825,8 @@ BEGIN
          OR has_schema_privilege(role_name,'public','CREATE'))
        OR EXISTS (SELECT 1 FROM table_facts WHERE
          can_select IS DISTINCT FROM (CASE
+         WHEN relname='${conversationMetadataTable}' THEN role_kind='api'
+         WHEN relname IN (${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}) THEN role_kind IN ('api','web','worker')
          WHEN relname IN ('ReviewSkillImportCandidate','ReviewSkillScan') THEN role_kind IN ('web','worker')
          WHEN relname IN (${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN role_kind IN ('web','api')
          WHEN role_kind='custody' THEN relname IN (
@@ -2833,6 +2840,8 @@ BEGIN
            AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind IN ('api','web'))
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_insert IS DISTINCT FROM (CASE
+         WHEN relname='${conversationMetadataTable}' THEN role_kind='api'
+         WHEN relname IN (${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}) THEN role_kind IN ('api','worker')
          WHEN relname IN ('ReviewSkillImportCandidate','ReviewSkillScan',${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN role_kind='web'
          WHEN role_kind='custody' THEN relname='HostedCodexCommentRefreshUse'
          WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
@@ -2847,6 +2856,8 @@ BEGIN
            AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_update IS DISTINCT FROM (CASE
+         WHEN relname='${conversationMetadataTable}' THEN role_kind='api'
+         WHEN relname IN (${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}) THEN role_kind IN ('api','web','worker')
          WHEN relname IN ('ReviewSkillImportCandidate','ReviewSkillScan',${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN false
          WHEN role_kind='custody' THEN false
          WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
@@ -2861,6 +2872,7 @@ BEGIN
            AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
          OR can_delete IS DISTINCT FROM (CASE
+         WHEN relname IN ('${conversationMetadataTable}',${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}) THEN false
          WHEN relname IN ('ReviewSkillImportCandidate','ReviewSkillScan') THEN role_kind='worker'
          WHEN relname IN (${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN role_kind='web' AND relname='ReviewSkillBinding'
          ELSE role_kind NOT IN ('effect-authority','custody')
@@ -5159,6 +5171,8 @@ export function runtimeGrantStatements(
     ...runtimeAuthorityReadOnlyTables,
     workerOwnedMaintenanceCheckpointTable,
     dashboardOwnedContextConnectionTable,
+    conversationMetadataTable,
+    ...automaticMemoryMetadataTables,
   ]
     .map((table) => `'${table}'`)
     .join(",");
@@ -5325,6 +5339,22 @@ BEGIN
   END IF;
 END
 $context_connection_acl$;
+DO $conversation_memory_metadata_acl$
+DECLARE target text;
+BEGIN
+  FOREACH target IN ARRAY ARRAY['${conversationMetadataTable}',${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}]
+  LOOP
+    IF to_regclass(format('public.%I',target)) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I',target,'${username}');
+      IF ('${role}'='api' OR ('${role}'='worker' AND target <> '${conversationMetadataTable}')) THEN
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE public.%I TO %I',target,'${username}');
+      ELSIF ('${role}'='web' AND target <> '${conversationMetadataTable}') THEN
+        EXECUTE format('GRANT SELECT, UPDATE ON TABLE public.%I TO %I',target,'${username}');
+      END IF;
+    END IF;
+  END LOOP;
+END
+$conversation_memory_metadata_acl$;
 ${role === "api" ? accountAdmissionApiGrantStatements() : ""}
 REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM ${username};
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ${username};

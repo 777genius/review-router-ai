@@ -18,7 +18,10 @@ import {
   type GatewayModelAccountsApi,
 } from "./gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "./gateway-model-catalog-status";
-import { getReadyGatewayAccounts } from "../../src/server/dashboard-provider-setup-readiness";
+import {
+  getGatewaySetupAccounts,
+  getReadyGatewayAccounts,
+} from "../../src/server/dashboard-provider-setup-readiness";
 
 afterEach(cleanup);
 const profile = {
@@ -221,13 +224,17 @@ function RefreshCatalogHarness() {
     },
     ["saved-binding"],
   );
-  const selected = getReadyGatewayAccounts(options.accounts).find(
+  const selected = getGatewaySetupAccounts(options.accounts).find(
     (row) => row.binding?.id === "saved-binding",
   );
   return (
     <>
       <input aria-label="Saved model" value="historical-model" readOnly />
       <span>Models:{options.profileFor(selected)?.models.join(",")}</span>
+      <span>
+        Catalog admission:
+        {getReadyGatewayAccounts(options.accounts).length ? "ready" : "blocked"}
+      </span>
       <GatewayModelCatalogStatus
         account={selected}
         loading={options.loading}
@@ -281,6 +288,7 @@ test.each(["unavailable", "transport"] as const)(
       ),
     );
     expect(screen.getByText("Models:")).toBeTruthy();
+    expect(screen.getByText("Catalog admission:blocked")).toBeTruthy();
     expect(
       (screen.getByLabelText("Saved model") as HTMLInputElement).value,
     ).toBe("historical-model");
@@ -290,6 +298,7 @@ test.each(["unavailable", "transport"] as const)(
     expect(retry.disabled).toBe(false);
     fireEvent.click(retry);
     expect(await screen.findByText("Models:recovered-model")).toBeTruthy();
+    expect(screen.getByText("Catalog admission:ready")).toBeTruthy();
     expect(get.mock.calls.slice(1)).toEqual([
       ["saved-binding", { forceRefresh: true }],
       ["saved-binding", { forceRefresh: true }],

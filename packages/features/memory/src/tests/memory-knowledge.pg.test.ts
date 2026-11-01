@@ -1,3 +1,8 @@
+import { MemoryAutomaticSourceService } from "../application/use-cases/memory-automatic-source-service";
+import { createMemoryPolicyConfig } from "../application/ports/memory-policy-config-port";
+import { PrismaMemoryAutomaticSourceStore } from "../infrastructure/prisma/prisma-memory-automatic-source-store";
+import type { MemoryAutomaticSourceInput } from "../application/ports/memory-automatic-source-port";
+import type { MemoryAutomaticSourceBinding } from "../domain/memory-knowledge";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
@@ -87,6 +92,15 @@ describe.skipIf(!databaseUrl)(
             "utf8",
           ),
         );
+        await fixture.query(
+          await readFile(
+            new URL(
+              "../../../../platform/db/prisma/migrations/000152_memory_automatic_source/migration.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        );
       } finally {
         await fixture.end();
       }
@@ -104,13 +118,19 @@ describe.skipIf(!databaseUrl)(
         });
       prisma = client("first");
       other = client("second");
-      store = new PrismaMemoryKnowledgeStore(prisma);
-      otherStore = new PrismaMemoryKnowledgeStore(other);
+      store = new PrismaMemoryKnowledgeStore(prisma, {
+        automaticSourcesEnabled: true,
+        providerProfileVersion: "test_profile",
+      });
+      otherStore = new PrismaMemoryKnowledgeStore(other, {
+        automaticSourcesEnabled: true,
+        providerProfileVersion: "test_profile",
+      });
     });
 
     beforeEach(async () => {
       await prisma.$executeRawUnsafe(
-        'TRUNCATE "MemoryKnowledgeCommand","MemoryKnowledgeEntry","MemoryKnowledgeScopeState","MemoryKnowledgeSourceCursor","MemoryKnowledgeBundleReceipt","MemoryKnowledgeMaintenanceFence","OutboxEvent","AuditEvent"',
+        'TRUNCATE "MemoryAutomaticSource","MemoryAutomaticEntry","MemoryKnowledgeCommand","MemoryKnowledgeEntry","MemoryKnowledgeScopeState","MemoryKnowledgeSourceCursor","MemoryKnowledgeBundleReceipt","MemoryKnowledgeMaintenanceFence","OutboxEvent","AuditEvent"',
       );
     });
     afterAll(async () => {
@@ -222,6 +242,1162 @@ describe.skipIf(!databaseUrl)(
       });
       return { result, entry };
     }
+
+    function automaticInput(revision: number): MemoryAutomaticSourceInput {
+      const updatedAt = new Date(now.getTime() + revision * 1000).toISOString();
+      return {
+        processingId: `processing_${revision}`,
+        scope,
+        policyRevision: "standing-v1",
+        threadId: "thread",
+        threadDigest: "d".repeat(64),
+        headSha: "a".repeat(40),
+        selectableBody: "Synthetic raw source never retained",
+        sourceActor: {
+          kind: "github_user",
+          id: "actor",
+          githubUserId: "123",
+          login: "maintainer",
+        },
+        source: {
+          type: "github_comment",
+          sourceId: "github-node:SOURCE",
+          revision: `${updatedAt}:digest`,
+          updatedAt,
+          statementAt: updatedAt,
+          repositoryId: scope.repositoryId,
+          pullRequestNumber: 1,
+          url: null,
+          visibility: "private",
+          claimedBodyDigest: createMemoryBodyHash(
+            "Synthetic raw source never retained",
+          ),
+          observedCommitSha: "a".repeat(40),
+        },
+      };
+    }
+    async function autoReserve(revision: number, count: number) {
+      const input = automaticInput(revision);
+      const commands = Array.from({ length: count }, (_, index) =>
+        save({
+          ref: {
+            type: "entry",
+            scope,
+            entryId: `automatic_${revision}_${index}`,
+          },
+          source: input.source,
+          knowledgeKind: "observation",
+        }),
+      );
+      const sources = new PrismaMemoryAutomaticSourceStore(prisma);
+      const state = await sources.reserve({
+        input,
+        generation,
+        expectedPriorEpoch:
+          (await sources.lookup(scope, input.source.sourceId))?.binding.epoch ??
+          null,
+        entryIds: commands.map((c) => c.ref.entryId),
+        bodyDigests: commands.map((c) => createMemoryBodyHash(c.body)),
+        now,
+      });
+      if (state.state === "unselected")
+        throw new Error("expected_selected_cohort");
+      return { input, commands, sources, state };
+    }
+    async function publishAuto(
+      command: Extract<MemoryKnowledgeCommand, { kind: "save" }>,
+      binding: MemoryAutomaticSourceBinding,
+    ) {
+      await store.admit({
+        command,
+        automaticSource: binding,
+        digest: memoryKnowledgeCommandDigest(command),
+        now,
+        deliveryExpiresAt: new Date(now.getTime() + 86400000),
+        resubmitUntil: now,
+        activeEntryLimit: null,
+        pendingCommandLimit: 100,
+      });
+      const work = await claim(command);
+      await store.settle({
+        commandId: command.commandId,
+        scope,
+        generation,
+        claimId: work!.claimId,
+        result: {
+          commandId: command.commandId,
+          state: "published",
+          verifiedEntry: {
+            ref: command.ref,
+            body: command.body,
+            bodyDigest: createMemoryBodyHash(command.body),
+            contentApprovalRevision: "1",
+            kind: command.knowledgeKind,
+            topicIds: command.topicIds,
+            statementAt: command.source.statementAt,
+            sourceFactIds: ["fact"],
+          },
+        },
+        now,
+      });
+    }
+    it("activates source 2→1→0 cohorts atomically and rejects old/partial children without suppressing future edits", async () => {
+      const first = await autoReserve(1, 2);
+      await publishAuto(first.commands[0]!, first.state.binding);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(false);
+      await publishAuto(first.commands[1]!, first.state.binding);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(true);
+      const second = await autoReserve(2, 1);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(false);
+      await publishAuto(second.commands[0]!, second.state.binding);
+      expect(
+        await second.sources.applicable(
+          second.commands[0]!.ref,
+          generation,
+          second.state.binding,
+        ),
+      ).toBe(true);
+      const empty = await autoReserve(3, 0);
+      expect(empty.state.state).toBe("active");
+      expect(empty.state.entryIds).toEqual([]);
+      expect(
+        await second.sources.applicable(
+          second.commands[0]!.ref,
+          generation,
+          second.state.binding,
+        ),
+      ).toBe(false);
+      expect((await autoReserve(4, 1)).state.suppressed).toBe(false);
+      const rows = await prisma.$queryRaw<{ state: unknown }[]>(
+        Prisma.sql`SELECT "state" FROM "MemoryAutomaticSource"`,
+      );
+      expect(JSON.stringify(rows)).not.toContain(first.input.selectableBody);
+      expect(JSON.stringify(rows)).not.toContain(
+        "Synthetic raw thread never retained",
+      );
+    });
+    it("preserves bodyless lineage suppression across source edits and generation changes while keeping unrequested siblings eligible", async () => {
+      const first = await autoReserve(1, 2);
+      for (const command of first.commands)
+        await publishAuto(command, first.state.binding);
+      const original = first.commands[0]!;
+      await admit({
+        kind: "retire",
+        ref: original.ref,
+        generation,
+        providerProfileVersion: original.providerProfileVersion,
+        approval: original.approval,
+        commandId: randomUUID(),
+        expectedRevision: "1",
+      });
+      expect(
+        (await first.sources.lookup(scope, first.input.source.sourceId))
+          ?.suppressed,
+      ).toBe(true);
+      expect(
+        await first.sources.applicable(
+          first.commands[1]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(true);
+      expect((await autoReserve(2, 1)).state.suppressed).toBe(true);
+      const changed = automaticInput(3);
+      const next = await first.sources.reserve({
+        input: changed,
+        generation: "next_generation",
+        expectedPriorEpoch: first.state.binding.epoch,
+        entryIds: [],
+        bodyDigests: [],
+        now,
+      });
+      expect(next.suppressed).toBe(true);
+    });
+    it("detaches an explicitly edited automatic handle inside command reservation and fences internal retirement", async () => {
+      const first = await autoReserve(1, 1);
+      const original = first.commands[0]!;
+      await publishAuto(original, first.state.binding);
+      const update = {
+        ...original,
+        commandId: randomUUID(),
+        expectedRevision: "1",
+        body: "Maintainer corrected exact text.",
+      };
+      await admit(update);
+      expect(
+        (await store.findEntry(original.ref, generation))?.automaticSource,
+      ).toBeUndefined();
+      expect(
+        (await first.sources.lookup(scope, first.input.source.sourceId))
+          ?.entryIds,
+      ).toEqual([]);
+      const retirement = {
+        kind: "retire" as const,
+        commandId: randomUUID(),
+        ref: original.ref,
+        expectedRevision: "2",
+        generation,
+        providerProfileVersion: original.providerProfileVersion,
+        approval: original.approval,
+      };
+      await expect(
+        store.admit({
+          command: retirement,
+          internalRetirement: first.state.binding,
+          digest: memoryKnowledgeCommandDigest(retirement),
+          now,
+          deliveryExpiresAt: new Date(now.getTime() + 86400000),
+          resubmitUntil: now,
+          activeEntryLimit: null,
+          pendingCommandLimit: 100,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+    });
+
+    it("accepts verified same-timestamp source revisions by epoch CAS and rejects stale processing", async () => {
+      const first = await autoReserve(1, 1);
+      await publishAuto(first.commands[0]!, first.state.binding);
+      const input = {
+        ...automaticInput(2),
+        source: {
+          ...automaticInput(2).source,
+          updatedAt: first.input.source.updatedAt,
+          revision: `${first.input.source.updatedAt}:different_digest`,
+        },
+      };
+      const command = save({
+        source: input.source,
+        knowledgeKind: "observation",
+      });
+      const next = await first.sources.reserve({
+        input,
+        generation,
+        expectedPriorEpoch: first.state.binding.epoch,
+        entryIds: [command.ref.entryId],
+        bodyDigests: [createMemoryBodyHash(command.body)],
+        now,
+      });
+      if (next.state === "unselected")
+        throw new Error("expected_selected_cohort");
+      await publishAuto(command, next.binding);
+      expect(
+        await first.sources.applicable(command.ref, generation, next.binding),
+      ).toBe(true);
+      await expect(
+        first.sources.reserve({
+          input: { ...automaticInput(3) },
+          generation,
+          expectedPriorEpoch: first.state.binding.epoch,
+          entryIds: [],
+          bodyDigests: [],
+          now,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+    });
+    it("recovers superseded pending saves into durable internal retire commands and handles late completion", async () => {
+      const first = await autoReserve(1, 1),
+        command = first.commands[0]!;
+      await store.admit({
+        command,
+        automaticSource: first.state.binding,
+        digest: memoryKnowledgeCommandDigest(command),
+        now,
+        deliveryExpiresAt: new Date(now.getTime() + 86400000),
+        resubmitUntil: now,
+        activeEntryLimit: null,
+        pendingCommandLimit: 100,
+      });
+      const work = await claim(command);
+      expect(work).not.toBeNull();
+      await autoReserve(2, 0);
+      await store.scheduleDueDeliveries({
+        generation,
+        now: new Date(now.getTime() + 6000),
+        limit: 10,
+      });
+      const withdrawn = await store.findEntry(command.ref, generation);
+      expect(withdrawn?.lifecycle).toBe("retired");
+      expect(withdrawn?.revocationCommandId).not.toBeNull();
+      await store.settle({
+        commandId: command.commandId,
+        scope,
+        generation,
+        claimId: work!.claimId,
+        result: {
+          commandId: command.commandId,
+          state: "published",
+          verifiedEntry: {
+            ref: command.ref,
+            body: command.body,
+            bodyDigest: createMemoryBodyHash(command.body),
+            contentApprovalRevision: "1",
+            kind: command.knowledgeKind,
+            topicIds: command.topicIds,
+            statementAt: command.source.statementAt,
+            sourceFactIds: ["fact"],
+          },
+        },
+        now: new Date(now.getTime() + 7000),
+      });
+      const retirement = withdrawn!.revocationCommandId!;
+      const claimRetire = await store.claim({
+        commandId: retirement,
+        scope,
+        generation,
+        now: new Date(now.getTime() + 8000),
+        claimId: randomUUID(),
+        claimUntil: new Date(now.getTime() + 18000),
+      });
+      expect(claimRetire).not.toBeNull();
+      await store.settle({
+        commandId: retirement,
+        scope,
+        generation,
+        claimId: claimRetire!.claimId,
+        result: { commandId: retirement, state: "completed" },
+        now: new Date(now.getTime() + 9000),
+      });
+      expect(
+        (await store.findEntry(command.ref, generation))?.pendingCommandId,
+      ).toBeNull();
+      expect(
+        await first.sources.applicable(
+          command.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(false);
+      expect(
+        (await first.sources.lookup(scope, first.input.source.sourceId))
+          ?.suppressed,
+      ).toBe(false);
+    });
+    it("clears explicit suppression only with a matching independent suppression CAS", async () => {
+      const first = await autoReserve(1, 1),
+        original = first.commands[0]!;
+      await publishAuto(original, first.state.binding);
+      const stop = {
+        kind: "retire" as const,
+        ref: original.ref,
+        generation,
+        providerProfileVersion: original.providerProfileVersion,
+        approval: original.approval,
+        commandId: randomUUID(),
+        expectedRevision: "1",
+      };
+      await admit(stop);
+      const suppressed = (await first.sources.lookup(
+        scope,
+        first.input.source.sourceId,
+      ))!;
+      await admit({
+        ...stop,
+        kind: "forget",
+        commandId: randomUUID(),
+        expectedRevision: "2",
+      });
+      await expect(
+        first.sources.clearSuppression({
+          scope,
+          sourceId: first.input.source.sourceId,
+          expectedEpoch: suppressed.binding.epoch,
+          expectedSuppressionEpoch: suppressed.suppressionEpoch,
+          now,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      const current = (await first.sources.lookup(
+        scope,
+        first.input.source.sourceId,
+      ))!;
+      await first.sources.clearSuppression({
+        scope,
+        sourceId: first.input.source.sourceId,
+        expectedEpoch: current.binding.epoch,
+        expectedSuppressionEpoch: current.suppressionEpoch,
+        now,
+      });
+      expect((await autoReserve(2, 1)).state.suppressed).toBe(false);
+    });
+    it("recovers a transient source failure only after a fresh check of the same complete cohort and keeps old receipts revoked", async () => {
+      const first = await autoReserve(1, 1);
+      await publishAuto(first.commands[0]!, first.state.binding);
+      await first.sources.invalidate({
+        scope,
+        sourceId: first.input.source.sourceId,
+        cause: "unavailable",
+        now,
+      });
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(false);
+      expect(
+        await first.sources.recoverAvailability({
+          ref: first.commands[0]!.ref,
+          generation,
+          binding: first.state.binding,
+          now,
+        }),
+      ).toBe(true);
+      const refreshed = (await store.findEntry(
+        first.commands[0]!.ref,
+        generation,
+      ))!.automaticSource!;
+      expect(refreshed.epoch).not.toBe(first.state.binding.epoch);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          first.state.binding,
+        ),
+      ).toBe(false);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          refreshed,
+        ),
+      ).toBe(true);
+      await first.sources.invalidate({
+        scope,
+        sourceId: first.input.source.sourceId,
+        cause: "changed",
+        now,
+      });
+      expect(
+        await first.sources.recoverAvailability({
+          ref: first.commands[0]!.ref,
+          generation,
+          binding: refreshed,
+          now,
+        }),
+      ).toBe(false);
+      expect(
+        await first.sources.applicable(
+          first.commands[0]!.ref,
+          generation,
+          refreshed,
+        ),
+      ).toBe(false);
+    });
+
+    it("replaces a quota-full automatic cohort by reserving old retirement before new child saves", async () => {
+      const first = await autoReserve(1, 2);
+      for (const command of first.commands)
+        await publishAuto(command, first.state.binding);
+      const knowledge = new MemoryKnowledgeService({
+        generation,
+        providerProfileVersion: "test_profile",
+        store,
+        reader: {} as never,
+        writer: {} as never,
+        observer: {} as never,
+        access: {
+          authorize: async () => {},
+          verifySource: async (input) => input.source,
+          sourceApplicable: async () => true,
+        },
+        policy: { getPolicy: async () => createMemoryPolicyConfig() },
+        quota: {
+          getWorkspaceQuota: async () => ({
+            activeItems: { limit: 2 },
+            pendingSuggestions: { limit: 100 },
+          }),
+        },
+        now: () => now,
+      });
+      const next = automaticInput(2);
+      const automatic = new MemoryAutomaticSourceService({
+        generation,
+        providerProfileVersion: "test_profile",
+        knowledge,
+        sources: first.sources,
+        current: { current: async () => true },
+        preview: {
+          preview: async (input) => ({
+            status: "complete",
+            source: input.source,
+            statements: [{ body: "A new exact observation." }],
+          }),
+        },
+        now: () => now,
+      });
+      expect(
+        (
+          await automatic.learn(next, {
+            deadlineAt: new Date(now.getTime() + 10000),
+          })
+        ).state,
+      ).toBe("queued");
+      for (const original of first.commands)
+        expect(
+          (await store.findEntry(original.ref, generation))?.lifecycle,
+        ).toBe("retired");
+      const [count] = await prisma.$queryRaw<{ count: number }[]>(
+        Prisma.sql`SELECT count(*)::int AS count FROM "MemoryKnowledgeEntry" WHERE "generation"=${generation} AND "lifecycle"='active'`,
+      );
+      expect(count?.count).toBe(1);
+    });
+
+    function automaticFixture(
+      options: {
+        readonly current?: () => Promise<boolean>;
+        readonly reader?: MemoryProviderEntry;
+        readonly statements?: readonly string[];
+        readonly now?: () => Date;
+      } = {},
+    ) {
+      const sources = new PrismaMemoryAutomaticSourceStore(prisma);
+      const current = { current: options.current ?? (async () => true) };
+      const knowledge = new MemoryKnowledgeService({
+        generation,
+        providerProfileVersion: "test_profile",
+        store,
+        reader: {
+          read: async () => options.reader ?? null,
+          list: async () => ({ entries: [], nextCursor: null }),
+          recall: async () => [],
+        },
+        writer: {} as never,
+        observer: {} as never,
+        access: {
+          authorize: async () => {},
+          verifySource: async (input) => input.source,
+          sourceApplicable: async () => true,
+        },
+        policy: { getPolicy: async () => createMemoryPolicyConfig() },
+        quota: {
+          getWorkspaceQuota: async () => ({
+            activeItems: { limit: 4 },
+            pendingSuggestions: { limit: 100 },
+          }),
+        },
+        automaticSources: { store: sources, current },
+        now: options.now ?? (() => now),
+      });
+      const preview = vi.fn(
+        async (input: { source: { id: string; revision: string } }) => ({
+          status: "complete" as const,
+          source: input.source,
+          statements: (
+            options.statements ?? [
+              "First exact selected observation.",
+              "Second exact selected observation.",
+            ]
+          ).map((body) => ({ body })),
+        }),
+      );
+      return {
+        sources,
+        knowledge,
+        preview,
+        automatic: new MemoryAutomaticSourceService({
+          generation,
+          providerProfileVersion: "test_profile",
+          sources,
+          knowledge,
+          current,
+          preview: { preview },
+          now: options.now ?? (() => now),
+        }),
+      };
+    }
+    const automaticControls = () => ({
+      deadlineAt: new Date(now.getTime() + 10000),
+    });
+
+    it("preserves trusted deletion before first admission as a bodyless fence across generations and explicit relearn", async () => {
+      const fixture = automaticFixture();
+      const input = automaticInput(1);
+      const independentSources = new PrismaMemoryAutomaticSourceStore(other);
+      const original = store.admitAutomaticSelection.bind(store);
+      const admission = vi
+        .spyOn(store, "admitAutomaticSelection")
+        .mockImplementationOnce(async (selection) => {
+          // The first selection already passed every source check. A trusted deletion
+          // commits on an independent connection immediately before its SQL admission.
+          await independentSources.invalidate({
+            scope,
+            sourceId: input.source.sourceId,
+            cause: "deleted",
+            now,
+          });
+          return original(selection);
+        });
+      let result;
+      try {
+        result = await fixture.automatic.learn(input, automaticControls());
+      } finally {
+        admission.mockRestore();
+      }
+      expect(result).toMatchObject({
+        state: "suppressed",
+        entryIds: [],
+        operations: [],
+      });
+      const fence = (await fixture.sources.lookup(
+        scope,
+        input.source.sourceId,
+      ))!;
+      expect(fence).toMatchObject({
+        state: "unselected",
+        source: null,
+        sourceUpdatedAt: null,
+        binding: { epoch: "1", cohortId: null, sourceRevision: null },
+        suppressed: true,
+        suppressionEpoch: "1",
+        invalidatedBy: "deleted",
+        entryIds: [],
+      });
+      expect(JSON.stringify(fence)).not.toContain(input.selectableBody);
+      const [counts] = await prisma.$queryRaw<
+        { commands: number; entries: number; effects: number }[]
+      >(
+        Prisma.sql`SELECT (SELECT count(*)::int FROM "MemoryKnowledgeCommand") AS commands, (SELECT count(*)::int FROM "MemoryAutomaticEntry") AS entries, (SELECT count(*)::int FROM "OutboxEvent") AS effects`,
+      );
+      expect(counts).toEqual({ commands: 0, entries: 0, effects: 0 });
+      expect(
+        await fixture.sources.reserve({
+          input,
+          generation: "next_generation",
+          expectedPriorEpoch: null,
+          entryIds: ["stale-first-child"],
+          bodyDigests: ["d".repeat(64)],
+          now,
+        }),
+      ).toEqual(fence);
+      await expect(
+        fixture.sources.clearSuppression({
+          scope,
+          sourceId: input.source.sourceId,
+          expectedEpoch: fence.binding.epoch,
+          expectedSuppressionEpoch: "0",
+          now,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await fixture.sources.clearSuppression({
+        scope,
+        sourceId: input.source.sourceId,
+        expectedEpoch: fence.binding.epoch,
+        expectedSuppressionEpoch: fence.suppressionEpoch,
+        now,
+      });
+      const cleared = (await fixture.sources.lookup(
+        scope,
+        input.source.sourceId,
+      ))!;
+      expect(cleared).toMatchObject({
+        state: "unselected",
+        suppressed: false,
+        suppressionEpoch: "2",
+      });
+      // Clearing suppression cannot make an already selected, pre-deletion reservation current.
+      await expect(
+        fixture.sources.reserve({
+          input,
+          generation,
+          expectedPriorEpoch: null,
+          entryIds: [],
+          bodyDigests: [],
+          now,
+        }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      const relearned = await fixture.automatic.learn(
+        automaticInput(2),
+        automaticControls(),
+      );
+      expect(relearned.state).toBe("queued");
+      expect(relearned.operations).toHaveLength(2);
+      expect(
+        await fixture.sources.lookup(scope, input.source.sourceId),
+      ).toMatchObject({
+        state: "pending",
+        suppressed: false,
+        suppressionEpoch: "2",
+        binding: { epoch: "2" },
+      });
+    });
+
+    it("atomically rolls back the cohort, old retirement, and every child effect when the second envelope insert fails", async () => {
+      const first = await autoReserve(1, 1);
+      await publishAuto(first.commands[0]!, first.state.binding);
+      const fixture = automaticFixture();
+      await prisma.$executeRawUnsafe(
+        `CREATE FUNCTION reject_second_selected_child() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."commandKind"='save' AND (SELECT count(*) FROM "MemoryKnowledgeCommand" WHERE "commandKind"='save' AND "id"<> '${first.commands[0]!.commandId}') >= 1 THEN RAISE EXCEPTION 'injected_child_admission_failure'; END IF; RETURN NEW; END $$`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE TRIGGER reject_second_selected_child BEFORE INSERT ON "MemoryKnowledgeCommand" FOR EACH ROW EXECUTE FUNCTION reject_second_selected_child()`,
+      );
+      try {
+        await expect(
+          fixture.automatic.learn(automaticInput(2), automaticControls()),
+        ).rejects.toThrow();
+      } finally {
+        await prisma.$executeRawUnsafe(
+          'DROP TRIGGER reject_second_selected_child ON "MemoryKnowledgeCommand"',
+        );
+        await prisma.$executeRawUnsafe(
+          "DROP FUNCTION reject_second_selected_child()",
+        );
+      }
+      const source = await fixture.sources.lookup(
+        scope,
+        first.input.source.sourceId,
+      );
+      expect(source?.binding.cohortId).toBe(first.state.binding.cohortId);
+      expect(source?.state).toBe("needs_refresh"); // changed source is withdrawn before native work
+      expect(
+        (await store.findEntry(first.commands[0]!.ref, generation))?.lifecycle,
+      ).toBe("active");
+      const [rows] = await prisma.$queryRaw<
+        {
+          commands: number;
+          entries: number;
+          mappings: number;
+          outbox: number;
+        }[]
+      >(Prisma.sql`
+        SELECT (SELECT count(*)::int FROM "MemoryKnowledgeCommand") AS commands,
+        (SELECT count(*)::int FROM "MemoryKnowledgeEntry") AS entries,
+        (SELECT count(*)::int FROM "MemoryAutomaticEntry") AS mappings,
+        (SELECT count(*)::int FROM "OutboxEvent") AS outbox`);
+      expect(rows).toEqual({ commands: 1, entries: 1, mappings: 1, outbox: 1 });
+      expect(fixture.preview).toHaveBeenCalledTimes(1);
+    });
+
+    it("recovers the complete durable selected operation set after a crash immediately after atomic commit without another preview", async () => {
+      const fixture = automaticFixture();
+      const input = automaticInput(1);
+      const original = store.admitAutomaticSelection.bind(store);
+      const fault = vi
+        .spyOn(store, "admitAutomaticSelection")
+        .mockImplementationOnce(async (admission) => {
+          await original(admission);
+          throw new Error("process_exit_after_commit_before_learning_response");
+        });
+      try {
+        await expect(
+          fixture.automatic.learn(input, automaticControls()),
+        ).rejects.toThrow("process_exit_after_commit");
+      } finally {
+        fault.mockRestore();
+      }
+      const durable = (await fixture.sources.lookup(
+        scope,
+        input.source.sourceId,
+      ))!;
+      expect(durable.state).toBe("pending");
+      expect(durable.entryIds).toHaveLength(2);
+      const [rows] = await prisma.$queryRaw<
+        { commands: number; outbox: number; selectedBodies: string[] }[]
+      >(Prisma.sql`
+        SELECT (SELECT count(*)::int FROM "MemoryKnowledgeCommand") AS commands,
+          (SELECT count(*)::int FROM "OutboxEvent") AS outbox,
+          (SELECT array_agg("envelope"->>'body' ORDER BY "envelope"->>'body') FROM "MemoryKnowledgeCommand") AS "selectedBodies"`);
+      expect(rows).toEqual({
+        commands: 2,
+        outbox: 2,
+        selectedBodies: [
+          "First exact selected observation.",
+          "Second exact selected observation.",
+        ],
+      });
+      const replay = await fixture.automatic.learn(input, automaticControls());
+      expect(replay.state).toBe("queued");
+      expect(replay.operations).toHaveLength(2);
+      expect(fixture.preview).toHaveBeenCalledTimes(1);
+      const effects = await fixture.knowledge.automaticOperations(
+        {
+          actor: input.sourceActor,
+          scope,
+          sourceId: input.source.sourceId,
+          processingId: input.processingId,
+        },
+        automaticControls(),
+      );
+      expect(effects?.operations).toEqual(replay.operations);
+      expect(effects?.state).toBe("queued");
+      expect(JSON.stringify(effects)).not.toContain("exact selected");
+      expect(
+        await fixture.knowledge.automaticOperations(
+          {
+            actor: input.sourceActor,
+            scope,
+            sourceId: "github-node:OTHER",
+            processingId: input.processingId,
+          },
+          automaticControls(),
+        ),
+      ).toBeNull();
+      await store.scheduleDueDeliveries({ generation, now, limit: 10 });
+      for (const operation of effects!.operations) {
+        const claimed = await store.claim({
+          scope,
+          generation,
+          commandId: operation.id,
+          now,
+          claimId: randomUUID(),
+          claimUntil: new Date(now.getTime() + 10000),
+        });
+        expect(claimed?.command.envelope?.kind).toBe("save");
+        const saved = claimed!.command.envelope! as Extract<
+          MemoryKnowledgeCommand,
+          { kind: "save" }
+        >;
+        await store.settle({
+          commandId: operation.id,
+          scope,
+          generation,
+          claimId: claimed!.claimId,
+          now,
+          result: {
+            commandId: operation.id,
+            state: "published",
+            verifiedEntry: {
+              ref: saved.ref,
+              body: saved.body,
+              bodyDigest: createMemoryBodyHash(saved.body),
+              contentApprovalRevision: operation.revision,
+              kind: saved.knowledgeKind,
+              topicIds: saved.topicIds,
+              statementAt: saved.source.statementAt,
+              sourceFactIds: ["fact"],
+            },
+          },
+        });
+      }
+      expect(
+        (await fixture.sources.lookup(scope, input.source.sourceId))?.state,
+      ).toBe("active");
+      // Accepted-operation lookup remains available after source supersession and envelope expiry.
+      await autoReserve(2, 0);
+      await prisma.$executeRaw(
+        Prisma.sql`UPDATE "MemoryKnowledgeCommand" SET "envelope"=NULL`,
+      );
+      const superseded = await fixture.knowledge.automaticOperations(
+        {
+          actor: input.sourceActor,
+          scope,
+          sourceId: input.source.sourceId,
+          processingId: input.processingId,
+        },
+        automaticControls(),
+      );
+      expect(superseded?.state).toBe("needs_refresh");
+      expect(superseded?.operations).toEqual(
+        replay.operations.map((operation) => ({
+          ...operation,
+          state: "published",
+        })),
+      );
+    });
+
+    it.each(["current", "superseded", "unavailable", "expired"] as const)(
+      "reports uncertain original children honestly and preserves safe recovery when %s",
+      async (ending) => {
+        let clock = now;
+        const fixture = automaticFixture({ now: () => clock });
+        const controls = () => ({
+          deadlineAt: new Date(clock.getTime() + 10000),
+        });
+        const input = automaticInput(1);
+        const admitted = await fixture.automatic.learn(input, controls());
+        const originalSource = (await fixture.sources.lookup(
+          scope,
+          input.source.sourceId,
+        ))!;
+        if (originalSource.state === "unselected")
+          throw new Error("expected_selected_cohort");
+        const originalIds = admitted.operations.map(
+          (operation) => operation.id,
+        );
+        const settleChild = async (
+          index: number,
+          state: "unknown" | "published",
+        ) => {
+          const operation = admitted.operations[index]!;
+          const claimed = await store.claim({
+            scope,
+            generation,
+            commandId: operation.id,
+            now: clock,
+            claimId: randomUUID(),
+            claimUntil: new Date(clock.getTime() + 10000),
+          });
+          expect(claimed).not.toBeNull();
+          const command = claimed!.command.envelope!;
+          if (command.kind !== "save") throw new Error("expected_save");
+          await store.settle({
+            scope,
+            generation,
+            commandId: operation.id,
+            claimId: claimed!.claimId,
+            now: clock,
+            result:
+              state === "unknown"
+                ? {
+                    commandId: operation.id,
+                    state,
+                    safeReason: "unknown_write",
+                  }
+                : {
+                    commandId: operation.id,
+                    state,
+                    verifiedEntry: {
+                      ref: command.ref,
+                      body: command.body,
+                      bodyDigest: createMemoryBodyHash(command.body),
+                      contentApprovalRevision: operation.revision,
+                      kind: command.knowledgeKind,
+                      topicIds: command.topicIds,
+                      statementAt: command.source.statementAt,
+                      sourceFactIds: ["fact"],
+                    },
+                  },
+          });
+          return claimed!.mode;
+        };
+        await settleChild(0, "unknown");
+        const progress = await fixture.knowledge.automaticOperations(
+          {
+            actor: input.sourceActor,
+            scope,
+            sourceId: input.source.sourceId,
+            processingId: input.processingId,
+          },
+          controls(),
+        );
+        expect(progress?.state).toBe("needs_refresh");
+        const replay = await fixture.automatic.learn(input, controls());
+        expect(replay.state).toBe("needs_refresh");
+        expect(replay.operations.map((operation) => operation.id)).toEqual(
+          originalIds,
+        );
+        expect(replay.operations[0]).toMatchObject({
+          state: "unknown",
+          safeReason: "unknown_write",
+        });
+        expect(
+          await fixture.sources.lookup(scope, input.source.sourceId),
+        ).toMatchObject({
+          state: "needs_refresh",
+          invalidatedBy: "delivery_uncertain",
+          binding: originalSource.binding,
+        });
+        // A verified sibling remains invisible until the entire original cohort completes.
+        await settleChild(1, "published");
+        expect(
+          await fixture.sources.applicable(
+            admitted.operations[1]!.ref,
+            generation,
+            originalSource.binding,
+          ),
+        ).toBe(false);
+        await store.scheduleDueDeliveries({
+          generation,
+          now: clock,
+          limit: 10,
+        });
+        const commands = await prisma.$queryRaw<{ id: string; kind: string }[]>(
+          Prisma.sql`SELECT "id", "commandKind" AS kind FROM "MemoryKnowledgeCommand" ORDER BY "id"`,
+        );
+        expect(commands).toEqual(
+          [...originalIds].sort().map((id) => ({ id, kind: "save" })),
+        );
+        if (ending === "expired") {
+          clock = new Date(now.getTime() + 8 * 86400000);
+          expect(
+            await store.expireDeliveryEnvelopes({ now: clock, limit: 10 }),
+          ).toBe(1);
+          const expired = await fixture.automatic.learn(input, controls());
+          expect(expired.state).toBe("needs_refresh");
+          expect(expired.operations.map((operation) => operation.id)).toEqual(
+            originalIds,
+          );
+          expect(expired.operations[0]).toMatchObject({
+            state: "unknown",
+            safeReason: "input_required",
+          });
+          expect(JSON.stringify(expired.operations)).not.toContain(
+            "exact selected",
+          );
+          expect(
+            (
+              await store.findCommand({
+                scope,
+                generation,
+                commandId: originalIds[0]!,
+              })
+            )?.envelope,
+          ).toBeNull();
+          expect(
+            await store.claim({
+              scope,
+              generation,
+              commandId: originalIds[0]!,
+              now: clock,
+              claimId: randomUUID(),
+              claimUntil: new Date(clock.getTime() + 10000),
+            }),
+          ).toBeNull();
+        } else {
+          let replacement;
+          if (ending === "superseded")
+            replacement = (await autoReserve(2, 0)).state;
+          if (ending === "unavailable")
+            await fixture.sources.invalidate({
+              scope,
+              sourceId: input.source.sourceId,
+              cause: "unavailable",
+              expectedBinding: originalSource.binding,
+              now: clock,
+            });
+          // Late reconciliation observes the original command; it never submits a new child.
+          expect(await settleChild(0, "published")).toBe("observe");
+          const completed = (await fixture.sources.lookup(
+            scope,
+            input.source.sourceId,
+          ))!;
+          if (ending === "current") {
+            expect(completed).toMatchObject({
+              state: "active",
+              binding: originalSource.binding,
+            });
+            expect(
+              (await fixture.automatic.learn(input, controls())).state,
+            ).toBe("active");
+            expect(
+              await fixture.sources.applicable(
+                admitted.operations[0]!.ref,
+                generation,
+                originalSource.binding,
+              ),
+            ).toBe(true);
+          } else if (ending === "superseded")
+            expect(completed).toEqual(replacement);
+          else {
+            expect(completed).toMatchObject({
+              state: "needs_refresh",
+              invalidatedBy: "unavailable",
+            });
+            expect(completed.binding.epoch).not.toBe(
+              originalSource.binding.epoch,
+            );
+          }
+          // A delayed uncertainty observation cannot revoke an active or superseding cohort.
+          await fixture.sources.invalidate({
+            scope,
+            sourceId: input.source.sourceId,
+            cause: "delivery_uncertain",
+            expectedBinding: originalSource.binding,
+            now: clock,
+          });
+          expect(
+            await fixture.sources.lookup(scope, input.source.sourceId),
+          ).toEqual(completed);
+        }
+        expect(fixture.preview).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("terminalizes a legacy pending selection with missing child envelopes instead of replaying queued forever", async () => {
+      const input = automaticInput(1);
+      const sources = new PrismaMemoryAutomaticSourceStore(prisma);
+      const state = await sources.reserve({
+        input,
+        generation,
+        expectedPriorEpoch: null,
+        entryIds: ["missing_child"],
+        bodyDigests: ["d".repeat(64)],
+        now,
+      });
+      const fixture = automaticFixture();
+      const replay = await fixture.automatic.learn(input, automaticControls());
+      expect(replay.state).toBe("needs_refresh");
+      expect(replay.operations).toEqual([]);
+      expect(fixture.preview).not.toHaveBeenCalled();
+      const after = await sources.lookup(scope, input.source.sourceId);
+      expect(after?.state).toBe("needs_refresh");
+      expect(after?.binding.epoch).not.toBe(state.binding.epoch);
+    });
+
+    it("does not mutate a newer current cohort when an old incoming source fails its first authoritative check", async () => {
+      const newer = await autoReserve(2, 0);
+      const fixture = automaticFixture({ current: async () => false });
+      expect(
+        (await fixture.automatic.learn(automaticInput(1), automaticControls()))
+          .state,
+      ).toBe("needs_refresh");
+      expect(
+        await fixture.sources.lookup(scope, newer.input.source.sourceId),
+      ).toEqual(newer.state);
+      expect(fixture.preview).not.toHaveBeenCalled();
+    });
+
+    it("an old asynchronous eligibility failure cannot invalidate the newer activated cohort or advance its epoch", async () => {
+      const old = await autoReserve(1, 1);
+      const command = old.commands[0]!;
+      await publishAuto(command, old.state.binding);
+      let started!: () => void;
+      let finish!: (current: boolean) => void;
+      const entered = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const checked = new Promise<boolean>((resolve) => {
+        finish = resolve;
+      });
+      const fixture = automaticFixture({
+        current: async () => {
+          started();
+          return checked;
+        },
+        reader: {
+          ref: command.ref,
+          body: command.body,
+          bodyDigest: createMemoryBodyHash(command.body),
+          contentApprovalRevision: "1",
+          kind: command.knowledgeKind,
+          topicIds: command.topicIds,
+          statementAt: command.source.statementAt,
+          sourceFactIds: ["fact"],
+        },
+      });
+      const reading = fixture.knowledge.read(
+        { actor: old.input.sourceActor, ref: command.ref },
+        automaticControls(),
+      );
+      const rejected = expect(reading).rejects.toMatchObject({
+        code: "conflict",
+      });
+      await entered;
+      const newer = await autoReserve(2, 0);
+      finish(false);
+      await rejected;
+      expect(
+        await fixture.sources.lookup(scope, newer.input.source.sourceId),
+      ).toEqual(newer.state);
+    });
 
     function forgetCommand(
       original: MemoryKnowledgeCommand,

@@ -294,6 +294,21 @@ export const renderMemoryKnowledgeCheckoutExtension = Object.freeze([
   }),
 ]);
 
+// Automatic source lineage and conversational processing are checkout-only.
+// Pin the pair and its complete source inventory before retaining checkout155/156.
+export const renderConversationalMemoryCheckoutExtension = Object.freeze([
+  Object.freeze({
+    migrationName: "000152_memory_automatic_source",
+    checksum:
+      "9aae83ee157aa25f862ffa8f4378dd4ed62ca34e22064c985d32c0399353ada2",
+  }),
+  Object.freeze({
+    migrationName: "000153_conversation_processing",
+    checksum:
+      "df77c25b90c7811fb702f35a557a00465918a61d9caf6e34a3799c83b65638b8",
+  }),
+]);
+
 export function partitionRenderSchemaHandoffCheckout(catalog) {
   if (
     !Array.isArray(catalog) ||
@@ -306,6 +321,90 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The concurrent member-read index belongs only to ordinary Prisma deploy.
+  // Pin its exact SQL and complete checkout160, then retain the unchanged
+  // checkout159 -> managed92 admission. It never enters a repair transaction.
+  const usageMemberReportIndex = catalog.find(
+    (row) => row.migrationName === "000155_usage_member_report_index",
+  );
+  if (usageMemberReportIndex) {
+    if (
+      usageMemberReportIndex.checksum !==
+        "3f443fcdc18924dd5f1bf3c6eacbbc68969ce26811975206261b3aca014dcfd7" ||
+      manifest(catalog) !==
+        "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== usageMemberReportIndex),
+    );
+  }
+  // Unified dispatch extends checkout-only review admission and receipt state.
+  // Bind its exact SQL to merged checkout159, prior checkout157/156 or
+  // historical checkout152. The immutable managed92 transaction keeps its
+  // reviewed boundary.
+  const unifiedModelDispatchMigration = catalog.find(
+    (row) => row.migrationName === "000154_unified_model_dispatch",
+  );
+  if (unifiedModelDispatchMigration) {
+    if (
+      unifiedModelDispatchMigration.checksum !==
+        "0ecebe5d1437544b0be81e946731a8bde39d1d3eb51a3516b465014323c70884" ||
+      ![
+        "sha256:35d11ac132da5057b2ed6ff8a0eb82fcf0bd0c289975e7772deea55b1f14ad98",
+        "sha256:b632de30125258ef10541fa8c71301a6b5d1c9504bcca155c171374808ed01ba",
+        "sha256:67de1583cf2ae194e7b6dd5cef021d08b60eb64988d516cb2adcbc2d01bbbda3",
+        "sha256:f8bc4e6289b679d7f4142426e67e77ab347be8f8bed5937072ebc1ca54218fcc",
+      ].includes(manifest(catalog))
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== unifiedModelDispatchMigration),
+    );
+  }
+  // Per-run Gateway allocations are checkout-only. Admit the exact SQL and
+  // complete checkout156 before preserving the reviewed checkout155 boundary.
+  const gatewayAllocationsMigration = catalog.find(
+    (row) => row.migrationName === "000152_review_run_gateway_allocations",
+  );
+  const conversationalMemoryMigrations = catalog.filter((row) =>
+    renderConversationalMemoryCheckoutExtension.some(
+      (extension) => extension.migrationName === row.migrationName,
+    ),
+  );
+  if (conversationalMemoryMigrations.length > 0) {
+    if (
+      conversationalMemoryMigrations.length !==
+        renderConversationalMemoryCheckoutExtension.length ||
+      conversationalMemoryMigrations.some(
+        (row, index) =>
+          row.migrationName !==
+            renderConversationalMemoryCheckoutExtension[index].migrationName ||
+          row.checksum !==
+            renderConversationalMemoryCheckoutExtension[index].checksum,
+      ) ||
+      manifest(catalog) !==
+        (gatewayAllocationsMigration
+          ? "sha256:b0ce46334153bca9e201a44ccf2b1eecc3a960d7a6fe2465530005099fc490f5"
+          : "sha256:142e0ea44ad7c65c9e27e133c2902d35a88c1dcb39c0ea5274059fc81ae2de49")
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => !conversationalMemoryMigrations.includes(row)),
+    );
+  }
+  if (gatewayAllocationsMigration) {
+    if (
+      gatewayAllocationsMigration.checksum !==
+        "013e9b1917940ed3a796f8df6fa85a0c9c0cc5a4e76a7b19841911f3ea24bd6d" ||
+      manifest(catalog) !==
+        "sha256:ef2c303008c8edac0df3372f725f374ba417042a6707daf25b69c87897bd1e38"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== gatewayAllocationsMigration),
+    );
+  }
   // Review history is checkout-only. Pin its SQL and the complete checkout155
   // before reducing to the previously reviewed Skills-catalog154 inventory.
   const reviewHistoryMigration = catalog.find(

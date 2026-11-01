@@ -5,6 +5,7 @@ export const createUnreadHistoryReader = (): HistoryReader => {
     throw new Error("unexpected_history_read");
   };
   return {
+    resolvePullRequests: unexpected,
     listPullRequests: unexpected,
     listRuns: unexpected,
     listRepositories: unexpected,

@@ -33,6 +33,11 @@ const originalHistory = readRenderManagedCheckoutInventory()
       row.migrationName !== "000144_review_statistics" &&
       row.migrationName !== "000143_workspace_draft_review_setting" &&
       row.migrationName !== "000145_workspace_provider_profiles" &&
+      row.migrationName !== "000154_unified_model_dispatch" &&
+      row.migrationName !== "000155_usage_member_report_index" &&
+      row.migrationName !== "000152_review_run_gateway_allocations" &&
+      row.migrationName !== "000152_memory_automatic_source" &&
+      row.migrationName !== "000153_conversation_processing" &&
       row.migrationName !== "000151_review_history" &&
       row.migrationName !== "000150_skills_catalog_security" &&
       row.migrationName !== "000149_api_key_repository_secret_profiles" &&

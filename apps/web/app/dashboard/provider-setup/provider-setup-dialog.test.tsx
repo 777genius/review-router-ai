@@ -13,7 +13,7 @@ import type { ProviderSetupView } from "../../../src/features/provider-setup/pro
 import {
   createProviderProfileAction,
   inheritWorkspaceDefaultProviderAction,
-  saveProviderSetupAction,
+  saveProviderRosterAction,
 } from "../provider-setup-actions";
 import {
   ProviderSetupDialog,
@@ -50,7 +50,7 @@ vi.mock("../actions", () => ({
 vi.mock("../provider-setup-actions", () => ({
   createProviderProfileAction: vi.fn(),
   inheritWorkspaceDefaultProviderAction: vi.fn(),
-  saveProviderSetupAction: vi.fn(),
+  saveProviderRosterAction: vi.fn(),
 }));
 vi.stubGlobal(
   "ResizeObserver",
@@ -106,7 +106,11 @@ beforeEach(() => {
     "fetch",
     vi.fn(async () => ({ ok: true, json: async () => view }) as Response),
   );
-  vi.mocked(saveProviderSetupAction).mockResolvedValue({
+  vi.mocked(saveProviderRosterAction).mockResolvedValue({
+    status: "saved",
+    results: [],
+  });
+  vi.mocked(saveProviderRosterAction).mockResolvedValue({
     status: "saved",
     results: [
       {
@@ -228,6 +232,53 @@ function apiSources(): ProviderSetupView["sources"] {
   ];
 }
 
+/** Existing source/setup cases describe one row; match it inside the current complete-roster request. */
+function singletonRosterExpectation(input: Readonly<Record<string, unknown>>) {
+  const { provider, settings, target, ...rest } = input;
+  const partial = (value: unknown) =>
+    typeof value === "object" && value !== null && "asymmetricMatch" in value
+      ? value
+      : expect.objectContaining(value as Record<string, unknown>);
+  const scope = target as
+    | { kind: string; repositoryIds?: readonly string[] }
+    | undefined;
+  return {
+    ...rest,
+    ...(scope
+      ? {
+          target:
+            scope.kind === "repositories" && scope.repositoryIds
+              ? {
+                  kind: "repositories",
+                  repositories: scope.repositoryIds.map((repositoryId) => ({
+                    repositoryId,
+                    expectedVersion: null,
+                  })),
+                }
+              : target,
+        }
+      : {}),
+    ...(provider !== undefined || settings !== undefined
+      ? {
+          reviewers: [
+            expect.objectContaining({
+              ...(provider !== undefined
+                ? {
+                    provider: partial(provider),
+                  }
+                : {}),
+              ...(settings !== undefined
+                ? {
+                    settings: partial(settings),
+                  }
+                : {}),
+            }),
+          ],
+        }
+      : {}),
+  };
+}
+
 async function chooseSelect(label: string, name: string | RegExp) {
   fireEvent.click(
     await screen.findByRole("combobox", { name: new RegExp(`^${label}\\b`) }),
@@ -302,7 +353,7 @@ describe("ProviderSetupDialog", () => {
     });
     await waitFor(() => expect(document.activeElement).toBe(heading));
     expect(createProviderProfileAction).toHaveBeenCalledOnce();
-    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(saveProviderRosterAction).not.toHaveBeenCalled();
     expect(
       screen.getByText(
         /Each repository still needs its workflow and connection ready/,
@@ -382,16 +433,18 @@ describe("ProviderSetupDialog", () => {
         screen.getByRole("button", { name: "Use for this repository" }),
       );
       await waitFor(() =>
-        expect(saveProviderSetupAction).toHaveBeenCalledWith(
-          expect.objectContaining({
-            provider: expect.objectContaining({
-              kind: "new",
-              credential:
-                id === "codex"
-                  ? { kind: "repository_rotating", repositoryId: "repo_1" }
-                  : { kind: "user_ci_secret", authMode: "claude_code_oauth" },
+        expect(saveProviderRosterAction).toHaveBeenCalledWith(
+          expect.objectContaining(
+            singletonRosterExpectation({
+              provider: expect.objectContaining({
+                kind: "new",
+                credential:
+                  id === "codex"
+                    ? { kind: "repository_rotating", repositoryId: "repo_1" }
+                    : { kind: "user_ci_secret", authMode: "claude_code_oauth" },
+              }),
             }),
-          }),
+          ),
         ),
       );
     },
@@ -438,16 +491,18 @@ describe("ProviderSetupDialog", () => {
       screen.getByRole("button", { name: "Use for this repository" }),
     );
     await waitFor(() =>
-      expect(saveProviderSetupAction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          provider: expect.objectContaining({
-            credential: {
-              kind: "gateway_binding",
-              bindingId: "binding-1",
-              gatewayProfileRef: profile.id,
-            },
+      expect(saveProviderRosterAction).toHaveBeenCalledWith(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            provider: expect.objectContaining({
+              credential: {
+                kind: "gateway_binding",
+                bindingId: "binding-1",
+                gatewayProfileRef: profile.id,
+              },
+            }),
           }),
-        }),
+        ),
       ),
     );
   });
@@ -534,7 +589,7 @@ describe("ProviderSetupDialog", () => {
           return { ok: true, json: async () => view } as Response;
         }),
       );
-      vi.mocked(saveProviderSetupAction).mockResolvedValue({
+      vi.mocked(saveProviderRosterAction).mockResolvedValue({
         status: "saved",
         results: repositories.map((repository) => ({
           repositoryId: repository.id,
@@ -570,7 +625,7 @@ describe("ProviderSetupDialog", () => {
       );
       if (partialFirstAttempt) {
         await screen.findByText(/Provider settings have not been changed/);
-        expect(saveProviderSetupAction).not.toHaveBeenCalled();
+        expect(saveProviderRosterAction).not.toHaveBeenCalled();
         expect(
           screen.getByText(/The key is installed in 1 of 2 repositories/),
         ).toBeTruthy();
@@ -585,19 +640,21 @@ describe("ProviderSetupDialog", () => {
         );
       }
       await waitFor(() =>
-        expect(saveProviderSetupAction).toHaveBeenCalledExactlyOnceWith(
-          expect.objectContaining({
-            target: {
-              kind: "repositories",
-              repositoryIds: ["repo_1", "repo_2"],
-            },
-            provider: expect.objectContaining({
-              credential: {
-                kind: "managed_api_key",
-                authMode: "openrouter_api_key",
+        expect(saveProviderRosterAction).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining(
+            singletonRosterExpectation({
+              target: {
+                kind: "repositories",
+                repositoryIds: ["repo_1", "repo_2"],
               },
+              provider: expect.objectContaining({
+                credential: {
+                  kind: "managed_api_key",
+                  authMode: "openrouter_api_key",
+                },
+              }),
             }),
-          }),
+          ),
         ),
       );
       expect(applyRequests[0]).toEqual({
@@ -690,7 +747,7 @@ describe("ProviderSetupDialog", () => {
         screen.getByRole("button", { name: "Add provider" }),
       ).toHaveProperty("disabled", true);
       expect(createProviderProfileAction).not.toHaveBeenCalled();
-      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(saveProviderRosterAction).not.toHaveBeenCalled();
     },
   );
 
@@ -986,7 +1043,7 @@ describe("ProviderSetupDialog", () => {
     expect(
       screen.getByRole("button", { name: "Use for this repository" }),
     ).toHaveProperty("disabled", true);
-    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(saveProviderRosterAction).not.toHaveBeenCalled();
     fireEvent.change(input, { target: { value: "custom/unknown-model" } });
     expect(
       screen.getByRole("button", { name: "Use for this repository" }),
@@ -1034,7 +1091,7 @@ describe("ProviderSetupDialog", () => {
         screen.getByRole("button", { name: "Use for this repository" }),
       ).toHaveProperty("disabled", true);
       expect(screen.getByText(/Choose an available model from/)).toBeTruthy();
-      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(saveProviderRosterAction).not.toHaveBeenCalled();
       fireEvent.change(input, { target: { value: "openai/account-model" } });
       expect(
         screen.getByRole("button", { name: "Use for this repository" }),
@@ -1087,16 +1144,18 @@ describe("ProviderSetupDialog", () => {
         screen.getByRole("button", { name: "Use for this repository" }),
       );
       await waitFor(() =>
-        expect(saveProviderSetupAction).toHaveBeenCalledWith(
-          expect.objectContaining({
-            provider: expect.objectContaining({
-              credential: {
-                kind: "gateway_binding",
-                bindingId: "binding-1",
-                gatewayProfileRef: profileId,
-              },
+        expect(saveProviderRosterAction).toHaveBeenCalledWith(
+          expect.objectContaining(
+            singletonRosterExpectation({
+              provider: expect.objectContaining({
+                credential: {
+                  kind: "gateway_binding",
+                  bindingId: "binding-1",
+                  gatewayProfileRef: profileId,
+                },
+              }),
             }),
-          }),
+          ),
         ),
       );
     },
@@ -1167,7 +1226,7 @@ describe("ProviderSetupDialog", () => {
       ),
     );
     expect(model).toHaveProperty("value", "custom/preserved-model");
-    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(saveProviderRosterAction).not.toHaveBeenCalled();
   });
 
   it.each(["kimi", "openai"] as const)(
@@ -1209,6 +1268,7 @@ describe("ProviderSetupDialog", () => {
             authMode: "codex_account_gateway",
             credentialKind: "gateway_binding",
             gatewayBindingId: "binding-1",
+            gatewayProfileRef: profile.id,
           },
         ],
         sources: apiSources(),
@@ -1227,19 +1287,30 @@ describe("ProviderSetupDialog", () => {
         expect(
           screen.getByRole("combobox", { name: /^Review depth/ }).textContent,
         ).toContain("Medium");
-      fireEvent.click(screen.getByRole("button", { name: "Set as default" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save reviewers" }));
       await waitFor(() =>
-        expect(saveProviderSetupAction).toHaveBeenCalledWith(
-          expect.objectContaining({
-            settings:
-              provider === "kimi"
-                ? { agenticContext: true, fastMode: false }
-                : {
-                    reasoningEffort: "medium",
-                    agenticContext: true,
-                    fastMode: false,
-                  },
-          }),
+        expect(saveProviderRosterAction).toHaveBeenCalledWith(
+          expect.objectContaining(
+            singletonRosterExpectation({
+              reviewers: [
+                expect.objectContaining({
+                  settings:
+                    provider === "kimi"
+                      ? {
+                          agenticContext: true,
+                          fastMode: false,
+                          requiredHealthy: true,
+                        }
+                      : {
+                          reasoningEffort: "medium",
+                          agenticContext: true,
+                          fastMode: false,
+                          requiredHealthy: true,
+                        },
+                }),
+              ],
+            }),
+          ),
         ),
       );
     },
@@ -1263,6 +1334,7 @@ describe("ProviderSetupDialog", () => {
           authMode: "codex_account_gateway",
           credentialKind: "gateway_binding",
           gatewayBindingId: "binding-1",
+          gatewayProfileRef: qualified.id,
         },
       ],
       sources: apiSources(),
@@ -1293,13 +1365,8 @@ describe("ProviderSetupDialog", () => {
     ).toBeNull();
     expect(screen.queryByText(/saved, unsupported/)).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Set as default" }),
+      screen.getByRole("button", { name: "Save reviewers" }),
     ).toHaveProperty("disabled", true);
-    expect(
-      screen.getByText(
-        /Loading review settings for this model|Review settings are unavailable for this model/,
-      ),
-    ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Refresh accounts" }),
     ).toBeTruthy();
@@ -1315,7 +1382,7 @@ describe("ProviderSetupDialog", () => {
     ).toContain("Medium");
     expect(screen.queryByText(/saved, unsupported/)).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Set as default" }),
+      screen.getByRole("button", { name: "Save reviewers" }),
     ).toHaveProperty("disabled", false);
   });
 
@@ -1368,15 +1435,17 @@ describe("ProviderSetupDialog", () => {
       screen.getByRole("button", { name: "Add and make default" }),
     );
     await waitFor(() =>
-      expect(saveProviderSetupAction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          settings: {
-            reasoningEffort: "low",
-            fastMode: false,
-            agenticContext: true,
-          },
-          provider: expect.objectContaining({ model: "second/model" }),
-        }),
+      expect(saveProviderRosterAction).toHaveBeenCalledWith(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            settings: {
+              reasoningEffort: "low",
+              fastMode: false,
+              agenticContext: true,
+            },
+            provider: expect.objectContaining({ model: "second/model" }),
+          }),
+        ),
       ),
     );
   });
@@ -1469,14 +1538,14 @@ describe("ProviderSetupDialog", () => {
       expect(
         screen.getByRole("checkbox", { name: /^Fast mode/ }),
       ).toHaveProperty("checked", true);
-      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(saveProviderRosterAction).not.toHaveBeenCalled();
       await chooseSelect(
         "Review depth",
         scenario === "reasoning removed" ? "Account default" : /^Medium/,
       );
       fireEvent.click(screen.getByRole("checkbox", { name: /^Fast mode/ }));
       expect(save).toHaveProperty("disabled", false);
-      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(saveProviderRosterAction).not.toHaveBeenCalled();
     },
   );
 
@@ -1518,7 +1587,7 @@ describe("ProviderSetupDialog", () => {
     });
     expect(save).toHaveProperty("disabled", true);
     fireEvent.click(save);
-    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(saveProviderRosterAction).not.toHaveBeenCalled();
     expect(
       screen.getByText(/The saved review depth or fast mode is not supported/),
     ).toBeTruthy();
@@ -1533,7 +1602,7 @@ describe("ProviderSetupDialog", () => {
     );
     fireEvent.click(screen.getByRole("checkbox", { name: /^Fast mode/ }));
     await waitFor(() => expect(save).toHaveProperty("disabled", false));
-    vi.mocked(saveProviderSetupAction).mockResolvedValueOnce({
+    vi.mocked(saveProviderRosterAction).mockResolvedValueOnce({
       status: "saved",
       results: [
         { repositoryId: "repo_1", fullName: "acme/widget", status: "applied" },
@@ -1541,15 +1610,17 @@ describe("ProviderSetupDialog", () => {
     });
     fireEvent.click(save);
     await waitFor(() =>
-      expect(saveProviderSetupAction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          provider: { kind: "profile", profileId: "mimo-existing" },
-          settings: {
-            reasoningEffort: "high",
-            fastMode: false,
-            agenticContext: false,
-          },
-        }),
+      expect(saveProviderRosterAction).toHaveBeenCalledWith(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            provider: { kind: "profile", profileId: "mimo-existing" },
+            settings: {
+              reasoningEffort: "high",
+              fastMode: false,
+              agenticContext: false,
+            },
+          }),
+        ),
       ),
     );
     expect(legacy).toMatchObject({
@@ -1614,7 +1685,7 @@ describe("ProviderSetupDialog", () => {
           name: /^(GitHub Secrets|ReviewRouter)$/,
         }),
       ).toHaveLength(2);
-      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(saveProviderRosterAction).not.toHaveBeenCalled();
     },
   );
   it("shows the inherited workspace default as already chosen for a repository", async () => {
@@ -1636,6 +1707,51 @@ describe("ProviderSetupDialog", () => {
     ).toBe(true);
   });
 
+  it("keeps the displayed workspace and repository versions when the source wizard is open across a refresh", async () => {
+    view = {
+      ...view,
+      workspaceVersion: 7,
+      repositories: view.repositories.map((row) => ({ ...row, version: 3 })),
+    };
+    const client = renderDialog(repositoryTarget);
+    await choose("Second Claude");
+    await act(async () =>
+      client.setQueryData(
+        providerSetupQueryKeys.view("workspace_1", ["repo_1"]),
+        {
+          ...view,
+          workspaceVersion: 8,
+          repositories: view.repositories.map((row) => ({
+            ...row,
+            version: 4,
+          })),
+        },
+      ),
+    );
+    vi.mocked(saveProviderRosterAction).mockResolvedValueOnce({
+      status: "error",
+      error: "dashboard_action_stale",
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await screen.findByRole("alert");
+    expect(saveProviderRosterAction).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(saveProviderRosterAction).mock.calls[0]![0]).toMatchObject(
+      {
+        expectedWorkspaceVersion: 7,
+        target: {
+          kind: "repositories",
+          repositories: [{ repositoryId: "repo_1", expectedVersion: 3 }],
+        },
+        reviewers: [
+          { provider: { kind: "profile", profileId: "profile_other" } },
+        ],
+      },
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it("attaches an existing provider by its ID, never by its credential and model", async () => {
     renderDialog(repositoryTarget);
     // Wait for opening autofocus before interacting with the modal.
@@ -1648,12 +1764,18 @@ describe("ProviderSetupDialog", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Use for this repository" }),
     );
-    await waitFor(() => expect(saveProviderSetupAction).toHaveBeenCalledOnce());
-    expect(vi.mocked(saveProviderSetupAction).mock.calls[0]![0]).toMatchObject({
-      workspaceId: "workspace_1",
-      target: { kind: "repositories", repositoryIds: ["repo_1"] },
-      provider: { kind: "profile", profileId: "profile_other" },
-    });
+    await waitFor(() =>
+      expect(saveProviderRosterAction).toHaveBeenCalledOnce(),
+    );
+    expect(vi.mocked(saveProviderRosterAction).mock.calls[0]![0]).toMatchObject(
+      expect.objectContaining(
+        singletonRosterExpectation({
+          workspaceId: "workspace_1",
+          target: { kind: "repositories", repositoryIds: ["repo_1"] },
+          provider: { kind: "profile", profileId: "profile_other" },
+        }),
+      ),
+    );
     // Claude Code needs its secret next: the dialog moves to that step and
     // takes the focus there.
     const secretStep = await screen.findByRole("button", {
@@ -1717,11 +1839,40 @@ describe("ProviderSetupDialog", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("keeps focus on the workspace save result when opening autofocus is still queued", async () => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = ++frameId;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+
+    view = { ...view, target: "workspace", repositories: [] };
+    renderDialog({ kind: "workspace" });
+    await choose("Second Claude");
+    // A fast save can finish before the opening dialog focuses its first control.
+    expect(frames.size).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Set as default" }));
+    const heading = await screen.findByRole("heading", {
+      name: "Workspace default saved",
+    });
+
+    await act(async () => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(performance.now());
+    });
+
+    expect(document.activeElement).toBe(heading);
+  });
+
   it("keeps repository step navigation locked until a provider save finishes", async () => {
     let finishSave!: (
-      result: Awaited<ReturnType<typeof saveProviderSetupAction>>,
+      result: Awaited<ReturnType<typeof saveProviderRosterAction>>,
     ) => void;
-    vi.mocked(saveProviderSetupAction).mockImplementationOnce(
+    vi.mocked(saveProviderRosterAction).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           finishSave = resolve;
@@ -1732,7 +1883,9 @@ describe("ProviderSetupDialog", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Use for this repository" }),
     );
-    await waitFor(() => expect(saveProviderSetupAction).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(saveProviderRosterAction).toHaveBeenCalledOnce(),
+    );
 
     const providerStep = screen.getByRole("button", { name: "1. Provider" });
     const secretStep = screen.getByRole("button", { name: "2. Add secret" });
@@ -1747,7 +1900,7 @@ describe("ProviderSetupDialog", () => {
       }),
     );
 
-    expect(saveProviderSetupAction).toHaveBeenCalledOnce();
+    expect(saveProviderRosterAction).toHaveBeenCalledOnce();
     expect(providerStep).toHaveProperty("disabled", true);
     expect(secretStep).toHaveProperty("disabled", true);
     expect(providerStep.getAttribute("aria-current")).toBe("step");
@@ -1773,7 +1926,7 @@ describe("ProviderSetupDialog", () => {
     fireEvent.click(providerStep);
     expect(providerStep.getAttribute("aria-current")).toBe("step");
     expect(screen.getByText("Second Claude")).toBeTruthy();
-    expect(saveProviderSetupAction).toHaveBeenCalledOnce();
+    expect(saveProviderRosterAction).toHaveBeenCalledOnce();
   });
 
   it("returns a repository with its own provider to the workspace default", async () => {
@@ -1793,12 +1946,17 @@ describe("ProviderSetupDialog", () => {
       screen.getByRole("button", { name: "Use the workspace default" }),
     );
     await waitFor(() =>
-      expect(inheritWorkspaceDefaultProviderAction).toHaveBeenCalledWith({
+      expect(saveProviderRosterAction).toHaveBeenCalledWith({
         workspaceId: "workspace_1",
-        repositoryId: "repo_1",
+        expectedWorkspaceVersion: null,
+        target: {
+          kind: "repositories",
+          repositories: [{ repositoryId: "repo_1", expectedVersion: null }],
+        },
+        reviewers: null,
       }),
     );
-    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
   });
 
   it("does not inherit a workspace default that disappeared after it was chosen", async () => {
@@ -1844,7 +2002,7 @@ describe("ProviderSetupDialog", () => {
     expect(inherit).toHaveProperty("disabled", true);
     fireEvent.click(inherit);
     expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
-    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(saveProviderRosterAction).not.toHaveBeenCalled();
 
     // Choosing an available provider is still possible after the refresh.
     await choose("Team Claude");
@@ -1890,7 +2048,7 @@ describe("ProviderSetupDialog", () => {
       expect(
         screen.queryByRole("combobox", { name: /^Provider\b/ }),
       ).toBeNull();
-      expect(saveProviderSetupAction).not.toHaveBeenCalled();
+      expect(saveProviderRosterAction).not.toHaveBeenCalled();
       expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
 
       fireEvent.click(add);
@@ -1902,20 +2060,24 @@ describe("ProviderSetupDialog", () => {
       expect(save).toHaveProperty("disabled", false);
       fireEvent.click(save);
       await waitFor(() =>
-        expect(saveProviderSetupAction).toHaveBeenCalledOnce(),
+        expect(saveProviderRosterAction).toHaveBeenCalledOnce(),
       );
       expect(
-        vi.mocked(saveProviderSetupAction).mock.calls[0]![0],
-      ).toMatchObject({
-        target: { kind: "repositories", repositoryIds: ["repo_1"] },
-        provider: {
-          kind: "new",
-          credential: {
-            kind: "user_ci_secret",
-            authMode: "openrouter_api_key",
-          },
-        },
-      });
+        vi.mocked(saveProviderRosterAction).mock.calls[0]![0],
+      ).toMatchObject(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            target: { kind: "repositories", repositoryIds: ["repo_1"] },
+            provider: {
+              kind: "new",
+              credential: {
+                kind: "user_ci_secret",
+                authMode: "openrouter_api_key",
+              },
+            },
+          }),
+        ),
+      );
       expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
     },
   );
@@ -1953,7 +2115,7 @@ describe("ProviderSetupDialog", () => {
     });
     expect(save).toHaveProperty("disabled", true);
     fireEvent.click(save);
-    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(saveProviderRosterAction).not.toHaveBeenCalled();
     expectSecondClaudeChosen();
     expect(
       screen.queryByText("Changes are turned off for this dashboard."),
@@ -1969,10 +2131,16 @@ describe("ProviderSetupDialog", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Use for this repository" }),
     );
-    await waitFor(() => expect(saveProviderSetupAction).toHaveBeenCalledOnce());
-    expect(vi.mocked(saveProviderSetupAction).mock.calls[0]![0]).toMatchObject({
-      provider: { kind: "profile", profileId: "profile_other" },
-    });
+    await waitFor(() =>
+      expect(saveProviderRosterAction).toHaveBeenCalledOnce(),
+    );
+    expect(vi.mocked(saveProviderRosterAction).mock.calls[0]![0]).toMatchObject(
+      expect.objectContaining(
+        singletonRosterExpectation({
+          provider: { kind: "profile", profileId: "profile_other" },
+        }),
+      ),
+    );
     expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
   });
 
@@ -2009,12 +2177,17 @@ describe("ProviderSetupDialog", () => {
     expect(inherit).toHaveProperty("disabled", false);
     fireEvent.click(inherit);
     await waitFor(() =>
-      expect(inheritWorkspaceDefaultProviderAction).toHaveBeenCalledWith({
+      expect(saveProviderRosterAction).toHaveBeenCalledWith({
         workspaceId: "workspace_1",
-        repositoryId: "repo_1",
+        expectedWorkspaceVersion: null,
+        target: {
+          kind: "repositories",
+          repositories: [{ repositoryId: "repo_1", expectedVersion: null }],
+        },
+        reviewers: null,
       }),
     );
-    expect(saveProviderSetupAction).not.toHaveBeenCalled();
+    expect(inheritWorkspaceDefaultProviderAction).not.toHaveBeenCalled();
     expect(view.defaultSelection).toEqual(legacy);
   });
 
@@ -2024,11 +2197,13 @@ describe("ProviderSetupDialog", () => {
     await choose("Second Claude");
     fireEvent.click(screen.getByRole("button", { name: "Set as default" }));
     await waitFor(() =>
-      expect(saveProviderSetupAction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          target: { kind: "workspace" },
-          provider: { kind: "profile", profileId: "profile_other" },
-        }),
+      expect(saveProviderRosterAction).toHaveBeenCalledWith(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            target: { kind: "workspace" },
+            provider: { kind: "profile", profileId: "profile_other" },
+          }),
+        ),
       ),
     );
     const heading = await screen.findByRole("heading", {
@@ -2051,7 +2226,7 @@ describe("ProviderSetupDialog", () => {
         useDefault: { allowed: true as const },
       })),
     };
-    vi.mocked(saveProviderSetupAction).mockResolvedValueOnce({
+    vi.mocked(saveProviderRosterAction).mockResolvedValueOnce({
       status: "saved",
       results: [
         { repositoryId: "repo_1", fullName: "acme/repo_1", status: "applied" },
@@ -2096,7 +2271,7 @@ describe("ProviderSetupDialog", () => {
         useDefault: { allowed: true as const },
       })),
     };
-    vi.mocked(saveProviderSetupAction).mockResolvedValueOnce({
+    vi.mocked(saveProviderRosterAction).mockResolvedValueOnce({
       status: "saved",
       results: ["repo_1", "repo_2"].map((id) => ({
         repositoryId: id,

@@ -5,31 +5,47 @@ import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
   canonicalJson,
   type UsageFact,
+  type UsageIdentity,
 } from "@reviewrouter/features-provider-usage";
 const mocks = vi.hoisted(() => ({
   ingest: vi.fn(async () => ({ status: "accepted", hash: "hash" })),
+  findIdentity: vi.fn<() => Promise<UsageIdentity | null>>(async () => null),
+  readDispatchSnapshot: vi.fn(async () => null),
+  snapshot: vi.fn<() => unknown>(() => ({
+    snapshotVersion: 3,
+    configurationCanonicalJson: "{}",
+    gateway: null,
+    agent: { agentKind: "codex" },
+  })),
+  configuration: vi.fn(() => ({
+    providers: [{ kind: "codex", model: "model" }],
+  })),
 }));
 vi.mock("@reviewrouter/features-provider-usage/composition", () => ({
   PrismaUsageStore: class {
     ingest = mocks.ingest;
   },
   PrismaUsageReportReader: class {},
+  PrismaUsageAttributionReader: class {
+    findIdentity = mocks.findIdentity;
+    readDispatchSnapshot = mocks.readDispatchSnapshot;
+  },
   createProviderUsage: async () => ({ ingestUsage: { execute: mocks.ingest } }),
 }));
-vi.mock("@reviewrouter/features-review-run-control", () => ({
-  parseReviewRunRuntimeSnapshot: () => ({
-    configurationCanonicalJson: "{}",
-    gateway: null,
-    agent: { agentKind: "codex" },
+vi.mock(
+  "@reviewrouter/features-review-run-control",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@reviewrouter/features-review-run-control")
+    >()),
+    parseReviewRunRuntimeSnapshot: mocks.snapshot,
   }),
-}));
+);
 vi.mock("./provider-usage-price-snapshot", () => ({
   providerUsagePriceSnapshots: async () => ({ read: async () => null }),
 }));
 vi.mock("@reviewrouter/features-review-config", () => ({
-  parseReviewConfigurationStrict: () => ({
-    providers: [{ kind: "codex", model: "model" }],
-  }),
+  parseReviewConfigurationStrict: mocks.configuration,
 }));
 import {
   createProviderUsageApi,
@@ -50,7 +66,7 @@ function fixture() {
     runAttempt: 2,
     authorizationId: "authorization",
     actorId: null,
-    bindingId: null,
+    bindingId: null as string | null,
     producerDigest: "digest",
     workflowIdentity: "workflow",
     jobIdentity: "job",
@@ -187,6 +203,75 @@ describe("provider usage report-only API", () => {
     await expect(f.api.report(f.token, f.report)).rejects.toThrow(
       "usage_scope_mismatch",
     );
+  });
+  it("accepts the exact durable v4 reviewer request and rejects borrowing a same-kind sibling's attribution", async () => {
+    const f = fixture();
+    f.grant.bindingId = "shared-binding";
+    f.grant.invocationId = "shared-invocation";
+    f.fact.identity = {
+      ...f.fact.identity,
+      callId: "shared-gateway-call",
+      parentScope: "reviewer-1",
+      requestedModel: "model-1",
+      invocationId: "shared-invocation",
+      bindingId: "shared-binding",
+      route: "gateway",
+    };
+    const durable = structuredClone(f.fact.identity);
+    const snapshot = {
+      snapshotVersion: 4,
+      primaryReviewerId: "reviewer-0",
+      configurationCanonicalJson: "{}",
+      reviewers: [0, 1].map((index) => ({
+        reviewerId: `reviewer-${index}`,
+        providerIndex: index,
+        requestedModel: `model-${index}`,
+        agentProfile: { agentKind: "codex" },
+        transport: { allocationId: "shared-allocation" },
+      })),
+      allocations: [
+        {
+          allocationId: "shared-allocation",
+          invocationId: "shared-invocation",
+          bindingId: "shared-binding",
+        },
+      ],
+    };
+    function selectV4() {
+      mocks.snapshot.mockReturnValueOnce(snapshot);
+      mocks.configuration.mockReturnValueOnce({
+        providers: [0, 1].map((index) => ({
+          kind: "codex",
+          model: `model-${index}`,
+        })),
+      });
+      mocks.findIdentity.mockResolvedValueOnce(durable);
+      mocks.ingest.mockClear();
+    }
+    selectV4();
+    expect((await f.api.report(f.token, f.report)).accepted).toHaveLength(1);
+    expect(mocks.ingest).toHaveBeenCalledWith(
+      expect.objectContaining({ identity: durable }),
+      expect.objectContaining({
+        invocationId: "shared-invocation",
+        serverPriceSnapshot: null,
+      }),
+    );
+    for (const patch of [
+      { parentScope: "reviewer-0", requestedModel: "model-0" },
+      { callId: "foreign-gateway-call" },
+      { attemptId: "foreign-attempt" },
+      { parentScope: null },
+    ]) {
+      f.fact.identity = { ...durable, ...patch };
+      selectV4();
+      await expect(f.api.report(f.token, f.report)).rejects.toThrow(
+        "usage_scope_mismatch",
+      );
+      expect(mocks.ingest).not.toHaveBeenCalled();
+    }
+    // The missing selector is rejected before the durable lookup.
+    mocks.findIdentity.mockReset().mockResolvedValue(null);
   });
   it("uses App-verified closure for the final replay day and never extends the expiry", async () => {
     const f = fixture();

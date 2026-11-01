@@ -5,7 +5,10 @@ import * as PrismaEnums from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createReviewMemoryInputAdmission } from "./review-memory-admission";
+import {
+  admitMemoryReceiptInTransaction,
+  createReviewMemoryInputAdmission,
+} from "./review-memory-admission";
 import { reviewMemoryBinding } from "./review-memory-wire";
 import {
   memoryKnowledgeDigest,
@@ -296,6 +299,184 @@ describe.skipIf(!databaseUrl)(
         },
         { isolationLevel: "Serializable", timeout: 5000 },
       );
+
+    async function conversationReceipt(): Promise<MemoryKnowledgeAdmissionReceipt> {
+      const row = await prisma.memoryKnowledgeBundleReceipt.findUnique({
+        where: {
+          authorizationId_snapshotHash: { authorizationId, snapshotHash },
+        },
+      });
+      return {
+        ...(row!.receipt as unknown as MemoryKnowledgeAdmissionReceipt),
+        contextPolicy: {
+          audience: "public",
+          repositoryId,
+          allowedTasks: ["conversation"],
+        },
+      };
+    }
+    const conversationAdmit = (receipt: MemoryKnowledgeAdmissionReceipt) =>
+      other.$transaction((transaction) =>
+        admitMemoryReceiptInTransaction(
+          transaction,
+          {
+            enabled: true,
+            generation,
+            policy: { getPolicy: async () => defaultMemoryPolicyConfig },
+          } as never,
+          receipt,
+          {
+            workspaceId,
+            repositoryId,
+            headSha: binding.headSha,
+            task: "conversation",
+            now: new Date(),
+          },
+        ),
+      );
+    it("checks task, audience and finite expiry in the same real conversation grant transaction", async () => {
+      const receipt = await conversationReceipt();
+      expect(await conversationAdmit(receipt)).toBe(false);
+      metadata = {
+        ...metadata,
+        source: { ...metadata.source!, visibility: "public" },
+      };
+      await prisma.memoryKnowledgeEntry.update({
+        where: {
+          generation_scopeKey_entryId: {
+            generation,
+            scopeKey: memoryKnowledgeScopeKey(scope),
+            entryId: ref.entryId,
+          },
+        },
+        data: { metadata: metadata as never },
+      });
+      expect(await conversationAdmit(receipt)).toBe(true);
+      expect(
+        await conversationAdmit({
+          ...receipt,
+          contextPolicy: {
+            ...receipt.contextPolicy!,
+            allowedTasks: ["pr_description"],
+          },
+        }),
+      ).toBe(false);
+      expect(
+        await conversationAdmit({ ...receipt, expiresAt: "invalid-date" }),
+      ).toBe(false);
+      expect(
+        await conversationAdmit({
+          ...receipt,
+          contextPolicy: {
+            ...receipt.contextPolicy!,
+            repositoryId: "other_repository",
+          },
+        }),
+      ).toBe(false);
+    });
+    it("admits the same private fact internally but rejects an internal receipt for public description", async () => {
+      const original = await conversationReceipt();
+      const internal = {
+        ...original,
+        contextPolicy: {
+          audience: "internal" as const,
+          repositoryId,
+          allowedTasks: ["review" as const, "investigation" as const],
+        },
+      };
+      const check = (
+        receipt: MemoryKnowledgeAdmissionReceipt,
+        task: "review" | "pr_description",
+      ) =>
+        other.$transaction((transaction) =>
+          admitMemoryReceiptInTransaction(
+            transaction,
+            {
+              enabled: true,
+              generation,
+              policy: { getPolicy: async () => defaultMemoryPolicyConfig },
+            } as never,
+            receipt,
+            {
+              workspaceId,
+              repositoryId,
+              headSha: binding.headSha,
+              task,
+              now: new Date(),
+            },
+          ),
+        );
+      expect(await check(internal, "review")).toBe(true);
+      expect(await check(internal, "pr_description")).toBe(false);
+      const description = {
+        ...original,
+        contextPolicy: {
+          audience: "public" as const,
+          repositoryId,
+          allowedTasks: ["pr_description" as const],
+        },
+      };
+      expect(await check(description, "pr_description")).toBe(false);
+    });
+
+    it("denies new conversation dispatch after source loss, retirement or receipt epoch revocation", async () => {
+      const receipt = await conversationReceipt();
+      metadata = {
+        ...metadata,
+        source: { ...metadata.source!, visibility: "public" },
+      };
+      await prisma.memoryKnowledgeEntry.update({
+        where: {
+          generation_scopeKey_entryId: {
+            generation,
+            scopeKey: memoryKnowledgeScopeKey(scope),
+            entryId: ref.entryId,
+          },
+        },
+        data: { metadata: metadata as never },
+      });
+      expect(await conversationAdmit(receipt)).toBe(true);
+      await prisma.repositoryConnection.update({
+        where: { id: sourceRepositoryId },
+        data: { selected: false },
+      });
+      expect(await conversationAdmit(receipt)).toBe(false);
+      await prisma.repositoryConnection.update({
+        where: { id: sourceRepositoryId },
+        data: { selected: true },
+      });
+      await prisma.memoryKnowledgeEntry.update({
+        where: {
+          generation_scopeKey_entryId: {
+            generation,
+            scopeKey: memoryKnowledgeScopeKey(scope),
+            entryId: ref.entryId,
+          },
+        },
+        data: { metadata: { ...metadata, lifecycle: "retired" } as never },
+      });
+      expect(await conversationAdmit(receipt)).toBe(false);
+      await prisma.memoryKnowledgeEntry.update({
+        where: {
+          generation_scopeKey_entryId: {
+            generation,
+            scopeKey: memoryKnowledgeScopeKey(scope),
+            entryId: ref.entryId,
+          },
+        },
+        data: { metadata: metadata as never },
+      });
+      await prisma.memoryKnowledgeScopeState.update({
+        where: {
+          generation_scopeKey: {
+            generation,
+            scopeKey: memoryKnowledgeScopeKey(scope),
+          },
+        },
+        data: { epoch: 2n },
+      });
+      expect(await conversationAdmit(receipt)).toBe(false);
+    });
 
     it("admits the exact receipt and rejects paused memory while leaving no-memory acquisition independent", async () => {
       expect(await admit()).toBe(true);

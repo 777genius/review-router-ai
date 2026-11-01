@@ -12,7 +12,7 @@ import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
-  ReviewRequestedIntentState,
+  reviewRequestedDispatchCleanupEvent,
 } from "@reviewrouter/features-review-executions";
 import type { createPrismaClient } from "@reviewrouter/platform-db";
 
@@ -121,8 +121,17 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     if (!run.completed) {
       return { status: ReviewRequestedDispatchRunStatus.Pending };
     }
-    if (input.intent.state === ReviewRequestedIntentState.Superseded) {
+    if (reviewRequestedDispatchCleanupEvent(input.intent) !== null) {
       return { status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision };
+    }
+    // A completed run without a conclusion is not classifiable yet. Keep
+    // waiting: the authorization deadline still bounds the request, and a
+    // genuine failure must not be stopped as if an operator cancelled it.
+    if (run.conclusion === null) {
+      return { status: ReviewRequestedDispatchRunStatus.Pending };
+    }
+    if (!retryableRunConclusions.has(run.conclusion)) {
+      return { status: ReviewRequestedDispatchRunStatus.TerminalNotRetryable };
     }
     const pullRequest = await octokit.request(
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
@@ -404,11 +413,23 @@ function parseWorkflowRunsPage(
   return { matches, hasNextPage: data.workflow_runs.length === 100 };
 }
 
+/**
+ * Conclusions of a run that ended before authorization where a fresh dispatch
+ * may succeed. Any other reported conclusion (cancelled by an operator,
+ * skipped, awaiting approval, unrecognized) stops the request instead of
+ * redispatching it.
+ */
+const retryableRunConclusions: ReadonlySet<string> = new Set([
+  "failure",
+  "timed_out",
+  "startup_failure",
+]);
+
 function parseInspectionResponse(
   data: unknown,
   intent: ReviewRequestedIntent,
   workflowPath: string,
-): { readonly completed: boolean } {
+): { readonly completed: boolean; readonly conclusion: string | null } {
   if (!isRecord(data)) {
     throw new Error("review_requested_inspection_response_invalid");
   }
@@ -430,7 +451,10 @@ function parseInspectionResponse(
   ) {
     throw new Error("review_requested_inspection_identity_invalid");
   }
-  return { completed: data.status === "completed" };
+  return {
+    completed: data.status === "completed",
+    conclusion: typeof data.conclusion === "string" ? data.conclusion : null,
+  };
 }
 
 function matchesWorkflowRunPath(value: unknown, workflowPath: string): boolean {

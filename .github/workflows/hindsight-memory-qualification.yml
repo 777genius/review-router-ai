@@ -8,6 +8,7 @@ on:
     paths:
       - deploy/hindsight/**
       - scripts/hindsight-e2e/**
+      - packages/context-memory/**
       - packages/features/memory/src/infrastructure/hindsight/**
       - packages/features/memory/src/infrastructure/config/memory-provider-config.ts
       - packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts
@@ -19,6 +20,7 @@ on:
     paths:
       - deploy/hindsight/**
       - scripts/hindsight-e2e/**
+      - packages/context-memory/**
       - packages/features/memory/src/infrastructure/hindsight/**
       - packages/features/memory/src/infrastructure/config/memory-provider-config.ts
       - packages/features/memory/src/application/ports/memory-knowledge-provider-port.ts
@@ -70,6 +72,7 @@ jobs:
         run: |
           HINDSIGHT_SOURCE_CHECKOUT="$RUNNER_TEMP/hindsight-source" node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts --test scripts/hindsight-e2e/qualification.test.ts scripts/hindsight-e2e/cleanup-receipt.test.ts scripts/hindsight-e2e/provider-contract.test.ts scripts/hindsight-e2e/operator-safety.test.ts scripts/hindsight-e2e/provider-verification.test.ts
           node scripts/hindsight-e2e/prepare-hardening.ts "$RUNNER_TEMP/hindsight-source" "$RUNNER_TEMP/hindsight-build"
+          python3 deploy/hindsight/strict-preview.test.py "$RUNNER_TEMP/hindsight-build/hindsight_api"
           git -C "$RUNNER_TEMP/hindsight-source" apply --check "$GITHUB_WORKSPACE/deploy/hindsight/hardening.patch"
           native_base="$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/vectorize-io/hindsight-api:1.1.0)"
           native_revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/vectorize-io/hindsight-api:1.1.0)"

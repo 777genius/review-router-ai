@@ -113,6 +113,9 @@ export function createTrustedProducerReleaseMaterializer(input: {
             operationalSloProfileId: release.operationalSloProfileId,
             reviewInvestigationProfile: release.reviewInvestigationProfile,
             agentProfiles: release.agentProfiles ?? null,
+            ...(release.reviewerPlanProfile !== undefined
+              ? { reviewerPlanProfile: release.reviewerPlanProfile }
+              : {}),
             ...(release.contextToolsProfile !== undefined
               ? { contextToolsProfile: release.contextToolsProfile }
               : {}),
@@ -122,6 +125,9 @@ export function createTrustedProducerReleaseMaterializer(input: {
                   lifecycleVerificationProfile:
                     release.lifecycleVerificationProfile,
                 }),
+            ...(release.modelDispatchProfile == null
+              ? {}
+              : { modelDispatchProfile: release.modelDispatchProfile }),
             ...(release.prDescriptionProfile == null
               ? {}
               : { prDescriptionProfile: release.prDescriptionProfile }),

@@ -58,7 +58,11 @@ export function memoryKnowledgePreviewData(
         "mem_observation",
         "The order worker retried failed deliveries every 30 seconds in the October release.",
         ["orders"],
-        { kind: "observation", statementAt: "2026-10-08T09:15:00.000Z" },
+        {
+          kind: "observation",
+          sourceLabel: "Learned from maintainer discussion",
+          statementAt: "2026-10-08T09:15:00.000Z",
+        },
       ),
       entry(
         "mem_logging",

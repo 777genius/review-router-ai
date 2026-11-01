@@ -216,6 +216,9 @@ importers:
       '@reviewrouter/features-conflict-review':
         specifier: workspace:*
         version: link:../../packages/features/conflict-review
+      '@reviewrouter/features-conversations':
+        specifier: workspace:*
+        version: link:../../packages/features/conversations
       '@reviewrouter/features-entitlements':
         specifier: workspace:*
         version: link:../../packages/features/entitlements
@@ -351,6 +354,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@reviewrouter/features-action-control-plane':
+        specifier: workspace:*
+        version: link:../../packages/features/action-control-plane
       '@reviewrouter/features-audit-log':
         specifier: workspace:*
         version: link:../../packages/features/audit-log
@@ -590,6 +596,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
 
+  packages/context-memory:
+    dependencies:
+      '@vectorize-io/hindsight-client':
+        specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+        version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+
   packages/features/action-control-plane:
     dependencies:
       '@prisma/client':
@@ -713,6 +725,12 @@ importers:
         specifier: ^4.4.2
         version: 4.4.2
 
+  packages/features/conversations:
+    dependencies:
+      '@prisma/client':
+        specifier: ^7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+
   packages/features/entitlements:
     dependencies:
       '@prisma/client':
@@ -811,12 +829,18 @@ importers:
       '@reviewrouter/features-outbox':
         specifier: workspace:*
         version: link:../outbox
+      '@reviewrouter/platform-config':
+        specifier: workspace:*
+        version: link:../../platform/config
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
       '@vectorize-io/hindsight-client':
         specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
         version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+      context-memory:
+        specifier: workspace:*
+        version: link:../../context-memory
     devDependencies:
       '@prisma/adapter-pg':
         specifier: 7.8.0

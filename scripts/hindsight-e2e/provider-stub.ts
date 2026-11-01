@@ -8,7 +8,12 @@ export type ProviderMode =
   | "echo400"
   | "echo500"
   | "malformed"
-  | "hold";
+  | "hold"
+  | "strict-empty"
+  | "strict-overflow"
+  | "strict-partial"
+  | "strict-malformed"
+  | "strict-transport-failure";
 export const privacySentinel = "RR_NATIVE_PRIVATE_5C36E924";
 
 const words = (text: string) =>
@@ -32,6 +37,7 @@ export async function startProviderStub() {
     | undefined;
   let held = 0;
   const calls = {
+    extraction: 0,
     embeddings: 0,
     rerank: 0,
     consolidation: 0,
@@ -189,7 +195,7 @@ export async function startProviderStub() {
             messageContent.includes("[NEW] ") &&
             messageContent.includes("[EXISTING] ") &&
             messageContent.includes("Respond with ONLY one valid JSON object");
-          const complete = (content: string) =>
+          const complete = (content: string, finishReason = "stop") =>
             reply(response, 200, {
               id: "chatcmpl-native-fixture",
               object: "chat.completion",
@@ -199,7 +205,7 @@ export async function startProviderStub() {
                 {
                   index: 0,
                   message: { role: "assistant", content },
-                  finish_reason: "stop",
+                  finish_reason: finishReason,
                 },
               ],
               usage: {
@@ -208,6 +214,34 @@ export async function startProviderStub() {
                 total_tokens: 2,
               },
             });
+          if (
+            mode.startsWith("strict-") &&
+            body.model === "stub-model" &&
+            messages.length === 2 &&
+            text.includes("RR_STRICT_PREVIEW_ONLY")
+          ) {
+            calls.extraction += 1;
+            if (mode === "strict-overflow") return complete("{}", "length");
+            if (mode === "strict-transport-failure")
+              return reply(response, 500, {
+                error: { message: "synthetic_strict_failure" },
+              });
+            if (mode === "strict-malformed")
+              return complete(JSON.stringify({ facts: [null] }));
+            if (mode === "strict-partial")
+              return complete(
+                JSON.stringify({
+                  facts: [
+                    {
+                      what: "A supported synthetic observation.",
+                      fact_type: "world",
+                    },
+                    null,
+                  ],
+                }),
+              );
+            return complete(JSON.stringify({ facts: [] }));
+          }
           // OpenAICompatibleLLM.verify_connection at the pinned native revision
           // sends this exact free-form probe, with a 512-token budget and no
           // temperature/schema/tools. It is not a memory inference request.

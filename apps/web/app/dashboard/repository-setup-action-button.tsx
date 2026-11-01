@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactElement } from "react";
 import { Button, Checkbox } from "@reviewrouter/ui";
 import { ActionToast } from "../action-toast";
-import { dashboardErrorText } from "./dashboard-copy";
+import { dashboardErrorText, dashboardNoticeText } from "./dashboard-copy";
 import {
   confirmSetupPullRequestMergedClientAction,
   createSetupPullRequestClientAction,
@@ -28,6 +28,7 @@ export function RepositorySetupActionButton({
   workflowCurrent,
   workflowRefresh = false,
   gatewayWorkflow = false,
+  showDiscussionModeOption = true,
   mutationsEnabled,
   variant = "solid",
   onComplete,
@@ -40,6 +41,7 @@ export function RepositorySetupActionButton({
   readonly workflowCurrent: boolean;
   readonly workflowRefresh?: boolean;
   readonly gatewayWorkflow?: boolean;
+  readonly showDiscussionModeOption?: boolean;
   readonly mutationsEnabled: boolean;
   readonly variant?: "solid" | "soft" | "outline" | "ghost";
   readonly onComplete?: (params: Record<string, string>) => void;
@@ -76,7 +78,7 @@ export function RepositorySetupActionButton({
     <form
       action={(formData) => {
         startTransition(() => {
-          void createSetupPullRequestClientAction(formData)
+          return createSetupPullRequestClientAction(formData)
             .then(({ params }) => {
               if (onComplete) {
                 onComplete(params);
@@ -113,7 +115,7 @@ export function RepositorySetupActionButton({
       <input type="hidden" name="workspaceId" value={workspaceId} />
       <input type="hidden" name="repositoryId" value={repositoryId} />
       <input type="hidden" name="workflowStyle" value="reusable" />
-      {gatewayWorkflow ? null : (
+      {gatewayWorkflow || !showDiscussionModeOption ? null : (
         <label className="mb-3 flex max-w-xl items-start gap-3 rounded-lg border border-cyan-200/15 bg-slate-950/40 px-3 py-3 text-left text-sm text-slate-200">
           <Checkbox
             name="reviewDiscussionMode"
@@ -179,6 +181,7 @@ export function RepositorySetupMergedButton({
   archived,
   mutationsEnabled,
   onComplete,
+  label = "I merged it",
 }: {
   readonly workspaceId: string;
   readonly repositoryId: string;
@@ -186,6 +189,7 @@ export function RepositorySetupMergedButton({
   readonly archived: boolean;
   readonly mutationsEnabled: boolean;
   readonly onComplete?: (params: Record<string, string>) => void;
+  readonly label?: "I merged it" | "Verify setup";
 }): ReactElement {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -212,7 +216,7 @@ export function RepositorySetupMergedButton({
     <form
       action={(formData) => {
         startTransition(() => {
-          void confirmSetupPullRequestMergedClientAction(formData)
+          return confirmSetupPullRequestMergedClientAction(formData)
             .then(({ params }) => {
               if (onComplete) {
                 onComplete(params);
@@ -266,7 +270,7 @@ export function RepositorySetupMergedButton({
             Checking...
           </span>
         ) : (
-          "I merged it"
+          label
         )}
       </Button>
     </form>
@@ -321,6 +325,18 @@ function setupActionToast(
   }
 
   switch (params.notice) {
+    case "runtime_migration_bootstrap_pr_ready":
+    case "runtime_migration_draining":
+    case "runtime_migration_running":
+    case "runtime_migration_recovery_required":
+      return {
+        tone: "warning",
+        title: "Runtime update",
+        body: dashboardNoticeText(params.notice, params.repository ?? ""),
+        ...(params.pr
+          ? { actionUrl: params.pr, actionLabel: "Open first update PR" }
+          : {}),
+      };
     case "setup_pr_ready":
       return {
         tone: "success",
@@ -363,7 +379,9 @@ function setupActionErrorText(error: string): string {
     case "dashboard_action_failed":
       return "The dashboard action failed. Retry once, then inspect server logs if it repeats.";
     case "setup_pr_not_merged":
-      return "GitHub does not show the workflow on the setup PR target branch yet. If you just merged the setup PR, wait a few seconds.";
+      return "GitHub does not show the workflow on the setup PR target branch yet. If you just merged the setup PR, wait a few seconds. If the setup PR was merged a while ago, an older ReviewRouter workflow left in the repository can also block this check: remove reviewrouter.yml, reviewrouter-codex.yml and reviewrouter-interaction.yml if they exist, then check again.";
+    case "setup_legacy_workflows_present":
+      return "Older ReviewRouter workflows are still in the repository (reviewrouter.yml, reviewrouter-codex.yml or reviewrouter-interaction.yml), so the new setup cannot be confirmed. Recreate the setup PR: it removes them (including the /rr comment commands), then merge it and check again.";
     case "setup_pr_closed":
       return "The saved setup PR was closed before it was merged. Recreate the setup PR, then merge the new one.";
     case "setup_pr_branch_deleted":
@@ -383,7 +401,7 @@ function setupActionErrorText(error: string): string {
     case "github_service_unavailable":
       return "GitHub is temporarily unavailable for this setup action. Retry after GitHub recovers.";
     case "github_operation_failed":
-      return "GitHub did not complete the setup PR action. Check audit events or server logs for the safe error code.";
+      return "The setup check could not be completed. The repository may have changed while it ran, so wait a moment and check again. If it repeats, look for dashboard_action_unclassified_error in the web server log.";
     case "rate_limited":
       return "Too many dashboard requests for this repository. Wait a bit before retrying.";
     case "repository_not_selected":

@@ -1,6 +1,7 @@
 import {
   reviewRequestedDispatchCleanupEvent,
   reviewRequestedDispatchCleanupEventType,
+  bindReviewRequestedDispatchCleanupTarget,
 } from "../../domain/review-requested-dispatch-cleanup";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
@@ -21,6 +22,7 @@ import {
   type ReviewRequestedIntentCommandPort,
   type ReviewRequestedIntentPrunerPort,
   type ReviewRequestedIntentQueryPort,
+  type ReviewRequestedDispatchCleanupTargetPort,
 } from "../../application/ports/review-requested-intent-ports";
 import {
   cancelReviewRequestedPreAdmissionIntent,
@@ -84,6 +86,7 @@ export class PrismaReviewRequestedIntentStore
   implements
     ReviewRequestedIntentQueryPort,
     ReviewRequestedIntentCommandPort,
+    ReviewRequestedDispatchCleanupTargetPort,
     ReviewRequestedIntentPrunerPort
 {
   constructor(
@@ -650,6 +653,22 @@ export class PrismaReviewRequestedIntentStore
     }
   }
 
+  async bindCleanupRunTarget(
+    command: Parameters<
+      ReviewRequestedDispatchCleanupTargetPort["bindCleanupRunTarget"]
+    >[0],
+  ) {
+    return this.transitionIntent(
+      command.requestId,
+      async (transaction, intent) =>
+        bindReviewRequestedDispatchCleanupTarget({
+          ...command,
+          intent,
+          now: await databaseNow(transaction),
+        }),
+    );
+  }
+
   async beginSubmission(command: BeginReviewRequestedSubmissionCommand) {
     return this.transitionIntent(
       command.requestId,
@@ -880,6 +899,12 @@ export class PrismaReviewRequestedIntentStore
             );
           }
           await this.updateIntent(transaction, intent, decision.intent);
+          if (
+            decision.status ===
+            ReviewRequestedDispatchRecoveryDecisionStatus.Terminalized
+          ) {
+            await enqueueDispatchCleanup(transaction, decision.intent);
+          }
           return {
             status: ReviewRequestedTransitionStatus.Applied,
             intent: decision.intent,

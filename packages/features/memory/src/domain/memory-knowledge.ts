@@ -93,9 +93,20 @@ export type MemoryKnowledgeApplicability = {
   readonly exceptionRule: MemoryEntryRef | null;
 };
 
+export type MemoryAutomaticSourceBinding = {
+  readonly lineageKey: string;
+  readonly cohortId: string;
+  readonly epoch: string;
+  readonly sourceRevision: string;
+  readonly policyRevision: string;
+  readonly sourceActorId: string;
+  readonly observedCommitSha: string;
+};
+
 /** Current provider bodies and current topic membership are deliberately absent. */
 export type MemoryKnowledgeEntryMetadata = {
   readonly ref: MemoryEntryRef;
+  readonly automaticSource?: MemoryAutomaticSourceBinding;
   readonly generation: string;
   readonly revision: string;
   readonly contentApprovalRevision: string | null;
@@ -375,6 +386,20 @@ export function memoryKnowledgeCommandDigest(
   command: MemoryKnowledgeCommand,
 ): string {
   return memoryKnowledgeDigest(normalizeMemoryKnowledgeCommand(command));
+}
+
+/** One cohort identity shared by selection, admission and accepted-operation recovery. */
+export function automaticMemoryCohortId(processingId: string): string {
+  return memoryKnowledgeDigest(["automatic-cohort", processingId]);
+}
+
+/** Stable identity shared by automatic admission and accepted-operation recovery. */
+export function automaticMemoryChildCommandId(
+  processingId: string,
+  index: number | string,
+): string {
+  const hex = memoryKnowledgeDigest(["automatic-command", processingId, index]);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 export function memoryKnowledgeBodyMatches(

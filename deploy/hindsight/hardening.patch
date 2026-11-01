@@ -50,7 +50,16 @@
  def _parse_str_list(value: str) -> list[str]:
 --- a/hindsight-api-slim/hindsight_api/api/http.py
 +++ b/hindsight-api-slim/hindsight_api/api/http.py
-@@ -5523,6 +5523,9 @@
+@@ -2634,6 +2634,8 @@
+ 
+ 
+ class DryRunExtractRequest(BaseModel):
++    strict_preview: bool = Field(default=False, description="One complete chunk; no split or retries.")
++
+     """Request to run fact extraction ONLY (no resolution/links/embeddings/persistence).
+ 
+     Every field below the content/context/date is a prompt-affecting override applied just for this
+@@ -5523,6 +5525,9 @@
  
      _instrument_app_for_tracing(app, config)
  
@@ -60,6 +69,17 @@
      return app
  
  
+@@ -6138,7 +6143,9 @@
+             if "entity_labels" in overrides:
+                 overrides["entity_labels"] = [lg.model_dump() for lg in overrides["entity_labels"]]
+ 
+-            return await app.state.memory.extract_dry_run(
++            from hindsight_api.strict_preview import run as run_strict_preview
++
++            return await run_strict_preview(body.strict_preview, app.state.memory.extract_dry_run,
+                 bank_id,
+                 body.content,
+                 context=body.context or "",
 --- a/hindsight-api-slim/hindsight_api/main.py
 +++ b/hindsight-api-slim/hindsight_api/main.py
 @@ -100,7 +100,7 @@
@@ -273,3 +293,91 @@
 +    app.add_exception_handler(Exception, unexpected_error)
 +    app.add_exception_handler(AuthenticationError, authentication_error)
 +    app.add_exception_handler(StoreWriteUnavailable, store_unavailable)
+--- a/hindsight-api-slim/hindsight_api/engine/retain/fact_extraction.py
++++ b/hindsight-api-slim/hindsight_api/engine/retain/fact_extraction.py
+@@ -6,6 +6,7 @@
+ """
+ 
+ import asyncio
++from hindsight_api.strict_preview import active as strict_preview_active
+ import json
+ import logging
+ import re
+@@ -2115,7 +2116,7 @@
+     # same budget as its default, and in a multi-LLM chain each member may override
+     # it (``HINDSIGHT_API_LLM_<n>_MAX_RETRIES``). A per-call value would win over the
+     # member's own and hand every member the same budget.
+-    outer_attempts = llm_max_retries + 1
++    outer_attempts = 1 if strict_preview_active() else llm_max_retries + 1
+     last_error: Exception | None = None
+ 
+     usage = TokenUsage()  # Track cumulative usage across retries
+@@ -2157,6 +2158,10 @@
+                 prompt_cache=prompt_cache,
+             )
+ 
++            if strict_preview_active():
++                if len(getattr(llm_config, "members", [llm_config])) != 1:
++                    raise ValueError("strict_preview_single_provider_required")
++                call_kwargs["max_retries"] = 0
+             extraction_call = await llm_config.call(**call_kwargs)
+             extraction_response_json = extraction_call.content
+             call_usage = extraction_call.usage
+@@ -2484,6 +2489,8 @@
+                     f"{chunk_index + 1}/{total_chunks} after {outer_attempts} attempts{cause}"
+                 )
+ 
++            if strict_preview_active() and (has_malformed_facts or len(chunk_facts) != len(raw_facts)):
++                raise ValueError("strict_preview_dropped_facts")
+             return chunk_facts, usage
+ 
+         except BadRequestError as e:
+@@ -2583,6 +2590,8 @@
+             extraction_prompt=extraction_prompt,
+         )
+     except OutputTooLongError:
++        if strict_preview_active():
++            raise
+         # Output exceeded token limits - split the chunk and retry. Conversation
+         # chunks are JSON arrays, so preserve array/turn boundaries when possible.
+         logger.warning(
+@@ -2718,6 +2727,9 @@
+         max_attachments_per_chunk=config.retain_max_attachments_per_chunk,
+     )
+ 
++    if strict_preview_active() and len(chunks) != 1:
++        raise ValueError("strict_preview_requires_one_chunk")
++
+     # Log chunk count before starting LLM requests
+     total_chars = sum(len(c) for c in chunks)
+     if len(chunks) > 1:
+--- /dev/null
++++ b/hindsight-api-slim/hindsight_api/strict_preview.py
+@@ -0,0 +1,27 @@
++"""Dry-run-only execution control. No semantic extraction algorithm lives here."""
++from contextvars import ContextVar
++
++_active = ContextVar("hindsight_strict_preview", default=False)
++
++
++def active():
++    return _active.get()
++
++
++async def run(enabled, extraction, *args, **kwargs):
++    if not enabled:
++        return await extraction(*args, **kwargs)
++    from fastapi.responses import JSONResponse
++
++    token = _active.set(True)
++    try:
++        result = await extraction(*args, **kwargs)
++        # One complete extraction chunk, including true completed abstention.
++        if len(result.chunks) != 1 or len(result.facts) > 4:
++            raise ValueError("strict_preview_incomplete")
++        return JSONResponse(
++            content=result.model_dump(mode="json"),
++            headers={"X-Hindsight-Strict-Preview": "v1"},
++        )
++    finally:
++        _active.reset(token)

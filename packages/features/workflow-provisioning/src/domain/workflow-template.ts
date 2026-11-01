@@ -13,6 +13,7 @@ import {
   readMcpSecretsExpression,
   type ReviewRouterMcpSecrets,
   renderReviewRouterProviderApiCaller,
+  renderReviewRouterClaudeSubscriptionCaller,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
@@ -39,6 +40,7 @@ import {
 export {
   areManagedWorkflowDocumentsAttested,
   areWorkflowDocumentsSemanticallyEqual,
+  readCanonicalWorkflowDocument,
   renderCodexRotatingAdvisoryWorkflow,
   scanCodexRotatingAdvisoryWorkflow,
 };
@@ -130,6 +132,74 @@ export function renderAccountGatewayWorkflow(options: {
   return { path: reviewRouterWorkflowContract.callerPath, content };
 }
 
+/** Qualified immutable Gateway interaction caller; credentials remain server-side. */
+export function renderAccountGatewayInteractionWorkflow(options: {
+  readonly runtimeSha: string;
+  readonly apiUrl: string;
+}): ReviewRouterWorkflowUpsertFile {
+  if (
+    !/^[a-f0-9]{40}$/.test(options.runtimeSha) ||
+    isLoopbackHostname(new URL(options.apiUrl).hostname) ||
+    new URL(options.apiUrl).protocol !== "https:"
+  )
+    throw new Error("gateway_interaction_profile_unqualified");
+  return {
+    path: defaultInteractionWorkflowPath,
+    content: `name: ReviewRouter Interaction
+
+on:
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  interaction:
+    if: \${{ github.event.comment.user.type != 'Bot' }}
+    uses: 777genius/review-router/.github/workflows/reviewrouter-interaction-reusable.yml@${options.runtimeSha}
+    with:
+      runtime_ref: ${options.runtimeSha}
+      api_url: ${JSON.stringify(options.apiUrl)}
+      runtime_config_mode: oidc
+      interaction_backend: account-gateway
+      discussion_mode: \${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest' }}
+      discussion_max_per_pr: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}
+      discussion_max_per_thread: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}
+`,
+  };
+}
+
+export function readAccountGatewayInteractionCallerSource(source: string): {
+  readonly runtimeSha: string;
+  readonly apiUrl: string;
+} {
+  const document = readCanonicalWorkflowDocument(source) as {
+    jobs?: { interaction?: { uses?: unknown; with?: { api_url?: unknown } } };
+  };
+  const job = document.jobs?.interaction;
+  const runtimeSha =
+    typeof job?.uses === "string"
+      ? /^777genius\/review-router\/\.github\/workflows\/reviewrouter-interaction-reusable\.yml@([a-f0-9]{40})$/.exec(
+          job.uses,
+        )?.[1]
+      : undefined;
+  const apiUrl = job?.with?.api_url;
+  if (
+    !runtimeSha ||
+    typeof apiUrl !== "string" ||
+    !areWorkflowDocumentsSemanticallyEqual(
+      source,
+      renderAccountGatewayInteractionWorkflow({ runtimeSha, apiUrl }).content,
+    )
+  )
+    throw new Error("gateway_interaction_source_not_canonical");
+  return { runtimeSha, apiUrl };
+}
+
 /** Source recognition never supplies the executed producer SHA or run authority. */
 export function readReviewRouterCallerSource(source: string): {
   readonly runtimeRef: string;
@@ -180,12 +250,13 @@ export function readReviewRouterCallerSource(source: string): {
   };
 }
 
-/** Both canonical managed callers, retaining the source-selected transport. */
+/** Canonical managed callers, retaining their exact credential and transport binding. */
 export function readManagedReviewRouterCallerSource(source: string): {
   readonly runtimeRef: string;
   readonly controlPlaneUrl: string;
   readonly modelTransport: "account_gateway" | "provider_api";
   readonly providerApiAuthMode?: ProviderApiAuthMode;
+  readonly subscriptionAuthMode?: "claude-oauth";
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
 } {
   try {
@@ -212,20 +283,34 @@ export function readManagedReviewRouterCallerSource(source: string): {
   if (!runtimeRef || typeof controlPlaneUrl !== "string")
     throw new Error("review_workflow_source_not_canonical");
   const providerApiAuthMode = job?.with?.provider_api_auth_mode;
-  if (!isProviderApiAuthMode(providerApiAuthMode))
+  const subscriptionAuthMode = job?.with?.subscription_auth_mode;
+  const claudeSubscription = subscriptionAuthMode === "claude-oauth";
+  if (
+    claudeSubscription
+      ? providerApiAuthMode !== undefined
+      : subscriptionAuthMode !== undefined ||
+        !isProviderApiAuthMode(providerApiAuthMode)
+  )
     throw new Error("review_workflow_source_not_canonical");
-  const expected = renderReviewRouterProviderApiCaller({
-    providerApiAuthMode,
-    runtimeRef,
-    controlPlaneUrl,
-  });
+  const expected = claudeSubscription
+    ? renderReviewRouterClaudeSubscriptionCaller({
+        runtimeRef,
+        controlPlaneUrl,
+      })
+    : renderReviewRouterProviderApiCaller({
+        providerApiAuthMode: providerApiAuthMode as ProviderApiAuthMode,
+        runtimeRef,
+        controlPlaneUrl,
+      });
   if (!areWorkflowDocumentsSemanticallyEqual(source, expected))
     throw new Error("review_workflow_source_not_canonical");
   return {
     runtimeRef,
     controlPlaneUrl: new URL(controlPlaneUrl).origin,
     modelTransport: "provider_api",
-    providerApiAuthMode,
+    ...(claudeSubscription
+      ? { subscriptionAuthMode: "claude-oauth" as const }
+      : { providerApiAuthMode: providerApiAuthMode as ProviderApiAuthMode }),
   };
 }
 
@@ -242,6 +327,23 @@ export function renderProviderApiWorkflow(options: {
       ...(options.providerApiAuthMode
         ? { providerApiAuthMode: options.providerApiAuthMode }
         : {}),
+      runtimeRef,
+      controlPlaneUrl: options.apiUrl,
+    }),
+  };
+}
+
+export function renderClaudeSubscriptionWorkflow(options: {
+  readonly actionRef: string;
+  readonly apiUrl: string;
+}): ReviewRouterWorkflowUpsertFile {
+  const runtimeRef = /^777genius\/review-router@([a-f0-9]{40})$/.exec(
+    options.actionRef,
+  )?.[1];
+  if (!runtimeRef) throw new Error("review_workflow_runtime_ref_invalid");
+  return {
+    path: reviewRouterWorkflowContract.callerPath,
+    content: renderReviewRouterClaudeSubscriptionCaller({
       runtimeRef,
       controlPlaneUrl: options.apiUrl,
     }),

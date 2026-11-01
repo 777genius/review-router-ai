@@ -12,6 +12,7 @@
     "@reviewrouter/features-auth": "workspace:*",
     "@reviewrouter/features-codex-oauth-rotating": "workspace:*",
     "@reviewrouter/features-conflict-review": "workspace:*",
+    "@reviewrouter/features-conversations": "workspace:*",
     "@reviewrouter/features-entitlements": "workspace:*",
     "@reviewrouter/features-github-installations": "workspace:*",
     "@reviewrouter/features-gitlab-integration": "workspace:*",

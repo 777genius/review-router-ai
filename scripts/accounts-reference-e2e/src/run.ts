@@ -1,5 +1,6 @@
-import { warmDashboardScripts } from "./dashboard-script-warmup.ts";
 import { seedSkillsFixtures } from "./skills-fixtures.ts";
+import { warmNextClientScripts } from "./warm-next-client-scripts.ts";
+import { seedReviewRuntimeFixtures } from "./review-runtime-fixture.ts";
 import { startSkillCatalogFixture } from "./skill-catalog-fixture.ts";
 import { seedSkillsReadinessFixtures } from "./skills-readiness-fixture.ts";
 import {
@@ -16,6 +17,7 @@ import { promisify } from "node:util";
 import { parseCliOptions } from "./cli.ts";
 import {
   BASELINE_REVISION,
+  REVIEW_RUNTIME_FIXTURE_BOUNDARY,
   SKILLS_FIXTURE_BOUNDARY,
   SKILL_CATALOG_FIXTURE_BOUNDARY,
   PROBE_FIXTURE_BOUNDARY,
@@ -43,21 +45,23 @@ type TestSummary = {
 };
 
 async function main(): Promise<void> {
-  const fixtureBoundary = process.argv.includes("--skill-catalog-fixture")
-    ? SKILL_CATALOG_FIXTURE_BOUNDARY
-    : process.argv.includes("--api-key-storage-fixture")
-      ? API_KEY_STORAGE_FIXTURE_BOUNDARY
-      : process.argv.includes("--skills-fixture")
-        ? SKILLS_FIXTURE_BOUNDARY
-        : process.argv.includes("--account-models-fixture")
-          ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
-          : process.argv.includes("--subscription-fixture")
-            ? SUBSCRIPTION_FIXTURE_BOUNDARY
-            : process.argv.includes("--limits-fixture")
-              ? LIMITS_FIXTURE_BOUNDARY
-              : process.argv.includes("--probe-fixture")
-                ? PROBE_FIXTURE_BOUNDARY
-                : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+  const fixtureBoundary = process.argv.includes("--review-runtime-fixture")
+    ? REVIEW_RUNTIME_FIXTURE_BOUNDARY
+    : process.argv.includes("--skill-catalog-fixture")
+      ? SKILL_CATALOG_FIXTURE_BOUNDARY
+      : process.argv.includes("--api-key-storage-fixture")
+        ? API_KEY_STORAGE_FIXTURE_BOUNDARY
+        : process.argv.includes("--skills-fixture")
+          ? SKILLS_FIXTURE_BOUNDARY
+          : process.argv.includes("--account-models-fixture")
+            ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
+            : process.argv.includes("--subscription-fixture")
+              ? SUBSCRIPTION_FIXTURE_BOUNDARY
+              : process.argv.includes("--limits-fixture")
+                ? LIMITS_FIXTURE_BOUNDARY
+                : process.argv.includes("--probe-fixture")
+                  ? PROBE_FIXTURE_BOUNDARY
+                  : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
   await ensureWorkDir(options.workDir);
   const revision = await readRevision(options.repoRoot);
@@ -72,6 +76,7 @@ async function main(): Promise<void> {
       "--",
       "apps/web",
       "packages/features/provider-accounts",
+      "packages/features/provider-usage",
       "packages/platform/db",
       "scripts/accounts-reference-e2e/src",
       ...(process.argv.includes("--skill-catalog-fixture")
@@ -115,6 +120,11 @@ async function main(): Promise<void> {
       databaseUrl: options.databaseUrl,
       isolatedPglite: options.isolatedPglite,
     });
+    if (
+      process.argv.includes("--review-runtime-fixture") &&
+      !process.argv.includes("--resume-own-fixtures")
+    )
+      await seedReviewRuntimeFixtures(database.databaseUrl);
     if (process.argv.includes("--skills-fixture")) {
       if (!process.argv.includes("--resume-own-fixtures")) {
         await seedSkillsFixtures(database.databaseUrl);
@@ -310,30 +320,56 @@ async function verifyBoot(
   )
     throw new Error("accounts_reference_e2e_generated_session_not_authorized");
   checks.push("generated-session-ok");
+  if (process.argv.includes("--review-runtime-fixture")) {
+    const repositories = await fetch(
+      `${appUrl}/dashboard?section=repositories&workspace=${FIXTURES.workspaces.personalViewer}`,
+      {
+        headers: { cookie: viewerCookie },
+        redirect: "manual",
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
+    const html = await repositories.text();
+    if (
+      repositories.status !== 200 ||
+      html.includes("NEXT_REDIRECT") ||
+      !html.includes('data-repository-row-id="rr-e2e-runtime-current"')
+    )
+      throw new Error("accounts_reference_e2e_runtime_readiness_warmup_failed");
+    checks.push("runtime-readiness-authenticated-render-warmed");
+  }
   if (process.argv.includes("--skills-fixture")) {
-    // Prepare both authenticated surfaces and their actual client bundles before
-    // measuring browser behavior. Keep setup bounded; browser timeouts stay unchanged.
-    const signal = AbortSignal.timeout(120_000);
-    for (const section of ["skills", "repositories"] as const) {
+    // Warm both authenticated Skills entry points during bounded fixture setup;
+    // browser navigation and acceptance assertions retain their own timeouts.
+    const warmedScripts = new Set<string>();
+    for (const [section, ready] of [
+      [
+        "skills",
+        /<h2\b[^>]*\bid="review-skills-title"[^>]*>\s*Skills\s*<\/h2>/u,
+      ],
+      ["repositories", /<section\b[^>]*\bdata-repository-live-search\b/u],
+    ] as const) {
+      const signal = AbortSignal.timeout(120_000);
       const response = await fetch(
         `${appUrl}/dashboard?section=${section}&workspace=rr-e2e-personal-viewer`,
-        { headers: { cookie: viewerCookie }, redirect: "manual", signal },
+        {
+          headers: { cookie: viewerCookie },
+          redirect: "manual",
+          signal,
+        },
       );
       const html = await response.text();
-      const heading =
-        section === "skills"
-          ? /<h2\b[^>]*\bid="review-skills-title"[^>]*>\s*Skills\s*<\/h2>/u
-          : /<h2\b[^>]*>\s*Repositories\s*<\/h2>/u;
       if (
         response.status !== 200 ||
         html.includes("NEXT_REDIRECT") ||
-        !heading.test(html)
+        !ready.test(html)
       )
         throw new Error(
           `accounts_reference_e2e_${section}_warmup_not_authorized`,
         );
-      await warmDashboardScripts(appUrl, html, signal);
-      checks.push(`${section}-authenticated-render-and-scripts-warmed`);
+      checks.push(`${section}-authenticated-render-warmed`);
+      await warmNextClientScripts(html, appUrl, signal, warmedScripts);
+      checks.push(`${section}-client-scripts-warmed`);
     }
   }
   return { ok: true, checks };
@@ -361,6 +397,11 @@ async function runPlaywright(input: {
           ...process.env,
           ACCOUNTS_REFERENCE_E2E_BASE_URL: input.appUrl,
           ACCOUNTS_REFERENCE_E2E_GATEWAY_URL: input.gatewayUrl,
+          ACCOUNTS_REFERENCE_E2E_REVIEW_RUNTIME: process.argv.includes(
+            "--review-runtime-fixture",
+          )
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_API_KEY_STORAGE: process.argv.includes(
             "--api-key-storage-fixture",
           )

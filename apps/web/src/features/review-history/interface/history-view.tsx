@@ -387,42 +387,46 @@ function HistoryInstance({
                   </p>
                 </div>
               )}
-              <nav className={styles.pagination} aria-label="Review pages">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!cursors.length || query.isFetching}
-                  onClick={() => {
-                    focusRequest.current = {
-                      origin: document.activeElement,
-                      key,
-                    };
-                    setCursors((current) => current.slice(0, -1));
-                  }}
-                >
-                  Previous
-                </Button>
-                <span>Page {cursors.length + 1}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!page.nextCursor || query.isFetching}
-                  onClick={() => {
-                    if (!page.nextCursor) return;
-                    focusRequest.current = {
-                      origin: document.activeElement,
-                      key,
-                    };
-                    setCursors((current) => [...current, page.nextCursor!]);
-                  }}
-                >
-                  Next
-                </Button>
-              </nav>
             </>
           )}
         </>
       )}
+      {!scope.denied &&
+      !problem &&
+      (page?.coverage.state === "available" || cursors.length > 0) ? (
+        <nav className={styles.pagination} aria-label="Review pages">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!cursors.length || query.isFetching}
+            onClick={() => {
+              focusRequest.current = {
+                origin: document.activeElement,
+                key,
+              };
+              setCursors((current) => current.slice(0, -1));
+            }}
+          >
+            Previous
+          </Button>
+          <span>Page {cursors.length + 1}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!page?.nextCursor || query.isFetching}
+            onClick={() => {
+              if (!page?.nextCursor) return;
+              focusRequest.current = {
+                origin: document.activeElement,
+                key,
+              };
+              setCursors((current) => [...current, page.nextCursor!]);
+            }}
+          >
+            Next
+          </Button>
+        </nav>
+      ) : null}
       <span role="status" className={styles.srOnly}>
         {scope.denied || problem
           ? ""

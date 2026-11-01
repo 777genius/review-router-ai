@@ -28,6 +28,8 @@ export type MemoryPolicyConfig = {
   readonly policyVersion: number;
   readonly safetyPolicyVersion: number;
   readonly memoryEnabled: boolean;
+  /** Effective only with a qualified contextual source-processing profile. */
+  readonly automaticLearning: boolean;
   readonly allowedScopes: MemoryAllowedScopePolicy;
   readonly suggestionTtlDays: MemorySuggestionTtlPolicy;
   readonly runtimeBundle: MemoryBundlePolicy;
@@ -64,6 +66,7 @@ export const defaultMemoryPolicyConfig: MemoryPolicyConfig = Object.freeze({
   policyVersion: 1,
   safetyPolicyVersion: 1,
   memoryEnabled: true,
+  automaticLearning: true,
   allowedScopes: Object.freeze({
     repository: true,
     workspace: true,

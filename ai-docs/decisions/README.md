@@ -35,3 +35,4 @@ Decision records capture important product and architecture choices.
 - [ADR-029: Opt-in Hosted Workspace Account Pool](./029-opt-in-hosted-workspace-account-pool.md)
 - [ADR-030: Consumer Module Standard Scope for the WEB Trust-Overlap Host Slice](./030-web-trust-host-consumer-module-standard-scope.md)
 - [ADR-032: Review History ownership and scoped composition](./032-review-history-scoped-composition.md)
+- [ADR-033: Checked conversational source processing and finite plain inference](./033-conversational-memory-source-processing.md)

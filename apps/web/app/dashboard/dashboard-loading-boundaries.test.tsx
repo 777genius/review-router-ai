@@ -12,6 +12,10 @@ import {
 } from "./dashboard-workspace-page";
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
+import type {
+  AccountsPage,
+  AccountsResult,
+} from "../../src/server/account-gateway-accounts";
 
 vi.mock("next/navigation", async (importOriginal) => {
   const original = await importOriginal<typeof import("next/navigation")>();
@@ -134,10 +138,36 @@ const fixtures = vi.hoisted(() => {
     workspaceAdmin: vi.fn(async () => false),
     skillsDashboard: vi.fn(async () => ({ status: "signed_out" as const })),
     providerList: vi.fn(async () => ({ rows: [] }) as never),
+    gatewayAccounts: vi.fn(async () => ({ status: "unavailable" as const })),
+    gatewayHydration: vi.fn(
+      async (
+        ...args: [
+          string,
+          unknown,
+          AccountsResult<AccountsPage> | undefined,
+          readonly string[],
+        ]
+      ) => args[2],
+    ),
   };
   return { spies, EmptyStore: class {} };
 });
 const { spies } = fixtures;
+
+vi.mock("../../src/server/dashboard-gateway-accounts", () => ({
+  loadDashboardPersonalAccounts: async () => null,
+  loadDashboardGatewayAccounts: fixtures.spies.gatewayAccounts,
+  hydrateDashboardGatewayAccounts: fixtures.spies.gatewayHydration,
+}));
+vi.mock(
+  "../../src/server/prisma-gateway-review-v2-provisioning",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../src/server/prisma-gateway-review-v2-provisioning")
+    >()),
+    readGatewayReviewV2RepositoryReadiness: async () => new Map(),
+  }),
+);
 
 vi.mock("../../src/server/review-skills-dashboard", () => ({
   loadReviewSkillsDashboard: fixtures.spies.skillsDashboard,
@@ -222,6 +252,7 @@ vi.mock("../../src/server/dashboard-codex-rotating-setup-readiness", () => ({
 }));
 vi.mock("../../src/server/openrouter-model-catalog", () => ({
   getReviewModelOptions: vi.fn(async () => []),
+  getProviderModelCatalogs: vi.fn(async () => []),
 }));
 vi.mock("../../src/server/hosted-pool-dashboard", () => ({
   loadHostedPoolDashboardView: fixtures.spies.hostedPool,
@@ -318,6 +349,79 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
+  it("hydrates the complete saved workspace and repository reviewer roster once after loading account metadata", async () => {
+    const provider = (gatewayBindingId: string) => ({
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId,
+      gatewayProfileRef: "openrouter-openai-responses-apikey-v1",
+      model: "openai/gpt-4.1",
+    });
+    const config = {
+      providers: [provider("binding_1"), provider("binding_2")],
+    };
+    const workspaceConfig = {
+      providers: [provider("binding_workspace")],
+    };
+    const ready = {
+      status: "ready",
+      config,
+      policy: { schemaVersion: 4 },
+      effectivePolicyDigest: "sha256:test",
+      revisionToken: "policy:test",
+      source: "repository",
+      workspaceVersion: 1,
+      repositoryVersion: 1,
+    } as unknown as Extract<EffectiveReviewConfiguration, { status: "ready" }>;
+    spies.policies.mockResolvedValueOnce({
+      workspace: {
+        ...ready,
+        config: workspaceConfig,
+        source: "workspace",
+        repositoryVersion: null,
+      } as unknown as Extract<
+        EffectiveReviewConfiguration,
+        { status: "ready" }
+      >,
+      repositories: new Map([["repo-a", ready]]),
+      workspacePolicy: null,
+      repositoryPolicies: new Map(),
+    });
+    await DashboardSectionContent({
+      context: {
+        mutationStatus: {
+          enabled: true,
+          signedIn: true,
+          sourceProvider: "github",
+          externalUserId: "github-user-a",
+          sourceLogin: "owner",
+          sourceAvatarUrl: null,
+          githubUserId: "github-user-a",
+          githubLogin: "owner",
+          githubAvatarUrl: null,
+          reason: "ready",
+        },
+        workspaceScope: { kind: "all", reason: "local_admin_override" },
+        signedInActor: null,
+        repositoryAccess: access,
+        workspaces: [workspace],
+      },
+      selectedWorkspace: workspace,
+      selectedSection: "repositories",
+      params: {},
+      workspaceKey: "acme",
+    });
+    expect(spies.gatewayAccounts).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+    );
+    expect(spies.gatewayHydration).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+      { status: "unavailable" },
+      ["binding_workspace", "binding_1", "binding_2"],
+    );
+  });
   it.each([
     ["acme", "workspace-a", "acme"],
     ["second", "workspace-b", "second"],
@@ -1177,10 +1281,13 @@ describe("dashboard server loading boundaries", () => {
       },
       selectedWorkspace: workspace,
       selectedSection: "statistics",
-      params: {},
+      params: { statisticsDays: ["7", "30"], statisticsSeverity: "major" },
       workspaceKey: "acme",
     });
-    expect(content.props).toEqual({ workspaceId: "workspace-a" });
+    expect(content.props).toEqual({
+      workspaceId: "workspace-a",
+      params: { statisticsDays: ["7", "30"], statisticsSeverity: "major" },
+    });
     for (const spy of Object.values(spies)) expect(spy).not.toHaveBeenCalled();
   });
 });

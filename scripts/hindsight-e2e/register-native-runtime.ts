@@ -9,6 +9,14 @@ if (!sdk || !existsSync(sdk))
   throw new Error("A verified Hindsight1.1.0 SDK entry is required");
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier === "context-memory")
+      return {
+        url: new URL(
+          "../../packages/context-memory/src/index.ts",
+          import.meta.url,
+        ).href,
+        shortCircuit: true,
+      };
     if (specifier === "@vectorize-io/hindsight-client")
       return { url: pathToFileURL(sdk).href, shortCircuit: true };
     if (specifier.startsWith(".") && context.parentURL?.startsWith("file:")) {

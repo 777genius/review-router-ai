@@ -60,6 +60,7 @@ import {
   assertDashboardRepositoryConfigMutationAllowed,
   assertDashboardRepositoryMutationAllowed,
   assertDashboardRepositoryRecoveryAllowed,
+  assertDashboardWorkspaceAdminMutationAllowed,
   createGitHubUserOctokit,
   getDashboardSignedInActor,
   mintFreshGitHubAppRepositorySecretWriteToken,
@@ -108,6 +109,17 @@ describe("dashboard repository mutations", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("refuses workspace-admin writes before identity or database work when disabled", async () => {
+    vi.stubEnv("REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS", "0");
+
+    await expect(
+      assertDashboardWorkspaceAdminMutationAllowed("workspace_1"),
+    ).rejects.toThrow("dashboard_mutations_disabled");
+
+    expect(mocks.getServerSession).not.toHaveBeenCalled();
+    expect(mocks.getPrisma).not.toHaveBeenCalled();
   });
 
   it("rejects repo-only mutations when the live collaborator permission no longer allows management", async () => {

@@ -463,15 +463,33 @@ export function selectProjection(facts: readonly UsageFact[]): UsageProjection {
     )[0] ?? null;
   return { identity: first.identity, usage, lifecycle };
 }
-export function selectReportFacts(projections: readonly UsageProjection[]): {
-  selected: UsageProjection[];
-  partialChildren: UsageProjection[];
-  unboundedSummaries: UsageProjection[];
+/** Report authority needs family metadata, not full source facts or token payloads. */
+export interface UsageSelectionProjection {
+  identity: Pick<
+    UsageIdentity,
+    "callId" | "granularity" | "parentScope" | "invocationId"
+  >;
+  usage: Pick<UsageFact, "childCallIds" | "completeness"> | null;
+}
+export function selectReportFacts<T extends UsageSelectionProjection>(
+  projections: readonly T[],
+): {
+  selected: T[];
+  partialChildren: T[];
+  unboundedSummaries: T[];
 } {
   const calls = projections.filter((p) => p.identity.granularity === "call");
   const summaries = projections.filter(
     (p) => p.identity.granularity === "turn",
   );
+  if (summaries.length === 0)
+    return { selected: calls, partialChildren: [], unboundedSummaries: [] };
+  const callsById = new Map<string, { projection: T; position: number }[]>();
+  for (const [position, projection] of calls.entries()) {
+    const bucket = callsById.get(projection.identity.callId) ?? [];
+    bucket.push({ projection, position });
+    callsById.set(projection.identity.callId, bucket);
+  }
   const covered = new Set<string>();
   for (const summary of summaries)
     for (const id of summary.usage?.childCallIds ?? []) {
@@ -479,21 +497,25 @@ export function selectReportFacts(projections: readonly UsageProjection[]): {
       covered.add(id);
     }
   const suppressed = new Set<string>();
-  const selectedSummaries: UsageProjection[] = [];
-  const partialChildren: UsageProjection[] = [];
-  const unboundedSummaries: UsageProjection[] = [];
+  const selectedSummaries: T[] = [];
+  const partialChildren: T[] = [];
+  const unboundedSummaries: T[] = [];
   for (const summary of summaries) {
     const manifest = summary.usage?.childCallIds;
     if (!manifest) {
       unboundedSummaries.push(summary);
       continue;
     }
-    const children = calls.filter(
-      (p) =>
-        manifest.includes(p.identity.callId) &&
-        p.identity.parentScope === summary.identity.parentScope &&
-        p.identity.invocationId === summary.identity.invocationId,
-    );
+    // Keep duplicate inputs and input order, independent of manifest order.
+    const children = manifest
+      .flatMap((id) => callsById.get(id) ?? [])
+      .filter(
+        ({ projection: p }) =>
+          p.identity.parentScope === summary.identity.parentScope &&
+          p.identity.invocationId === summary.identity.invocationId,
+      )
+      .sort((a, b) => a.position - b.position)
+      .map(({ projection }) => projection);
     if (
       children.length === manifest.length &&
       children.every((p) => p.usage?.completeness === "complete")

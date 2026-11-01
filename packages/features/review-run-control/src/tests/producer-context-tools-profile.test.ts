@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   createProducerRelease,
   parseProducerContextToolsProfile,
+  parseProducerReviewerPlanProfile,
+  supportsProducerReviewerPlanV1,
   producerReleaseImmutableKey,
 } from "../domain/producer-release";
 import { ProducerReleaseAttestationStatus } from "../application/ports/producer-release-attestation-ports";
@@ -15,6 +17,7 @@ import { createTrustedProducerReleaseMaterializer } from "../infrastructure/trus
 import { producerReleaseToDomain } from "../infrastructure/prisma/prisma-review-run-control-mappers";
 import { createReviewRunControlTestKit } from "../testing/review-run-control-test-kit";
 import { hashB, hashC, releaseCandidate } from "./fixtures";
+import { reviewerPlanDescriptorDigest } from "@reviewrouter/shared";
 
 const profile = {
   extensionId: "context-tools.v1" as const,
@@ -35,6 +38,69 @@ const attestation = () => ({
 });
 
 describe("producer context tools extension identity", () => {
+  it("pins reviewer-plan support at the immutable producer level without changing historical agent profiles", async () => {
+    const reviewerPlanProfile = {
+      planVersion: 1 as const,
+      descriptorDigest: reviewerPlanDescriptorDigest,
+    };
+    const legacy = createProducerRelease(releaseCandidate, now);
+    const release = createProducerRelease(
+      { ...releaseCandidate, reviewerPlanProfile },
+      now,
+    );
+    expect(legacy).not.toHaveProperty("reviewerPlanProfile");
+    expect(release.agentProfiles).toEqual(legacy.agentProfiles);
+    expect(producerReleaseImmutableKey(release)).not.toBe(
+      producerReleaseImmutableKey(legacy),
+    );
+    expect(supportsProducerReviewerPlanV1(release.reviewerPlanProfile)).toBe(
+      true,
+    );
+    expect(supportsProducerReviewerPlanV1(undefined)).toBe(false);
+    expect(
+      supportsProducerReviewerPlanV1({
+        ...reviewerPlanProfile,
+        descriptorDigest: `sha256:${"0".repeat(64)}`,
+      }),
+    ).toBe(false);
+    for (const invalid of [
+      null,
+      { ...reviewerPlanProfile, enabled: true },
+      { ...reviewerPlanProfile, planVersion: 2 },
+    ])
+      expect(() => parseProducerReviewerPlanProfile(invalid)).toThrow(
+        "producer_reviewer_plan_profile_invalid",
+      );
+    const kit = createReviewRunControlTestKit();
+    const registry = new ConfiguredProducerReleaseAttestationRegistry(
+      readConfiguredProducerReleaseAttestations({
+        [reviewRunProducerReleaseAttestationsEnv]: JSON.stringify([
+          { ...attestation(), reviewerPlanProfile },
+        ]),
+      }),
+      kit.store,
+    );
+    expect(await registry.attest(attestInput)).toMatchObject({
+      status: ProducerReleaseAttestationStatus.Attested,
+      release: { reviewerPlanProfile },
+    });
+    await kit.store.registerProducerRelease(release);
+    const mismatched = new ConfiguredProducerReleaseAttestationRegistry(
+      [
+        {
+          ...attestation(),
+          reviewerPlanProfile: {
+            ...reviewerPlanProfile,
+            descriptorDigest: `sha256:${"0".repeat(64)}`,
+          },
+        },
+      ],
+      kit.store,
+    );
+    expect(await mismatched.attest(attestInput)).toEqual({
+      status: ProducerReleaseAttestationStatus.Mismatch,
+    });
+  });
   it("keeps old immutable bytes unchanged and makes a declared profile part of identity", () => {
     const legacy = createProducerRelease(releaseCandidate, now);
     expect(legacy).not.toHaveProperty("contextToolsProfile");
@@ -112,8 +178,10 @@ describe("producer context tools extension identity", () => {
       reviewInvestigationCoverageProfileHash: null,
       reviewInvestigationPolicyHash: null,
       contextToolsProfile: null,
+      reviewerPlanProfile: null,
       prDescriptionProfile: null,
       lifecycleVerificationProfile: null,
+      modelDispatchProfile: null,
     };
     expect(producerReleaseToDomain(row)).not.toHaveProperty(
       "contextToolsProfile",

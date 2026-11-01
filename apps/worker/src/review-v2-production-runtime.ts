@@ -72,6 +72,9 @@ import {
   HmacReviewCommandLedgerVerifier,
   OctokitGitHubInstallationGraphqlClientFactory,
   PrismaReviewPublicationRepository,
+  PrismaReviewPublicationWorkFeed,
+  PrismaReviewThreadResolutionHistory,
+  createPrismaResolutionWriterQualification,
   createReviewPublicationV2Application,
   resolveReviewCommandLedgerHmacSecret,
   trustedReviewCommandLedgerAuthorsFromEnv,
@@ -131,8 +134,11 @@ import {
 } from "./review-v2-publication-gateways";
 import { ExecuteReviewV2PublicationOperation } from "./review-v2-publication-executor";
 import {
+  ReviewV2PublicationMaintenance,
+  boundedRetryDelay,
+} from "./review-v2-publication-maintenance";
+import {
   ReviewV2PublicationCompensationDecision,
-  ReviewV2PublicationExecutionStatus,
   ReviewV2PublicationFreshnessReadStatus,
   ReviewV2ScmProvider,
   type ReviewV2PublicationCompensationPolicyPort,
@@ -147,7 +153,6 @@ import {
 import {
   createReviewV2WorkerOwnerId,
   type ReviewV2CompletionRuntime,
-  type ReviewProgressSettlement,
   type ReviewV2PublicationMaintenanceRuntime,
   type ReviewV2ProgressMaintenanceRuntime,
 } from "./review-v2-worker-runtime";
@@ -172,6 +177,11 @@ import {
   type ContextReuseProducerReleaseQueryPort,
   type ReviewV2ContextReusePublicationGuardPort,
 } from "./review-v2-context-reuse-publication-guard";
+
+export {
+  progressOutcome,
+  publicationWorkProvider,
+} from "./review-v2-publication-maintenance";
 
 type PrismaClient = ReturnType<typeof createPrismaClient>;
 
@@ -238,7 +248,18 @@ export function createProductionReviewV2WorkerRuntime(input: {
   );
   const observations = new PrismaReviewObservationStore(input.prisma);
   const investigations = new PrismaInvestigationStore(input.prisma);
-  const attempts = new PrismaReviewPublicationRepository(input.prisma);
+  const resolutionWriters = createPrismaResolutionWriterQualification({
+    prisma: input.prisma,
+    env: input.env,
+    now: () => input.clock.now(),
+  });
+  const resolutionHistory = new PrismaReviewThreadResolutionHistory(
+    input.prisma,
+  );
+  const attempts = new PrismaReviewPublicationRepository(
+    input.prisma,
+    resolutionWriters,
+  );
   const releases = new PrismaProducerReleaseRepository(input.prisma);
   const authorizations = new PrismaReviewRunAuthorizationRepository(
     input.prisma,
@@ -587,6 +608,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
           (await capabilityKeyRing.activeSigningKey()).keyId,
       },
       effectGate: createProductionReviewInvestigationPublicationEffectGate({
+        resolutionWriters,
+        resolutionHistory,
         executions,
         observations,
         investigations,
@@ -631,7 +654,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     },
   );
   const publication = new ReviewV2PublicationMaintenance(
-    new PrismaReviewV2PublicationWorkFeed(input.prisma),
+    new PrismaReviewPublicationWorkFeed(input.prisma),
     publicationExecutor,
     input.clock,
     ownerIdHash,
@@ -1528,234 +1551,6 @@ function requiredGithubRepositoryId(repository: {
   return repository.githubRepositoryId.toString();
 }
 
-type PublicationWork = {
-  readonly executionId: string;
-  readonly publicationAttemptId: string;
-  readonly publicationOperationId: string;
-  readonly provider: ReviewV2ScmProvider;
-  readonly retryCount: number;
-};
-
-interface ReviewV2PublicationWorkFeed {
-  scan(input: {
-    readonly now: Date;
-    readonly limit: number;
-  }): Promise<readonly PublicationWork[]>;
-  defer(input: {
-    readonly work: PublicationWork;
-    readonly nextEligibleAt: Date;
-    readonly lastErrorCode: string;
-  }): Promise<void>;
-}
-
-class PrismaReviewV2PublicationWorkFeed implements ReviewV2PublicationWorkFeed {
-  constructor(private readonly prisma: PrismaClient) {}
-
-  async scan(input: { readonly now: Date; readonly limit: number }) {
-    const operations = await this.prisma.reviewPublicationOperationV2.findMany({
-      where: {
-        state: {
-          in: ["planned", "in_flight", "effect_observed", "reconciling"],
-        },
-        nextEligibleAt: { lte: input.now },
-      },
-      orderBy: [
-        { required: "desc" },
-        { nextEligibleAt: "asc" },
-        { reconcileUntil: "asc" },
-        { publicationOperationId: "asc" },
-      ],
-      take: Math.min(input.limit * 4, 1_000),
-      select: {
-        publicationAttemptId: true,
-        publicationOperationId: true,
-        retryCount: true,
-      },
-    });
-    if (operations.length === 0) return [];
-    const attemptIds = [
-      ...new Set(operations.map((row) => row.publicationAttemptId)),
-    ];
-    const attempts = await this.prisma.reviewPublicationAttemptV2.findMany({
-      where: {
-        publicationAttemptId: { in: attemptIds },
-        state: { in: ["pending", "publishing", "reconciling"] },
-        retainUntil: { gt: input.now },
-      },
-      select: {
-        publicationAttemptId: true,
-        repositoryConnectionId: true,
-        executionId: true,
-      },
-    });
-    const repositoryIds = [
-      ...new Set(attempts.map((row) => row.repositoryConnectionId)),
-    ];
-    const repositories = await this.prisma.repositoryConnection.findMany({
-      where: { id: { in: repositoryIds } },
-      select: { id: true, provider: true },
-    });
-    const attemptById = new Map(
-      attempts.map((row) => [row.publicationAttemptId, row]),
-    );
-    const providerByRepository = new Map(
-      repositories.map((row) => [row.id, row.provider]),
-    );
-    return operations
-      .flatMap((operation) => {
-        const attempt = attemptById.get(operation.publicationAttemptId);
-        if (!attempt) return [];
-        const provider = providerByRepository.get(
-          attempt.repositoryConnectionId,
-        );
-        const mapped = mapProvider(provider);
-        return mapped
-          ? [
-              {
-                ...operation,
-                executionId: attempt.executionId,
-                provider: mapped,
-              },
-            ]
-          : [];
-      })
-      .slice(0, input.limit);
-  }
-
-  async defer(input: {
-    readonly work: PublicationWork;
-    readonly nextEligibleAt: Date;
-    readonly lastErrorCode: string;
-  }): Promise<void> {
-    const updated = await this.prisma.reviewPublicationOperationV2.updateMany({
-      where: {
-        publicationOperationId: input.work.publicationOperationId,
-        publicationAttemptId: input.work.publicationAttemptId,
-        retryCount: input.work.retryCount,
-        state: {
-          in: ["planned", "in_flight", "effect_observed", "reconciling"],
-        },
-      },
-      data: {
-        retryCount: { increment: 1 },
-        nextEligibleAt: input.nextEligibleAt,
-        lastErrorCode: input.lastErrorCode,
-      },
-    });
-    if (updated.count > 1) {
-      throw new Error("review_v2_publication_retry_cas_invalid");
-    }
-  }
-}
-
-class ReviewV2PublicationMaintenance implements ReviewV2PublicationMaintenanceRuntime {
-  constructor(
-    private readonly feed: ReviewV2PublicationWorkFeed,
-    private readonly executor: ExecuteReviewV2PublicationOperation,
-    private readonly clock: SystemClock,
-    private readonly ownerIdHash: string,
-    private readonly policy: {
-      readonly limit: number;
-      readonly minimumRetryMs: number;
-    },
-  ) {}
-
-  async runMaintenance() {
-    const now = this.clock.now();
-    const work = await this.feed.scan({ now, limit: this.policy.limit });
-    let processed = 0;
-    let manualRequired = 0;
-    let terminalUnknown = 0;
-    const settledExecutionIds = new Set<string>();
-    const progressSettlements = new Map<
-      string,
-      ReviewProgressSettlement["outcome"]
-    >();
-    for (const item of work) {
-      const result = await this.executor.execute({
-        publicationAttemptId: item.publicationAttemptId,
-        publicationOperationId: item.publicationOperationId,
-        provider: item.provider,
-        ownerIdHash: this.ownerIdHash,
-      });
-      processed += 1;
-      if (result.status === ReviewV2PublicationExecutionStatus.ManualRequired) {
-        manualRequired += 1;
-      }
-      if (
-        result.status === ReviewV2PublicationExecutionStatus.TerminalUnknown
-      ) {
-        terminalUnknown += 1;
-      }
-      if (
-        result.status === ReviewV2PublicationExecutionStatus.Completed ||
-        result.status === ReviewV2PublicationExecutionStatus.AlreadyCompleted ||
-        result.status === ReviewV2PublicationExecutionStatus.Terminalized
-      ) {
-        settledExecutionIds.add(item.executionId);
-        const outcome = progressOutcome(result);
-        if (!outcome) continue;
-        const previous = progressSettlements.get(item.executionId);
-        progressSettlements.set(
-          item.executionId,
-          strongestProgressOutcome(previous, outcome),
-        );
-        continue;
-      }
-      const retryDelayMs = Math.max(
-        this.policy.minimumRetryMs,
-        boundedRetryDelay(item.retryCount + 1),
-      );
-      await this.feed.defer({
-        work: item,
-        nextEligibleAt: new Date(now.getTime() + retryDelayMs),
-        lastErrorCode: result.safeReason,
-      });
-    }
-    return {
-      processed,
-      manualRequired,
-      terminalUnknown,
-      settledExecutionIds: [...settledExecutionIds].sort(),
-      progressSettlements: [...progressSettlements]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([executionId, outcome]) => ({ executionId, outcome })),
-    };
-  }
-}
-
-export function progressOutcome(
-  result: Awaited<ReturnType<ExecuteReviewV2PublicationOperation["execute"]>>,
-): ReviewProgressSettlement["outcome"] | null {
-  if (result.status === ReviewV2PublicationExecutionStatus.TerminalUnknown)
-    return null;
-  if (
-    result.status === ReviewV2PublicationExecutionStatus.Completed ||
-    result.status === ReviewV2PublicationExecutionStatus.AlreadyCompleted
-  )
-    return "succeeded";
-  if (result.status === ReviewV2PublicationExecutionStatus.Terminalized) {
-    if (result.terminalOutcome === ReviewPublicationTerminalOutcome.Succeeded)
-      return "succeeded";
-    if (
-      result.terminalOutcome ===
-        ReviewPublicationTerminalOutcome.SupersededNoEffect ||
-      result.terminalOutcome ===
-        ReviewPublicationTerminalOutcome.StaleCompensated
-    )
-      return "superseded";
-  }
-  return "failed";
-}
-
-function strongestProgressOutcome(
-  previous: ReviewProgressSettlement["outcome"] | undefined,
-  next: ReviewProgressSettlement["outcome"],
-): ReviewProgressSettlement["outcome"] {
-  const rank = { succeeded: 0, superseded: 1, failed: 2 } as const;
-  return previous && rank[previous] >= rank[next] ? previous : next;
-}
-
 function mapSnapshotPublicationOutcome(
   outcome: ReviewPublicationTerminalOutcome | null,
 ): SnapshotEffectivePublicationOutcome {
@@ -1774,22 +1569,6 @@ function mapSnapshotPublicationOutcome(
     case null:
       return SnapshotEffectivePublicationOutcome.TerminalUnknown;
   }
-}
-
-function mapProvider(provider: string | undefined): ReviewV2ScmProvider | null {
-  switch (provider) {
-    case "github":
-      return ReviewV2ScmProvider.GitHub;
-    case "gitlab":
-      return ReviewV2ScmProvider.GitLab;
-    default:
-      return null;
-  }
-}
-
-function boundedRetryDelay(attemptCount: number): number {
-  const exponent = Math.max(0, Math.min(attemptCount - 1, 8));
-  return Math.min(5_000 * 2 ** exponent, 5 * 60_000);
 }
 
 function positiveInteger(

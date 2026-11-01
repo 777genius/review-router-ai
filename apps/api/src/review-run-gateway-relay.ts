@@ -1,3 +1,4 @@
+import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
 import { createHash, randomUUID } from "node:crypto";
@@ -12,10 +13,13 @@ import type { NativeResponse } from "@agent-teams/account-gateway/http";
 import {
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  getReviewRunReviewer,
+  getReviewRunGatewayAllocation,
   reviewRunGatewayOwnedIdentity,
   ReviewRunAuthorizationState,
   ReviewRunCompanionDispatchFailure,
   type ReviewRunCompanionDispatchAdmission,
+  type ReviewRunModelDispatchAdmission,
   type ReviewRunCompanionDispatch,
   type ManageReviewRunAuthorizations,
   type ReviewRunAuthorization,
@@ -30,9 +34,12 @@ import {
 } from "./account-gateway-run-access";
 import { createReviewRunGatewayPreparation } from "./review-run-gateway-preparation";
 import {
+  parseReviewReviewerId,
+  reviewerPlanContract,
   lifecycleVerificationContract,
   prDescriptionContract,
-  type ReviewCompanionDispatchContextV1,
+  reviewModelDispatchContract,
+  reviewModelDispatchHeaders,
 } from "@reviewrouter/shared";
 
 // Selected production provider path: ReviewRouter -> Account Gateway -> Sub2API.
@@ -78,26 +85,7 @@ export function readReviewRunGatewayRelayPolicy(raw: string) {
     throw new Error("review_run_gateway_relay_policy_invalid");
   }
 }
-/** Account models require an explicitly enabled, compatible Gateway/native.
- * Otherwise every profile retains its configured model allowlist. */
-export function gatewayProfileAcceptsRequestedModel(
-  profile: c.Profile,
-  model: string,
-  accountModelCatalogEnabled = false,
-): boolean {
-  return (
-    (accountModelCatalogEnabled &&
-      profile.authKinds.some(
-        (authKind) =>
-          c.accountModelDiscoverySource({
-            profileId: profile.profileId,
-            protocol: profile.protocol,
-            authKind,
-          }) !== undefined,
-      )) ||
-    profile.modelIds.includes(model)
-  );
-}
+export { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
 class RelayFailure extends Error {
   constructor(
     readonly code: string,
@@ -105,6 +93,8 @@ class RelayFailure extends Error {
     readonly effect: c.RequestStatus["effect"] = "not_dispatched",
     readonly requestRef?: string,
     readonly dispatch?: ReturnType<typeof companionReadback>,
+    readonly failureScope?: "reviewer" | "allocation" | "run",
+    readonly concurrencyGroupId?: string,
   ) {
     super(code);
   }
@@ -122,22 +112,30 @@ type RelayDiagnostic = {
 };
 type Preparation = ReturnType<typeof createReviewRunGatewayPreparation>;
 type Session = {
+  readonly key: string;
+  readonly authorizationId: string;
+  readonly allocationId?: string;
   readonly preparation: Preparation;
   readonly canonical: string;
   readonly identity: string;
   readonly deadline: number;
-  readonly aborts: Set<AbortController>;
+  readonly aborts: Map<AbortController, string | undefined>;
+  readonly closedReviewers: Set<string>;
   readonly timer: ReturnType<typeof setTimeout>;
   closed: boolean;
   closeReason?: c.Close["reason"];
+  parentTerminationReason?: c.Close["reason"];
 };
 
 /** Backend process memory contains capabilities only. SQL remains the sole run
  * authority/selected facts. Absence NEVER replays inference or auto-recovers. */
 export function createReviewRunGatewayRelay(input: {
   readonly policy: ReviewRunGatewayRelayPolicy;
-  readonly accountModelCatalogEnabled?: boolean;
   readonly runAccess: RunAccessConfig;
+  readonly readPreparationOperation?: (
+    operationId: string,
+    options: import("@agent-teams/account-gateway/http").CallOptions,
+  ) => Promise<c.Operation | undefined>;
   readonly authorizations: Pick<
     ManageReviewRunAuthorizations,
     | "resolveReviewRunAuthorizationToken"
@@ -155,7 +153,8 @@ export function createReviewRunGatewayRelay(input: {
   ) => Promise<boolean>;
   readonly snapshots: ReviewRunRuntimeSnapshotPort;
   readonly bindings: ReviewRunGatewayExecutionBindingPort;
-  readonly companionDispatches?: ReviewRunCompanionDispatchAdmission;
+  readonly companionDispatches?: ReviewRunCompanionDispatchAdmission &
+    Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
   /** Persist trusted correlation before dispatch; outcome reporting never replays inference. */
   readonly usage?: {
     prepare(input: {
@@ -164,8 +163,15 @@ export function createReviewRunGatewayRelay(input: {
       requestRef: string;
       occurredAt: string;
       model: string;
+      reviewerId?: string;
       role?: ReviewRunCompanionDispatch["role"];
     }): Promise<UsageIdentity | void>;
+    ownsRequest?(input: {
+      authorizationId: string;
+      executionRef: string;
+      requestRef: string;
+      reviewerId: string;
+    }): Promise<boolean>;
     outcome(input: {
       authorizationId: string;
       executionRef: string;
@@ -191,7 +197,17 @@ export function createReviewRunGatewayRelay(input: {
   let inFlight = 0;
   let cleanupInFlight = 0;
   let closeAuthorityInFlight = 0;
-  const closing = new Map<string, ReturnType<typeof cleanup>>();
+  const closing = new Map<
+    string,
+    {
+      operation: Promise<
+        c.Operation | { state: "unknown" } | { state: "applied" }
+      >;
+      terminate(
+        reason: c.Close["reason"],
+      ): Promise<ReviewRunAuthorization | null>;
+    }
+  >();
   let stopping = false;
   let capacityCleanup: Promise<void> | undefined;
   let cleanupCursor = sessions.entries();
@@ -215,32 +231,134 @@ export function createReviewRunGatewayRelay(input: {
       finish();
     }
   }
-  async function resolve(token: string, freshness: "full" | "local" = "full") {
+  function selected(auth: ReviewRunAuthorization, reviewerId?: string) {
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      auth.runtimeSnapshotCanonicalJson,
+    );
+    if (!snapshot) throw new RelayFailure("gateway_unavailable", 403);
+    if (snapshot.snapshotVersion === 4) {
+      if (reviewerId === undefined)
+        throw new RelayFailure(
+          "reviewer_selector_required",
+          403,
+          "not_dispatched",
+          undefined,
+          undefined,
+          "reviewer",
+        );
+      let reviewer;
+      try {
+        reviewer = getReviewRunReviewer(
+          snapshot,
+          parseReviewReviewerId(reviewerId),
+        );
+      } catch {
+        throw new RelayFailure(
+          "reviewer_selector_invalid",
+          403,
+          "not_dispatched",
+          undefined,
+          undefined,
+          "reviewer",
+        );
+      }
+      if (
+        sessions
+          .get(`${auth.authorizationId}\0${reviewer.transport.allocationId}`)
+          ?.closedReviewers.has(reviewer.reviewerId)
+      )
+        throw new RelayFailure(
+          "reviewer_closed",
+          403,
+          "not_dispatched",
+          undefined,
+          undefined,
+          "reviewer",
+        );
+      return {
+        snapshot,
+        reviewer,
+        gateway: getReviewRunGatewayAllocation(
+          snapshot,
+          reviewer.transport.allocationId,
+        ),
+        providerIndex: reviewer.providerIndex,
+      };
+    }
+    if (reviewerId !== undefined || !snapshot.gateway)
+      throw new RelayFailure("reviewer_selector_invalid", 403);
+    return {
+      snapshot,
+      gateway: snapshot.gateway,
+      reviewer: undefined,
+      providerIndex: snapshot.gateway.providerIndex,
+    };
+  }
+  async function resolve(
+    token: string,
+    freshness: "full" | "local" = "full",
+    reviewerId?: string,
+    parentOnly = false,
+  ) {
     const result =
       await input.authorizations.resolveReviewRunAuthorizationToken({ token });
     if (result.status !== "valid")
-      throw new RelayFailure("authorization_denied", 401);
+      throw new RelayFailure(
+        "authorization_denied",
+        401,
+        "not_dispatched",
+        undefined,
+        undefined,
+        "run",
+      );
     const auth = result.authorization;
     if (!(await input.checkAuthority(auth, freshness)))
-      throw new RelayFailure("authorization_denied", 401);
+      throw new RelayFailure(
+        "authorization_denied",
+        401,
+        "not_dispatched",
+        undefined,
+        undefined,
+        "run",
+      );
     const canonical = auth.runtimeSnapshotCanonicalJson;
+    const snapshot = parseReviewRunRuntimeSnapshot(canonical);
     if (
       !canonical ||
-      !parseReviewRunRuntimeSnapshot(canonical)?.gateway?.limits
+      !snapshot ||
+      (snapshot.snapshotVersion === 3 && !snapshot.gateway)
     )
       throw new RelayFailure("gateway_unavailable", 403);
-    // SCM/release/safety awaits must not leave an earlier binding check in force.
-    const owned = await input.bindings.read({
-      authorizationId: auth.authorizationId,
-      identity: reviewRunGatewayOwnedIdentity(auth),
-      runtimeSnapshotCanonicalJson: canonical,
-    });
-    if (owned.status !== "live")
-      throw new RelayFailure("authorization_denied", 401);
-    // Confirm current mutation/release/safety AND auth/deadline only after all
-    // SCM/binding awaits. The local protected read does not lock a network call.
+    if (!parentOnly) {
+      const lane = selected(auth, reviewerId);
+      const owned = await input.bindings.read({
+        authorizationId: auth.authorizationId,
+        ...(lane.reviewer
+          ? { allocationId: lane.reviewer.transport.allocationId }
+          : {}),
+        identity: reviewRunGatewayOwnedIdentity(auth),
+        runtimeSnapshotCanonicalJson: canonical,
+      });
+      if (owned.status !== "live")
+        throw new RelayFailure(
+          "allocation_authorization_denied",
+          401,
+          "not_dispatched",
+          undefined,
+          undefined,
+          lane.reviewer ? "allocation" : "run",
+          lane.reviewer?.concurrencyGroupId,
+        );
+    }
     if (!(await input.confirmAuthority(token, auth)))
-      throw new RelayFailure("authorization_denied", 401);
+      throw new RelayFailure(
+        "authorization_denied",
+        401,
+        "not_dispatched",
+        undefined,
+        undefined,
+        "run",
+      );
     return auth;
   }
   async function check(
@@ -248,8 +366,9 @@ export function createReviewRunGatewayRelay(input: {
     auth: ReviewRunAuthorization,
     session: Session,
     freshness: "full" | "local" = "full",
+    reviewerId?: string,
   ) {
-    const current = await resolve(token, freshness);
+    const current = await resolve(token, freshness, reviewerId);
     if (
       session.closed ||
       stopping ||
@@ -276,7 +395,8 @@ export function createReviewRunGatewayRelay(input: {
           next = cleanupCursor.next();
         }
         if (next.done) break;
-        const [authorizationId, session] = next.value;
+        const [, session] = next.value;
+        const authorizationId = session.authorizationId;
         if (closing.has(authorizationId) || session.preparation.isPreparing())
           continue;
         try {
@@ -320,108 +440,240 @@ export function createReviewRunGatewayRelay(input: {
     });
     return capacityCleanup;
   }
-  async function sessionFor(auth: ReviewRunAuthorization) {
+  async function sessionFor(
+    auth: ReviewRunAuthorization,
+    reviewerId?: string,
+    cleanupOnly = false,
+    allocationId?: string,
+  ) {
     const canonical = auth.runtimeSnapshotCanonicalJson;
     const snapshot = parseReviewRunRuntimeSnapshot(canonical);
     if (
       !canonical ||
-      !snapshot?.gateway?.limits ||
+      !snapshot ||
       auth.maxExpiresAt.toISOString() !== snapshot.deadline
     )
       throw new RelayFailure("gateway_unavailable", 403);
+    const selectedId =
+      snapshot.snapshotVersion === 4
+        ? (allocationId ??
+          selected(auth, reviewerId).reviewer?.transport.allocationId)
+        : undefined;
+    if (
+      snapshot.snapshotVersion === 4 &&
+      (!selectedId ||
+        !snapshot.allocations.some((row) => row.allocationId === selectedId))
+    )
+      throw new RelayFailure("reviewer_selector_invalid", 403);
+    if (
+      snapshot.snapshotVersion === 3 &&
+      (!snapshot.gateway || allocationId !== undefined)
+    )
+      throw new RelayFailure("gateway_unavailable", 403);
+    const key =
+      selectedId === undefined
+        ? auth.authorizationId
+        : `${auth.authorizationId}\0${selectedId}`;
     const identity = canonicalJson(reviewRunGatewayOwnedIdentity(auth));
     const existing = () => {
-      const session = sessions.get(auth.authorizationId);
+      if (
+        !cleanupOnly &&
+        (closing.has(auth.authorizationId) ||
+          [...sessions.values()].some(
+            (retained) =>
+              retained.authorizationId === auth.authorizationId &&
+              retained.closed,
+          ))
+      )
+        throw new RelayFailure("authorization_denied", 401);
+      const session = sessions.get(key);
       if (
         session &&
         (session.canonical !== canonical ||
           session.identity !== identity ||
-          session.closed)
+          (!cleanupOnly && session.closed))
       )
         throw new RelayFailure("authorization_denied", 401);
       return session;
     };
     let session = existing();
     if (session) return session;
-    if (!stopping && sessions.size >= policy.maxSessions)
+    if (!stopping && !cleanupOnly && sessions.size >= policy.maxSessions)
       await reclaimCapacity();
-    // Another admission can have won the slot while cleanup awaited SQL/native.
     session = existing();
     if (session) return session;
-    if (stopping || sessions.size >= policy.maxSessions)
+    if ((!cleanupOnly && stopping) || sessions.size >= policy.maxSessions)
       throw new RelayFailure("relay_saturated", 503);
     const deadline = Date.parse(snapshot.deadline);
-    if (Date.now() >= deadline)
+    if (!cleanupOnly && Date.now() >= deadline)
       throw new RelayFailure("authorization_denied", 401);
+    const timer = setTimeout(
+      () => {
+        if (!cleanupOnly)
+          void closeRun(auth.authorizationId, "deadline").catch(() => {});
+      },
+      cleanupOnly
+        ? 2_147_483_647
+        : Math.max(1, Math.min(deadline - Date.now(), 2_147_483_647)),
+    );
+    timer.unref();
     session = {
+      key,
+      authorizationId: auth.authorizationId,
+      ...(selectedId === undefined ? {} : { allocationId: selectedId }),
       canonical,
       identity,
       deadline,
-      closed: false,
-      aborts: new Set(),
+      closed: cleanupOnly,
+      aborts: new Map(),
+      closedReviewers: new Set(),
+      timer,
       preparation: createReviewRunGatewayPreparation({
         authorizationId: auth.authorizationId,
+        ...(selectedId === undefined ? {} : { allocationId: selectedId }),
+        ...(input.readPreparationOperation
+          ? { readPreparationOperation: input.readPreparationOperation }
+          : {}),
         identity: auth,
         runAccess: input.runAccess,
         authorizations: input.queries,
         snapshots: input.snapshots,
         bindings: input.bindings,
       }),
-      timer: setTimeout(
-        () => {
-          void closeRun(auth.authorizationId, "deadline").catch(() => {});
-        },
-        Math.min(deadline - Date.now(), 2_147_483_647),
-      ),
     };
-    session.timer.unref();
-    sessions.set(auth.authorizationId, session);
+    sessions.set(key, session);
     return session;
   }
   function closeRun(
     authorizationId: string,
     reason: c.Close["reason"],
     deadline?: number,
-  ) {
-    const session = sessions.get(authorizationId);
-    if (session) {
+  ): Promise<c.Operation | { state: "unknown" } | { state: "applied" }> {
+    const owned = [...sessions.values()].filter(
+      (session) => session.authorizationId === authorizationId,
+    );
+    let parentReason =
+      reason === "completed"
+        ? owned.find((session) => session.parentTerminationReason !== undefined)
+            ?.parentTerminationReason
+        : reason;
+    // Local cancellation cannot wait for a slow or failed authority write.
+    // Retain denied sessions until their exact native cleanup is confirmed.
+    for (const session of owned) {
       session.closed = true;
       session.closeReason ??= reason;
-      reason = session.closeReason;
+      if (parentReason !== undefined)
+        session.parentTerminationReason ??= parentReason;
       clearTimeout(session.timer);
-      for (const controller of session.aborts) controller.abort();
+      for (const controller of session.aborts.keys()) controller.abort();
     }
     const pending = closing.get(authorizationId);
-    if (pending) return pending;
-    const work = cleanup(authorizationId, reason, session, deadline).finally(
-      () => {
+    if (pending) {
+      if (parentReason === undefined) return pending.operation;
+      // Cancellation may join normal v4 cleanup, but must still terminate its
+      // publication authority. Native cleanup keeps its original operation.
+      return Promise.all([
+        pending.operation,
+        pending.terminate(parentReason),
+      ]).then(([operation]) => operation);
+    }
+    let termination: Promise<ReviewRunAuthorization | null> | undefined;
+    const terminate = (terminalReason: c.Close["reason"]) => {
+      parentReason ??= terminalReason;
+      // A failed write must not let a later completed retry forget cancellation.
+      // Native closeReason remains separate because its operation is immutable.
+      for (const session of sessions.values())
+        if (session.authorizationId === authorizationId)
+          session.parentTerminationReason ??= parentReason;
+      termination ??= (async () => {
+        await input.authorizations.expireOrRevokeReviewRunAuthorization({
+          authorizationId,
+          state:
+            parentReason === "deadline"
+              ? ReviewRunAuthorizationState.Expired
+              : ReviewRunAuthorizationState.Revoked,
+        });
+        const auth =
+          await input.queries.findReviewRunAuthorizationById(authorizationId);
+        if (auth?.state === "active")
+          throw new RelayFailure("close_pending", 409, "effect_unknown");
+        return auth;
+      })();
+      return termination;
+    };
+    const work = (async () => {
+      const revokeFirst =
+        parentReason !== undefined ||
+        owned.some((session) => session.allocationId === undefined);
+      let auth = revokeFirst
+        ? await terminate(parentReason ?? reason)
+        : await input.queries.findReviewRunAuthorizationById(authorizationId);
+      const snapshot = parseReviewRunRuntimeSnapshot(
+        auth?.runtimeSnapshotCanonicalJson,
+      );
+      // Only v4 separates resource release from parent publication authority.
+      // Legacy completed closes retain their durable revocation semantics.
+      if (reason === "completed" && snapshot?.snapshotVersion !== 4)
+        auth = await terminate(reason);
+      const allocations =
+        auth && snapshot?.snapshotVersion === 4
+          ? snapshot.allocations
+              .map((allocation) => allocation.allocationId)
+              // Release already retained capabilities before restoring others.
+              .sort(
+                (left, right) =>
+                  Number(sessions.has(`${authorizationId}\0${right}`)) -
+                  Number(sessions.has(`${authorizationId}\0${left}`)),
+              )
+          : owned.map((session) => session.allocationId);
+      if (allocations.length === 0) return { state: "unknown" as const };
+      const operations: (c.Operation | { state: "unknown" })[] = [];
+      for (const allocationId of allocations) {
+        try {
+          // Restore and close one allocation at a time. Successful cleanup frees
+          // its capability slot before the next recovery, even at capacity.
+          const session =
+            auth && snapshot?.snapshotVersion === 4
+              ? await sessionFor(auth, undefined, true, allocationId)
+              : owned[0]!;
+          if (parentReason !== undefined)
+            session.parentTerminationReason ??= parentReason;
+          operations.push(
+            await cleanup(
+              authorizationId,
+              session.closeReason ?? parentReason ?? reason,
+              session,
+              deadline,
+              () => termination,
+            ),
+          );
+        } catch (error) {
+          if (allocations.length === 1) throw error;
+          operations.push({ state: "unknown" });
+        }
+      }
+      if (operations.length === 1) return operations[0]!;
+      return operations.every((operation) => operation.state === "applied")
+        ? { state: "applied" as const }
+        : { state: "unknown" as const };
+    })().finally(async () => {
+      try {
+        // Keep the shared close registered until a joined cancellation settles.
+        if (termination) await termination;
+      } finally {
         closing.delete(authorizationId);
-      },
-    );
-    closing.set(authorizationId, work);
+      }
+    });
+    closing.set(authorizationId, { operation: work, terminate });
     return work;
   }
   async function cleanup(
-    authorizationId: string,
+    _authorizationId: string,
     reason: c.Close["reason"],
-    session?: Session,
-    deadline?: number,
+    session: Session,
+    deadline: number | undefined,
+    parentTermination: () => Promise<ReviewRunAuthorization | null> | undefined,
   ) {
-    // Existing RR lifecycle commits local denial first. Failure is never "closed".
-    await input.authorizations.expireOrRevokeReviewRunAuthorization({
-      authorizationId,
-      state:
-        reason === "deadline"
-          ? ReviewRunAuthorizationState.Expired
-          : ReviewRunAuthorizationState.Revoked,
-    });
-    const row =
-      await input.queries.findReviewRunAuthorizationById(authorizationId);
-    if (row?.state === "active")
-      throw new RelayFailure("close_pending", 409, "effect_unknown");
-    if (!session) return { state: "unknown" as const };
-    // Durable local denial above never waits for a response slot. Remote cleanup
-    // has its own bound; saturation retains the denied session for trusted retry.
     if (cleanupInFlight >= policy.maxInFlight)
       throw new RelayFailure("close_pending", 409, "effect_unknown");
     cleanupInFlight++;
@@ -435,12 +687,16 @@ export function createReviewRunGatewayRelay(input: {
       const operation = await session.preparation.close(reason, {
         signal: AbortSignal.timeout(remaining),
       });
-      // Retain unresolved evidence/capability for explicit same-close readback.
       if (
         operation.state === "applied" ||
         session.preparation.canReleaseWithoutRemoteClose()
-      )
-        sessions.delete(authorizationId);
+      ) {
+        // Native release must not discard the only retained cancellation intent
+        // while its joined parent write is still pending or has failed.
+        const pendingTermination = parentTermination();
+        if (pendingTermination) await pendingTermination;
+        sessions.delete(session.key);
+      }
       return operation;
     } finally {
       cleanupInFlight--;
@@ -459,6 +715,7 @@ export function createReviewRunGatewayRelay(input: {
     maxResponseBytes: number,
     diagnostic?: RelayDiagnostic,
     beforeForward?: () => Promise<void>,
+    reviewerId?: string,
   ): Promise<
     NativeResponse & {
       readonly usageIdentity?: UsageIdentity;
@@ -474,9 +731,13 @@ export function createReviewRunGatewayRelay(input: {
             executionRef: usageBinding.executionRef,
             requestRef,
             role: dispatch.role,
+            ...(reviewerId === undefined ? {} : { reviewerId }),
             occurredAt: new Date().toISOString(),
-            model: parseReviewRunRuntimeSnapshot(session.canonical)!
-              .lifecycleVerificationCapability!.model,
+            model:
+              parseReviewRunRuntimeSnapshot(session.canonical)!
+                .modelDispatchCapability?.model ??
+              parseReviewRunRuntimeSnapshot(session.canonical)!
+                .lifecycleVerificationCapability!.model,
           })
         : undefined;
     const outcome = async (effect: c.RequestStatus["effect"]) => {
@@ -635,7 +896,8 @@ export function createReviewRunGatewayRelay(input: {
     raw: Uint8Array,
     controller: AbortController,
     diagnostic?: RelayDiagnostic,
-    companion?: ReviewCompanionDispatchContextV1,
+    companion?: Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1],
+    reviewerId?: string,
   ): Promise<
     NativeResponse & {
       readonly usageIdentity?: UsageIdentity;
@@ -647,14 +909,20 @@ export function createReviewRunGatewayRelay(input: {
     const bytes = new Uint8Array(raw); // Capture caller-owned bytes before any await.
     const finish = reserve();
     try {
-      const auth = await resolve(token);
-      const session = await sessionFor(auth);
-      const snapshot = parseReviewRunRuntimeSnapshot(session.canonical)!;
-      const gateway = snapshot.gateway!;
+      const auth = await resolve(token, "full", reviewerId);
+      const lane = selected(auth, reviewerId);
+      const session = await sessionFor(auth, reviewerId);
+      const { snapshot, gateway } = lane;
+      if (
+        companion &&
+        snapshot.snapshotVersion === 4 &&
+        reviewerId !== snapshot.primaryReviewerId
+      )
+        throw new RelayFailure("companion_reviewer_invalid", 403);
       const configuration = parseReviewConfigurationStrict(
         JSON.parse(snapshot.configurationCanonicalJson),
       );
-      const provider = configuration.providers[gateway.providerIndex];
+      const provider = configuration.providers[lane.providerIndex];
       if (provider?.authMode !== "codex_account_gateway" || !gateway.limits)
         throw new RelayFailure("gateway_unavailable", 403);
       const qualified = policy.profiles.filter(
@@ -666,7 +934,6 @@ export function createReviewRunGatewayRelay(input: {
         !gatewayProfileAcceptsRequestedModel(
           qualified[0]!.profile,
           provider.model,
-          input.accountModelCatalogEnabled,
         ) ||
         gateway.limits.tokens > qualified[0]!.outputTokens
       )
@@ -674,29 +941,55 @@ export function createReviewRunGatewayRelay(input: {
       if (gateway.limits.outputBytes > reviewRunGatewayMaxResponseBytes)
         throw new RelayFailure("gateway_unavailable", 403);
       const capability = snapshot.lifecycleVerificationCapability;
-      if (companion && (!capability || !input.companionDispatches))
+      const modelBudget = snapshot.modelDispatchCapability;
+      if (
+        modelBudget &&
+        (companion?.dispatchVersion !== 2 ||
+          !input.companionDispatches?.forward)
+      )
+        throw new RelayFailure("model_dispatch_claim_required", 403);
+      if (!modelBudget && companion?.dispatchVersion === 2)
+        throw new RelayFailure("model_dispatch_unavailable", 403);
+      const reserved =
+        modelBudget && companion
+          ? await input.companionDispatches!.read(
+              auth.authorizationId,
+              companion.dispatchId,
+            )
+          : null;
+      if (modelBudget && (!reserved || reserved.dispatchVersion !== 2))
+        throw new RelayFailure("model_dispatch_reservation_required", 409);
+      const isCompanion = !!companion && reserved?.role !== "finding_discovery";
+      if (
+        companion &&
+        ((!capability && isCompanion) || !input.companionDispatches)
+      )
         throw new RelayFailure("companion_unavailable", 403);
       const body = prepareReviewRunGatewayResponses(
         bytes,
         provider.model,
-        companion
+        isCompanion
           ? Math.min(
               4096,
               gateway.limits.tokens,
               qualified[0]!.outputTokens,
               capability!.maxOutputTokens,
             )
-          : gateway.limits.tokens,
+          : Math.min(
+              gateway.limits.tokens,
+              modelBudget?.maxOutputTokens ?? Infinity,
+            ),
         Math.min(
           policy.ingressBytes,
           gateway.limits.requestBytes,
-          companion ? capability!.maxPromptBytes : Infinity,
+          isCompanion ? capability!.maxPromptBytes : Infinity,
+          modelBudget?.maxRequestBytes ?? Infinity,
         ),
         qualified[0]!.outputTokens,
       );
       if (companion && !Buffer.from(body).equals(Buffer.from(bytes)))
         throw new RelayFailure("envelope_not_normalized", 400);
-      if (companion) {
+      if (isCompanion) {
         const envelope = JSON.parse(new TextDecoder().decode(body)) as Record<
           string,
           unknown
@@ -709,12 +1002,26 @@ export function createReviewRunGatewayRelay(input: {
         )
           throw new RelayFailure("companion_tools_forbidden", 400);
       }
-      if (companion && session.deadline - Date.now() < capability!.deadlineMs)
+      if (isCompanion && session.deadline - Date.now() < capability!.deadlineMs)
         throw new RelayFailure("verification_deadline", 409);
+      const dispatchContext =
+        companion && modelBudget
+          ? {
+              ...companion,
+              requestBytes: body.byteLength,
+              maxOutputTokens: Number(
+                JSON.parse(new TextDecoder().decode(body)).max_output_tokens,
+              ),
+            }
+          : companion;
       const claim = companion
-        ? await input.companionDispatches!.claim(
+        ? await (
+            modelBudget
+              ? input.companionDispatches!.forward!
+              : input.companionDispatches!.claim.bind(input.companionDispatches)
+          )(
             auth,
-            companion,
+            dispatchContext!,
             createHash("sha256").update(body).digest("hex"),
           )
         : undefined;
@@ -775,7 +1082,7 @@ export function createReviewRunGatewayRelay(input: {
       const remaining = Math.min(
         policy.requestTimeoutMs,
         session.deadline - Date.now(),
-        companion ? capability!.deadlineMs : Infinity,
+        isCompanion ? capability!.deadlineMs : Infinity,
         claim ? claim.notAfter.getTime() - Date.now() : Infinity,
       );
       if (remaining <= 0)
@@ -787,8 +1094,8 @@ export function createReviewRunGatewayRelay(input: {
         controller.signal,
         AbortSignal.timeout(remaining),
       ]);
-      session.aborts.add(controller);
-      const fresh = () => check(token, auth, session);
+      session.aborts.set(controller, reviewerId);
+      const fresh = () => check(token, auth, session, "full", reviewerId);
       try {
         if (!session.preparation.hasSession()) {
           if (session.preparation.needsRecovery())
@@ -833,9 +1140,13 @@ export function createReviewRunGatewayRelay(input: {
             signal,
             controller,
             fresh,
-            () => check(token, auth, session, "local"),
+            () => check(token, auth, session, "local", reviewerId),
             finish,
-            Math.min(gateway.limits.outputBytes, capability!.maxResponseBytes),
+            Math.min(
+              gateway.limits.outputBytes,
+              isCompanion ? capability!.maxResponseBytes : Infinity,
+              modelBudget?.maxResponseBytes ?? Infinity,
+            ),
             diagnostic,
             async () => {
               // Preparation/usage waits must not leave an expired/replaced lease
@@ -843,7 +1154,7 @@ export function createReviewRunGatewayRelay(input: {
               // second owner or permission to dispatch another native ref.
               const current = await input.companionDispatches!.claim(
                 auth,
-                companion!,
+                dispatchContext!,
                 createHash("sha256").update(body).digest("hex"),
               );
               if (
@@ -858,6 +1169,7 @@ export function createReviewRunGatewayRelay(input: {
                   claim.dispatch.nativeRequestRef,
                 );
             },
+            reviewerId,
           );
         }
         const waitUntil = Math.min(
@@ -869,7 +1181,9 @@ export function createReviewRunGatewayRelay(input: {
         for (;;) {
           let response: NativeResponse;
           let limited: c.SafeError | undefined;
-          const requestRef = `rr-request-${randomUUID()}`;
+          const requestRef = lane.reviewer
+            ? `rr-request-${createHash("sha256").update(lane.reviewer.reviewerId).digest("hex").slice(0, 24)}-${randomUUID()}`
+            : `rr-request-${randomUUID()}`;
           const usageBinding = session.preparation.usageBinding();
           let usageIdentity: UsageIdentity | void = undefined;
           if (input.usage && usageBinding) {
@@ -879,6 +1193,7 @@ export function createReviewRunGatewayRelay(input: {
               requestRef,
               occurredAt: new Date().toISOString(),
               model: provider.model,
+              ...(reviewerId === undefined ? {} : { reviewerId }),
             });
           }
           const usageOutcome = (effect: c.RequestStatus["effect"]) =>
@@ -958,7 +1273,7 @@ export function createReviewRunGatewayRelay(input: {
                         // A body chunk/EOF is not a new native admission or
                         // accepted review. Keep local authority live without
                         // withholding opaque bytes on another remote SCM read.
-                        await check(token, auth, session, "local");
+                        await check(token, auth, session, "local", reviewerId);
                         // SDK cancellation can resolve read() with done=true. That
                         // is transport teardown, not successful terminal delivery.
                         if (signal.aborted)
@@ -1083,7 +1398,22 @@ export function createReviewRunGatewayRelay(input: {
         }
       } catch (error) {
         session.aborts.delete(controller);
-        throw error;
+        const failure = safeFailure(error);
+        if (failure.failureScope || !lane.reviewer) throw error;
+        const allocationFailure =
+          !session.preparation.hasSession() ||
+          /budget|exhaust|epoch|execution_(?:closed|expired|revoked)|account_revoked/.test(
+            failure.code,
+          );
+        throw new RelayFailure(
+          failure.code,
+          failure.statusCode,
+          failure.effect,
+          failure.requestRef,
+          failure.dispatch,
+          allocationFailure ? "allocation" : "reviewer",
+          lane.reviewer.concurrencyGroupId,
+        );
       }
     } catch (error) {
       finish();
@@ -1094,27 +1424,39 @@ export function createReviewRunGatewayRelay(input: {
     policy,
     responses,
     closeRun,
-    companionDispatch: (token: string, dispatchId: string) =>
+    companionDispatch: (
+      token: string,
+      dispatchId: string,
+      reviewerId?: string,
+    ) =>
       bounded(async () => {
-        const auth = await resolve(token);
+        const auth = await resolve(token, "full", reviewerId);
+        const lane = selected(auth, reviewerId);
+        if (
+          lane.snapshot.snapshotVersion === 4 &&
+          reviewerId !== lane.snapshot.primaryReviewerId
+        )
+          throw new RelayFailure("companion_reviewer_invalid", 403);
         const dispatch = await input.companionDispatches?.read(
           auth.authorizationId,
           dispatchId,
         );
         if (!dispatch)
           throw new RelayFailure("companion_dispatch_missing", 404);
+        if (dispatch.dispatchVersion === 2)
+          throw new RelayFailure("model_dispatch_readback_required", 409);
         if (
           dispatch.state === "dispatch_may_have_started" ||
           dispatch.state === "effect_unknown"
         ) {
-          const session = await sessionFor(auth);
+          const session = await sessionFor(auth, reviewerId);
           // A process restart must use the existing explicit same-operation
           // recovery endpoint first. Readback never prepares/replays inference.
           if (session.preparation.hasSession()) {
             const status = await session.preparation.status(
               dispatch.nativeRequestRef,
               { signal: AbortSignal.timeout(policy.requestTimeoutMs) },
-              () => check(token, auth, session),
+              () => check(token, auth, session, "full", reviewerId),
             );
             if (
               status.effect === "completed" ||
@@ -1131,18 +1473,34 @@ export function createReviewRunGatewayRelay(input: {
         }
         return companionReadback(dispatch);
       }),
-    recoverSameOperation: (token: string) =>
+    recoverSameOperation: (token: string, reviewerId?: string) =>
       bounded(async () => {
-        const auth = await resolve(token);
-        const session = await sessionFor(auth);
+        const auth = await resolve(token, "full", reviewerId);
+        const session = await sessionFor(auth, reviewerId);
         const result = await session.preparation.recoverSameOperation();
-        await check(token, auth, session);
+        await check(token, auth, session, "full", reviewerId);
         return result;
       }),
-    status: (token: string, requestRef: string) =>
+    status: (token: string, requestRef: string, reviewerId?: string) =>
       bounded(async () => {
-        const auth = await resolve(token);
-        const session = await sessionFor(auth);
+        const auth = await resolve(token, "full", reviewerId);
+        const session = await sessionFor(auth, reviewerId);
+        if (reviewerId !== undefined) {
+          const prefix = `rr-request-${createHash("sha256").update(reviewerId).digest("hex").slice(0, 24)}-`;
+          const binding = session.preparation.usageBinding();
+          if (
+            !requestRef.startsWith(prefix) ||
+            (binding &&
+              (!input.usage?.ownsRequest ||
+                !(await input.usage.ownsRequest({
+                  authorizationId: auth.authorizationId,
+                  executionRef: binding.executionRef,
+                  requestRef,
+                  reviewerId,
+                }))))
+          )
+            throw new RelayFailure("request_reviewer_mismatch", 403);
+        }
         if (!session.preparation.hasSession())
           throw new RelayFailure(
             "same_operation_recovery_required",
@@ -1153,17 +1511,36 @@ export function createReviewRunGatewayRelay(input: {
         return await session.preparation.status(
           requestRef,
           { signal: AbortSignal.timeout(policy.requestTimeoutMs) },
-          () => check(token, auth, session),
+          () => check(token, auth, session, "full", reviewerId),
         );
       }),
-    close: async (token: string, reason: c.Close["reason"]) => {
+    close: async (
+      token: string,
+      reason: c.Close["reason"],
+      reviewerId?: string,
+    ) => {
       // Cancellation remains available while Responses is occupied, but its
       // authority preflight must not create unbounded SCM/database work.
       if (closeAuthorityInFlight >= policy.maxInFlight)
         throw new RelayFailure("relay_saturated", 503);
       closeAuthorityInFlight++;
       try {
-        const auth = await resolve(token);
+        const auth = await resolve(
+          token,
+          "full",
+          reviewerId,
+          reviewerId === undefined,
+        );
+        if (reviewerId !== undefined) {
+          const lane = selected(auth, reviewerId);
+          if (lane.reviewer) {
+            const session = await sessionFor(auth, reviewerId);
+            session.closedReviewers.add(lane.reviewer.reviewerId);
+            for (const [controller, owner] of session.aborts)
+              if (owner === lane.reviewer.reviewerId) controller.abort();
+            return { state: "applied" as const };
+          }
+        }
         return await closeRun(auth.authorizationId, reason);
       } finally {
         closeAuthorityInFlight--;
@@ -1171,7 +1548,11 @@ export function createReviewRunGatewayRelay(input: {
     },
     shutdown: async () => {
       stopping = true;
-      for (const id of [...sessions.keys()])
+      for (const id of [
+        ...new Set(
+          [...sessions.values()].map((session) => session.authorizationId),
+        ),
+      ])
         await closeRun(id, "cancelled").catch(() => {});
     },
   });
@@ -1204,9 +1585,22 @@ function companionReadback(dispatch: ReviewRunCompanionDispatch) {
  * parent-only facts and cannot turn ordinary traffic into companion evidence. */
 function companionContext(
   request: FastifyRequest,
-): ReviewCompanionDispatchContextV1 | undefined {
+): Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1] | undefined {
   const names = lifecycleVerificationContract.dispatchHeaders;
-  if (!Object.values(names).some((name) => request.headers[name] !== undefined))
+  const modelVersion =
+    request.headers[reviewModelDispatchHeaders.dispatchVersion];
+  const modelOrdinal =
+    request.headers[reviewModelDispatchHeaders.requestOrdinal];
+  const modelRoute =
+    request.headers[reviewModelDispatchHeaders.routeIdentityHash];
+  const hasModel =
+    modelVersion !== undefined ||
+    modelOrdinal !== undefined ||
+    modelRoute !== undefined;
+  if (
+    !hasModel &&
+    !Object.values(names).some((name) => request.headers[name] !== undefined)
+  )
     return undefined;
   const values = Object.fromEntries(
     Object.entries(names).map(([key, name]) => {
@@ -1229,8 +1623,29 @@ function companionContext(
   for (const key of ["dispatchId", "executionId", "workSlotId", "leaseId"])
     if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(values[key]!))
       throw new RelayFailure("companion_headers_invalid", 400);
-  return { ...values, attemptOrdinal: 1 } as ReviewCompanionDispatchContextV1;
+  if (
+    hasModel &&
+    (modelVersion !== "2" ||
+      typeof modelOrdinal !== "string" ||
+      !/^[1-9][0-9]?$/.test(modelOrdinal) ||
+      Number(modelOrdinal) > reviewModelDispatchContract.maxRequests ||
+      typeof modelRoute !== "string" ||
+      !/^[a-f0-9]{64}$/.test(modelRoute))
+  )
+    throw new RelayFailure("model_dispatch_headers_invalid", 400);
+  return {
+    ...values,
+    attemptOrdinal: 1,
+    ...(hasModel
+      ? {
+          dispatchVersion: 2,
+          requestOrdinal: Number(modelOrdinal),
+          routeIdentityHash: modelRoute as string,
+        }
+      : {}),
+  } as Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1];
 }
+export { companionContext as readReviewRunCompanionDispatchContext };
 export type ReviewRunGatewayRelay = ReturnType<
   typeof createReviewRunGatewayRelay
 >;
@@ -1286,7 +1701,9 @@ export async function registerReviewRunGatewayRelayRoutes(
           const controller = new AbortController();
           let finished = false;
           const cancel = () => {
-            controller.abort();
+            // ServerResponse also emits close after normal EOF. Aborting that
+            // completed write races pipeline's completion and invents failure.
+            if (!reply.raw.writableFinished) controller.abort();
             if (!reservation.working) reservation.finish();
           };
           const stop = () => {
@@ -1346,6 +1763,7 @@ export async function registerReviewRunGatewayRelayRoutes(
             controller,
             diagnostic,
             companionContext(request),
+            reviewerSelector(request),
           );
           if (upstream.kind === "status")
             return reply.code(202).send(upstream.status);
@@ -1404,6 +1822,12 @@ export async function registerReviewRunGatewayRelayRoutes(
               error: {
                 code: failure.code,
                 effect: failure.effect,
+                ...(failure.failureScope
+                  ? { failureScope: failure.failureScope }
+                  : {}),
+                ...(failure.concurrencyGroupId
+                  ? { concurrencyGroupId: failure.concurrencyGroupId }
+                  : {}),
                 ...(failure.requestRef
                   ? { requestRef: failure.requestRef }
                   : {}),
@@ -1431,6 +1855,7 @@ export async function registerReviewRunGatewayRelayRoutes(
           return await relay.companionDispatch(
             authorization(request),
             c.reference.parse(dispatchId),
+            reviewerSelector(request),
           );
         } catch (error) {
           const failure = safeFailure(error);
@@ -1446,6 +1871,7 @@ export async function registerReviewRunGatewayRelayRoutes(
         return await relay.status(
           authorization(request),
           c.reference.parse(requestRef),
+          reviewerSelector(request),
         );
       } catch (error) {
         diagnoseUnknown(error, "status", reply.raw.headersSent);
@@ -1454,13 +1880,22 @@ export async function registerReviewRunGatewayRelayRoutes(
           error: {
             code: failure.code,
             effect: failure.effect,
+            ...(failure.failureScope
+              ? { failureScope: failure.failureScope }
+              : {}),
+            ...(failure.concurrencyGroupId
+              ? { concurrencyGroupId: failure.concurrencyGroupId }
+              : {}),
           },
         });
       }
     });
     scope.post(`${base}/recover`, async (request, reply) => {
       try {
-        return await relay.recoverSameOperation(authorization(request));
+        return await relay.recoverSameOperation(
+          authorization(request),
+          reviewerSelector(request),
+        );
       } catch (error) {
         diagnoseUnknown(error, "recover", reply.raw.headersSent);
         const failure = safeFailure(error);
@@ -1468,6 +1903,12 @@ export async function registerReviewRunGatewayRelayRoutes(
           error: {
             code: failure.code,
             effect: failure.effect,
+            ...(failure.failureScope
+              ? { failureScope: failure.failureScope }
+              : {}),
+            ...(failure.concurrencyGroupId
+              ? { concurrencyGroupId: failure.concurrencyGroupId }
+              : {}),
           },
         });
       }
@@ -1482,7 +1923,11 @@ export async function registerReviewRunGatewayRelayRoutes(
             reason: z.enum(["completed", "cancelled", "failed"]),
           })
           .parse(body);
-        return await relay.close(authorization(request), reason);
+        return await relay.close(
+          authorization(request),
+          reason,
+          reviewerSelector(request),
+        );
       } catch (error) {
         diagnoseUnknown(error, "close", reply.raw.headersSent);
         const failure = safeFailure(error);
@@ -1490,6 +1935,12 @@ export async function registerReviewRunGatewayRelayRoutes(
           error: {
             code: failure.code,
             effect: failure.effect,
+            ...(failure.failureScope
+              ? { failureScope: failure.failureScope }
+              : {}),
+            ...(failure.concurrencyGroupId
+              ? { concurrencyGroupId: failure.concurrencyGroupId }
+              : {}),
           },
         });
       }
@@ -1860,5 +2311,20 @@ export function prepareReviewRunGatewayResponses(
     return bytes;
   } catch {
     throw new RelayFailure("invalid_request", 400);
+  }
+}
+
+function reviewerSelector(request: FastifyRequest): string | undefined {
+  const name = reviewerPlanContract.reviewerIdHeader;
+  const value = request.headers[name];
+  let count = 0;
+  for (let index = 0; index < request.raw.rawHeaders.length; index += 2)
+    if (request.raw.rawHeaders[index]!.toLowerCase() === name) count++;
+  if (value === undefined && count === 0) return undefined;
+  if (count !== 1) throw new RelayFailure("reviewer_selector_invalid", 400);
+  try {
+    return parseReviewReviewerId(value);
+  } catch {
+    throw new RelayFailure("reviewer_selector_invalid", 400);
   }
 }

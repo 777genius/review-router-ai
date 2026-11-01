@@ -26,6 +26,21 @@ export type HistoryScope = {
   readonly actorId: string;
   readonly workspaceId: string;
 };
+export type HistoryPullRequestIdentity = {
+  readonly scmRepositoryIdentityId: string;
+  readonly pullRequestNumber: number;
+};
+export type HistoryPullRequestResolutionInput = HistoryScope & {
+  readonly pullRequests: readonly HistoryPullRequestIdentity[];
+};
+export type HistoryPullRequestResolution =
+  | {
+      readonly state: "available";
+      readonly items: readonly (HistoryPullRequestIdentity & {
+        readonly id: string;
+      })[];
+    }
+  | { readonly state: "unavailable" };
 export type HistoryPullRequest = {
   readonly id: string;
   readonly scmRepositoryIdentityId: string;

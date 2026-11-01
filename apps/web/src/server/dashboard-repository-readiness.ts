@@ -29,6 +29,10 @@ import {
   repositorySearchReadiness,
   type RepositorySearchReadiness,
 } from "./repository-search";
+import {
+  installedReviewRuntimeCompatibility,
+  type DashboardRuntimeReleases,
+} from "./review-runtime-readiness";
 
 /**
  * The effective configuration of each repository as the single resolver
@@ -62,6 +66,10 @@ export type DashboardReadinessRepository = Readonly<{
   setupNeedsAttention: boolean;
   /** What the installed workflow was rendered for; null when not recorded. */
   installedWorkflowRequirement: WorkflowRequirement | null;
+  workflowProvisioning?: Readonly<{
+    status: string;
+    actionVersion: string;
+  }> | null;
 }>;
 
 export type DashboardRepositoryReadiness<
@@ -94,6 +102,7 @@ export function resolveDashboardRepositoryReadiness<
       >[];
       gatewayAccounts: AccountsResult<AccountsPage> | undefined;
       gatewayReadiness: ReadonlyMap<string, GatewayReviewV2RepositoryReadiness>;
+      runtimeReleases?: DashboardRuntimeReleases | null;
       providerSecretCheckFailedRepositoryFullName: string | null;
     }>,
 ): readonly DashboardRepositoryReadiness<Repository>[] {
@@ -127,12 +136,26 @@ export function resolveDashboardRepositoryReadiness<
     };
     const required = config ? knownWorkflowRequirement(config) : null;
     const installed = repository.installedWorkflowRequirement;
+    const requiredComparable =
+      required && comparableWorkflowRequirement(required, transition);
+    const installedComparable =
+      installed && comparableWorkflowRequirement(installed, transition);
+    const gatewayAuthorizationReady = isGatewayReviewV2RepositoryReady(
+      input.gatewayReadiness.get(repository.id),
+    );
     const readiness = resolveEffectiveProviderReadiness({
       providers: config?.providers ?? null,
-      requiredWorkflowRequirement:
-        required && comparableWorkflowRequirement(required, transition),
-      installedWorkflowRequirement:
-        installed && comparableWorkflowRequirement(installed, transition),
+      requiredWorkflowRequirement: requiredComparable,
+      installedWorkflowRequirement: installedComparable,
+      runtimeCompatibility: installedReviewRuntimeCompatibility({
+        providers: config?.providers ?? null,
+        provisioning: repository.workflowProvisioning ?? null,
+        requirementMatches:
+          requiredComparable !== null &&
+          requiredComparable === installedComparable,
+        releases: input.runtimeReleases ?? null,
+        gatewayAuthorizationReady,
+      }),
       setupStatus: repository.setupStatus,
       setupNeedsAttention: repository.setupNeedsAttention,
       healthStatus: health?.status,
@@ -143,9 +166,7 @@ export function resolveDashboardRepositoryReadiness<
       gatewayAccountReady: config
         ? isGatewayProviderSetupReady(config, input.gatewayAccounts)
         : false,
-      gatewayAuthorizationReady: isGatewayReviewV2RepositoryReady(
-        input.gatewayReadiness.get(repository.id),
-      ),
+      gatewayAuthorizationReady,
       providerSecretCheckFailed:
         repository.fullName ===
         input.providerSecretCheckFailedRepositoryFullName,

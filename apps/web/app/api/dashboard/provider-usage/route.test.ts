@@ -17,25 +17,39 @@ import { GET } from "./route";
 // PGlite verifies SQL semantics; hosted acceptance separately uses migrated PG17.
 describe("tenant usage API and SQL scope", () => {
   const db = new PGlite();
-  const queryRaw = async (
-    sql: { text: string; values: unknown[] } | TemplateStringsArray,
-    ...values: unknown[]
-  ) => {
-    const text = Array.isArray(sql)
-      ? sql.reduce(
-          (result, part, index) => result + (index ? `$${index}` : "") + part,
-          "",
+  const queryRawFor =
+    (queryable: Pick<PGlite, "query">) =>
+    async (
+      sql: { text: string; values: unknown[] } | TemplateStringsArray,
+      ...values: unknown[]
+    ) => {
+      const text = Array.isArray(sql)
+        ? sql.reduce(
+            (result, part, index) => result + (index ? `$${index}` : "") + part,
+            "",
+          )
+        : (sql as { text: string }).text;
+      return (
+        await queryable.query(
+          text,
+          Array.isArray(sql) ? values : (sql as { values: unknown[] }).values,
         )
-      : (sql as { text: string }).text;
-    return (
-      await db.query(
-        text,
-        Array.isArray(sql) ? values : (sql as { values: unknown[] }).values,
-      )
-    ).rows;
-  };
+      ).rows;
+    };
+  const queryRaw = queryRawFor(db);
   const prisma = {
     $queryRaw: queryRaw,
+    $transaction: async <T>(
+      call: (tx: { $queryRaw: typeof queryRaw }) => Promise<T>,
+      options?: { isolationLevel?: string },
+    ) => {
+      expect(options?.isolationLevel).toBe("RepeatableRead");
+      return db.transaction(async (tx) => {
+        // Real SQL transaction semantics; concurrent snapshot proof uses PG17.
+        await tx.exec("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        return call({ $queryRaw: queryRawFor(tx) });
+      });
+    },
     workspaceMember: {
       findFirst: async ({
         where,
@@ -152,7 +166,12 @@ describe("tenant usage API and SQL scope", () => {
     const response = await get("&provider=A&model=X&runAfter=run-a");
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    const report = await response.json();
+    const { scope, report } = await response.json();
+    expect(scope).toEqual({
+      actorId: "member",
+      workspaceId: "w",
+      effectiveAccess: "member",
+    });
     expect(report.totals.tokens.total).toBe(260);
     expect(report.attempts).toBe(2);
     expect(report.logicalRuns).toBe(2);
@@ -181,7 +200,12 @@ describe("tenant usage API and SQL scope", () => {
   });
   it("retains admin scope and filters direct reader model by requested rather than actual model", async () => {
     actor("admin");
-    const report = await (await get()).json();
+    const { report, scope } = await (await get()).json();
+    expect(scope).toEqual({
+      actorId: "admin",
+      workspaceId: "w",
+      effectiveAccess: "admin",
+    });
     expect(report.overview.facets.providers).toEqual(["A", "B", "C"]);
     expect(report.attempts).toBe(4);
     const reader = new PrismaUsageReportReader(prisma);
@@ -238,7 +262,9 @@ describe("tenant usage API and SQL scope", () => {
       "runAfter=bad%00cursor",
     ])
       expect((await request(params)).status).toBe(400);
-    const unknown = await (await get("&model=unknown-valid-id")).json();
+    const { report: unknown } = await (
+      await get("&model=unknown-valid-id")
+    ).json();
     expect(unknown.rows).toEqual([]);
     expect(unknown.totals.tokens.total).toBeNull();
   });

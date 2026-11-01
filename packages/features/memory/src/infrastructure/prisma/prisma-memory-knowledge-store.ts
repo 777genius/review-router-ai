@@ -1,3 +1,9 @@
+import {
+  transitionAutomaticMemoryOwnership,
+  activateAutomaticMemoryCohort,
+  reserveAutomaticMemorySource,
+  automaticMemoryLineageKey,
+} from "./prisma-memory-automatic-source-store";
 import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { createMemoryBodyHash } from "../../domain/memory-body";
@@ -5,6 +11,8 @@ import { memoryCleanupAuthorityMatches } from "../../application/memory-cleanup-
 import { memoryActorRef } from "../../domain/memory-actor";
 import {
   MemoryKnowledgeError,
+  automaticMemoryChildCommandId,
+  automaticMemoryCohortId,
   memoryKnowledgeCommandDigest,
   memoryKnowledgeDigest,
   memoryKnowledgeScopeKey,
@@ -66,7 +74,13 @@ const terminal = new Set(["published", "completed", "failed"]);
 
 /** SQL is intentionally scoped to authority/delivery tables, never provider content. */
 export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly options: {
+      readonly automaticSourcesEnabled?: boolean;
+      readonly providerProfileVersion?: string;
+    } = {},
+  ) {}
 
   async maintenanceState(
     generation: string,
@@ -197,6 +211,107 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
   async admit(
     input: Parameters<MemoryKnowledgeStore["admit"]>[0],
   ): Promise<MemoryKnowledgeOperation> {
+    return this.prisma.$transaction((tx) => this.admitInTransaction(tx, input));
+  }
+
+  async admitAutomaticSelection(
+    input: Parameters<MemoryKnowledgeStore["admitAutomaticSelection"]>[0],
+  ): ReturnType<MemoryKnowledgeStore["admitAutomaticSelection"]> {
+    const { reservation, children, retirements } = input;
+    const { scope } = reservation.input;
+    if (
+      children.length !== reservation.entryIds.length ||
+      children.length > 4 ||
+      retirements.length > 4 ||
+      retirements.some(
+        (item) => item.command.kind !== "retire" || !item.internalRetirement,
+      ) ||
+      children.some(
+        (child, index) =>
+          child.command.kind !== "save" ||
+          child.command.ref.entryId !== reservation.entryIds[index] ||
+          child.command.commandId !==
+            automaticMemoryChildCommandId(
+              reservation.input.processingId,
+              index,
+            ) ||
+          child.command.source.sourceId !== reservation.input.source.sourceId ||
+          child.command.source.revision !== reservation.input.source.revision ||
+          createMemoryBodyHash(child.command.body) !==
+            reservation.bodyDigests[index],
+      ) ||
+      [...children, ...retirements].some(
+        (item) =>
+          item.command.generation !== reservation.generation ||
+          !sameMemoryKnowledgeScope(item.command.ref.scope, scope),
+      )
+    )
+      throw new MemoryKnowledgeError("invalid_input");
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(reservation.generation)},0))`,
+      );
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`memory-admission:${scope.workspaceId}`},0))`,
+      );
+      await this.lockScope(tx, scope, reservation.generation);
+      const source = await reserveAutomaticMemorySource(tx, reservation);
+      if (source.suppressed) return { source, operations: [] };
+      if (source.state === "unselected")
+        throw new MemoryKnowledgeError("conflict");
+      // Existing explicit corrections win. A skipped old retirement never bypasses new-child quota.
+      for (const retirement of retirements) {
+        const current = await this.entry(
+          tx,
+          retirement.command.ref,
+          reservation.generation,
+        );
+        if (
+          !current ||
+          current.metadata.automaticSource?.cohortId !==
+            retirement.internalRetirement?.cohortId ||
+          current.metadata.revision !== retirement.command.expectedRevision ||
+          current.metadata.lifecycle !== "active" ||
+          current.revocationCommandId
+        )
+          continue;
+        await this.admitInTransaction(tx, retirement);
+      }
+      const operations: MemoryKnowledgeOperation[] = [];
+      for (const child of children)
+        operations.push(
+          await this.admitInTransaction(tx, {
+            ...child,
+            automaticSource: source.binding,
+          }),
+        );
+      return { source, operations };
+    });
+  }
+
+  async findAutomaticOperations(
+    input: Parameters<MemoryKnowledgeStore["findAutomaticOperations"]>[0],
+  ): Promise<readonly MemoryKnowledgeOperation[]> {
+    const ids = Array.from({ length: 4 }, (_, index) =>
+      automaticMemoryChildCommandId(input.processingId, index),
+    );
+    const rows = await this.prisma.$queryRaw<
+      Pick<CommandRow, "id" | "entryId" | "revision" | "state" | "safeReason">[]
+    >(Prisma.sql`
+      SELECT c."id",c."entryId",c."revision",c."state",c."safeReason" FROM "MemoryKnowledgeCommand" c JOIN "MemoryAutomaticEntry" a
+      ON a."generation"=c."generation" AND a."scopeKey"=c."scopeKey" AND a."entryId"=c."entryId"
+      WHERE c."generation"=${input.generation} AND c."scopeKey"=${memoryKnowledgeScopeKey(input.scope)}
+        AND c."commandKind"='save' AND c."id" IN (${Prisma.join(ids)})
+        AND a."lineageKey"=${automaticMemoryLineageKey(input.scope, input.sourceId)}
+        AND a."cohortId"=${automaticMemoryCohortId(input.processingId)}
+      ORDER BY array_position(ARRAY[${Prisma.join(ids)}]::text[],c."id")`);
+    return rows.map((row) => this.operation(row, input.scope));
+  }
+
+  private async admitInTransaction(
+    tx: Prisma.TransactionClient,
+    input: Parameters<MemoryKnowledgeStore["admit"]>[0],
+  ): Promise<MemoryKnowledgeOperation> {
     const command = normalizeMemoryKnowledgeCommand(input.command);
     if (
       memoryKnowledgeCommandDigest(command) !== input.digest ||
@@ -208,202 +323,220 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       JSON.stringify(command).length > 16_000
     )
       throw new MemoryKnowledgeError("invalid_input");
-    return this.prisma.$transaction(async (tx) => {
-      // Pause and admission use the same order as transport/cleanup: generation
-      // barrier first, then scope locks. A pause cannot overtake an admitted write.
-      await tx.$executeRaw(
-        Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(command.generation)},0))`,
-      );
-      // Quota, source cursors and admission must agree across scopes/processes.
-      await tx.$executeRaw(
-        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`memory-admission:${command.ref.scope.workspaceId}`}, 0))`,
-      );
-      await tx.$executeRaw(
-        Prisma.sql`INSERT INTO "MemoryKnowledgeMaintenanceFence" ("generation","epoch","paused","actor","updatedAt") VALUES (${command.generation},0,false,'initial_admission',${input.now}) ON CONFLICT DO NOTHING`,
-      );
+
+    // Pause and admission use the same order as transport/cleanup: generation
+    // barrier first, then scope locks. A pause cannot overtake an admitted write.
+    await tx.$executeRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(command.generation)},0))`,
+    );
+    // Quota, source cursors and admission must agree across scopes/processes.
+    await tx.$executeRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`memory-admission:${command.ref.scope.workspaceId}`}, 0))`,
+    );
+    await tx.$executeRaw(
+      Prisma.sql`INSERT INTO "MemoryKnowledgeMaintenanceFence" ("generation","epoch","paused","actor","updatedAt") VALUES (${command.generation},0,false,'initial_admission',${input.now}) ON CONFLICT DO NOTHING`,
+    );
+    if (
+      (command.kind === "save" || command.kind === "topics") &&
+      (await readMemoryMaintenanceState(tx, command.generation)).paused
+    )
+      throw new MemoryKnowledgeError("unavailable", true);
+    await this.lockScope(tx, command.ref.scope, command.generation);
+    const existingCommand = await this.command(tx, command.commandId);
+    if (existingCommand) {
       if (
-        (command.kind === "save" || command.kind === "topics") &&
-        (await readMemoryMaintenanceState(tx, command.generation)).paused
+        existingCommand.digest !== input.digest ||
+        existingCommand.generation !== command.generation ||
+        existingCommand.scopeKey !== memoryKnowledgeScopeKey(command.ref.scope)
       )
-        throw new MemoryKnowledgeError("unavailable", true);
-      await this.lockScope(tx, command.ref.scope, command.generation);
-      const existingCommand = await this.command(tx, command.commandId);
-      if (existingCommand) {
-        if (
-          existingCommand.digest !== input.digest ||
-          existingCommand.generation !== command.generation ||
-          existingCommand.scopeKey !==
-            memoryKnowledgeScopeKey(command.ref.scope)
-        )
-          throw new MemoryKnowledgeError("conflict");
-        return this.operation(existingCommand, command.ref.scope);
-      }
-      const current = await this.entry(tx, command.ref, command.generation);
+        throw new MemoryKnowledgeError("conflict");
+      return this.operation(existingCommand, command.ref.scope);
+    }
+    const current = await this.entry(tx, command.ref, command.generation);
+    if (
+      !current &&
+      (command.kind !== "save" || command.expectedRevision !== null)
+    )
+      throw new MemoryKnowledgeError("not_found");
+    if (current && command.expectedRevision !== String(current.revision))
+      throw new MemoryKnowledgeError("conflict");
+    if (
+      command.kind === "expire" &&
+      (!current ||
+        current.metadata.lifecycle !== "active" ||
+        !current.metadata.applicability.validUntil ||
+        Date.parse(current.metadata.applicability.validUntil) >
+          input.now.getTime())
+    )
+      throw new MemoryKnowledgeError("conflict");
+    const urgent =
+      command.kind === "retire" ||
+      command.kind === "expire" ||
+      command.kind === "forget";
+    if (current) {
+      // Physical Forget may supersede a stop-using intent that cannot settle.
+      // Preserve the oldest pending command; only advance its revocation fence.
+      const supersedesStopUsing =
+        command.kind === "forget" &&
+        (current.metadata.lifecycle === "retired" ||
+          current.metadata.lifecycle === "expired");
       if (
-        !current &&
-        (command.kind !== "save" || command.expectedRevision !== null)
+        current.metadata.lifecycle === "forgotten" ||
+        current.metadata.lifecycle === "forget_pending" ||
+        (current.revocationCommandId && !supersedesStopUsing)
       )
-        throw new MemoryKnowledgeError("not_found");
-      if (current && command.expectedRevision !== String(current.revision))
         throw new MemoryKnowledgeError("conflict");
       if (
-        command.kind === "expire" &&
-        (!current ||
+        !urgent &&
+        (current.pendingCommandId ||
           current.metadata.lifecycle !== "active" ||
-          !current.metadata.applicability.validUntil ||
-          Date.parse(current.metadata.applicability.validUntil) >
-            input.now.getTime())
+          (current.metadata.applicability.validUntil &&
+            Date.parse(current.metadata.applicability.validUntil) <=
+              input.now.getTime()))
       )
         throw new MemoryKnowledgeError("conflict");
-      const urgent =
-        command.kind === "retire" ||
-        command.kind === "expire" ||
-        command.kind === "forget";
-      if (current) {
-        // Physical Forget may supersede a stop-using intent that cannot settle.
-        // Preserve the oldest pending command; only advance its revocation fence.
-        const supersedesStopUsing =
-          command.kind === "forget" &&
-          (current.metadata.lifecycle === "retired" ||
-            current.metadata.lifecycle === "expired");
-        if (
-          current.metadata.lifecycle === "forgotten" ||
-          current.metadata.lifecycle === "forget_pending" ||
-          (current.revocationCommandId && !supersedesStopUsing)
-        )
-          throw new MemoryKnowledgeError("conflict");
-        if (
-          !urgent &&
-          (current.pendingCommandId ||
-            current.metadata.lifecycle !== "active" ||
-            (current.metadata.applicability.validUntil &&
-              Date.parse(current.metadata.applicability.validUntil) <=
-                input.now.getTime()))
-        )
-          throw new MemoryKnowledgeError("conflict");
-      }
-      const [counts] = await tx.$queryRaw<
-        { active: number; pending: number }[]
-      >(Prisma.sql`
+    }
+    const [counts] = await tx.$queryRaw<
+      { active: number; pending: number }[]
+    >(Prisma.sql`
         SELECT (SELECT count(*)::int FROM "MemoryKnowledgeEntry" WHERE "workspaceId"=${command.ref.scope.workspaceId} AND "lifecycle"='active' AND ("pendingCommandId" IS NOT NULL OR "metadata"->>'contentApprovalRevision' IS NOT NULL)) AS active,
           (SELECT count(*)::int FROM "MemoryKnowledgeCommand" WHERE "workspaceId"=${command.ref.scope.workspaceId} AND "state" NOT IN ('published','completed','failed')) AS pending`);
-      if (
-        !current &&
-        input.activeEntryLimit !== null &&
-        (counts?.active ?? 0) >= input.activeEntryLimit
-      )
-        throw new MemoryKnowledgeError("quota_exceeded");
-      if (!urgent && (counts?.pending ?? 0) >= input.pendingCommandLimit)
-        throw new MemoryKnowledgeError("quota_exceeded");
-      if (command.kind === "save")
-        await this.reserveSource(tx, command, input.now);
-      const revision = (current?.revision ?? 0) + 1;
-      const isSameBody =
-        command.kind === "save" &&
-        current?.metadata.bodyDigest === createMemoryBodyHash(command.body);
-      const originalStatementAt =
+    if (
+      !current &&
+      input.activeEntryLimit !== null &&
+      (counts?.active ?? 0) >= input.activeEntryLimit
+    )
+      throw new MemoryKnowledgeError("quota_exceeded");
+    if (!urgent && (counts?.pending ?? 0) >= input.pendingCommandLimit)
+      throw new MemoryKnowledgeError("quota_exceeded");
+    await transitionAutomaticMemoryOwnership(tx, {
+      ref: command.ref,
+      metadata: current?.metadata ?? null,
+      commandKind: command.kind,
+      ...(input.automaticSource
+        ? { automaticSource: input.automaticSource }
+        : {}),
+      ...(input.internalRetirement
+        ? { internalRetirement: input.internalRetirement }
+        : {}),
+      now: input.now,
+    });
+    if (command.kind === "save")
+      await this.reserveSource(
+        tx,
+        command,
+        input.now,
+        Boolean(input.automaticSource),
+      );
+    const revision = (current?.revision ?? 0) + 1;
+    const isSameBody =
+      command.kind === "save" &&
+      current?.metadata.bodyDigest === createMemoryBodyHash(command.body);
+    const originalStatementAt =
+      command.kind === "save"
+        ? isSameBody
+          ? current!.metadata.originalStatementAt
+          : command.source.statementAt
+        : current!.metadata.originalStatementAt;
+    const contentApprovalRevision =
+      command.kind === "save"
+        ? String(revision)
+        : (current!.metadata.contentApprovalRevision ?? String(revision));
+    const timestamp = input.now.toISOString();
+    let metadata: MemoryKnowledgeEntryMetadata = current?.metadata ?? {
+      ref: command.ref,
+      generation: command.generation,
+      revision: String(revision),
+      contentApprovalRevision: null,
+      bodyDigest: null,
+      topicsDigest: null,
+      kind: command.kind === "save" ? command.knowledgeKind : "rule",
+      lifecycle: "active",
+      approval: null,
+      source: null,
+      applicability:
         command.kind === "save"
-          ? isSameBody
-            ? current!.metadata.originalStatementAt
-            : command.source.statementAt
-          : current!.metadata.originalStatementAt;
-      const contentApprovalRevision =
-        command.kind === "save"
-          ? String(revision)
-          : (current!.metadata.contentApprovalRevision ?? String(revision));
-      const timestamp = input.now.toISOString();
-      let metadata: MemoryKnowledgeEntryMetadata = current?.metadata ?? {
-        ref: command.ref,
-        generation: command.generation,
-        revision: String(revision),
-        contentApprovalRevision: null,
-        bodyDigest: null,
-        topicsDigest: null,
-        kind: command.kind === "save" ? command.knowledgeKind : "rule",
-        lifecycle: "active",
-        approval: null,
-        source: null,
-        applicability:
-          command.kind === "save"
-            ? command.applicability
-            : {
-                validUntil: null,
-                observedCommitSha: null,
-                exceptionRule: null,
-              },
-        originalStatementAt: null,
-        lastVerifiedAt: null,
-        pendingCommandId: null,
-        revocationCommandId: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      metadata = {
-        ...metadata,
-        revision: String(revision),
-        updatedAt: timestamp,
-        pendingCommandId: current?.pendingCommandId ?? command.commandId,
-        revocationCommandId: urgent ? command.commandId : null,
-        lifecycle:
-          command.kind === "forget"
-            ? "forget_pending"
-            : command.kind === "retire"
-              ? "retired"
-              : command.kind === "expire"
-                ? "expired"
-                : metadata.lifecycle,
-      };
-      await tx.$executeRaw(Prisma.sql`
+          ? command.applicability
+          : {
+              validUntil: null,
+              observedCommitSha: null,
+              exceptionRule: null,
+            },
+      originalStatementAt: null,
+      lastVerifiedAt: null,
+      pendingCommandId: null,
+      revocationCommandId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    if (command.kind === "save" && !input.automaticSource) {
+      const maintained = { ...metadata };
+      delete maintained.automaticSource;
+      metadata = maintained;
+    }
+    metadata = {
+      ...metadata,
+      ...(input.automaticSource
+        ? { automaticSource: input.automaticSource }
+        : {}),
+      revision: String(revision),
+      updatedAt: timestamp,
+      pendingCommandId: current?.pendingCommandId ?? command.commandId,
+      revocationCommandId: urgent ? command.commandId : null,
+      lifecycle:
+        command.kind === "forget"
+          ? "forget_pending"
+          : command.kind === "retire"
+            ? "retired"
+            : command.kind === "expire"
+              ? "expired"
+              : metadata.lifecycle,
+    };
+    await tx.$executeRaw(Prisma.sql`
         INSERT INTO "MemoryKnowledgeCommand" ("id","generation","scopeKey","workspaceId","entryId","revision","commandKind","digest","approval","envelope","state","contentApprovalRevision","originalStatementAt","deliveryExpiresAt","resubmitUntil","createdAt","updatedAt")
         VALUES (${command.commandId},${command.generation},${memoryKnowledgeScopeKey(command.ref.scope)},${command.ref.scope.workspaceId},${command.ref.entryId},${revision},${command.kind},${input.digest},${JSON.stringify(command.approval)}::jsonb,${JSON.stringify(command)}::jsonb,'queued',${contentApprovalRevision},${originalStatementAt},${input.deliveryExpiresAt},${input.resubmitUntil},${input.now},${input.now})`);
-      await this.writeEntry(tx, metadata, input.now);
-      await this.bumpEpoch(
-        tx,
-        command.ref.scope,
-        command.generation,
-        input.now,
-      );
-      await tx.outboxEvent.create({
-        data: {
-          type: "memory.knowledge.command.requested",
-          version: 2,
-          idempotencyKey: `memory.knowledge.command:${command.commandId}`,
-          workspaceId: command.ref.scope.workspaceId,
-          repositoryId:
-            command.ref.scope.kind === "repository"
-              ? command.ref.scope.repositoryId
-              : null,
-          aggregateId: command.ref.entryId,
-          payload: {
-            commandId: command.commandId,
-            generation: command.generation,
-            scope: command.ref.scope,
-          },
-          occurredAt: input.now,
+    await this.writeEntry(tx, metadata, input.now);
+    await this.bumpEpoch(tx, command.ref.scope, command.generation, input.now);
+    await tx.outboxEvent.create({
+      data: {
+        type: "memory.knowledge.command.requested",
+        version: 2,
+        idempotencyKey: `memory.knowledge.command:${command.commandId}`,
+        workspaceId: command.ref.scope.workspaceId,
+        repositoryId:
+          command.ref.scope.kind === "repository"
+            ? command.ref.scope.repositoryId
+            : null,
+        aggregateId: command.ref.entryId,
+        payload: {
+          commandId: command.commandId,
+          generation: command.generation,
+          scope: command.ref.scope,
         },
-      });
-      await tx.auditEvent.create({
-        data: {
-          workspaceId: command.ref.scope.workspaceId,
-          actor: memoryActorRef(command.approval.actor),
-          action: `memory.knowledge.${command.kind}.admitted`,
-          targetType: "memory_entry",
-          targetId: command.ref.entryId,
-          metadata: {
-            commandId: command.commandId,
-            digest: input.digest,
-            revision,
-            generation: command.generation,
-          },
-        },
-      });
-      return {
-        id: command.commandId,
-        ref: command.ref,
-        revision: String(revision),
-        state: "queued",
-      };
+        occurredAt: input.now,
+      },
     });
+    await tx.auditEvent.create({
+      data: {
+        workspaceId: command.ref.scope.workspaceId,
+        actor: memoryActorRef(command.approval.actor),
+        action: `memory.knowledge.${command.kind}.admitted`,
+        targetType: "memory_entry",
+        targetId: command.ref.entryId,
+        metadata: {
+          commandId: command.commandId,
+          digest: input.digest,
+          revision,
+          generation: command.generation,
+        },
+      },
+    });
+    return {
+      id: command.commandId,
+      ref: command.ref,
+      revision: String(revision),
+      state: "queued",
+    };
   }
 
   async findEntry(
@@ -561,6 +694,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
           updatedAt: input.now.toISOString(),
         };
         await this.writeEntry(tx, metadata, input.now);
+        await activateAutomaticMemoryCohort(tx, metadata, input.now);
         await this.bumpEpoch(tx, input.scope, input.generation, input.now);
         if (nextPending)
           await tx.outboxEvent.create({
@@ -769,6 +903,8 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
   async scheduleDueDeliveries(
     input: Parameters<MemoryKnowledgeStore["scheduleDueDeliveries"]>[0],
   ): Promise<number> {
+    if (this.options.automaticSourcesEnabled)
+      await this.scheduleSupersededAutomaticRetirements(input);
     return this.prisma.$transaction(async (tx) => {
       if ((await readMemoryMaintenanceState(tx, input.generation)).paused)
         return 0;
@@ -799,6 +935,60 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       });
       return result.count;
     });
+  }
+
+  /** Existing recovery sweep reserves ordinary retire commands for superseded late callbacks. */
+  private async scheduleSupersededAutomaticRetirements(
+    input: Parameters<MemoryKnowledgeStore["scheduleDueDeliveries"]>[0],
+  ): Promise<void> {
+    const rows = await this.prisma.$queryRaw<
+      {
+        metadata: MemoryKnowledgeEntryMetadata;
+        approval: MemoryKnowledgeApproval | null;
+        profile: string;
+      }[]
+    >(
+      Prisma.sql`SELECT e."metadata",COALESCE(NULLIF(e."metadata"->'approval','null'::jsonb),c."approval") AS "approval",(SELECT p."envelope"->>'providerProfileVersion' FROM "MemoryKnowledgeCommand" p WHERE p."generation"=e."generation" AND p."scopeKey"=e."scopeKey" AND p."entryId"=e."entryId" AND p."envelope" IS NOT NULL ORDER BY p."revision" DESC LIMIT 1) AS "profile" FROM "MemoryAutomaticEntry" a JOIN "MemoryKnowledgeEntry" e USING ("generation","scopeKey","entryId") JOIN "MemoryAutomaticSource" s ON s."lineageKey"=a."lineageKey" LEFT JOIN "MemoryKnowledgeCommand" c ON c."id"=e."pendingCommandId" WHERE a."generation"=${input.generation} AND a."ownership"='automatic' AND e."lifecycle"='active' AND (s."state"->'binding'->>'cohortId'<>a."cohortId" OR (s."state"->>'state'='needs_refresh' AND s."state"->>'invalidatedBy' NOT IN ('unavailable','delivery_uncertain'))) ORDER BY a."scopeKey",a."entryId" LIMIT ${boundedMaintenanceLimit(input.limit)}`,
+    );
+    for (const row of rows) {
+      const metadata = row.metadata,
+        binding = metadata.automaticSource;
+      const profile = row.profile ?? this.options.providerProfileVersion;
+      if (!binding || !row.approval || !profile) continue;
+      const digest = memoryKnowledgeDigest([
+        "automatic-retirement",
+        input.generation,
+        metadata.ref,
+        binding.cohortId,
+      ]);
+      const command: MemoryKnowledgeCommand = {
+        kind: "retire",
+        ref: metadata.ref,
+        commandId: `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`,
+        expectedRevision: metadata.revision,
+        generation: input.generation,
+        providerProfileVersion: profile,
+        approval: row.approval,
+      };
+      try {
+        await this.admit({
+          command,
+          internalRetirement: binding,
+          digest: memoryKnowledgeCommandDigest(command),
+          now: input.now,
+          deliveryExpiresAt: new Date(input.now.getTime() + 7 * 86400000),
+          resubmitUntil: input.now,
+          activeEntryLimit: null,
+          pendingCommandLimit: 100,
+        });
+      } catch (error) {
+        if (
+          !(error instanceof MemoryKnowledgeError) ||
+          error.code !== "conflict"
+        )
+          throw error;
+      }
+    }
   }
 
   private verifiedPublication(
@@ -885,6 +1075,7 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     tx: Database,
     command: Extract<MemoryKnowledgeCommand, { kind: "save" }>,
     now: Date,
+    checkedAutomaticSource = false,
   ): Promise<void> {
     const source = command.source;
     const key = memoryKnowledgeDigest([
@@ -901,7 +1092,8 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     if (
       cursor &&
       (cursor.sourceAt > sourceAt ||
-        (cursor.sourceAt.getTime() === sourceAt.getTime() &&
+        (!checkedAutomaticSource &&
+          cursor.sourceAt.getTime() === sourceAt.getTime() &&
           cursor.revision !== source.revision))
     )
       throw new MemoryKnowledgeError("conflict");
@@ -946,7 +1138,10 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     return row ?? null;
   }
   private operation(
-    row: CommandRow,
+    row: Pick<
+      CommandRow,
+      "id" | "entryId" | "revision" | "state" | "safeReason"
+    >,
     scope: MemoryKnowledgeScope,
   ): MemoryKnowledgeOperation {
     return {

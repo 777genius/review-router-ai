@@ -11,10 +11,7 @@ import {
   type SafeBindingTuple,
   type ConnectionOwner,
 } from "@reviewrouter/features-provider-accounts";
-import {
-  readAccountModelCatalogEnabled,
-  readPersonalAccountSharingEnabled,
-} from "@reviewrouter/features-provider-accounts/composition";
+import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import type {
   AccountProfileView,
   AccountsPage,
@@ -206,11 +203,7 @@ export function createGatewayModelAccountOptions(input: {
           authKind: profile.authKind,
         })
       : undefined;
-    if (
-      readModels &&
-      readAccountModelCatalogEnabled(input.env) &&
-      discoverySource
-    ) {
+    if (readModels && discoverySource) {
       let models: c.AccountModels;
       try {
         models = gateway.readAccountModels

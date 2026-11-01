@@ -53,13 +53,14 @@ afterEach(() => {
 });
 
 describe("public Review Action v2 contract handoff", () => {
-  it("hands off the canonical usage v1 validator and dependency as managed digest-bound artifacts", async () => {
+  it("hands off canonical usage and conversation companions as managed digest-bound artifacts", async () => {
     const fixture = createRepositories();
     for (const file of [
       "usage-v1.ts",
       "usage-price-v1.ts",
       "usage-producer-v1.ts",
       "usage-responses-v1.ts",
+      "conversation.ts",
     ]) {
       write(
         join(fixture.saasRepo, sourceDirectory, file),
@@ -86,6 +87,7 @@ describe("public Review Action v2 contract handoff", () => {
       "usage-price-v1.ts",
       "usage-producer-v1.ts",
       "usage-responses-v1.ts",
+      "conversation.ts",
     ]) {
       const contents = readFileSync(
         join(fixture.actionRepo, PUBLIC_GENERATED_DIRECTORY, file),

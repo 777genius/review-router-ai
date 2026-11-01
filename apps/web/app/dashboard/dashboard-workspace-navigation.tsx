@@ -242,7 +242,11 @@ export function WorkspaceSwitcher({
     ? {
         id: pendingOrganizationInstallRequest.id,
         label: pendingOrganizationInstallRequest.accountLogin,
-        href: dashboardSectionHref(selectedSection),
+        href: dashboardSectionHref(
+          selectedSection,
+          undefined,
+          selectedSection === "context-tools" ? selectedWorkspaceId : undefined,
+        ),
         statusLabel: "Request pending",
       }
     : null;

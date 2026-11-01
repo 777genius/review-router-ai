@@ -17,6 +17,7 @@ on:
       - vendor/account-gateway/**
       - package.json
       - pnpm-lock.yaml
+      - scripts/install-private-dependencies.mjs
       - pnpm-workspace.yaml
       - vitest.config.ts
       - .github/workflows/account-gateway-operator-grants.yml
@@ -37,6 +38,7 @@ on:
       - vendor/account-gateway/**
       - package.json
       - pnpm-lock.yaml
+      - scripts/install-private-dependencies.mjs
       - pnpm-workspace.yaml
       - vitest.config.ts
       - .github/workflows/account-gateway-operator-grants.yml
@@ -93,7 +95,7 @@ jobs:
       - name: Install pinned dependencies
         run: |
           npm install --global pnpm@11.28.7
-          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Generate actual Prisma client
         run: pnpm --filter @reviewrouter/platform-db db:generate
       - name: Apply all historical migrations to disposable PostgreSQL

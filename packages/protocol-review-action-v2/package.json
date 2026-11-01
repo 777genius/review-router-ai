@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./conversation": {
+      "types": "./src/conversation.ts",
+      "production": "./dist/conversation.js",
+      "default": "./src/conversation.ts"
+    },
     "./usage-responses-v1": {
       "types": "./src/generated/usage-responses-v1.ts",
       "production": "./dist/generated/usage-responses-v1.js",

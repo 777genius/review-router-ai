@@ -1,7 +1,15 @@
 import {
   lifecycleVerificationContract,
+  parseReviewReviewerPlan,
+  type ReviewReviewerPlanV1,
+  type ReviewReviewerPlanReviewerV1,
+  type ReviewReviewerModelSettings,
   lifecycleVerificationDescriptorDigest,
-  type LifecycleVerificationCapabilityV1,
+  type LifecycleVerificationCapability,
+  parseLifecycleVerificationCapabilityV2,
+  parseReviewModelDispatchCapabilityV2,
+  type ReviewModelDispatchCapabilityV2,
+  reviewModelTransportForAuthMode,
 } from "@reviewrouter/shared";
 import { reviewAgentExecutionProviderKind } from "./review-agent-profile";
 import {
@@ -21,12 +29,13 @@ import {
 } from "./producer-release";
 
 /** Private admission data. Never included in public authorization claims/facts. */
-export type ReviewRunRuntimeSnapshot = {
+export type ReviewRunRuntimeSnapshotV3 = {
   readonly snapshotVersion: 3;
   readonly lifecycleVerificationUnavailableReason?:
     | "verification_configuration_invalid"
     | "verification_unavailable";
-  readonly lifecycleVerificationCapability?: LifecycleVerificationCapabilityV1;
+  readonly lifecycleVerificationCapability?: LifecycleVerificationCapability;
+  readonly modelDispatchCapability?: ReviewModelDispatchCapabilityV2;
   readonly prDescriptionCapability?: ProducerPrDescriptionProfile;
   readonly configurationSource: "workspace" | "repository";
   readonly configurationVersion: number;
@@ -46,16 +55,99 @@ export type ReviewRunRuntimeSnapshot = {
   readonly contextToolsPlanCanonicalJson?: string;
   readonly deadline: string;
   readonly gateway: ReviewRunGatewaySelection | null;
+  /** Original Hosted grant identity; no token or credential material. */
+  readonly hosted?: ReviewRunHostedSelection;
 };
+
+export type ReviewRunHostedSelection = Readonly<{
+  grantId: string;
+  invocationId: string;
+  poolId: string;
+  repositoryBindingId: string;
+  activeAccountId: string;
+  reviewRequestId: string;
+  providerInvocationKey: string;
+  policyFingerprint: string;
+  model: string;
+  expiresAt: string;
+  bindingRevision: number;
+  runtimeConfigVersion: number;
+  authzEpoch: string;
+  runtimeAuthzEpoch: string;
+}>;
+
+export function parseReviewRunHostedSelection(
+  value: unknown,
+): ReviewRunHostedSelection {
+  const names = [
+    "grantId",
+    "invocationId",
+    "poolId",
+    "repositoryBindingId",
+    "activeAccountId",
+    "reviewRequestId",
+    "providerInvocationKey",
+    "policyFingerprint",
+    "model",
+    "expiresAt",
+    "bindingRevision",
+    "runtimeConfigVersion",
+    "authzEpoch",
+    "runtimeAuthzEpoch",
+  ];
+  if (!record(value) || !keys(value, names)) fail();
+  for (const name of [
+    "grantId",
+    "invocationId",
+    "poolId",
+    "repositoryBindingId",
+    "activeAccountId",
+    "reviewRequestId",
+  ])
+    if (!reference(value[name])) fail();
+  for (const name of ["providerInvocationKey", "policyFingerprint"])
+    if (typeof value[name] !== "string" || !/^[a-f0-9]{64}$/.test(value[name]))
+      fail();
+  for (const name of ["authzEpoch", "runtimeAuthzEpoch"])
+    if (
+      typeof value[name] !== "string" ||
+      !/^[1-9][0-9]{0,18}$/.test(value[name]) ||
+      BigInt(value[name]) > 9_223_372_036_854_775_807n
+    )
+      fail();
+  if (
+    typeof value.bindingRevision !== "number" ||
+    !Number.isSafeInteger(value.bindingRevision) ||
+    value.bindingRevision < 1 ||
+    !revision(value.runtimeConfigVersion) ||
+    typeof value.model !== "string" ||
+    !value.model ||
+    value.model.trim() !== value.model ||
+    value.model.length > 256 ||
+    typeof value.expiresAt !== "string" ||
+    !Number.isFinite(Date.parse(value.expiresAt)) ||
+    new Date(value.expiresAt).toISOString() !== value.expiresAt
+  )
+    fail();
+  return Object.freeze({ ...value }) as ReviewRunHostedSelection;
+}
 
 /** An explicit captured epoch is binding on both initial selection and recovery. */
 export function reviewRunGatewayEpochMatches(
   snapshot: ReviewRunRuntimeSnapshot,
   selectedEpoch: number,
+  allocationId?: string,
 ): boolean {
+  const original =
+    snapshot.snapshotVersion === 3
+      ? snapshot.gateway
+      : allocationId === undefined
+        ? undefined
+        : getReviewRunGatewayAllocation(snapshot, allocationId);
   return (
-    snapshot.gateway?.expectedAuthorizationEpoch === undefined ||
-    snapshot.gateway.expectedAuthorizationEpoch === selectedEpoch
+    original !== undefined &&
+    (original?.expectedAuthorizationEpoch === undefined ||
+      original.expectedAuthorizationEpoch === selectedEpoch)
   );
 }
 
@@ -110,11 +202,283 @@ export type ReviewRunGatewaySelection = {
   readonly expectedAuthorizationEpoch?: number;
 };
 
+export type ReviewRunGatewayAllocation = Omit<
+  ReviewRunGatewaySelection,
+  "providerIndex"
+> &
+  Readonly<{
+    allocationId: string;
+  }>;
+export type ReviewRunReviewerV4 = Omit<
+  ReviewReviewerPlanReviewerV1,
+  "transport" | "unavailableReason"
+> &
+  Readonly<{
+    transport: Readonly<{ kind: "account_gateway"; allocationId: string }>;
+  }>;
+export type ReviewRunRuntimeSnapshotV4 = Omit<
+  ReviewRunRuntimeSnapshotV3,
+  "snapshotVersion" | "agent" | "agentProfileDigest" | "gateway"
+> &
+  Readonly<{
+    snapshotVersion: 4;
+    primaryReviewerId: string;
+    maxParallelReviewers: number;
+    inlineMinAgreement: number;
+    reviewers: readonly ReviewRunReviewerV4[];
+    allocations: readonly ReviewRunGatewayAllocation[];
+  }>;
+export type ReviewRunRuntimeSnapshot =
+  | ReviewRunRuntimeSnapshotV3
+  | ReviewRunRuntimeSnapshotV4;
+
+/** No selector can silently select a v4 sibling. */
+export function getReviewRunReviewer(
+  snapshot: ReviewRunRuntimeSnapshotV4,
+  reviewerId: string,
+): ReviewRunReviewerV4 {
+  const reviewer = snapshot.reviewers.find(
+    (row) => row.reviewerId === reviewerId,
+  );
+  if (!reviewer) fail();
+  return reviewer;
+}
+export function getPrimaryReviewRunReviewer(
+  snapshot: ReviewRunRuntimeSnapshotV4,
+): ReviewRunReviewerV4 {
+  return getReviewRunReviewer(snapshot, snapshot.primaryReviewerId);
+}
+export function getReviewRunGatewayAllocation(
+  snapshot: ReviewRunRuntimeSnapshotV4,
+  allocationId: string,
+): ReviewRunGatewayAllocation {
+  const allocation = snapshot.allocations.find(
+    (row) => row.allocationId === allocationId,
+  );
+  if (!allocation) fail();
+  return allocation;
+}
+
+export function buildReviewRunReviewerPlan(
+  snapshot: ReviewRunRuntimeSnapshotV4,
+  settingsMap: ReadonlyMap<
+    string,
+    ReviewReviewerModelSettings | undefined
+  > = new Map(),
+): ReviewReviewerPlanV1 {
+  const reviewers = snapshot.reviewers.map((reviewer) => ({
+    ...reviewer,
+    transport: "account_gateway" as const,
+    ...(settingsMap.get(reviewer.reviewerId) === undefined
+      ? {}
+      : { modelSettings: settingsMap.get(reviewer.reviewerId) }),
+  }));
+  return parseReviewReviewerPlan({
+    planVersion: 1,
+    primaryReviewerId: snapshot.primaryReviewerId,
+    maxParallelReviewers: snapshot.maxParallelReviewers,
+    inlineMinAgreement: snapshot.inlineMinAgreement,
+    reviewers,
+    concurrencyGroups: snapshot.allocations.map((allocation) => ({
+      concurrencyGroupId: allocation.allocationId,
+      maxParallel: Math.min(
+        allocation.limits.concurrency,
+        reviewers.filter(
+          (row) => row.concurrencyGroupId === allocation.allocationId,
+        ).length,
+      ),
+    })),
+  });
+}
+
 export function parseReviewRunRuntimeSnapshot(
   value: string | null | undefined,
 ): ReviewRunRuntimeSnapshot | null {
   if (value === null || value === undefined) return null;
-  if (new TextEncoder().encode(value).byteLength > 32_768) fail();
+  if (new TextEncoder().encode(value).byteLength > 131_072) fail();
+  const parsed: unknown = JSON.parse(value);
+  if (!record(parsed) || parsed.snapshotVersion !== 4)
+    return parseReviewRunRuntimeSnapshotV3(value);
+  if (
+    !keys(parsed, [
+      "snapshotVersion",
+      "configurationSource",
+      "configurationVersion",
+      "workspaceConfigurationVersion",
+      "repositoryConfigurationVersion",
+      "effectivePolicyDigest",
+      "producer",
+      "configurationCanonicalJson",
+      "deadline",
+      "primaryReviewerId",
+      "maxParallelReviewers",
+      "inlineMinAgreement",
+      "reviewers",
+      "allocations",
+      ...[
+        "contextToolsPlanCanonicalJson",
+        "lifecycleVerificationUnavailableReason",
+        "lifecycleVerificationCapability",
+        "prDescriptionCapability",
+      ].filter((key) => Object.hasOwn(parsed, key)),
+    ]) ||
+    !Array.isArray(parsed.reviewers) ||
+    parsed.reviewers.length < 1 ||
+    parsed.reviewers.length > 16 ||
+    !Array.isArray(parsed.allocations) ||
+    parsed.allocations.length < 1 ||
+    parsed.allocations.length > parsed.reviewers.length
+  )
+    fail();
+  const {
+    reviewers: rawReviewers,
+    allocations: rawAllocations,
+    primaryReviewerId,
+    maxParallelReviewers,
+    inlineMinAgreement,
+    snapshotVersion: _version,
+    ...common
+  } = parsed;
+  void _version;
+  const allocations = rawAllocations.map((row: unknown) => {
+    if (!record(row) || !reference(row.allocationId)) fail();
+    return row;
+  });
+  if (
+    new Set(allocations.map((row) => row.allocationId)).size !==
+    allocations.length
+  )
+    fail();
+  const reviewers = rawReviewers.map((row: unknown) => {
+    if (
+      !record(row) ||
+      !record(row.transport) ||
+      !keys(row.transport, ["kind", "allocationId"]) ||
+      row.transport.kind !== "account_gateway" ||
+      !reference(row.transport.allocationId) ||
+      row.concurrencyGroupId !== row.transport.allocationId ||
+      !allocations.some(
+        (allocation) => allocation.allocationId === row.concurrencyGroupId,
+      )
+    )
+      fail();
+    return row;
+  });
+  if (reviewers.some((row) => Object.hasOwn(row, "unavailableReason"))) fail();
+  const plan = parseReviewReviewerPlan({
+    planVersion: 1,
+    primaryReviewerId,
+    maxParallelReviewers,
+    inlineMinAgreement,
+    reviewers: reviewers.map((row) => ({
+      ...row,
+      transport: "account_gateway",
+    })),
+    concurrencyGroups: allocations.map((allocation) => {
+      const limits = parseReviewRunGatewayLimits(allocation.limits);
+      return {
+        concurrencyGroupId: allocation.allocationId,
+        maxParallel: Math.min(
+          limits.concurrency,
+          reviewers.filter(
+            (row) => row.concurrencyGroupId === allocation.allocationId,
+          ).length,
+        ),
+      };
+    }),
+  });
+  const primary = plan.reviewers[0]!;
+  let parsedCommon: ReviewRunRuntimeSnapshotV3 | undefined;
+  const selectedAllocations = allocations.map((row) => {
+    const { allocationId, ...selection } = row;
+    const reviewer = plan.reviewers.find(
+      (reviewer) => reviewer.concurrencyGroupId === allocationId,
+    );
+    if (!reviewer) fail();
+    const primaryAllocation = primary.concurrencyGroupId === allocationId;
+    const { lifecycleVerificationCapability: _capability, ...otherCommon } =
+      common;
+    void _capability;
+    // Common snapshot facts and every exact allowance retain the historical validators.
+    const legacy = parseReviewRunRuntimeSnapshotV3(
+      canonicalJson({
+        ...(primaryAllocation ? common : otherCommon),
+        snapshotVersion: 3,
+        agent: reviewer.agentProfile,
+        agentProfileDigest: reviewer.agentProfileDigest,
+        gateway: { ...selection, providerIndex: reviewer.providerIndex },
+      }),
+      131_072,
+    );
+    if (!legacy?.gateway) fail();
+    if (primaryAllocation) parsedCommon = legacy;
+    return {
+      allocationId: String(allocationId),
+      ...selection,
+      limits: legacy.gateway.limits,
+    } as ReviewRunGatewayAllocation;
+  });
+  if (!parsedCommon || canonicalJson(parsed) !== value) fail();
+  const configuration: unknown = JSON.parse(
+    parsedCommon.configurationCanonicalJson,
+  );
+  if (
+    !record(configuration) ||
+    !Array.isArray(configuration.providers) ||
+    configuration.providers.length !== plan.reviewers.length
+  )
+    fail();
+  for (const reviewer of plan.reviewers) {
+    const provider: unknown = configuration.providers[reviewer.providerIndex];
+    const allocation = selectedAllocations.find(
+      (row) => row.allocationId === reviewer.concurrencyGroupId,
+    )!;
+    if (
+      !record(provider) ||
+      provider.authMode !== "codex_account_gateway" ||
+      provider.gatewayBindingId !== allocation.bindingId ||
+      provider.gatewayProfileRef !== allocation.profileRef ||
+      provider.model !== reviewer.requestedModel ||
+      provider.reasoningEffort !== reviewer.reasoningEffort ||
+      provider.agenticContext !== reviewer.agenticContext ||
+      provider.fastMode !== reviewer.fastMode
+    )
+      fail();
+  }
+  const {
+    agent: _agent,
+    agentProfileDigest: _digest,
+    gateway: _gateway,
+    snapshotVersion: _legacyVersion,
+    ...shared
+  } = parsedCommon;
+  void _agent;
+  void _digest;
+  void _gateway;
+  void _legacyVersion;
+  return {
+    ...shared,
+    snapshotVersion: 4,
+    primaryReviewerId: plan.primaryReviewerId,
+    maxParallelReviewers: plan.maxParallelReviewers,
+    inlineMinAgreement: plan.inlineMinAgreement,
+    reviewers: plan.reviewers.map((reviewer) => ({
+      ...reviewer,
+      transport: {
+        kind: "account_gateway",
+        allocationId: reviewer.concurrencyGroupId,
+      },
+    })),
+    allocations: selectedAllocations,
+  };
+}
+
+function parseReviewRunRuntimeSnapshotV3(
+  value: string | null | undefined,
+  maximumBytes = 32_768,
+): ReviewRunRuntimeSnapshotV3 | null {
+  if (value === null || value === undefined) return null;
+  if (new TextEncoder().encode(value).byteLength > maximumBytes) fail();
   const parsed: unknown = JSON.parse(value);
   if (
     !record(parsed) ||
@@ -134,6 +498,7 @@ export function parseReviewRunRuntimeSnapshot(
       ...(Object.hasOwn(parsed, "contextToolsPlanCanonicalJson")
         ? ["contextToolsPlanCanonicalJson"]
         : []),
+      ...(Object.hasOwn(parsed, "hosted") ? ["hosted"] : []),
       ...("lifecycleVerificationUnavailableReason" in parsed
         ? ["lifecycleVerificationUnavailableReason"]
         : []),
@@ -142,6 +507,9 @@ export function parseReviewRunRuntimeSnapshot(
         : []),
       ...("prDescriptionCapability" in parsed
         ? ["prDescriptionCapability"]
+        : []),
+      ...("modelDispatchCapability" in parsed
+        ? ["modelDispatchCapability"]
         : []),
     ])
   )
@@ -296,6 +664,37 @@ export function parseReviewRunRuntimeSnapshot(
       limits: parseReviewRunGatewayLimits(row.limits),
     };
   }
+  const modelDispatchCapability =
+    "modelDispatchCapability" in parsed
+      ? parseReviewModelDispatchCapabilityV2(parsed.modelDispatchCapability)
+      : undefined;
+  const hosted = Object.hasOwn(parsed, "hosted")
+    ? parseReviewRunHostedSelection(parsed.hosted)
+    : undefined;
+  if ((modelDispatchCapability?.transport === "hosted_pool") !== !!hosted)
+    fail();
+  if (modelDispatchCapability) {
+    const cap = modelDispatchCapability;
+    const provider = Array.isArray(configuration.providers)
+      ? configuration.providers[cap.providerIndex]
+      : undefined;
+    if (
+      !record(provider) ||
+      !Array.isArray(configuration.providers) ||
+      configuration.providers.length !== 1 ||
+      typeof provider.authMode !== "string" ||
+      reviewModelTransportForAuthMode(provider.authMode) !== cap.transport ||
+      provider.model !== (cap.configuredModel ?? cap.model) ||
+      Date.parse(cap.deadline) > Date.parse(deadline) ||
+      (cap.transport === "account_gateway" &&
+        (!gateway || gateway.providerIndex !== cap.providerIndex)) ||
+      (cap.transport !== "account_gateway" && gateway !== null) ||
+      (hosted &&
+        (hosted.model !== cap.model ||
+          Date.parse(cap.deadline) > Date.parse(hosted.expiresAt) - 60_000))
+    )
+      fail();
+  }
   const lifecycleVerificationUnavailableReason =
     parsed.lifecycleVerificationUnavailableReason;
   if (
@@ -323,13 +722,33 @@ export function parseReviewRunRuntimeSnapshot(
       ? providers[cap.providerIndex]
       : null;
     if (
-      !gateway ||
       !record(provider) ||
+      provider.model !==
+        (cap.extensionId === "lifecycle-verification.v2"
+          ? (modelDispatchCapability?.configuredModel ?? cap.model)
+          : cap.model) ||
+      cap.providerKind !== reviewAgentExecutionProviderKind(agent) ||
+      !["ocr", "codex"].includes(agent.agentKind)
+    )
+      fail();
+    if (cap.extensionId === "lifecycle-verification.v2") {
+      const route = modelDispatchCapability;
+      if (
+        !route ||
+        cap.routeIdentityHash !== route.routeIdentityHash ||
+        cap.modelTransport !== route.transport ||
+        cap.protocol !== route.wireProtocol ||
+        cap.providerIndex !== route.providerIndex ||
+        cap.model !== route.model ||
+        cap.maxPromptBytes > route.maxRequestBytes ||
+        cap.maxResponseBytes > route.maxResponseBytes ||
+        cap.maxOutputTokens > route.maxOutputTokens
+      )
+        fail();
+    } else if (
+      !gateway ||
       provider.authMode !== "codex_account_gateway" ||
       gateway.providerIndex !== cap.providerIndex ||
-      provider.model !== cap.model ||
-      cap.providerKind !== reviewAgentExecutionProviderKind(agent) ||
-      !["ocr", "codex"].includes(agent.agentKind) ||
       cap.maxPromptBytes > gateway.limits.requestBytes ||
       cap.maxResponseBytes > gateway.limits.outputBytes ||
       cap.maxOutputTokens > gateway.limits.tokens
@@ -342,6 +761,8 @@ export function parseReviewRunRuntimeSnapshot(
       : undefined;
   if (canonicalJson(parsed) !== value) fail();
   return {
+    ...(hosted ? { hosted } : {}),
+    ...(modelDispatchCapability ? { modelDispatchCapability } : {}),
     ...(prDescriptionCapability === undefined
       ? {}
       : { prDescriptionCapability }),
@@ -409,7 +830,9 @@ function fail(): never {
 /** Invalid enabled capability is rejected, never normalized or downgraded. */
 export function parseLifecycleVerificationCapability(
   value: unknown,
-): LifecycleVerificationCapabilityV1 {
+): LifecycleVerificationCapability {
+  if (record(value) && value.extensionId === "lifecycle-verification.v2")
+    return parseLifecycleVerificationCapabilityV2(value);
   const names = [
     "extensionId",
     "descriptorDigest",
@@ -435,8 +858,7 @@ export function parseLifecycleVerificationCapability(
     !Number.isInteger(value.providerIndex) ||
     Number(value.providerIndex) < 0 ||
     Number(value.providerIndex) > 15 ||
-    typeof value.providerKind !== "string" ||
-    !["ocr", "codex"].includes(value.providerKind) ||
+    (value.providerKind !== "ocr" && value.providerKind !== "codex") ||
     typeof value.model !== "string" ||
     !value.model.trim() ||
     value.model.length > 256 ||
@@ -465,5 +887,19 @@ export function parseLifecycleVerificationCapability(
     lifecycleVerificationContract.minOutputTokensPerTarget
   )
     fail();
-  return Object.freeze({ ...value }) as LifecycleVerificationCapabilityV1;
+  return Object.freeze({
+    extensionId: lifecycleVerificationContract.extensionId,
+    descriptorDigest: lifecycleVerificationDescriptorDigest,
+    executor: lifecycleVerificationContract.executor,
+    modelTransport: "account_gateway",
+    providerIndex: Number(value.providerIndex),
+    providerKind: value.providerKind,
+    model: value.model,
+    maxDispatches: 2,
+    maxPromptBytes: Number(value.maxPromptBytes),
+    maxResponseBytes: Number(value.maxResponseBytes),
+    maxOutputTokens: Number(value.maxOutputTokens),
+    deadlineMs: Number(value.deadlineMs),
+    attemptBudget: 1,
+  });
 }

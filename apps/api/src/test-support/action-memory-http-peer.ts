@@ -199,6 +199,10 @@ export async function createActionMemoryHttpPeer() {
     providerProfileVersion: "profile_1",
     store,
     policy,
+    automaticSources: {} as never,
+    forAutomaticLearning() {
+      throw new MemoryKnowledgeError("unsupported");
+    },
     forAccess(access) {
       return new MemoryKnowledgeService({
         generation: "generation_1",

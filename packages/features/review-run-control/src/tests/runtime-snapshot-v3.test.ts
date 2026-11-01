@@ -1,6 +1,7 @@
 import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
+  reviewModelDispatchContract,
 } from "@reviewrouter/shared";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -100,8 +101,11 @@ describe("private runtime snapshot v3 codec", () => {
       },
     };
     expect(
-      parseReviewRunRuntimeSnapshot(canonicalJson({ ...snapshot, gateway }))
-        ?.gateway?.limits,
+      (
+        parseReviewRunRuntimeSnapshot(
+          canonicalJson({ ...snapshot, gateway }),
+        ) as import("../domain/review-run-runtime-snapshot").ReviewRunRuntimeSnapshotV3
+      )?.gateway?.limits,
     ).toEqual(gateway.limits);
     const { limits, ...withoutLimits } = gateway;
     expect(() =>
@@ -169,6 +173,84 @@ describe("private runtime snapshot v3 codec", () => {
   });
 });
 
+describe("original Hosted grant snapshot identity", () => {
+  const hosted = {
+    grantId: "original-grant",
+    invocationId: "original-invocation",
+    poolId: "original-pool",
+    repositoryBindingId: "original-binding",
+    activeAccountId: "original-account",
+    reviewRequestId: "original-review-request",
+    providerInvocationKey: "a".repeat(64),
+    policyFingerprint: "b".repeat(64),
+    model: "gpt-5.5",
+    expiresAt: "2026-10-15T00:01:00.000Z",
+    bindingRevision: 7,
+    runtimeConfigVersion: 7,
+    authzEpoch: "2",
+    runtimeAuthzEpoch: "3",
+  };
+  const current = {
+    ...snapshot,
+    agent: { ...snapshot.agent, modelTransports: ["provider_api"] },
+    configurationCanonicalJson: canonicalJson({
+      schemaVersion: 3,
+      providers: [
+        {
+          authMode: "codex_subscription_oauth_hosted_pool",
+          model: hosted.model,
+        },
+      ],
+    }),
+    hosted,
+    modelDispatchCapability: {
+      extensionId: reviewModelDispatchContract.extensionId,
+      version: 2,
+      transport: "hosted_pool",
+      wireProtocol: "codex-responses",
+      outputTokenLimit: "terminal_acceptance",
+      routeIdentityHash: "c".repeat(64),
+      providerIndex: 0,
+      model: hosted.model,
+      deadline: snapshot.deadline,
+      maxRequests: 8,
+      maxConcurrentRequests: 1,
+      maxRequestBytes: 65536,
+      maxResponseBytes: 32768,
+      maxOutputTokens: 4096,
+    },
+  };
+  it("retains the original nonsecret grant and exact account with completion reserve", () => {
+    expect(parseReviewRunRuntimeSnapshot(canonicalJson(current))).toEqual(
+      current,
+    );
+    expect(
+      parseReviewRunRuntimeSnapshot(canonicalJson(snapshot)),
+    ).not.toHaveProperty("hosted");
+  });
+  it("rejects absent, incompatible, expired-reserve, or token-bearing selections", () => {
+    for (const change of [
+      { hosted: undefined },
+      { hosted: { ...hosted, grant: "secret" } },
+      { hosted: { ...hosted, model: "different-model" } },
+      { hosted: { ...hosted, expiresAt: "2026-10-15T00:00:59.999Z" } },
+      { hosted: { ...hosted, authzEpoch: "0" } },
+      { hosted: { ...hosted, runtimeAuthzEpoch: "01" } },
+      { hosted: { ...hosted, bindingRevision: Number.MAX_SAFE_INTEGER + 1 } },
+      {
+        modelDispatchCapability: {
+          ...current.modelDispatchCapability,
+          transport: "runner_local_responses",
+        },
+      },
+      { modelDispatchCapability: undefined },
+    ])
+      expect(() =>
+        parseReviewRunRuntimeSnapshot(canonicalJson({ ...current, ...change })),
+      ).toThrow();
+  });
+});
+
 describe("lifecycle verifier captured authority", () => {
   const gateway = {
     providerIndex: 0,
@@ -220,7 +302,9 @@ describe("lifecycle verifier captured authority", () => {
     ).toBe(lifecycleVerificationDescriptorDigest);
     const parsed = parseReviewRunRuntimeSnapshot(canonicalJson(current));
     expect(parsed?.lifecycleVerificationCapability).toEqual(capability);
-    expect(parsed?.gateway?.limits.requests).toBe(9);
+    expect(
+      parsed?.snapshotVersion === 3 && parsed.gateway?.limits.requests,
+    ).toBe(9);
   });
   it("rejects enabled capability forgery rather than dropping it", () => {
     for (const change of [

@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import type { PrismaClient } from "@prisma/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  MemoryKnowledgeService,
+  memoryKnowledgeTopicsDigest,
   createMemoryPolicyConfig,
   createMemoryBodyHash,
   memoryKnowledgeDigest,
@@ -11,6 +13,7 @@ import {
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
 import type { ReviewRunAuthorization } from "@reviewrouter/features-review-run-control";
 import {
+  captureAuthorizedMemoryContext,
   ReviewMemoryRuntimeGateway,
   registerReviewMemoryRuntimeRoutes,
   reviewMemoryRuntimeScopes,
@@ -166,6 +169,9 @@ describe("review memory runtime HTTP boundary", () => {
     } as unknown as MemoryKnowledgeRuntime;
     const rows = new Map<string, Record<string, unknown>>();
     const prisma = {
+      repositoryConnection: {
+        findFirst: vi.fn(async () => ({ visibility: "private" })),
+      },
       memoryKnowledgeBundleReceipt: {
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
           rows.set(String(data.id), data);
@@ -188,6 +194,86 @@ describe("review memory runtime HTTP boundary", () => {
     await app.ready();
     return { app, gateway, service, access, policy, prisma, rows };
   }
+
+  it("preserves a private workspace fact for internal tasks and excludes its exact bytes before public description inference", async () => {
+    const workspaceScope = {
+      kind: "workspace" as const,
+      workspaceId: scope.workspaceId,
+    };
+    const body = "Private workspace terminology: use settlement window.";
+    const provider = {
+      ref: { ...metadata.ref, scope: workspaceScope },
+      body,
+      bodyDigest: createMemoryBodyHash(body),
+      contentApprovalRevision: "1",
+      kind: "rule" as const,
+      topicIds: ["terms"],
+      statementAt: now.toISOString(),
+      sourceFactIds: ["fact-1"],
+    };
+    const stored = {
+      ...metadata,
+      ref: provider.ref,
+      bodyDigest: provider.bodyDigest,
+      topicsDigest: memoryKnowledgeTopicsDigest(provider.topicIds),
+      source: { ...source, visibility: "private" as const },
+    };
+    const service = new MemoryKnowledgeService({
+      generation: "generation-1",
+      providerProfileVersion: "test",
+      store: {
+        maintenanceState: async () => ({
+          generation: "generation-1",
+          epoch: "0",
+          paused: false,
+        }),
+        scopeEpoch: async () => "1",
+        findEntry: async () => stored,
+      } as never,
+      reader: {
+        read: async () => provider,
+        recall: async () => [{ type: "entry", entry: provider }],
+        list: async () => ({ entries: [provider], nextCursor: null }),
+      },
+      writer: {} as never,
+      observer: {} as never,
+      access: {
+        authorize: async () => {},
+        verifySource: async () => stored.source,
+        sourceApplicable: async () => true,
+      },
+      policy: { getPolicy: async () => createMemoryPolicyConfig() },
+      quota: {} as never,
+      now: () => now,
+    });
+    const capture = (
+      audience: "internal" | "public",
+      allowedTasks: ("review" | "investigation" | "pr_description")[],
+    ) =>
+      captureAuthorizedMemoryContext(
+        {
+          service,
+          actor,
+          scopes: [workspaceScope],
+          contextPolicy: {
+            audience,
+            repositoryId: scope.repositoryId,
+            allowedTasks,
+          },
+        },
+        { deadlineAt: new Date(now.getTime() + 5000) },
+      );
+    const internal = await capture("internal", ["review", "investigation"]);
+    const description = await capture("public", ["pr_description"]);
+    expect(internal.text).toContain(body);
+    expect(description.text).not.toContain(body);
+    expect(
+      description.bundle.scopes.flatMap((section) => section.items),
+    ).toEqual([]);
+    expect(internal.receipt.contextPolicy?.allowedTasks).not.toContain(
+      "pr_description",
+    );
+  });
 
   it("uses only repository knowledge for untrusted forks unless workspace access is explicitly configured", () => {
     const policy = createMemoryPolicyConfig({ memoryEnabled: true });

@@ -1,3 +1,4 @@
+import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
 import type {
   ProducerRelease as PrismaProducerRelease,
   ReviewMutationAuthority as PrismaReviewMutationAuthority,
@@ -16,6 +17,7 @@ import type {
 } from "../../domain/producer-release";
 import {
   parseProducerContextToolsProfile,
+  parseProducerReviewerPlanProfile,
   parseProducerPrDescriptionProfile,
   parseProducerLifecycleVerificationProfile,
   reviewInvestigationCapabilityV1,
@@ -75,17 +77,31 @@ export function producerReleaseToDomain(
     reviewInvestigationPolicyHash,
     agentProfilesJson,
     contextToolsProfile,
+    reviewerPlanProfile,
     prDescriptionProfile,
     lifecycleVerificationProfile,
+    modelDispatchProfile,
     ...release
   } = row;
   return {
     ...release,
+    ...(reviewerPlanProfile == null
+      ? {}
+      : {
+          reviewerPlanProfile:
+            parseProducerReviewerPlanProfile(reviewerPlanProfile),
+        }),
     ...(contextToolsProfile == null
       ? {}
       : {
           contextToolsProfile:
             parseProducerContextToolsProfile(contextToolsProfile),
+        }),
+    ...(modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile:
+            parseReviewModelDispatchProfileV2(modelDispatchProfile),
         }),
     ...(prDescriptionProfile == null
       ? {}

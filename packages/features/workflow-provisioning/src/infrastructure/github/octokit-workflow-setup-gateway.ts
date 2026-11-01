@@ -412,22 +412,44 @@ const hostedPoolSetupPullRequestBody = [
 ].join("\n");
 
 const gatewaySetupPullRequestBody = [
-  "This PR installs the keyless ReviewRouter Gateway workflow.",
+  "This PR sets up the keyless ReviewRouter Gateway workflow.",
   "",
+  "- adds or updates `.github/workflows/reviewrouter-review.yml`; if that file is already current on the base branch, this PR may only remove files",
   "- uses GitHub OIDC and the repository-scoped Gateway connection; no provider secrets are required",
-  "- removes legacy ReviewRouter workflows matching trusted markers; `/rr` comment commands (`reviewrouter-interaction.yml`) are removed",
+  "- removes legacy ReviewRouter workflows matching trusted markers, so reviews do not run twice; this includes `/rr` comment commands (`reviewrouter-interaction.yml`)",
   "",
-  "Workflow file: `.github/workflows/reviewrouter-review.yml`.",
+  "Review the file list of this PR before merging.",
 ].join("\n");
 
 function resolveSetupPullRequestBody(input: WorkflowSetupGatewayInput): string {
-  if (input.setupMode === "provider_api")
+  if (input.setupMode === "runtime_migration")
     return [
-      "This PR installs the App-first ReviewRouter workflow for one OpenRouter model.",
+      "This is the first of two ReviewRouter runtime update PRs.",
+      "",
+      "It installs an immutable migration runner while the current review caller stays on its existing pin.",
+      "After merging, click Update setup PR in ReviewRouter again. Existing reviews finish before the old workflow is paused.",
+      "The runner copies the current credentials directly between versioned GitHub Secrets using the existing sealed setup protocol, without login or OAuth refresh. Plaintext credentials never reach ReviewRouter.",
+      "A second setup PR installs the new review caller and removes this temporary migration workflow. Reviews resume only after that PR is verified and the new namespace is activated.",
+      "An uncertain write or dispatch keeps the update paused for recovery; it never silently repeats the write or re-enables the old workflow.",
+    ].join("\n");
+  if (input.setupMode === "claude_subscription")
+    return [
+      "This PR installs the ReviewRouter workflow for the selected Claude subscription model.",
       "",
       "- uses GitHub OIDC, server-admitted configuration and GitHub App publication",
-      "- reads the repository's OPENROUTER_API_KEY secret only in GitHub Actions",
-      "- runs the built-in ReviewRouter engine; OpenCodeReview requires Account Gateway",
+      "- reads CLAUDE_CODE_OAUTH_TOKEN only in GitHub Actions",
+      "- uses OpenCodeReview and verifies earlier findings through the same selected model and credential",
+      "- removes legacy ReviewRouter workflows matching trusted markers",
+      "",
+      "Workflow file: `.github/workflows/reviewrouter-review.yml`.",
+    ].join("\n");
+  if (input.setupMode === "provider_api")
+    return [
+      "This PR installs the App-first ReviewRouter workflow for the selected provider model.",
+      "",
+      "- uses GitHub OIDC, server-admitted configuration and GitHub App publication",
+      "- reads only the selected provider credential in GitHub Actions",
+      "- uses the review engine approved for this immutable runtime and saved configuration",
       "- removes legacy ReviewRouter workflows matching trusted markers",
       "",
       "Workflow file: `.github/workflows/reviewrouter-review.yml`.",

@@ -1,3 +1,10 @@
+import type { MemorySourcePreviewPort } from "../application/ports/memory-source-preview-port";
+import type {
+  MemoryAutomaticSourceCurrentPort,
+  MemoryAutomaticSourceStore,
+} from "../application/ports/memory-automatic-source-port";
+import { MemoryAutomaticSourceService } from "../application/use-cases/memory-automatic-source-service";
+import { PrismaMemoryAutomaticSourceStore } from "../infrastructure/prisma/prisma-memory-automatic-source-store";
 import { validateMemoryOperatorCredentials } from "../infrastructure/config/memory-operator-config";
 import {
   assemblyFor,
@@ -37,7 +44,16 @@ export type MemoryKnowledgeRuntime = {
   readonly policy: MemoryPolicyConfigPort;
   readonly cleanupProof: MemoryCleanupProofPort | null;
   /** The host supplies an authenticated product/source context for each request. */
-  forAccess(access: MemoryKnowledgeAccessPort): MemoryKnowledgeService;
+  readonly automaticSources: MemoryAutomaticSourceStore;
+  forAccess(
+    access: MemoryKnowledgeAccessPort,
+    automaticCurrent?: MemoryAutomaticSourceCurrentPort,
+  ): MemoryKnowledgeService;
+  forAutomaticLearning(
+    access: MemoryKnowledgeAccessPort,
+    current: MemoryAutomaticSourceCurrentPort,
+    preview: MemorySourcePreviewPort,
+  ): MemoryAutomaticSourceService;
 };
 
 class DisabledMemoryProvider implements Provider {
@@ -132,7 +148,13 @@ export async function createMemoryKnowledgeRuntime(input: {
   const runtimeFactory = implement<Capabilities>()(
     runtimeModule,
     async ({ provider }) => {
-      const store = new PrismaMemoryKnowledgeStore(input.prisma);
+      const store = new PrismaMemoryKnowledgeStore(input.prisma, {
+        automaticSourcesEnabled: true,
+        providerProfileVersion,
+      });
+      const automaticSources = new PrismaMemoryAutomaticSourceStore(
+        input.prisma,
+      );
       const entitlements = new PrismaEntitlementRepository(input.prisma);
       const policy = new EntitlementMemoryPolicyConfig(entitlements, {
         serviceEnabled: enabled,
@@ -148,12 +170,31 @@ export async function createMemoryKnowledgeRuntime(input: {
           config.kind === "hindsight"
             ? createHindsightCleanupProofAdapter(config, input.env)
             : null,
-        forAccess: (access) =>
+        automaticSources,
+        forAutomaticLearning: (access, current, preview) =>
+          new MemoryAutomaticSourceService({
+            preview,
+            current,
+            sources: automaticSources,
+            knowledge: instance.forAccess(access, current),
+            generation: config.generation,
+            providerProfileVersion,
+            ...(input.now ? { now: input.now } : {}),
+          }),
+        forAccess: (access, automaticCurrent) =>
           new MemoryKnowledgeService({
             generation: config.generation,
             providerProfileVersion,
             store,
             access,
+            ...(automaticCurrent
+              ? {
+                  automaticSources: {
+                    store: automaticSources,
+                    current: automaticCurrent,
+                  },
+                }
+              : {}),
             policy,
             quota,
             reader: provider,

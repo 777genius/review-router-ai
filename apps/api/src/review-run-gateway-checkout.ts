@@ -1,6 +1,10 @@
 import {
   isProviderApiAuthMode,
   providerApiDescriptors,
+  reviewModelTransportForAuthMode,
+  type ReviewModelTransport,
+  parseReviewReviewerPlan,
+  reviewerPlanContract,
 } from "@reviewrouter/shared";
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { accountModelDiscoveryProfile } from "@agent-teams/account-gateway/contracts";
@@ -16,7 +20,9 @@ import {
   mapConfigToRuntimeEnv,
   parseReviewConfigurationStrict,
   assertProviderApiDirectConfigurationSupported,
+  providerRuntimeAuthMode,
 } from "@reviewrouter/features-review-config";
+import { toRuntimeProviderId } from "@reviewrouter/features-review-providers";
 import {
   prDescriptionContract,
   lifecycleVerificationContract,
@@ -28,11 +34,17 @@ import {
 } from "@reviewrouter/features-codex-oauth-rotating";
 import {
   canonicalJson,
+  buildReviewRunReviewerPlan,
+  getPrimaryReviewRunReviewer,
+  getReviewRunGatewayAllocation,
   parseReviewRunRuntimeSnapshot,
   reviewRunGatewayOwnedIdentity,
   type ManageReviewRunAuthorizations,
   type ReviewRunAuthorization,
   type ReviewRunGatewayExecutionBindingPort,
+  type ReviewRunRuntimeSnapshot,
+  type ReviewRunGatewaySelection,
+  type ReviewRunGatewayAllocation,
 } from "@reviewrouter/features-review-run-control";
 
 /** SCM capability for CI. This seam has no model/provider credential authority. */
@@ -71,6 +83,15 @@ type CheckoutSelectors = Readonly<{
 type ProviderApiCheckoutSelectors = Readonly<{
   providerApiAuthMode: ProviderApiAuthMode;
   workflowSchemaVersion: 2;
+}>;
+export type ReviewRunModelRouteCheckoutSelectors = Readonly<{
+  transport: Exclude<ReviewModelTransport, "account_gateway">;
+  providerIndex: number;
+  workflowSchemaVersion: 2;
+}>;
+type ModelRouteAuthority = Readonly<{
+  authorization: ReviewRunAuthorization;
+  snapshot: ReviewRunRuntimeSnapshot;
 }>;
 class CheckoutFailure extends Error {
   constructor(
@@ -118,6 +139,18 @@ export function createReviewRunProviderApiCheckout(
   return createReviewRunCheckout({ ...input, modelTransport: "provider_api" });
 }
 
+/** Uses the existing read-only SCM checkout and frozen runtime configuration.
+ * Subscription/OAuth credentials stay with their qualified runner adapter. */
+export function createReviewRunModelRouteCheckout(
+  input: CheckoutDependencies & {
+    readonly confirmHostedRoute?: (
+      input: ModelRouteAuthority,
+    ) => Promise<boolean>;
+  },
+) {
+  return createReviewRunCheckout({ ...input, modelTransport: "model_route" });
+}
+
 function createReviewRunCheckout(
   input: CheckoutDependencies &
     (
@@ -127,6 +160,12 @@ function createReviewRunCheckout(
           readonly readSelectedModelSettings?: ReadSelectedGatewayModelSettings;
         }
       | { readonly modelTransport: "provider_api" }
+      | {
+          readonly modelTransport: "model_route";
+          readonly confirmHostedRoute?: (
+            input: ModelRouteAuthority,
+          ) => Promise<boolean>;
+        }
     ),
 ) {
   if (
@@ -160,7 +199,10 @@ function createReviewRunCheckout(
     async issue(
       token: string,
       signal: AbortSignal,
-      selectors: CheckoutSelectors | ProviderApiCheckoutSelectors,
+      selectors:
+        | CheckoutSelectors
+        | ProviderApiCheckoutSelectors
+        | ReviewRunModelRouteCheckoutSelectors,
     ): Promise<AccountGatewayCheckoutCapability> {
       const deadline = performance.now() + input.timeoutMs;
       const checkTime = () => {
@@ -187,14 +229,79 @@ function createReviewRunCheckout(
       const auth = first.authorization;
       const canonical = auth.runtimeSnapshotCanonicalJson;
       const snapshot = parseReviewRunRuntimeSnapshot(canonical);
+      const primaryReviewer =
+        snapshot?.snapshotVersion === 4
+          ? getPrimaryReviewRunReviewer(snapshot)
+          : null;
+      const primaryAgent =
+        snapshot?.snapshotVersion === 3
+          ? snapshot.agent
+          : primaryReviewer?.agentProfile;
+      const gatewaySelections: readonly Readonly<{
+        providerIndex: number;
+        reviewerId?: string;
+        allocationId?: string;
+        gateway: ReviewRunGatewaySelection | ReviewRunGatewayAllocation;
+      }>[] =
+        snapshot?.snapshotVersion === 4
+          ? snapshot.reviewers.map((reviewer) => {
+              const gateway = getReviewRunGatewayAllocation(
+                snapshot,
+                reviewer.transport.allocationId,
+              );
+              if (!gateway)
+                throw new CheckoutFailure("checkout_unavailable", 403);
+              return {
+                providerIndex: reviewer.providerIndex,
+                reviewerId: reviewer.reviewerId,
+                allocationId: gateway.allocationId,
+                gateway,
+              };
+            })
+          : snapshot?.gateway
+            ? [
+                {
+                  providerIndex: snapshot.gateway.providerIndex,
+                  gateway: snapshot.gateway,
+                },
+              ]
+            : [];
       if (
         !canonical ||
         !snapshot ||
+        !primaryAgent ||
         (input.modelTransport === "account_gateway"
-          ? !snapshot.gateway?.limits ||
+          ? gatewaySelections.length === 0 ||
+            gatewaySelections.some((selection) => !selection.gateway.limits) ||
             snapshot.deadline !== auth.maxExpiresAt.toISOString()
-          : snapshot.gateway !== null ||
-            snapshot.agent.agentKind !== "codex" ||
+          : snapshot.snapshotVersion !== 3 ||
+            snapshot.gateway !== null ||
+            (input.modelTransport === "provider_api"
+              ? snapshot.agent.agentKind !== "codex" &&
+                !(
+                  snapshot.agent.agentKind === "ocr" &&
+                  snapshot.modelDispatchCapability?.transport ===
+                    "runner_local_responses" &&
+                  snapshot.modelDispatchCapability.wireProtocol ===
+                    "openai-responses" &&
+                  snapshot.modelDispatchCapability.outputTokenLimit ===
+                    "upstream_request"
+                )
+              : (snapshot.agent.agentKind !== "ocr" &&
+                  !(
+                    snapshot.agent.agentKind === "codex" &&
+                    snapshot.modelDispatchCapability?.wireProtocol ===
+                      "codex-responses" &&
+                    snapshot.modelDispatchCapability.outputTokenLimit ===
+                      "terminal_acceptance" &&
+                    (snapshot.modelDispatchCapability.transport ===
+                      "runner_local_responses" ||
+                      snapshot.modelDispatchCapability.transport ===
+                        "hosted_pool")
+                  )) ||
+                !snapshot.modelDispatchCapability ||
+                snapshot.modelDispatchCapability.transport ===
+                  "account_gateway") ||
             !snapshot.agent.modelTransports.includes("provider_api") ||
             new Date(snapshot.deadline).getTime() >
               auth.maxExpiresAt.getTime() ||
@@ -221,47 +328,113 @@ function createReviewRunCheckout(
           throw new CheckoutFailure("checkout_unavailable", 403);
         }
       }
-      let executionAuthorizationEpoch: number | undefined;
-      let modelSettings:
-        | Awaited<ReturnType<ReadSelectedGatewayModelSettings>>
-        | undefined;
+      const executionEpochs = new Map<string, number>();
+      const allocationSettingsEpochs = new Map<string, number>();
+      const unavailable = new Map<
+        string,
+        "allocation_unavailable" | "model_settings_unavailable"
+      >();
+      const selectedModelSettings = new Map<
+        string,
+        Awaited<ReturnType<ReadSelectedGatewayModelSettings>>
+      >();
+      const markAllocationUnavailable = (allocationKey: string) => {
+        for (const selection of gatewaySelections) {
+          if ((selection.allocationId ?? "legacy") !== allocationKey) continue;
+          const reviewerId = selection.reviewerId ?? "legacy";
+          unavailable.set(reviewerId, "allocation_unavailable");
+          selectedModelSettings.delete(reviewerId);
+        }
+      };
       const configuration =
         directConfiguration ??
         parseReviewConfigurationStrict(
           JSON.parse(snapshot.configurationCanonicalJson),
         );
+      const modelRoute =
+        input.modelTransport === "model_route" && snapshot.snapshotVersion === 3
+          ? snapshot.modelDispatchCapability
+          : undefined;
       const provider =
-        configuration.providers[snapshot.gateway?.providerIndex ?? 0];
+        configuration.providers[
+          modelRoute?.providerIndex ??
+            primaryReviewer?.providerIndex ??
+            gatewaySelections[0]?.providerIndex ??
+            0
+        ];
       if (
         (input.modelTransport === "account_gateway" &&
-          (provider?.authMode !== "codex_account_gateway" ||
-            provider.gatewayBindingId !== snapshot.gateway!.bindingId ||
-            provider.gatewayProfileRef !== snapshot.gateway!.profileRef ||
-            configuration.providers.find((entry) => entry.kind === "codex") !==
-              provider)) ||
+          (gatewaySelections.some(({ providerIndex, gateway }) => {
+            const selected = configuration.providers[providerIndex];
+            return (
+              selected?.authMode !== "codex_account_gateway" ||
+              selected.gatewayBindingId !== gateway.bindingId ||
+              selected.gatewayProfileRef !== gateway.profileRef
+            );
+          }) ||
+            (snapshot.snapshotVersion === 4
+              ? gatewaySelections.length !== configuration.providers.length
+              : configuration.providers.find(
+                  (entry) => entry.kind === "codex",
+                ) !== provider))) ||
+        (modelRoute &&
+          (configuration.providers.length !== 1 ||
+            !provider ||
+            provider.model !==
+              (modelRoute.configuredModel ?? modelRoute.model) ||
+            reviewModelTransportForAuthMode(provider.authMode) !==
+              modelRoute.transport)) ||
         canonicalJson(configuration) !== snapshot.configurationCanonicalJson
       )
         throw new CheckoutFailure("checkout_unavailable", 403);
       const liveBinding = async () => {
-        if (input.modelTransport !== "account_gateway") return;
-        const result = await checked(() =>
-          input.bindings.read({
-            authorizationId: auth.authorizationId,
-            identity: reviewRunGatewayOwnedIdentity(auth),
-            runtimeSnapshotCanonicalJson: canonical,
-          }),
-        );
-        // Nullable attachment is intentional: checkout precedes first inference.
-        // The existing reader validates pinned config, original use and any attachment.
         if (
-          result.status !== "live" ||
-          (modelSettings &&
-            result.binding &&
-            result.binding.authorizationEpoch !==
-              modelSettings.authorizationEpoch)
-        )
-          throw new CheckoutFailure("authorization_denied", 401);
-        executionAuthorizationEpoch = result.binding?.authorizationEpoch;
+          input.modelTransport === "model_route" &&
+          modelRoute?.transport === "hosted_pool"
+        ) {
+          if (
+            !input.confirmHostedRoute ||
+            !(await checked(() =>
+              input.confirmHostedRoute!({ authorization: auth, snapshot }),
+            ))
+          )
+            throw new CheckoutFailure("authorization_denied", 401);
+          return;
+        }
+        if (input.modelTransport !== "account_gateway") return;
+        const seen = new Set<string>();
+        for (const selection of gatewaySelections) {
+          const key = selection.allocationId ?? "legacy";
+          if (seen.has(key)) continue;
+          seen.add(key);
+          try {
+            const result = await checked(() =>
+              input.bindings.read({
+                authorizationId: auth.authorizationId,
+                identity: reviewRunGatewayOwnedIdentity(auth),
+                runtimeSnapshotCanonicalJson: canonical,
+                ...(selection.allocationId === undefined
+                  ? {}
+                  : { allocationId: selection.allocationId }),
+              }),
+            );
+            // Checkout precedes first inference, so an unprepared allocation has no attachment.
+            const settingsEpoch = allocationSettingsEpochs.get(key);
+            if (
+              result.status !== "live" ||
+              (settingsEpoch !== undefined &&
+                result.binding &&
+                result.binding.authorizationEpoch !== settingsEpoch)
+            )
+              throw new CheckoutFailure("authorization_denied", 401);
+            if (result.binding)
+              executionEpochs.set(key, result.binding.authorizationEpoch);
+          } catch (error) {
+            checkTime();
+            if (snapshot.snapshotVersion !== 4) throw error;
+            markAllocationUnavailable(key);
+          }
+        }
       };
       const target = await checked(() => input.resolveRepository(auth));
       if (
@@ -281,10 +454,15 @@ function createReviewRunCheckout(
               ) ||
             selectors.workflowSchemaVersion !==
               CodexRotatingT0WorkflowSchemaVersion.ClientTriggeredV2
-          : !("providerApiAuthMode" in selectors) ||
-            selectors.providerApiAuthMode !== directMode ||
-            selectors.workflowSchemaVersion !==
-              providerApiCheckoutCompanionContract.workflowSchemaVersion
+          : input.modelTransport === "provider_api"
+            ? !("providerApiAuthMode" in selectors) ||
+              selectors.providerApiAuthMode !== directMode ||
+              selectors.workflowSchemaVersion !==
+                providerApiCheckoutCompanionContract.workflowSchemaVersion
+            : !("transport" in selectors) ||
+              selectors.transport !== modelRoute?.transport ||
+              selectors.providerIndex !== modelRoute?.providerIndex ||
+              selectors.workflowSchemaVersion !== 2
       )
         throw new CheckoutFailure("authorization_denied", 401);
       await liveBinding();
@@ -292,29 +470,60 @@ function createReviewRunCheckout(
         !(await checked(() => input.confirmAuthority(token, auth, savedTarget)))
       )
         throw new CheckoutFailure("authorization_denied", 401);
-      if (
-        input.modelTransport === "account_gateway" &&
-        accountModelDiscoveryProfile(snapshot.gateway!.profileRef)
-      ) {
-        if (!input.readSelectedModelSettings)
-          throw new CheckoutFailure("checkout_unavailable", 503);
-        modelSettings = await checked(() =>
-          input.readSelectedModelSettings!({
-            authorization: auth,
-            signal,
-            ...(executionAuthorizationEpoch === undefined
-              ? {}
-              : { executionAuthorizationEpoch }),
-          }),
-        );
-        if (
-          (snapshot.gateway!.expectedAuthorizationEpoch !== undefined &&
-            modelSettings.authorizationEpoch !==
-              snapshot.gateway!.expectedAuthorizationEpoch) ||
-          (executionAuthorizationEpoch !== undefined &&
-            modelSettings.authorizationEpoch !== executionAuthorizationEpoch)
-        )
-          throw new CheckoutFailure("authorization_denied", 401);
+      const readModelSettings =
+        input.modelTransport === "account_gateway"
+          ? input.readSelectedModelSettings
+          : undefined;
+      for (const selection of input.modelTransport === "account_gateway"
+        ? gatewaySelections
+        : []) {
+        if (!accountModelDiscoveryProfile(selection.gateway.profileRef))
+          continue;
+        const reviewerId = selection.reviewerId ?? "legacy";
+        if (unavailable.has(reviewerId)) continue;
+        const allocationKey = selection.allocationId ?? "legacy";
+        const executionAuthorizationEpoch = executionEpochs.get(allocationKey);
+        try {
+          if (!readModelSettings)
+            throw new CheckoutFailure("checkout_unavailable", 503);
+          const modelSettings = await checked(() =>
+            readModelSettings({
+              authorization: auth,
+              signal,
+              ...(selection.reviewerId === undefined
+                ? {}
+                : { reviewerId: selection.reviewerId }),
+              ...(executionAuthorizationEpoch === undefined
+                ? {}
+                : { executionAuthorizationEpoch }),
+            }),
+          );
+          if (
+            (selection.gateway.expectedAuthorizationEpoch !== undefined &&
+              modelSettings.authorizationEpoch !==
+                selection.gateway.expectedAuthorizationEpoch) ||
+            (executionAuthorizationEpoch !== undefined &&
+              modelSettings.authorizationEpoch !==
+                executionAuthorizationEpoch) ||
+            (allocationSettingsEpochs.has(allocationKey) &&
+              allocationSettingsEpochs.get(allocationKey) !==
+                modelSettings.authorizationEpoch)
+          ) {
+            if (snapshot.snapshotVersion !== 4)
+              throw new CheckoutFailure("authorization_denied", 401);
+            markAllocationUnavailable(allocationKey);
+          } else {
+            selectedModelSettings.set(reviewerId, modelSettings);
+            allocationSettingsEpochs.set(
+              allocationKey,
+              modelSettings.authorizationEpoch,
+            );
+          }
+        } catch (error) {
+          checkTime();
+          if (snapshot.snapshotVersion !== 4) throw error;
+          unavailable.set(reviewerId, "model_settings_unavailable");
+        }
         await liveBinding();
         if (
           !(await checked(() =>
@@ -365,26 +574,62 @@ function createReviewRunCheckout(
       // Export only the admitted safe settings after the final authority checks.
       // Never reread current configuration or expose the private gateway selection.
       const runtimeEnv = mapConfigToRuntimeEnv(configuration);
-      if (modelSettings?.settings !== undefined)
+      const modelSettings = selectedModelSettings.get(
+        primaryReviewer?.reviewerId ?? "legacy",
+      );
+      if (
+        modelSettings?.settings !== undefined &&
+        snapshot.snapshotVersion === 3
+      )
         runtimeEnv[gatewayModelSettingsRuntimeEnvKey] =
           serializeSelectedGatewayModelSettings(
             modelSettings.settings,
             provider!.model,
             snapshot.gateway!.profileRef,
           );
+      if (snapshot.snapshotVersion === 4) {
+        const plan = buildReviewRunReviewerPlan(
+          snapshot,
+          new Map(
+            [...selectedModelSettings].map(
+              ([reviewerId, selected]) =>
+                [reviewerId, selected.settings] as const,
+            ),
+          ),
+        );
+        runtimeEnv[reviewerPlanContract.runtimeEnvKey] = canonicalJson(
+          parseReviewReviewerPlan({
+            ...plan,
+            reviewers: plan.reviewers.map((reviewer) => ({
+              ...reviewer,
+              ...(unavailable.has(reviewer.reviewerId)
+                ? { unavailableReason: unavailable.get(reviewer.reviewerId) }
+                : {}),
+            })),
+          }),
+        );
+      }
       if (snapshot.contextToolsPlanCanonicalJson !== undefined) {
         runtimeEnv.REVIEW_ROUTER_CONTEXT_TOOLS_PLAN_JSON =
           snapshot.contextToolsPlanCanonicalJson;
       }
       // Only the admitted agent definition is exported, never today's setting.
-      runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON = canonicalJson(
-        snapshot.agent,
-      );
+      runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON = canonicalJson(primaryAgent);
       runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_DIGEST =
-        snapshot.agentProfileDigest;
+        snapshot.snapshotVersion === 3
+          ? snapshot.agentProfileDigest
+          : primaryReviewer!.agentProfileDigest;
       if (snapshot.prDescriptionCapability !== undefined) {
         runtimeEnv[prDescriptionContract.capabilityRuntimeEnvKey] =
           canonicalJson(snapshot.prDescriptionCapability);
+      }
+      if (
+        snapshot.snapshotVersion === 3 &&
+        snapshot.modelDispatchCapability !== undefined
+      ) {
+        runtimeEnv.REVIEW_ROUTER_MODEL_DISPATCH_CAPABILITY_JSON = canonicalJson(
+          snapshot.modelDispatchCapability,
+        );
       }
       if (snapshot.lifecycleVerificationCapability !== undefined) {
         runtimeEnv[lifecycleVerificationContract.capabilityRuntimeEnvKey] =
@@ -402,31 +647,44 @@ function createReviewRunCheckout(
       }
       if (
         !provider ||
-        (input.modelTransport === "account_gateway"
-          ? runtimeEnv.CODEX_MODEL !== provider.model
-          : runtimeEnv.REVIEW_AUTH_MODE !== directMode ||
-            !directMode ||
-            runtimeEnv.REVIEW_PROVIDERS !==
-              `${providerApiDescriptors[directMode].runtimePrefix}/${provider.model}`) ||
-        runtimeEnv.CODEX_REASONING_EFFORT !== provider.reasoningEffort ||
-        runtimeEnv.CODEX_AGENTIC_CONTEXT !== String(provider.agenticContext) ||
-        runtimeEnv.CODEX_FAST_MODE !== String(provider.fastMode)
+        (input.modelTransport === "model_route"
+          ? runtimeEnv.REVIEW_AUTH_MODE !== providerRuntimeAuthMode(provider) ||
+            runtimeEnv.REVIEW_PROVIDERS !== toRuntimeProviderId(provider)
+          : input.modelTransport === "account_gateway"
+            ? runtimeEnv.CODEX_MODEL !== provider.model
+            : runtimeEnv.REVIEW_AUTH_MODE !== directMode ||
+              !directMode ||
+              runtimeEnv.REVIEW_PROVIDERS !==
+                `${providerApiDescriptors[directMode].runtimePrefix}/${provider.model}`) ||
+        (provider.kind === "claude"
+          ? runtimeEnv.CLAUDE_MODEL !== provider.model ||
+            runtimeEnv.CLAUDE_AGENTIC_CONTEXT !==
+              String(provider.agenticContext)
+          : runtimeEnv.CODEX_REASONING_EFFORT !== provider.reasoningEffort ||
+            runtimeEnv.CODEX_AGENTIC_CONTEXT !==
+              String(provider.agenticContext) ||
+            runtimeEnv.CODEX_FAST_MODE !== String(provider.fastMode))
       )
         throw new CheckoutFailure("checkout_unavailable", 403);
       checkTime();
-      return Object.freeze({
-        protocolVersion: 1,
+      const result = Object.freeze({
+        protocolVersion: 1 as const,
         repository: savedTarget.repositoryFullName,
         headSha: auth.headSha,
         token: readToken,
         expiresAt: new Date(expiry).toISOString(),
         permissions: Object.freeze({ contents: "read", pullRequests: "read" }),
         runtimeConfig: Object.freeze({
-          protocolVersion: 1,
+          protocolVersion: 1 as const,
           configVersion: snapshot.configurationVersion,
           runtimeEnv: Object.freeze(runtimeEnv),
         }),
       });
+      const maxResponseBytes =
+        snapshot.snapshotVersion === 4 ? 131_072 : 65_536;
+      if (Buffer.byteLength(JSON.stringify(result)) > maxResponseBytes)
+        throw new CheckoutFailure("checkout_unavailable", 503);
+      return result;
     },
   });
 }
@@ -502,7 +760,9 @@ export async function registerReviewRunCheckoutRoute(
     scope.post(
       checkout.modelTransport === "provider_api"
         ? providerApiCheckoutCompanionContract.path
-        : "/api/action/v2/account-gateway/checkout",
+        : checkout.modelTransport === "model_route"
+          ? "/api/action/v2/model-route/checkout"
+          : "/api/action/v2/account-gateway/checkout",
       { bodyLimit: 512 },
       async (request, reply) => {
         const reservation = reservations.get(request);
@@ -544,10 +804,13 @@ export async function registerReviewRunCheckoutRoute(
 
 function parseRequest(
   request: FastifyRequest,
-  modelTransport: "account_gateway" | "provider_api",
+  modelTransport: "account_gateway" | "provider_api" | "model_route",
 ): {
   token: string;
-  selectors: CheckoutSelectors | ProviderApiCheckoutSelectors;
+  selectors:
+    | CheckoutSelectors
+    | ProviderApiCheckoutSelectors
+    | ReviewRunModelRouteCheckoutSelectors;
 } {
   const raw = request.raw.rawHeaders;
   let bytes = 0;
@@ -582,19 +845,53 @@ function parseRequest(
     !/^Bearer [A-Za-z0-9._~-]+$/.test(header)
   )
     throw new CheckoutFailure("authorization_denied", 401);
-  // Exactly two JSON scalar members. Decode keys before checking uniqueness so
+  // Exact scalar members. Decode keys before checking uniqueness so
   // escaped duplicate names cannot disappear through JSON.parse's last-wins rule.
   const jsonString =
     '"(?:[^"\\\\\\x00-\\x1f]|\\\\(?:["\\\\/bfnrt]|u[0-9a-fA-F]{4}))*"';
   const jsonNumber = "-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?";
   const whitespace = "[ \\t\\r\\n]*";
   const member = `(${jsonString})${whitespace}:${whitespace}(${jsonString}|${jsonNumber})`;
+  const memberCount = modelTransport === "model_route" ? 3 : 2;
   const members = new RegExp(
-    `^${whitespace}\\{${whitespace}${member}${whitespace},${whitespace}${member}${whitespace}\\}${whitespace}$`,
+    `^${whitespace}\\{${whitespace}${Array.from({ length: memberCount }, () => member).join(`${whitespace},${whitespace}`)}${whitespace}\\}${whitespace}$`,
   ).exec(request.body.toString("utf8"));
-  if (!members || JSON.parse(members[1]!) === JSON.parse(members[3]!))
+  if (
+    !members ||
+    new Set(
+      Array.from({ length: memberCount }, (_, index) =>
+        JSON.parse(members[1 + index * 2]!),
+      ),
+    ).size !== memberCount
+  )
     throw new CheckoutFailure("invalid_request", 400);
   const selectors: unknown = JSON.parse(request.body.toString("utf8"));
+  if (modelTransport === "model_route") {
+    if (
+      typeof selectors !== "object" ||
+      !selectors ||
+      Object.keys(selectors).sort().join(",") !==
+        "providerIndex,transport,workflowSchemaVersion" ||
+      !("transport" in selectors) ||
+      (selectors.transport !== "runner_local_responses" &&
+        selectors.transport !== "runner_local_anthropic" &&
+        selectors.transport !== "hosted_pool") ||
+      !("providerIndex" in selectors) ||
+      !Number.isSafeInteger(selectors.providerIndex) ||
+      selectors.providerIndex !== 0 ||
+      !("workflowSchemaVersion" in selectors) ||
+      selectors.workflowSchemaVersion !== 2
+    )
+      throw new CheckoutFailure("invalid_request", 400);
+    return {
+      token: header.slice(7),
+      selectors: {
+        transport: selectors.transport,
+        providerIndex: selectors.providerIndex,
+        workflowSchemaVersion: 2,
+      },
+    };
+  }
   if (modelTransport === "provider_api") {
     if (
       typeof selectors !== "object" ||

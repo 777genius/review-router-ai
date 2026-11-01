@@ -1,6 +1,6 @@
 # Skills catalog: bounded production repair
 
-- Task ID: `2026-10-28-skills-catalog`; last updated: 2026-10-29.
+- Task ID: `2026-10-28-skills-catalog`; last updated: 2026-11-01.
 - Goal: working UAP Preview → native static check → acknowledged text import → repository assignment → actual Skills-consuming review and GitHub App publication, plus Context tools in the persistent sidebar.
 - Targets: UAP binary/systemd/Caddy; private scanner/egress; Web, API, ordinary worker and dedicated scan worker; existing Skills database tables/configuration; qualified OCR component availability and the existing Action219 hotfix rollout.
 - Implementation: [ReviewRouter #735](https://github.com/777genius/review-router-ai/pull/735). The separate [UAP #555](https://github.com/777genius/universal-agent-plugins/pull/555) was merged as `4fe44c439eee7ccc3ddca3d1cd63114527508e0c`.
@@ -11,10 +11,10 @@ Historical Skills-only acceptance (superseded by the fleet adoption below): the 
 
 ## Environment status
 
-| Environment / target    | Status     | Actual version / image                                       | Last verified (UTC) | Remaining work                                                                                                                |
-| ----------------------- | ---------- | ------------------------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| staging                 | `pending`  | Not verified                                                 | Not verified        | Reconcile independently; no staging completion claimed.                                                                       |
-| production / Skills E2E | `deployed` | SaaS `b8eac8ec` / `fd52caab`; Action219 `298e7fca`; OCR rr.4 | 2026-10-29 01:23:58 | Production rollout and full runtime/publication E2E complete; source delivery is tracked on #735. Staging remains unverified. |
+| Environment / target    | Status     | Actual version / image                                       | Last verified (UTC) | Remaining work                                                                                                                                         |
+| ----------------------- | ---------- | ------------------------------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| staging                 | `pending`  | Not verified                                                 | Not verified        | Reconcile independently; no staging completion claimed.                                                                                                |
+| production / Skills E2E | `deployed` | SaaS `b8eac8ec` / `fd52caab`; Action219 `298e7fca`; OCR rr.4 | 2026-10-29 01:23:58 | Full runtime/publication E2E passed on this historical checkpoint; newer fleet rollouts are recorded below. Source delivery: #735; staging unverified. |
 
 ## Applicability, provenance and exclusions
 
@@ -158,3 +158,9 @@ SHA-256 `f6bb5388237bda79f791ea7acf6d3c18dc139c849a6adc4faf5bbad8da208f7f`;
 local and durable remote hashes matched. Earlier failed attempts and canaries
 remain separate evidence. Production is deployed and E2E-qualified; staging and
 new-repository onboarding are not qualified by this record.
+
+## Subsequent fleet and source reconciliation — 2026-11-01
+
+The 2026-10-29 acceptance above is historical, not a claim about the current fleet. Main now retains the bounded Skills/sidebar/canary repairs through the model-catalog integration. Later coordinated production rollouts are recorded in [2026-10-30](2026-10-30-production-rollout-533c040d.md) and [2026-10-31](2026-10-31-production-rollout-d5f16400.md); they supersede the application version in the historical acceptance table. No new live observation or deployment is claimed by this reconciliation.
+
+PR #735 now delivers the final runtime evidence and component-publication prerequisite documentation. The newer main browser fixture already warms Skills and Repositories client scripts; its implementation and runtime-readiness setup are retained instead of adding a second warmup helper. Main also retains the updated canary proof projection regression. No remaining product-code difference was found for the original Skills/sidebar task. Staging, paid AI scanner and executable bundle installation remain outside this acceptance.

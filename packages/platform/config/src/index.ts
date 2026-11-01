@@ -677,3 +677,5 @@ function actionRefRepository(actionRef: string): string {
 export function isFullShaActionRef(actionRef: string): boolean {
   return /^[a-z0-9_.-]+\/[a-z0-9_.-]+@[a-f0-9]{40}$/i.test(actionRef.trim());
 }
+
+export * from "./conversation-qualification";

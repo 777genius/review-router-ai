@@ -5,15 +5,37 @@ import {
   statisticsErrorStatus,
 } from "../../src/server/review-statistics";
 import { StatisticsView } from "../../src/features/review-statistics/interface/statistics-view";
+import {
+  StatisticsInvalidFilters,
+  StatisticsFilterRecovery,
+} from "../../src/features/review-statistics/interface/statistics-filter-controls";
+import {
+  statisticsFilterFromUrl,
+  statisticsSearchParams,
+} from "../../src/features/review-statistics/application/statistics-url";
 import { StatisticsRetry } from "../../src/features/review-statistics/interface/statistics-retry";
 import styles from "../../src/features/review-statistics/interface/statistics.module.css";
 export async function ReviewStatisticsSection({
   workspaceId,
+  params = {},
 }: {
   workspaceId: string;
+  params?: Record<string, string | string[] | undefined>;
 }) {
+  const filter = statisticsFilterFromUrl(statisticsSearchParams(params));
+  if (!filter)
+    return (
+      <section
+        id="dashboard-section-content"
+        className={styles.root}
+        aria-label="Review statistics"
+      >
+        <h1 className={styles.title}>Statistics</h1>
+        <StatisticsInvalidFilters />
+      </section>
+    );
   try {
-    const { actorId, report } = await loadStatisticsReport(workspaceId);
+    const { actorId, report } = await loadStatisticsReport(workspaceId, filter);
     return (
       <StatisticsView
         actorId={actorId}
@@ -36,6 +58,9 @@ export async function ReviewStatisticsSection({
         aria-label="Review statistics"
       >
         <h1 className={styles.title}>Statistics</h1>
+        {status !== 401 && status !== 403 ? (
+          <StatisticsFilterRecovery filter={filter} />
+        ) : null}
         <div className={styles.status} role="alert">
           {status === 401
             ? "Sign in to view workspace statistics."

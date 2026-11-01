@@ -27,6 +27,10 @@ import {
   type ReviewObservationPayload,
 } from "../../../packages/features/review-evidence/src/index.js";
 import {
+  ReviewRequestIngressCommandKind,
+  ReviewRequestedTriggerKind,
+  reviewRequestIngressEventType,
+  type EnqueueReviewRequestIngressCommand,
   ReviewExecutionProviderKind,
   ReviewInvocationLeasePurpose,
   ReviewTaskKind as ExecutionTaskKind,
@@ -41,6 +45,13 @@ import {
   createReviewStatisticsFeature,
   type ReviewStatisticsFeature,
 } from "../../../packages/features/review-statistics/src/composition/index.js";
+import {
+  createReviewHistoryFeature,
+  type ReviewHistoryFeature,
+} from "../../../packages/features/review-history/src/composition/index.js";
+import { historyChangedEventType } from "../../../packages/features/review-history/src/index.js";
+import { createReviewHistoryChangedHandler } from "../../../apps/worker/src/review-history-worker-runtime.js";
+import { ReviewV2RequestIngressOutbox } from "../../../apps/api/src/review-v2-request-ingress-outbox.js";
 import { ClaimReviewPublicationStatus } from "../../../packages/features/review-publishing/src/v2/index.js";
 import { PrismaReviewPublicationRepository } from "../../../packages/features/review-publishing/src/v2/composition/index.js";
 import {
@@ -61,6 +72,7 @@ import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
   type ProviderApiAuthMode,
+  type ReviewModelDispatchProfileV2,
 } from "../../../packages/shared/src/index.js";
 import {
   ReviewActionV2OperationId,
@@ -165,6 +177,7 @@ export type ReviewActionV2E2EAuthorization = Readonly<{
   result: ReviewRunAuthorizeResult;
   providerApiAuthMode?: ProviderApiAuthMode;
   sourceRunAttempt?: string;
+  sourceRunId?: string;
   oidcExpiresAt?: string;
   authorizationId: string;
   authorizationToken: string;
@@ -179,10 +192,19 @@ export type ReviewActionV2E2EInvestigationProfile = Readonly<{
 }>;
 
 export type ReviewActionV2E2EHarnessOptions = Readonly<{
+  /** Join real source owners, registered outbox projection and public reads. */
+  historyProfile?: boolean;
+  /** Reuse the browser fixture's workspace without resetting its database. */
+  fixtureScope?: Readonly<{ prefix: string; workspaceId: string }>;
   /** Registered test producer definitions, shared by DB row and attestation. */
   agentProfiles?: readonly ReviewAgentProfile[];
+  reviewerPlanProfile?: Readonly<{ planVersion: 1; descriptorDigest: string }>;
+  /** The controlled local Gateway remains real HTTP while GitHub stays synthetic. */
+  gatewayFixtureOrigin?: string;
   /** Signed workflow identity; independent of the configured policy. */
   modelTransport?: "account_gateway" | "provider_api";
+  /** Use the actual canonical native Claude caller identity and source proof. */
+  subscriptionAuthMode?: "claude-oauth";
   /** Shorten only the synthetic mint, without changing server run authority. */
   oidcLifetimeSeconds?: number;
   investigationProfile?: ReviewActionV2E2EInvestigationProfile;
@@ -193,6 +215,8 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   protocolMaxAttemptsPerSlot?: number;
   prDescriptionProfile?: boolean;
   lifecycleVerificationProfile?: boolean;
+  /** Explicit producer approval for the all-role durable model dispatch path. */
+  modelDispatchProfile?: ReviewModelDispatchProfileV2;
   /**
    * The repository's stored provider selection. The workspace has no default
    * provider, so "rotating" (the default) stores a repository selection of
@@ -201,6 +225,25 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
    */
   repositoryProviderSelection?: "rotating" | "none";
 }>;
+
+export type ReviewActionV2E2EHistoryReview = Readonly<{
+  requestId: string;
+  rootRequestId: string;
+  pullRequestId: string;
+  sourceRunId: string;
+  pullRequestNumber: number;
+  repositoryFullName: string;
+  pullRequestTitle: string;
+  headSha: string;
+  ingressCommand: EnqueueReviewRequestIngressCommand;
+}>;
+type EmergencyControlSnapshot = {
+  version: number;
+  stopped: boolean;
+  reason: string;
+  updatedBy: string;
+  updatedAt: Date;
+};
 
 export class ReviewActionV2E2EHarness {
   readonly prisma: PrismaClient;
@@ -221,6 +264,13 @@ export class ReviewActionV2E2EHarness {
   private oidcOrdinal = 0;
   private readonly oidcLifetimeSeconds: number;
   private readonly modelTransport: "account_gateway" | "provider_api";
+  private readonly subscriptionAuthMode: "claude-oauth" | undefined;
+  readonly history: ReviewHistoryFeature | undefined;
+  private readonly fixtureFetch: typeof globalThis.fetch;
+  private readonly originalHistoryCoverage: Date | null;
+  private readonly originalStatisticsCoverage: Date | null;
+  private readonly borrowedWorkspace: boolean;
+  private readonly originalEmergencyControl: EmergencyControlSnapshot | null;
 
   private constructor(input: {
     readonly prisma: PrismaClient;
@@ -239,6 +289,13 @@ export class ReviewActionV2E2EHarness {
     readonly originalFetch: typeof globalThis.fetch;
     readonly oidcLifetimeSeconds: number;
     readonly modelTransport: "account_gateway" | "provider_api";
+    readonly subscriptionAuthMode?: "claude-oauth";
+    readonly history?: ReviewHistoryFeature;
+    readonly fixtureFetch: typeof globalThis.fetch;
+    readonly originalHistoryCoverage: Date | null;
+    readonly originalStatisticsCoverage: Date | null;
+    readonly borrowedWorkspace: boolean;
+    readonly originalEmergencyControl: EmergencyControlSnapshot | null;
   }) {
     this.prisma = input.prisma;
     this.fakeGitHub = input.fakeGitHub;
@@ -256,10 +313,20 @@ export class ReviewActionV2E2EHarness {
     this.knownOutboxHandlers = [
       ...input.worker.handlers,
       createReviewStatisticsSettledHandler(input.statistics.projector),
+      ...(input.history
+        ? [createReviewHistoryChangedHandler(input.history.projector)]
+        : []),
     ];
     this.originalFetch = input.originalFetch;
     this.oidcLifetimeSeconds = input.oidcLifetimeSeconds;
     this.modelTransport = input.modelTransport;
+    this.subscriptionAuthMode = input.subscriptionAuthMode;
+    this.history = input.history;
+    this.fixtureFetch = input.fixtureFetch;
+    this.originalHistoryCoverage = input.originalHistoryCoverage;
+    this.originalStatisticsCoverage = input.originalStatisticsCoverage;
+    this.borrowedWorkspace = input.borrowedWorkspace;
+    this.originalEmergencyControl = input.originalEmergencyControl;
   }
 
   static async create(
@@ -275,8 +342,12 @@ export class ReviewActionV2E2EHarness {
     )
       throw new Error("review_v2_e2e_oidc_lifetime_invalid");
     const prisma = createPrismaClient({ databaseUrl, poolMax: 12 });
-    const prefix = `review-v2-e2e-${randomUUID()}`;
-    const workspaceId = `${prefix}-workspace`;
+    if (options.fixtureScope && !options.historyProfile)
+      throw new Error("review_v2_e2e_borrowed_scope_requires_history_profile");
+    const prefix =
+      options.fixtureScope?.prefix ?? `review-v2-e2e-${randomUUID()}`;
+    const workspaceId =
+      options.fixtureScope?.workspaceId ?? `${prefix}-workspace`;
     const repositoryConnectionId = `${prefix}-repository`;
     const scmRepositoryIdentityId = `${prefix}-scm`;
     const producerReleaseId = `${prefix}-release`;
@@ -302,16 +373,32 @@ export class ReviewActionV2E2EHarness {
       oidcJwk,
       revision: { baseSha, mergeBaseSha, headSha },
     });
+    if (options.historyProfile)
+      fakeGitHub.workflowPath = ".github/workflows/reviewrouter-codex.yml";
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input, init) => {
+    if (options.gatewayFixtureOrigin) {
+      const gatewayUrl = new URL(options.gatewayFixtureOrigin);
+      if (
+        gatewayUrl.protocol !== "http:" ||
+        gatewayUrl.hostname !== "127.0.0.1"
+      )
+        throw new Error("review_v2_e2e_gateway_must_be_loopback");
+    }
+    const fixtureFetch: typeof globalThis.fetch = async (input, init) => {
       const request =
         input instanceof Request ? input : new Request(input.toString(), init);
+      if (options.gatewayFixtureOrigin === new URL(request.url).origin)
+        return originalFetch(input, init);
       if (request.method === "GET")
         await options.beforeFakeGitHubRead?.(request);
       return fakeGitHub.fetch(input, init);
     };
+    globalThis.fetch = fixtureFetch;
     const env: Readonly<Record<string, string>> = Object.freeze({
       ...productionEnv({
+        ...(options.reviewerPlanProfile
+          ? { reviewerPlanProfile: options.reviewerPlanProfile }
+          : {}),
         ...(options.agentProfiles
           ? { agentProfiles: options.agentProfiles }
           : {}),
@@ -324,6 +411,9 @@ export class ReviewActionV2E2EHarness {
         ...(options.prDescriptionProfile ? { prDescriptionProfile: true } : {}),
         ...(options.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: true }
+          : {}),
+        ...(options.modelDispatchProfile
+          ? { modelDispatchProfile: options.modelDispatchProfile }
           : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
@@ -351,6 +441,16 @@ export class ReviewActionV2E2EHarness {
             ),
           }
         : {}),
+      ...(options.historyProfile
+        ? {
+            REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE: "1",
+            REVIEW_ROUTER_REVIEW_V2_INTENT_INGRESS_ENABLED: "1",
+            REVIEW_ROUTER_REVIEW_V2_INTENT_ADMISSION_REQUIRED: "1",
+            REVIEW_ROUTER_REVIEW_V2_WORKFLOW_DISPATCH_READY: "1",
+            REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PATH: fakeGitHub.workflowPath,
+            REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED: "1",
+          }
+        : {}),
       ...(options.environmentOverrides ?? {}),
       // Keep the object frozen while letting both compositions reread fixture state.
       get REVIEW_ROUTER_REVIEW_INVESTIGATION_EMERGENCY_DISABLED() {
@@ -363,12 +463,91 @@ export class ReviewActionV2E2EHarness {
       },
     });
 
+    let cleanupInput: HistoryFixtureCleanupInput | undefined;
     try {
+      if (options.fixtureScope) {
+        await prisma.workspace.findUniqueOrThrow({
+          where: { id: workspaceId },
+        });
+        if (await prisma.reviewConfiguration.count({ where: { workspaceId } }))
+          throw new Error(
+            "review_v2_e2e_borrowed_workspace_must_be_unconfigured",
+          );
+      }
+      const originalEmergencyControl = options.historyProfile
+        ? await prisma.reviewSafetyEmergencyControl.findUniqueOrThrow({
+            where: { emergencyControlId: "global-review-v2" },
+            select: {
+              version: true,
+              stopped: true,
+              reason: true,
+              updatedBy: true,
+              updatedAt: true,
+            },
+          })
+        : null;
+      const originalHistoryCoverage = options.historyProfile
+        ? ((
+            await prisma.reviewHistoryCoverage.findUnique({
+              where: { id: "capture_v1" },
+            })
+          )?.coverageSince ?? null)
+        : null;
+      const originalStatisticsCoverage = options.historyProfile
+        ? ((
+            await prisma.reviewStatisticsCoverage.findUnique({
+              where: { id: "capture_v1" },
+            })
+          )?.activatedAt ?? null)
+        : null;
+      if (options.historyProfile) {
+        const collisions = await Promise.all([
+          prisma.repositoryConnection.count({
+            where: { id: repositoryConnectionId },
+          }),
+          prisma.scmRepositoryIdentity.count({
+            where: { scmRepositoryIdentityId },
+          }),
+          prisma.producerRelease.count({ where: { producerReleaseId } }),
+          prisma.reviewProtocolLimitsV2.count({
+            where: { protocolLimitsProfileId },
+          }),
+          prisma.reviewOperationalSloProfileV2.count({
+            where: { operationalSloProfileId },
+          }),
+          prisma.gitHubInstallation.count({
+            where: { id: `${prefix}-installation` },
+          }),
+          prisma.reviewSafetyPolicy.count({
+            where: { policyId: { startsWith: `${prefix}-policy-` } },
+          }),
+        ]);
+        if (collisions.some(Boolean))
+          throw new Error("review_v2_e2e_history_scope_already_exists");
+        cleanupInput = {
+          prisma,
+          prefix,
+          workspaceId,
+          repositoryConnectionId,
+          scmRepositoryIdentityId,
+          producerReleaseId,
+          protocolLimitsProfileId,
+          operationalSloProfileId,
+          borrowedWorkspace: options.fixtureScope !== undefined,
+          originalEmergencyControl,
+          originalHistoryCoverage,
+          originalStatisticsCoverage,
+        };
+      }
       await seedProductionControlPlane(prisma, {
+        ...(options.reviewerPlanProfile
+          ? { reviewerPlanProfile: options.reviewerPlanProfile }
+          : {}),
         ...(options.agentProfiles
           ? { agentProfiles: options.agentProfiles }
           : {}),
         prefix,
+        borrowedWorkspace: options.fixtureScope !== undefined,
         repositoryProviderSelection:
           options.repositoryProviderSelection ?? "rotating",
         workspaceId,
@@ -381,6 +560,9 @@ export class ReviewActionV2E2EHarness {
         ...(options.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: true }
           : {}),
+        ...(options.modelDispatchProfile
+          ? { modelDispatchProfile: options.modelDispatchProfile }
+          : {}),
         ...(options.investigationProfile
           ? { investigationProfile: options.investigationProfile }
           : {}),
@@ -390,6 +572,9 @@ export class ReviewActionV2E2EHarness {
               protocolMaxAttemptsPerSlot: options.protocolMaxAttemptsPerSlot,
             }),
       });
+      const history = options.historyProfile
+        ? await createReviewHistoryFeature({ prisma })
+        : undefined;
       const routes = composeReviewActionV2ProductionRoutes({
         enabled: true,
         env,
@@ -398,6 +583,7 @@ export class ReviewActionV2E2EHarness {
           createRequestId: () => `${prefix}-request-${randomUUID()}`,
         },
         prisma,
+        ...(history ? { historyWriter: history.writer } : {}),
       });
       const statistics = await createReviewStatisticsFeature({ prisma });
       const productionWorker = createProductionReviewV2WorkerRuntime({
@@ -406,6 +592,7 @@ export class ReviewActionV2E2EHarness {
         env,
         githubAppId: requiredString(env.GITHUB_APP_ID),
         githubPrivateKey: requiredString(env.GITHUB_APP_PRIVATE_KEY),
+        ...(history ? { historyWriter: history.writer } : {}),
         settlementHook: createReviewStatisticsSettlementCapture(
           statistics.outboxWriter,
         ),
@@ -415,7 +602,8 @@ export class ReviewActionV2E2EHarness {
         createEnabledRuntime: () => productionWorker,
       });
       if (worker.enabled) await statistics.activateCapture();
-      return new ReviewActionV2E2EHarness({
+      if (history) await history.activateCapture();
+      const harness = new ReviewActionV2E2EHarness({
         prisma,
         fakeGitHub,
         prefix,
@@ -430,12 +618,40 @@ export class ReviewActionV2E2EHarness {
         worker,
         statistics,
         originalFetch,
+        fixtureFetch,
+        ...(history ? { history } : {}),
+        originalHistoryCoverage,
+        originalStatisticsCoverage,
+        borrowedWorkspace: options.fixtureScope !== undefined,
+        originalEmergencyControl,
         oidcLifetimeSeconds,
         modelTransport: options.modelTransport ?? "provider_api",
+        ...(options.subscriptionAuthMode
+          ? { subscriptionAuthMode: options.subscriptionAuthMode }
+          : {}),
       });
+      if (history) globalThis.fetch = originalFetch;
+      return harness;
     } catch (error) {
-      globalThis.fetch = originalFetch;
-      await prisma.$disconnect();
+      const failures: unknown[] = [error];
+      try {
+        if (cleanupInput) await cleanupHistoryFixtureRows(cleanupInput);
+      } catch (cleanupError) {
+        failures.push(cleanupError);
+      } finally {
+        globalThis.fetch = originalFetch;
+        try {
+          await prisma.$disconnect();
+        } catch (disconnectError) {
+          failures.push(disconnectError);
+        }
+      }
+      if (failures.length > 1)
+        throw new AggregateError(
+          failures,
+          "review_v2_e2e_creation_cleanup_failed",
+          { cause: error },
+        );
       throw error;
     }
   }
@@ -443,6 +659,213 @@ export class ReviewActionV2E2EHarness {
   async close(): Promise<void> {
     globalThis.fetch = this.originalFetch;
     await this.prisma.$disconnect();
+  }
+
+  /** Only these joined lifecycle calls install the external GitHub/OIDC fixture. */
+  private async withHistoryAdapters<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (!this.history)
+      throw new Error("review_v2_e2e_history_profile_required");
+    const previousFetch = globalThis.fetch;
+    if (previousFetch !== this.originalFetch)
+      throw new Error("review_v2_e2e_history_fetch_not_restored");
+    globalThis.fetch = this.fixtureFetch;
+    try {
+      return await operation();
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  }
+
+  private async drainHistoryQueue(): Promise<void> {
+    for (let pass = 0; pass < 12; pass += 1) {
+      const result = await this.processFinalizedOutbox({
+        handlers: this.knownOutboxHandlers,
+      });
+      if (result.retried || result.deadLettered || result.staleClaims)
+        throw new Error(
+          `review_v2_e2e_history_outbox_failed:${JSON.stringify(result)}`,
+        );
+      if (result.claimed === 0) {
+        if (
+          await this.prisma.outboxEvent.count({
+            where: {
+              repositoryId: this.repositoryConnectionId,
+              type: historyChangedEventType,
+              status: { not: "processed" },
+            },
+          })
+        )
+          throw new Error("review_v2_e2e_history_events_not_processed");
+        return;
+      }
+    }
+    throw new Error("review_v2_e2e_history_outbox_did_not_drain");
+  }
+
+  async createHistoryReview(
+    label: string,
+  ): Promise<ReviewActionV2E2EHistoryReview> {
+    return this.withHistoryAdapters(async () => {
+      const ingressCommand: EnqueueReviewRequestIngressCommand = {
+        workspaceId: this.workspaceId,
+        repositoryConnectionId: this.repositoryConnectionId,
+        scmRepositoryIdentityId: this.scmRepositoryIdentityId,
+        pullRequestNumber,
+        githubInstallationId,
+        repositoryFullName: `${owner}/${repo}`,
+        commandKind: ReviewRequestIngressCommandKind.Request,
+        triggerKind: ReviewRequestedTriggerKind.ManualCommand,
+        sourceIdentity: `${this.prefix}-history-manual-${label}`,
+        occurredAt: new Date(),
+        expectedBaseSha: this.fakeGitHub.revision.baseSha,
+        expectedHeadSha: this.fakeGitHub.revision.headSha,
+        quietPeriodMs: 0,
+        retentionMs: 86_400_000,
+      };
+      const accepted = await new ReviewV2RequestIngressOutbox(
+        new PrismaOutboxEventRepository(this.prisma),
+        digestPort,
+      ).enqueue(ingressCommand);
+      const requestId = requiredString(accepted.requestId);
+      await this.drainHistoryQueue();
+      const dispatched = await this.worker.runMaintenance();
+      if (
+        dispatched.intentDispatchFailures ||
+        dispatched.intentsDispatched !== 1
+      )
+        throw new Error(
+          `review_v2_e2e_history_dispatch_failed:${JSON.stringify(dispatched)}`,
+        );
+      await this.drainHistoryQueue();
+      const intent = await this.prisma.reviewRequestedIntent.findUniqueOrThrow({
+        where: { requestId },
+      });
+      const run = await this.prisma.reviewHistoryRun.findUniqueOrThrow({
+        where: { rootRequestId: requestId },
+      });
+      if (intent.state !== "awaiting_authorization" || run.status !== "queued")
+        throw new Error("review_v2_e2e_history_request_not_queued");
+      return {
+        requestId,
+        rootRequestId: requestId,
+        pullRequestId: run.pullRequestId,
+        sourceRunId: requiredString(intent.sourceRunId),
+        pullRequestNumber,
+        repositoryFullName: `${owner}/${repo}`,
+        pullRequestTitle: this.fakeGitHub.pullRequestTitle,
+        headSha: this.fakeGitHub.revision.headSha,
+        ingressCommand,
+      };
+    });
+  }
+
+  async startHistoryReview(
+    run: ReviewActionV2E2EHistoryReview,
+  ): Promise<ReviewActionV2E2EFlow> {
+    return this.withHistoryAdapters(async () => {
+      this.fakeGitHub.sourceRunId = run.sourceRunId;
+      const flow = await this.createCommittedFlow();
+      await this.releaseProviderLease(flow);
+      await this.drainHistoryQueue();
+      return flow;
+    });
+  }
+
+  async publishHistoryReview(flow: ReviewActionV2E2EFlow): Promise<void> {
+    await this.withHistoryAdapters(async () => {
+      const finalized = await this.finalize(flow);
+      if (
+        finalized.result.status !== ReviewExecutionMutationResultStatus.Applied
+      )
+        throw new Error("review_v2_e2e_history_finalize_failed");
+      await this.drainHistoryQueue();
+    });
+  }
+
+  async completeHistoryReview(flow: ReviewActionV2E2EFlow): Promise<void> {
+    await this.withHistoryAdapters(async () => {
+      await this.runWorkerUntilSettled();
+      await this.drainHistoryQueue();
+      const completion =
+        await this.prisma.reviewCompletionProcess.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+        });
+      if (completion.state !== "completed")
+        throw new Error("review_v2_e2e_history_completion_not_confirmed");
+    });
+  }
+
+  async replayHistoryReview(
+    run: ReviewActionV2E2EHistoryReview,
+  ): Promise<void> {
+    await this.withHistoryAdapters(async () => {
+      const outbox = new PrismaOutboxEventRepository(this.prisma);
+      const duplicate = await new ReviewV2RequestIngressOutbox(
+        outbox,
+        digestPort,
+      ).enqueue(run.ingressCommand);
+      if (duplicate.created || duplicate.requestId !== run.requestId)
+        throw new Error("review_v2_e2e_history_ingress_not_idempotent");
+      // A distinct queue envelope delivers the same immutable source facts again.
+      const original = await this.prisma.outboxEvent.findFirstOrThrow({
+        where: {
+          repositoryId: this.repositoryConnectionId,
+          type: reviewRequestIngressEventType,
+          payload: { path: ["requestId"], equals: run.requestId },
+        },
+      });
+      await outbox.enqueue({
+        type: original.type,
+        version: original.version,
+        idempotencyKey: `${this.prefix}-history-replay-${randomUUID()}`,
+        workspaceId: original.workspaceId,
+        repositoryId: original.repositoryId,
+        aggregateId: original.aggregateId,
+        payload: original.payload,
+        occurredAt: original.occurredAt,
+      });
+      const fact = await this.prisma.outboxEvent.findFirstOrThrow({
+        where: {
+          repositoryId: this.repositoryConnectionId,
+          type: historyChangedEventType,
+          aggregateId: run.rootRequestId,
+        },
+        orderBy: { occurredAt: "asc" },
+      });
+      await outbox.enqueue({
+        type: fact.type,
+        version: fact.version,
+        idempotencyKey: `${this.prefix}-history-fact-replay-${randomUUID()}`,
+        workspaceId: fact.workspaceId,
+        repositoryId: fact.repositoryId,
+        aggregateId: fact.aggregateId,
+        payload: fact.payload,
+        occurredAt: fact.occurredAt,
+      });
+      await this.drainHistoryQueue();
+    });
+  }
+
+  /** Remove this profile's source rows before the browser removes its workspace. */
+  async cleanupHistoryFixtures(): Promise<void> {
+    if (!this.history)
+      throw new Error("review_v2_e2e_history_profile_required");
+    await cleanupHistoryFixtureRows({
+      prisma: this.prisma,
+      prefix: this.prefix,
+      workspaceId: this.workspaceId,
+      repositoryConnectionId: this.repositoryConnectionId,
+      scmRepositoryIdentityId: this.scmRepositoryIdentityId,
+      producerReleaseId: this.producerReleaseId,
+      protocolLimitsProfileId: this.protocolLimitsProfileId,
+      operationalSloProfileId: this.operationalSloProfileId,
+      borrowedWorkspace: this.borrowedWorkspace,
+      originalEmergencyControl: this.originalEmergencyControl,
+      originalHistoryCoverage: this.originalHistoryCoverage,
+      originalStatisticsCoverage: this.originalStatisticsCoverage,
+    });
   }
 
   async authorize(
@@ -489,6 +912,7 @@ export class ReviewActionV2E2EHarness {
         ? { providerApiAuthMode: input.providerApiAuthMode }
         : {}),
       sourceRunAttempt: runAttempt,
+      sourceRunId: this.fakeGitHub.sourceRunId,
       oidcExpiresAt: new Date(oidcExpiresAt * 1000).toISOString(),
       authorizationId,
       authorizationToken,
@@ -606,7 +1030,7 @@ export class ReviewActionV2E2EHarness {
         assignmentManifestCanonicalJson,
         assignmentManifestHash,
         workSlotsCanonicalJson: canonicalJson(workSlots),
-        sourceRunId,
+        sourceRunId: authorized.sourceRunId ?? sourceRunId,
         sourceRunAttempt: authorized.sourceRunAttempt ?? "1",
       },
     );
@@ -1522,6 +1946,14 @@ export class ReviewActionV2E2EHarness {
     return this.oidcOrdinal;
   }
 
+  /** A real signed fixture token for the compiled Action's normal authorize call. */
+  async createOidcToken(): Promise<string> {
+    return this.signOidcToken(
+      this.fakeGitHub.sourceRunAttempt,
+      Math.floor(Date.now() / 1000) + this.oidcLifetimeSeconds,
+    );
+  }
+
   private async signOidcToken(
     runAttempt: string,
     expiresAt: number,
@@ -1537,9 +1969,9 @@ export class ReviewActionV2E2EHarness {
       repository_owner: owner,
       event_name: "workflow_dispatch",
       ref: "refs/heads/main",
-      run_id: sourceRunId,
+      run_id: this.fakeGitHub.sourceRunId,
       run_attempt: runAttempt,
-      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" || providerApiAuthMode ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
+      workflow_ref: `${owner}/${repo}/.github/workflows/${this.modelTransport === "account_gateway" || providerApiAuthMode || this.subscriptionAuthMode ? "reviewrouter-review.yml" : "reviewrouter-codex.yml"}@refs/heads/main`,
       workflow_sha: this.fakeGitHub.revision.headSha,
       job_workflow_ref:
         this.modelTransport === "account_gateway"
@@ -1574,6 +2006,188 @@ const oidcSigningKeys = new Map<
   string,
   ReturnType<typeof generateKeyPairSync>
 >();
+
+type HistoryFixtureCleanupInput = {
+  prisma: PrismaClient;
+  prefix: string;
+  workspaceId: string;
+  repositoryConnectionId: string;
+  scmRepositoryIdentityId: string;
+  producerReleaseId: string;
+  protocolLimitsProfileId: string;
+  operationalSloProfileId: string;
+  borrowedWorkspace: boolean;
+  originalEmergencyControl: EmergencyControlSnapshot | null;
+  originalHistoryCoverage: Date | null;
+  originalStatisticsCoverage: Date | null;
+};
+
+/** One child-first cleanup serves successful and partially constructed fixtures. */
+async function cleanupHistoryFixtureRows(
+  input: HistoryFixtureCleanupInput,
+): Promise<void> {
+  await input.prisma.$transaction(
+    async (tx) => {
+      const executions = (
+        await tx.reviewExecutionV2.findMany({
+          where: { repositoryConnectionId: input.repositoryConnectionId },
+          select: { executionId: true },
+        })
+      ).map((row) => row.executionId);
+      const authorizations = (
+        await tx.reviewRunAuthorization.findMany({
+          where: { repositoryConnectionId: input.repositoryConnectionId },
+          select: { authorizationId: true },
+        })
+      ).map((row) => row.authorizationId);
+      const publications = (
+        await tx.reviewPublicationAttemptV2.findMany({
+          where: { repositoryConnectionId: input.repositoryConnectionId },
+          select: { publicationAttemptId: true },
+        })
+      ).map((row) => row.publicationAttemptId);
+      await tx.outboxEvent.deleteMany({
+        where: { repositoryId: input.repositoryConnectionId },
+      });
+      await tx.reviewCompletionProcess.deleteMany({
+        where: { executionId: { in: executions } },
+      });
+      // These fixed fixture tables have RESTRICT relationships; child-first
+      // deletion uses the exact owned publication IDs, never a database reset.
+      for (const table of [
+        "ReviewPublicationOutcomeCorrectionV2",
+        "ReviewPublicationAuditTombstoneV2",
+        "ReviewPublicationReceiptV2",
+        "ReviewPublicationExternalEffectV2",
+        "ReviewPublicationOperationAttemptV2",
+        "ReviewPublicationOperationV2",
+        "ReviewPublicationClaimTermV2",
+        "ReviewPublicationRequestReceiptV2",
+      ])
+        await tx.$executeRawUnsafe(
+          `DELETE FROM "${table}" WHERE "publicationAttemptId" = ANY($1::text[])`,
+          publications,
+        );
+      await tx.reviewPublicationAttemptV2.deleteMany({
+        where: { publicationAttemptId: { in: publications } },
+      });
+      await tx.reviewSnapshotCommitReceiptV2.deleteMany({
+        where: { sourceExecutionId: { in: executions } },
+      });
+      await tx.reviewSnapshot.deleteMany({
+        where: { repositoryId: input.repositoryConnectionId },
+      });
+      await tx.finalizedReviewProjectionArtifactV2.deleteMany({
+        where: { executionId: { in: executions } },
+      });
+      await tx.reviewExecutionObservationRefV2.deleteMany({
+        where: { executionId: { in: executions } },
+      });
+      await tx.reviewRunCompanionDispatchV1.deleteMany({
+        where: { authorizationId: { in: authorizations } },
+      });
+      await tx.reviewInvocationLeaseTombstoneV2.deleteMany({
+        where: { authorizationId: { in: authorizations } },
+      });
+      await tx.reviewInvocationLeaseV2.deleteMany({
+        where: { executionId: { in: executions } },
+      });
+      await tx.reviewExecutionWorkSlotV2.deleteMany({
+        where: { executionId: { in: executions } },
+      });
+      await tx.reviewRequestedIntent.deleteMany({
+        where: { repositoryConnectionId: input.repositoryConnectionId },
+      });
+      await tx.reviewExecutionProgressV1.deleteMany({
+        where: { executionId: { in: executions } },
+      });
+      await tx.reviewProgressPublicationV1.deleteMany({
+        where: { repositoryConnectionId: input.repositoryConnectionId },
+      });
+      await tx.reviewExecutionV2.deleteMany({
+        where: { executionId: { in: executions } },
+      });
+      await tx.reviewExecutionStreamV2.deleteMany({
+        where: { repositoryConnectionId: input.repositoryConnectionId },
+      });
+      await tx.reviewEvidenceObservation.deleteMany({
+        where: { repositoryConnectionId: input.repositoryConnectionId },
+      });
+      await tx.reviewRunAuthorizationRenewalReceipt.deleteMany({
+        where: { authorizationId: { in: authorizations } },
+      });
+      await tx.reviewRunAuthorization.deleteMany({
+        where: { authorizationId: { in: authorizations } },
+      });
+      await tx.reviewHistoryRun.deleteMany({
+        where: {
+          originalRepositoryConnectionId: input.repositoryConnectionId,
+        },
+      });
+      await tx.reviewHistoryPullRequest.deleteMany({
+        where: {
+          workspaceId: input.workspaceId,
+          scmRepositoryIdentityId: input.scmRepositoryIdentityId,
+        },
+      });
+      await tx.reviewThreadResolutionGuardV1.deleteMany({
+        where: { repositoryConnectionId: input.repositoryConnectionId },
+      });
+      await tx.reviewSafetyPolicy.deleteMany({
+        where: { policyId: { startsWith: `${input.prefix}-policy-` } },
+      });
+      await tx.reviewMutationAuthority.deleteMany({
+        where: { scmRepositoryIdentityId: input.scmRepositoryIdentityId },
+      });
+      await tx.scmRepositoryIdentity.updateMany({
+        where: { scmRepositoryIdentityId: input.scmRepositoryIdentityId },
+        data: {
+          currentRepositoryConnectionId: null,
+          currentWorkspaceId: null,
+        },
+      });
+      await tx.repositoryConnection.deleteMany({
+        where: { id: input.repositoryConnectionId },
+      });
+      await tx.scmRepositoryIdentity.deleteMany({
+        where: { scmRepositoryIdentityId: input.scmRepositoryIdentityId },
+      });
+      await tx.gitHubInstallation.deleteMany({
+        where: { id: `${input.prefix}-installation` },
+      });
+      // Borrowing requires a new, unconfigured test workspace. The fixture owns
+      // exactly the workspace policy it installed, as well as its repository.
+      await tx.reviewConfiguration.deleteMany({
+        where: { workspaceId: input.workspaceId },
+      });
+      await tx.producerRelease.deleteMany({
+        where: { producerReleaseId: input.producerReleaseId },
+      });
+      await tx.reviewProtocolLimitsV2.deleteMany({
+        where: { protocolLimitsProfileId: input.protocolLimitsProfileId },
+      });
+      await tx.reviewOperationalSloProfileV2.deleteMany({
+        where: { operationalSloProfileId: input.operationalSloProfileId },
+      });
+      if (!input.borrowedWorkspace)
+        await tx.workspace.deleteMany({ where: { id: input.workspaceId } });
+      if (input.originalEmergencyControl)
+        await tx.reviewSafetyEmergencyControl.update({
+          where: { emergencyControlId: "global-review-v2" },
+          data: input.originalEmergencyControl,
+        });
+      if (input.originalHistoryCoverage === null)
+        await tx.reviewHistoryCoverage.deleteMany({
+          where: { id: "capture_v1" },
+        });
+      if (input.originalStatisticsCoverage === null)
+        await tx.reviewStatisticsCoverage.deleteMany({
+          where: { id: "capture_v1" },
+        });
+    },
+    { timeout: 30_000 },
+  );
+}
 
 export async function createReviewActionV2E2EHarness(
   databaseUrl: string,
@@ -1667,6 +2281,7 @@ async function seedProductionControlPlane(
   ids: Readonly<{
     prefix: string;
     workspaceId: string;
+    borrowedWorkspace: boolean;
     repositoryConnectionId: string;
     scmRepositoryIdentityId: string;
     producerReleaseId: string;
@@ -1675,8 +2290,13 @@ async function seedProductionControlPlane(
     investigationProfile?: ReviewActionV2E2EInvestigationProfile;
     protocolMaxAttemptsPerSlot?: number;
     agentProfiles?: readonly ReviewAgentProfile[];
+    reviewerPlanProfile?: Readonly<{
+      planVersion: 1;
+      descriptorDigest: string;
+    }>;
     prDescriptionProfile?: boolean;
     lifecycleVerificationProfile?: boolean;
+    modelDispatchProfile?: ReviewModelDispatchProfileV2;
     repositoryProviderSelection: "rotating" | "none";
   }>,
 ): Promise<void> {
@@ -1743,6 +2363,9 @@ async function seedProductionControlPlane(
       agentProfilesJson: JSON.stringify(
         ids.agentProfiles ?? approvedAgentProfilesFixture,
       ),
+      ...(ids.reviewerPlanProfile
+        ? { reviewerPlanProfile: { ...ids.reviewerPlanProfile } }
+        : {}),
       ...(ids.prDescriptionProfile
         ? { prDescriptionProfile: { ...prDescriptionExtensionV1 } }
         : {}),
@@ -1752,6 +2375,9 @@ async function seedProductionControlPlane(
               ...lifecycleVerificationExtensionV1,
             },
           }
+        : {}),
+      ...(ids.modelDispatchProfile
+        ? { modelDispatchProfile: { ...ids.modelDispatchProfile } }
         : {}),
       contextGatewayPolicyVersion:
         ids.investigationProfile?.gatewayPolicyVersion ??
@@ -1773,13 +2399,25 @@ async function seedProductionControlPlane(
     },
   });
   const installationId = `${ids.prefix}-installation`;
-  await prisma.workspace.create({
-    data: {
-      id: ids.workspaceId,
-      slug: `${ids.prefix}-workspace`,
-      name: "Disposable Review Action v2 E2E",
-    },
-  });
+  if (ids.borrowedWorkspace) {
+    await prisma.workspace.findUniqueOrThrow({
+      where: { id: ids.workspaceId },
+    });
+    if (
+      await prisma.reviewConfiguration.count({
+        where: { workspaceId: ids.workspaceId },
+      })
+    )
+      throw new Error("review_v2_e2e_borrowed_workspace_must_be_unconfigured");
+  } else {
+    await prisma.workspace.create({
+      data: {
+        id: ids.workspaceId,
+        slug: `${ids.prefix}-workspace`,
+        name: "Disposable Review Action v2 E2E",
+      },
+    });
+  }
   const configurations = new PrismaReviewConfigurationRepository(
     prisma,
     undefined,
@@ -1905,6 +2543,10 @@ async function seedProductionControlPlane(
 
 function productionEnv(input: {
   readonly agentProfiles?: readonly ReviewAgentProfile[];
+  readonly reviewerPlanProfile?: Readonly<{
+    planVersion: 1;
+    descriptorDigest: string;
+  }>;
   readonly appPrivateKey: string;
   readonly producerReleaseId: string;
   readonly protocolLimitsProfileId: string;
@@ -1912,6 +2554,7 @@ function productionEnv(input: {
   readonly investigationProfile?: ReviewActionV2E2EInvestigationProfile;
   readonly prDescriptionProfile?: boolean;
   readonly lifecycleVerificationProfile?: boolean;
+  readonly modelDispatchProfile?: ReviewModelDispatchProfileV2;
 }): Readonly<Record<string, string>> {
   const contextReplayKeyId = "review-v2-e2e-context-key";
   const signingKeys = JSON.stringify([
@@ -1941,11 +2584,17 @@ function productionEnv(input: {
         wrapperEntrypointDigest: null,
         runtimeEntrypointDigest: sha256("runtime-entrypoint"),
         agentProfiles: input.agentProfiles ?? approvedAgentProfilesFixture,
+        ...(input.reviewerPlanProfile
+          ? { reviewerPlanProfile: input.reviewerPlanProfile }
+          : {}),
         ...(input.prDescriptionProfile
           ? { prDescriptionProfile: prDescriptionExtensionV1 }
           : {}),
         ...(input.lifecycleVerificationProfile
           ? { lifecycleVerificationProfile: lifecycleVerificationExtensionV1 }
+          : {}),
+        ...(input.modelDispatchProfile
+          ? { modelDispatchProfile: input.modelDispatchProfile }
           : {}),
         reviewInvestigationCapability: input.investigationProfile
           ? reviewInvestigationCapabilityV1

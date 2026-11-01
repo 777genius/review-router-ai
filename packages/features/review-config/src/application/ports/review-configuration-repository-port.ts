@@ -166,6 +166,10 @@ export type ReviewPolicyWriteAudit = Readonly<{
   actor: string;
   action: string;
   metadata?: Readonly<Record<string, unknown>>;
+  /** Pure synchronous projection of the exact configuration saved by this write. */
+  metadataForSavedConfiguration?: (
+    configuration: SavedReviewPolicy["configuration"],
+  ) => Readonly<Record<string, unknown>>;
 }>;
 
 export type SavedReviewPolicy = Readonly<{
@@ -207,6 +211,8 @@ export interface ReviewConfigurationRepositoryPort {
   saveNextVersions(input: {
     readonly workspaceId: string;
     readonly writes: readonly ReviewPolicyWrite[];
+    /** Observed inherited workspace head, checked under the same scope locks. */
+    readonly expectedWorkspaceVersion?: number | null;
     readonly selectionAuthority?: ProviderSelectionAuthority;
     readonly profileDrafts?: readonly ProviderProfileDraft[];
     /**

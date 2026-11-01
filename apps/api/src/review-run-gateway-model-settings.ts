@@ -1,4 +1,5 @@
 import { effectiveGatewayReasoningEffort } from "@reviewrouter/features-review-providers";
+import { codexOAuthGatewayProfileRef } from "@reviewrouter/shared";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -9,6 +10,8 @@ import {
 } from "@reviewrouter/features-provider-accounts";
 import {
   canonicalJson,
+  getReviewRunGatewayAllocation,
+  getReviewRunReviewer,
   parseReviewRunRuntimeSnapshot,
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
@@ -16,7 +19,7 @@ import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-co
 
 export const gatewayModelSettingsRuntimeEnvKey =
   "REVIEW_ROUTER_GATEWAY_MODEL_SETTINGS_JSON";
-export const codexOAuthModelSettingsProfile = "openai-codex-oauth-responses-v1";
+export const codexOAuthModelSettingsProfile = codexOAuthGatewayProfileRef;
 const efforts = [
   "minimal",
   "low",
@@ -38,6 +41,7 @@ export type ReadSelectedGatewayModelSettings = (request: {
   readonly authorization: ReviewRunAuthorization;
   readonly signal: AbortSignal;
   readonly executionAuthorizationEpoch?: number;
+  readonly reviewerId?: string;
 }) => Promise<{
   readonly authorizationEpoch: number;
   readonly settings: SelectedGatewayModelSettings | undefined;
@@ -82,7 +86,6 @@ export function serializeSelectedGatewayModelSettings(
 
 /** Read-only private adapter. Enrollment anchors and saved policy stay immutable. */
 export function createReviewRunGatewayModelSettingsReader(input: {
-  readonly accountModelCatalogEnabled?: boolean;
   readonly accounts: Pick<PrismaProviderAccountRepository, "findBinding">;
   readonly control: Pick<ConsumerControlClient, "get" | "readAccountModels">;
   readonly profiles: readonly c.Profile[];
@@ -95,22 +98,43 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       c.profile.parse(profile),
     ]),
   );
-  return async ({ authorization, signal, executionAuthorizationEpoch }) => {
+  return async ({
+    authorization,
+    signal,
+    executionAuthorizationEpoch,
+    reviewerId,
+  }) => {
     const workspaceId = authorization.workspaceId;
     const snapshot = parseReviewRunRuntimeSnapshot(
       authorization.runtimeSnapshotCanonicalJson,
     );
-    const gateway = snapshot?.gateway;
+    const reviewer =
+      snapshot?.snapshotVersion === 4 && reviewerId !== undefined
+        ? getReviewRunReviewer(snapshot, reviewerId)
+        : null;
+    const gateway =
+      snapshot?.snapshotVersion === 4
+        ? reviewer &&
+          getReviewRunGatewayAllocation(
+            snapshot,
+            reviewer.transport.allocationId,
+          )
+        : snapshot?.gateway;
     if (
       !snapshot ||
       !gateway ||
+      (snapshot.snapshotVersion === 3 && reviewerId !== undefined) ||
       snapshot.deadline !== authorization.maxExpiresAt.toISOString()
     )
       throw new Error("gateway_model_settings_unavailable");
     const config = parseReviewConfigurationStrict(
       JSON.parse(snapshot.configurationCanonicalJson),
     );
-    const provider = config.providers[gateway.providerIndex];
+    const providerIndex =
+      snapshot.snapshotVersion === 4
+        ? reviewer!.providerIndex
+        : snapshot.gateway!.providerIndex;
+    const provider = config.providers[providerIndex];
     const profile = profiles.get(gateway.profileRef);
     const discoverySource = profile?.authKinds
       .map((authKind) =>
@@ -193,14 +217,6 @@ export function createReviewRunGatewayModelSettingsReader(input: {
       };
     }
     const before = await selected();
-    if (input.accountModelCatalogEnabled !== true) {
-      if (!profile.modelIds.includes(provider.model))
-        throw new Error("gateway_model_settings_unavailable");
-      return {
-        authorizationEpoch: before.authorizationEpoch,
-        settings: undefined,
-      };
-    }
     const models = c.accountModels.parse(
       await control.readAccountModels(
         {

@@ -197,9 +197,9 @@ export function MemoryKnowledgeScreen({
             Memory
           </h1>
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Keep the rules your team has approved for future reviews. Workspace
-            rules are shared across repositories; repository rules apply to one
-            project.
+            Maintain team rules and useful observations learned from authorized
+            discussions. Workspace rules are shared across repositories;
+            repository knowledge applies to one project.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 pt-1">
@@ -386,7 +386,7 @@ export function MemoryKnowledgeScreen({
             <h2 className="text-lg font-medium">
               {page.topicId
                 ? "No matching memory on this page"
-                : "No approved memory here yet"}
+                : "No memory here yet"}
             </h2>
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-400">
               {page.topicId
@@ -442,7 +442,7 @@ export function MemoryKnowledgeScreen({
                       : entry.status === "forget_pending"
                         ? "Removed from new reviews. Stored-copy cleanup is still pending."
                         : entry.unavailable === "unsettled"
-                          ? "The approved text is still processing."
+                          ? "The memory text is still processing."
                           : "The text is temporarily unavailable.")}
                 </p>
                 {entry.topics.length ? (
