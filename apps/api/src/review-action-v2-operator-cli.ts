@@ -5,7 +5,10 @@ import {
   parseReviewAgentProfiles,
   parseProducerReviewerPlanProfile,
 } from "@reviewrouter/features-review-run-control";
-import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
+import {
+  assertReviewModelDispatchDefaultAgents,
+  parseReviewModelDispatchProfileV2,
+} from "@reviewrouter/shared";
 import {
   createRepositoryReleaseSelector,
   parseRepositoryReleaseBindings,
@@ -1391,14 +1394,15 @@ export function parseReviewV2ReleaseBundleCandidate(
           ),
         };
 
+  const agentProfiles = parseReviewAgentProfiles(input.agentProfiles);
+  const modelDispatchProfile = hasModelDispatchProfile
+    ? parseReviewModelDispatchProfileV2(input.modelDispatchProfile)
+    : null;
+  if (modelDispatchProfile)
+    assertReviewModelDispatchDefaultAgents(modelDispatchProfile, agentProfiles);
+
   return {
-    ...(hasModelDispatchProfile
-      ? {
-          modelDispatchProfile: parseReviewModelDispatchProfileV2(
-            input.modelDispatchProfile,
-          ),
-        }
-      : {}),
+    ...(modelDispatchProfile ? { modelDispatchProfile } : {}),
     ...(hasReviewerPlanProfile
       ? {
           reviewerPlanProfile: parseProducerReviewerPlanProfile(
@@ -1432,7 +1436,7 @@ export function parseReviewV2ReleaseBundleCandidate(
         }
       : {}),
     producerReleaseId: requireString(input, "producerReleaseId"),
-    agentProfiles: parseReviewAgentProfiles(input.agentProfiles),
+    agentProfiles,
     distributionKind,
     actionCommitSha: requireString(input, "actionCommitSha"),
     runtimeCommitSha: requireString(input, "runtimeCommitSha"),

@@ -1,8 +1,11 @@
 import { parseReviewAgentProfiles } from "../../packages/shared/dist/review-agent-profile.js";
-import { parseReviewModelDispatchProfileV2 } from "../../packages/shared/dist/review-model-dispatch-contract.js";
+import {
+  assertReviewModelDispatchDefaultAgents,
+  parseReviewModelDispatchProfileV2,
+} from "../../packages/shared/dist/review-model-dispatch-contract.js";
 
-// Reviewed S2 contract bytes. Append new qualified identities rather than trusting
-// a caller-provided digest or executing TypeScript from the public repository.
+// Reviewed S2 contract bytes. Append qualified identities rather than trusting
+// a caller-provided digest or executing code from the public repository.
 const supportedContractDigests = Object.freeze({
   "review-model-dispatch-contract.ts":
     "c9d91addfd46122d095908c42cf416527d438c374e8bb4f65a333d62bf4b1728",
@@ -25,21 +28,9 @@ export function bindModelDispatchReleaseProfile(
         `model dispatch profile has no reviewed contract binding: ${file}`,
       );
   }
-  const catalog = parseReviewAgentProfiles(agentProfiles);
-  for (const transport of profile.transports) {
-    const ref = profile.defaultAgentProfileRefs[transport];
-    const publicTransport =
-      transport === "account_gateway" ? "account_gateway" : "provider_api";
-    const agent = catalog.find((candidate) => candidate.profileRef === ref);
-    if (
-      !agent ||
-      agent.agentKind !== "ocr" ||
-      agent.reviewSkillsVersion !== 1 ||
-      !agent.modelTransports.includes(publicTransport)
-    )
-      throw new Error(
-        `model dispatch default agent is incompatible: ${transport}`,
-      );
-  }
+  assertReviewModelDispatchDefaultAgents(
+    profile,
+    parseReviewAgentProfiles(agentProfiles),
+  );
   return profile;
 }

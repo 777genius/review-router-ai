@@ -21,6 +21,19 @@ import { createTrustedProducerReleaseMaterializer } from "../infrastructure/trus
 import { createReviewRunControlTestKit } from "../testing/review-run-control-test-kit";
 import { hashB, hashC, releaseCandidate } from "./fixtures";
 
+const qualifiedAgentProfiles = [
+  {
+    profileRef: "ocr-controlled-responses",
+    agentKind: "ocr" as const,
+    binarySha256: "a".repeat(64),
+    packageVersion: "1.0.0",
+    modelTransports: ["provider_api" as const],
+    contextGateway: false as const,
+    cancellation: true as const,
+    reviewSkillsVersion: 1 as const,
+  },
+];
+
 const profile = {
   extensionId: "review-model-dispatch.v2" as const,
   descriptorDigest: reviewModelDispatchDescriptorDigest,
@@ -44,13 +57,14 @@ describe("versioned model dispatch approval", () => {
     expect(
       `sha256:${createHash("sha256").update(canonicalJson(reviewModelDispatchContract)).digest("hex")}`,
     ).toBe(reviewModelDispatchDescriptorDigest);
+    const candidate = { ...releaseCandidate, agentProfiles: qualifiedAgentProfiles };
     const legacy = createProducerRelease(
-      releaseCandidate,
+      candidate,
       new Date("2026-10-21T00:00:00.000Z"),
     );
     expect(legacy).not.toHaveProperty("modelDispatchProfile");
     const declared = createProducerRelease(
-      { ...releaseCandidate, modelDispatchProfile: profile },
+      { ...candidate, modelDispatchProfile: profile },
       legacy.registeredAt,
     );
     expect(producerReleaseImmutableKey(declared)).not.toBe(
@@ -114,12 +128,31 @@ describe("versioned model dispatch approval", () => {
     ).toThrow();
   });
 
+  it("refuses absent, unqualified and transport-incompatible dispatch defaults", () => {
+    const candidate = { ...releaseCandidate, modelDispatchProfile: profile };
+    for (const agentProfiles of [
+      null,
+      [{ ...qualifiedAgentProfiles[0], profileRef: "another-ocr" }],
+      [{ ...qualifiedAgentProfiles[0], reviewSkillsVersion: undefined }],
+      [{ ...qualifiedAgentProfiles[0], agentKind: "codex", contextGateway: true }],
+      [{ ...qualifiedAgentProfiles[0], modelTransports: ["account_gateway"] }],
+    ]) {
+      expect(() =>
+        createProducerRelease(
+          { ...candidate, agentProfiles } as Parameters<typeof createProducerRelease>[0],
+          new Date("2026-10-21T00:00:00.000Z"),
+        ),
+      ).toThrow();
+    }
+  });
+
   it("carries approved dispatch facts through configured attestation and materialization", async () => {
     const kit = createReviewRunControlTestKit();
     const attestations = readConfiguredProducerReleaseAttestations({
       [reviewRunProducerReleaseAttestationsEnv]: JSON.stringify([
         {
           ...releaseCandidate,
+          agentProfiles: qualifiedAgentProfiles,
           contextGatewayPolicyVersion: null,
           contextGatewayEntrypointDigest: null,
           canonicalizerDigest: hashC,

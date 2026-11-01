@@ -201,8 +201,19 @@ describe("review action v2 operator CLI", () => {
       planVersion: 1,
       descriptorDigest: reviewerPlanDescriptorDigest,
     };
+    const qualifiedAgent = {
+      profileRef: "ocr-managed-v5",
+      agentKind: "ocr",
+      binarySha256: "a".repeat(64),
+      packageVersion: "1.13.1-rr.6",
+      modelTransports: ["account_gateway", "provider_api"],
+      contextGateway: false,
+      cancellation: true,
+      reviewSkillsVersion: 1,
+    };
     const candidate = {
       ...releaseCandidate(),
+      agentProfiles: [qualifiedAgent],
       modelDispatchProfile,
       reviewerPlanProfile,
     };
@@ -211,6 +222,17 @@ describe("review action v2 operator CLI", () => {
       expect(
         parseReviewV2ReleaseBundleCandidate(releaseCandidate()),
       ).not.toHaveProperty(field);
+    for (const agentProfiles of [
+      [],
+      [qualifiedAgent, qualifiedAgent],
+      [{ ...qualifiedAgent, profileRef: "other" }],
+      [{ ...qualifiedAgent, agentKind: "codex", contextGateway: true }],
+      [{ ...qualifiedAgent, reviewSkillsVersion: undefined }],
+      [{ ...qualifiedAgent, modelTransports: ["provider_api"] }],
+    ])
+      expect(() =>
+        parseReviewV2ReleaseBundleCandidate({ ...candidate, agentProfiles }),
+      ).toThrow();
     for (const value of [
       null,
       { ...modelDispatchProfile, defaultAgentProfileRefs: {} },
