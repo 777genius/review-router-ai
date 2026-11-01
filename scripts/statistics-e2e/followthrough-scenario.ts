@@ -446,7 +446,7 @@ export async function qualifyFollowthrough(input: Scenario) {
   await input.openWorkspace(page, main.slug);
   await statistics()
     .getByRole("combobox", { name: /Chart metric/ })
-    .getByText("Published reviews", { exact: true })
+    .getByText("Pull requests reviewed", { exact: true })
     .waitFor();
   await page.evaluate((value) => {
     (
