@@ -16,7 +16,8 @@ export const usageMetricCatalog = [
     id: "usage.tokens.total_known",
     version: 1,
     label: "Total tokens (known)",
-    description: "Known reported total tokens; missing measurements remain unknown, not zero.",
+    description:
+      "Known reported total tokens; missing measurements remain unknown, not zero.",
     unit: "tokens",
     grain: "eligible_spend",
     aggregation: "known_sum",
@@ -28,7 +29,8 @@ export const usageMetricCatalog = [
     id: "usage.provider_attempts",
     version: 1,
     label: "Provider attempts",
-    description: "Original eligible provider attempts, independent of summary spend suppression.",
+    description:
+      "Original eligible provider attempts, independent of summary spend suppression.",
     unit: "attempts",
     grain: "original_provider_attempt",
     aggregation: "count",
@@ -40,7 +42,8 @@ export const usageMetricCatalog = [
     id: "usage.cost.known",
     version: 1,
     label: "Known cost",
-    description: "Exact spend separately for each currency and valuation basis; unavailable cost is not zero.",
+    description:
+      "Exact spend separately for each currency and valuation basis; unavailable cost is not zero.",
     unit: "money",
     grain: "eligible_spend",
     aggregation: "known_sum",

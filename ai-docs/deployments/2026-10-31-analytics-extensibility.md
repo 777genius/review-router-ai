@@ -17,7 +17,7 @@
 
 1. Reconcile unfinished tasks and exact target release through the
    [release runbook](../operations/07-environments-and-release-management.md).
-2. Qualify final CI, deployed version and absence of new schema prerequisites.
+2. Qualify final CI, target revision and absence of new schema prerequisites.
 3. Deploy the coherent Web/feature build through the existing release process.
 4. Verify unchanged published review counts, unique PRs, first-seen issues and
    token/cost/attempt values, authorized member/admin isolation, coverage and
