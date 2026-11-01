@@ -1,222 +1,164 @@
 # Reviewer-v4 MCP boundary qualification
 
 - Task ID: `2026-11-01-reviewer-v4-mcp`.
-- Goal: prove that two captured OCR reviewers obtain their own authorized MCP
-  access and actually use the selected public tools, preserving the existing
-  GPT-6.1 test-repository configuration after cleanup.
-- Affected targets: API context-tools routes, their regression tests, and one
-  disposable GitHub review on the existing deployed Gateway caller.
-- Implementation reference: branch `test/reviewer-v4-mcp-e2e`, source/test
-  commit `a09c68214`. Source changes and live qualification are recorded
-  separately below. The owner authorized the existing pinned CI toolchain for
-  this task on November 1; new source retains its independent strict TS7 checks.
-- Dependencies: the installed [multi-reviewer](2026-10-29-gateway-multi-reviewers.md)
-  and [unified OCR](2026-10-29-unified-ocr.md) contracts. This slice does not claim
-  their complete deployment acceptance matrix.
+- Goal: prove actual public MCP execution by two captured OCR reviewers, then
+  restore the test repository's original GPT-6.1 configuration.
+- Source/test implementation: `a09c682144bd2fedb6e11348a78a093d5525451d`,
+  [PR777](https://github.com/777genius/review-router-ai/pull/777).
+- Dependencies: installed [multi-reviewer](2026-10-29-gateway-multi-reviewers.md)
+  and [unified OCR](2026-10-29-unified-ocr.md) contracts. This qualifies the
+  two-reviewer MCP slice, not their complete feature matrix.
 - Last updated: `2026-11-01`.
 
 ## Environment status
 
-| Environment                  | Status    | Actual version                              | Evidence / remaining work                                                                                                             |
-| ---------------------------- | --------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| staging                      | `pending` | Not exercised                               | No staging deployment in this task.                                                                                                   |
-| production MCP qualification | `blocked` | Union `14bead96`, Action224 `72634bbc`      | Latest real v4 run41309265172:0/2 required reviewers, zero MCP calls; upstream503 diagnosed, native cause pending. Cleanup completed. |
-| API defensive error mapping  | `pending` | Source/test commit `a09c68214`; not shipped | Owner authorized existing pinned CI for this task; normal PR qualification can proceed.                                               |
+| Environment                  | Status     | Actual version                               | Evidence / remaining work                                                                                              |
+| ---------------------------- | ---------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| staging                      | `pending`  | Not exercised                                | No staging rollout in this task.                                                                                       |
+| production acceptance canary | `deployed` | RR `e7f2e600`; approved Action224 `72634bbc` | Run41318061244:2/2 required OCR reviewers, six real successful MCP calls, App publication, final cleanup85.            |
+| API defensive error mapping  | `pending`  | Source/test `a09c68214`; not deployed        | PR777 awaits required CI and its ordinary code rollout. The live positive path does not imply this correction shipped. |
 
-## Source behavior and regression scope
+## Source correction and regression scope
 
-The context-tools route must resolve an explicit captured OCR reviewer for a v4
-snapshot and use the same selector for the final authority check. Missing,
-malformed, unknown and non-OCR selectors must never return credential or issue
-payloads. Revocation or a changed snapshot after preparation must withhold the
-prepared result. Existing v3 behavior remains covered.
+The context-tools routes resolve the explicit captured OCR reviewer for a v4
+snapshot and retain that selector through the final authority check. Invalid,
+missing, non-OCR or revoked authority must never receive credential/issue
+payloads; changing the captured snapshot after preparation withholds delivery.
 
 A permissive injected authorization port exposed an unknown-reviewer lookup
-exception mapping to retryable `503`. Validate captured membership before the
-domain lookup so that this route-level denial is `403`. The normal production
-authorization composition already maps an unknown reviewer/allocation to an
-inactive `410`; the regression is not evidence of a production credential leak
-or an observed production `503`.
+exception mapping to retryable503. Validate captured membership before lookup
+and return403 at this defensive route boundary. The normal production
+composition already refuses unknown reviewers with inactive410. This regression
+is not an observed production503 or evidence of a credential leak; it does not
+explain the separate SDK upstream failures below.
 
-Focused qualification passed: 15 route tests (six existing v3 and nine v4),
-strict native TypeScript `7.0.2` for the owning API project, and scoped native
-lint/format checks. The v4 fixtures pass the normal strict snapshot parser.
-The mock authorization-refusal cases prove withholding at the HTTP boundary;
-they do not independently qualify the actual PostgreSQL allocation adapter.
+Focused qualification passed: **15 route tests** (nine new v4 and six existing
+v3), strict native TypeScript7.0.2 for the API project, and scoped native
+lint/format checks. Fixtures pass the normal strict snapshot parser. Injected
+allocation/revocation refusals prove withholding at the HTTP boundary; they do
+not independently qualify every actual PostgreSQL allocation failure path.
+The live result below supplies the real positive multi-reviewer path.
 
-### Source delivery qualification
+The owner explicitly authorized this task's existing pinned TypeScript5/6 CI
+on November1. That task-specific exception resolves the earlier compiler
+execution blocker without claiming full TS7 ecosystem compatibility or changing
+required checks. New source retains its independent strict native TS7 checks.
 
-The [maintained Engineering Quality Standard](https://github.com/agent-teams-ai/.github/blob/main/docs/engineering-quality-standard.md#typescript-for-javascript-runtimes) forbids executing compiler/parser
-implementations older than TypeScript `7.0.2`. Existing CI still initializes
-`6.0.3`: even a Draft PR matching `apps/api/**` triggers P115's normal dependency
-bootstrap, which can build the pinned AR dependency with TS6. Ready checks also
-use TS6 through the root typecheck, architecture/test/build consumers and
-`typescript-eslint@8.59.1` parser. The existing native pilots retain those
-baseline gates. Do not disable checks or assume a warm cache avoids the issue.
+## Accepted live result
 
-The initial source delivery was paused before PR CI. That restriction was
-subsequently resolved by the explicit task-specific owner exception below. The live installed
-positive v4 path is independent of this defensive correction; do not describe
-the correction as deployed on the basis of the live canary.
+[Run41318061244](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41318061244)
+was one fresh App-first request on existing disposable PR132 after actual
+capacity and service recovery. No old unknown model request was replayed.
+The neutral caller and approved producer remained unchanged:
 
-Continuation: the owner explicitly authorized existing TypeScript5/6 CI for
-this task, avoiding an unrelated paired tooling migration. The normal PR/CI
-route can now proceed; this exception does not change required checks, claim
-TS7 ecosystem compatibility, or constitute deployment evidence. The owner also
-requested the existing fast Hetzner deployment route without unnecessary
-migrations or repeated checks; application delivery is coordinated with the
-separate `rr: deploy` workstream.
+- Caller commit: `584ff4766d07494f8c81152bdbc94231ac2a9687`.
+- Review head: `5c3f05a94d1df6d199e216da5d364e717d47d9ab`.
+- RR source: `e7f2e600acc896448b91ea0a9985c6e766a3c95b`.
+- RR image: `sha256:7cee23648d3fb708fdf63f99fa0578e8d5726a512b06a5bbc992cdcf4cb6ec8a`.
+- Action224: `72634bbcb75a8cc11bc03457ee6d45543a1b459c`.
+- Gateway retained installed source3a838c8 and its existing configuration;
+  Native and SDK were not upgraded for this canary.
 
-## Live qualification
+Real admission captured snapshot4, repository83/workspace21, two required
+`gpt-6.1-sol` high reviewers, OCR4 (`1.13.1-rr.5`) and OCR5
+(`1.13.1-rr.6`). Both share one finite allocation
+`rr-allocation-c284c805272e7b56df59ca0171ce72a842f0a37bc1cb1803ada92a1ec11f33a2`,
+with requests640/concurrency1/tokens32768 on the original binding/epoch1.
+Reviewer parallelism2 does not manufacture an allowance per reviewer.
+The captured context plan is
+`sha256:87bb64d85357581c95e394e5e72034603b7d8d4662db3e6bdf9092ce53c4aad1`.
 
-Use `777genius/rr-codex-rotating-e2e` PR132 and the existing GPT-6.1 profile.
-Normal validation admits two distinct explicit OCR engines, `ocr-managed-v4`
-and `ocr-managed-v5`, with parallelism two. Their common Gateway authority must
-retain one finite shared allocation, not manufacture an allowance per reviewer.
+Two isolated broker receipts each recorded exactly these successful calls:
 
-Select Cloudflare documentation search, Firecrawl scrape and DeepWiki structure
-from the existing disabled test connections. Include `github.issue.read` in the
-captured builtin selection to force each OCR session through the actual v4
-credentials API before model dispatch; anonymous MCP alone skips that API.
-The requested tool activity remains three public MCP calls per reviewer. No
-GitHub issue or new key/account is needed. Empty live credential maps are not
-claimed as authenticated external-server key qualification; the v4 route tests
-independently exercise a nonempty secret response.
+| Public MCP tool                              | Broker A | Broker B | Failed calls |
+| -------------------------------------------- | -------- | -------- | ------------ |
+| Cloudflare `search_cloudflare_documentation` | 1        | 1        | 0            |
+| Firecrawl `firecrawl_scrape`                 | 1        | 1        | 0            |
+| DeepWiki `read_wiki_structure`               | 1        | 1        | 0            |
 
-Record one App-first trigger and parent authorization, snapshot4, both reviewer
-IDs and exact engines, shared allocation, captured plan and producer, six actual
-successful public-tool calls with reviewer attribution, coverage and one
-aggregate App-authored publication. Synthetic model tests or the earlier
-single-reviewer run `40791113369` cannot establish this live result.
+Both brokers reported `nativeConnected:true`, calls3 and `hadFailure:false`.
+The issue builtin was selected to force real credential preparation, but was
+not called. All three live MCP connections are anonymous; this does not claim
+nonempty external API-key or OAuth delivery. The route tests separately cover
+a nonempty secret payload.
 
-### Initial result: qualification failed
+Required coverage is **2/2**, exhausted0, execution `completed`. Each required
+finding slot has its own accepted observation, joined to its captured reviewer
+by the exact vote identity hash. Broker receipts themselves lack reviewer IDs:
+per-broker identity attribution is established by isolated child-session
+composition plus the captured/accepted slot mapping, not a fabricated direct
+log field. Individual credentials HTTP200 status is not directly logged;
+successful preparation is a source prerequisite of these builtin-enabled OCR
+sessions. Optional PR-description work was cancelled and is outside this
+acceptance claim.
 
-Root issued one ordinary PR-body edit and reopening; no manual dispatch or
-model replay. [Initial run `41296357068`](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41296357068)
-waited about eleven minutes for GitHub's runner and was refused at authorize
-with `403/forbidden`, protocol issue `review_request_intent_required`.
-It created no authorization or execution. Its deadline was `10:41:10Z`,
-after the `10:22:40Z` refusal, so expiry is not established as the cause.
-The normal worker superseded that intent and dispatched its linked child.
+Artifact `1f2e9ea7c9428b24344698575d6c4599ad3cb33eb328bf6c79bd1133b02e5cf4`
+has completed coverage and one consolidated correctness finding.
+[Review5728711263](https://github.com/777genius/rr-codex-rotating-e2e/pull/132#pullrequestreview-5728711263),
+[inline4436133109](https://github.com/777genius/rr-codex-rotating-e2e/pull/132#discussion_r4436133109)
+and [summary6559604798](https://github.com/777genius/rr-codex-rotating-e2e/pull/132#issuecomment-6559604798)
+were independently checked as authored by `review-router-ai[bot]`.
+Publication terminal outcome is `succeeded`; one aggregate review was submitted.
 
-[Recovery run `41297298465`](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41297298465)
-passed real admission: snapshot4, repository74/workspace21, both required
-`gpt-6.1-sol` reviewers and the exact OCR-v4/v5 binary identities above. Both
-share allocation `rr-allocation-aaeedc5627d3a861342a5cc4fe0643da841ecce78c4085a3aee86fcdf8c05f2b`,
-with finite requests640/concurrency1/tokens32768 and the original binding.
-The captured plan was `sha256:a6abacc23702fcb223742468e13e6ce2814f4da4f8c858d4b67074e2de42879c`.
+The workflow's failure is the **expected `review_merge_gate_failed`** for the
+intentional TTL defect in `src/worker-cache.mts`. The fixed-code-only log
+projection confirmed that code; no provider/tool failure or exhausted required
+work is reported. The fixture was not fixed or merged.
 
-Observed broker receipts: two `nativeConnected: true`, both containing all
-three selected MCP tools and the issue builtin, with **zero started,
-succeeded or failed tool calls**. Both required finding slots exhausted
-three attempts, each reporting only `retryable/provider_invocation_failed`.
-Required coverage was 0/2; the final artifact was partial with zero findings.
-The single aggregate [App-authored incomplete advisory](https://github.com/777genius/rr-codex-rotating-e2e/pull/132#issuecomment-6556791052)
-published successfully and correctly stated that both providers failed.
-This is not the expected intentional finding/merge-gate failure of a
-successful canary, and does not qualify real MCP execution.
+## Earlier failures and infrastructure recovery
 
-Broker logs lack reviewer IDs; captured vote hashes do identify the two work
-slots, but direct per-reviewer tool-log attribution is not claimed. Successful
-credential preparation is a source prerequisite of these builtin-enabled OCR
-sessions; individual credentials HTTP200 telemetry is not directly observed.
-No nonempty external-server secret delivery or upstream model-dispatch count
-is inferred from these receipts. Existing sanitized relay diagnostics did not
-identify the invocation cause. Preserve the failed attempts and diagnose the
-normal provider/native failure before another live canary; do not weaken
-authority, budgets or replay guards to obtain green coverage.
+Preserve the unsuccessful runs rather than relabelling them successful:
 
-Root additionally confirmed the active ReviewRouter AccountGateway service from
-the host's running-service inventory. Its configured journal output contained
-zero rows for `10:31:30Z–10:35:10Z`; this does not establish absence of requests.
-No execution bearer, service environment or provider stderr was extracted.
-The next supported evidence step is to retain allowlisted OCR process/acceptance
-and Gateway rejection codes through the owning runtime diagnostic path, qualify
-that change and then run a fresh canary. Generic failures alone do not establish
-a specific runtime correction or justify claiming the original gap closed.
+| Run                                                                                        | Actual outcome                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [41296357068](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41296357068) | Initial authorize403 `review_request_intent_required`; no authorization/execution. Normal worker superseded the intent. Its deadline followed the refusal, so expiry was not established. |
+| [41297298465](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41297298465) | OCR4/OCR5 admitted; two connected brokers, zero MCP calls, required0/2.                                                                                                                   |
+| [41302520797](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41302520797) | OCR2 made all three successful public MCP calls; OCR3 exhausted its slot. Partial coverage does not establish two-reviewer acceptance.                                                    |
+| [41309265172](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41309265172) | Union14bead OCR4/OCR5 admitted; required0/2 and zero MCP calls. SDK logged upstream_failure503/effect_unknown, followed by forbidden403/not_dispatched.                                   |
 
-## Cleanup and retry
+The historical13:07 upstream failure's precise native cause was not safely
+retained. Missing native rows are not proof of no provider entry; unknown
+effects were not replayed. The later Gateway/PostgreSQL crash at13:45 was
+separately confirmed by12 ENOSPC log events. Those later facts do not establish
+the historical request's cause.
 
-After terminal reconciliation, close the fixture PR, restore its prior body,
-remove only the canary context selection, restore the original singleton
-GPT-6.1 selection and execution overrides through normal CAS-protected use cases,
-and disable only the three test connections. Preserve workspace policy, provider
-profiles, credentials, unrelated connections and existing execution evidence.
-Verify the original sparse policy hash and zero target active authority/leases.
+The owning deployment workstream recovered service capacity with bounded
+selective disposable-cache cleanup. Image/container/volume inventory was
+unchanged. The memory workstream started the same existing PG17 container and
+same Gateway unit after its crash, preserving data and configuration. Sourcee7
+retains the preceding relay diagnostics and adds only the memory preflight
+correction over union14bead. All eight normal configuration-write composition
+modules remained byte-identical. A pre-issue tuple guard caught the source
+replacement before any setup effect; the current baseline was then reconciled.
 
-Actual cleanup completed at `2026-11-01T10:40:09Z`: repository76/workspace21,
-original singleton GPT-6.1 policy SHA
+[Public diagnostic PR363](https://github.com/777genius/review-router/pull/363)
+passed exact-head CI and was merged as `ec741bf191da38187cfa119a053e7e0c25abbe22`.
+It was not released, registered or promoted into this live producer. Gateway
+logger candidate26904/[PR95](https://github.com/agent-teams-ai/account-gateway/pull/95)
+remained staged and unapplied. No optional Gateway restart or foreign V3 cleanup
+was needed to pass this acceptance. No new flag, migration, Native/SDK/Caddy
+upgrade or mutable-tag bypass was introduced.
+
+## Final cleanup and remaining delivery
+
+Our shared allocation cleanup completed at14:56:54.053Z. Normal CAS-protected
+settings cleanup completed at15:00:56Z: repository85/workspace21, the original
+singleton GPT-6.1 sparse policy, SHA
 `111b9ebb62ac99438668fad01c0eba1a2aa98b089188abc10709c7319129fa59`,
-no context selection and all seven connections disabled. Only the three
-canary revisions changed (Cloudflare6, Firecrawl10, DeepWiki14); definitions,
-secret presence, all provider profiles and workspace policy stayed exact.
-Target active authorizations, leases and executions were zero. The child
-authorization was revoked, all seven leases released and the shared allocation
-cleanup completed at `10:34:52.207Z`. PR132 is closed with its original body
-restored. GPT-6.1 remains selected, as requested.
+no context selection, and all seven MCP connections disabled. Only the canary
+revisions advanced to Cloudflare10/Firecrawl14/DeepWiki18; definitions, secret
+presence, every provider profile and the four other connections were preserved.
+PR132 is closed and its original body restored.
 
-Never repeat an unknown model, dispatch, settings or publication effect. Read
-back the original identity and complete only the missing supported phase. Keep
-failed attempts and their actual reasons. No new feature flag, migration,
-Gateway/native/SDK/Caddy restart or mutable-tag bypass is part of this canary.
-Any application rollout follows the [release source of truth](../operations/07-environments-and-release-management.md)
-and all applicable entries in the [deployment registry](README.md).
+Active leases and running executions were zero. Exactly two retained completed
+v4 authorizations remain: this run's6e166a5a and the memory workstream's96b4651d.
+Each has one completed execution and one cleaned allocation. They were not
+revoked merely to obtain an artificial zero-active-authorization count.
 
-## Evidence
-
-Focused tests, Root source review, compiler assessment, setup/cleanup and
-sanitized live receipts are retained under `tmp/reviewer-v4-mcp/`. Durable run
-and publication links above record the actual failed qualification. Source and
-tests are preserved in [PR777](https://github.com/777genius/review-router-ai/pull/777),
-opened after the explicit owner CI exception. The source correction has not
-been deployed. A successful two-reviewer live MCP canary is not claimed.
-
-## November 1 continuation
-
-The OCR2/OCR3 differential [run41302520797](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41302520797)
-confirmed three successful real public MCP calls by OCR2. OCR3 exhausted its
-required slot, so the run remains partial and does not establish two-reviewer
-acceptance. Its authorization and shared allocation were closed and cleaned.
-No old unknown model request was replayed.
-
-The coordinated server baseline is union source
-`14bead9640d0b4e6c6741aa5645c2a6c160fdd2f`, image
-`sha256:21dc5822d2bee10fd2bc6903d3243aadd7bf05712041292f4d575d089ee983a6`.
-It combines the owning workstreams' bounded relay diagnostics and shared-input
-memory authorization correction. It does not contain this task's defensive API
-patch. Gateway/native/SDK and approved Action224 `72634bbc` remain unchanged.
-
-One normal repository assignment at13:00:50Z changed version78 to79, selecting
-OCR4/OCR5 on the existing GPT-6.1 profile and keeping the same three selected
-MCP connections. Workspace21, all seven connection definitions and secrets,
-and provider profiles remained unchanged. Root reopened PR132 once for a fresh
-canary after that actual server change. That fresh canary and its completed cleanup are recorded below.
-The exact retained terminal PR134 authorization belongs to the memory workstream;
-its completed execution and cleaned allocations are preserved without revocation.
-
-### Union OCR4/OCR5 result
-
-Fresh [run41309265172](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41309265172)
-was admitted with snapshot4/repository79/workspace21, two required GPT-6.1 high
-reviewers and one finite shared allocation. Both native brokers connected, but
-each recorded zero tool calls. Both required slots exhausted three attempts;
-coverage was0/2, with zero findings. The App published one
-[incomplete report](https://github.com/777genius/rr-codex-rotating-e2e/pull/132#issuecomment-6558387667).
-This is not successful MCP acceptance or the intentional TTL finding gate.
-
-Existing closed server events locate the failure at `sdk_request`: the first
-ordinary request returned `safe_error/upstream_failure`, HTTP503, with
-`effect_unknown`; the other ordinary refusal was HTTP403/`forbidden`,
-`not_dispatched`. A companion request also returned503/unknown. These codes do
-not establish the underlying native/provider cause. The unknown requests are
-not replayed. Native-side diagnosis is continuing through existing safe records.
-
-Our authorization was revoked at13:09:58.076Z and its allocation cleanup
-completed at13:09:58.093Z. Final cleanup accepted at13:13:12Z: repository81
-restored the original singleton GPT-6.1 policy/hash `111b9ebb...9129fa59`,
-workspace21 unchanged, no context selection, all seven MCP connections disabled.
-Only canary revisions changed to Cloudflare8/Firecrawl12/DeepWiki16. Definitions,
-secret presence, all provider profiles and the four other connections were
-preserved. Active target leases and running executions were zero. The exact
-foreign PR134 terminal authorization remains untouched with completed allocation
-cleanup. PR132 is closed and its original body is restored.
+Live MCP acceptance is complete. PR777's defensive API patch still awaits its
+required CI/ordinary rollout; it is not claimed deployed. Follow the
+[release source of truth](../operations/07-environments-and-release-management.md)
+and applicable [deployment registry](README.md) entries for that code delivery.
+Sanitized source reviews, qualification and actual setup/admission/terminal/
+cleanup receipts are retained under `tmp/reviewer-v4-mcp/`; durable run and
+publication links above identify the accepted result.
