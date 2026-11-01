@@ -1,5 +1,17 @@
 # V4 run-wide memory authorization
 
+Implementation: [PR #776](https://github.com/777genius/review-router-ai/pull/776).
+The affected service is API memory capture/admission. Its deployment target is the
+shared Web/API/worker/Skills-worker fleet on `prod-hel1-01` (`workers-fsn1-01-jump`),
+preserving the diagnostics baseline. Follow the
+[release runbook](../operations/07-environments-and-release-management.md).
+The local guard, lifetime and diagnostic checkpoints are
+[`e6a860526`](https://github.com/777genius/review-router-ai/commit/e6a86052651e26f15eb37eb276ba826f72d76a16),
+[`3aa0cc338`](https://github.com/777genius/review-router-ai/commit/3aa0cc338), and
+[`4cf5b5379`](https://github.com/777genius/review-router-ai/commit/4cf5b5379).
+Check the current PR head's complete mandatory CI; historical checkpoint checks
+alone do not qualify a later head.
+
 | Environment | Status        | Actual version                             | Remaining work                                                                 |
 | ----------- | ------------- | ------------------------------------------ | ------------------------------------------------------------------------------ |
 | production  | `in_progress` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Retrieval receipts passed; actual reviewer memory context remains unconfirmed. |
@@ -12,10 +24,11 @@ receipt, and used `memoryBundleHash=none` for all invocations.
 
 Production incorrectly reused the reviewer-scoped Context Tools authorizer for a
 run-wide memory request. V4 requires a reviewer ID for tools. The dedicated memory
-request now checks every captured Gateway allocation and shares the existing
-SCM/current-revision and protected authorization confirmation. The Context Tools
-reviewer requirement remains intact. No schema, Action wire or automatic-learning
-activation changes are included.
+request checks every captured Gateway allocation, local repository/installation
+authority and protected authorization confirmation. It makes no remote SCM read.
+Canonical current-revision checks stay with execution and paid dispatch; Context
+Tools retain their reviewer requirement and full SCM check. No schema, Action
+wire or automatic-learning activation changes are included.
 
 Before delivery, require the exact source's relevant local checks, technical
 review and mandatory CI. Use the normal Hetzner application release, preserving
@@ -25,6 +38,21 @@ existing disposable PR only after its preceding run is settled. Require actual
 bundle receipts, the expected rule revision in the admitted manifest, and the
 configured App's resulting review. Then clean the task's disposable memory through
 the authorized Forget lifecycle; do not delete authority rows directly.
+
+Verify the frozen capture-time ceiling is the original maximum run deadline,
+capped by entry validity. Token renewal must not extend that original ceiling;
+an expired current token must still fail admission. Eligible and denied review
+lease/preflight events must expose only allowlisted `phase`, `outcome` and
+`elapsedMs` diagnostics, never tokens, memory bodies or raw provider/SQL errors.
+Record the exact shipped source/image, verification time and controller receipt,
+then require the expected memory hash in both reviewers' actual paid manifests.
+
+After a partial rollout or an ambiguous result, inspect the existing controller
+receipt and all four role states before continuing; do not repeat the entire
+apply or buy a replacement model request. Roll back through the ordinary fleet
+overlay to the recorded `e7f2e600` image below if availability regresses. Preserve
+native volumes, generation, credentials and database schema. A rollback restores
+the earlier memory limitation and therefore does not close this task.
 
 The local real PostgreSQL17 contract covers review and PR-description bundles,
 SQL receipts, unchanged450ms admission, reviewer-scoped tools, current-head
