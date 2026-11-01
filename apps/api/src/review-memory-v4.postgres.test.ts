@@ -53,9 +53,19 @@ describe.skipIf(!databaseUrl)(
       };
       const profileRef = "memory-fixture-responses-v1";
       let scmReads = 0;
+      let scmGate: Promise<void> | undefined;
+      let releaseScm: (() => void) | undefined;
+      let enterScm: (() => void) | undefined;
+      let blockedTools: Promise<unknown> | undefined;
       const harness = await createReviewActionV2E2EHarness(databaseUrl!, {
         beforeFakeGitHubRead: async () => {
           scmReads++;
+          const gate = scmGate;
+          if (gate) {
+            enterScm?.();
+            await gate;
+            throw new Error("synthetic_scm_unavailable_after_admission");
+          }
         },
         modelTransport: "account_gateway",
         repositoryProviderSelection: "none",
@@ -177,7 +187,7 @@ describe.skipIf(!databaseUrl)(
         );
         expect(authorization?.authorizationId).toBe(admitted.authorizationId);
         expect(reviewerScmReads).toBeGreaterThan(0);
-        expect(scmReads - beforeMemory).toBe(reviewerScmReads);
+        expect(scmReads - beforeMemory).toBe(0);
         if (!authorization) throw new Error("memory_authorization_missing");
         const binding = reviewMemoryBinding(authorization);
         const headers = {
@@ -192,6 +202,20 @@ describe.skipIf(!databaseUrl)(
           reviewActionV2Env: harness.env,
         });
         apps.push(api);
+        // Hold SCM unavailable after real admission. Tools must keep their live
+        // remote check; memory bundle/admit must finish before that read is released.
+        const entered = new Promise<void>((resolve) => {
+          enterScm = resolve;
+        });
+        scmGate = new Promise<void>((resolve) => {
+          releaseScm = resolve;
+        });
+        blockedTools = harness.routes.contextTools!.authorize(
+          admitted.authorizationToken,
+          snapshot.reviewers[0]!.reviewerId,
+        );
+        await entered;
+        const beforeMemoryRoutes = scmReads;
         const empty = await api.inject({
           method: "POST",
           url: "/api/action/v2/memory/bundle",
@@ -352,6 +376,10 @@ describe.skipIf(!databaseUrl)(
           expect(admission.statusCode, admission.body).toBe(200);
           expect(admission.json().eligible).toBe(true);
         }
+        expect(scmReads).toBe(beforeMemoryRoutes);
+        releaseScm!();
+        expect(await blockedTools).toBeNull();
+        scmGate = undefined;
         const wrongBinding = await memoryApp.inject({
           method: "POST",
           url: "/api/action/v2/memory/bundle",
@@ -385,6 +413,8 @@ describe.skipIf(!databaseUrl)(
           ),
         ).toBeNull();
       } finally {
+        releaseScm?.();
+        await blockedTools;
         await Promise.all([...apps, ...memoryApps].map((app) => app.close()));
         await harness.close();
       }
