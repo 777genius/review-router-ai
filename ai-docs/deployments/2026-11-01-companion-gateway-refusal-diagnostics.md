@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual application revision                | Evidence / next step                                                                 |
-| ----------- | --------- | ------------------------------------------ | ------------------------------------------------------------------------------------ |
-| staging     | `pending` | Not selected for this task                 | Owner selected direct production delivery in the source session.                     |
-| production  | `deployed` | `6e900a26ff0e98b91c70287196dbde876e8cc48e` | Fleet, worker privileges and readiness pass; fresh review acceptance pending. |
+| Environment | Status     | Actual application revision                | Evidence / next step                                                                                             |
+| ----------- | ---------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`  | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                 |
+| production  | `deployed` | `14bead9640d0b4e6c6741aa5645c2a6c160fdd2f` | Union includes PR #776 memory fix; fleet, worker privileges and readiness pass; fresh review acceptance pending. |
 
 ## Failure and evidence
 
@@ -119,3 +119,24 @@ uses the preserved previous application containers; no schema rollback is needed
 - Post-cutover signed-in UI check at 12:40 UTC: organization Statistics renders
   the seven-day period, two reviewed PRs, three reviews and zero caught issues;
   no alert is present.
+
+## Final memory/diagnostics union
+
+- Source `14bead9640d0b4e6c6741aa5645c2a6c160fdd2f` merges this PR head
+  `c47d28882` with [PR #776](https://github.com/777genius/review-router-ai/pull/776)
+  source `0cdb162855ffbc363df6357462849bdfa9c35bc6`. The latter repairs the shared
+  V4 memory authorizer and has independent PostgreSQL17, strict TypeScript7 and
+  scoped lint evidence. Production files merge without conflicts; the index
+  preserves both records. Both PRs retain their own CI and merge flow.
+- Build finished 12:50:11 UTC, exit 0 in 283 seconds; image
+  `sha256:21dc5822d2bee10fd2bc6903d3243aadd7bf05712041292f4d575d089ee983a6`.
+- Final protected controller/receipt:
+  `/srv/platform/projects/review-router/releases/fleet-overlay-14bead96-7G4aXMdJ`.
+  All four roles report exact union revision, running with zero restarts; actual
+  worker passes six privileges and `/ready` returns 200. Gateway is active with
+  zero restarts. No migration, ACL, producer or MCP policy change occurred.
+- Final IDs: API `88b30ac0871f`, worker `6754a0745272`, scan `0953424250e2`,
+  web `f25f454a9b80`. Previous `6e900a26f` fleet is retained for rollback.
+  Both owners confirmed no active owned requests before cutover. One shared
+  fresh canary will verify OCR and memory together; historical unknown requests
+  remain unchanged.
