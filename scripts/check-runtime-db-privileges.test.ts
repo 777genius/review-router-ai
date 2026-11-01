@@ -53,13 +53,13 @@ describe("runtime database privilege check", () => {
       `"deadLetteredAt" > now() - interval '7 days'`,
     );
     expect(permissionDeadLetterQuery).toContain(
-      '"lastErrorCode" = \'db_permission_denied\'',
+      `"lastErrorCode" = 'db_permission_denied'`,
     );
     expect(permissionDeadLetterQuery).toContain(
-      '"safeLastErrorSummary" ilike \'%permission denied%\'',
+      `"safeLastErrorSummary" ilike '%permission denied%'`,
     );
     expect(permissionDeadLetterQuery).toContain(
-      '"safeLastErrorSummary" ilike \'%42501%\'',
+      `"safeLastErrorSummary" ilike '%42501%'`,
     );
     expect(JSON.stringify(safeOutboxErrorSummary(postgresError))).not.toContain(
       "RepositoryConnection",
