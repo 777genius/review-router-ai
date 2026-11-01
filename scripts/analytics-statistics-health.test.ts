@@ -29,7 +29,9 @@ describe("statistics processing health", () => {
       oldestOutstandingAt: null,
     });
     expect(() =>
-      summarizeStatisticsQueue([{ status: "processed", count: "1" }]),
+      summarizeStatisticsQueue([
+        { status: "processed", count: "1", oldest: null },
+      ]),
     ).toThrow("unexpected_statistics_queue_status");
   });
 });

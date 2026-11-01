@@ -43,7 +43,12 @@ async function main() {
     !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,255}$/.test(workspace)
   )
     throw new Error("invalid_statistics_workspace_id");
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const client = new pg.Client({
+    connectionString: process.env.DATABASE_URL,
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: 8_000,
+    query_timeout: 10_000,
+  });
   try {
     await client.connect();
     const scope = workspace ? ' AND "workspaceId"=$2' : "";

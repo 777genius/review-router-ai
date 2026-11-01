@@ -25,7 +25,13 @@
    token/cost/attempt values, authorized member/admin isolation, coverage and
    unknown-value UI semantics. Confirm slow-read logs contain no actor, SQL,
    filter or workspace identifiers. Record actual deployed revision/evidence.
-5. Roll back the application build if necessary; these metadata-only definitions
+5. In an approved disposable environment, run
+   `pnpm exec tsx scripts/analytics-statistics-health.ts` with a read-only
+   `DATABASE_URL`, optionally scoped by `STATISTICS_WORKSPACE_ID`.
+   Confirm aggregate-only output (no payload or tenant identifiers), no outbox
+   mutations, and documented exits: 0 for no dead letters, 1 when present, and
+   2 for an invalid or unreadable check. Do not replay events as part of this test.
+6. Roll back the application build if necessary; these metadata-only definitions
    do not create a data migration, replay or independent worker.
 
 **Separate production incident:** PR #760's merged code does not establish
