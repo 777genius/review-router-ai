@@ -64,6 +64,16 @@ sign-in, account limits, and gateway-routed execution.
 
 ## Services
 
+### Complete memory provider
+
+The first-install command below builds and qualifies the pinned private Hindsight
+backend, downloads pinned multilingual local models, starts its database/API/
+worker and configures the shared env automatically. The native services run
+separately from Compose, preserving the existing physical-Forget cleanup profile.
+Ordinary approved memory uses local embeddings and reranking with no generative
+account. Automatic conversational learning has a separate activation path.
+See the [memory startup reference](../hindsight/BOOTSTRAP.md) for recovery.
+
 The Compose stack starts:
 
 ```text
@@ -386,6 +396,29 @@ critic are enabled only inside this disposable run; production effects,
 verified clean, and cross-revision replay remain disabled.
 
 ## 5. Start
+
+On the Linux x64 Docker host, prepare default memory before the first Compose
+startup. The command requires Node 24 or later, Git, Python 3, tar and outbound
+HTTPS. Keep the real env file private:
+
+```bash
+chmod 600 deploy/self-hosted/.env
+node deploy/self-hosted/setup-memory.ts "$PWD/deploy/self-hosted/.env"
+```
+
+This builds and runs the real native qualification, then downloads about 1 GB
+of pinned multilingual model weights. Allow several minutes and space for the
+native Docker images, private logs and models. It generates independent service
+credentials, preserves a private env backup, and atomically adds the provider
+settings without printing secrets. An explicit
+`REVIEW_ROUTER_MEMORY_PROVIDER=disabled` is preserved and skips provisioning.
+To put durable native state elsewhere, supply an absolute directory as the
+second argument. An optional third argument separates heavy build/download
+scratch work from durable models, evidence and runtime state. Completed phases
+are reused; a partial native qualification or
+installation is preserved for reconciliation rather than repeated blindly.
+
+Then use the normal stack startup:
 
 From `deploy/self-hosted`:
 

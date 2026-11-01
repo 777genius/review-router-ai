@@ -476,6 +476,13 @@ jobs:
           TURBO_CONCURRENCY: "1"
         run: pnpm typecheck
 
+      - name: Memory installation tooling types and contracts
+        run: |
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p deploy/hindsight/tsconfig.bootstrap.json
+          node --test deploy/hindsight/bootstrap.test.ts
+          node --test deploy/self-hosted/setup-memory.test.ts
+          node --test deploy/hetzner/fleet-overlay/fleet-overlay.node-test.mjs
+
   quality:
     name: Quality Checks
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}

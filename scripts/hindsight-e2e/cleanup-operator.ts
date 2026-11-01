@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFile, stat, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   canonicalHindsightCleanup,
@@ -27,12 +27,14 @@ import {
   type NativeSql,
 } from "./native-provenance.ts";
 import { acquireDeploymentLock } from "./deployment-lock.ts";
+import { assertExecutorPhase, nativeSqlArguments } from "./operator-host.ts";
 import {
-  assertExecutorPhase,
-  nativeSqlObserverArguments,
-  nativeSqlArguments,
-  type DockerExecutorInspection,
-} from "./operator-host.ts";
+  inspectedCleanupEnvironment,
+  inspectedCleanupMountArguments,
+  inspectedExecutorHealthBase,
+  writeCleanupEnvironmentFile,
+  type CleanupExecutorInspection,
+} from "./cleanup-runtime-profile.ts";
 import {
   assertCleanupOperationSources,
   appendCleanupOperationPage,
@@ -62,7 +64,7 @@ interface OperatorPlan {
   readonly deploymentLockPath: string;
   readonly sourceInventoryPath: string;
 }
-type Inspection = DockerExecutorInspection;
+type Inspection = CleanupExecutorInspection;
 type Operation = CleanupOperation;
 type Fact = { id: string; source_memory_ids?: string[] };
 type List<T> = { items: T[]; total: number };
@@ -314,6 +316,9 @@ async function runLockedCleanup(
   const inventory = await inspectAll("initial");
   const api = inventory.find((record) => record.Id === plan.apiContainerId)!;
   assert.equal(api.Config.Labels["io.reviewrouter.hindsight.role"], "api");
+  // Reject an unsupported runtime before stopping any ordinary executor.
+  const cleanupMountArguments = inspectedCleanupMountArguments(api);
+  for (const record of inventory) inspectedExecutorHealthBase(record);
   assert(
     inventory.some(
       (record) =>
@@ -322,14 +327,7 @@ async function runLockedCleanup(
     ),
     "Restart must include a separately observed worker",
   );
-  const originalEnvironment = Object.fromEntries(
-    api.Config.Env.filter((value) => value.startsWith("HINDSIGHT_API_")).map(
-      (value) => {
-        const equal = value.indexOf("=");
-        return [value.slice(0, equal), value.slice(equal + 1)];
-      },
-    ),
-  );
+  const originalEnvironment = inspectedCleanupEnvironment(api);
   const configuredDsn = originalEnvironment.HINDSIGHT_API_DATABASE_URL;
   assert(configuredDsn);
   const databaseUrl = new URL(configuredDsn);
@@ -337,15 +335,36 @@ async function runLockedCleanup(
     ["127.0.0.1", "localhost"].includes(databaseUrl.hostname),
     "Initial Docker host profile requires a loopback PostgreSQL endpoint",
   );
+  // Private copies remain with the operator directory if reconciliation is needed.
+  const runtimeDirectory = await mkdtemp(
+    join(dirname(plan.deploymentLockPath), ".cleanup-runtime-"),
+  );
+  const sqlEnvironmentFiles: Record<string, string> = {};
+  for (const readOnly of [true, false]) {
+    const dsn = new URL(configuredDsn);
+    dsn.searchParams.set(
+      "application_name",
+      readOnly
+        ? "rr-native-cleanup-read-observer"
+        : "rr-native-provenance-admin",
+    );
+    sqlEnvironmentFiles[String(readOnly)] = await writeCleanupEnvironmentFile(
+      runtimeDirectory,
+      readOnly ? "observer.env" : "admin.env",
+      { HINDSIGHT_API_DATABASE_URL: dsn.toString() },
+    );
+  }
   // Connect through the actual API DSN, never a plan-selected database container.
   // Even an identically named DB in another container cannot supply this proof.
   const sql = async (statement: string) =>
     (
       await docker(
-        nativeSqlObserverArguments(
+        nativeSqlArguments(
           configuredDsn,
           plan.binding.imageDigest,
-          statement,
+          [{ statement }],
+          true,
+          sqlEnvironmentFiles.true,
         ),
       )
     ).trim();
@@ -363,6 +382,7 @@ async function runLockedCleanup(
           plan.binding.imageDigest,
           steps,
           readOnly,
+          sqlEnvironmentFiles[String(readOnly)],
         ),
       )
     ).trim();
@@ -437,6 +457,11 @@ async function runLockedCleanup(
     HINDSIGHT_API_ENABLE_FILE_UPLOAD_API: "false",
     HINDSIGHT_API_ACCESS_LOG: "false",
   };
+  const cleanupEnvironmentFile = await writeCleanupEnvironmentFile(
+    runtimeDirectory,
+    "cleanup.env",
+    environment,
+  );
   await docker([
     "run",
     "--detach",
@@ -444,10 +469,9 @@ async function runLockedCleanup(
     cleanupName,
     "--network",
     "host",
-    ...Object.entries(environment).flatMap(([key, value]) => [
-      "--env",
-      `${key}=${value}`,
-    ]),
+    "--env-file",
+    cleanupEnvironmentFile,
+    ...cleanupMountArguments,
     plan.binding.imageDigest,
     "hindsight-api",
   ]);
@@ -854,27 +878,14 @@ async function runLockedCleanup(
     for (const container of plan.restartContainerIds) {
       const record = await inspect(container);
       assert(record.State.Running && record.Image === plan.binding.imageDigest);
-      const settings = Object.fromEntries(
-        record.Config.Env.map((value) => {
-          const equal = value.indexOf("=");
-          return [value.slice(0, equal), value.slice(equal + 1)];
-        }),
-      );
       const worker =
         record.Config.Labels?.["io.reviewrouter.hindsight.role"] === "worker";
-      const argument = record.Config.Cmd?.indexOf("--http-port") ?? -1;
-      const readyPort = Number(
-        worker
-          ? argument >= 0
-            ? record.Config.Cmd[argument + 1]
-            : settings.HINDSIGHT_API_WORKER_HTTP_PORT || 8889
-          : settings.HINDSIGHT_API_PORT || 8888,
-      );
+      const healthBase = inspectedExecutorHealthBase(record);
       await eventually(
         async () => {
           try {
             return (
-              await fetch(`http://127.0.0.1:${readyPort}/health/ready`, {
+              await fetch(`${healthBase}/health/ready`, {
                 signal: AbortSignal.timeout(1000),
               })
             ).ok
@@ -889,10 +900,9 @@ async function runLockedCleanup(
       );
       if (worker)
         await eventually(async () => {
-          const response = await fetch(
-            `http://127.0.0.1:${readyPort}/health/live`,
-            { signal: AbortSignal.timeout(1000) },
-          );
+          const response = await fetch(`${healthBase}/health/live`, {
+            signal: AbortSignal.timeout(1000),
+          });
           const state = (await response.json()) as {
             seconds_since_last_poll?: number;
             is_shutdown?: boolean;
