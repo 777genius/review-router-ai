@@ -153,6 +153,9 @@ describe("versioned model dispatch approval", () => {
         {
           ...releaseCandidate,
           agentProfiles: qualifiedAgentProfiles,
+          reviewInvestigationCapability: null,
+          reviewInvestigationCoverageProfileHash: null,
+          reviewInvestigationPolicyHash: null,
           contextGatewayPolicyVersion: null,
           contextGatewayEntrypointDigest: null,
           canonicalizerDigest: hashC,
