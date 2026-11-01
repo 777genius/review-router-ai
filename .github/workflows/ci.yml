@@ -1028,6 +1028,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           # The release bridge verifies the historical canonical S2 handoff.
           fetch-depth: 0
 
