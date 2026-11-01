@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual application revision                | Evidence / next step                                                                                            |
-| ----------- | --------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending` | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                |
-| production  | `partial` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Gateway/MCP and guarded first-bind repairs verified; additional closed claim-rejection observer awaits rollout. |
+| Environment | Status        | Actual application revision                | Evidence / next step                                                                                                  |
+| ----------- | ------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                      |
+| production  | `in_progress` | `06934abf5024f556b2ed0b8662a250fcaffa96c5` | Fleet and seven privileges verified; corrected production logger wiring is built, awaiting a coordinated idle window. |
 
 ## Failure and evidence
 
@@ -297,3 +297,62 @@ inspect one separately authorized fresh review's closed outcome. Do not replay
 the historical uncertain MiMo request. The observer itself adds no retries,
 model dispatches, authority or feature flags. Production `e7f2e600` does not yet
 include this additional claim observer.
+
+## Latest coherent fleet and logger correction
+
+Production cutover at 2026-11-01 21:17 UTC installed source
+`06934abf5024f556b2ed0b8662a250fcaffa96c5`, image
+`sha256:5878cb6700a654dc766e194a46f71dbc313ed242b7b2d9f3ceca0d21fb1bdbc0`.
+This union preserves the already deployed `e7f2e600` memory fixes. All four
+roles reported the full source, running with zero restarts; seven actual worker
+privileges and readiness HTTP 200 passed. Previous containers are retained.
+Custody: `/srv/platform/projects/review-router/releases/fleet-overlay-06934abf-MjjxTvXP/`.
+Statistics and Usage public application readers subsequently passed with the
+real owner's existing workspace membership; invalid filters were rejected.
+
+The initial claim observer used Fastify's disabled request logger, so its route
+spy tests did not establish production logging. The correction injects the
+existing production ConsoleLogger through a typed callback. A real application
+composition regression failed before and passed after this change; the fourteen
+route cases also pass. Public responses, authority and settlement are unchanged.
+Actual ConsoleLogger output includes a trailing context object; whole-line
+JSON-only parsing is not sufficient to establish an absence of diagnostics.
+
+Corrected union source `94a20d36254690cca2ffdc6e37d53c36815c0ccf` is built once as
+`sha256:795dee33a6b1cbb688b953af8c4edc44e289333a99913456e450530668280d3b`.
+The exact target compatibility assessor passed with actual API-role inventory:
+14 active authorizations, 50 producers, 52 attestations, 65 required contracts,
+zero unsupported or missing contracts. This was an owner-SSH direct assessment,
+not authenticated CLI initialization; no credential was rotated.
+Receipt: `/srv/platform/projects/review-router/releases/owner-protocol-preflight-94-role-g6kbj9b0/host-receipt.json`.
+The image is not yet activated. At 23:27 UTC seven foreign native executions
+were open and one was streaming. Gateway SIGTERM closes active connections;
+there is no passive drain endpoint. Coordinate completion before replacement,
+preserving all authorizations and historical effects. Reuse the built image.
+
+## Retained FREE test and unresolved Gateway boundary
+
+The user explicitly requested keeping the test stand. Preserve the open draft
+[sub2api PR 89](https://github.com/agent-teams-ai/sub2api/pull/89), its branch,
+repository, containers, volumes, data and diagnostic artifacts. The persistent
+retention marker is
+`/srv/platform/projects/review-router/tests/RETAIN-USER-REQUESTED-20261101.json`.
+Earlier docs-only fixtures matched the repository's ignore rules and selected
+no review items. Their skipped outcome was not a model health test.
+
+The corrected seven-line Go fixture at head
+`d4a4395e85f11258691616e2158751a872173965` selected one review item.
+[Run 41355008564](https://github.com/agent-teams-ai/sub2api/actions/runs/41355008564)
+failed with zero accepted evidence. The API diagnostic binds request
+`rr-companion-b639aa38-6cfd-4ee4-84fe-3db9f50ea5d6` to SDK-stage HTTP 503,
+`safe_error`, `upstream_failure`, `effect_unknown`; the API mapped that to 502.
+This is not an observed OpenRouter HTTP 502. Native request count zero and
+absence of a journal row are not a non-entry or unpaid receipt. Do not replay.
+
+Read-only checks confirmed the exact installed account scope, descriptor/profile
+bounds and retained credential integrity using the existing native codec, with
+no provider call or secret output. They did not identify the failed dispatch
+phase. Missing service_tier is excluded on this path: the SaaS normalizer forces
+`default` before the SDK. The bounded Gateway diagnostic candidate remains
+staged; activation and one fresh, separately scoped review remain required to
+resolve the FREE failure. The historical MiMo PR244 failure is separate.
