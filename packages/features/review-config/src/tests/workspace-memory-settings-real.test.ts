@@ -189,6 +189,32 @@ const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
           })
         ).workspace?.policyJson,
       ).toContain('"reviewLanguage":"fr"');
+      // A generic workspace policy replacement must not silently reset the
+      // separately managed memory confirmation setting.
+      await saveWorkspaceMemorySettings(
+        {
+          workspaceId,
+          actor: owner,
+          requireConfirmation: true,
+          expectedVersion: 3,
+        },
+        dependencies(),
+      );
+      await dependencies().configurations.saveNextVersions({
+        workspaceId,
+        writes: [
+          {
+            target: { scope: "workspace", workspaceId },
+            policy: defaultWorkspaceReviewPolicy(),
+            expectedVersion: 4,
+          },
+        ],
+        selectionAuthority: providerSelectionAuthority({ actor: owner }),
+      });
+      await expect(reader.read(workspaceId)).resolves.toEqual({
+        requireConfirmation: true,
+        version: 5,
+      });
     });
     it("holds an admission reader's workspace guard until its caller commits, then allows the real settings writer", async () => {
       await prisma.workspaceMember.create({

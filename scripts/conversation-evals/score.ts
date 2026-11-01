@@ -345,8 +345,7 @@ for (const variant of report.variants) {
       if (
         successor &&
         witness.deliveredBodyDigests.some(
-          (digest) =>
-            !witness.retained.some((entry) => entry.bodyDigest === digest),
+          (digest) => !witness.deliveredQualifiedBodyDigests.includes(digest),
         )
       )
         unauthorized++;
@@ -636,11 +635,9 @@ for (const variant of report.variants) {
         expectedEvent?.requiredFactIds.length
       ) {
         const delivered = new Set(
-          witness.deliveredBodyDigests
-            .filter((digest) =>
-              witness.retained.some((entry) => entry.bodyDigest === digest),
-            )
-            .flatMap((digest) => [...(digestToFacts.get(digest) ?? [])]),
+          witness.deliveredQualifiedBodyDigests.flatMap(
+            (digest) => [...(digestToFacts.get(digest) ?? [])],
+          ),
         );
         linked.push({
           scenario: expectedThread.scenario,

@@ -953,8 +953,7 @@
             "wrong_actor",
             "wrong_scope",
             "unsupported_fact",
-            "destructive_without_explicit_target",
-            "any_durable_effect"
+            "destructive_without_explicit_target"
           ],
           "criticalSlices": ["non_command", "silent_learning", "mode_change"],
           "policy": {
@@ -1198,8 +1197,7 @@
             "wrong_actor",
             "wrong_scope",
             "unsupported_fact",
-            "destructive_without_explicit_target",
-            "any_durable_effect"
+            "destructive_without_explicit_target"
           ],
           "criticalSlices": ["non_command", "checked_context"]
         },
@@ -1836,8 +1834,7 @@
             "wrong_actor",
             "wrong_scope",
             "unsupported_fact",
-            "destructive_without_explicit_target",
-            "any_durable_effect"
+            "destructive_without_explicit_target"
           ],
           "criticalSlices": ["non_command", "silent_learning", "mode_change"],
           "policy": {

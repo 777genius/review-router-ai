@@ -69,8 +69,11 @@ unset until its required evidence exists; do not copy fixture proof values.
    and conversation-processing tables. Do not backfill raw GitHub transcripts.
 3. **Deploy one coherent, initially inactive conversational profile.** Deploy
    Web/API/worker and the generated portable memory runtime through the normal
-   release path. Verify actual image/version and compatible parser/schema on all
-   hosts before selecting a new producer. Keep the existing provider profile,
+   release path. **Roll out the new strict workspace-policy reader to every host
+   before enabling Memory -> Settings writes.** Older hosts reject documents
+   containing the new optional `memory` key; do not allow mixed-version
+   settings writes during a rolling deployment. Verify actual image/version and
+   compatible parser/schema on all hosts before selecting a new producer. Keep the existing provider profile,
    namespace and generation coherent. Follow the [private Hindsight runbook](../../deploy/hindsight/README.md)
    for its image, model, mission, strict-preview and cleanup qualification. An
    ordinary code rollout alone does not complete this task.

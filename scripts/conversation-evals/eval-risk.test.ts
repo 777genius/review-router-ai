@@ -80,6 +80,7 @@ function sample() {
     modelCalls: 0,
     inputBytes: 0,
     deliveredBodyDigests: [],
+    deliveredQualifiedBodyDigests: [],
     memoryManifest: null,
     observedModel: null,
     usage: null,

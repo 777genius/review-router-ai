@@ -28,26 +28,22 @@ async function contextEvidenceCurrent(
   controls: MemoryRequestControls,
 ): Promise<boolean> {
   const evidence = normalizeMemoryAutomaticContextEvidence(input.evidence);
-  if (!evidence.messages.some((message) => message.id === input.sourceId))
-    return false;
+  if (
+    !client.graphql ||
+    !evidence.messages.some((message) => message.id === input.sourceId)
+  ) return false;
   const rootId = evidence.threadId.slice("github-review-thread:".length);
-  const remaining = new Map(
-    evidence.messages.map((message) => [message.id, message]),
-  );
-  const seen = new Set<number>();
-  const expectedPath =
-    `/repos/${input.owner}/${input.repo}/pulls/${input.pullRequestNumber}`.toLowerCase();
-  for (let page = 1; page <= 100; page++) {
+  const repositoryName = (input.owner + "/" + input.repo).toLowerCase();
+  // Fetch only the frozen evidence, never all comments of the pull request.
+  // GitHub's nodes(ids:) accepts up to 100 IDs per query.
+  for (let offset = 0; offset < evidence.messages.length; offset += 100) {
     if (controls.signal?.aborted || Date.now() >= controls.deadlineAt.getTime())
       return false;
-    const { data } = await client.request(
-      "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments",
+    const batch = evidence.messages.slice(offset, offset + 100);
+    const response = (await client.graphql(
+      "query ReviewRouterCurrentAutomaticThreadEvidence($ids: [ID!]!) { nodes(ids: $ids) { __typename ... on PullRequestReviewComment { id body updatedAt fullDatabaseId replyTo { fullDatabaseId } pullRequest { number repository { nameWithOwner } } } } }",
       {
-        owner: input.owner,
-        repo: input.repo,
-        pull_number: input.pullRequestNumber,
-        per_page: 100,
-        page,
+        ids: batch.map((message) => message.id.slice("github-node:".length)),
         request: {
           timeout: Math.max(
             1,
@@ -56,49 +52,54 @@ async function contextEvidenceCurrent(
           ...(controls.signal ? { signal: controls.signal } : {}),
         },
       },
-    );
-    if (!Array.isArray(data) || data.length > 100) return false;
-    for (const comment of data as {
-      id: number;
-      node_id: string;
-      body: string;
-      updated_at: string;
-      in_reply_to_id?: number;
-      pull_request_url: string;
-    }[]) {
+    )) as {
+      nodes?: readonly (null | {
+        __typename: string;
+        id: string;
+        body: string;
+        updatedAt: string;
+        fullDatabaseId: string | number | null;
+        replyTo: null | { fullDatabaseId: string | number | null };
+        pullRequest: {
+          number: number;
+          repository: { nameWithOwner: string };
+        };
+      })[];
+    };
+    if (!Array.isArray(response.nodes) || response.nodes.length !== batch.length)
+      return false;
+    for (let index = 0; index < batch.length; index++) {
+      const message = batch[index]!;
+      const comment = response.nodes[index];
       if (
-        !Number.isSafeInteger(comment.id) ||
-        comment.id < 1 ||
-        seen.has(comment.id)
-      )
-        return false;
-      seen.add(comment.id);
-      const message = remaining.get(`github-node:${comment.node_id}`);
-      if (!message) continue;
-      if (
+        !comment ||
+        comment.__typename !== "PullRequestReviewComment" ||
+        comment.id !== message.id.slice("github-node:".length) ||
         typeof comment.body !== "string" ||
         comment.body.length > 131072 ||
-        !Number.isFinite(Date.parse(comment.updated_at)) ||
-        new Date(comment.updated_at).toISOString() !== message.updatedAt ||
+        !Number.isFinite(Date.parse(comment.updatedAt)) ||
+        new Date(comment.updatedAt).toISOString() !== message.updatedAt ||
         createHash("sha256").update(comment.body, "utf8").digest("hex") !==
           message.bodyDigest ||
-        (comment.in_reply_to_id === undefined
+        comment.fullDatabaseId === null ||
+        (comment.replyTo === null
           ? null
-          : String(comment.in_reply_to_id)) !== message.replyTo ||
+          : comment.replyTo.fullDatabaseId === null
+            ? ""
+            : String(comment.replyTo.fullDatabaseId)) !== message.replyTo ||
         (message.replyTo === null
-          ? String(comment.id) !== rootId
+          ? String(comment.fullDatabaseId) !== rootId
           : message.replyTo !== rootId) ||
-        new URL(comment.pull_request_url).pathname.toLowerCase() !==
-          expectedPath
-      )
-        return false;
-      remaining.delete(message.id);
+        comment.pullRequest?.number !== input.pullRequestNumber ||
+        comment.pullRequest.repository?.nameWithOwner.toLowerCase() !==
+          repositoryName
+      ) return false;
     }
-    // New replies are not part of the frozen derivation. Read every page so a
-    // missing dependency or an incomplete inventory never becomes "current".
-    if (data.length < 100) return remaining.size === 0;
   }
-  return false;
+  return (
+    !controls.signal?.aborted &&
+    Date.now() < controls.deadlineAt.getTime()
+  );
 }
 
 /** One App source reader reused by conversation, every context consumer and management. */

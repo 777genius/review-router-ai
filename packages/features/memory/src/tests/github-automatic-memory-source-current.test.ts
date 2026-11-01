@@ -33,7 +33,7 @@ function fixture() {
     },
   };
   const request = vi.fn(
-    async (route: string, parameters: Readonly<Record<string, unknown>>) => {
+    async (route: string, _parameters: Readonly<Record<string, unknown>>) => {
       if (
         route ===
         "GET /repos/{owner}/{repo}/collaborators/{username}/permission"
@@ -45,17 +45,35 @@ function fixture() {
             user: { id: 42 },
           },
         };
-      if (route === "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments") {
-        expect(parameters).toMatchObject({
-          owner: "acme",
-          repo: "project",
-          pull_number: 7,
-          per_page: 100,
-        });
-        const start = (Number(parameters.page) - 1) * 100;
-        return { data: comments.slice(start, start + 100) };
-      }
-      throw new Error(`unexpected_route:${route}`);
+      throw new Error("unexpected_route:" + route);
+    },
+  );
+  const graphql = vi.fn(
+    async (query: string, parameters: Readonly<Record<string, unknown>>) => {
+      if (!query.includes("nodes(ids: $ids)")) return { node: sourceNode };
+      if (!Array.isArray(parameters.ids)) throw new Error("missing_ids");
+      return {
+        nodes: parameters.ids.map((id) => {
+          const item = comments.find((entry) => entry.node_id === id);
+          if (!item) return null;
+          const path = new URL(item.pull_request_url).pathname.split("/");
+          return {
+            __typename: "PullRequestReviewComment",
+            id: item.node_id,
+            body: item.body,
+            updatedAt: item.updated_at,
+            fullDatabaseId: String(item.id),
+            replyTo:
+              item.in_reply_to_id === undefined
+                ? null
+                : { fullDatabaseId: String(item.in_reply_to_id) },
+            pullRequest: {
+              number: Number(path.at(-1)),
+              repository: { nameWithOwner: path.slice(-4, -2).join("/") },
+            },
+          };
+        }),
+      };
     },
   );
   const reader = createGitHubAutomaticMemorySourceCurrent({
@@ -67,7 +85,7 @@ function fixture() {
     },
     createClient: async () => ({
       request,
-      graphql: async () => ({ node: sourceNode }),
+      graphql,
     }),
     sourceProcessingAllowed: async () => true,
     standingPolicyRevision: async () => "1:1:qualified",
@@ -113,6 +131,7 @@ function fixture() {
     input,
     original,
     request,
+    graphql,
     comment,
     sourceNode,
     replace: (next: typeof comments) => {
@@ -144,7 +163,7 @@ it.each([
   expect(await f.current()).toBe(false);
 });
 
-it("keeps frozen evidence valid after an appended bot reply and reads dependencies across pages", async () => {
+it("keeps frozen evidence valid after appended replies without paging through unrelated comments", async () => {
   const f = fixture();
   f.replace([
     ...Array.from({ length: 100 }, (_, index) =>
@@ -154,9 +173,12 @@ it("keeps frozen evidence valid after an appended bot reply and reads dependenci
     f.comment(103, "ReviewRouter's later acknowledgement.", 100),
   ]);
   expect(await f.current()).toBe(true);
-  expect(
-    f.request.mock.calls.filter(([route]) => route.includes("pull_number")),
-  ).toHaveLength(2);
+  expect(f.request).toHaveBeenCalledTimes(1);
+  const evidenceQueries = f.graphql.mock.calls.filter(([query]) =>
+    query.includes("nodes(ids: $ids)"),
+  );
+  expect(evidenceQueries).toHaveLength(1);
+  expect(evidenceQueries[0]![1].ids).toEqual(["PRRC_100", "PRRC_101", "PRRC_102"]);
 });
 
 it("does not borrow a valid source comment from another repository", async () => {

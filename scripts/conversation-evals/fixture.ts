@@ -90,6 +90,8 @@ export type Witness = {
   modelCalls: number;
   inputBytes: number;
   deliveredBodyDigests: string[];
+  /** Qualified at the exact time of model delivery, before later mutations. */
+  deliveredQualifiedBodyDigests: string[];
   memoryManifest: Readonly<Record<string, unknown>> | null;
   observedModel: string | null;
   usage: unknown;
@@ -420,6 +422,7 @@ export async function createEvaluationFixture(input: {
     observedModel: string | null = null,
     usage: unknown = null,
     deliveredBodyDigests: string[] = [],
+    deliveredQualifiedBodyDigests: string[] = [],
     memoryManifest: Witness["memoryManifest"] = null;
   const preview = createConfiguredMemorySourcePreview({
     ...input.env,
@@ -671,7 +674,7 @@ export async function createEvaluationFixture(input: {
                 }
               })
               .join("\n");
-            deliveredBodyDigests = (await readInventory())
+            const delivered = (await readInventory())
               .filter(
                 (
                   entry,
@@ -682,7 +685,10 @@ export async function createEvaluationFixture(input: {
               )
               .filter((entry) =>
                 actualMemory.includes(JSON.stringify(entry.body).slice(1, -1)),
-              )
+              );
+            deliveredBodyDigests = delivered.map((entry) => entry.bodyDigest);
+            deliveredQualifiedBodyDigests = delivered
+              .filter(qualifiedReadback)
               .map((entry) => entry.bodyDigest);
             const output = await inference.generate(request, requestBudget);
             observedModel = output.actualModel;
@@ -1068,6 +1074,7 @@ export async function createEvaluationFixture(input: {
       observedModel = null;
       usage = null;
       deliveredBodyDigests = [];
+      deliveredQualifiedBodyDigests = [];
       memoryManifest = null;
       await setSource(thread, event);
       const start = Date.now();
@@ -1122,6 +1129,7 @@ export async function createEvaluationFixture(input: {
         modelCalls,
         inputBytes,
         deliveredBodyDigests,
+        deliveredQualifiedBodyDigests,
         memoryManifest,
         observedModel,
         usage,
