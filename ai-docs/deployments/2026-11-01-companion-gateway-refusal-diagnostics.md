@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual application revision                | Evidence / next step                                                                                            |
-| ----------- | --------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending` | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                |
-| production  | `partial` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Gateway/MCP and guarded first-bind repairs verified; additional closed claim-rejection observer awaits rollout. |
+| Environment | Status        | Actual application revision                | Evidence / next step                                                                                            |
+| ----------- | ------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                |
+| production  | `in_progress` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Gateway/MCP and guarded first-bind repairs verified; additional closed claim-rejection observer awaits rollout. |
 
 ## Failure and evidence
 

@@ -1197,14 +1197,14 @@ export async function createApiApp(
   if (
     prisma &&
     memoryRuntime &&
-    productionReviewActionV2Dependencies?.contextTools
+    productionReviewActionV2Dependencies?.memoryRunAccess
   ) {
     await registerReviewMemoryRuntimeRoutes(
       app,
       new ReviewMemoryRuntimeGateway({
         prisma,
         runtime: memoryRuntime,
-        access: productionReviewActionV2Dependencies.contextTools,
+        access: productionReviewActionV2Dependencies.memoryRunAccess,
         ...(actionMemoryV2
           ? {
               automaticCurrent: createAutomaticConversationSourceCurrent({
