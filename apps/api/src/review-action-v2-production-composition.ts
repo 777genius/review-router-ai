@@ -348,6 +348,10 @@ export type ReviewActionV2ProductionRoutes = Readonly<{
     typeof createProviderUsageArtifactRecovery
   >;
   contextTools?: ContextToolsRunAccess;
+  /** Run-wide memory is shared by the captured reviewers; tool access remains reviewer-scoped. */
+  memoryRunAccess?: Readonly<{
+    authorize(token: string): Promise<ReviewRunAuthorization | null>;
+  }>;
   accountGatewayRelay?: ReviewRunGatewayRelay;
   modelDispatch?: ReviewModelDispatchApi;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
@@ -1527,49 +1531,71 @@ export function composeReviewActionV2ProductionRoutes(input: {
     privateKey: githubAppPrivateKey,
     resolveRepository: resolveCheckoutRepository,
   });
-  const contextTools: ContextToolsRunAccess = {
-    authorize: async (token, reviewerId) => {
-      try {
-        const resolved =
-          await runControl.authorizations.resolveReviewRunAuthorizationToken({
-            token,
-          });
-        if (
-          resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid
-        )
+  const authorizeRunAccess = async (
+    token: string,
+    request:
+      | { readonly kind: "reviewer"; readonly reviewerId: string | undefined }
+      | { readonly kind: "memory" },
+  ): Promise<ReviewRunAuthorization | null> => {
+    try {
+      const resolved =
+        await runControl.authorizations.resolveReviewRunAuthorizationToken({
+          token,
+        });
+      if (resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid)
+        return null;
+      const authorization = resolved.authorization;
+      if (
+        authorization.state !== RunAuthorizationState.Active ||
+        authorization.expiresAt <= clock.now() ||
+        authorization.maxExpiresAt <= clock.now()
+      )
+        return null;
+      const snapshot = parseReviewRunRuntimeSnapshot(
+        authorization.runtimeSnapshotCanonicalJson,
+      );
+      if (!snapshot) return null;
+      if (snapshot.snapshotVersion === 4) {
+        // Tools always identify their captured reviewer. Memory is one shared run input,
+        // so every captured allocation must pass the same existing binding guard.
+        if (request.kind === "reviewer" && request.reviewerId === undefined)
           return null;
-        const authorization = resolved.authorization;
-        if (
-          authorization.state !== RunAuthorizationState.Active ||
-          authorization.expiresAt <= clock.now() ||
-          authorization.maxExpiresAt <= clock.now()
-        )
-          return null;
-        const snapshot = parseReviewRunRuntimeSnapshot(
-          authorization.runtimeSnapshotCanonicalJson,
+        const reviewers =
+          request.kind === "memory"
+            ? snapshot.reviewers
+            : [getReviewRunReviewer(snapshot, request.reviewerId!)];
+        const allocations = new Set(
+          reviewers.map((reviewer) => reviewer.transport.allocationId),
         );
-        if (!snapshot) return null;
-        if (snapshot.snapshotVersion === 4) {
-          if (reviewerId === undefined) return null;
-          const reviewer = getReviewRunReviewer(snapshot, reviewerId);
+        for (const allocationId of allocations) {
           const selected = await gatewayBindings.read({
             authorizationId: authorization.authorizationId,
-            allocationId: reviewer.transport.allocationId,
+            allocationId,
             identity: reviewRunGatewayOwnedIdentity(authorization),
             runtimeSnapshotCanonicalJson:
               authorization.runtimeSnapshotCanonicalJson!,
           });
           if (selected.status !== "live") return null;
-        } else if (reviewerId !== undefined) return null;
-        const target = await resolveCheckoutRepository(authorization);
-        return target &&
-          (await confirmAccountGatewayAuthority(token, authorization, target))
-          ? authorization
-          : null;
-      } catch {
+        }
+      } else if (
+        request.kind === "reviewer" &&
+        request.reviewerId !== undefined
+      )
         return null;
-      }
-    },
+      // SCM and the final protected run/token/producer/epoch confirmation execute once,
+      // independently of the number of reviewers. No network enters the binding guards.
+      const target = await resolveCheckoutRepository(authorization);
+      return target &&
+        (await confirmAccountGatewayAuthority(token, authorization, target))
+        ? authorization
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const contextTools: ContextToolsRunAccess = {
+    authorize: (token, reviewerId) =>
+      authorizeRunAccess(token, { kind: "reviewer", reviewerId }),
     deliver: (workspaceId, plan) =>
       deliverContextCredentials(workspaceId, plan, {
         store: new PrismaContextConnectionStore(prisma),
@@ -1584,6 +1610,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
       issueReader.assertAvailable(authorization),
     readIssue: (authorization, issueNumber) =>
       issueReader.read(authorization, issueNumber),
+  };
+  const memoryRunAccess = {
+    authorize: (token: string) => authorizeRunAccess(token, { kind: "memory" }),
   };
   const checkoutDependencies = {
     lifecycleObservationAuthors: [
@@ -1686,6 +1715,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ...(hostedModelRoute ? { hostedModelRoute } : {}),
     reviewSkills: createReviewRunSkillsReader(runControl.authorizations),
     contextTools,
+    memoryRunAccess,
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
     ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
     hostedV4,

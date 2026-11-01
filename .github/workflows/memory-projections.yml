@@ -139,6 +139,7 @@ jobs:
     env:
       REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/reviewrouter_memory_test
       REVIEW_ROUTER_CONVERSATION_TEST_DATABASE_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/reviewrouter_conversation_test
+      REVIEW_ROUTER_MEMORY_V4_TEST_DATABASE_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/reviewrouter_memory_runtime_test
       REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/public-action
       REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/reviewrouter_memory_execution_test
     steps:
@@ -182,7 +183,7 @@ jobs:
             // disposable cluster has no current-schema database to bootstrap it.
             await client.query('CREATE ROLE reviewrouter_release_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1');
             await client.query(disposableReleaseMigrationRoleSql(randomBytes(32).toString('base64url')));
-            for (const name of ['reviewrouter_memory_test', 'reviewrouter_memory_execution_test', 'reviewrouter_conversation_test']) {
+            for (const name of ['reviewrouter_memory_test', 'reviewrouter_memory_execution_test', 'reviewrouter_conversation_test', 'reviewrouter_memory_runtime_test']) {
               await client.query(`CREATE DATABASE ${pg.escapeIdentifier(name)}`);
             }
           } finally { await client.end(); }
@@ -205,10 +206,15 @@ jobs:
           try { await client.query(disposableProvider79HandoffSql); await client.query(disposableProvider79VerificationSql); }
           finally { await client.end(); }
           NODE
+      - name: Apply current catalog for real V4 memory authorization
+        run: |
+          DATABASE_URL="$REVIEW_ROUTER_MEMORY_V4_TEST_DATABASE_URL" \
+            pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy --config prisma.config.ts
       - name: Run real PostgreSQL authority delivery and lease regressions
         run: |
           test -n "$REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL"
           test -n "$REVIEW_ROUTER_CONVERSATION_TEST_DATABASE_URL"
+          test -n "$REVIEW_ROUTER_MEMORY_V4_TEST_DATABASE_URL"
           test -n "$REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL"
           mkdir -p tmp/memory-authority
           pnpm exec vitest run \
@@ -216,10 +222,11 @@ jobs:
             apps/api/src/action-conversation-finite-path.pg.test.ts \
             apps/api/src/action-conversation-memory-preview.pg.test.ts \
             apps/api/src/review-memory-admission.pg.test.ts \
+            apps/api/src/review-memory-v4.postgres.test.ts \
             apps/worker/src/memory-knowledge-worker.pg.test.ts \
             packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts \
             --reporter=default --reporter=json --outputFile=tmp/memory-authority/ci-vitest.json
-      - name: Require all six PostgreSQL suites with zero skipped tests
+      - name: Require every PostgreSQL suite with zero skipped tests
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
@@ -230,6 +237,7 @@ jobs:
             'apps/api/src/action-conversation-finite-path.pg.test.ts',
             'apps/api/src/action-conversation-memory-preview.pg.test.ts',
             'apps/api/src/review-memory-admission.pg.test.ts',
+            'apps/api/src/review-memory-v4.postgres.test.ts',
             'apps/worker/src/memory-knowledge-worker.pg.test.ts',
             'packages/features/review-executions/src/tests/prisma-review-execution-store-real.test.ts',
           ];
