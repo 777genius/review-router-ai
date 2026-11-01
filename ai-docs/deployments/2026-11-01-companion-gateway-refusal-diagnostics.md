@@ -12,10 +12,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual application revision                | Evidence / next step                                                                                                                                       |
-| ----------- | ------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                                                           |
-| production  | `in_progress` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Gateway/MCP acceptance passed; follow-up verification found two new repository first-binding permission failures; bounded grant qualification in progress. |
+| Environment | Status     | Actual application revision                | Evidence / next step                                                                                                                      |
+| ----------- | ---------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`  | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                                          |
+| production  | `deployed` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Gateway/MCP acceptance passed; guarded first-bind grant applied; two permission events processed; seven worker checks and readiness pass. |
 
 ## Failure and evidence
 
@@ -234,8 +234,29 @@ operator verifies the entire fleet before invoking the checker in the already
 inspected worker by immutable container ID, passing the local checker bytes as
 data. Missing/failing fleet or database checks stop before readiness.
 
-Rollout remains in progress until the real PostgreSQL guard contract passes,
-the committed narrow grant is applied, the two preserved permission events are
-retried through the existing outbox transition, and final live verification
-passes all seven probes and readiness. Application rebuild, inference replay and
-Gateway restart are unnecessary for this operator/grant correction.
+The real PostgreSQL 17.11 contract passed on a fresh private Unix-socket-only
+cluster: the previous grant fails at the real LOGIN-worker first bind, while the
+corrected grant commits it. Eight forbidden actions, seven guard-drift cases
+and contention on the existing advisory fence fail closed; repeat grant is
+idempotent. The checker has ten passing tests, including the default shared role,
+expected-role mismatch, unknown role, unreadable outbox and the previously missed
+binding column. Release shell contract, ShellCheck, lint and formatting pass.
+
+Applied source `8263f5a51da54c550aa72bb9082422f7f2191196`; grant SHA256
+`97e4289933cb42e2cec290208b5c5eb6b06d34c108fd3e23f90149c62df542a1`.
+Protected plan, complete pre-retry event snapshots, grant/retry SQL, metadata and
+verification receipt:
+`/srv/platform/projects/review-router/releases/worker-first-bind-8263f5a51da5-2x30dgun/`.
+Before/after comparison proves exactly one added column privilege:
+`scmRepositoryIdentityId:UPDATE`; all other column/table privileges and the guard
+body remain unchanged.
+
+The two preserved events were retried with a compare-and-set on their original
+claim versions, timestamps and exact permission-failure cohort, following the
+existing outbox maintenance transition. Their identities, payloads and
+idempotency keys were retained. Both processed with one attempt, at 18:21:23 and
+18:21:29 UTC; both new repository bindings are coherent. Final receipt at
+18:24 UTC records zero remaining permission dead letters. Live release verification
+passes all four roles at unchanged application source `e7f2e600`, zero restarts,
+seven real worker privilege checks and readiness HTTP 200. Application rebuild,
+inference replay and Gateway restart were unnecessary for this correction.
