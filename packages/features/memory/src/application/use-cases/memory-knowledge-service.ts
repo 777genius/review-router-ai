@@ -71,6 +71,8 @@ export type MemoryContextPolicy = {
 
 export type MemoryKnowledgeBundleInput = {
   readonly contextPolicy?: MemoryContextPolicy;
+  /** Trusted host lifetime of an immutable run; never accepted from a client request. */
+  readonly snapshotNotAfter?: Date;
   readonly actor: MemoryActor;
   readonly scopes: readonly MemoryKnowledgeScope[];
   readonly query: string;
@@ -888,6 +890,9 @@ export class MemoryKnowledgeService {
     input: MemoryKnowledgeBundleInput,
     controls: MemoryRequestControls,
   ): Promise<MemoryKnowledgeBundle> {
+    const snapshotNotAfter = input.snapshotNotAfter?.getTime();
+    if (snapshotNotAfter !== undefined && !Number.isFinite(snapshotNotAfter))
+      throw new MemoryKnowledgeError("invalid_input");
     const remaining = Math.min(
       2000,
       controls.deadlineAt.getTime() - this.now().getTime(),
@@ -896,12 +901,20 @@ export class MemoryKnowledgeService {
       const snapshot = {
         generation: this.dependencies.generation,
         scopes: [],
-        expiresAt: new Date(this.now().getTime() + 30000).toISOString(),
+        expiresAt: new Date(
+          snapshotNotAfter ?? this.now().getTime() + 30_000,
+        ).toISOString(),
         degraded: true,
       };
       return { ...snapshot, hash: memoryKnowledgeDigest(snapshot) };
     };
-    if (remaining <= 0 || controls.signal?.aborted) return empty();
+    if (
+      remaining <= 0 ||
+      controls.signal?.aborted ||
+      (snapshotNotAfter !== undefined &&
+        snapshotNotAfter <= this.now().getTime())
+    )
+      return empty();
     const cancelled = new AbortController();
     const signal = controls.signal
       ? AbortSignal.any([controls.signal, cancelled.signal])
@@ -911,10 +924,14 @@ export class MemoryKnowledgeService {
         cancelled.abort();
         resolve(empty());
       }, remaining);
-      this.buildBundle(input, {
-        deadlineAt: new Date(this.now().getTime() + remaining),
-        signal,
-      }).then(
+      this.buildBundle(
+        input,
+        {
+          deadlineAt: new Date(this.now().getTime() + remaining),
+          signal,
+        },
+        snapshotNotAfter,
+      ).then(
         (bundle) => {
           clearTimeout(timer);
           resolve(bundle);
@@ -930,6 +947,7 @@ export class MemoryKnowledgeService {
   private async buildBundle(
     input: MemoryKnowledgeBundleInput,
     controls: MemoryRequestControls,
+    snapshotNotAfter: number | undefined,
   ): Promise<MemoryKnowledgeBundle> {
     const budget: MemoryRequestControls = {
       ...controls,
@@ -1033,13 +1051,18 @@ export class MemoryKnowledgeService {
         ),
       ),
     );
-    const expiry = Math.min(this.now().getTime() + 30_000, ...validityBounds);
+    const expiry = Math.min(
+      snapshotNotAfter ?? this.now().getTime() + 30_000,
+      ...validityBounds,
+    );
     if (expiry <= this.now().getTime()) {
       scopes.length = 0;
       degraded = true;
     }
     const expiresAt = new Date(
-      expiry <= this.now().getTime() ? this.now().getTime() + 30_000 : expiry,
+      expiry <= this.now().getTime()
+        ? (snapshotNotAfter ?? this.now().getTime() + 30_000)
+        : expiry,
     ).toISOString();
     const snapshot = {
       ...(input.contextPolicy ? { contextPolicy: input.contextPolicy } : {}),
