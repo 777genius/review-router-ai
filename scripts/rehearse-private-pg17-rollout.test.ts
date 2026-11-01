@@ -1285,6 +1285,7 @@ describe("disposable dual-version rehearsal", () => {
     const currentMigrationNames = migrationNames;
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
+        name !== "000155_usage_member_report_index" &&
         name !== "000154_unified_model_dispatch" &&
         name !== "000152_review_run_gateway_allocations" &&
         name !== "000152_memory_automatic_source" &&
@@ -1302,7 +1303,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(159);
+    expect(currentMigrationNames).toHaveLength(160);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1339,6 +1340,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000144_review_statistics" &&
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000145_workspace_provider_profiles" &&
+        name !== "000155_usage_member_report_index" &&
         name !== "000154_unified_model_dispatch" &&
         name !== "000152_review_run_gateway_allocations" &&
         name !== "000152_memory_automatic_source" &&
@@ -1409,12 +1411,22 @@ describe("disposable dual-version rehearsal", () => {
     // Strip only the new reviewed tail before comparing the existing published
     // checkout manifests; managed/historical release-policy baselines stay fixed.
     expect(migrationManifestIdentity(currentMigrationNames)).toBe(
+      "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54",
+    );
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) => name !== "000155_usage_member_report_index",
+        ),
+      ),
+    ).toBe(
       "sha256:35d11ac132da5057b2ed6ff8a0eb82fcf0bd0c289975e7772deea55b1f14ad98",
     );
     expect(
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000155_usage_member_report_index" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1428,6 +1440,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000155_usage_member_report_index" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1443,6 +1456,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000155_usage_member_report_index" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1459,6 +1473,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000155_usage_member_report_index" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1477,6 +1492,7 @@ describe("disposable dual-version rehearsal", () => {
       migrationManifestIdentity(
         currentMigrationNames.filter(
           (name) =>
+            name !== "000155_usage_member_report_index" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1619,6 +1635,7 @@ describe("disposable dual-version rehearsal", () => {
       "000148_lifecycle_verification",
       "000149_api_key_repository_secret_profiles",
       "000154_unified_model_dispatch",
+      "000155_usage_member_report_index",
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
@@ -1749,9 +1766,10 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000154_unified_model_dispatch";
+    const currentTail = "000155_usage_member_report_index";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
+      names.filter((name) => name !== "000154_unified_model_dispatch"),
       names.filter((name) => name !== "000153_conversation_processing"),
       names.filter((name) => name !== "000152_memory_automatic_source"),
       names.filter((name) => name !== "000152_review_run_gateway_allocations"),
@@ -1893,6 +1911,7 @@ describe("disposable dual-version rehearsal", () => {
     "000148_lifecycle_verification",
     "000149_api_key_repository_secret_profiles",
     "000154_unified_model_dispatch",
+    "000155_usage_member_report_index",
     "000150_skills_catalog_security",
     "000151_review_history",
     "000152_memory_automatic_source",
@@ -1975,6 +1994,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
+                name !== "000155_usage_member_report_index" &&
                 name !== "000154_unified_model_dispatch" &&
                 name !== "000152_review_run_gateway_allocations" &&
                 name !== "000152_memory_automatic_source" &&

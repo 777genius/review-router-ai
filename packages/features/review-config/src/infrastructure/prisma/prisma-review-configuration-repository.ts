@@ -684,7 +684,7 @@ async function saveReviewPolicyWrites(
       select: { version: true, schemaVersion: true, policyJson: true },
     });
     savedHeads.set(write.targetKey, head);
-    saved.push({
+    const savedPolicy: SavedReviewPolicy = {
       target: write.target,
       version,
       configuration: resolved
@@ -697,7 +697,8 @@ async function saveReviewPolicyWrites(
               write.target.scope === "repository" ? version : null,
           })
         : null,
-    });
+    };
+    saved.push(savedPolicy);
     if (input.audit && !write.implicit)
       await recordAuditEvent(
         {
@@ -711,6 +712,9 @@ async function saveReviewPolicyWrites(
               : workspaceId,
           metadata: {
             ...input.audit.metadata,
+            ...input.audit.metadataForSavedConfiguration?.(
+              savedPolicy.configuration,
+            ),
             version,
             providerSelected: resolved !== null,
           },

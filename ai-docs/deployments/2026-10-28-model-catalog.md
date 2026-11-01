@@ -9,10 +9,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image      | Last verified (UTC) | Evidence / next step                                                                                                                   |
-| ----------- | ------------- | ------------------------------------ | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                         | Not verified        | Reconcile native/Gateway and application versions; follow the ordered rollout.                                                         |
-| production  | `in_progress` | `b8eac8ec` / image prefix `fd52caab` | 2026-10-29 00:41    | Fleet/canary and signed-in readiness passed. Integrated application/Action adoption and final native lifecycle closure remain pending. |
+| Environment | Status        | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                                                                                                                                            |
+| ----------- | ------------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                    | Not verified        | Reconcile native/Gateway and application versions; follow the ordered rollout.                                                                                                                  |
+| production  | `in_progress` | `533c040d` / image `e1578f75`   | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
 
 `pending` records missing deployment evidence, not observed absence. Implementation checks do not prove production readiness.
 
@@ -440,3 +440,7 @@ The serving image and internal producer state have not been re-observed during
 this source completion pass. Until the ordered live checks have durable receipts,
 production remains `in_progress`; the earlier b8/fd52 record is the last verified
 application deployment, not a claim that this candidate is already deployed.
+
+## Evidence log
+
+2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.

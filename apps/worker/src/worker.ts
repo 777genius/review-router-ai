@@ -92,9 +92,11 @@ import {
 } from "./memory-knowledge-worker";
 import {
   runOutboxWorkerLoop,
+  runOutboxWorkerOnce,
   safeWorkerErrorSummary,
   sleep,
 } from "./outbox-worker-loop";
+import { runWorkerBatch } from "./worker-batch";
 import { InvestigationPrunerMaintenanceAdapter } from "./review-investigation-maintenance-adapter";
 import { WorkerInvestigationExecutionAuthority } from "./review-investigation-execution-authority";
 import {
@@ -255,40 +257,40 @@ async function main(): Promise<void> {
       .digest("hex");
     const takeoverEnabled =
       process.env.REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED === "1";
-    const processBatch = async () => {
-      await sdkGrowthPublication.runMaintenance();
-      const result =
-        handlers.length > 0
-          ? await processOutboxBatch(
-              {
-                limit,
-                handlers,
-                knownHandlers: knownOutboxHandlers,
-                claimOwnerHash,
-                processingLeaseMs: processingStaleAfterMs,
-                heartbeatIntervalMs,
-                takeoverEnabled,
-              },
-              {
-                outbox,
-                clock,
-              },
-            )
-          : emptyOutboxBatchResult();
-      await pruneRateLimits();
-      await pruneActionOidcReplayNonces();
-      await pruneReviewSnapshots();
-      await pruneReviewExecutionCheckpoints();
-      await reviewInvestigationMaintenance.runMaintenance();
-      await memoryWorker.runMaintenance();
-      await pruneMemoryUsageTelemetry();
-      await reviewV2Worker.runMaintenance();
-      return result;
-    };
+    const processBatch = () =>
+      runWorkerBatch({
+        sdkGrowthMaintenance: () => sdkGrowthPublication.runMaintenance(),
+        processOutbox: async () =>
+          handlers.length > 0
+            ? await processOutboxBatch(
+                {
+                  limit,
+                  handlers,
+                  knownHandlers: knownOutboxHandlers,
+                  claimOwnerHash,
+                  processingLeaseMs: processingStaleAfterMs,
+                  heartbeatIntervalMs,
+                  takeoverEnabled,
+                },
+                {
+                  outbox,
+                  clock,
+                },
+              )
+            : emptyOutboxBatchResult(),
+        pruneRateLimits,
+        pruneActionOidcReplayNonces,
+        pruneReviewSnapshots,
+        pruneReviewExecutionCheckpoints,
+        reviewInvestigationMaintenance: () =>
+          reviewInvestigationMaintenance.runMaintenance(),
+        memoryMaintenance: () => memoryWorker.runMaintenance(),
+        pruneMemoryUsageTelemetry,
+        reviewV2Maintenance: () => reviewV2Worker.runMaintenance(),
+      });
 
     if (process.env.REVIEW_ROUTER_WORKER_ONCE === "1") {
-      const result = await processBatch();
-      logger.info("ReviewRouter worker processed one outbox batch", result);
+      await runOutboxWorkerOnce({ processor: { processBatch }, logger });
       return;
     }
 

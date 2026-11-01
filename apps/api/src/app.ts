@@ -106,6 +106,7 @@ import {
   JoseGitLabCiIdTokenVerifier,
   registerGitLabIntegrationRoutes,
   StaticGitLabRepositoryRegistry,
+  normalizeGitLabSourceBaseUrl,
   type GitLabRepositoryContext,
   type RegisterGitLabIntegrationRoutesDependencies,
 } from "@reviewrouter/features-gitlab-integration";
@@ -1560,6 +1561,13 @@ function readGitLabStaticRepositories(
         repository.gitlabProjectId,
         "gitlabProjectId",
       ),
+      ...(repository.sourceBaseUrl !== undefined
+        ? {
+            sourceBaseUrl: normalizeGitLabSourceBaseUrl(
+              readString(repository.sourceBaseUrl, "sourceBaseUrl"),
+            ),
+          }
+        : {}),
       fullName: readString(repository.fullName, "fullName"),
       owner: readString(repository.owner, "owner"),
       selected: repository.selected !== false,

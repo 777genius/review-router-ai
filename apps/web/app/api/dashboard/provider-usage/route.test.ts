@@ -17,25 +17,39 @@ import { GET } from "./route";
 // PGlite verifies SQL semantics; hosted acceptance separately uses migrated PG17.
 describe("tenant usage API and SQL scope", () => {
   const db = new PGlite();
-  const queryRaw = async (
-    sql: { text: string; values: unknown[] } | TemplateStringsArray,
-    ...values: unknown[]
-  ) => {
-    const text = Array.isArray(sql)
-      ? sql.reduce(
-          (result, part, index) => result + (index ? `$${index}` : "") + part,
-          "",
+  const queryRawFor =
+    (queryable: Pick<PGlite, "query">) =>
+    async (
+      sql: { text: string; values: unknown[] } | TemplateStringsArray,
+      ...values: unknown[]
+    ) => {
+      const text = Array.isArray(sql)
+        ? sql.reduce(
+            (result, part, index) => result + (index ? `$${index}` : "") + part,
+            "",
+          )
+        : (sql as { text: string }).text;
+      return (
+        await queryable.query(
+          text,
+          Array.isArray(sql) ? values : (sql as { values: unknown[] }).values,
         )
-      : (sql as { text: string }).text;
-    return (
-      await db.query(
-        text,
-        Array.isArray(sql) ? values : (sql as { values: unknown[] }).values,
-      )
-    ).rows;
-  };
+      ).rows;
+    };
+  const queryRaw = queryRawFor(db);
   const prisma = {
     $queryRaw: queryRaw,
+    $transaction: async <T>(
+      call: (tx: { $queryRaw: typeof queryRaw }) => Promise<T>,
+      options?: { isolationLevel?: string },
+    ) => {
+      expect(options?.isolationLevel).toBe("RepeatableRead");
+      return db.transaction(async (tx) => {
+        // Real SQL transaction semantics; concurrent snapshot proof uses PG17.
+        await tx.exec("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        return call({ $queryRaw: queryRawFor(tx) });
+      });
+    },
     workspaceMember: {
       findFirst: async ({
         where,

@@ -6,6 +6,7 @@ export * from "./domain/review-finding-marker";
 export * from "./domain/canonical-review-publication-json";
 export * from "./application/ports/review-publication-operation-planning-port";
 export * from "./application/ports/review-publication-ports";
+export * from "./application/ports/review-publication-work-feed-port";
 export * from "./application/ports/review-command-ledger-verification-port";
 export * from "./application/services/review-publication-operation-planning-service";
 export * from "./application/use-cases/adjudicate-review-publication-outcome";

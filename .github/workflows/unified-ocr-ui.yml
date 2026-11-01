@@ -2,6 +2,7 @@ name: Unified OCR acceptance
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - .github/workflows/unified-ocr-ui.yml
       - .github/workflows/ci.yml
@@ -31,6 +32,7 @@ concurrency:
 
 jobs:
   actual-next-readiness:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Actual Next UI and OCR lifecycle
     runs-on: ubuntu-24.04
     timeout-minutes: 25

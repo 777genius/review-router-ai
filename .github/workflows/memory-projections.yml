@@ -3,6 +3,7 @@ name: Memory authority and delivery
 on:
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - apps/web/**
       - packages/ui/**
@@ -70,6 +71,7 @@ concurrency:
 
 jobs:
   browser-ui:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Memory rendered UI desktop narrow and keyboard
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
@@ -117,6 +119,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   postgres-contracts:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Memory authority and delivery PostgreSQL contracts
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15

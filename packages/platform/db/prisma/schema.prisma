@@ -4881,6 +4881,7 @@ model UsageCall {
   projection Json
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
   @@index([workspaceId, occurredAt, provider, actualModel])
+  @@index([workspaceId, actorId, occurredAt])
 }
 model UsageDedupeTombstone {
   sourceInstance String

@@ -158,6 +158,19 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
       caughtAt: "2026-10-22T11:00:00.000Z",
     });
   });
+  it("reads the repository without a row lock, which the worker role may not take", async () => {
+    queries.length = 0;
+    await projector.project(event({ executionId: "execution-no-lock" }));
+    const repositoryReads = queries.filter(({ query }) =>
+      query.includes('FROM "RepositoryConnection"'),
+    );
+    expect(repositoryReads.length).toBeGreaterThan(0);
+    for (const { query } of repositoryReads)
+      expect(query).not.toMatch(
+        /\bFOR\s+(NO\s+KEY\s+)?(UPDATE|SHARE)\b|\bFOR\s+KEY\s+SHARE\b/iu,
+      );
+  });
+
   it("counts empty successes and real reruns, excludes the upper UTC boundary, and needs no operational evidence", async () => {
     await projector.project(
       event({
