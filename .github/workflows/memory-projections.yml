@@ -172,21 +172,34 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import pg from 'pg';
-          import { randomBytes } from 'node:crypto';
-          import { writeFileSync } from 'node:fs';
-          import { join } from 'node:path';
-          import { writeDisposableMigrationCatalog, disposableReleaseMigrationRoleSql, disposableReleasePairPreflightSql } from './scripts/self-hosted-e2e/disposable-release-role-fixture.mjs';
           const client = new pg.Client({ connectionString: process.env.MEMORY_AUTHORITY_POSTGRES_ADMIN_URL });
           await client.connect();
           try {
-            // Match the canonical role attributes from migration 000110. This
-            // disposable cluster has no current-schema database to bootstrap it.
-            await client.query('CREATE ROLE reviewrouter_release_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT -1');
-            await client.query(disposableReleaseMigrationRoleSql(randomBytes(32).toString('base64url')));
             for (const name of ['reviewrouter_memory_test', 'reviewrouter_memory_execution_test', 'reviewrouter_conversation_test', 'reviewrouter_memory_runtime_test']) {
               await client.query(`CREATE DATABASE ${pg.escapeIdentifier(name)}`);
             }
           } finally { await client.end(); }
+          NODE
+      - name: Apply current catalog for real V4 memory authorization
+        run: |
+          DATABASE_URL="$REVIEW_ROUTER_MEMORY_V4_TEST_DATABASE_URL" \
+            pnpm --filter @reviewrouter/platform-db db:migrate:deploy
+      - name: Prepare restricted historical execution migration fixture
+        env:
+          MEMORY_AUTHORITY_POSTGRES_ADMIN_URL: postgresql://memory_test:memory_ci_fixture_only@127.0.0.1:5432/postgres
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          import { randomBytes } from 'node:crypto';
+          import { writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { writeDisposableMigrationCatalog, disposableReleaseMigrationRoleSql, disposableReleasePairPreflightSql } from './scripts/self-hosted-e2e/disposable-release-role-fixture.mjs';
+          // Roles are cluster-wide: bootstrap their canonical owner through the
+          // current catalog before preparing the historical restricted login.
+          const client = new pg.Client({ connectionString: process.env.MEMORY_AUTHORITY_POSTGRES_ADMIN_URL });
+          await client.connect();
+          try { await client.query(disposableReleaseMigrationRoleSql(randomBytes(32).toString('base64url'))); }
+          finally { await client.end(); }
           const target = new pg.Client({ connectionString: process.env.REVIEW_ROUTER_PROVIDER_SCOPE_TEST_DATABASE_URL });
           await target.connect();
           try { await target.query(disposableReleasePairPreflightSql); } finally { await target.end(); }
@@ -206,10 +219,6 @@ jobs:
           try { await client.query(disposableProvider79HandoffSql); await client.query(disposableProvider79VerificationSql); }
           finally { await client.end(); }
           NODE
-      - name: Apply current catalog for real V4 memory authorization
-        run: |
-          DATABASE_URL="$REVIEW_ROUTER_MEMORY_V4_TEST_DATABASE_URL" \
-            pnpm --filter @reviewrouter/platform-db exec prisma migrate deploy --config prisma.config.ts
       - name: Run real PostgreSQL authority delivery and lease regressions
         run: |
           test -n "$REVIEW_ROUTER_MEMORY_TEST_DATABASE_URL"
