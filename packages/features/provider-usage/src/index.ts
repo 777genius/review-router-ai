@@ -7,3 +7,4 @@ export * from "./application/operator-report";
 export * from "./domain/usage-price";
 export * from "./domain/estimate-usage-cost";
 export * from "./application/redrive-usage-source";
+export * from "./application/metric-catalog";
