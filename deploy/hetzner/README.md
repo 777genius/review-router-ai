@@ -17,7 +17,9 @@ database migration. For env-only changes use `fleet-overlay/` directly. For gran
 5. `verify <sha>`: require exactly one healthy container per role at the full requested revision with no restarts, check database privileges through the worker connection, then check API `/ready`. Any failed check stops the command.
 
 `all <sha> [--apply]` runs every step. Without `--apply` it stops after the plan and does not run `verify`.
-A full 40-character lowercase hex sha is required.
+A full 40-character lowercase hex sha is required. Each swap preparation gets a
+unique private directory and prints its controller path; a later apply cannot
+overwrite an earlier plan or collide with it within the same minute.
 
 ```bash
 RR_DRY_RUN=1 deploy/hetzner/release.sh all <sha> --apply   # print the commands, run nothing

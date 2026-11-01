@@ -119,9 +119,12 @@ cmd_swap() {
   remote "SRC=$sha" "APPLY=$([ "$apply" = --apply ] && echo 1 || echo 0)" <<'REMOTE'
 set -euo pipefail
 R=/srv/platform/projects/review-router/releases
-ID=${SRC:0:8}-$(date -u +%Y%m%d%H%M)
-I=$R/overlay-inputs-$ID; C=$R/fleet-overlay-$ID
-install -d -o root -g root -m 0700 "$I"
+# A plan and its later --apply may run within the same minute. Each prepare
+# needs exclusive custody; never overwrite a previous plan or its evidence.
+I=$(mktemp -d "$R/overlay-inputs-${SRC:0:8}-XXXXXXXX")
+ID=${I##*/}
+ID=${ID#overlay-inputs-}
+C=$R/fleet-overlay-$ID
 install -o root -g root -m 0600 /home/iliya/fleet-overlay.mjs /home/iliya/cutover.mjs "$I/"; rm -f /home/iliya/fleet-overlay.mjs /home/iliya/cutover.mjs
 B=/srv/platform/projects/review-router/builds/rr-build-${SRC:0:12}
 [ "$(stat -c %u:%a "$B")" = 0:700 ] || { echo "build directory is not root-only" >&2; exit 1; }
@@ -151,6 +154,7 @@ json.dump(spec, open(i + "/overlay-spec.json", "w"), indent=1)
 PY
 chmod 0600 "$I/overlay-spec.json"
 N=/opt/nodejs/node-v24.21.0-linux-x64/bin/node
+echo "controller=$C"
 $N "$I/fleet-overlay.mjs" prepare "$C" "$I/overlay-spec.json"
 $N "$I/fleet-overlay.mjs" plan "$C" "$I/overlay-spec.json"
 if [ "$APPLY" = 1 ]; then $N "$I/fleet-overlay.mjs" apply "$C" "$I/overlay-spec.json"; else echo "planned only; rerun with --apply"; fi
