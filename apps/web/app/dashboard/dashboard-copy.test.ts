@@ -2,7 +2,67 @@ import { describe, expect, it } from "vitest";
 import {
   codexRotatingProviderStateCopy,
   dashboardErrorText,
+  repositoryAccessErrorPresentation,
+  repositoryAccessPresentation,
 } from "./dashboard-copy";
+
+describe("repository access recovery", () => {
+  it("uses one support path for service configuration failures across notice, empty state and errors", () => {
+    const configurationFailure = repositoryAccessPresentation(
+      "token_encryption_misconfigured",
+    );
+    expect(configurationFailure).toMatchObject({
+      actionUrl: "/support",
+      actionLabel: "Contact support",
+      reconnect: false,
+      canRefresh: false,
+    });
+    expect(
+      repositoryAccessPresentation(
+        "token_encryption_misconfigured",
+        undefined,
+        "empty",
+      ),
+    ).toEqual(configurationFailure);
+    expect(
+      repositoryAccessPresentation(
+        "token_refresh_failed",
+        "github_oauth_client_misconfigured",
+      ),
+    ).toEqual(configurationFailure);
+    expect(
+      repositoryAccessErrorPresentation("dashboard_auth_misconfigured"),
+    ).toEqual(configurationFailure);
+    expect(
+      dashboardErrorText("repository_access_token_encryption_misconfigured"),
+    ).toEqual(configurationFailure.body);
+    expect(JSON.stringify(configurationFailure)).not.toMatch(
+      /token|encryption|oauth|REVIEW_ROUTER/i,
+    );
+  });
+
+  it("offers reconnect only for an unusable connection and retry for an unclassified refresh failure", () => {
+    for (const status of [
+      "token_missing",
+      "token_revoked",
+      "token_expired",
+      "token_decryption_failed",
+    ]) {
+      expect(repositoryAccessPresentation(status)).toMatchObject({
+        reconnect: true,
+        canRefresh: false,
+      });
+    }
+    const retry = repositoryAccessPresentation("token_refresh_failed");
+    expect(retry).toMatchObject({ reconnect: false, canRefresh: true });
+    expect(
+      repositoryAccessErrorPresentation(
+        "repository_access_token_refresh_failed",
+      ),
+    ).toEqual(retry);
+    expect(retry.body).not.toMatch(/expir|reconnect|existing workspace/i);
+  });
+});
 
 describe("dashboard Codex rotating OAuth copy", () => {
   it("maps beta recovery states to concrete operator actions", () => {

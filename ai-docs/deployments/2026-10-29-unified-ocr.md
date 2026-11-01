@@ -5,12 +5,13 @@
 Deliver one review scenario for the currently supported connection routes:
 prepared credentials/transport, OCR discovery, the shared previous-finding
 verifier, durable shared request allowance, and existing GitHub App publication.
-This record is not deployment authorization. The source PRs are merged with
-qualified SaaS candidate N and paired Action A4 as the latest baseline below.
+This record is not deployment authorization. The earlier source PRs are merged;
+their qualified SaaS candidate N and paired Action A4 remain historical evidence.
 The canonical handoff remains S2. Every subsequently selected integrated SaaS
 head requires its own exact-pair checks; earlier source results and local
 controlled qualification retain their original scope. This task has not deployed
-an environment.
+an environment. The 2026-10-30 delivery follow-up is committed locally; its
+observed qualification and remaining publication blockers are recorded below.
 
 Affected surfaces: API, worker, web, database, approved public Action runtime,
 managed OCR artifact, producer/profile registration, and installed callers.
@@ -34,6 +35,8 @@ staging status to production or treat CI as deployment evidence.
 - [Public Action PR #346](https://github.com/777genius/review-router/pull/346)
 - [Reviewed plan](../plans/2026-10-26-unified-ocr-review.md)
 - [Plan review record](../plans/2026-10-26-unified-ocr-review-reviews.md)
+- [Delivery completion plan](../plans/2026-10-30-unified-ocr-delivery-completion.md),
+  committed as `cc3b46290ab9b04f831cfcc402b0d24b546305be`
 - [Earlier acceptance evidence](../operations/2026-10-27-unified-ocr-acceptance.md)
 - [Earlier S2/A3 integration checkpoint](../operations/2026-10-29-unified-ocr-integration-status.md)
 - [Authoritative release process](../operations/07-environments-and-release-management.md)
@@ -44,8 +47,8 @@ staging status to production or treat CI as deployment evidence.
 Canonical source **S2** is `8080881802d87f3bf700b15faa7cebb02f54ee9b`. Its original
 public Action **A3** was `fb132c4ed337141339d487e7c388518178c24b10`; that checkpoint
 is preserved in the [earlier integration record](../operations/2026-10-29-unified-ocr-integration-status.md).
-The final paired Action **A4** is `925df40c6c5806fe2b6673c5f807fdc6abf2fe40`, as
-pinned by [the maintained CI](../../.github/workflows/ci.yml). A4 retains S2's
+The historical paired Action **A4** is
+`925df40c6c5806fe2b6673c5f807fdc6abf2fe40`. A4 retains S2's
 canonical 64-file handoff without a second canonical export.
 
 Qualified SaaS candidate **N** is `22bbc6cee22c47e4a7f57eac5d176e8c1a035f0d`.
@@ -55,9 +58,16 @@ Action merge `b5f12764d62d0e70e48beff416027e7001c5068b` likewise has A4's tree.
 [N actual-Next/lifecycle acceptance](https://github.com/777genius/review-router-ai/actions/runs/40962088270)
 and [A4 CI](https://github.com/777genius/review-router/actions/runs/40961791101)
 passed for those exact inputs. Later integrations, including
-[PR #740](https://github.com/777genius/review-router-ai/pull/740), retain A4 and
-require fresh combined-source qualification. These baseline results do not prove
+[PR #740](https://github.com/777genius/review-router-ai/pull/740), require fresh
+combined-source qualification. These baseline results do not prove
 production adoption. Earlier D/A2 and S2/A3 receipts remain historical.
+
+The current local delivery pair is SaaS
+`5b9da7f6fd94198bd7216ce8f18ef112da35d283` and Action
+`4db644c798326cb52d86e4762cabdd24bca2b8c6`.
+[The maintained CI](../../.github/workflows/ci.yml) now pins this exact new Action
+commit; A4 is no longer its selected pin. These commits preserve the frozen S2
+canonical handoff. They have not been pushed or merged remotely.
 
 The owner confirms there are no users. This join authors no new migration,
 backfill, customer upgrade framework or rollout coordinator. The actual merged
@@ -72,11 +82,20 @@ continues to own its applicable environment prerequisites.
 
 The exact SaaS/Action pair must pass its complete CI, generated-contract and
 reproducible-bundle checks, adapter tests, disposable PostgreSQL acceptance,
-actual Next desktop/mobile checks, and managed OCR qualification. The current
-candidate is committed; old temporary-tree and old-pair receipts
-remain historical. The selected integration's CI cannot be replaced by earlier
+actual Next desktop/mobile checks, and managed OCR qualification. The earlier
+qualified candidates and the 2026-10-30 local delivery pair are committed.
+Old temporary-tree and old-pair receipts remain historical.
+The selected integration's CI cannot be replaced by earlier
 N/A4 results or by local counts.
 Do not derive production pins from a branch name or a test fixture.
+
+Authenticated GitHub access is currently unavailable: `gh auth status` reports
+no accounts, the identity endpoint returns HTTP 401, and the immediate push of
+the committed delivery plan failed with `could not read Username`. No remote
+write or authenticated workflow dispatch was completed. Restore authorized gh
+access before publishing the implementation, opening its draft PRs, running
+the final exact-pair hosted gates and completing the authorized merge. Merge
+authorization does not authorize automatic deployment.
 
 The owner will supply designated test credentials for final live acceptance.
 Real subscription OAuth refresh/writeback, provider behavior and billing, GitHub
@@ -96,7 +115,13 @@ do not invent environment-specific commands from this task file.
    compatible public Action and managed OCR artifact with immutable identity.
    Keep previous releases unchanged. Register the new qualified producer,
    transport capabilities, explicit default profiles and exact contract hashes.
-   Never move an old immutable pin to new bytes.
+   Use the checked exact-commit release manifest to carry dispatch policy and
+   existing reviewer-plan approval through the normal operator registration.
+   Native publication must qualify the exact source, create the unused fixed
+   tag once, upload to a draft, compare remote tag/assets with qualified bytes,
+   and only then publish the prerelease without changing the latest release.
+   An existing identity or uncertain partial publication requires inspection;
+   never overwrite assets or move an old immutable pin to new bytes.
 2. **Database before dependent code.** Reconcile the existing authorized
    migration sequence and apply only actually missing entries, including
    `000152_review_run_gateway_allocations` and `000154_unified_model_dispatch`
@@ -201,5 +226,101 @@ qualification scope. Prior D/A2 hosted gates passed and remain historical green
 proof. Both staging and production remain pending. No deployment, release/tag
 promotion, live provider request, producer registration, production history
 activation or installed customer workflow update was performed by this task.
+
+2026-10-30 delivery follow-up: the plan is committed as
+`cc3b46290ab9b04f831cfcc402b0d24b546305be`; implementation is committed locally
+in the SaaS/Action pair recorded above.
+Three plan-review rounds with three independent critics completed, and the
+second implementation review returned GO after the concrete findings were
+corrected. These source reviews do not qualify a final immutable release pair.
+The review fixes include exact nonrecursive detection of an empty committed
+policy tree, a disposable named clone for detached Action checkouts, full Git
+history for canonical provenance, and rejection of a dirty original Action
+source before importing its executable modules.
+
+The local implementation adds an explicit Action dispatch policy file and
+carries its exact committed contents through release generation, exact
+checking, operator parsing and producer registration, retaining the existing
+reviewer-plan approval. The native publisher uses one-time exact tag creation,
+draft asset upload, remote-byte verification and final publication. Ordinary
+Action release restores committed bundles before identity checks. Browser
+acceptance rejects an explicit source mismatch before fixture creation, with
+historical Git objects available to the exact-release bridge. The bridge has
+passed from the clean detached Action commit `4db644c798326cb52d86e4762cabdd24bca2b8c6`
+through the real generator/checker, operator codec, `ManageProducerReleases`,
+Prisma registration/readback and admission. It selected exact
+`ocr-managed-v5` / `1.13.1-rr.6`, with binary SHA-256
+`9dd5f115747d24100f0767133a3288d268f3bc399675f5b826e7a867d101ee5c`.
+The first head published four findings. The next head made four discovery
+requests and one verifier request under the original nine-request shared
+allowance, resolved two threads and retained three unresolved threads.
+Completed replay added zero model or GitHub effects. These are controlled
+external boundaries, not live-provider or remote App/OIDC acceptance.
+No new schema migration, backfill, flag or rollout framework was
+added; the owner continues to confirm that there are no users.
+
+Passed local groups are recorded separately: 61 release/operator/domain tests,
+13 source-identity tests, two dirty-source tests, 24 native-publisher tests and
+four native CLI cases. The application build completed **48 build tasks**;
+these are not test cases. API/worker builds and typechecks also passed.
+These groups are not summed into a unique-test count.
+
+The full Action Jest run passed 266 suites and 4,244 tests, failed one wrapper
+test because Docker was missing (`ENOENT`), and skipped six suites / 23 tests.
+That wrapper could not run its three fresh PostgreSQL-container revisions; the
+full Action test gate is therefore not green. The Docker CLI, daemon and socket
+are absent, capabilities are zero, and rootless `uid_map` is read-only. The
+existing CI Docker gate is unchanged and remains required. Full Action lint
+reported zero errors and 398 baseline warnings; typecheck, build and committed
+dist parity passed.
+
+The maintained **six-file paired suite passed 44/44**, with zero failures or
+skips, in **348.17 seconds** on exact SaaS `5b9da7f6fd94198bd7216ce8f18ef112da35d283`
+and detached Action `4db644c798326cb52d86e4762cabdd24bca2b8c6`, using the real pinned
+OCR binary and PostgreSQL **17.11**. The breakdown is 24 lifecycle cases, four
+Gateway multi-reviewer cases, seven review-investigation cases, six direct
+OpenRouter cases, one banner case and two PR-description cases. The JSON
+report's seven suite entries include a nested describe; they are not seven
+files. All seven production routes record four first-head findings, two
+next-head native resolves, three unresolved threads and completed replay with
+zero provider/publication/resolve effects. The separate focused registration
+bridge overlaps the lifecycle group and is not an additional unique case.
+
+Actual Next **16.2.11** / Playwright **1.64.1** passed desktop/mobile acceptance
+**2/2**, with zero failures or skips, in **30.6 seconds** on exact SaaS HEAD
+`5b9da7f6fd94198bd7216ce8f18ef112da35d283`. All six actual captures covering
+desktop/mobile, light/dark and empty states were visually reviewed, with GO;
+a second reviewer also inspected desktop light and mobile dark. The run used official Chrome
+**156.0.8078.79** through the existing `--browser-executable` option after the
+pinned Playwright browser download failed. Isolated stock PostgreSQL **17.11**
+applied **157/157** existing migrations with exact source checksums, and boot
+checks passed.
+
+The UI source-delta receipt is
+`61b8cac967c71e52ac9d15fd44a7b34625914d3747f310506039b9ba924d6258`: Next generated
+only the `apps/web/next-env.d.ts` import-path change from `.next/types` to
+`.next/dev/types`, with no executable UI change. Its diff is preserved and that
+file was restored. Earlier shared-PostgreSQL-role and long-`TMPDIR` Chrome
+attempts remain failed environment receipts; the successful run used isolated
+PostgreSQL and the corrected local socket path, with no migration source change.
+
+Local receipts are `tmp/delivery-paired-e2e.{json,log}`,
+`tmp/delivery-registration-bridge.{json,log}`, `tmp/delivery-progress.json` and
+`tmp/accounts-reference-e2e/runs/unified-ocr-delivery-5b9da7f6-stock-pg-shorttmp/`
+(`result.json`, `playwright-result.json`, `migration-readback.json` and
+`browser-artifacts/`). These local artifacts do not replace the outstanding
+authenticated hosted CI and Docker gate.
+
+The production bootstrap URL
+`https://github.com/777genius/review-router/releases/download/ocr-v1.13.1-rr.6/opencodereview-linux-amd64`
+returned HTTP 404 on 2026-10-30. The new publisher has not published that native
+release. No remote implementation publication, environment producer
+registration, channel promotion or environment rollout occurred during this
+follow-up. Authenticated GitHub access and designated live provider credentials
+remain unavailable. No current-pair remote CI, live-provider acceptance, merge
+or deployment is claimed.
+Staging and production remain `pending`; reconcile their actual schema/fleet
+state and coordinate applicable rollout/history authority with `rr: deploy`
+only through the separately authorized release/deployment process.
 
 2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.

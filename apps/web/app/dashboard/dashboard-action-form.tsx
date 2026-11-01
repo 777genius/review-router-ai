@@ -3,6 +3,7 @@
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ActionToast } from "../action-toast";
+import { repositoryAccessErrorPresentation } from "./dashboard-copy";
 
 export type DashboardActionFormAction = (
   formData: FormData,
@@ -102,10 +103,14 @@ function dashboardActionToast(
   params: Record<string, string>,
 ): Omit<DashboardActionToast, "key"> {
   if (params.error) {
+    const access = repositoryAccessErrorPresentation(params.error);
     return {
       tone: "danger",
-      title: "Action needs attention",
-      body: dashboardActionErrorText(params.error),
+      title: access?.title ?? "Action needs attention",
+      body: access?.body ?? dashboardActionErrorText(params.error),
+      ...(access?.actionUrl
+        ? { actionUrl: access.actionUrl, actionLabel: access.actionLabel }
+        : {}),
     };
   }
 

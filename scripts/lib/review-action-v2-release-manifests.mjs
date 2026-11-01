@@ -6,6 +6,7 @@ import {
   bindLifecycleVerificationReleaseProfile,
   parseLifecycleVerificationReleaseProfile,
 } from "./review-lifecycle-release-profile.ts";
+import { bindModelDispatchReleaseProfile } from "./review-model-dispatch-release-profile.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { posix as posixPath } from "node:path";
@@ -20,6 +21,8 @@ export const PUBLIC_GENERATED_DIRECTORY =
 export const PUBLIC_RUNTIME_BUNDLE = "dist/index.js";
 export const PUBLIC_REVIEW_AGENT_PROFILES =
   "src/control-plane/review-agent-profiles.json";
+export const PUBLIC_MODEL_DISPATCH_PROFILE =
+  "src/control-plane/review-model-dispatch-profile.json";
 export const PUBLIC_CONTEXT_GATEWAY_BUNDLE = "dist/context-gateway.js";
 export const PUBLIC_CONTEXT_GATEWAY_RELEASE_METADATA =
   "dist/context-gateway.release.json";
@@ -389,7 +392,23 @@ export function buildReleaseManifest(input) {
     "runtimeEntrypointPath",
   );
   const contextGateway = resolveReleaseContextGateway(input);
+  if (
+    input.modelDispatchProfile !== undefined &&
+    contextGateway.metadataVersion !== CONTEXT_GATEWAY_RELEASE_METADATA_VERSION
+  )
+    throw new Error(
+      "model dispatch profile requires a catalog-bearing release",
+    );
   const base = {
+    ...(input.modelDispatchProfile === undefined
+      ? {}
+      : {
+          modelDispatchProfile: bindModelDispatchReleaseProfile(
+            input.modelDispatchProfile,
+            handoff.generatedFileDigests,
+            input.agentProfiles,
+          ),
+        }),
     ...(input.lifecycleVerificationProfile === undefined
       ? {}
       : {
@@ -507,6 +526,9 @@ export function parseReleaseManifest(raw) {
       "runtimeEntrypointPath",
       "saasSourceCommit",
       "schemaDigest",
+      ...(Object.hasOwn(value, "modelDispatchProfile")
+        ? ["modelDispatchProfile"]
+        : []),
       ...(Object.hasOwn(value, "lifecycleVerificationProfile")
         ? ["lifecycleVerificationProfile"]
         : []),
@@ -580,6 +602,15 @@ export function parseReleaseManifest(raw) {
     );
   }
   const base = {
+    ...(Object.hasOwn(value, "modelDispatchProfile")
+      ? {
+          modelDispatchProfile: bindModelDispatchReleaseProfile(
+            value.modelDispatchProfile,
+            handoff.generatedFileDigests,
+            value.agentProfiles,
+          ),
+        }
+      : {}),
     ...(Object.hasOwn(value, "reviewerPlanProfile")
       ? {
           reviewerPlanProfile: bindProducerReviewerPlanReleaseProfile(
@@ -691,6 +722,9 @@ export function parseReleaseManifest(raw) {
 export function buildReleaseRegistrationCandidateFields(input) {
   const manifest = parseReleaseManifest(canonicalJson(input));
   return Object.freeze({
+    ...(manifest.modelDispatchProfile === undefined
+      ? {}
+      : { modelDispatchProfile: manifest.modelDispatchProfile }),
     ...(manifest.lifecycleVerificationProfile === undefined
       ? {}
       : {
