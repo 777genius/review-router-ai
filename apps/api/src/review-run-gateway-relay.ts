@@ -866,6 +866,46 @@ export function createReviewRunGatewayRelay(input: {
         },
       };
     } catch (error) {
+      try {
+        const sdkError = error instanceof GatewayError ? error : undefined;
+        const code = sdkError?.code;
+        const sdkCode =
+          code &&
+          [
+            "invalid_input",
+            "transport",
+            "invalid_response",
+            "cancelled",
+            "safe_error",
+          ].includes(code)
+            ? code
+            : undefined;
+        const effect = c.effectState.safeParse(sdkError?.effect);
+        const diagnosticCode = c.errorCode.safeParse(
+          sdkError?.diagnostic?.code,
+        );
+        const httpStatus = sdkError?.httpStatus;
+        console.error(
+          JSON.stringify({
+            event: "review_run_companion_gateway_request_failed",
+            stage: "request",
+            requestRef,
+            ...(sdkCode === undefined ? {} : { sdkCode }),
+            ...(effect.success ? { effect: effect.data } : {}),
+            ...(diagnosticCode.success
+              ? { diagnosticCode: diagnosticCode.data }
+              : {}),
+            ...(typeof httpStatus === "number" &&
+            Number.isInteger(httpStatus) &&
+            httpStatus >= 100 &&
+            httpStatus <= 599
+              ? { httpStatus }
+              : {}),
+          }),
+        );
+      } catch {
+        /* Diagnostics cannot replace the refusal or its settlement. */
+      }
       if (upstream?.kind === "stream") await upstream.cancel().catch(() => {});
       // Only a positively local native no-dispatch proof settles unpaid.
       let failureEffect: c.RequestStatus["effect"] = "effect_unknown";

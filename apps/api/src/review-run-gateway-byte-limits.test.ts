@@ -489,6 +489,92 @@ it("companion local unpaid admission consumes one reservation and one SDK reques
   }
 });
 
+it.each([403, 503])(
+  "companion logs only closed refusal fields for HTTP %s without retrying",
+  async (httpStatus) => {
+    const state = companionReservation();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = await fixture(32768, 0, 2, 5000, undefined, {
+      admission: state.admission,
+      refusalStatus: httpStatus,
+    });
+    try {
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          companionContext,
+        ),
+      ).rejects.toMatchObject({
+        code: "companion_request_failed",
+        statusCode: 502,
+        effect: "effect_unknown",
+        requestRef: "stored-companion-native-ref",
+      });
+      expect(
+        log.mock.calls.map(([event]) => [JSON.parse(event as string)]),
+      ).toEqual([
+        [
+          {
+            event: "review_run_companion_gateway_request_failed",
+            stage: "request",
+            sdkCode: "safe_error",
+            effect: "not_dispatched",
+            diagnosticCode: "forbidden",
+            httpStatus,
+            requestRef: "stored-companion-native-ref",
+          },
+        ],
+      ]);
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret");
+      expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+      expect(state.rows.size).toBe(1);
+      expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+        "effect_unknown",
+      );
+      expect(f.effects.at(-1)?.effect).toBe("effect_unknown");
+    } finally {
+      await f.relay.shutdown();
+      log.mockRestore();
+    }
+  },
+);
+
+it("companion settles its refusal even when the diagnostic sink throws", async () => {
+  const state = companionReservation();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {
+    throw new Error("sink_failed");
+  });
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    refusalStatus: 403,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "companion_request_failed",
+      statusCode: 502,
+      effect: "effect_unknown",
+    });
+    expect(f.requestRefs).toEqual(["stored-companion-native-ref"]);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+  } finally {
+    await f.relay.shutdown();
+    log.mockRestore();
+  }
+});
+
 it("companion rejects a silently clamped envelope before reservation or SDK dispatch", async () => {
   const state = companionReservation();
   const f = await fixture(32768, 0, 2, 5000, undefined, {
@@ -571,6 +657,7 @@ async function fixture(
     admission: ReviewRunCompanionDispatchAdmission &
       Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
     unpaid?: boolean;
+    refusalStatus?: number;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
   },
@@ -910,6 +997,24 @@ async function fixture(
       admissions.push(JSON.parse(String(req.headers["x-gateway-admission"])));
       requestBodies.push(raw);
       requestRefs.push(String(req.headers["x-gateway-request-id"]));
+      if (companionOptions?.refusalStatus) {
+        res
+          .writeHead(companionOptions.refusalStatus, {
+            "content-type": "application/json",
+            "x-private-detail": "secret-header",
+          })
+          .end(
+            JSON.stringify({
+              code: "forbidden",
+              traceRef: "secret-trace",
+              operationRef: "secret-operation",
+              requestRef: String(req.headers["x-gateway-request-id"]),
+              effect: "not_dispatched",
+              retry: { kind: "never" },
+            }),
+          );
+        return;
+      }
       if (companionOptions?.unpaid) {
         res.writeHead(429, { "content-type": "application/json" }).end(
           JSON.stringify({
