@@ -12,7 +12,7 @@ export async function timeAnalyticsRead<T>(
     if (duration >= 2_000)
       console.warn("analytics_read_slow", {
         operation,
-        durationBucketMs: Math.ceil(duration / 500) * 500,
+        durationBucketMs: Math.min(30_000, Math.ceil(duration / 500) * 500),
       });
   }
 }
