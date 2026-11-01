@@ -1,6 +1,8 @@
 # Analytics extensibility — bounded plan
 
-Status: **accepted after two design-critique rounds**, implementation pending.
+Status: **accepted after two design-critique rounds**. At design-review time,
+implementation was pending. PR A is implemented in #768; CI, independent
+review and deployment require separate verification.
 Date: 2026-10-31. Initial reviewed main: `a8ac2ea2842e76ff64d82993224cbe71a7498a75`.
 Owner scope: `777genius/review-router-ai` · `Statistics / Usage / History`.
 Review record: [analytics-extensibility-reviews](2026-10-31-analytics-extensibility-reviews.md).
