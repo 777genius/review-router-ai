@@ -1582,9 +1582,14 @@ export function composeReviewActionV2ProductionRoutes(input: {
         request.reviewerId !== undefined
       )
         return null;
-      // SCM and the final protected run/token/producer/epoch confirmation execute once,
-      // independently of the number of reviewers. No network enters the binding guards.
-      const target = await resolveCheckoutRepository(authorization);
+      // Memory is bound to the admitted immutable revision and rechecks local
+      // repository/identity/installation authority. Canonical SCM freshness stays
+      // with execution and paid dispatch; its remote reads cannot fit the memory
+      // receipt preflight budget. Tools retain their full SCM check.
+      const target =
+        request.kind === "memory"
+          ? await readCheckoutTarget(prisma, authorization)
+          : await resolveCheckoutRepository(authorization);
       return target &&
         (await confirmAccountGatewayAuthority(token, authorization, target))
         ? authorization
