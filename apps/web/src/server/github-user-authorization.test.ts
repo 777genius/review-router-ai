@@ -190,9 +190,7 @@ describe("GitHub user authorization", () => {
           env,
           userId: "user_1",
           now: new Date("2026-05-12T10:00:00Z"),
-          fetch: vi.fn().mockResolvedValue(
-            new Response(body, { status }),
-          ),
+          fetch: vi.fn().mockResolvedValue(new Response(body, { status })),
         }),
       ).resolves.toMatchObject({ status: "refresh_failed", errorCode });
       expect(updateMany).toHaveBeenCalledWith(

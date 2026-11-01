@@ -44,7 +44,9 @@ export async function readSourceRevision(
       "--untracked-files=all",
     ]);
     if (stdout.length > 0) {
-      throw new Error("accounts_reference_e2e_expected_revision_dirty_checkout");
+      throw new Error(
+        "accounts_reference_e2e_expected_revision_dirty_checkout",
+      );
     }
   }
   return revision;

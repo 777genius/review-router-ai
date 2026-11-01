@@ -57,7 +57,10 @@ describe("versioned model dispatch approval", () => {
     expect(
       `sha256:${createHash("sha256").update(canonicalJson(reviewModelDispatchContract)).digest("hex")}`,
     ).toBe(reviewModelDispatchDescriptorDigest);
-    const candidate = { ...releaseCandidate, agentProfiles: qualifiedAgentProfiles };
+    const candidate = {
+      ...releaseCandidate,
+      agentProfiles: qualifiedAgentProfiles,
+    };
     const legacy = createProducerRelease(
       candidate,
       new Date("2026-10-21T00:00:00.000Z"),
