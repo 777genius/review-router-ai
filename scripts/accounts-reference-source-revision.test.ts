@@ -107,19 +107,32 @@ describe("Accounts browser source revision", () => {
       writeFileSync(tracked, "original\n");
       execFileSync("git", ["-C", directory, "add", "tracked.txt"]);
       execFileSync("git", [
-        "-C", directory, "-c", "user.name=Fixture",
-        "-c", "user.email=fixture@example.test",
-        "-c", "commit.gpgsign=false", "commit", "-qm", "tracked fixture",
+        "-C",
+        directory,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "tracked fixture",
       ]);
-      const actual = execFileSync("git", ["-C", directory, "rev-parse", "HEAD"], {
-        encoding: "utf8",
-      }).trim();
-      if (mode === "untracked")
+      const actual = execFileSync(
+        "git",
+        ["-C", directory, "rev-parse", "HEAD"],
+        {
+          encoding: "utf8",
+        },
+      ).trim();
+      if (mode === "untracked") {
         writeFileSync(join(directory, "new.txt"), "new\n");
-      else {
+      } else {
         writeFileSync(tracked, "modified\n");
-        if (mode === "staged")
+        if (mode === "staged") {
           execFileSync("git", ["-C", directory, "add", "tracked.txt"]);
+        }
       }
       await expect(readSourceRevision(directory, actual)).rejects.toThrow(
         "accounts_reference_e2e_expected_revision_dirty_checkout",

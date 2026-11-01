@@ -134,16 +134,44 @@ describe("versioned model dispatch approval", () => {
       null,
       [{ ...qualifiedAgentProfiles[0], profileRef: "another-ocr" }],
       [{ ...qualifiedAgentProfiles[0], reviewSkillsVersion: undefined }],
-      [{ ...qualifiedAgentProfiles[0], agentKind: "codex", contextGateway: true }],
+      [
+        {
+          ...qualifiedAgentProfiles[0],
+          agentKind: "codex",
+          contextGateway: true,
+        },
+      ],
       [{ ...qualifiedAgentProfiles[0], modelTransports: ["account_gateway"] }],
     ]) {
       expect(() =>
         createProducerRelease(
-          { ...candidate, agentProfiles } as Parameters<typeof createProducerRelease>[0],
+          { ...candidate, agentProfiles } as Parameters<
+            typeof createProducerRelease
+          >[0],
           new Date("2026-10-21T00:00:00.000Z"),
         ),
       ).toThrow();
     }
+  });
+
+  it("rejects dispatch transports with no compatible wire protocol", () => {
+    expect(() =>
+      createProducerRelease(
+        {
+          ...releaseCandidate,
+          agentProfiles: qualifiedAgentProfiles,
+          modelDispatchProfile: {
+            ...profile,
+            transports: ["runner_local_anthropic"],
+            wireProtocols: ["openai-responses"],
+            defaultAgentProfileRefs: {
+              runner_local_anthropic: "ocr-controlled-responses",
+            },
+          },
+        },
+        new Date("2026-10-21T00:00:00.000Z"),
+      ),
+    ).toThrow("model dispatch default agent is incompatible");
   });
 
   it("carries approved dispatch facts through configured attestation and materialization", async () => {

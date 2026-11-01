@@ -19,6 +19,7 @@ on:
       - packages/platform/db/**
       - packages/shared/**
       - scripts/accounts-reference-e2e/**
+      - scripts/rewrite-dist-esm-imports.mjs
       - scripts/review-investigation-paired-e2e/**
       - scripts/review-action-v2-production-e2e/**
       - package.json

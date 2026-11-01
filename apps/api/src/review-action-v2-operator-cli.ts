@@ -5,10 +5,8 @@ import {
   parseReviewAgentProfiles,
   parseProducerReviewerPlanProfile,
 } from "@reviewrouter/features-review-run-control";
-import {
-  assertReviewModelDispatchDefaultAgents,
-  parseReviewModelDispatchProfileV2,
-} from "@reviewrouter/shared";
+import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
+import { assertReviewModelDispatchDefaultAgents } from "@reviewrouter/shared/review-model-dispatch-default-agents";
 import {
   createRepositoryReleaseSelector,
   parseRepositoryReleaseBindings,

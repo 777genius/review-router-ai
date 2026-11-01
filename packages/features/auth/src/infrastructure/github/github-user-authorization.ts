@@ -370,7 +370,7 @@ async function refreshGitHubUserAccessToken(input: {
         typeof body.error === "string"
           ? `github_user_token_refresh_${body.error}`
           : "github_user_token_refresh_failed",
-      revoke: response.status === 400 || response.status === 401,
+      revoke: body.error === "bad_refresh_token",
     };
   }
 

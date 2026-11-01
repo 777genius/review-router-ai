@@ -1,8 +1,8 @@
 import {
-  assertReviewModelDispatchDefaultAgents,
   parseReviewModelDispatchProfileV2,
   type ReviewModelDispatchProfileV2,
 } from "@reviewrouter/shared";
+import { assertReviewModelDispatchDefaultAgents } from "@reviewrouter/shared/review-model-dispatch-default-agents";
 import {
   ProducerDistributionKind,
   ProducerReleaseState,

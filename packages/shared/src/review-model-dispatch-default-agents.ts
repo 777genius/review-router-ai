@@ -1,5 +1,8 @@
 import type { ReviewAgentProfile } from "./review-agent-profile.js";
-import type { ReviewModelDispatchProfileV2 } from "./review-model-dispatch-contract.js";
+import {
+  reviewModelWireProtocolMatchesTransport,
+  type ReviewModelDispatchProfileV2,
+} from "./review-model-dispatch-contract.js";
 
 /** Validate immutable OCR defaults without modifying the published protocol. */
 export function assertReviewModelDispatchDefaultAgents(
@@ -12,12 +15,17 @@ export function assertReviewModelDispatchDefaultAgents(
     const requiredTransport =
       transport === "account_gateway" ? "account_gateway" : "provider_api";
     if (
+      !profile.wireProtocols.some((protocol) =>
+        reviewModelWireProtocolMatchesTransport(transport, protocol),
+      ) ||
       !agent ||
       agent.agentKind !== "ocr" ||
       agent.reviewSkillsVersion !== 1 ||
       !agent.modelTransports.includes(requiredTransport)
     ) {
-      throw new Error(`model dispatch default agent is incompatible: ${transport}`);
+      throw new Error(
+        `model dispatch default agent is incompatible: ${transport}`,
+      );
     }
   }
 }

@@ -37,10 +37,15 @@ export async function readSourceRevision(
     }
     // A SHA receipt is valid only for the bytes actually executed.
     const { stdout } = await execFileAsync("git", [
-      "-C", repoRoot, "status", "--porcelain=v1", "--untracked-files=all",
+      "-C",
+      repoRoot,
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
     ]);
-    if (stdout.length > 0)
+    if (stdout.length > 0) {
       throw new Error("accounts_reference_e2e_expected_revision_dirty_checkout");
+    }
   }
   return revision;
 }
