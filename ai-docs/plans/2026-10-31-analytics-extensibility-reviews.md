@@ -6,7 +6,9 @@ Scope: [plan](2026-10-31-analytics-extensibility.md).
 **Method:** Two separate critical reading passes by the assistant with actual
 repository interfaces, code and active PRs inspected. Dedicated subagent/model
 delegation is unavailable in this runtime, therefore **no independent model
-review is claimed**. Implementation code and CI review remain future work.
+review is claimed**. At design-review time, implementation code and CI
+review remained future work. PR A implementation is now present in #768;
+verification and deployment are tracked separately.
 
 ## Round 1: policy correctness / Clean Architecture / DDD
 
@@ -55,7 +57,7 @@ Findings and fixes:
   shouldn't share one adapter protocol. Document canonical fact envelope and
   read-model expectations only until a real integration is justified.
 
-Disposition: **accepted** as the final plan above. No implementation,
+Disposition: **accepted** as the final design plan. At design-review time, no implementation,
 actual external review, E2E, production replay or merge is implied by this
 design acceptance.
 
