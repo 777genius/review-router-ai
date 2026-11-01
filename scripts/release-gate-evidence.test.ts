@@ -314,7 +314,7 @@ describe("release workflow contract", () => {
       "if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.private_pg16_to_pg17_rehearsal) || (github.event_name == 'workflow_dispatch' && inputs.activation_catalog_policy_capture) }}",
     );
     expect(ci).toContain(
-      "github.event_name == 'push' || github.event_name == 'pull_request'",
+      "github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)",
     );
     expect(ci).toContain(
       "PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}",
