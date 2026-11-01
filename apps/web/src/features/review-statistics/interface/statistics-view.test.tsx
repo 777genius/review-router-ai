@@ -193,6 +193,29 @@ describe("Statistics", () => {
     );
     expect(screen.getByLabelText("Period")).toHaveProperty("value", "7");
   });
+  it("normalizes malformed metric URL after a filter change", () => {
+    vi.mocked(fetchStatisticsReport).mockImplementation(
+      async (_workspace, filter) => ({ ...statisticsFixture(), filter }),
+    );
+    setup();
+    fireEvent.change(screen.getByLabelText("Chart metric"), {
+      target: { value: "reviews" },
+    });
+    window.history.pushState(
+      null,
+      "",
+      "/dashboard?section=statistics&workspace=workspace-a&statisticsMetric=bad&statisticsMetric=reviews",
+    );
+    fireEvent.popState(window);
+    expect(screen.getByText(/Choose a valid statistics period/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Period"), {
+      target: { value: "7" },
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.getAll("statisticsMetric")).toEqual(["reviews"]);
+    expect(params.get("statisticsDays")).toBe("7");
+    expect(screen.queryByText(/Choose a valid statistics period/)).toBeNull();
+  });
   it("filters issues consistently, keeps all-severity KPIs and the full daily table, and resets pagination", async () => {
     const original = statisticsFixture();
     vi.mocked(fetchStatisticsIssues)

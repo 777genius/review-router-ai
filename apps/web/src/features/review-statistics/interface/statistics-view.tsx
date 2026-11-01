@@ -138,10 +138,14 @@ function StatisticsInstance({
     setRepository(null);
     setInvalidUrl(false);
     setFilter(next);
+    const nextUrl = statisticsFilterUrl(window.location.href, next);
     window.history.pushState(
       null,
       "",
-      statisticsFilterUrl(window.location.href, next),
+      statisticsActivityMetricUrl(
+        new URL(nextUrl, window.location.href).href,
+        metric,
+      ),
     );
   };
   useEffect(() => {
