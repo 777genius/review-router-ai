@@ -29,6 +29,15 @@ vi.mock("next/navigation", async (importOriginal) => {
 const memoryKnowledge = vi.hoisted(() => ({
   load: vi.fn(async () => ({ workspaceId: "workspace-a", repositoryId: null })),
 }));
+const identity = vi.hoisted(() => ({
+  scope: vi.fn(
+    async (): Promise<unknown> => ({
+      kind: "all",
+      reason: "local_admin_override",
+    }),
+  ),
+  actor: vi.fn(async (): Promise<unknown> => null),
+}));
 vi.mock("../../src/server/dashboard-memory-knowledge", () => ({
   loadDashboardMemoryKnowledge: memoryKnowledge.load,
 }));
@@ -94,13 +103,17 @@ const fixtures = vi.hoisted(() => {
     organizationRequest: vi.fn(async () => ({
       data: { plan: { name: "team" } },
     })),
-    discovery: vi.fn(async () => ({
-      status: "ready" as const,
-      workspaceIds: ["workspace-a"],
-      repositoryIds: new Set(["repo-a"]),
-      directConfigRepositoryIds: new Set<string>(),
-      checkedAt: new Date("2026-09-01"),
-    })),
+    discovery: vi.fn(
+      async (): Promise<
+        Awaited<ReturnType<typeof listDashboardRepositoryAccess>>
+      > => ({
+        status: "ready" as const,
+        workspaceIds: ["workspace-a"],
+        repositoryIds: new Set(["repo-a"]),
+        directConfigRepositoryIds: new Set<string>(),
+        checkedAt: new Date("2026-09-01"),
+      }),
+    ),
     requestedCandidates: vi.fn(async () => []),
     diagnostics: vi.fn(async () => null),
     ruleset: vi.fn(async () => null),
@@ -230,11 +243,8 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
     sourceLogin: "owner",
     sourceAvatarUrl: null,
   }),
-  getDashboardWorkspaceScope: async () => ({
-    kind: "all",
-    reason: "local_admin_override",
-  }),
-  getDashboardSignedInActor: async () => null,
+  getDashboardWorkspaceScope: identity.scope,
+  getDashboardSignedInActor: identity.actor,
   asDashboardGitHubActor: (actor: unknown) => actor,
   canDashboardActorAdminWorkspace: fixtures.spies.workspaceAdmin,
 }));
@@ -349,6 +359,63 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
+  it.each([
+    ["token_encryption_misconfigured", "token_encryption_key_missing"],
+    ["token_refresh_failed", "github_oauth_client_misconfigured"],
+  ] as const)(
+    "keeps available workspace content and offers support for %s",
+    async (status, errorCode) => {
+      spies.repositories.mockResolvedValueOnce([]);
+      const data = await loadDashboardSectionData(workspace, "policy", access);
+      const html = renderToStaticMarkup(
+        <WorkspaceCard
+          data={data}
+          mutationsEnabled
+          selectedSection="policy"
+          params={{}}
+          repositoryAccess={{ ...access, status, errorCode }}
+          workspaceKey="acme"
+          appInstallUrl={null}
+          modelOptions={[]}
+        />,
+      );
+      expect(html).toContain("Save workspace settings");
+      expect(html).toContain('aria-label="GitHub repository access"');
+      expect(html).toContain('href="/support"');
+      expect(html).toContain("Contact support");
+      expect(html).not.toMatch(
+        /Refresh (?:GitHub )?access|Reconnect GitHub|REVIEW_ROUTER_TOKEN|encryption|github_oauth_client_misconfigured/,
+      );
+    },
+  );
+
+  it("gives the same support action in the empty dashboard without exposing the internal cause", async () => {
+    identity.scope.mockResolvedValueOnce({
+      kind: "workspace_ids",
+      workspaceIds: [],
+    });
+    identity.actor.mockResolvedValueOnce({
+      sourceProvider: "github",
+      userId: "user_1",
+      githubLogin: "owner",
+    });
+    spies.discovery.mockResolvedValueOnce({
+      ...access,
+      status: "token_encryption_misconfigured",
+      workspaceIds: [],
+      repositoryIds: new Set(),
+      errorCode: "token_encryption_key_missing",
+    });
+    const html = renderToStaticMarkup(await DashboardWorkspacePage({}));
+    expect(html).toContain('href="/support"');
+    expect(html).toContain("Contact support");
+    expect(html).toContain("Connect source");
+    expect(html).not.toMatch(
+      /Refresh GitHub access|Reconnect GitHub|Status:|token_encryption|REVIEW_ROUTER_TOKEN/,
+    );
+    expect(spies.discovery).toHaveBeenCalledOnce();
+  });
+
   it("hydrates the complete saved workspace and repository reviewer roster once after loading account metadata", async () => {
     const provider = (gatewayBindingId: string) => ({
       kind: "codex",
