@@ -4,6 +4,8 @@ import {
   createPrismaClient,
   type PrismaClient,
 } from "@reviewrouter/platform-db";
+import { OutboxHandlerError } from "../domain/outbox-event";
+import { processOutboxBatch } from "../application/use-cases/process-outbox-batch";
 import { PrismaOutboxEventRepository } from "../infrastructure/prisma/prisma-outbox-event-repository";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
@@ -149,6 +151,125 @@ describeWithDatabase("Prisma outbox fenced claims", () => {
     expect(await outbox.recoverStaleProcessing(input)).toEqual({
       recovered: 1,
     });
+  });
+
+  it("redacts PostgreSQL retry and dead-letter metadata", async () => {
+    const outbox = new PrismaOutboxEventRepository(prisma);
+    const now = new Date(Date.now() - 10_000);
+    const handlers = [true, false].map((retryable) => ({
+      type: `${prefix}.privacy.${retryable ? "retry" : "permanent"}`,
+      version: 1,
+      async handle() {
+        throw new OutboxHandlerError(
+          "private provider response",
+          "github_pat_private0123456",
+          retryable,
+        );
+      },
+    }));
+    for (const handler of handlers) {
+      await outbox.enqueue({
+        type: handler.type,
+        version: handler.version,
+        idempotencyKey: handler.type,
+        payload: { kind: "sanitized" },
+        maxAttempts: 2,
+        occurredAt: now,
+      });
+    }
+    const run = (handler: (typeof handlers)[number]) =>
+      processOutboxBatch(
+        {
+          limit: 1,
+          handlers: [handler],
+          claimOwnerHash: "a".repeat(64),
+          processingLeaseMs: 60_000,
+        },
+        { outbox, clock: { now: () => now } },
+      );
+    expect(await run(handlers[0]!)).toMatchObject({ retried: 1 });
+    expect(
+      await prisma.outboxEvent.findUnique({
+        where: { idempotencyKey: handlers[0]!.type },
+      }),
+    ).toMatchObject({
+      status: "retry_wait",
+      attempts: 1,
+      lastErrorCode: "handler_error",
+      safeLastErrorSummary: "outbox_application_failure",
+    });
+
+    // The controlled clock schedules the 5-second retry in the past;
+    // PostgreSQL claimDue still evaluates eligibility against actual DB time.
+    expect(await run(handlers[0]!)).toMatchObject({ deadLettered: 1 });
+    expect(await run(handlers[1]!)).toMatchObject({ deadLettered: 1 });
+    for (const handler of handlers) {
+      const row = await prisma.outboxEvent.findUnique({
+        where: { idempotencyKey: handler.type },
+      });
+      expect(row).toMatchObject({
+        status: "dead_letter",
+        attempts: handler === handlers[0] ? 2 : 1,
+        lastErrorCode: "handler_error",
+        safeLastErrorSummary: "outbox_application_failure",
+      });
+      expect(row?.lastErrorCode).not.toContain("github_pat_private0123456");
+      expect(row?.safeLastErrorSummary).not.toContain(
+        "private provider response",
+      );
+    }
+  });
+
+  it("persists an opaque database privilege failure as a queryable dead letter", async () => {
+    const outbox = new PrismaOutboxEventRepository(prisma);
+    const key = `${prefix}-db-permission`;
+    const type = `${prefix}.privilege`;
+    await outbox.enqueue({
+      type,
+      version: 1,
+      idempotencyKey: key,
+      payload: {},
+      maxAttempts: 1,
+      occurredAt: new Date(),
+    });
+    const result = await processOutboxBatch(
+      {
+        limit: 1,
+        handlers: [
+          {
+            type,
+            version: 1,
+            async handle() {
+              throw Object.assign(
+                new Error("permission denied for relation secret_table"),
+                { code: "42501" },
+              );
+            },
+          },
+        ],
+        claimOwnerHash: "a".repeat(64),
+        processingLeaseMs: 60_000,
+      },
+      { outbox, clock: { now: () => new Date() } },
+    );
+    expect(result).toMatchObject({ deadLettered: 1 });
+    const row = await prisma.outboxEvent.findUnique({
+      where: { idempotencyKey: key },
+    });
+    expect(row).toMatchObject({
+      status: "dead_letter",
+      lastErrorCode: "db_permission_denied",
+      safeLastErrorSummary: "outbox_database_permission_denied",
+    });
+    expect(row?.safeLastErrorSummary).not.toContain("secret_table");
+
+    const matchingRows = await prisma.$queryRaw<{ count: number }[]>`
+      SELECT count(*)::integer AS "count" FROM "OutboxEvent"
+      WHERE "idempotencyKey" = ${key}
+        AND status = 'dead_letter'
+        AND "lastErrorCode" = 'db_permission_denied'
+    `;
+    expect(matchingRows[0]?.count).toBe(1);
   });
 
   it("restores only an identical idempotency envelope", async () => {

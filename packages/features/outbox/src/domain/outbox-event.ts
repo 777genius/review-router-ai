@@ -115,25 +115,123 @@ export function outboxHandlerKey(type: string, version: number): string {
   return `${type}@v${version}`;
 }
 
+// Only reviewed, developer-defined diagnostics may be persisted. Even a lowercase
+// identifier-shaped exception code could be a credential or private user input.
+// Keep this bounded list in sync with the actual outbox handler contracts.
+const safeOutboxHandlerErrorCodes = new Set<string>([
+  "denied",
+  "dispatch_cleanup_attempt_changed",
+  "dispatch_cleanup_identity_conflict",
+  "dispatch_cleanup_intent_missing",
+  "dispatch_cleanup_intent_read_unavailable",
+  "dispatch_cleanup_lookup_unavailable",
+  "dispatch_cleanup_not_terminal",
+  "dispatch_cleanup_payload_invalid",
+  "dispatch_cleanup_run_unresolved",
+  "dispatch_cleanup_target_binding_conflict",
+  "dispatch_cleanup_target_binding_unavailable",
+  "dispatch_cleanup_target_partial",
+  "e2e_injected_permanent_failure",
+  "e2e_permanent_failure",
+  "github_mergeability_unknown",
+  "github_review_request_ingress_envelope_invalid",
+  "history_event_invalid",
+  "history_fact_collision",
+  "invalid_event_payload",
+  "invalid_memory_knowledge_event",
+  "invalid_skill_scan_event",
+  "memory_conflict",
+  "memory_deadline_exceeded",
+  "memory_disabled",
+  "memory_forbidden",
+  "memory_incomplete_evidence",
+  "memory_input_required",
+  "memory_invalid_input",
+  "memory_legacy_cutover_requires_disposition",
+  "memory_not_found",
+  "memory_quota_exceeded",
+  "memory_unavailable",
+  "memory_unknown_write",
+  "memory_unsupported",
+  "permission_denied",
+  "rate_limited",
+  "review_request_eligibility_unavailable",
+  "review_request_ingress_envelope_invalid",
+  "review_request_identity_projection_unavailable",
+  "review_request_ingress_idempotency_conflict",
+  "review_request_repository_invalid",
+  "review_request_repository_projection_unavailable",
+  "review_request_revision_merge_base_conflict",
+  "review_request_revision_merge_base_unavailable",
+  "review_request_revision_moved",
+  "review_request_revision_pull_request_conflict",
+  "review_request_revision_pull_request_unavailable",
+  "review_request_revision_revision_moved",
+  "review_v2_completion_artifact_conflict",
+  "review_v2_finalized_event_invalid",
+  "review_v2_finalized_facts_unavailable",
+  "skill_scan_busy",
+  "statistics_execution_collision",
+  "statistics_invalid_query",
+  "test_retry",
+]);
+
 export function safeOutboxErrorSummary(error: unknown): {
   readonly code: string;
   readonly summary: string;
   readonly retryable: boolean;
 } {
+  // Preserve the operational database-grant signal without storing untrusted
+  // SQL/SDK exception text. The post-deploy verifier matches this stable code.
+  const insufficientPrivilege = isPostgresInsufficientPrivilege(error);
   if (error instanceof OutboxHandlerError) {
     return {
-      code: error.code,
-      summary: error.message.slice(0, 500),
+      code: insufficientPrivilege
+        ? "db_permission_denied"
+        : safeOutboxHandlerErrorCodes.has(error.code)
+          ? error.code
+          : "handler_error",
+      // Provider and SDK exception messages can contain credentials, repository
+      // payloads or full URL query strings. Only stable codes are durable.
+      summary: insufficientPrivilege
+        ? "outbox_database_permission_denied"
+        : "outbox_application_failure",
       retryable: error.retryable,
     };
   }
 
-  const message = error instanceof Error ? error.message : "unknown_error";
   return {
-    code: "handler_error",
-    summary: message.slice(0, 500),
+    code: insufficientPrivilege ? "db_permission_denied" : "handler_error",
+    summary: insufficientPrivilege
+      ? "outbox_database_permission_denied"
+      : "outbox_handler_failure",
     retryable: true,
   };
+}
+
+function isPostgresInsufficientPrivilege(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const details = error as {
+    readonly code?: unknown;
+    readonly meta?: { readonly code?: unknown } | null;
+    readonly cause?: { readonly code?: unknown } | null;
+  };
+  if (
+    details.code === "42501" ||
+    details.meta?.code === "42501" ||
+    details.cause?.code === "42501"
+  ) {
+    return true;
+  }
+  // Covers drivers that expose only a PostgreSQL error message, including
+  // Prisma P2010 text; unlike a generic "permission denied" substring, these
+  // patterns point to a database privilege failure.
+  return (
+    error instanceof Error &&
+    /\b(?:SQLSTATE\s*[:=]?\s*|Code\s*[:=]\s*)["'`]?42501\b|\bpermission denied for (?:table|relation|schema|sequence|function)\b/i.test(
+      error.message,
+    )
+  );
 }
 
 export function nextOutboxRetryAt(input: {
