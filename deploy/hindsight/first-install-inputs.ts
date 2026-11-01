@@ -252,6 +252,7 @@ export async function prepareFirstInstallInputs(
           "cleanup-receipt",
           "provider-contract",
           "operator-safety",
+          "cleanup-runtime-profile",
           "provider-verification",
         ].map((name) => `scripts/hindsight-e2e/${name}.test.ts`),
       ],
