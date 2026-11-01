@@ -70,7 +70,7 @@ jobs:
       - name: Verify exact bounded hardening and build derivative bytes
         shell: bash
         run: |
-          HINDSIGHT_SOURCE_CHECKOUT="$RUNNER_TEMP/hindsight-source" node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts --test scripts/hindsight-e2e/qualification.test.ts scripts/hindsight-e2e/cleanup-receipt.test.ts scripts/hindsight-e2e/provider-contract.test.ts scripts/hindsight-e2e/operator-safety.test.ts scripts/hindsight-e2e/provider-verification.test.ts
+          HINDSIGHT_SOURCE_CHECKOUT="$RUNNER_TEMP/hindsight-source" node --experimental-transform-types --import ./scripts/hindsight-e2e/register-native-runtime.ts --test scripts/hindsight-e2e/qualification.test.ts scripts/hindsight-e2e/cleanup-receipt.test.ts scripts/hindsight-e2e/provider-contract.test.ts scripts/hindsight-e2e/operator-safety.test.ts scripts/hindsight-e2e/cleanup-runtime-profile.test.ts scripts/hindsight-e2e/provider-verification.test.ts
           node scripts/hindsight-e2e/prepare-hardening.ts "$RUNNER_TEMP/hindsight-source" "$RUNNER_TEMP/hindsight-build"
           python3 deploy/hindsight/strict-preview.test.py "$RUNNER_TEMP/hindsight-build/hindsight_api"
           git -C "$RUNNER_TEMP/hindsight-source" apply --check "$GITHUB_WORKSPACE/deploy/hindsight/hardening.patch"
