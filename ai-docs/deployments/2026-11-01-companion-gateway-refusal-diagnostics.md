@@ -5,7 +5,7 @@
   caller otherwise sees only `companion_request_failed` / 502.
 - Affected services: API; deploy with the coherent application fleet.
 - Implementation: [PR #772](https://github.com/777genius/review-router-ai/pull/772) (includes the source prepared in #775),
-  source `757280ceb9f2bed26562decdb7d1a8db6b8a94cc`.
+  source `4cc7ae2e215ec9fe10f7d05d44dcac9ea72aff4b`.
 - Dependencies: ordinary coherent release; the same PR includes strict client-side
   release verification.
 - Last updated: `2026-11-01`.
