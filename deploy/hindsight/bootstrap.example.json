@@ -1,0 +1,15 @@
+{
+  "deployment": "reviewrouter-memory",
+  "directory": "/srv/reviewrouter/hindsight-operator",
+  "image": "sha256:REPLACE_WITH_QUALIFIED_DERIVATIVE_IMAGE_ID",
+  "postgresImage": "pgvector/pgvector@sha256:REPLACE_WITH_QUALIFIED_PG17_DIGEST",
+  "qualificationEvidence": "/srv/reviewrouter/hindsight-inputs/evidence.json",
+  "inferenceEnvFile": "/srv/reviewrouter/hindsight-inputs/inference.env",
+  "namespace": "reviewrouter",
+  "generation": "memory-v1",
+  "apiBindHost": "172.17.0.1",
+  "apiPort": 8888,
+  "postgresPort": 5547,
+  "workerPort": 8889,
+  "startupTimeoutMs": 600000
+}

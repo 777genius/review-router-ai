@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": [
+    "bootstrap.ts",
+    "bootstrap.test.ts",
+    "../../scripts/hindsight-e2e/cleanup-operator.ts",
+    "../../scripts/hindsight-e2e/cleanup-runtime-profile.test.ts",
+    "../self-hosted/setup-memory.ts",
+    "../self-hosted/setup-memory.test.ts"
+  ]
+}
