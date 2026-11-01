@@ -9,7 +9,7 @@ repository health from one dashboard.
 
 [Self-host](./docs/operations/review-router-self-hosted-end-to-end.md) · [Documentation](./docs/README.md)
 
-<img width="1143" height="737" alt="image" src="https://github.com/user-attachments/assets/2c71316f-e95c-4693-97e4-115d9155f405" />
+<img width="1145" height="737" alt="image" src="https://github.com/user-attachments/assets/c32ea23f-3d34-4e5c-917f-d72d981b88c5" />
 <img width="916" height="622" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/fc11accd-dbd4-457b-ad6a-a43cccd075d1" />
 
 ## Why ReviewRouter

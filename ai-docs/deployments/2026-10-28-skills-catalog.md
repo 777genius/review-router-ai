@@ -11,10 +11,10 @@ Historical Skills-only review follow-up: the 12-line `/dashboard?section=context
 
 ## Environment status
 
-| Environment / target | Status     | Actual version / image                                                                            | Last verified (UTC) | Remaining work                                                                                                                        |
-| -------------------- | ---------- | ------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| staging              | `pending`  | Not verified                                                                                      | Not verified        | Reconcile independently; no staging completion claimed.                                                                               |
-| production / Skills  | `deployed` | Latest recorded fleet `b8eac8ec` / `fd52caab` across all four application roles (full pins below) | 2026-10-29 00:41    | Bounded Skills repair is preserved in the subsequent coordinated application rollout; reconcile that task before any further rollout. |
+| Environment / target | Status     | Actual version / image        | Last verified (UTC) | Remaining work                                                                                                        |
+| -------------------- | ---------- | ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`  | Not verified                  | Not verified        | Reconcile independently; no staging completion claimed.                                                               |
+| production / Skills  | `deployed` | `533c040d` / image `e1578f75` | 2026-10-30 17:35    | Deployed with the 2026-10-30 rollout; see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). |
 
 ## Applicability, provenance and exclusions
 
@@ -103,3 +103,7 @@ that earlier acceptance. The UAP binary/proxy repair, private scanner image and
 credential-bearing configuration were preserved. Follow the catalog and History
 tasks for subsequent migration, activation and live review evidence. This task
 remains `deployed` for the bounded Skills repair; staging remains `pending`.
+
+## Evidence log
+
+2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.

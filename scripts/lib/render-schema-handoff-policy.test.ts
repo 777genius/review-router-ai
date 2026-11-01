@@ -42,6 +42,11 @@ const repositorySecretProfilesMigrationName =
 const skillsCatalogMigrationName = "000150_skills_catalog_security";
 const reviewHistoryMigrationName = "000151_review_history";
 const unifiedModelDispatchMigrationName = "000154_unified_model_dispatch";
+const usageMemberReportIndexName = "000155_usage_member_report_index";
+const readPreIndexCheckoutInventory = () =>
+  readRenderManagedCheckoutInventory().filter(
+    (row) => row.migrationName !== usageMemberReportIndexName,
+  );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
   rows: readonly T[],
 ) =>
@@ -63,7 +68,7 @@ const withoutConversationalMemory = <T extends { migrationName: string }>(
 const readReviewHistoryCheckoutInventory = () =>
   withoutGatewayAllocations(
     withoutConversationalMemory(
-      withoutUnifiedDispatch(readRenderManagedCheckoutInventory()),
+      withoutUnifiedDispatch(readPreIndexCheckoutInventory()),
     ),
   );
 const withoutReviewHistory = <T extends { migrationName: string }>(
@@ -194,6 +199,7 @@ const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
+      name !== usageMemberReportIndexName &&
       name !== gatewayAllocationsMigrationName &&
       !renderConversationalMemoryCheckoutExtension.some(
         (row) => row.migrationName === name,
@@ -579,8 +585,45 @@ const canonicalPrefix = (count: number) =>
   canonicalPrismaMigrationNames.slice(0, count);
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
-  it("admits merged checkout159 and the published unified157/156/152 endpoints without expanding managed92", () => {
+  it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
     const full = readRenderManagedCheckoutInventory();
+    expect(full).toHaveLength(160);
+    expect(full.at(-1)).toEqual({
+      migrationName: usageMemberReportIndexName,
+      checksum:
+        "3f443fcdc18924dd5f1bf3c6eacbbc68969ce26811975206261b3aca014dcfd7",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(full)).toEqual(catalog);
+    expect(
+      catalog.some((row) => row.migrationName === usageMemberReportIndexName),
+    ).toBe(false);
+    expect(readPreIndexCheckoutInventory()).toHaveLength(159);
+    expect(
+      partitionRenderSchemaHandoffCheckout(readPreIndexCheckoutInventory()),
+    ).toEqual(catalog);
+    for (const changed of [
+      full.map((row) =>
+        row.migrationName === usageMemberReportIndexName
+          ? { ...row, checksum: "0".repeat(64) }
+          : row,
+      ),
+      full.map((row) =>
+        row.migrationName === usageMemberReportIndexName
+          ? { ...row, migrationName: "000155_relabelled_index" }
+          : row,
+      ),
+      full.filter(
+        (row) => row.migrationName !== unifiedModelDispatchMigrationName,
+      ),
+      [...full, { migrationName: "000156_unknown", checksum: "0".repeat(64) }],
+      [...full, full.at(-1)!],
+      [...full].reverse(),
+    ])
+      expect(() => partitionRenderSchemaHandoffCheckout(changed)).toThrow();
+  });
+
+  it("admits merged checkout159 and the published unified157/156/152 endpoints without expanding managed92", () => {
+    const full = readPreIndexCheckoutInventory();
     expect(full).toHaveLength(159);
     expect(full.at(-1)).toEqual({
       migrationName: unifiedModelDispatchMigrationName,
@@ -647,7 +690,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
   });
 
   it("admits the exact combined158 catalog while preserving independent157/156/155 and managed92", () => {
-    const full = withoutUnifiedDispatch(readRenderManagedCheckoutInventory());
+    const full = withoutUnifiedDispatch(readPreIndexCheckoutInventory());
     expect(full).toHaveLength(158);
     const memoryOnly = withoutGatewayAllocations(full);
     expect(memoryOnly).toHaveLength(157);
@@ -694,7 +737,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
   });
 
   it("rejects tampered Gateway SQL on both combined and independent catalogs", () => {
-    const combined = readRenderManagedCheckoutInventory();
+    const combined = readPreIndexCheckoutInventory();
     for (const rows of [combined, withoutConversationalMemory(combined)]) {
       for (const mutate of [
         (row: { migrationName: string; checksum: string }) => ({
@@ -2792,6 +2835,7 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, usageMemberReportIndexName), { recursive: true });
       rmSync(join(migrations, gatewayAllocationsMigrationName), {
         recursive: true,
       });
@@ -2886,11 +2930,16 @@ describe("complete filesystem checkout inventory", () => {
     };
   }
 
-  it("reads current checkout159 through checkout158, checkout155, checkout154, checkout153, checkout151, checkout150, statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
+  it("reads current checkout160 through checkout159, checkout158, checkout155, checkout154, checkout153, checkout151, checkout150, statistics146, main145, old125, historical124 and key-free123 as identical frozen92 rows", async () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(159);
+    expect(inventory).toHaveLength(160);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, usageMemberReportIndexName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(159);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, unifiedModelDispatchMigrationName), {
       recursive: true,
@@ -3327,9 +3376,9 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing unified dispatch restores the exact reviewed checkout158.
+      // Removing only the concurrent index restores exact reviewed checkout159.
       // A partial memory pair or an unpublished combination stays rejected.
-      if (name === unifiedModelDispatchMigrationName)
+      if (name === usageMemberReportIndexName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

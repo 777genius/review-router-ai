@@ -16,10 +16,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version | Last verified (UTC) | Next step                                                                   |
-| -------------------- | --------- | ----------------------- | ------------------- | --------------------------------------------------------------------------- |
-| staging              | `pending` | Not verified            | Not verified        | Reconcile installed versions and select the exact qualified paired release. |
-| production           | `pending` | Not verified            | Not verified        | Complete staging verification, then use the authorized release procedure.   |
+| Environment / target | Status        | Actual deployed version       | Last verified (UTC) | Next step                                                                                                                                                                                       |
+| -------------------- | ------------- | ----------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`     | Not verified                  | Not verified        | Reconcile installed versions and select the exact qualified paired release.                                                                                                                     |
+| production           | `in_progress` | `533c040d` / image `e1578f75` | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
 
 This task records source implementation and local qualification. It does not
 claim a deployment or authorize workflow channel promotion. The separate
@@ -193,3 +193,7 @@ reviewers or lowering agreement requirements.
 | Time (UTC)   | Environment          | Operator   | Actual version | Step and result                                     | Evidence           | Next action                                       |
 | ------------ | -------------------- | ---------- | -------------- | --------------------------------------------------- | ------------------ | ------------------------------------------------- |
 | Not executed | staging / production | Unassigned | Not verified   | Source implementation and local qualification only. | Implementation PRs | Select and execute the authorized paired rollout. |
+
+## Evidence log
+
+2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.

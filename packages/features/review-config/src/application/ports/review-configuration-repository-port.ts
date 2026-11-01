@@ -166,6 +166,10 @@ export type ReviewPolicyWriteAudit = Readonly<{
   actor: string;
   action: string;
   metadata?: Readonly<Record<string, unknown>>;
+  /** Pure synchronous projection of the exact configuration saved by this write. */
+  metadataForSavedConfiguration?: (
+    configuration: SavedReviewPolicy["configuration"],
+  ) => Readonly<Record<string, unknown>>;
 }>;
 
 export type SavedReviewPolicy = Readonly<{

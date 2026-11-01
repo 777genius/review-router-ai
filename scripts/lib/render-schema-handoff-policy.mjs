@@ -321,6 +321,24 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The concurrent member-read index belongs only to ordinary Prisma deploy.
+  // Pin its exact SQL and complete checkout160, then retain the unchanged
+  // checkout159 -> managed92 admission. It never enters a repair transaction.
+  const usageMemberReportIndex = catalog.find(
+    (row) => row.migrationName === "000155_usage_member_report_index",
+  );
+  if (usageMemberReportIndex) {
+    if (
+      usageMemberReportIndex.checksum !==
+        "3f443fcdc18924dd5f1bf3c6eacbbc68969ce26811975206261b3aca014dcfd7" ||
+      manifest(catalog) !==
+        "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== usageMemberReportIndex),
+    );
+  }
   // Unified dispatch extends checkout-only review admission and receipt state.
   // Bind its exact SQL to merged checkout159, prior checkout157/156 or
   // historical checkout152. The immutable managed92 transaction keeps its

@@ -96,15 +96,25 @@ describe("canonical release migration transition", () => {
     );
   });
 
-  it("keeps merged checkout159 and published checkout158/157/156/155 admission and reviewed checkout154/151/148 separate from historical96 and managed92", () => {
+  it("keeps checkout160, merged checkout159 and published checkout158/157/156/155 admission separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
     const names: readonly string[] = canonicalPrismaMigrationNames;
-    const checkout159 = names.map((migrationName) => ({
+    const checkout160 = names.map((migrationName) => ({
       migrationName,
       checksum: sha256(
         readFileSync(`${migrationRoot}/${migrationName}/migration.sql`),
       ).slice(7),
     }));
+    expect(checkout160).toHaveLength(160);
+    const memberIndexExtension: Row = {
+      migrationName: "000155_usage_member_report_index",
+      checksum:
+        "3f443fcdc18924dd5f1bf3c6eacbbc68969ce26811975206261b3aca014dcfd7",
+    };
+    expect(checkout160.at(-1)).toEqual(memberIndexExtension);
+    const checkout159 = checkout160.filter(
+      (row) => row.migrationName !== memberIndexExtension.migrationName,
+    );
     expect(checkout159).toHaveLength(159);
     const unifiedExtension: Row = {
       migrationName: "000154_unified_model_dispatch",
@@ -237,6 +247,11 @@ describe("canonical release migration transition", () => {
     );
     const historical152 = [...checkout151, unifiedExtension];
     for (const [rows, count, expected] of [
+      [
+        checkout160,
+        160,
+        "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54",
+      ],
       [
         checkout159,
         159,
@@ -408,7 +423,7 @@ describe("canonical release migration transition", () => {
     expect(manifest(historicalFull)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
-    expect(checkout159).toEqual(readRenderManagedCheckoutInventory());
+    expect(checkout160).toEqual(readRenderManagedCheckoutInventory());
     expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",

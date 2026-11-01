@@ -20,10 +20,10 @@ Coordinate actual fleet changes and retirement evidence with the separate
 
 ## Environment status
 
-| Environment | Status    | Verified deployed version | Remaining work                                                                                                                  |
-| ----------- | --------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Staging     | `pending` | Not recorded              | Qualify the selected integrated source; reconcile actual environment; authorized rollout and designated live acceptance.        |
-| Production  | `pending` | Not recorded              | Qualify the selected integrated source; qualified immutable release/defaults; actual environment/history and live verification. |
+| Environment | Status        | Verified deployed version     | Remaining work                                                                                                                                                                                  |
+| ----------- | ------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging     | `pending`     | Not recorded                  | Qualify the selected integrated source; reconcile actual environment; authorized rollout and designated live acceptance.                                                                        |
+| Production  | `in_progress` | `533c040d` / image `e1578f75` | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
 
 No rollout was executed by this task. `pending` does not prove that an environment
 lacks a particular step: reconcile its actual state before acting. Do not copy a
@@ -322,3 +322,5 @@ or deployment is claimed.
 Staging and production remain `pending`; reconcile their actual schema/fleet
 state and coordinate applicable rollout/history authority with `rr: deploy`
 only through the separately authorized release/deployment process.
+
+2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.

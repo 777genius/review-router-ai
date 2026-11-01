@@ -21,10 +21,10 @@
 
 ## Environment status
 
-| Environment | Status    | Actual version / image | Last verified (UTC) | Remaining work                                                             |
-| ----------- | --------- | ---------------------- | ------------------- | -------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified           | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication. |
-| production  | `pending` | Not verified           | Not verified        | Complete the independent production release and activation gates.          |
+| Environment | Status        | Actual version / image        | Last verified (UTC) | Remaining work                                                                                                                                                                                  |
+| ----------- | ------------- | ----------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                  | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication.                                                                                                                      |
+| production  | `in_progress` | `533c040d` / image `e1578f75` | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
 
 No environment rollout was executed in this source-integration step. `pending`
 means completion has not been verified, not that deployment was observed absent.
@@ -198,3 +198,7 @@ profile. Both paired CI workflows select the existing integrated Action producer
 registration. The source-authority confirmation and source-only extraction
 refinements above remain mandatory, as do live qualification and truthful
 per-environment deployment status.
+
+## Evidence log
+
+2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
