@@ -51,7 +51,13 @@ async function main() {
   try {
     const { rows } = await client.query("select current_user as role");
     const role = rows[0].role;
-    const required = requiredPrivileges[role] ?? [];
+    const expectedRole = process.env.REVIEW_ROUTER_EXPECT_DB_ROLE;
+    if (expectedRole && role !== expectedRole) {
+      throw new Error(`expected database role ${expectedRole}, got ${role}`);
+    }
+    const required = requiredPrivileges[role];
+    if (!required)
+      throw new Error(`no privilege requirements for role ${role}`);
     const missing = [];
     for (const item of required) {
       const result = item.table
@@ -78,12 +84,7 @@ async function main() {
           group by type
           order by type`,
       )
-      .then((r) => r.rows)
-      .catch((error) => {
-        // The role may not read the outbox at all; say so instead of passing.
-        console.warn(`dead letter scan skipped: ${error.message}`);
-        return [];
-      });
+      .then((r) => r.rows);
     const problems = describeProblems({
       role,
       missing,
@@ -97,10 +98,15 @@ async function main() {
       }`,
     );
     for (const problem of problems) console.error(`PROBLEM: ${problem}`);
-    process.exit(problems.length === 0 ? 0 : 1);
+    process.exitCode = problems.length === 0 ? 0 : 1;
   } finally {
     await client.end();
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+if (
+  process.argv[1] === "-" ||
+  import.meta.url === `file://${process.argv[1]}`
+) {
+  await main();
+}
