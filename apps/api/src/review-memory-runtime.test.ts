@@ -25,6 +25,10 @@ import {
   reviewMemoryBinding,
   reviewMemorySnapshotHash,
 } from "./review-memory-wire";
+import type {
+  MemoryAdmissionDiagnostic,
+  MemoryAdmissionObserver,
+} from "./review-memory-admission";
 
 const now = new Date();
 const binding = {
@@ -176,7 +180,11 @@ describe("review memory runtime HTTP boundary", () => {
     vi.useRealTimers();
     await Promise.all(apps.splice(0).map((app) => app.close()));
   });
-  async function fixture(enabled = true, clock: () => Date = () => new Date()) {
+  async function fixture(
+    enabled = true,
+    clock: () => Date = () => new Date(),
+    observer?: MemoryAdmissionObserver,
+  ) {
     const access = {
       authorize: vi.fn<
         (token: string) => Promise<ReviewRunAuthorization | null>
@@ -224,10 +232,72 @@ describe("review memory runtime HTTP boundary", () => {
     });
     const app = Fastify({ logger: false });
     apps.push(app);
-    await registerReviewMemoryRuntimeRoutes(app, gateway);
+    await registerReviewMemoryRuntimeRoutes(app, gateway, observer);
     await app.ready();
     return { app, gateway, service, access, policy, prisma, rows };
   }
+
+  it("reports preflight outcomes and safe errors while ignoring throwing diagnostic sinks", async () => {
+    const events: MemoryAdmissionDiagnostic[] = [];
+    const { app, gateway } = await fixture(
+      true,
+      () => now,
+      (event) => {
+        events.push(event);
+        throw new Error("private diagnostic sink failure");
+      },
+    );
+    const admit = vi.spyOn(gateway, "admit");
+    const payload = {
+      ...request,
+      bundleId: "bundle-1",
+      eligibilityEpoch: "1",
+      policyVersion: "1",
+      providerGeneration: "generation-1",
+    };
+    const send = () =>
+      app.inject({
+        method: "POST",
+        url: "/api/action/v2/memory/admit",
+        headers,
+        payload,
+      });
+    for (const eligible of [true, false]) {
+      admit.mockResolvedValueOnce(eligible);
+      const response = await send();
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ protocolVersion: 2, eligible });
+    }
+    admit.mockRejectedValueOnce(new Error("do-not-log-token-or-body"));
+    const failed = await send();
+    expect(failed.statusCode).toBe(503);
+    expect(failed.json()).toEqual({ code: "memory_unavailable" });
+    expect(events).toEqual([
+      {
+        boundary: "preflight",
+        phase: "complete",
+        outcome: "eligible",
+        authorizationId: binding.authorizationId,
+        elapsedMs: expect.any(Number),
+      },
+      {
+        boundary: "preflight",
+        phase: "complete",
+        outcome: "denied",
+        authorizationId: binding.authorizationId,
+        elapsedMs: expect.any(Number),
+      },
+      {
+        boundary: "preflight",
+        phase: "complete",
+        outcome: "error",
+        errorCode: "unavailable",
+        elapsedMs: expect.any(Number),
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("do-not-log");
+    expect(JSON.stringify(events)).not.toContain("private diagnostic");
+  });
 
   it.each([
     { expiry: 120_000, maximum: 240_000, deadline: 300_000, expected: 240_000 },
