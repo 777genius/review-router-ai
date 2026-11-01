@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   admitMemoryReceiptInTransaction,
   createReviewMemoryInputAdmission,
+  type MemoryAdmissionDiagnostic,
 } from "./review-memory-admission";
 import { reviewMemoryBinding } from "./review-memory-wire";
 import {
@@ -287,11 +288,11 @@ describe.skipIf(!databaseUrl)(
       }
     });
 
-    const admit = (client = other, prepared = command) =>
+    const admit = (client = other, prepared = command, admission = guard) =>
       client.$transaction(
         async (transaction) => {
-          await guard.lock(transaction, prepared as never);
-          return guard.admit(transaction, {
+          await admission.lock(transaction, prepared as never);
+          return admission.admit(transaction, {
             command: prepared as never,
             execution: execution as never,
             now: new Date(),
@@ -299,6 +300,93 @@ describe.skipIf(!databaseUrl)(
         },
         { isolationLevel: "Serializable", timeout: 5000 },
       );
+
+    it("reports bounded decisions without letting a throwing observer change grants or epoch denials", async () => {
+      const events: MemoryAdmissionDiagnostic[] = [];
+      const observed = createReviewMemoryInputAdmission(
+        {
+          enabled: true,
+          generation,
+          policy: { getPolicy: async () => defaultMemoryPolicyConfig },
+        } as never,
+        (event) => {
+          events.push(event);
+          throw new Error("observer failure must not affect authority");
+        },
+      );
+      expect(await admit(other, command, observed)).toBe(true);
+      expect(events[0]).toMatchObject({
+        boundary: "review_lease",
+        outcome: "eligible",
+        phase: "complete",
+        authorizationId,
+        snapshotHashPrefix: snapshotHash.slice(0, 12),
+        elapsedMs: expect.any(Number),
+      });
+      await prisma.memoryKnowledgeScopeState.update({
+        where: {
+          generation_scopeKey: {
+            generation,
+            scopeKey: memoryKnowledgeScopeKey(scope),
+          },
+        },
+        data: { epoch: 2n },
+      });
+      expect(await admit(other, command, observed)).toBe(false);
+      expect(events[1]).toMatchObject({ outcome: "denied", phase: "epoch" });
+      expect(events).toHaveLength(2);
+      expect(Object.keys(events[1]!).sort()).toEqual([
+        "authorizationId",
+        "boundary",
+        "elapsedMs",
+        "outcome",
+        "phase",
+        "snapshotHashPrefix",
+      ]);
+      expect(JSON.stringify(events)).not.toContain("observer failure");
+    });
+
+    it("distinguishes receipt binding and safe database exception codes without logging raw errors", async () => {
+      const events: MemoryAdmissionDiagnostic[] = [];
+      const runtime = {
+        enabled: true,
+        generation,
+        policy: { getPolicy: async () => defaultMemoryPolicyConfig },
+      };
+      const observed = createReviewMemoryInputAdmission(
+        runtime as never,
+        (event) => events.push(event),
+      );
+      expect(
+        await admit(
+          other,
+          {
+            ...command,
+            preparedManifestCanonicalJson: JSON.stringify({
+              memoryBundleHash: "e".repeat(64),
+            }),
+          },
+          observed,
+        ),
+      ).toBe(false);
+      expect(events[0]).toMatchObject({
+        outcome: "denied",
+        phase: "receipt_binding",
+      });
+      runtime.policy.getPolicy = async () => {
+        throw new Prisma.PrismaClientKnownRequestError(
+          "do-not-log-query-or-token",
+          { code: "P2028", clientVersion: "test" },
+        );
+      };
+      expect(await admit(other, command, observed)).toBe(false);
+      expect(events[1]).toMatchObject({
+        outcome: "error",
+        phase: "policy",
+        errorCode: "P2028",
+      });
+      expect(JSON.stringify(events)).not.toContain("do-not-log");
+    });
 
     async function conversationReceipt(): Promise<MemoryKnowledgeAdmissionReceipt> {
       const row = await prisma.memoryKnowledgeBundleReceipt.findUnique({

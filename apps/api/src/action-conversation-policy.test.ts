@@ -14,8 +14,11 @@ import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-co
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
   createConversationPolicy,
+  createConversationCandidatePolicy,
   createConversationPublicationAuthority,
+  type ConversationCapturedPolicy,
 } from "./action-conversation-policy.js";
+import * as conversationInference from "./action-conversation-inference.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -199,6 +202,11 @@ function dynamicModelFixture(
     oversized?: boolean;
     multiple?: boolean;
     primaryUnavailable?: boolean;
+    candidate?: boolean;
+    automaticLearning?: boolean;
+    sourceProcessingProfile?:
+      | "transient-checked-inline-v1"
+      | "transient-checked-inline-gateway-v1";
   } = {},
 ) {
   const profileId = "openrouter-openai-responses-apikey-v1";
@@ -279,6 +287,18 @@ function dynamicModelFixture(
     .mockResolvedValue(options.primaryUnavailable ? null : selection);
   const transaction = {
     $queryRaw: async () => [],
+    repositoryConnection: {
+      findFirst: vi.fn(async () => ({ id: identity.repositoryId })),
+    },
+    conversationProcessing: {
+      findFirst: vi.fn(async () => ({
+        boundManifest: JSON.stringify({
+          account: captured!.policy.bindingManifest,
+        }),
+      })),
+      update: vi.fn(async () => ({})),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
     workspaceAccountBinding: {
       findMany: async () => [
         {
@@ -358,8 +378,10 @@ function dynamicModelFixture(
     outputBytes: 262_144,
     tokens: 2048,
   };
-  const policy = createConversationPolicy({
+  let captured: ConversationCapturedPolicy | undefined;
+  const construction: Parameters<typeof createConversationPolicy>[0] = {
     prisma: {
+      conversationProcessing: transaction.conversationProcessing,
       $transaction: async (callback: (tx: typeof transaction) => unknown) =>
         callback(transaction),
     } as never,
@@ -369,14 +391,15 @@ function dynamicModelFixture(
           policyVersion: 1,
           safetyPolicyVersion: 1,
           memoryEnabled: true,
-          automaticLearning: true,
+          automaticLearning: options.automaticLearning ?? true,
         }),
       },
     } as never,
     qualification: {
       profileVersion: 1,
       proofId: "qualified-catalog-probe",
-      sourceProcessingProfile: "transient-checked-inline-v1",
+      sourceProcessingProfile:
+        options.sourceProcessingProfile ?? "transient-checked-inline-v1",
       runtimeSha: "a".repeat(40),
       repositories: [identity],
       models: [
@@ -415,20 +438,46 @@ function dynamicModelFixture(
       }),
     },
     admitMemory: async () => true,
-  });
+    onCaptured: (value) => {
+      captured = value;
+    },
+  };
+  const { qualification, ...shared } = construction;
+  const policy = options.candidate
+    ? createConversationCandidatePolicy({
+        ...shared,
+        candidateRunId: "measurement:full-product:scenario",
+        template: identity,
+        models: qualification.models,
+      })
+    : createConversationPolicy(construction);
+  const namespace = `eval_${"a".repeat(40)}`;
+  const processingIdentity = options.candidate
+    ? {
+        ...identity,
+        workspaceId: `${namespace}_workspace`,
+        repositoryId: namespace,
+        repositoryStableId: `synthetic:${namespace}`,
+        repositoryFullName: `disposable/${namespace}`,
+      }
+    : identity;
   return {
     fetch,
     model,
     catalogBytes: Buffer.byteLength(catalogJson),
     bindingReads,
+    identity,
+    processingIdentity,
+    transaction,
+    checkSelection: () => captured!.checkSelection(transaction as never),
     reorder: () => {
       config = parseReviewConfigurationStrict({
         ...config,
         providers: [...config.providers].reverse(),
       });
     },
-    capture: () =>
-      policy.capture(identity, "processing_probe", {
+    capture: (value = processingIdentity) =>
+      policy.capture(value, "processing_probe", {
         deadlineAt: new Date(Date.now() + 30_000),
       }),
   };
@@ -497,4 +546,105 @@ it("does not silently spend a secondary account when the primary reviewer is una
   expect(f.bindingReads).toHaveBeenCalledTimes(1);
   expect(f.bindingReads.mock.calls[0]![0].bindingId).toBe("binding_probe");
   expect(f.fetch).not.toHaveBeenCalled();
+});
+
+// A native Hindsight semantic-preview proof cannot authorize a new Gateway paid extractor.
+it.each([
+  ["transient-checked-inline-v1", false],
+  ["transient-checked-inline-gateway-v1", true],
+] as const)(
+  "requires the Gateway source-processing capability for learning: %s",
+  async (sourceProcessingProfile, automaticLearning) => {
+    const f = dynamicModelFixture({ sourceProcessingProfile });
+    expect((await f.capture()).automaticLearning).toBe(automaticLearning);
+  },
+);
+
+it("candidate measurement retains the selected template account without manufacturing a qualification", async () => {
+  const f = dynamicModelFixture({ candidate: true });
+  const policy = await f.capture();
+  expect(policy.automaticLearning).toBe(true);
+  expect(policy.revision).toContain("candidate-eval:measurement:");
+  expect(policy.bindingManifest).toMatchObject({
+    gatewayAccountRef: "account_probe",
+    workspaceId: "workspace_probe",
+    model: f.model,
+    candidateEvaluationRunId: "measurement:full-product:scenario",
+  });
+  expect(policy.bindingManifest).not.toHaveProperty("qualificationProofId");
+  expect(await f.checkSelection()).toBe(true);
+  expect(f.transaction.repositoryConnection.findFirst).toHaveBeenCalledWith(
+    expect.objectContaining({
+      where: expect.objectContaining({
+        id: "repository_probe",
+        githubRepositoryId: 1234n,
+      }),
+    }),
+  );
+});
+
+it("candidate measurement preserves the template's disabled standing learning policy", async () => {
+  const f = dynamicModelFixture({ candidate: true, automaticLearning: false });
+  expect((await f.capture()).automaticLearning).toBe(false);
+});
+
+it("candidate constructor cannot capture a real production processing scope", async () => {
+  const f = dynamicModelFixture({ candidate: true });
+  await expect(f.capture(f.identity)).rejects.toMatchObject({
+    code: "forbidden",
+  });
+  expect(f.bindingReads).not.toHaveBeenCalled();
+  expect(f.fetch).not.toHaveBeenCalled();
+});
+
+it("candidate selection changes invalidate the same frozen primary-account guard", async () => {
+  const f = dynamicModelFixture({ candidate: true, multiple: true });
+  await f.capture();
+  f.reorder();
+  expect(await f.checkSelection()).toBe(false);
+});
+
+it("candidate paid admission and observations address its disposable row, not the template row", async () => {
+  let transport:
+    | Parameters<
+        typeof conversationInference.createConversationGatewayInference
+      >[0]
+    | undefined;
+  vi.spyOn(
+    conversationInference,
+    "createConversationGatewayInference",
+  ).mockImplementation((value) => {
+    transport = value;
+    return {
+      generate: async () => {
+        throw new Error("no_model_call_in_candidate_scope_test");
+      },
+    };
+  });
+  const f = dynamicModelFixture({ candidate: true });
+  await f.capture();
+  expect(
+    await transport!.admitDispatch!({
+      deadlineAt: new Date(Date.now() + 10_000),
+    }),
+  ).toBe(true);
+  expect(f.transaction.conversationProcessing.findFirst).toHaveBeenCalledWith(
+    expect.objectContaining({
+      where: expect.objectContaining({
+        id: "processing_probe",
+        workspaceId: f.processingIdentity.workspaceId,
+        repositoryId: f.processingIdentity.repositoryId,
+      }),
+    }),
+  );
+  await transport!.onObserved!({ model: f.model, usage: null });
+  expect(f.transaction.conversationProcessing.updateMany).toHaveBeenCalledWith(
+    expect.objectContaining({
+      where: {
+        id: "processing_probe",
+        workspaceId: f.processingIdentity.workspaceId,
+        repositoryId: f.processingIdentity.repositoryId,
+      },
+    }),
+  );
 });

@@ -937,6 +937,9 @@ export async function createApiApp(
         },
       })
     : undefined;
+  const memoryAdmissionObserver = (
+    event: import("./review-memory-admission.js").MemoryAdmissionDiagnostic,
+  ) => logger.info("Memory admission diagnostic", event);
   const productionReviewActionV2Dependencies =
     reviewRunControlV2Enabled &&
     !options.reviewRunControlV2Dependencies &&
@@ -953,8 +956,10 @@ export async function createApiApp(
           ...(historyFeature ? { historyWriter: historyFeature.writer } : {}),
           ...(memoryRuntime
             ? {
-                memoryInputAdmission:
-                  createReviewMemoryInputAdmission(memoryRuntime),
+                memoryInputAdmission: createReviewMemoryInputAdmission(
+                  memoryRuntime,
+                  memoryAdmissionObserver,
+                ),
                 investigationMemoryInputAdmission:
                   createInvestigationMemoryInputAdmission(memoryRuntime),
               }
@@ -1197,14 +1202,14 @@ export async function createApiApp(
   if (
     prisma &&
     memoryRuntime &&
-    productionReviewActionV2Dependencies?.contextTools
+    productionReviewActionV2Dependencies?.memoryRunAccess
   ) {
     await registerReviewMemoryRuntimeRoutes(
       app,
       new ReviewMemoryRuntimeGateway({
         prisma,
         runtime: memoryRuntime,
-        access: productionReviewActionV2Dependencies.contextTools,
+        access: productionReviewActionV2Dependencies.memoryRunAccess,
         ...(actionMemoryV2
           ? {
               automaticCurrent: createAutomaticConversationSourceCurrent({
@@ -1216,6 +1221,7 @@ export async function createApiApp(
             }
           : {}),
       }),
+      memoryAdmissionObserver,
     );
   }
   const actionConversation =

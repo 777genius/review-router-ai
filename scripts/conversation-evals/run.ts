@@ -9,6 +9,14 @@ import {
   corpusEventMessages,
   type CorpusThread,
 } from "./corpus.js";
+import {
+  assertEvaluationNativeScope,
+  evaluationMissingKeys,
+  gatewayCandidateMechanism,
+  readCandidateModels,
+} from "./configuration.js";
+
+import { gatewayCandidateCleanupSettled } from "./gateway-receipt.js";
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string) => {
@@ -97,6 +105,15 @@ if (args.includes("--validate")) {
         : null,
       connectionClass: "selected-review-account-gateway",
       productionActivated: false,
+      extractionMechanism: variants.includes("full-product")
+        ? gatewayCandidateMechanism
+        : "historical-native-preview",
+      candidateModelBoundsDigest: process.env
+        .CONVERSATION_EVAL_MODEL_BOUNDS_JSON
+        ? createHash("sha256")
+            .update(process.env.CONVERSATION_EVAL_MODEL_BOUNDS_JSON)
+            .digest("hex")
+        : null,
     },
     variants: [],
   };
@@ -121,6 +138,36 @@ if (args.includes("--validate")) {
       await readFile(
         new URL(
           "../../packages/features/conversations/src/application/process-conversation.ts",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex");
+  report.profile.gatewayPreviewSourceDigest = createHash("sha256")
+    .update(
+      await readFile(
+        new URL(
+          "../../apps/api/src/action-conversation-memory-preview.ts",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex");
+  report.profile.accountPolicySourceDigest = createHash("sha256")
+    .update(
+      await readFile(
+        new URL(
+          "../../apps/api/src/action-conversation-policy.ts",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex");
+  report.profile.gatewaySdkProvenanceDigest = createHash("sha256")
+    .update(
+      await readFile(
+        new URL(
+          "../../vendor/account-gateway/llm-sdk-provenance.json",
           import.meta.url,
         ),
       ),
@@ -177,17 +224,7 @@ if (args.includes("--validate")) {
         continue;
       }
       const database = process.env.CONVERSATION_EVAL_DATABASE_URL;
-      const missing = [
-        "REVIEW_ROUTER_MEMORY_HINDSIGHT_URL",
-        "REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY",
-        "REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_QUALIFICATION",
-        "REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_MISSION",
-        "REVIEW_ROUTER_CONVERSATION_QUALIFICATION",
-        "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
-        "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
-        "CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID",
-        "CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID",
-      ].filter((key) => !process.env[key]);
+      const missing = evaluationMissingKeys(variant, process.env);
       if (
         process.env.CONVERSATION_EVAL_LIVE !== "1" ||
         process.env.CONVERSATION_EVAL_DISPOSABLE !== "1" ||
@@ -208,6 +245,11 @@ if (args.includes("--validate")) {
         !url.pathname.endsWith("_test")
       )
         throw new Error("eval_requires_disposable_loopback_database");
+      assertEvaluationNativeScope(process.env);
+      const candidateModels =
+        variant === "full-product"
+          ? readCandidateModels(process.env.CONVERSATION_EVAL_MODEL_BOUNDS_JSON)
+          : undefined;
       const { PrismaClient } = await import("@prisma/client");
       const { PrismaPg } = await import("@prisma/adapter-pg");
       const { createEvaluationFixture } = await import("./fixture.js");
@@ -221,6 +263,7 @@ if (args.includes("--validate")) {
           thread,
         ]);
       const scenarios: Record<string, unknown>[] = [];
+      let gatewayCleanupUnsettled = false;
       for (const [scenario, scenarioThreads] of grouped) {
         const fixture = await createEvaluationFixture({
           prisma,
@@ -231,6 +274,11 @@ if (args.includes("--validate")) {
             workspaceId: process.env.CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID!,
             repositoryId: process.env.CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID!,
           },
+          variant:
+            variant === "native-selection-only"
+              ? "native-selection-only"
+              : "full-product",
+          ...(candidateModels ? { candidateModels } : {}),
         });
         const coldStart = await fixture.coldStart();
         const observations: unknown[] = [];
@@ -243,8 +291,16 @@ if (args.includes("--validate")) {
                 durableEffects: 0,
                 productAnswer: null,
               });
-            else observations.push(await fixture.run(thread, event));
+            else {
+              const witness = await fixture.run(thread, event);
+              observations.push(witness);
+              if (!gatewayCandidateCleanupSettled(witness)) {
+                gatewayCleanupUnsettled = true;
+                break;
+              }
+            }
           }
+          if (gatewayCleanupUnsettled) break;
           if (thread.afterMutation && variant === "full-product") {
             const mutation = await fixture.mutate(thread.afterMutation.kind);
             const repeated = structuredClone(thread);
@@ -276,6 +332,10 @@ if (args.includes("--validate")) {
             )
               throw new Error("eval_revoked_memory_delivered_after_mutation");
             observations.push({ mutation, followup });
+            if (!gatewayCandidateCleanupSettled(followup)) {
+              gatewayCleanupUnsettled = true;
+              break;
+            }
           }
         }
         scenarios.push({
@@ -285,31 +345,35 @@ if (args.includes("--validate")) {
           coldStart,
           observations,
         });
+        // Preserve the actual witness and stop; a new paid attempt cannot settle cleanup debt.
+        if (gatewayCleanupUnsettled) break;
       }
-      const incomplete = scenarios.some((scenario) =>
-        (scenario.observations as Record<string, unknown>[]).some(
-          (observation) => {
-            const actual = (observation.followup ?? observation) as Record<
-              string,
-              unknown
-            >;
-            return (
-              [
-                "unavailable",
-                "output_unavailable",
-                "unknown",
-                "context_incomplete",
-                "stale",
-              ].includes(String(actual.status)) ||
-              (typeof actual.selection === "object" &&
-                actual.selection !== null &&
-                !["complete", "not_applicable"].includes(
-                  String((actual.selection as { status?: string }).status),
-                ))
-            );
-          },
-        ),
-      );
+      const incomplete =
+        gatewayCleanupUnsettled ||
+        scenarios.some((scenario) =>
+          (scenario.observations as Record<string, unknown>[]).some(
+            (observation) => {
+              const actual = (observation.followup ?? observation) as Record<
+                string,
+                unknown
+              >;
+              return (
+                [
+                  "unavailable",
+                  "output_unavailable",
+                  "unknown",
+                  "context_incomplete",
+                  "stale",
+                ].includes(String(actual.status)) ||
+                (typeof actual.selection === "object" &&
+                  actual.selection !== null &&
+                  !["complete", "not_applicable"].includes(
+                    String((actual.selection as { status?: string }).status),
+                  ))
+              );
+            },
+          ),
+        );
       report.variants.push({
         variant,
         status: incomplete ? "UNAVAILABLE" : "AWAITING_HUMAN_RUBRIC",

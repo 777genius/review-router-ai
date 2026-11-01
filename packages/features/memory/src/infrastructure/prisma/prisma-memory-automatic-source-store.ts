@@ -52,6 +52,21 @@ async function read(
   );
   return row?.state ?? null;
 }
+/** Host paid-source admission uses the same scope/source locks as Forget, deletion and relearn.
+ * A missing lineage is also fenced: a later tombstone or suppression cycle changes this digest.
+ * The caller must compare the captured digest in its dispatch transaction, without source I/O here.
+ */
+export async function automaticMemorySourcePreviewFence(
+  tx: Prisma.TransactionClient,
+  scope: MemoryKnowledgeScope,
+  sourceId: string,
+): Promise<string | null> {
+  const key = automaticMemoryLineageKey(scope, sourceId);
+  await lockExistingSourceScopes(tx, scope);
+  await sourceLock(tx, key);
+  const state = await read(tx, key);
+  return state?.suppressed ? null : memoryKnowledgeDigest(state);
+}
 async function write(
   tx: Database,
   state: MemoryAutomaticSourceState,

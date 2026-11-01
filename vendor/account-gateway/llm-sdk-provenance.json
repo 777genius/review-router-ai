@@ -1,0 +1,18 @@
+{
+  "schema": "account-gateway-llm-sdk-consumer/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz",
+  "sha256": "5b1ec4ee7d17bfe5a6871e51598a040192dd69f539a0966eb9112e12b2c1694e",
+  "sourceRepository": "agent-teams-ai/account-gateway",
+  "sourceCommit": "c866c7d4d96c632d9fe6ac26961a73a710059f0d",
+  "previousArchive": "agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz",
+  "qualification": {
+    "build": "passed",
+    "llmCases": 10,
+    "fullSdkTests": {
+      "passed": 75,
+      "failed": 0,
+      "skipped": 0
+    },
+    "productionActivated": false
+  }
+}
