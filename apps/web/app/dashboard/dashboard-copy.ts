@@ -5,17 +5,163 @@ type DashboardWorkspaceInstallation = {
   readonly repositorySelection: string;
 };
 
+type RepositoryAccessPresentation = {
+  readonly badge: string;
+  readonly title: string;
+  readonly body: string;
+  readonly reconnect: boolean;
+  readonly canRefresh: boolean;
+  readonly tone: "accent" | "warning";
+  readonly actionUrl?: string;
+  readonly actionLabel?: string;
+};
+
+const repositoryAccessSetupIssue: RepositoryAccessPresentation = {
+  badge: "Setup needs attention",
+  title: "GitHub repository access is unavailable.",
+  body: "ReviewRouter needs a setup fix before it can check your GitHub access. Contact support to restore repository discovery.",
+  reconnect: false,
+  canRefresh: false,
+  tone: "warning",
+  actionUrl: "/support",
+  actionLabel: "Contact support",
+};
+
+export function repositoryAccessPresentation(
+  status: string,
+  errorCode?: string,
+  context: "notice" | "empty" = "notice",
+): RepositoryAccessPresentation {
+  if (
+    status === "token_encryption_misconfigured" ||
+    errorCode === "github_oauth_client_misconfigured"
+  )
+    return repositoryAccessSetupIssue;
+  if (status === "token_missing")
+    return {
+      badge: "GitHub connection needed",
+      title: "Reconnect GitHub to show repositories you can manage.",
+      body: "Reconnect GitHub so ReviewRouter can check which connected repositories you have permission to manage.",
+      reconnect: true,
+      canRefresh: false,
+      tone: "warning",
+    };
+  if (
+    status === "token_revoked" ||
+    status === "token_expired" ||
+    status === "token_decryption_failed"
+  )
+    return {
+      badge: "GitHub reconnection needed",
+      title: "Reconnect GitHub to restore repository access.",
+      body: "Your GitHub connection can no longer be used to check repository access. Reconnect GitHub to continue.",
+      reconnect: true,
+      canRefresh: false,
+      tone: "warning",
+    };
+  if (status === "github_error" || status === "token_refresh_failed")
+    return {
+      badge: "GitHub access",
+      title: "GitHub repository access could not be refreshed.",
+      body: "Try refreshing access again shortly.",
+      reconnect: false,
+      canRefresh: true,
+      tone: "warning",
+    };
+  return context === "empty"
+    ? {
+        badge: "No repositories found",
+        title: "No connected repositories found.",
+        body: "Connect GitHub repositories, then return to the dashboard to finish setup. GitLab is in development and not available yet.",
+        reconnect: false,
+        canRefresh: true,
+        tone: "accent",
+      }
+    : {
+        badge: "GitHub access",
+        title: "Repository access follows your GitHub permissions.",
+        body: "Only connected repositories where you have write, maintain, or admin access are shown.",
+        reconnect: false,
+        canRefresh: true,
+        tone: "accent",
+      };
+}
+
+export function repositoryAccessErrorPresentation(
+  error: string,
+): RepositoryAccessPresentation | null {
+  if (error === "dashboard_auth_misconfigured")
+    return repositoryAccessSetupIssue;
+  const statuses = [
+    "token_missing",
+    "token_revoked",
+    "token_expired",
+    "token_refresh_failed",
+    "token_decryption_failed",
+    "token_encryption_misconfigured",
+    "github_error",
+  ];
+  const status = error.replace(/^repository_access_/u, "");
+  return error.startsWith("repository_access_") && statuses.includes(status)
+    ? repositoryAccessPresentation(status)
+    : null;
+}
+
+export const repositoryWorkflowUpdateCopy = {
+  status:
+    "The installed review workflow needs an update. Create an update PR and merge it on GitHub, then verify setup here.",
+  stepTitle: "Update review workflow",
+  helper: "Create a pull request with the workflow update.",
+  actionLabel: "Create update PR",
+  pendingLabel: "Creating update PR...",
+  openActionLabel: "Open update PR",
+} as const;
+
+export const repositoryWorkflowVerificationCopy = {
+  status:
+    "ReviewRouter has not verified this repository’s review workflow. Select Verify setup to check it before the next review.",
+  helper: "Check the review workflow installed on GitHub.",
+} as const;
+
+export function repositorySetupProgressSummary(
+  step: "setup_pr" | "merge_setup_pr" | "provider" | "ready",
+  options: {
+    readonly verificationNeeded?: boolean;
+    readonly workflowUpdateRequired?: boolean;
+    readonly providerSetupBeforeWorkflow?: boolean;
+  } = {},
+): string {
+  switch (step) {
+    case "setup_pr":
+      return options.verificationNeeded
+        ? "1 of 4 - verification needed"
+        : options.workflowUpdateRequired
+          ? "1 of 4 - workflow update needed"
+          : options.providerSetupBeforeWorkflow
+            ? "1 of 4 - connect Codex"
+            : "1 of 4 - setup PR needed";
+    case "merge_setup_pr":
+      return "2 of 4 - merge setup PR";
+    case "provider":
+      return options.providerSetupBeforeWorkflow
+        ? "3 of 4 - check Codex setup"
+        : "3 of 4 - enable review";
+    case "ready":
+      return "4 of 4 - complete";
+  }
+}
+
 export function dashboardNoticeText(
   notice: string,
   repository: string,
 ): string {
   switch (notice) {
     case "runtime_migration_bootstrap_pr_ready":
-      return "First update PR ready. Merge the temporary migration workflow, then click Update setup PR again. Your existing credentials stay in GitHub Secrets. A second PR installs the new review runtime after existing reviews finish.";
+      return "First update PR ready. Merge the temporary migration workflow, then create the next update PR. Your existing credentials stay in GitHub Secrets. A second PR updates the review workflow after existing reviews finish.";
     case "runtime_migration_draining":
-      return "The old review workflow is paused while admitted reviews finish. Click Update setup PR again after they finish. The migration has not copied credentials yet.";
+      return "The old review workflow is paused while admitted reviews finish. Create the next update PR after they finish. The migration has not copied credentials yet.";
     case "runtime_migration_running":
-      return "The credential migration run is confirmed in GitHub. After it finishes, click Update setup PR to create the final runtime PR. Reviews resume after that PR is merged and verified.";
+      return "The credential migration run is confirmed in GitHub. After it finishes, create the final workflow update PR. Reviews resume after that PR is merged and verified.";
     case "runtime_migration_recovery_required":
       return "The migration outcome is not confirmed. The old workflow stays paused. Check the existing GitHub migration run and recover the setup before continuing; the dispatch or secret write will not be repeated automatically.";
     case "app_installed":
@@ -95,7 +241,7 @@ export function dashboardNoticeText(
 }
 
 export function dashboardNoticeTitle(notice: string): string {
-  if (notice.startsWith("runtime_migration_")) return "Runtime update";
+  if (notice.startsWith("runtime_migration_")) return "Workflow update";
   switch (notice) {
     case "app_installed":
       return "GitHub App installed";
@@ -396,7 +542,7 @@ export function orgRulesetErrorText(error: string): string {
       return "Merge the final runtime setup PR, which removes the temporary migration workflow, then verify setup to resume reviews.";
     case "codex_runtime_migration_workflow_missing_or_ambiguous":
     case "codex_runtime_migration_bootstrap_not_ready":
-      return "Merge the first runtime update PR into the default branch and wait for GitHub to index its migration workflow, then click Update setup PR again.";
+      return "Merge the first workflow update PR into the default branch and wait for GitHub to index its migration workflow, then create the next update PR.";
     case "org_admin_permission_required":
       return "Organization Administration: write is required for org-wide rulesets.";
     case "org_rulesets_not_supported":
@@ -413,6 +559,8 @@ export function orgRulesetErrorText(error: string): string {
 }
 
 export function dashboardErrorText(error: string): string {
+  const repositoryAccess = repositoryAccessErrorPresentation(error);
+  if (repositoryAccess) return repositoryAccess.body;
   if (isCodexRotatingProviderState(error)) {
     return codexRotatingProviderStateCopy(error).body;
   }
@@ -420,21 +568,8 @@ export function dashboardErrorText(error: string): string {
   switch (error) {
     case "dashboard_mutations_disabled":
       return "Dashboard mutations are disabled on this environment.";
-    case "dashboard_auth_misconfigured":
-      return "GitHub OAuth is not configured. Set AUTH_SECRET, GITHUB_APP_CLIENT_ID, and GITHUB_APP_CLIENT_SECRET.";
     case "dashboard_mutation_requires_sign_in":
       return "Sign in with GitHub before changing repository setup.";
-    case "repository_access_token_missing":
-      return "Reconnect GitHub to discover repositories you can manage.";
-    case "repository_access_token_revoked":
-    case "repository_access_token_expired":
-    case "repository_access_token_refresh_failed":
-    case "repository_access_token_decryption_failed":
-      return "GitHub authorization expired. Reconnect GitHub, then refresh repository access.";
-    case "repository_access_token_encryption_misconfigured":
-      return "Server setup is incomplete. Set REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY before maintainer repository discovery can run.";
-    case "repository_access_github_error":
-      return "GitHub repository access could not be refreshed. Try again shortly.";
     case "workspace_mutation_forbidden":
       return "Your GitHub user is not an owner/admin for this workspace.";
     case "repository_mutation_forbidden":
