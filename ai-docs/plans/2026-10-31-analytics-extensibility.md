@@ -64,8 +64,11 @@ are not equivalent to the time a report was generated.
 
 1. Put simple readonly metric descriptors **next to their owner features**
    (Statistics and Usage application layer). Use stable versioned IDs,
-   title/help text, unit, `grain`, aggregation class
-   (`sum | distinct | ratio | percentile`), and explicit supported dimensions.
+   title/help text, unit, `grain`, and existing aggregation classes
+   (`count | known_sum | distinct | first_occurrence`), plus explicit supported
+   dimensions. `known_sum` excludes unknown values without treating them as
+   zero; `first_occurrence` identifies a first-recorded issue lineage.
+   Ratio/percentile classes are deferred until their canonical facts exist.
    Prefer `satisfies`, `as const`, discriminated unions to factories or
    runtime plugins. All descriptors describe **already computed** DTOs.
 2. Statistics v1: published reviews, unique PRs, first-seen issues. Usage v1:
