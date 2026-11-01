@@ -24,8 +24,10 @@ describe("slow analytics reads", () => {
         durationBucketMs: 2_500,
       });
       const longTimes = [0, 120_000];
-      await timeAnalyticsRead("statistics.report", async () => 7, () =>
-        longTimes.shift() ?? 120_000,
+      await timeAnalyticsRead(
+        "statistics.report",
+        async () => 7,
+        () => longTimes.shift() ?? 120_000,
       );
       expect(log).toHaveBeenLastCalledWith("analytics_read_slow", {
         operation: "statistics.report",

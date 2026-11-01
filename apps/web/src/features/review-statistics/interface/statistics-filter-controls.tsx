@@ -120,15 +120,12 @@ export function StatisticsInvalidFilters() {
   );
   return (
     <div role="alert" className={styles.status}>
-      Choose a valid statistics period, severity or chart metric, or reset the
-      filters.
+      Choose a valid statistics period, severity or chart metric.
       <Button
         variant="outline"
         size="sm"
         disabled={!hydrated}
-        onClick={() =>
-          router.replace(statisticsResetUrl(window.location.href))
-        }
+        onClick={() => router.replace(statisticsResetUrl(window.location.href))}
       >
         Reset statistics filters
       </Button>
