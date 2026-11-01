@@ -24,6 +24,7 @@ import {
   type ReviewRouterDiscussionMode,
   type ReviewRouterMcpSecrets,
   renderAccountGatewayWorkflow,
+  renderAccountGatewayInteractionWorkflow,
   renderProviderApiWorkflow,
   renderClaudeSubscriptionWorkflow,
   renderReviewRouterSecretsCaller,
@@ -43,6 +44,7 @@ export type WorkflowSetupReadinessInput = {
   readonly defaultBranch: string;
   readonly actionRef: string;
   readonly codexSessionMode?: "account-gateway";
+  readonly gatewayInteractionRuntimeSha?: string;
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: ProviderApiAuthMode;
   readonly subscriptionAuthMode?: "claude-oauth";
@@ -72,7 +74,13 @@ export async function isWorkflowSetupAlreadyCurrent(
     Object.keys(input.mcpSecrets).length
   )
     return false;
-  if (input.discussionMode === "suggest") {
+  if (
+    input.discussionMode === "suggest" &&
+    !(
+      input.codexSessionMode === "account-gateway" &&
+      input.gatewayInteractionRuntimeSha
+    )
+  ) {
     return false;
   }
   if (
@@ -187,11 +195,48 @@ export async function isWorkflowSetupAlreadyCurrent(
       check.expectedContentMarkersFound !== true
     )
       return false;
+    if (
+      input.codexSessionMode === "account-gateway" &&
+      input.gatewayInteractionRuntimeSha
+    ) {
+      let interaction: ReturnType<
+        typeof renderAccountGatewayInteractionWorkflow
+      >;
+      try {
+        interaction = renderAccountGatewayInteractionWorkflow({
+          runtimeSha: input.gatewayInteractionRuntimeSha,
+          apiUrl:
+            dependencies.resolvePublicApiUrl?.() ??
+            resolveWorkflowPublicApiUrl(),
+        });
+      } catch {
+        return false;
+      }
+      const interactionCheck = await dependencies.workflowProbe.probeWorkflow({
+        githubInstallationId: input.githubInstallationId,
+        owner: input.owner,
+        name: input.name,
+        defaultBranch: input.defaultBranch,
+        workflowPath: interaction.path,
+        expectedActionRef: `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-interaction-reusable.yml@${input.gatewayInteractionRuntimeSha}`,
+        expectedContentValidator: (workflow) =>
+          areWorkflowDocumentsSemanticallyEqual(workflow, interaction.content),
+      });
+      if (
+        interactionCheck.status !== "present" ||
+        !interactionCheck.expectedActionRefFound ||
+        interactionCheck.expectedContentMarkersFound !== true
+      )
+        return false;
+    }
     const competingChecks = await Promise.all(
       [
         defaultWorkflowPath,
         defaultCodexRotatingWorkflowPath,
-        defaultInteractionWorkflowPath,
+        ...(input.codexSessionMode === "account-gateway" &&
+        input.gatewayInteractionRuntimeSha
+          ? []
+          : [defaultInteractionWorkflowPath]),
       ].map((workflowPath) =>
         dependencies.workflowProbe.probeWorkflow({
           githubInstallationId: input.githubInstallationId,
