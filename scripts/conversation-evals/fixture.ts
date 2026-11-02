@@ -743,11 +743,24 @@ export async function createEvaluationFixture(input: {
     (await readInventory()).filter(qualifiedReadback);
   const drain = async (operationIds: readonly string[]) => {
     for (const commandId of operationIds) {
+      const effect = effectHistory.get(commandId);
+      if (!effect) throw new Error("eval_native_command_missing");
       // Forget fences reads immediately. Physical cleanup remains the existing operator's work.
-      if (effectHistory.get(commandId)?.kind === "forget") continue;
+      if (effect.kind === "forget") continue;
       for (let count = 0; count < 80; count++) {
+        // Settled replay returns old IDs; deliver deliberately returns null for terminal commands.
+        const current = await runtime.store.findCommand({
+          commandId,
+          scope: effect.scope,
+          generation: runtime.generation,
+        });
+        if (!current) throw new Error("eval_native_command_missing");
+        const state = current.operation.state;
+        if (state === "published" || state === "completed") break;
+        if (["failed", "unknown", "cleanup_pending"].includes(state))
+          throw new Error(`eval_native_delivery_${state}`);
         const operation = await service.deliver(
-          { scope, commandId },
+          { scope: effect.scope, commandId },
           controls(30_000),
         );
         if (
