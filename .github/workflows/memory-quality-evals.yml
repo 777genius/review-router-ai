@@ -90,8 +90,6 @@ jobs:
       CONVERSATION_EVAL_LIVE: "1"
       CONVERSATION_EVAL_DISPOSABLE: "1"
       MEMORY_EVAL_PRIVATE_RESULTS_DIR: ${{ vars.MEMORY_EVAL_PRIVATE_RESULTS_DIR }}
-      CONVERSATION_EVAL_OPERATOR_ACK: ${{ secrets.MEMORY_EVAL_OPERATOR_ACK }}
-      CONVERSATION_EVAL_DATABASE_URL: ${{ secrets.MEMORY_EVAL_DISPOSABLE_DATABASE_URL }}
       CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID: ${{ vars.MEMORY_EVAL_TEMPLATE_WORKSPACE_ID }}
       CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID: ${{ vars.MEMORY_EVAL_TEMPLATE_REPOSITORY_ID }}
       CONVERSATION_EVAL_MODEL_BOUNDS_JSON: ${{ vars.MEMORY_EVAL_MODEL_BOUNDS_JSON }}
@@ -99,12 +97,6 @@ jobs:
       REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE: hindsight-v1.1.0-chunks-v1
       REVIEW_ROUTER_MEMORY_NAMESPACE: ${{ vars.MEMORY_EVAL_NAMESPACE }}
       REVIEW_ROUTER_MEMORY_GENERATION: ${{ vars.MEMORY_EVAL_GENERATION }}
-      REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: ${{ secrets.MEMORY_EVAL_HINDSIGHT_URL }}
-      REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY: ${{ secrets.MEMORY_EVAL_HINDSIGHT_API_KEY }}
-      REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: ${{ secrets.MEMORY_EVAL_GATEWAY_ORIGIN }}
-      REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: ${{ secrets.MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER }}
-      REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_POLICY }}
-      REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_RELAY_POLICY }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -118,6 +110,15 @@ jobs:
           node scripts/install-private-dependencies.mjs --frozen-lockfile
           pnpm --filter @reviewrouter/platform-db db:generate
       - name: Assert private operator authorization, isolated DB/native and tuning-only
+        env:
+          CONVERSATION_EVAL_OPERATOR_ACK: ${{ secrets.MEMORY_EVAL_OPERATOR_ACK }}
+          CONVERSATION_EVAL_DATABASE_URL: ${{ secrets.MEMORY_EVAL_DISPOSABLE_DATABASE_URL }}
+          REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: ${{ secrets.MEMORY_EVAL_HINDSIGHT_URL }}
+          REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY: ${{ secrets.MEMORY_EVAL_HINDSIGHT_API_KEY }}
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: ${{ secrets.MEMORY_EVAL_GATEWAY_ORIGIN }}
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: ${{ secrets.MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER }}
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_POLICY }}
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_RELAY_POLICY }}
         run: node --import tsx scripts/conversation-evals/memory-quality-gate.ts preflight "${{ inputs.corpus }}"
       - name: Verify operator-owned private evidence storage before paid inference
         shell: bash
@@ -139,6 +140,14 @@ jobs:
           echo "MEMORY_EVAL_PRIVATE_OUTPUT_DIR=$private_dir" >> "$GITHUB_ENV"
       - name: Three real full-product tuning observations (fail on first unqualified result)
         shell: bash
+        env:
+          CONVERSATION_EVAL_DATABASE_URL: ${{ secrets.MEMORY_EVAL_DISPOSABLE_DATABASE_URL }}
+          REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: ${{ secrets.MEMORY_EVAL_HINDSIGHT_URL }}
+          REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY: ${{ secrets.MEMORY_EVAL_HINDSIGHT_API_KEY }}
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: ${{ secrets.MEMORY_EVAL_GATEWAY_ORIGIN }}
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: ${{ secrets.MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER }}
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_POLICY }}
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_RELAY_POLICY }}
         run: |
           umask 077
           scratch="$(mktemp -d "$RUNNER_TEMP/memory-quality-XXXXXX")"
