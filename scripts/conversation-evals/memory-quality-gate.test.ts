@@ -395,7 +395,7 @@ test("three independent human-scored runs expose variation without fabricated se
   assert.equal(summary.status, "PASS");
   assert.equal(summary.runCount, 3);
   assert.equal(
-    (summary.metrics as Record<string, { min: number }>).eligibleFactRecall.min,
+    (summary.metrics as Record<string, { min: number }>).eligibleFactRecall!.min,
     0.8,
   );
   const changed = structuredClone(runs);
@@ -405,7 +405,7 @@ test("three independent human-scored runs expose variation without fabricated se
   assert.equal(worse.status, "FAIL");
   assert(
     Math.abs(
-      (worse.metrics as Record<string, { range: number }>).eligibleFactRecall
+      (worse.metrics as Record<string, { range: number }>).eligibleFactRecall!
         .range - 0.1,
     ) < 1e-9,
   );
