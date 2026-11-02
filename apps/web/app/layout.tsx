@@ -147,11 +147,7 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <link
-          rel="describedby"
-          title="llms.txt"
-          href="/llms.txt"
-        />
+        <link rel="describedby" title="llms.txt" href="/llms.txt" />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
