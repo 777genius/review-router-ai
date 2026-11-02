@@ -148,8 +148,7 @@ export default async function RootLayout({
     >
       <head>
         <link
-          rel="alternate"
-          type="text/plain"
+          rel="describedby"
           title="llms.txt"
           href="/llms.txt"
         />
