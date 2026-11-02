@@ -4,6 +4,7 @@ import {
   automaticMemoryCohortId,
   memoryKnowledgeDigest,
   memoryKnowledgeScopeKey,
+  normalizeMemoryAutomaticContextEvidence,
   type MemoryAutomaticSourceBinding,
   type MemoryKnowledgeEntryMetadata,
   type MemoryKnowledgeScope,
@@ -13,7 +14,10 @@ import type {
   MemoryAutomaticSourceStore,
   MemoryAutomaticSourceState,
 } from "../../application/ports/memory-automatic-source-port";
-import { lockMemoryKnowledgeScopes } from "./prisma-memory-knowledge-store";
+import {
+  lockMemoryKnowledgeScopes,
+  type AuthorizeAutomaticMemoryMutation,
+} from "./prisma-memory-knowledge-store";
 
 type Database = PrismaClient | Prisma.TransactionClient;
 export function automaticMemoryLineageKey(
@@ -52,6 +56,21 @@ async function read(
   );
   return row?.state ?? null;
 }
+/** Host paid-source admission uses the same scope/source locks as Forget, deletion and relearn.
+ * A missing lineage is also fenced: a later tombstone or suppression cycle changes this digest.
+ * The caller must compare the captured digest in its dispatch transaction, without source I/O here.
+ */
+export async function automaticMemorySourcePreviewFence(
+  tx: Prisma.TransactionClient,
+  scope: MemoryKnowledgeScope,
+  sourceId: string,
+): Promise<string | null> {
+  const key = automaticMemoryLineageKey(scope, sourceId);
+  await lockExistingSourceScopes(tx, scope);
+  await sourceLock(tx, key);
+  const state = await read(tx, key);
+  return state?.suppressed ? null : memoryKnowledgeDigest(state);
+}
 async function write(
   tx: Database,
   state: MemoryAutomaticSourceState,
@@ -63,7 +82,12 @@ async function write(
 }
 
 export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceStore {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly options: {
+      readonly authorizeAutomaticMutation?: AuthorizeAutomaticMemoryMutation;
+    } = {},
+  ) {}
   lookup(scope: MemoryKnowledgeScope, sourceId: string) {
     return read(this.prisma, automaticMemoryLineageKey(scope, sourceId));
   }
@@ -80,9 +104,14 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
   async reserve(
     input: Parameters<MemoryAutomaticSourceStore["reserve"]>[0],
   ): Promise<MemoryAutomaticSourceState> {
-    return this.prisma.$transaction((tx) =>
-      reserveAutomaticMemorySource(tx, input),
-    );
+    return this.prisma.$transaction(async (tx) => {
+      await this.options.authorizeAutomaticMutation?.(
+        tx,
+        input.input.scope.workspaceId,
+        input.input.settingsRevision ?? "0",
+      );
+      return reserveAutomaticMemorySource(tx, input);
+    });
   }
   async invalidate(
     input: Parameters<MemoryAutomaticSourceStore["invalidate"]>[0],
@@ -247,6 +276,12 @@ export class PrismaMemoryAutomaticSourceStore implements MemoryAutomaticSourceSt
     input: Parameters<MemoryAutomaticSourceStore["clearSuppression"]>[0],
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      if (input.automaticSettingsRevision !== undefined)
+        await this.options.authorizeAutomaticMutation?.(
+          tx,
+          input.scope.workspaceId,
+          input.automaticSettingsRevision,
+        );
       await lockExistingSourceScopes(tx, input.scope);
       await sourceLock(
         tx,
@@ -330,6 +365,13 @@ export async function reserveAutomaticMemorySource(
     policyRevision: input.input.policyRevision,
     sourceActorId: input.input.sourceActor.id,
     observedCommitSha: input.input.headSha,
+    ...(input.input.contextEvidence === undefined
+      ? {}
+      : {
+          contextEvidence: normalizeMemoryAutomaticContextEvidence(
+            input.input.contextEvidence,
+          ),
+        }),
   };
   const state: MemoryAutomaticSourceState = {
     binding,

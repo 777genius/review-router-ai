@@ -1,5 +1,6 @@
 import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
 import {
   registerActionMemoryV2Routes,
   type ActionMemoryV2Dependencies,
@@ -608,7 +609,15 @@ export async function createApiApp(
       : undefined);
 
   if (githubWebhookDependencies) {
-    await registerGitHubWebhookRoutes(app, githubWebhookDependencies);
+    await registerGitHubWebhookRoutes(app, {
+      ...githubWebhookDependencies,
+      onProcessingError: () => {
+        logger.error("GitHub webhook processing failed", {
+          code: "github_webhook_processing_failed",
+        });
+        githubWebhookDependencies.onProcessingError?.();
+      },
+    });
   }
 
   const gitLabIntegrationDependencies =
@@ -925,6 +934,11 @@ export async function createApiApp(
   const memoryRuntime = prisma
     ? await createMemoryKnowledgeRuntime({
         prisma,
+        workspaceSettings: (workspaceId, transaction) =>
+          new PrismaWorkspaceMemorySettings(prisma).read(
+            workspaceId,
+            transaction,
+          ),
         env: {
           ...reviewActionV2Env,
           ...(options.memoryServiceEnabled === undefined
@@ -937,6 +951,9 @@ export async function createApiApp(
         },
       })
     : undefined;
+  const memoryAdmissionObserver = (
+    event: import("./review-memory-admission.js").MemoryAdmissionDiagnostic,
+  ) => logger.info("Memory admission diagnostic", event);
   const productionReviewActionV2Dependencies =
     reviewRunControlV2Enabled &&
     !options.reviewRunControlV2Dependencies &&
@@ -953,8 +970,10 @@ export async function createApiApp(
           ...(historyFeature ? { historyWriter: historyFeature.writer } : {}),
           ...(memoryRuntime
             ? {
-                memoryInputAdmission:
-                  createReviewMemoryInputAdmission(memoryRuntime),
+                memoryInputAdmission: createReviewMemoryInputAdmission(
+                  memoryRuntime,
+                  memoryAdmissionObserver,
+                ),
                 investigationMemoryInputAdmission:
                   createInvestigationMemoryInputAdmission(memoryRuntime),
               }
@@ -1080,6 +1099,7 @@ export async function createApiApp(
     await registerReviewModelDispatchRoutes(
       app,
       productionReviewActionV2Dependencies.modelDispatch,
+      (diagnostic) => logger.warn(JSON.stringify(diagnostic)),
     );
   }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {
@@ -1197,14 +1217,14 @@ export async function createApiApp(
   if (
     prisma &&
     memoryRuntime &&
-    productionReviewActionV2Dependencies?.contextTools
+    productionReviewActionV2Dependencies?.memoryRunAccess
   ) {
     await registerReviewMemoryRuntimeRoutes(
       app,
       new ReviewMemoryRuntimeGateway({
         prisma,
         runtime: memoryRuntime,
-        access: productionReviewActionV2Dependencies.contextTools,
+        access: productionReviewActionV2Dependencies.memoryRunAccess,
         ...(actionMemoryV2
           ? {
               automaticCurrent: createAutomaticConversationSourceCurrent({
@@ -1216,6 +1236,7 @@ export async function createApiApp(
             }
           : {}),
       }),
+      memoryAdmissionObserver,
     );
   }
   const actionConversation =
@@ -1271,7 +1292,15 @@ export async function createApiApp(
     trpcOptions: { router: appRouter },
   });
 
-  app.addHook("onError", async (_request, _reply, error) => {
+  app.addHook("onError", async (request, _reply, error) => {
+    // Webhook JSON parsing precedes the route handler. Its error may contain
+    // signed payload text and must never be recorded in operational logs.
+    if (request.routeOptions.url === "/webhooks/github") {
+      logger.error("GitHub webhook request failed", {
+        code: "github_webhook_request_failed",
+      });
+      return;
+    }
     logger.error("API request failed", { message: error.message });
   });
 

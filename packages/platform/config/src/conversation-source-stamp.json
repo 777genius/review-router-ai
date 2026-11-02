@@ -1,0 +1,9 @@
+{
+  "kind": "reviewrouter-conversation-source-stamp/v1",
+  "sourceProfile": {
+    "commonPromptSourceDigest": "df70cfbab982e42a68b227315cec249d7b0190838c766e05492e5006f0f48c0a",
+    "gatewayPreviewSourceDigest": "61331699aecb25e589e215bfd5fc74f9edb61e4fe715549f660cedb2f3c0ff4c",
+    "accountPolicySourceDigest": "d30efb085d18626a164d5f02edac7ffd330a2c499beec2ff979eba9eea70abc6",
+    "gatewaySdkProvenanceDigest": "d2a4394ecc1649f5b3837e5ec76407c2be38a98dcc941fc945bae324561a5eb3"
+  }
+}

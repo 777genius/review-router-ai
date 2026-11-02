@@ -6,6 +6,7 @@ import type {
   ReviewRuntimeCompatibility,
 } from "@reviewrouter/features-provider-setup";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
+import { repositorySetupProgressSummary } from "./dashboard-copy";
 import {
   providerSetupConfirmedEventName,
   setupPullRequestMergedEventName,
@@ -93,6 +94,7 @@ export function RepositorySetupDisclosureToggle({
   expectedProviderAuthModes = [],
   gatewayReviewV2Ready = false,
   runtimeCompatibility = "compatible",
+  runtimeVerificationNeeded = false,
 }: {
   readonly repositoryId: string;
   readonly disclosureId: string;
@@ -100,6 +102,7 @@ export function RepositorySetupDisclosureToggle({
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
   readonly gatewayReviewV2Ready?: boolean;
   readonly runtimeCompatibility?: ReviewRuntimeCompatibility;
+  readonly runtimeVerificationNeeded?: boolean;
 }): React.ReactElement {
   const optimisticStep = useOptimisticSetupStep({
     repositoryId,
@@ -113,7 +116,10 @@ export function RepositorySetupDisclosureToggle({
   return (
     <label
       htmlFor={disclosureId}
-      title={repositorySetupProgressSummary(optimisticStep)}
+      title={repositorySetupProgressSummary(optimisticStep, {
+        verificationNeeded: runtimeVerificationNeeded,
+        workflowUpdateRequired: runtimeCompatibility === "update_required",
+      })}
       className={repositorySetupStepPillClassName(isComplete)}
     >
       <RepositorySetupStepPillBody step={optimisticStep} />
@@ -350,17 +356,4 @@ function SetupCompleteCheckIcon(): React.ReactElement {
       />
     </svg>
   );
-}
-
-function repositorySetupProgressSummary(step: SetupStep): string {
-  switch (step) {
-    case "setup_pr":
-      return "1 of 4 - setup PR needed";
-    case "merge_setup_pr":
-      return "2 of 4 - merge setup PR";
-    case "provider":
-      return "3 of 4 - enable review";
-    case "ready":
-      return "4 of 4 - complete";
-  }
 }

@@ -58,11 +58,16 @@ import {
   canonicalJson,
   canonicalReviewOperationalSloProfile,
   canonicalReviewProtocolLimits,
+  ImmutableRegistryWriteStatus,
+  producerReleaseImmutableKey,
   reviewInvestigationCapabilityV1,
+  type ProducerReleaseCandidate,
   type ReviewOperationalSloThresholds,
   type ReviewProtocolLimits,
   type ReviewAgentProfile,
 } from "../../../packages/features/review-run-control/src/index.js";
+import { PrismaProducerReleaseRepository } from "../../../packages/features/review-run-control/src/composition/index.js";
+import { composeReviewActionV2ReleaseRegistry } from "../../../apps/api/src/review-action-v2-release-registry-composition.js";
 import {
   createPrismaClient,
   type PrismaClient,
@@ -192,6 +197,8 @@ export type ReviewActionV2E2EInvestigationProfile = Readonly<{
 }>;
 
 export type ReviewActionV2E2EHarnessOptions = Readonly<{
+  /** Exact checked Action policy; registered through the production use case. */
+  releaseCandidate?: ProducerReleaseCandidate;
   /** Join real source owners, registered outbox projection and public reads. */
   historyProfile?: boolean;
   /** Reuse the browser fixture's workspace without resetting its database. */
@@ -253,6 +260,7 @@ export class ReviewActionV2E2EHarness {
   readonly repositoryConnectionId: string;
   readonly scmRepositoryIdentityId: string;
   readonly producerReleaseId: string;
+  readonly actionCommitSha: string;
   readonly protocolLimitsProfileId: string;
   readonly operationalSloProfileId: string;
   readonly env: Readonly<Record<string, string>>;
@@ -280,6 +288,7 @@ export class ReviewActionV2E2EHarness {
     readonly repositoryConnectionId: string;
     readonly scmRepositoryIdentityId: string;
     readonly producerReleaseId: string;
+    readonly actionCommitSha: string;
     readonly protocolLimitsProfileId: string;
     readonly operationalSloProfileId: string;
     readonly env: Readonly<Record<string, string>>;
@@ -304,6 +313,7 @@ export class ReviewActionV2E2EHarness {
     this.repositoryConnectionId = input.repositoryConnectionId;
     this.scmRepositoryIdentityId = input.scmRepositoryIdentityId;
     this.producerReleaseId = input.producerReleaseId;
+    this.actionCommitSha = input.actionCommitSha;
     this.protocolLimitsProfileId = input.protocolLimitsProfileId;
     this.operationalSloProfileId = input.operationalSloProfileId;
     this.env = input.env;
@@ -334,6 +344,20 @@ export class ReviewActionV2E2EHarness {
     options: ReviewActionV2E2EHarnessOptions = {},
   ): Promise<ReviewActionV2E2EHarness> {
     assertDisposableDatabaseUrl(databaseUrl);
+    if (
+      options.releaseCandidate &&
+      [
+        options.agentProfiles,
+        options.reviewerPlanProfile,
+        options.prDescriptionProfile,
+        options.lifecycleVerificationProfile,
+        options.modelDispatchProfile,
+        options.investigationProfile,
+        options.environmentOverrides
+          ?.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON,
+      ].some((value) => value !== undefined)
+    )
+      throw new Error("review_v2_e2e_committed_release_cannot_be_overridden");
     const oidcLifetimeSeconds = options.oidcLifetimeSeconds ?? 600;
     if (
       !Number.isSafeInteger(oidcLifetimeSeconds) ||
@@ -350,9 +374,12 @@ export class ReviewActionV2E2EHarness {
       options.fixtureScope?.workspaceId ?? `${prefix}-workspace`;
     const repositoryConnectionId = `${prefix}-repository`;
     const scmRepositoryIdentityId = `${prefix}-scm`;
-    const producerReleaseId = `${prefix}-release`;
-    const protocolLimitsProfileId = `${prefix}-limits`;
-    const operationalSloProfileId = `${prefix}-slo`;
+    const producerReleaseId =
+      options.releaseCandidate?.producerReleaseId ?? `${prefix}-release`;
+    const protocolLimitsProfileId =
+      options.releaseCandidate?.protocolLimitsProfileId ?? `${prefix}-limits`;
+    const operationalSloProfileId =
+      options.releaseCandidate?.operationalSloProfileId ?? `${prefix}-slo`;
     const appKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const oidcKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const oidcJwk = await exportJWK(oidcKeys.publicKey);
@@ -396,6 +423,9 @@ export class ReviewActionV2E2EHarness {
     globalThis.fetch = fixtureFetch;
     const env: Readonly<Record<string, string>> = Object.freeze({
       ...productionEnv({
+        ...(options.releaseCandidate
+          ? { releaseCandidate: options.releaseCandidate }
+          : {}),
         ...(options.reviewerPlanProfile
           ? { reviewerPlanProfile: options.reviewerPlanProfile }
           : {}),
@@ -540,6 +570,9 @@ export class ReviewActionV2E2EHarness {
         };
       }
       await seedProductionControlPlane(prisma, {
+        ...(options.releaseCandidate
+          ? { releaseCandidate: options.releaseCandidate }
+          : {}),
         ...(options.reviewerPlanProfile
           ? { reviewerPlanProfile: options.reviewerPlanProfile }
           : {}),
@@ -611,6 +644,8 @@ export class ReviewActionV2E2EHarness {
         repositoryConnectionId,
         scmRepositoryIdentityId,
         producerReleaseId,
+        actionCommitSha:
+          options.releaseCandidate?.actionCommitSha ?? actionCommitSha,
         protocolLimitsProfileId,
         operationalSloProfileId,
         env,
@@ -1976,8 +2011,8 @@ export class ReviewActionV2E2EHarness {
       job_workflow_ref:
         this.modelTransport === "account_gateway"
           ? "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@refs/tags/workflow-v1"
-          : `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${actionCommitSha}`,
-      job_workflow_sha: actionCommitSha,
+          : `777genius/review-router/.github/workflows/reviewrouter-execution-reusable.yml@${this.actionCommitSha}`,
+      job_workflow_sha: this.actionCommitSha,
       actor: "reviewrouter-e2e",
       jti: `${this.prefix}-oidc-${this.oidcOrdinal}`,
     })
@@ -2279,6 +2314,7 @@ export function permanentOutboxFailureHandler(): OutboxHandler {
 async function seedProductionControlPlane(
   prisma: PrismaClient,
   ids: Readonly<{
+    releaseCandidate?: ProducerReleaseCandidate;
     prefix: string;
     workspaceId: string;
     borrowedWorkspace: boolean;
@@ -2352,52 +2388,80 @@ async function seedProductionControlPlane(
       registeredAt: now,
     },
   });
-  await prisma.producerRelease.create({
-    data: {
-      producerReleaseId: ids.producerReleaseId,
-      distributionKind: "public_reusable",
-      actionCommitSha,
-      runtimeCommitSha,
-      wrapperEntrypointDigest: null,
-      runtimeEntrypointDigest: sha256("runtime-entrypoint"),
-      agentProfilesJson: JSON.stringify(
-        ids.agentProfiles ?? approvedAgentProfilesFixture,
-      ),
-      ...(ids.reviewerPlanProfile
-        ? { reviewerPlanProfile: { ...ids.reviewerPlanProfile } }
-        : {}),
-      ...(ids.prDescriptionProfile
-        ? { prDescriptionProfile: { ...prDescriptionExtensionV1 } }
-        : {}),
-      ...(ids.lifecycleVerificationProfile
-        ? {
-            lifecycleVerificationProfile: {
-              ...lifecycleVerificationExtensionV1,
-            },
-          }
-        : {}),
-      ...(ids.modelDispatchProfile
-        ? { modelDispatchProfile: { ...ids.modelDispatchProfile } }
-        : {}),
-      contextGatewayPolicyVersion:
-        ids.investigationProfile?.gatewayPolicyVersion ??
-        "e2e-gateway-policy-v1",
-      contextGatewayEntrypointDigest: "f".repeat(64),
-      schemaDigest: reviewActionV2PublishedSchemaDigest,
-      capabilityProfile: "exact_revision_v2",
-      protocolLimitsProfileId: ids.protocolLimitsProfileId,
-      operationalSloProfileId: ids.operationalSloProfileId,
-      ...(ids.investigationProfile
-        ? {
-            reviewInvestigationCapability: reviewInvestigationCapabilityV1,
-            reviewInvestigationCoverageProfileHash:
-              ids.investigationProfile.coverageProfileHash,
-            reviewInvestigationPolicyHash: ids.investigationProfile.policyHash,
-          }
-        : {}),
-      registeredAt: now,
-    },
-  });
+  if (ids.releaseCandidate) {
+    const registry = composeReviewActionV2ReleaseRegistry(prisma);
+    const registered =
+      await registry.runControl.producerReleases.registerProducerRelease({
+        candidate: ids.releaseCandidate,
+        expectedProtocolLimitsDigest: sha256(
+          canonicalReviewProtocolLimits(limits),
+        ),
+        expectedOperationalSloDigest: sha256(
+          canonicalReviewOperationalSloProfile({
+            thresholds: slos,
+            ownerRefs,
+            runbookRefs,
+          }),
+        ),
+      });
+    const stored = await new PrismaProducerReleaseRepository(
+      prisma,
+    ).findProducerReleaseById(ids.producerReleaseId);
+    if (
+      registered.status !== ImmutableRegistryWriteStatus.Created ||
+      !stored ||
+      producerReleaseImmutableKey(stored) !==
+        producerReleaseImmutableKey(ids.releaseCandidate)
+    )
+      throw new Error("review_v2_e2e_committed_release_registration_mismatch");
+  } else
+    await prisma.producerRelease.create({
+      data: {
+        producerReleaseId: ids.producerReleaseId,
+        distributionKind: "public_reusable",
+        actionCommitSha,
+        runtimeCommitSha,
+        wrapperEntrypointDigest: null,
+        runtimeEntrypointDigest: sha256("runtime-entrypoint"),
+        agentProfilesJson: JSON.stringify(
+          ids.agentProfiles ?? approvedAgentProfilesFixture,
+        ),
+        ...(ids.reviewerPlanProfile
+          ? { reviewerPlanProfile: { ...ids.reviewerPlanProfile } }
+          : {}),
+        ...(ids.prDescriptionProfile
+          ? { prDescriptionProfile: { ...prDescriptionExtensionV1 } }
+          : {}),
+        ...(ids.lifecycleVerificationProfile
+          ? {
+              lifecycleVerificationProfile: {
+                ...lifecycleVerificationExtensionV1,
+              },
+            }
+          : {}),
+        ...(ids.modelDispatchProfile
+          ? { modelDispatchProfile: { ...ids.modelDispatchProfile } }
+          : {}),
+        contextGatewayPolicyVersion:
+          ids.investigationProfile?.gatewayPolicyVersion ??
+          "e2e-gateway-policy-v1",
+        contextGatewayEntrypointDigest: "f".repeat(64),
+        schemaDigest: reviewActionV2PublishedSchemaDigest,
+        capabilityProfile: "exact_revision_v2",
+        protocolLimitsProfileId: ids.protocolLimitsProfileId,
+        operationalSloProfileId: ids.operationalSloProfileId,
+        ...(ids.investigationProfile
+          ? {
+              reviewInvestigationCapability: reviewInvestigationCapabilityV1,
+              reviewInvestigationCoverageProfileHash:
+                ids.investigationProfile.coverageProfileHash,
+              reviewInvestigationPolicyHash:
+                ids.investigationProfile.policyHash,
+            }
+          : {}),
+        registeredAt: now,
+      },
+    });
   const installationId = `${ids.prefix}-installation`;
   if (ids.borrowedWorkspace) {
     await prisma.workspace.findUniqueOrThrow({
@@ -2542,6 +2606,7 @@ async function seedProductionControlPlane(
 }
 
 function productionEnv(input: {
+  readonly releaseCandidate?: ProducerReleaseCandidate;
   readonly agentProfiles?: readonly ReviewAgentProfile[];
   readonly reviewerPlanProfile?: Readonly<{
     planVersion: 1;
@@ -2556,6 +2621,19 @@ function productionEnv(input: {
   readonly lifecycleVerificationProfile?: boolean;
   readonly modelDispatchProfile?: ReviewModelDispatchProfileV2;
 }): Readonly<Record<string, string>> {
+  const release = input.releaseCandidate;
+  const reviewerPlanProfile =
+    release?.reviewerPlanProfile ?? input.reviewerPlanProfile;
+  const prDescriptionProfile =
+    release?.prDescriptionProfile ??
+    (input.prDescriptionProfile ? prDescriptionExtensionV1 : undefined);
+  const lifecycleProfile =
+    release?.lifecycleVerificationProfile ??
+    (input.lifecycleVerificationProfile
+      ? lifecycleVerificationExtensionV1
+      : undefined);
+  const dispatchProfile =
+    release?.modelDispatchProfile ?? input.modelDispatchProfile;
   const contextReplayKeyId = "review-v2-e2e-context-key";
   const signingKeys = JSON.stringify([
     {
@@ -2578,38 +2656,45 @@ function productionEnv(input: {
     REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: JSON.stringify([
       {
         producerReleaseId: input.producerReleaseId,
-        distributionKind: "public_reusable",
-        actionCommitSha,
-        runtimeCommitSha,
-        wrapperEntrypointDigest: null,
-        runtimeEntrypointDigest: sha256("runtime-entrypoint"),
-        agentProfiles: input.agentProfiles ?? approvedAgentProfilesFixture,
-        ...(input.reviewerPlanProfile
-          ? { reviewerPlanProfile: input.reviewerPlanProfile }
+        distributionKind: release?.distributionKind ?? "public_reusable",
+        actionCommitSha: release?.actionCommitSha ?? actionCommitSha,
+        runtimeCommitSha: release?.runtimeCommitSha ?? runtimeCommitSha,
+        wrapperEntrypointDigest: release?.wrapperEntrypointDigest ?? null,
+        runtimeEntrypointDigest:
+          release?.runtimeEntrypointDigest ?? sha256("runtime-entrypoint"),
+        agentProfiles: release
+          ? release.agentProfiles
+          : (input.agentProfiles ?? approvedAgentProfilesFixture),
+        ...(release?.contextToolsProfile
+          ? { contextToolsProfile: release.contextToolsProfile }
           : {}),
-        ...(input.prDescriptionProfile
-          ? { prDescriptionProfile: prDescriptionExtensionV1 }
+        ...(reviewerPlanProfile ? { reviewerPlanProfile } : {}),
+        ...(prDescriptionProfile ? { prDescriptionProfile } : {}),
+        ...(lifecycleProfile
+          ? { lifecycleVerificationProfile: lifecycleProfile }
           : {}),
-        ...(input.lifecycleVerificationProfile
-          ? { lifecycleVerificationProfile: lifecycleVerificationExtensionV1 }
-          : {}),
-        ...(input.modelDispatchProfile
-          ? { modelDispatchProfile: input.modelDispatchProfile }
-          : {}),
-        reviewInvestigationCapability: input.investigationProfile
-          ? reviewInvestigationCapabilityV1
-          : null,
+        ...(dispatchProfile ? { modelDispatchProfile: dispatchProfile } : {}),
+        reviewInvestigationCapability:
+          release?.reviewInvestigationProfile?.capability ??
+          (input.investigationProfile ? reviewInvestigationCapabilityV1 : null),
         reviewInvestigationCoverageProfileHash:
-          input.investigationProfile?.coverageProfileHash ?? null,
+          release?.reviewInvestigationProfile?.coverageProfileHash ??
+          input.investigationProfile?.coverageProfileHash ??
+          null,
         reviewInvestigationPolicyHash:
-          input.investigationProfile?.policyHash ?? null,
+          release?.reviewInvestigationProfile?.policyHash ??
+          input.investigationProfile?.policyHash ??
+          null,
         contextGatewayPolicyVersion:
+          release?.contextGatewayPolicyVersion ??
           input.investigationProfile?.gatewayPolicyVersion ??
           "e2e-gateway-policy-v1",
-        contextGatewayEntrypointDigest: "f".repeat(64),
-        schemaDigest: reviewActionV2PublishedSchemaDigest,
+        contextGatewayEntrypointDigest:
+          release?.contextGatewayEntrypointDigest ?? "f".repeat(64),
+        schemaDigest:
+          release?.schemaDigest ?? reviewActionV2PublishedSchemaDigest,
         canonicalizerDigest: reviewActionV2CanonicalizerDigest,
-        capabilityProfile: "exact_revision_v2",
+        capabilityProfile: release?.capabilityProfile ?? "exact_revision_v2",
         protocolLimitsProfileId: input.protocolLimitsProfileId,
         operationalSloProfileId: input.operationalSloProfileId,
       },

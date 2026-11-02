@@ -10,6 +10,8 @@ export interface MemorySourcePreviewPort {
         readonly body: string;
       };
       readonly maxStatements: number;
+      /** Complete, host-checked thread used to interpret the selected source. */
+      readonly readOnlyContext?: string;
     },
     controls: MemoryRequestControls,
   ): Promise<

@@ -118,14 +118,18 @@ pnpm --dir scripts/accounts-reference-e2e run e2e -- \
   --repo-root "$PWD" \
   --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
   --lifecycle-fixture \
-  --expected-revision f4839fe0ca2329ca54fb3482138a3770a73bc5fc \
+  --expected-revision "$(git rev-parse HEAD)" \
   --work-dir "$PWD/tmp/accounts-reference-e2e/runs/candidate"
 ```
 
-For an integrated candidate, keep `--expected-revision` at the baseline above
-to record the comparison, or pass the candidate revision to make the expected
-revision explicit. Revision mismatch is reported, not silently treated as a
-browser pass.
+An explicit `--expected-revision` must be a lowercase 40-character commit SHA
+matching the requested checkout. A mismatch or unreadable identity exits with
+code `1` before creating the work directory or starting any database, Gateway
+or browser fixture. The checkout's Git top-level must be the requested source
+root; an enclosing repository or the caller's working directory cannot supply
+its identity. Omit the option for normal local runs. A source copy without its
+own Git metadata reports `unknown`; the historical Accounts UX baseline stays
+in the separate `baselineRevision` report field.
 
 ## Exit behavior and artifacts
 
@@ -477,13 +481,30 @@ ACCOUNTS_REFERENCE_E2E_GREP='review runtime readiness' \
 It checks confirmed current, old immutable pin on the same transport, unknown
 pin, pending merge and failed setup states. Dashboard and the authenticated
 search route must agree on which repository is Ready; optimistic merge/provider
-events cannot promote unknown or stale runtime evidence. Existing Update setup
-and Verify setup controls remain distinct. The browser checks 1440px desktop and
-390px mobile, dark/light themes, no horizontal overflow, and the empty search
-state, saving screenshots under the run's `browser-artifacts/` directory.
+events cannot promote unknown or stale runtime evidence. Create update PR and
+Verify setup remain distinct actions; an update is explained as a review-workflow
+change to merge on GitHub. The browser checks 1440px desktop and 390px mobile,
+dark/light themes, one 820px intermediate layout, no horizontal overflow, and the
+empty search state, saving screenshots under the run's `browser-artifacts/`
+directory.
+
+This profile generates a valid application encryption key and seeds a fresh,
+explicitly synthetic read-only GitHub permission-cache observation for a
+repository in the existing foreign workspace. The real cache reader observes a
+successful check without granting the viewer repository or workspace access.
+The browser verifies that the healthy-service notice is absent, the foreign
+workspace/repository remains invisible, and authenticated foreign search is
+denied. It makes no live GitHub OAuth or discovery call. Degraded-service copy
+and unavailable actions are covered separately by focused dashboard rendering
+tests.
 
 The catalog flag replaces only public catalog HTTP dependencies. No page or
 readiness API response is mocked, no real credentials are required, and no setup
 PR or external model request is sent. These checks do not attest an actual
 published caller, live provider/OAuth behavior, GitHub bot publication, or
 deployment fleet retirement; those remain separate final live gates.
+
+The existing `Unified OCR acceptance` workflow can also be started manually
+with `workflow_dispatch` to qualify a selected committed source. Each manual
+run has its own concurrency group and retains the same disposable PostgreSQL,
+read-only permissions, pinned Action/OCR and synthetic external boundaries.

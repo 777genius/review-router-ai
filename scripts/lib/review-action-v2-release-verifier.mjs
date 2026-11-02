@@ -3,6 +3,7 @@ import {
   projectLifecycleVerificationReleaseProfile,
 } from "./review-lifecycle-release-profile.ts";
 import { posix as posixPath } from "node:path";
+import { bindModelDispatchReleaseProfile } from "./review-model-dispatch-release-profile.ts";
 import {
   HANDOFF_MANIFEST_FILE,
   parseContextGatewayReleaseMetadata,
@@ -14,11 +15,13 @@ import {
   PUBLIC_GENERATED_DIRECTORY,
   PUBLIC_RUNTIME_BUNDLE,
   PUBLIC_REVIEW_AGENT_PROFILES,
+  PUBLIC_MODEL_DISPATCH_PROFILE,
   readAgentProfileMetadata,
   sha256Digest,
 } from "./review-action-v2-release-manifests.mjs";
 import {
   assertAncestor,
+  gitText,
   listCommitDirectory,
   readCommitFile,
 } from "./git-release-artifacts.mjs";
@@ -161,7 +164,44 @@ export function verifyPublicActionReleaseCommit(input) {
       ).toString("utf8"),
     ),
   );
+  // Query the exact entry without recursion: even an empty committed tree is
+  // present metadata and must not acquire the historical-absence meaning.
+  const policyRecord = gitText(input.actionRepo, [
+    "ls-tree",
+    "-z",
+    input.actionCommitSha,
+    "--",
+    PUBLIC_MODEL_DISPATCH_PROFILE,
+  ]);
+  let modelDispatchProfile;
+  if (policyRecord) {
+    const records = policyRecord.split("\0").filter(Boolean);
+    const [metadata, entryPath] = records[0].split("\t");
+    const [mode, type] = metadata.split(" ");
+    if (
+      records.length !== 1 ||
+      entryPath !== PUBLIC_MODEL_DISPATCH_PROFILE ||
+      type !== "blob" ||
+      mode !== "100644"
+    )
+      throw new Error(
+        `committed release artifact must be a regular file: ${PUBLIC_MODEL_DISPATCH_PROFILE}`,
+      );
+    const bytes = readCommitFile(
+      input.actionRepo,
+      input.actionCommitSha,
+      PUBLIC_MODEL_DISPATCH_PROFILE,
+    );
+    if (bytes.length > 16_384)
+      throw new Error("model dispatch release profile is oversized");
+    modelDispatchProfile = bindModelDispatchReleaseProfile(
+      JSON.parse(bytes.toString("utf8")),
+      handoff.generatedFileDigests,
+      agentProfiles,
+    );
+  }
   return Object.freeze({
+    ...(modelDispatchProfile === undefined ? {} : { modelDispatchProfile }),
     ...(lifecycleVerificationProfile === undefined
       ? {}
       : { lifecycleVerificationProfile }),

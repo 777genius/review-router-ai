@@ -8,26 +8,64 @@ import {
   corpusEventId,
   corpusEventMessages,
   type CorpusThread,
+  type CorpusName,
 } from "./corpus.js";
+import {
+  assertEvaluationNativeScope,
+  evaluationMissingKeys,
+  gatewayCandidateMechanism,
+  readCandidateModels,
+} from "./configuration.js";
+
+import { gatewayCandidateCleanupSettled } from "./gateway-receipt.js";
+import {
+  evaluationBoundaryDiagnostic,
+  type EvaluationPhase,
+} from "./boundary-diagnostic.js";
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string) => {
   const index = args.indexOf(name);
   return index < 0 ? fallback : (args[index + 1] ?? fallback);
 };
-const corpus = await loadCorpus();
+const corpusName = option("--corpus", "legacy-v1") as CorpusName;
+const corpus = await loadCorpus(corpusName);
+const scenarioIndex = args.indexOf("--scenario");
+const diagnosticScenario =
+  scenarioIndex < 0 ? undefined : args[scenarioIndex + 1];
+if (scenarioIndex >= 0) {
+  if (
+    args.filter((argument) => argument === "--scenario").length !== 1 ||
+    !diagnosticScenario ||
+    diagnosticScenario.startsWith("--")
+  )
+    throw new Error("eval_scenario_required");
+  if (args.includes("--validate") || option("--split", "tuning") !== "tuning")
+    throw new Error("eval_scenario_tuning_only");
+  if (
+    !corpus.threads.some(
+      (thread) =>
+        thread.split === "tuning" && thread.scenario === diagnosticScenario,
+    )
+  )
+    throw new Error("eval_scenario_unknown");
+}
 if (args.includes("--validate")) {
   console.log(
     JSON.stringify(
       {
         status: "VALID",
         revision: corpus.revision,
-        threads: 48,
-        tuning: 32,
-        holdout: 16,
+        threads: corpus.threads.length,
+        tuning: corpus.threads.filter((thread) => thread.split === "tuning")
+          .length,
+        holdout: corpus.threads.filter((thread) => thread.split === "holdout")
+          .length,
         humanEvents: corpus.threads.reduce((n, t) => n + t.events.length, 0),
         eligibleFacts: corpus.facts.length,
-        linkedPairs: 8,
+        linkedPairs: corpus.threads.filter(
+          (thread) => thread.linked && thread.phase === "A",
+        ).length,
       },
       null,
       2,
@@ -62,19 +100,31 @@ if (args.includes("--validate")) {
     version: string;
     runId: string;
     corpusRevision: string;
+    corpusName: CorpusName;
     split: string;
     holdoutCheckpoint: string | null;
     status: string;
+    diagnosticScenario?: string;
+    qualificationEligible?: false;
+    reason?: "diagnostic_subset_not_qualification";
     profile: Record<string, unknown>;
     variants: Record<string, unknown>[];
   } = {
     version: "conversation-quality-results.v1",
     runId,
     corpusRevision: corpus.revision,
+    corpusName,
     split,
     holdoutCheckpoint:
       process.env.CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID ?? null,
     status: "UNAVAILABLE",
+    ...(diagnosticScenario
+      ? {
+          diagnosticScenario,
+          qualificationEligible: false as const,
+          reason: "diagnostic_subset_not_qualification" as const,
+        }
+      : {}),
     profile: {
       nativeQualificationDigest: process.env
         .REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_QUALIFICATION
@@ -97,6 +147,15 @@ if (args.includes("--validate")) {
         : null,
       connectionClass: "selected-review-account-gateway",
       productionActivated: false,
+      extractionMechanism: variants.includes("full-product")
+        ? gatewayCandidateMechanism
+        : "historical-native-preview",
+      candidateModelBoundsDigest: process.env
+        .CONVERSATION_EVAL_MODEL_BOUNDS_JSON
+        ? createHash("sha256")
+            .update(process.env.CONVERSATION_EVAL_MODEL_BOUNDS_JSON)
+            .digest("hex")
+        : null,
     },
     variants: [],
   };
@@ -126,12 +185,48 @@ if (args.includes("--validate")) {
       ),
     )
     .digest("hex");
+  report.profile.gatewayPreviewSourceDigest = createHash("sha256")
+    .update(
+      await readFile(
+        new URL(
+          "../../apps/api/src/action-conversation-memory-preview.ts",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex");
+  report.profile.accountPolicySourceDigest = createHash("sha256")
+    .update(
+      await readFile(
+        new URL(
+          "../../apps/api/src/action-conversation-policy.ts",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex");
+  report.profile.gatewaySdkProvenanceDigest = createHash("sha256")
+    .update(
+      await readFile(
+        new URL(
+          "../../vendor/account-gateway/llm-sdk-provenance.json",
+          import.meta.url,
+        ),
+      ),
+    )
+    .digest("hex");
   let prisma: PrismaClient | undefined;
+  let phase: EvaluationPhase = "configuration";
   try {
     if (split === "holdout" && !report.holdoutCheckpoint)
       throw new Error("eval_holdout_checkpoint_required");
-    const threads = corpus.threads.filter((thread) => thread.split === split);
+    const threads = corpus.threads.filter(
+      (thread) =>
+        thread.split === split &&
+        (!diagnosticScenario || thread.scenario === diagnosticScenario),
+    );
     for (const variant of variants) {
+      phase = "configuration";
       if (variant === "parser-baseline") {
         if (!process.env.REVIEW_ROUTER_ACTION_SOURCE_DIR) {
           report.variants.push({
@@ -141,6 +236,7 @@ if (args.includes("--validate")) {
           });
           continue;
         }
+        phase = "parser_import";
         const { parseMemoryInteraction } = (await import(
           pathToFileURL(
             resolve(
@@ -153,6 +249,7 @@ if (args.includes("--validate")) {
             instructions: { type: string; candidateBody?: string }[];
           };
         };
+        phase = "parser_execution";
         const observations = threads.flatMap((thread) =>
           thread.events.map((event) => ({
             eventId: corpusEventId(thread, event),
@@ -177,17 +274,7 @@ if (args.includes("--validate")) {
         continue;
       }
       const database = process.env.CONVERSATION_EVAL_DATABASE_URL;
-      const missing = [
-        "REVIEW_ROUTER_MEMORY_HINDSIGHT_URL",
-        "REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY",
-        "REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_QUALIFICATION",
-        "REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_MISSION",
-        "REVIEW_ROUTER_CONVERSATION_QUALIFICATION",
-        "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
-        "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
-        "CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID",
-        "CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID",
-      ].filter((key) => !process.env[key]);
+      const missing = evaluationMissingKeys(variant, process.env);
       if (
         process.env.CONVERSATION_EVAL_LIVE !== "1" ||
         process.env.CONVERSATION_EVAL_DISPOSABLE !== "1" ||
@@ -208,9 +295,16 @@ if (args.includes("--validate")) {
         !url.pathname.endsWith("_test")
       )
         throw new Error("eval_requires_disposable_loopback_database");
+      assertEvaluationNativeScope(process.env);
+      const candidateModels =
+        variant === "full-product"
+          ? readCandidateModels(process.env.CONVERSATION_EVAL_MODEL_BOUNDS_JSON)
+          : undefined;
+      phase = "runtime_import";
       const { PrismaClient } = await import("@prisma/client");
       const { PrismaPg } = await import("@prisma/adapter-pg");
       const { createEvaluationFixture } = await import("./fixture.js");
+      phase = "database_client";
       prisma ??= new PrismaClient({
         adapter: new PrismaPg({ connectionString: database, max: 4 }),
       });
@@ -221,21 +315,47 @@ if (args.includes("--validate")) {
           thread,
         ]);
       const scenarios: Record<string, unknown>[] = [];
+      const variantResult = { variant, status: "UNAVAILABLE", scenarios };
+      report.variants.push(variantResult);
+      let gatewayCleanupUnsettled = false;
       for (const [scenario, scenarioThreads] of grouped) {
+        phase = "fixture_creation";
         const fixture = await createEvaluationFixture({
           prisma,
           env: process.env,
           runId: `${runId}:${variant}`,
           scenario,
+          corpusName,
+          repositoryKeys: [
+            ...new Set(
+              scenarioThreads.map((thread) => thread.repositoryKey ?? "main"),
+            ),
+          ],
           template: {
             workspaceId: process.env.CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID!,
             repositoryId: process.env.CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID!,
           },
+          variant:
+            variant === "native-selection-only"
+              ? "native-selection-only"
+              : "full-product",
+          ...(candidateModels ? { candidateModels } : {}),
         });
+        phase = "cold_start";
         const coldStart = await fixture.coldStart();
         const observations: unknown[] = [];
+        scenarios.push({
+          scenario,
+          namespace: fixture.namespace,
+          scope: fixture.scope,
+          scopes: fixture.scopes,
+          processingScope: fixture.processingScope,
+          coldStart,
+          observations,
+        });
         for (const thread of scenarioThreads) {
           for (const event of thread.events) {
+            phase = "event_execution";
             if (variant === "native-selection-only")
               observations.push({
                 eventId: corpusEventId(thread, event),
@@ -243,10 +363,24 @@ if (args.includes("--validate")) {
                 durableEffects: 0,
                 productAnswer: null,
               });
-            else observations.push(await fixture.run(thread, event));
+            else {
+              const witness = await fixture.run(thread, event);
+              observations.push(witness);
+              if (!gatewayCandidateCleanupSettled(witness)) {
+                gatewayCleanupUnsettled = true;
+                break;
+              }
+            }
           }
+          if (gatewayCleanupUnsettled) break;
           if (thread.afterMutation && variant === "full-product") {
+            phase = "mutation";
             const mutation = await fixture.mutate(thread.afterMutation.kind);
+            const mutationObservation: {
+              mutation: typeof mutation;
+              followup?: unknown;
+            } = { mutation };
+            observations.push(mutationObservation);
             const repeated = structuredClone(thread);
             const id = `${thread.id}-after-mutation-${runId}`;
             const time = new Date().toISOString();
@@ -260,6 +394,7 @@ if (args.includes("--validate")) {
               updatedAt: time,
               replyTo: repeated.messages[0]!.id,
             });
+            phase = "mutation_followup";
             const followup = await fixture.run(repeated, {
               messageId: id,
               action: "created",
@@ -269,58 +404,58 @@ if (args.includes("--validate")) {
               forbiddenEffects: [],
               criticalSlices: [],
             });
+            mutationObservation.followup = followup;
             if (
               followup.deliveredBodyDigests.some((hash) =>
                 mutation.revokedBodyDigests.includes(hash),
               )
             )
               throw new Error("eval_revoked_memory_delivered_after_mutation");
-            observations.push({ mutation, followup });
+            if (!gatewayCandidateCleanupSettled(followup)) {
+              gatewayCleanupUnsettled = true;
+              break;
+            }
           }
         }
-        scenarios.push({
-          scenario,
-          namespace: fixture.namespace,
-          scope: fixture.scope,
-          coldStart,
-          observations,
-        });
+        // Preserve the actual witness and stop; a new paid attempt cannot settle cleanup debt.
+        if (gatewayCleanupUnsettled) break;
       }
-      const incomplete = scenarios.some((scenario) =>
-        (scenario.observations as Record<string, unknown>[]).some(
-          (observation) => {
-            const actual = (observation.followup ?? observation) as Record<
-              string,
-              unknown
-            >;
-            return (
-              [
-                "unavailable",
-                "output_unavailable",
-                "unknown",
-                "context_incomplete",
-                "stale",
-              ].includes(String(actual.status)) ||
-              (typeof actual.selection === "object" &&
-                actual.selection !== null &&
-                !["complete", "not_applicable"].includes(
-                  String((actual.selection as { status?: string }).status),
-                ))
-            );
-          },
-        ),
-      );
-      report.variants.push({
-        variant,
-        status: incomplete ? "UNAVAILABLE" : "AWAITING_HUMAN_RUBRIC",
-        scenarios,
-      });
+      phase = "result_assembly";
+      const incomplete =
+        gatewayCleanupUnsettled ||
+        scenarios.some((scenario) =>
+          (scenario.observations as Record<string, unknown>[]).some(
+            (observation) => {
+              const actual = (observation.followup ?? observation) as Record<
+                string,
+                unknown
+              >;
+              return (
+                [
+                  "unavailable",
+                  "output_unavailable",
+                  "unknown",
+                  "context_incomplete",
+                  "stale",
+                ].includes(String(actual.status)) ||
+                (typeof actual.selection === "object" &&
+                  actual.selection !== null &&
+                  !["complete", "not_applicable"].includes(
+                    String((actual.selection as { status?: string }).status),
+                  ))
+              );
+            },
+          ),
+        );
+      variantResult.status = incomplete
+        ? "UNAVAILABLE"
+        : "AWAITING_HUMAN_RUBRIC";
     }
-    report.status = report.variants.some(
-      (result) => result.status === "UNAVAILABLE",
-    )
-      ? "UNAVAILABLE"
-      : "AWAITING_HUMAN_RUBRIC";
+    report.status =
+      diagnosticScenario !== undefined ||
+      report.variants.some((result) => result.status === "UNAVAILABLE")
+        ? "UNAVAILABLE"
+        : "AWAITING_HUMAN_RUBRIC";
   } catch (error) {
     report.status = "UNAVAILABLE";
     report.variants.push({
@@ -329,6 +464,7 @@ if (args.includes("--validate")) {
         error instanceof Error && /^[a-zA-Z0-9_:-]{1,160}$/.test(error.message)
           ? error.message
           : "evaluation_boundary_failed",
+      diagnostic: evaluationBoundaryDiagnostic(phase, error),
     });
   } finally {
     await prisma?.$disconnect();
@@ -339,6 +475,13 @@ if (args.includes("--validate")) {
     JSON.stringify(
       {
         status: report.status,
+        ...(diagnosticScenario
+          ? {
+              diagnosticScenario,
+              qualificationEligible: false,
+              reason: "diagnostic_subset_not_qualification",
+            }
+          : {}),
         runId,
         output,
         variants: report.variants.map((result) => ({

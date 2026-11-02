@@ -21,7 +21,7 @@ node fleet-overlay.mjs apply   $R/fleet-overlay-<id> $R/overlay-inputs-<id>/over
 `overlay-spec.json` is owned by root with mode 0600 and contains `machineId`, `network`, `expectedImage`,
 `expectedRevision`, container `names`, `updates` and optionally `extraHosts`:
 
-- `updates`: `{ key, op: "set" | "appendCsv" | "appendJsonArray", value, roles?, containerOnly? }`. A targeted key must
+- `updates`: `{ key, op: "add" | "set" | "appendCsv" | "appendJsonArray", value, roles?, containerOnly? }`. `add` requires the key to be absent from both the container and canonical env file, then appends it to both. This supports first-time backend configuration without overwriting an existing opt-out. Other operations require a targeted key to
   already exist on every targeted role, and in the canonical env file exactly once, unless `containerOnly` is set
   (for values that were injected at container creation and are not in the canonical file). `set`/`appendCsv` values
   are non-empty strings without control characters; `appendJsonArray` takes an object.

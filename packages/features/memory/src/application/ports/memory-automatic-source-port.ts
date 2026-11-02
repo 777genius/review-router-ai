@@ -4,6 +4,7 @@ import type {
   MemoryKnowledgeScope,
   MemoryKnowledgeSource,
   MemoryEntryRef,
+  MemoryAutomaticContextEvidence,
 } from "../../domain/memory-knowledge";
 import type { MemoryRequestControls } from "./memory-knowledge-provider-port";
 
@@ -19,14 +20,21 @@ export type MemoryAutomaticSourceInput = {
   readonly threadDigest: string;
   readonly headSha: string;
   readonly selectableBody: string;
+  /** Transient checked chronology; never persisted as provider content. */
+  readonly readOnlyContext?: string;
+  readonly contextEvidence?: MemoryAutomaticContextEvidence;
+  readonly requireConfirmation?: boolean;
+  readonly settingsRevision?: string;
 };
 export type MemoryAutomaticLearningResult = {
   readonly state:
     | "queued"
     | "active"
     | "suppressed"
+    | "confirmation_required"
     | "needs_refresh"
     | "unavailable";
+  readonly proposals?: readonly string[];
   readonly cohortId: string;
   readonly entryIds: readonly string[];
   readonly operations: readonly MemoryKnowledgeOperation[];
@@ -121,6 +129,7 @@ export interface MemoryAutomaticSourceStore {
     readonly sourceId: string;
     readonly expectedEpoch: string;
     readonly expectedSuppressionEpoch: string;
+    readonly automaticSettingsRevision?: string;
     readonly entry?: {
       readonly ref: MemoryEntryRef;
       readonly generation: string;
@@ -143,7 +152,10 @@ export interface MemoryAutomaticSourceCurrentPort {
       readonly source: MemoryKnowledgeSource;
       readonly binding: Pick<
         MemoryAutomaticSourceBinding,
-        "policyRevision" | "sourceActorId" | "observedCommitSha"
+        | "policyRevision"
+        | "sourceActorId"
+        | "observedCommitSha"
+        | "contextEvidence"
       >;
     },
     controls: MemoryRequestControls,

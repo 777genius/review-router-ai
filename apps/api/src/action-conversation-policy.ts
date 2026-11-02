@@ -1,15 +1,16 @@
 import { createHash } from "node:crypto";
 import {
-  conversationScopeQualified,
+  conversationCapabilityAppliesToScope,
   type ConversationQualification,
 } from "@reviewrouter/platform-config";
 export {
   readConversationQualification,
-  conversationScopeQualified,
+  conversationCapabilityAppliesToScope,
   type ConversationQualification,
 } from "@reviewrouter/platform-config";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import { executionConnector } from "@agent-teams/account-gateway/llm";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-action-control-plane";
@@ -27,6 +28,7 @@ import {
   ConversationError,
   conversationDigest,
   type ConversationPolicyPort,
+  type ConversationPolicy,
   type RequestControls,
 } from "@reviewrouter/features-conversations";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
@@ -73,7 +75,10 @@ export function createConversationPublicationAuthority(input: {
     try {
       if (
         !record.boundManifest ||
-        !conversationScopeQualified(input.qualification, record.identity)
+        !conversationCapabilityAppliesToScope(
+          input.qualification,
+          record.identity,
+        )
       )
         return false;
       const manifest = JSON.parse(record.boundManifest) as {
@@ -86,6 +91,13 @@ export function createConversationPublicationAuthority(input: {
         manifest.publication?.enabled !== true ||
         !captured ||
         typeof captured.bindingId !== "string"
+      )
+        return false;
+      if (
+        input.qualification.profileVersion === 2
+          ? captured.qualificationCapabilityDigest !==
+            conversationDigest(input.qualification)
+          : captured.qualificationCapabilityDigest !== undefined
       )
         return false;
       const policy = await input.runtime.policy.getPolicy(record.identity);
@@ -223,18 +235,122 @@ export async function admitConversationDispatch(
   });
   return true;
 }
-export function createConversationPolicy(input: {
+export type ConversationCapturedPolicy = {
+  readonly policy: ConversationPolicy;
+  /** The same capture cannot buy child work while its parent grant has cleanup debt. */
+  readonly inferenceCleanupPending?: () => boolean;
+  readonly checkSelection: (
+    transaction: Prisma.TransactionClient,
+  ) => Promise<boolean>;
+};
+
+type ConversationPolicyConstruction = {
   readonly prisma: PrismaClient;
   readonly runtime: MemoryKnowledgeRuntime;
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly qualification: ConversationQualification;
+  readonly onCaptured?: (value: ConversationCapturedPolicy) => void;
   readonly admitMemory: (
     transaction: Prisma.TransactionClient,
     now: Date,
   ) => Promise<boolean>;
-}): ConversationPolicyPort {
-  const env = input.env,
-    q = input.qualification;
+};
+export type ConversationOperationalModelBounds =
+  ConversationQualification["models"][number];
+type CandidateMemoryPolicy = Awaited<
+  ReturnType<MemoryKnowledgeRuntime["policy"]["getPolicy"]>
+>;
+
+/** Disposable scopes may tighten, never relax, their selected template's policy. */
+export function conversationCandidateMemoryPolicy(
+  template: CandidateMemoryPolicy,
+  disposable: CandidateMemoryPolicy,
+): CandidateMemoryPolicy {
+  return {
+    ...disposable,
+    memoryEnabled: template.memoryEnabled && disposable.memoryEnabled,
+    automaticLearning:
+      template.automaticLearning && disposable.automaticLearning,
+    requireConfirmation:
+      template.requireConfirmation || disposable.requireConfirmation,
+  };
+}
+type ConversationCaptureMode =
+  | {
+      readonly kind: "qualified";
+      readonly qualification: ConversationQualification;
+    }
+  | {
+      readonly kind: "candidate";
+      readonly candidateRunId: string;
+      readonly template: {
+        readonly workspaceId: string;
+        readonly repositoryId: string;
+        readonly repositoryStableId: string;
+      };
+      readonly models: readonly ConversationOperationalModelBounds[];
+    };
+
+export function createConversationPolicy(
+  input: ConversationPolicyConstruction & {
+    readonly qualification: ConversationQualification;
+  },
+): ConversationPolicyPort {
+  return createSelectedAccountPolicy(input, {
+    kind: "qualified",
+    qualification: input.qualification,
+  });
+}
+
+/** Explicit operator constructor for synthetic candidate measurement. No environment
+ * capability activates this path, and its manifests contain no qualification proof. */
+export function createConversationCandidatePolicy(
+  input: ConversationPolicyConstruction &
+    Omit<Extract<ConversationCaptureMode, { kind: "candidate" }>, "kind">,
+): ConversationPolicyPort {
+  if (
+    !/^[A-Za-z0-9_:-]{1,200}$/.test(input.candidateRunId) ||
+    !/^[0-9]{1,30}$/.test(input.template.repositoryStableId) ||
+    !input.template.workspaceId ||
+    !input.template.repositoryId ||
+    input.models.length < 1 ||
+    input.models.length > 128 ||
+    input.models.some(
+      (model) =>
+        !model ||
+        typeof model !== "object" ||
+        typeof model.profileId !== "string" ||
+        typeof model.model !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(model.profileId) ||
+        !model.model ||
+        model.model.length > 128 ||
+        !Number.isInteger(model.contextWindowTokens) ||
+        model.contextWindowTokens < 4096 ||
+        model.contextWindowTokens > 2_000_000 ||
+        !Number.isFinite(model.tokensPerByteUpperBound) ||
+        model.tokensPerByteUpperBound < 1 ||
+        model.tokensPerByteUpperBound > 4,
+    )
+  )
+    throw new ConversationError("unavailable");
+  return createSelectedAccountPolicy(input, {
+    kind: "candidate",
+    candidateRunId: input.candidateRunId,
+    template: input.template,
+    models: input.models,
+  });
+}
+
+function createSelectedAccountPolicy(
+  input: ConversationPolicyConstruction,
+  mode: ConversationCaptureMode,
+): ConversationPolicyPort {
+  const env = input.env;
+  const models =
+    mode.kind === "qualified" ? mode.qualification.models : mode.models;
+  const revisionEvidence =
+    mode.kind === "qualified"
+      ? mode.qualification.proofId
+      : `candidate-eval:${mode.candidateRunId}`;
   const repositories = new PrismaActionControlPlaneRepository(input.prisma);
   const personalAccountsEnabled = readPersonalAccountSharingEnabled(env);
   const accounts = new PrismaProviderAccountRepository(
@@ -253,9 +369,30 @@ export function createConversationPolicy(input: {
   const origin = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN,
     bearer = env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER;
   return {
-    async capture(identity, processingId, controls) {
+    async capture(processingIdentity, processingId, controls) {
       if (
-        !conversationScopeQualified(q, identity) ||
+        mode.kind === "candidate" &&
+        (!/^eval_[a-f0-9]{40}(?:_[A-Za-z0-9_-]{1,64})?$/.test(
+          processingIdentity.repositoryId,
+        ) ||
+          processingIdentity.workspaceId !==
+            `${processingIdentity.repositoryId.slice(0, 45)}_workspace` ||
+          processingIdentity.repositoryStableId !==
+            `synthetic:${processingIdentity.repositoryId}` ||
+          processingIdentity.repositoryFullName !==
+            `disposable/${processingIdentity.repositoryId}`)
+      )
+        throw new ConversationError("forbidden");
+      const identity =
+        mode.kind === "candidate"
+          ? { ...processingIdentity, ...mode.template }
+          : processingIdentity;
+      if (
+        (mode.kind === "qualified" &&
+          !conversationCapabilityAppliesToScope(
+            mode.qualification,
+            identity,
+          )) ||
         !origin ||
         !bearer ||
         !relay ||
@@ -275,6 +412,21 @@ export function createConversationPolicy(input: {
             repositoryId: identity.repositoryId,
             mode: "shared",
           },
+          ...(mode.kind === "candidate"
+            ? [
+                {
+                  scope: "workspace" as const,
+                  workspaceId: processingIdentity.workspaceId,
+                  mode: "shared" as const,
+                },
+                {
+                  scope: "repository" as const,
+                  workspaceId: processingIdentity.workspaceId,
+                  repositoryId: processingIdentity.repositoryId,
+                  mode: "shared" as const,
+                },
+              ]
+            : []),
         ]);
         const before = await repositories.findRuntimeReviewConfiguration(
           identity,
@@ -308,7 +460,15 @@ export function createConversationPolicy(input: {
           selection,
           env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
         );
-        const policy = await input.runtime.policy.getPolicy(identity);
+        const templatePolicy = await input.runtime.policy.getPolicy(identity);
+        const memoryPolicy =
+          mode.kind === "candidate"
+            ? await input.runtime.policy.getPolicy(processingIdentity)
+            : templatePolicy;
+        const policy =
+          mode.kind === "candidate"
+            ? conversationCandidateMemoryPolicy(templatePolicy, memoryPolicy)
+            : templatePolicy;
         if (
           !binding.profileRef ||
           binding.profileRef !== provider.gatewayProfileRef
@@ -319,12 +479,13 @@ export function createConversationPolicy(input: {
           binding: { ...binding, profileRef: provider.gatewayProfileRef },
           selection,
           policy,
+          ...(mode.kind === "candidate" ? { templatePolicy } : {}),
           configurationDigest: conversationDigest(current),
         };
       };
       const capture = () => input.prisma.$transaction(captureWithin);
       const selected = await capture();
-      const modelQualification = q.models.filter(
+      const modelQualification = models.filter(
         (model) =>
           model.profileId === selected.binding.profileRef &&
           model.model === selected.provider.model,
@@ -349,9 +510,11 @@ export function createConversationPolicy(input: {
         timeoutMs: Math.min(10_000, relay.requestTimeoutMs),
         responseBytes: accountModelCatalogResponseBytes,
       });
+      let inferenceCleanupPending = false;
       const remoteCurrent = async (budget: RequestControls) => {
         try {
           if (
+            inferenceCleanupPending ||
             budget.signal?.aborted ||
             Date.now() >= budget.deadlineAt.getTime() ||
             conversationDigest(await capture()) !== conversationDigest(selected)
@@ -435,23 +598,33 @@ export function createConversationPolicy(input: {
         ...selected.binding,
         model: selected.provider.model,
         configurationDigest: selected.configurationDigest,
-        qualificationProofId: q.proofId,
+        ...(mode.kind === "qualified"
+          ? {
+              qualificationProofId: mode.qualification.proofId,
+              ...(mode.qualification.profileVersion === 2
+                ? {
+                    qualificationCapabilityDigest: conversationDigest(
+                      mode.qualification,
+                    ),
+                  }
+                : {}),
+            }
+          : { candidateEvaluationRunId: mode.candidateRunId }),
+        memorySettings: {
+          requireConfirmation: selected.policy.requireConfirmation,
+          revision: selected.policy.settingsRevision,
+          ...(selected.templatePolicy
+            ? { templateRevision: selected.templatePolicy.settingsRevision }
+            : {}),
+        },
         limits,
         deadline: controls.deadlineAt.toISOString(),
       };
       if (!(await remoteCurrent(controls)))
         throw new ConversationError("unavailable");
       const inference = createConversationGatewayInference({
-        runAccess: {
-          origin,
-          runControlBearer: bearer,
-          timeoutMs: Math.min(60_000, relay.requestTimeoutMs),
-          ...(env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN
-            ? {
-                controlOrigin: env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN,
-              }
-            : {}),
-        },
+        control,
+        connectExecution: executionConnector({ origin }),
         prepare: {
           operationId: `rr-conversation-${processingId}`,
           invocationRef: `rr-conversation-${processingId}`,
@@ -464,7 +637,6 @@ export function createConversationPolicy(input: {
           limits,
           deadline: controls.deadlineAt.toISOString(),
         },
-        requestId: `rr-conversation-${processingId}-request`,
         model: selected.provider.model,
         ...(selected.binding.expectedAuthorizationEpoch !== undefined
           ? {
@@ -477,8 +649,8 @@ export function createConversationPolicy(input: {
           input.prisma.$transaction((transaction) =>
             admitConversationDispatch(transaction, {
               processingId,
-              workspaceId: identity.workspaceId,
-              repositoryId: identity.repositoryId,
+              workspaceId: processingIdentity.workspaceId,
+              repositoryId: processingIdentity.repositoryId,
               bindingManifest,
               admitMemory: input.admitMemory,
               checkSelection: async (tx) => {
@@ -504,24 +676,32 @@ export function createConversationPolicy(input: {
             }),
           ),
         async onObserved(value) {
+          inferenceCleanupPending = value.cleanup === "pending";
           await input.prisma.conversationProcessing.updateMany({
             where: {
               id: processingId,
-              workspaceId: identity.workspaceId,
-              repositoryId: identity.repositoryId,
+              workspaceId: processingIdentity.workspaceId,
+              repositoryId: processingIdentity.repositoryId,
             },
             data: {
               observedModel: value.model,
               ...(value.usage ? { observedUsage: value.usage } : {}),
-              requestEffect: "completed",
+              requestEffect: inferenceCleanupPending
+                ? "cleanup_pending"
+                : value.effect,
             },
           });
         },
       });
-      return {
-        revision: `${selected.policy.policyVersion}:${selected.policy.safetyPolicyVersion}:${q.proofId}`,
+      const policy: ConversationPolicy = {
+        revision: `${selected.policy.policyVersion}:${selected.policy.safetyPolicyVersion}:${revisionEvidence}`,
         automaticLearning:
-          selected.policy.memoryEnabled && selected.policy.automaticLearning,
+          (mode.kind === "candidate" ||
+            mode.qualification.sourceProcessingProfile ===
+              "transient-checked-inline-gateway-full-thread-v1") &&
+          selected.policy.memoryEnabled &&
+          selected.policy.automaticLearning,
+        requireConfirmation: selected.policy.requireConfirmation,
         discussionReplies: true,
         contextWindowTokens: modelQualification[0]!.contextWindowTokens,
         tokensPerByteUpperBound: modelQualification[0]!.tokensPerByteUpperBound,
@@ -530,6 +710,34 @@ export function createConversationPolicy(input: {
         bindingManifest,
         isCurrent: remoteCurrent,
       };
+      input.onCaptured?.({
+        policy,
+        inferenceCleanupPending: () => inferenceCleanupPending,
+        checkSelection: async (transaction) => {
+          try {
+            if (
+              inferenceCleanupPending ||
+              conversationDigest(await captureWithin(transaction)) !==
+                conversationDigest(selected)
+            )
+              return false;
+            return !!(await transaction.repositoryConnection.findFirst({
+              where: {
+                id: identity.repositoryId,
+                workspaceId: identity.workspaceId,
+                selected: true,
+                archived: false,
+                githubRepositoryId: BigInt(identity.repositoryStableId),
+                installation: { status: "active" },
+              },
+              select: { id: true },
+            }));
+          } catch {
+            return false;
+          }
+        },
+      });
+      return policy;
     },
   };
 }

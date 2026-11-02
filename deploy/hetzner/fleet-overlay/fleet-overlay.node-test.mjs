@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   nextValue,
   roleUpdates,
+  roleContainerOnly,
   applyEnvList,
   applyCanonical,
   roleExtraHosts,
@@ -41,6 +42,31 @@ test("env list keeps order and only touches updated keys", () => {
     "B=9",
     "C=3",
   ]);
+});
+test("adding configuration requires absence in both container and canonical environment", () => {
+  const env = new Map([["A", "1"]]);
+  const updates = roleUpdates("api", env, [
+    { key: "MEMORY", op: "add", value: "configured" },
+  ]);
+  assert.deepEqual(applyEnvList(["A=1"], updates), [
+    "A=1",
+    "MEMORY=configured",
+  ]);
+  assert.equal(
+    applyCanonical("A=1\n", env, updates),
+    "A=1\nMEMORY=configured\n",
+  );
+  assert.throws(
+    () =>
+      roleUpdates("api", new Map([["MEMORY", "disabled"]]), [
+        { key: "MEMORY", op: "add", value: "configured" },
+      ]),
+    /update_key_exists/,
+  );
+  assert.throws(
+    () => applyCanonical("A=1\nMEMORY=disabled\n", env, updates),
+    /canonical_key_exists/,
+  );
 });
 test("canonical update requires the file to match the container value", () => {
   const text = "A=1\nB=2\nC=3\n";
@@ -127,5 +153,46 @@ test("plannedConfig with a target swaps Image and OCI labels, keeps other labels
   assert.equal(
     baseline.Labels["org.opencontainers.image.revision"],
     "a".repeat(40),
+  );
+});
+
+test("container-only updates cannot bypass canonical additions or another role", () => {
+  assert.throws(
+    () =>
+      roleUpdates("api", new Map(), [
+        { key: "MEMORY", op: "add", value: "configured", containerOnly: true },
+      ]),
+    /spec_add_requires_canonical/,
+  );
+  const updates = [
+    {
+      key: "MEMORY",
+      op: "set",
+      value: "configured",
+      roles: ["web"],
+      containerOnly: true,
+    },
+  ];
+  assert.deepEqual([...roleContainerOnly("web", updates)], ["MEMORY"]);
+  assert.deepEqual([...roleContainerOnly("api", updates)], []);
+  assert.throws(
+    () =>
+      applyCanonical(
+        "MEMORY=disabled\n",
+        new Map(),
+        new Map([["MEMORY", "configured"]]),
+        roleContainerOnly("web", updates),
+      ),
+    /spec_add_requires_canonical/,
+  );
+  assert.throws(
+    () =>
+      applyCanonical(
+        "MEMORY=disabled\n",
+        new Map(),
+        new Map([["MEMORY", "configured"]]),
+        roleContainerOnly("api", updates),
+      ),
+    /canonical_key_exists/,
   );
 });
