@@ -69,7 +69,7 @@ SET LOCAL search_path = pg_catalog, public;
 SET LOCAL lock_timeout = '5000ms';
 SET LOCAL statement_timeout = '120000ms';
 SET LOCAL ROLE reviewrouter;
-DO $
+DO $$
 BEGIN
   IF current_database() <> 'review_router_dimy' THEN
     RAISE EXCEPTION 'unexpected database %', current_database();
@@ -244,7 +244,7 @@ BEGIN
     RAISE EXCEPTION 'worker repository sync grant verification failed';
   END IF;
 END
-$;
+$$;
 COMMIT;
 -- The session is no longer allowed to retain the activation exclusion.
 SELECT pg_catalog.pg_advisory_unlock(1381126735, 1129271120);
