@@ -185,7 +185,7 @@ test("three independent human-scored runs expose variation without fabricated se
     results: [{
       variant: "full-product",
       status: "PASS",
-      metrics,
+      metrics: structuredClone(metrics),
       unauthorizedEffects: 0,
       boundViolations: 0,
       missingRequiredEffects: 0,
