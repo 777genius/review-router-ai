@@ -181,7 +181,9 @@ try {
         freeControlPlanes[0].offers?.price !== "0" ||
         freeControlPlanes[0].offers?.priceCurrency !== "USD"
       ) {
-        await fail("home missing the current free CI control-plane structured offer");
+        await fail(
+          "home missing the current free CI control-plane structured offer",
+        );
       }
     }
     if (
@@ -232,7 +234,11 @@ try {
     },
     {
       path: "/agents.md",
-      required: ["# How AI assistants", "setup PR", "not available for purchase"],
+      required: [
+        "# How AI assistants",
+        "setup PR",
+        "not available for purchase",
+      ],
     },
   ];
   for (const { path, required } of discoveryResources) {

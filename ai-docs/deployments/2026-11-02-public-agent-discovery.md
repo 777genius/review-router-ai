@@ -2,14 +2,15 @@
 
 - Task ID: `2026-11-02-public-agent-discovery`.
 - Implementation: [PR #786](https://github.com/777genius/review-router-ai/pull/786); reviewed implementation revision [`15b115f88b6363bb8a82eaca17b5e9342dd8b531`](https://github.com/777genius/review-router-ai/commit/15b115f88b6363bb8a82eaca17b5e9342dd8b531) (subsequent review fixes are recorded in the PR); [implementation plan](../plans/2026-11-02-agent-discovery-public-web.md). Verify the final shipping revision separately.
-- Affected services: ReviewRouter **Web / Next.js** build only, including static `public/` assets and homepage metadata. The API host's existing read-only demo routes are *referenced*, not modified.
+- Affected services: ReviewRouter **Web / Next.js** build only, including static `public/` assets and homepage metadata. The API host's existing read-only demo routes are referenced, not modified.
 - Prerequisites: exact shipping source revision, signed/verified release and selected immutable Web image digest through the [release source of truth](../operations/07-environments-and-release-management.md). Reconcile unfinished release tasks before shipping.
 - No database migration, new env secret, feature flag, Action pin change, OAuth change, public API endpoint, worker activation or new entitlement required.
 
 Deployment status (no immutable release/image identity has been verified):
 
-- **Staging:** `pending`; image/revision not verified; rollout, image identity and HTTP smoke evidence not recorded.
-- **Production:** `pending`; image/revision not verified; rollout, image identity and HTTP smoke evidence not recorded.
+**Staging:** `pending`; image/revision not verified; rollout, image identity and HTTP smoke evidence not recorded.
+
+**Production:** `pending`; image/revision not verified; rollout, image identity and HTTP smoke evidence not recorded.
 
 ## Pre-deploy and release
 
