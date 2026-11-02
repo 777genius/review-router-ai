@@ -8,6 +8,7 @@ import {
   qualityCorpora,
 } from "./memory-quality-gate.js";
 import { gatewayCandidateMechanism, candidateSourceDigestKeys } from "./configuration.js";
+import { summarizeQualityRuns } from "./memory-quality-reliability.js";
 
 const qualifiedSyntheticConfiguration = () => ({
   GITHUB_EVENT_NAME: "workflow_dispatch",
@@ -132,4 +133,75 @@ test("the focused workflow never gives PR jobs live credentials or runs protecte
   assert.doesNotMatch(workflow, /--split holdout/);
   assert.match(workflow, /permissions:\s*\n\s*contents: read/);
   assert.match(workflow, /if:.*workflow_dispatch.*live-tuning.*refs\/heads\/main/);
+});
+
+test("three independent human-scored runs expose variation without fabricated semantic reliability", () => {
+  const metric = (a: number, b: number) => ({ numerator: a, denominator: b, value: a / b });
+  const metrics = {
+    retainedFactPrecision: metric(19, 20),
+    eligibleFactRecall: metric(8, 10),
+    harmfulWriteRate: metric(0, 10),
+    attributionAccuracy: metric(19, 20),
+    supportedAnswerPass: metric(9, 10),
+    unnecessaryClarification: metric(0, 10),
+    unnecessaryReply: metric(0, 10),
+    criticalNonCommandRecall: metric(8, 10),
+    criticalSilentRecall: metric(8, 10),
+  };
+  const provenance = Object.fromEntries(candidateSourceDigestKeys.map((key) => [key, "a".repeat(64)]));
+  const scored = (id: string) => ({
+    version: "conversation-quality-score.v1",
+    runId: id,
+    corpusRevision: "2026-11-02-multilingual-r1",
+    corpusName: "multilingual-v1",
+    split: "tuning",
+    reviewer: "synthetic-human-rubric-reference",
+    extractionMechanism: gatewayCandidateMechanism,
+    candidateSourceProfile: provenance,
+    candidateModelBoundsDigest: "b".repeat(64),
+    observedModels: ["actual-model-id"],
+    productionActivated: false,
+    qualificationIssued: false,
+    results: [{
+      variant: "full-product",
+      status: "PASS",
+      metrics,
+      unauthorizedEffects: 0,
+      boundViolations: 0,
+      missingRequiredEffects: 0,
+      linkedWitnesses: [{ passed: true }],
+    }],
+  });
+  const runs = [scored("observed-1"), scored("observed-2"), scored("observed-3")];
+  const summary = summarizeQualityRuns(runs);
+  assert.equal(summary.status, "PASS");
+  assert.equal(summary.runCount, 3);
+  assert.equal((summary.metrics as Record<string, { min: number }>).eligibleFactRecall.min, 0.8);
+  const changed = structuredClone(runs);
+  changed[1]!.results[0]!.status = "FAIL";
+  changed[1]!.results[0]!.metrics.eligibleFactRecall = metric(7, 10);
+  const worse = summarizeQualityRuns(changed);
+  assert.equal(worse.status, "FAIL");
+  assert.equal((worse.metrics as Record<string, { range: number }>).eligibleFactRecall.range, 0.1);
+  assert.throws(() => summarizeQualityRuns(runs.slice(0, 2)), /eval_reliability_three_runs_required/);
+  const duplicated = structuredClone(runs);
+  duplicated[2]!.runId = "observed-1";
+  assert.throws(() => summarizeQualityRuns(duplicated), /eval_reliability_incompatible_run/);
+  const wrongSource = structuredClone(runs);
+  wrongSource[1]!.candidateSourceProfile.commonPromptSourceDigest = "c".repeat(64);
+  assert.throws(() => summarizeQualityRuns(wrongSource), /eval_reliability_incompatible_run/);
+  const switchedModel = structuredClone(runs);
+  switchedModel[1]!.observedModels = ["different-model"];
+  assert.throws(() => summarizeQualityRuns(switchedModel), /eval_reliability_incompatible_run/);
+  const holdout = structuredClone(runs);
+  holdout[1]!.split = "holdout";
+  assert.throws(() => summarizeQualityRuns(holdout), /eval_reliability_incompatible_run/);
+  const missingRubric = structuredClone(runs);
+  missingRubric[1]!.reviewer = "";
+  assert.throws(() => summarizeQualityRuns(missingRubric), /eval_reliability_incompatible_run/);
+  const hiddenFailure = structuredClone(runs);
+  hiddenFailure[1]!.results[0]!.metrics.retainedFactPrecision = {
+    numerator: 19, denominator: 20, value: 1,
+  };
+  assert.throws(() => summarizeQualityRuns(hiddenFailure), /eval_reliability_score_invalid/);
 });
