@@ -23,8 +23,10 @@ describe("public AI-agent discovery", () => {
     expect(llms).toContain("https://reviewrouter.org/pricing");
     expect(llms).toContain("https://reviewrouter.org/agents.md");
     expect(llms).toContain("https://reviewrouter.org/auth.md");
-    for (const line of llms.split("\\n").filter((value) => value.startsWith("- "))) {
-      expect(line).toMatch(/^- \\[[^\\]]+\\]\\(https:\\/\\/[^)]+\\)$/);
+    for (const line of llms.split("\n").filter((value) => value.startsWith("- "))) {
+      expect(line.startsWith("- [")).toBe(true);
+      expect(line).toContain("](https://");
+      expect(line.endsWith(")")).toBe(true);
     }
   });
 
