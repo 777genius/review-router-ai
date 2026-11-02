@@ -17,8 +17,8 @@ and review rules in one dashboard.
 
 ### Memory, Skills and MCP
 
-- **Memory (Hindsight).** Reuse approved workspace and repository rules,
-  observations and exceptions in later reviews when a memory backend is configured.
+- **Memory (Hindsight).** Reuse approved workspace-, repository- and user-scoped
+  rules, observations and exceptions when a memory backend is configured.
 - **PR conversations.** On qualified interaction workflows, respond to inline
   review threads using the verified discussion. Authorized maintainer replies can
   also propose memory changes.
@@ -26,13 +26,14 @@ and review rules in one dashboard.
   request permanent forgetting. Workspace admins can require confirmation
   before AI memory changes.
 - **Skills.** Create versioned Markdown review instructions, import/export
-  `SKILL.md`, share with permissions and assign them to repositories.
+  `SKILL.md`, share across workspaces with permission and assign them to repositories.
+  Each review captures its selected instructions.
 - **Skills catalog.** Preview [Universal Agent Plugins](https://universal-agent-plugins.com/)
   skills, check static security results (optionally AI-assisted) and import
   reviewed text without installing third-party scripts.
-- **MCP tools.** Connect and test remote HTTPS MCP servers, approve individual
-  tools and select them for compatible reviews. Credentials can use encrypted
-  dashboard storage or GitHub Secrets; built-in tools cover GitHub issues and docs.
+- **MCP tools.** Connect remote HTTPS MCP servers, discover and approve tools,
+  and select them for compatible reviews. Test Dashboard credentials in the UI;
+  GitHub Secrets are tested in CI. Built-in tools cover GitHub issues and docs.
 
 ### AI reviews
 
@@ -55,8 +56,9 @@ and review rules in one dashboard.
 
 - **Review history.** Search pull requests by title, number or repository;
   filter by status and date, inspect previous runs and reruns, and open the GitHub PR.
-- **Statistics.** Published reviews, distinct PRs, first-recorded issues by
-  severity, daily trends, top repositories and 7/30/90-day comparisons.
+- **Statistics.** Published reviews, distinct PRs and first-recorded issues by
+  severity, with trends, top repositories and 7/30/90-day comparisons. Drill into
+  individual findings and open their PRs.
 - **Usage.** Provider attempts, known tokens and costs by provider, model
   and run, with filters and explicit coverage when data is missing.
 - **Operations.** Repository health, queue failures, audit events,
@@ -66,6 +68,9 @@ and review rules in one dashboard.
 
 - **GitHub App setup.** Select repositories, create an inspectable setup PR
   for workflow changes and verify readiness in the dashboard.
+- **Organization-wide checks.** In eligible GitHub organizations, configure a
+  shared required workflow through GitHub Rulesets for selected or all repos.
+  Requires a supported GitHub plan and organization permissions.
 - **Code and credentials.** By default, checkout and tools run in GitHub Actions,
   repository credentials stay in CI, and the chosen AI provider receives review
   context. ReviewRouter stores results and operational metadata, not raw source files.
@@ -99,8 +104,9 @@ are upstream results, not independent ReviewRouter measurements.
 | GitLab      | In development.                                                    |
 | Self-hosted | Docker Compose deployment on your infrastructure.                  |
 
-Advanced investigations and cross-revision replay remain gated.
-See [capabilities and limits](./docs/capabilities.md) for rollout and privacy details.
+Advanced investigations, cross-revision replay and live PR progress comments
+require explicit rollout. See [capabilities and limits](./docs/capabilities.md)
+for availability and privacy details.
 
 ## Learn more
 
