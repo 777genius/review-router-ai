@@ -2832,7 +2832,7 @@ describe.skipIf(!databaseUrl)(
         store.beginNativeStartup(startup("0")),
       ).rejects.toMatchObject({ code: "conflict" });
       // An inconsistent failed row cannot erase the durable revocation obligation.
-      await prisma.$executeRaw`UPDATE "MemoryKnowledgeCommand" SET "state"='failed' WHERE "id"=${forget.commandId}`;
+      await prisma.$executeRaw`UPDATE "MemoryKnowledgeCommand" SET "state"='failed',"envelope"=NULL WHERE "id"=${forget.commandId}`;
       await prisma.$executeRaw`UPDATE "MemoryKnowledgeEntry" SET "lifecycle"='retired' WHERE "generation"=${original.generation}`;
       expect(await store.nativeStartupState(startup("0"))).toMatchObject({
         cleanupDebt: true,
@@ -2840,6 +2840,102 @@ describe.skipIf(!databaseUrl)(
       await expect(
         store.beginNativeStartup(startup("0")),
       ).rejects.toMatchObject({ code: "conflict" });
+    });
+
+    it("recognizes only newer accepted full-history Forget coverage without rewriting failed historical rows", async () => {
+      const ref = save().ref;
+      const seedLegacyFailed = async (targetGeneration: string) => {
+        const original = save({ ref, generation: targetGeneration });
+        await admit(original);
+        const failed: MemoryKnowledgeCommand = {
+          kind: "forget",
+          commandId: randomUUID(),
+          ref,
+          expectedRevision: "1",
+          generation: targetGeneration,
+          providerProfileVersion: original.providerProfileVersion,
+          approval: original.approval,
+        };
+        await admit(failed);
+        // A legal legacy terminal row predates the current forget settlement
+        // rules. Preserve its NULL receipt; a new real owner settlement must
+        // cover it without a historical UPDATE/backfill.
+        await prisma.$executeRaw`UPDATE "MemoryKnowledgeCommand" SET "state"='failed',"envelope"=NULL WHERE "id"=${failed.commandId}`;
+        await prisma.$executeRaw`UPDATE "MemoryKnowledgeEntry" SET "lifecycle"='retired',"metadata"=jsonb_set("metadata",'{lifecycle}','"retired"'::jsonb) WHERE "generation"=${targetGeneration} AND "entryId"=${ref.entryId}`;
+        const preserved = await prisma.memoryKnowledgeCommand.findUniqueOrThrow(
+          { where: { id: failed.commandId } },
+        );
+        return { failed, preserved };
+      };
+      const current = await seedLegacyFailed(generation);
+      const foreign = await seedLegacyFailed("retained-other-generation");
+      expect(await store.nativeStartupState(startup("0"))).toMatchObject({
+        cleanupDebt: true,
+      });
+      const settleHistory = async (failed: MemoryKnowledgeCommand) => {
+        const finalForget: MemoryKnowledgeCommand = {
+          ...failed,
+          commandId: randomUUID(),
+          expectedRevision: "2",
+        };
+        await admit(finalForget);
+        await store.setMaintenancePaused({
+          generation: failed.generation,
+          paused: true,
+          expectedEpoch: "0",
+          actor: "normal-host-cleanup",
+          now,
+          deadlineAt: new Date(now.getTime() + 5000),
+        });
+        await expect(
+          store.completeCleanup({
+            now,
+            receipt: {
+              coverage: "entry_history_and_operations",
+              id: `verified-test-history-${finalForget.commandId}`,
+              commandId: finalForget.commandId,
+              commandDigest: memoryKnowledgeCommandDigest(finalForget),
+              generation: finalForget.generation,
+              ref,
+              verifiedAt: now.toISOString(),
+              verifiedBy: "test-host-verifier",
+              maintenanceEpoch: "1",
+            },
+          }),
+        ).resolves.toMatchObject({ state: "completed" });
+      };
+      await settleHistory(current.failed);
+      // Same scope/entry/revisions in another generation are not covered by
+      // this receipt; no caller assertion or current-entry join can clear it.
+      expect(await store.nativeStartupState(startup("1"))).toMatchObject({
+        cleanupDebt: true,
+      });
+      await expect(
+        store.beginNativeStartup(startup("1")),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await settleHistory(foreign.failed);
+      expect(await store.nativeStartupState(startup("1"))).toMatchObject({
+        cleanupDebt: false,
+      });
+      for (const prior of [current, foreign])
+        expect(
+          await prisma.memoryKnowledgeCommand.findUniqueOrThrow({
+            where: { id: prior.failed.commandId },
+          }),
+        ).toEqual(prior.preserved);
+      await store.setMaintenancePaused({
+        generation,
+        paused: false,
+        expectedEpoch: "1",
+        actor: "normal-host-cleanup",
+        now,
+        deadlineAt: new Date(now.getTime() + 5000),
+      });
+      expect(await store.beginNativeStartup(startup("2"))).toMatchObject({
+        epoch: "3",
+        paused: true,
+        cleanupDebt: false,
+      });
     });
 
     it("orders memory pause after a write admission already waiting on its scope lock", async () => {

@@ -189,12 +189,18 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     );
     // Global retained debt is conservative: historical generations have no complete
     // immutable backend mapping. Never infer disjointness from the current config.
+    // Accepted full-entry-history cleanup also covers already-failed predecessors:
+    // completeCleanup preserves those historical rows rather than backfilling them.
     const [debt] = await tx.$queryRaw<
       { pending: boolean }[]
     >(Prisma.sql`SELECT (
-      EXISTS(SELECT 1 FROM "MemoryKnowledgeCommand" WHERE "commandKind"='forget' AND (
-        ("state"<>'completed' AND NOT ("state"='failed' AND "cleanupReceiptId" IS NOT NULL)) OR
-        ("state"='completed' AND "cleanupReceiptId" IS NULL))) OR
+      EXISTS(SELECT 1 FROM "MemoryKnowledgeCommand" unresolved WHERE unresolved."commandKind"='forget'
+        AND NOT (unresolved."state" IN ('completed','failed') AND NULLIF(unresolved."cleanupReceiptId",'') IS NOT NULL)
+        AND NOT EXISTS(SELECT 1 FROM "MemoryKnowledgeCommand" accepted
+          WHERE accepted."generation"=unresolved."generation" AND accepted."scopeKey"=unresolved."scopeKey"
+            AND accepted."workspaceId"=unresolved."workspaceId" AND accepted."entryId"=unresolved."entryId"
+            AND accepted."revision">unresolved."revision" AND accepted."commandKind"='forget'
+            AND accepted."state"='completed' AND NULLIF(accepted."cleanupReceiptId",'') IS NOT NULL)) OR
       EXISTS(SELECT 1 FROM "MemoryKnowledgeEntry" WHERE "lifecycle"='forget_pending')
     ) AS pending`);
     const owner = row ? readNativeStartupOwner(row.actor) : null;

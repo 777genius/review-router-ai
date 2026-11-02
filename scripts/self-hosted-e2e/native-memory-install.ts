@@ -4,10 +4,7 @@ import { lstat, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readConversationRelease } from "../../deploy/self-hosted/conversation-release.ts";
-import {
-  resumeMemory,
-  setupMemory,
-} from "../../deploy/self-hosted/setup-memory.ts";
+import { setupMemory } from "../../deploy/self-hosted/setup-memory.ts";
 import { bootstrap, validateConfig } from "../../deploy/hindsight/bootstrap.ts";
 import { acquireDeploymentLock } from "../hindsight-e2e/deployment-lock.ts";
 import { dockerCommand } from "../hindsight-e2e/native-runtime.ts";
