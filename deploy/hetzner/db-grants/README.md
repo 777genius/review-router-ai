@@ -40,7 +40,20 @@ role. Its seven checks include the specific identity UPDATE column, which an
 any-column UPDATE probe cannot establish. It fails if a privilege is missing or
 if recent events died with a permission error.
 
-Known gap: the referential guard trigger fires on UPDATE of the parent-FK columns
-and on DELETE, but not on INSERT. A compromised worker could therefore insert a
-repository row for any workspace and installation. A BEFORE INSERT guard or a
-SECURITY DEFINER routine would close it; that is tracked in the issue linked above.
+The post-ACL grant now installs a separate owner-controlled, SECURITY DEFINER,
+BEFORE INSERT row guard. For the actual worker LOGIN, every inserted GitHub row
+must bind to an existing GitHub installation **in the same workspace**, use
+the matching GitHub repository ID and canonical source, and have no GitLab
+installation or pre-bound SCM identity. The installation is row-locked during
+validation to prevent a tenant-transfer race. Missing, disabled, altered or
+untrusted trigger/function metadata fails closed before regranting INSERT.
+The guard also denies new repository INSERTs from other restricted runtime
+LOGINs. A disposable PG17 contract checks legitimate and adversarial INSERTs
+using the real worker LOGIN, plus existing first-bind UPDATE and advisory locks.
+
+This fixes the immediate cross-workspace INSERT hole but **does not** reconcile
+the canonical ACL: that ACL still revokes worker write privileges on each
+release. The existing release script must still apply this guarded grant
+*after* the canonical ACL, then qualify with the worker privilege checker.
+The broader trust-root/canonical-ACL decision is still tracked in issue #761.
+Do not treat merge or a passing disposable PG17 test as a production rollout.
