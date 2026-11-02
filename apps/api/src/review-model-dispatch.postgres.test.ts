@@ -25,6 +25,7 @@ import { assertReviewModelDispatchEvidence } from "./review-model-dispatch-evide
 import {
   registerReviewModelDispatchRoutes,
   type ReviewModelDispatchApi,
+  type ReviewModelDispatchClaimFailureDiagnostic,
 } from "./review-model-dispatch";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
@@ -118,16 +119,8 @@ describe("model dispatch claim failure diagnostics", () => {
       const authorization = {
         authorizationId: "server-resolved-authorization",
       } as ReviewRunAuthorization;
-      const events: unknown[] = [];
-      const messages: unknown[] = [];
+      const events: ReviewModelDispatchClaimFailureDiagnostic[] = [];
       const app = Fastify({ logger: false });
-      app.addHook("onRequest", async (request) => {
-        request.log.warn = (event: unknown, message?: unknown) => {
-          events.push(event);
-          messages.push(message);
-          if (throwingSink) throw new Error("secret-logger-error");
-        };
-      });
       const reject = async (): Promise<never> => {
         throw testCase.error;
       };
@@ -151,7 +144,10 @@ describe("model dispatch claim failure diagnostics", () => {
           settleReceipt: reject,
         },
       };
-      await registerReviewModelDispatchRoutes(app, api);
+      await registerReviewModelDispatchRoutes(app, api, (event) => {
+        events.push(event);
+        if (throwingSink) throw new Error("secret-logger-error");
+      });
       await app.listen({ host: "127.0.0.1", port: 0 });
       try {
         const address = app.server.address();
@@ -206,8 +202,7 @@ describe("model dispatch claim failure diagnostics", () => {
               : {}),
           },
         ]);
-        expect(messages).toEqual(["Review model dispatch claim rejected"]);
-        expect(JSON.stringify({ events, messages })).not.toContain("secret-");
+        expect(JSON.stringify(events)).not.toContain("secret-");
       } finally {
         await app.close();
       }

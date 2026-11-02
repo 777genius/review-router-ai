@@ -42,7 +42,7 @@ type ClaimFailureContext = {
   authorizationId?: string;
 };
 
-const claimFailureCodes = new Set([
+const claimFailureCodes = [
   "model_dispatch_claim_requires_run_authority",
   "model_dispatch_authorization_required",
   "model_dispatch_authorization_denied",
@@ -74,7 +74,16 @@ const claimFailureCodes = new Set([
   "companion_dispatch_limit",
   "companion_dispatch_corrupt",
   "phase_not_ready",
-]);
+] as const;
+const claimFailureCodeSet: ReadonlySet<string> = new Set(claimFailureCodes);
+
+export type ReviewModelDispatchClaimFailureDiagnostic = Readonly<{
+  event: "review_model_dispatch_claim_rejected";
+  phase: ClaimFailureContext["phase"] | "input";
+  code: (typeof claimFailureCodes)[number];
+  httpStatus: 400 | 401 | 409 | 500;
+  authorizationId?: string;
+}>;
 
 /** Metadata only. The receipt header is deliberately never logged, included in
  * URLs, or accepted by the claim endpoint. It does not authenticate evidence or
@@ -82,6 +91,9 @@ const claimFailureCodes = new Set([
 export async function registerReviewModelDispatchRoutes(
   app: FastifyInstance,
   api: ReviewModelDispatchApi,
+  recordClaimFailure?: (
+    diagnostic: ReviewModelDispatchClaimFailureDiagnostic,
+  ) => void,
 ) {
   const claimFailures = new WeakMap<FastifyRequest, ClaimFailureContext>();
   await app.register(async (scope) => {
@@ -98,22 +110,22 @@ export async function registerReviewModelDispatchRoutes(
       if (request.routeOptions.url === reviewModelDispatchContract.claimPath) {
         const context = claimFailures.get(request);
         try {
-          request.log.warn(
-            {
-              event: "review_model_dispatch_claim_rejected",
-              phase: context?.phase ?? "input",
-              code: claimFailureCodes.has(failure.code)
-                ? failure.code
-                : "model_dispatch_unavailable",
-              httpStatus: [400, 401, 409, 500].includes(failure.statusCode)
+          recordClaimFailure?.({
+            event: "review_model_dispatch_claim_rejected",
+            phase: context?.phase ?? "input",
+            code: claimFailureCodeSet.has(failure.code)
+              ? (failure.code as ReviewModelDispatchClaimFailureDiagnostic["code"])
+              : "model_dispatch_unavailable",
+            httpStatus:
+              failure.statusCode === 400 ||
+              failure.statusCode === 401 ||
+              failure.statusCode === 409
                 ? failure.statusCode
                 : 500,
-              ...(context?.authorizationId
-                ? { authorizationId: context.authorizationId }
-                : {}),
-            },
-            "Review model dispatch claim rejected",
-          );
+            ...(context?.authorizationId
+              ? { authorizationId: context.authorizationId }
+              : {}),
+          });
         } catch {
           // Diagnostics must not change claim authority or its response.
         }
