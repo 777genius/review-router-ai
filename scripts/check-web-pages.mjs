@@ -147,8 +147,13 @@ try {
 
     const html = await response.text();
     if (path === "/") {
-      const discoveryLinks = [...html.matchAll(/<link\b[^>]*>/gi)].map(([tag]) => tag);
-      if (!discoveryLinks.some((tag) => /\brel="describedby"/.test(tag) && /\bhref="\/llms\.txt"/.test(tag))) {
+      const discoveryLinks = html.match(/<link\b[^>]*>/gi) ?? [];
+      const hasCoveringFile = discoveryLinks.some(
+        (tag) =>
+          /\brel="describedby"/.test(tag) &&
+          /\bhref="\/llms\.txt"/.test(tag),
+      );
+      if (!hasCoveringFile) {
         await fail("home missing llms.txt v2 describedby link");
       }
     }
