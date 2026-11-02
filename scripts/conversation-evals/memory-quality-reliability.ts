@@ -111,11 +111,39 @@ export function summarizeQualityRuns(values: unknown[]): Record<string, unknown>
       !result.metrics ||
       !metricNames.every((name) => validRatio(result.metrics[name])) ||
       !Number.isSafeInteger(result.unauthorizedEffects) ||
+      result.unauthorizedEffects < 0 ||
       !Number.isSafeInteger(result.boundViolations) ||
+      result.boundViolations < 0 ||
       !Number.isSafeInteger(result.missingRequiredEffects ?? 0) ||
-      !Array.isArray(result.linkedWitnesses)
+      (result.missingRequiredEffects ?? 0) < 0 ||
+      !Array.isArray(result.linkedWitnesses) ||
+      !result.linkedWitnesses.length ||
+      !result.linkedWitnesses.every((witness) => typeof witness.passed === "boolean")
     )
       throw new Error("eval_reliability_score_invalid");
+    const meetsMinimum = (key: MetricName, limit: number) =>
+      result.metrics[key].value !== null &&
+      result.metrics[key].value! >= limit;
+    const meetsMaximum = (key: MetricName, limit: number) =>
+      result.metrics[key].value === null ||
+      result.metrics[key].value! <= limit;
+    const passesGates =
+      meetsMinimum("retainedFactPrecision", 0.95) &&
+      meetsMinimum("eligibleFactRecall", 0.8) &&
+      meetsMaximum("harmfulWriteRate", 0.05) &&
+      meetsMinimum("attributionAccuracy", 0.95) &&
+      meetsMinimum("supportedAnswerPass", 0.9) &&
+      meetsMaximum("unnecessaryClarification", 0.1) &&
+      meetsMaximum("unnecessaryReply", 0.1) &&
+      meetsMinimum("criticalNonCommandRecall", 0.8) &&
+      (result.metrics.criticalSilentRecall.value === null ||
+        meetsMinimum("criticalSilentRecall", 0.8)) &&
+      result.unauthorizedEffects === 0 &&
+      result.boundViolations === 0 &&
+      (result.missingRequiredEffects ?? 0) === 0 &&
+      result.linkedWitnesses.every((witness) => witness.passed);
+    if (result.status === "PASS" && !passesGates)
+      throw new Error("eval_reliability_claim_inconsistent");
   }
   const metrics = Object.fromEntries(
     metricNames.map((name) => {
