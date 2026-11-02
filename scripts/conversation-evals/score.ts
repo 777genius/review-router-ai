@@ -101,7 +101,7 @@ if (!path || !reviewPath)
 const report = JSON.parse(await readFile(path, "utf8")) as Report;
 const review = JSON.parse(await readFile(reviewPath, "utf8")) as Review;
 const corpus = await loadCorpus(report.corpusName ?? "legacy-v1");
-const successor = report.corpusName === "full-thread-v2";
+const successor = report.corpusName !== undefined && report.corpusName !== "legacy-v1";
 if (
   report.status === "UNAVAILABLE" ||
   review.runId !== report.runId ||
