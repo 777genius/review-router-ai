@@ -1,106 +1,101 @@
 # ReviewRouter
 
-AI code review in your CI, powered by **[open-code-review](https://github.com/alibaba/open-code-review)**.
-Supports multiple coding providers using your own subscriptions or API keys.
-Get inline feedback on pull requests and manage models, review rules and
-repository health from one dashboard.
+AI code review for GitHub pull requests, powered by [OpenCodeReview](https://github.com/alibaba/open-code-review).
+Run reviews in GitHub Actions with your own AI providers; manage findings, models
+and review rules in one dashboard.
 
 [Set up your reviewer now](https://reviewrouter.org) with a guided setup.
 
 [Self-host](./docs/operations/review-router-self-hosted-end-to-end.md) · [Documentation](./docs/README.md)
-
-## Features
-
-### Memory, Skills and context
-
-- **Thread-aware memory.** Use the full verified inline review thread
-  to answer in context and learn useful observations. Reuse scoped knowledge
-  in later reviews; recheck facts when source comments change or disappear.
-- **Memory controls.** Browse rules, observations and exceptions; add rules,
-  retire outdated entries or request permanent forgetting. Learning can be
-  automatic or require maintainer confirmation, set by workspace admins.
-- **Reusable Skills.** Create and edit versioned Markdown review instructions,
-  import/export `SKILL.md`, assign them to repositories and share them between
-  workspaces with permission. Selected instructions are captured for each run.
-- **Skills catalog and checks.** Browse [Universal Agent Plugins](https://universal-agent-plugins.com/),
-  preview the actual skill text, run static security checks (optionally AI-assisted),
-  review warnings and import checked instructions. No third-party scripts or
-  dependencies are installed.
-- **MCP context tools.** Connect remote HTTPS MCP servers, use reviewed catalog
-  presets, discover and approve individual tools. Use encrypted dashboard
-  credentials or GitHub Secrets; select tools per compatible agentic OCR review.
-  Built-in context tools can read GitHub issues and repository docs.
-
-### Reviews and insights
-
-- **Statistics.** See published reviews, distinct pull requests reviewed and
-  first-recorded issues by severity. Explore daily trends, top repositories,
-  7/30/90-day filters and coverage-aware period comparisons.
-- **Review history.** Find pull requests by title, number or repository; filter
-  by status and date, see the latest review state and expand earlier runs and
-  reruns. Jump to the original PR on GitHub.
-- **Usage.** Track provider attempts, known input/output tokens and costs by
-  provider, model and run. Filter by date, provider, model or route; inspect
-  charts and missing-data coverage instead of treating unknown costs as zero.
-
-### Review execution
-
-- **AI code review.** Run [OpenCodeReview](https://github.com/alibaba/open-code-review)
-  in CI, with inline findings, severity and review summaries tied to the
-  exact commit being reviewed.
-- **Multiple reviewers.** Combine different models and connected accounts,
-  configure parallelism and require a minimum agreement before publishing an
-  inline finding.
-- **Bring your own AI.** Connect Codex, Claude Code, OpenRouter, MiMo Token Plan
-  or Kimi Code with supported subscriptions, OAuth or API keys. Choose models
-  from the available provider catalogs.
-- **Review policies.** Set workspace defaults and repository overrides for
-  models, reasoning effort, language, severity, comment limits and review
-  behavior. Control automatic reviews of draft PRs.
-- **PR descriptions.** Optionally generate or update an AI-assisted pull
-  request description using the configured first reviewer.
-- **Revision-aware publication.** Prevent stale runs from publishing as if they
-  reviewed newer code, and track incomplete or unconfirmed outcomes rather
-  than silently calling them successful.
-
-### Setup and operations
-
-- **GitHub App setup.** Select repositories, use an inspectable setup PR for
-  workflow changes and check repository readiness in the dashboard.
-- **Accounts and access.** Manage provider connections, workspace access and
-  repository-specific selections with owner/admin permissions.
-- **Health and diagnostics.** Inspect repository health, queue failures,
-  audit events and support diagnostics without exposing raw review context.
-- **Privacy and hosting.** By default, checkout and review tools stay in
-  GitHub Actions; repository provider secrets stay in CI. Choose the hosted
-  service, an opt-in encrypted hosted account pool or
-  [self-hosted Docker Compose](./docs/operations/review-router-self-hosted-end-to-end.md).
-
-Features requiring specific providers, workflows or rollout configuration may
-not be active in every deployment. See [capabilities and limits](./docs/capabilities.md).
 
 ## Dashboard preview
 
 <img width="1145" height="737" alt="ReviewRouter overview" src="https://github.com/user-attachments/assets/c32ea23f-3d34-4e5c-917f-d72d981b88c5" />
 <img width="916" height="622" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/fc11accd-dbd4-457b-ad6a-a43cccd075d1" />
 
+## Features
+
+### Memory, Skills and MCP
+
+- **Memory (Hindsight).** Reuse approved workspace-, repository- and user-scoped
+  rules, observations and exceptions when a memory backend is configured.
+- **PR conversations.** On qualified interaction workflows, respond to inline
+  review threads using the verified discussion. Authorized maintainer replies can
+  also propose memory changes.
+- **Memory controls.** Browse and add knowledge, retire outdated entries or
+  request permanent forgetting. Workspace admins can require confirmation
+  before AI memory changes.
+- **Skills.** Create versioned Markdown review instructions, import/export
+  `SKILL.md`, share across workspaces with permission and assign them to repositories.
+  Each review captures its selected instructions.
+- **Skills catalog.** Preview [Universal Agent Plugins](https://universal-agent-plugins.com/)
+  skills, check static security results (optionally AI-assisted) and import
+  reviewed text without installing third-party scripts.
+- **MCP tools.** Connect remote HTTPS MCP servers, discover and approve tools,
+  and select them for compatible reviews. Test Dashboard credentials in the UI;
+  verify GitHub Secrets in the repository workflow. Built-in tools cover
+  GitHub issues and docs.
+
+### AI reviews
+
+- **Inline code review.** Severity-rated, line-specific findings and summaries
+  attached to the exact PR commit.
+- **Multiple reviewers.** Choose models and accounts, run reviewers in parallel
+  and require agreement before publishing inline findings.
+- **AI providers and accounts.** Connect Codex, Claude Code, OpenRouter,
+  MiMo Token Plan or Kimi Code via supported subscriptions, OAuth or API keys.
+  Manage accounts and choose models from the available provider catalogs.
+- **Review settings.** Workspace defaults and per-repository overrides for models,
+  reasoning effort, language, severity, comment limits and parallelism. Workspace
+  admins also control automatic reviews of draft PRs.
+- **PR descriptions.** Optionally generate or update descriptions with the
+  configured primary reviewer.
+- **Safe publication.** Stale runs cannot publish findings for newer code.
+  Failed or incomplete review coverage is reported, not counted as success.
+
+### Dashboard and insights
+
+- **Review history.** Search pull requests by title, number or repository;
+  filter by status and date, inspect previous runs and reruns, and open the GitHub PR.
+- **Statistics.** Published reviews, distinct PRs and first-recorded issues by
+  severity, with trends, top repositories and 7/30/90-day comparisons. Drill into
+  individual findings and open their PRs.
+- **Usage.** Provider attempts, known tokens and costs by provider, model
+  and run, with filters and explicit coverage when data is missing.
+- **Operations.** Repository health, queue failures, audit events,
+  metadata-only diagnostics and workspace/repository access management.
+
+### Setup and hosting
+
+- **GitHub App setup.** Select repositories, create an inspectable setup PR
+  for workflow changes and verify readiness in the dashboard.
+- **Organization-wide checks.** In eligible GitHub organizations, configure a
+  shared required workflow through GitHub Rulesets for selected or all repos.
+  Requires a supported GitHub plan and organization permissions.
+- **Code and credentials.** By default, checkout and tools run in GitHub Actions,
+  repository credentials stay in CI, and the chosen AI provider receives review
+  context. ReviewRouter stores results and operational metadata, not raw source files.
+- **Hosting options.** Use the hosted service or
+  [self-host with Docker Compose](./docs/operations/review-router-self-hosted-end-to-end.md).
+  The opt-in encrypted hosted account pool uses a separate model-relay privacy boundary.
+
+Availability varies by provider, installed workflows and deployment. See
+[capabilities and limits](./docs/capabilities.md).
+
 ## Start with GitHub
 
-1. Open [ReviewRouter](https://reviewrouter.org) and install the GitHub App
-   for the repositories you want reviewed.
-2. Use the dashboard to create and merge the review setup PR.
-3. Connect your provider using the generated setup instructions, then open a pull request.
+1. [Install the GitHub App](https://reviewrouter.org) and select repositories.
+2. Create and merge the review setup PR from the dashboard.
+3. Connect a supported AI provider and open a pull request.
 
-The setup PR makes the CI changes visible before you accept them. In the default
-mode, provider secrets stay in GitHub Actions; ReviewRouter stores review results
-and operational metadata, not raw source files by default. Provider and CI usage
-still count against your own plan or billing.
+You approve the workflow changes before reviews begin. Provider usage counts
+against your own subscription or API billing.
 
-## Benchmark
+## Review engine
 
-ReviewRouter uses the OpenCodeReview engine. [Upstream benchmarks](https://github.com/alibaba/open-code-review#benchmark)
-
-<img width="2560" height="1836" alt="image" src="https://github.com/user-attachments/assets/327c8f80-29e2-4cf0-9ccf-e773be5c8205" />
+ReviewRouter uses [OpenCodeReview](https://github.com/alibaba/open-code-review).
+Its [published benchmarks](https://github.com/alibaba/open-code-review#benchmark)
+are upstream results, not independent ReviewRouter measurements.
 
 ## Current status
 
@@ -110,10 +105,9 @@ ReviewRouter uses the OpenCodeReview engine. [Upstream benchmarks](https://githu
 | GitLab      | In development.                                                    |
 | Self-hosted | Docker Compose deployment on your infrastructure.                  |
 
-The hosted pool holds encrypted credentials and relays model traffic through
-ReviewRouter, unlike the default repository-secret setup. Advanced investigations
-and cross-revision replay are also gated. See [capabilities and limits](./docs/capabilities.md)
-for availability, privacy boundaries and unfinished work.
+Advanced investigations, cross-revision replay and live PR progress comments
+require explicit rollout. See [capabilities and limits](./docs/capabilities.md)
+for availability and privacy details.
 
 ## Learn more
 
