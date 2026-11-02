@@ -459,6 +459,12 @@ export function createConversationMemoryPreview(input: {
               processingId: task.taskId,
               status: result.ok ? "silent" : "output_unavailable",
               gatewayCleanup: result.cleanup,
+              ...(!result.ok
+                ? {
+                    gatewayFailureCode: result.code,
+                    gatewayExecutionKnown: result.execution !== null,
+                  }
+                : {}),
               learning: {
                 status: result.ok ? "complete" : "unknown",
                 effectIds: [],
