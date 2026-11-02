@@ -72,15 +72,16 @@ describe("paired Action memory v2 golden contract", () => {
     expect(conversation).not.toContain(
       "Verify their applicability in the reviewed code",
     );
-    expect(
-      renderReviewMemoryPrompt({
-        ...(golden.bundle as ReviewMemoryBundle),
-        contextPolicy: {
-          audience: "repository",
-          repositoryId: "repository",
-          allowedTasks: ["conversation"],
-        },
-      }),
-    ).toBe(golden.renderedPrompt);
+    const conversationBundle: ReviewMemoryBundle = {
+      ...(golden.bundle as ReviewMemoryBundle),
+      contextPolicy: {
+        audience: "repository",
+        repositoryId: "repository",
+        allowedTasks: ["conversation"],
+      },
+    };
+    expect(renderReviewMemoryPrompt(conversationBundle)).toBe(
+      golden.renderedPrompt,
+    );
   });
 });

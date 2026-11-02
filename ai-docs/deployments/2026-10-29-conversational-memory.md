@@ -491,10 +491,28 @@ gating and strict closed child validation. Authority, limits, original deadlines
 and no-replay semantics are unchanged. Source review and remote QA passed
 **159/159 with zero skips**, strict API/evaluation types, scoped lint/format,
 source-stamp and generated-verifier parity. These are source checks, not model
-qualification. A separate seven-event exact-metadata diagnostic has been
-launched; this record claims no result from it. The experiment remains
-**UNQUALIFIED** pending complete fresh tuning, protected holdout, installed-App
-acceptance and normal distribution. No qualification artifact is issued.
+qualification. The filtered diagnostics remain ineligible for qualification. Full tuning
+`0b2c889a4` reached 29 retained events before an indeterminate native Save.
+That operation remains **UNKNOWN** and is not replayed. Subsequent prompt changes
+addressed proposal-status extraction and unsupported scope comparisons.
+
+Full tuning `534adf0d6465a586b3fed0a74f7d9a0f133c48c1`, run
+`b6087b6f-c6c5-4713-b4f7-1df25d02772a`, completed **50/50** events.
+Report SHA256: `e73ece44f2a169828262fe8ecf4ebd4e4e06f3babf779fe8280c8a6ad5d0e7bf`.
+Owner-delegated agent review covered every event and 21 body versions. The
+official score remains **FAIL**: zero unauthorized effects, missing effects,
+bound violations or harmful memories; precision, recall and attribution each
+21/21, supported answers 11/12. The mandatory exact-metadata linked answer added
+an unsupported caveat about applicability to the code anchor. Score SHA256:
+`24dc2c8fa1d3a92d3c689c7f70b04776c66dfadc1b9cb41ed698014f4d6573b2`.
+
+The successor separates conversation memory guidance from review-only guidance.
+Exact conversation-only contexts receive the recorded project knowledge framing;
+review rendering, its golden hash, record serialization, audience checks and
+receipt admission remain unchanged. This source requires fresh tuning. The
+experiment remains **UNQUALIFIED** pending complete fresh tuning, protected
+holdout, installed-App acceptance and normal distribution. No r2 protected
+checkpoint has been consumed and no qualification artifact is issued.
 
 The separate [explicit-resume record](2026-11-02-memory-explicit-resume.md#evidence)
 now records real self-hosted first installation/reuse, healthy stock Compose,
