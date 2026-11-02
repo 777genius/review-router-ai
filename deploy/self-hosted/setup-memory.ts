@@ -19,6 +19,17 @@ import {
 import { acquireDeploymentLock } from "../../scripts/hindsight-e2e/deployment-lock.ts";
 import { dockerCommand } from "../../scripts/hindsight-e2e/native-runtime.ts";
 import { prepareFirstInstallInputs } from "../hindsight/first-install-inputs.ts";
+import {
+  readConversationQualification,
+  conversationSourceProfileMatches,
+} from "./conversation-verifier.mjs";
+import {
+  readConversationRelease,
+  validateConversationEnvironmentTuple,
+  conversationQualificationEnvironmentValue,
+  type ConversationEnvironmentTuple,
+  type ConversationReleaseResult,
+} from "./conversation-release.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 type EnvironmentStatement = {
@@ -30,6 +41,12 @@ const controls = new Set([
   "REVIEW_ROUTER_MEMORY_PROVIDER",
   "REVIEW_ROUTER_MEMORY_ENABLED",
   "REVIEW_ROUTER_DISABLE_MEMORY",
+]);
+const conversationQualificationKey = "REVIEW_ROUTER_CONVERSATION_QUALIFICATION";
+const conversationRuntimeKey = "REVIEW_ROUTER_GATEWAY_INTERACTION_RUNTIME_SHA";
+const conversationKeys = new Set([
+  conversationQualificationKey,
+  conversationRuntimeKey,
 ]);
 /** Static Compose env_file assignments, retaining original statement bytes.
  * Quoted multiline secrets are one statement. Dynamic/escaped memory controls
@@ -111,9 +128,88 @@ function assignment(text: string, key: string): string {
 export function explicitlyDisabled(text: string): boolean {
   return assignment(text, "REVIEW_ROUTER_MEMORY_PROVIDER") === "disabled";
 }
+function memoryPaused(text: string): boolean {
+  return (
+    ["0", "false", "off"].includes(
+      assignment(text, "REVIEW_ROUTER_MEMORY_ENABLED").toLowerCase(),
+    ) ||
+    ["1", "true", "on"].includes(
+      assignment(text, "REVIEW_ROUTER_DISABLE_MEMORY").toLowerCase(),
+    )
+  );
+}
+function hasConversationConfiguration(
+  statements: readonly EnvironmentStatement[],
+) {
+  return statements.some(
+    (statement) =>
+      conversationKeys.has(statement.key ?? "") ||
+      (!statement.key &&
+        /^[\t \uFEFF]*(?:export[\t ]+)?REVIEW_ROUTER_(?:CONVERSATION_QUALIFICATION|GATEWAY_INTERACTION_RUNTIME_SHA)\b/m.test(
+          statement.raw,
+        )),
+  );
+}
+type ConversationSetupPlan =
+  | { readonly status: "operator_opt_out" | "existing_configuration_preserved" }
+  | Extract<ConversationReleaseResult, { status: "unqualified" }>
+  | {
+      readonly status: "unqualified";
+      readonly reason:
+        | "existing_configuration_requires_reconciliation"
+        | "existing_configuration_source_mismatch";
+    }
+  | Extract<ConversationReleaseResult, { status: "available" }>;
+
+/** Optional release consumption cannot block ordinary approved storage setup. */
+export async function planConversationEnvironment(
+  current: string,
+  installedSourceRoot = root,
+): Promise<ConversationSetupPlan> {
+  if (explicitlyDisabled(current) || memoryPaused(current))
+    return { status: "operator_opt_out" };
+  const statements = environmentStatements(current);
+  if (hasConversationConfiguration(statements)) {
+    const qualifications = statements.filter(
+      (statement) => statement.key === conversationQualificationKey,
+    );
+    const pins = statements.filter(
+      (statement) => statement.key === conversationRuntimeKey,
+    );
+    try {
+      const qualification = readConversationQualification(
+        qualifications[0]?.value,
+      );
+      if (
+        qualifications.length === 1 &&
+        pins.length === 1 &&
+        qualification &&
+        pins[0]?.value === qualification.runtimeSha
+      ) {
+        if (
+          qualification.profileVersion === 2 &&
+          !conversationSourceProfileMatches(qualification.sourceProfile)
+        )
+          return {
+            status: "unqualified",
+            reason: "existing_configuration_source_mismatch",
+          };
+        return { status: "existing_configuration_preserved" };
+      }
+    } catch {
+      /* Preserve invalid/partial operator input for explicit reconciliation. */
+    }
+    return {
+      status: "unqualified",
+      reason: "existing_configuration_requires_reconciliation",
+    };
+  }
+  return readConversationRelease(installedSourceRoot);
+}
 export function mergeMemoryEnvironment(
   current: string,
   generated: string,
+  conversation?: ConversationEnvironmentTuple,
 ): string {
   if (explicitlyDisabled(current)) return current;
   const statements = environmentStatements(current);
@@ -131,16 +227,21 @@ export function mergeMemoryEnvironment(
       /^REVIEW_ROUTER_MEMORY_[A-Z_]+$/.test(key),
       "Generated environment contains an unexpected key",
     );
+  if (conversation) {
+    validateConversationEnvironmentTuple(conversation);
+    if (!memoryPaused(current) && !hasConversationConfiguration(statements)) {
+      replacement.set(
+        conversationQualificationKey,
+        conversationQualificationEnvironmentValue(conversation.qualification),
+      );
+      replacement.set(
+        conversationRuntimeKey,
+        conversation.interactionRuntimeSha,
+      );
+    }
+  }
   // Preserve an intentional service pause while retaining the provider for cleanup.
-  const paused = assignment(current, "REVIEW_ROUTER_MEMORY_ENABLED");
-  if (["0", "false", "off"].includes(paused.toLowerCase()))
-    replacement.delete("REVIEW_ROUTER_MEMORY_ENABLED");
-  if (
-    ["1", "true", "on"].includes(
-      assignment(current, "REVIEW_ROUTER_DISABLE_MEMORY").toLowerCase(),
-    )
-  )
-    replacement.delete("REVIEW_ROUTER_MEMORY_ENABLED");
+  if (memoryPaused(current)) replacement.delete("REVIEW_ROUTER_MEMORY_ENABLED");
   if (
     [...replacement].every(([key, value]) => {
       const matching = statements.filter((statement) => statement.key === key);
@@ -162,8 +263,9 @@ export async function mergeEnvironmentFile(
   path: string,
   expected: string,
   generated: string,
+  conversation?: ConversationEnvironmentTuple,
 ): Promise<void> {
-  const next = mergeMemoryEnvironment(expected, generated);
+  const next = mergeMemoryEnvironment(expected, generated, conversation);
   if (next === expected) return;
   const original = await lstat(path);
   assert(
@@ -318,15 +420,23 @@ export async function setupMemory(
       });
     }
     await bootstrap("apply", config);
+    const conversation = await planConversationEnvironment(original);
     await mergeEnvironmentFile(
       envFile,
       original,
       await readFile(join(directory, "router.env"), "utf8"),
+      conversation.status === "available"
+        ? conversation.environment
+        : undefined,
     );
     return {
       status: "configured",
       envFile,
       directory,
+      conversation:
+        conversation.status === "available"
+          ? { status: "release_capability_installed" }
+          : conversation,
       nextCommand: `docker compose --env-file '${envFile.replaceAll("'", "'\\''")}' -f '${join(root, "deploy/self-hosted/compose.yml").replaceAll("'", "'\\''")}' up -d --build`,
     };
   } finally {

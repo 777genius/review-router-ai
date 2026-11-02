@@ -8,14 +8,14 @@
   source `4cc7ae2e215ec9fe10f7d05d44dcac9ea72aff4b`.
 - Dependencies: ordinary coherent release; the same PR includes strict client-side
   release verification.
-- Last updated: `2026-11-01`.
+- Last updated: `2026-11-02`.
 
 ## Environment status
 
-| Environment | Status        | Actual application revision                | Evidence / next step                                                                                                  |
-| ----------- | ------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not selected for this task                 | Owner selected direct production delivery in the source session.                                                      |
-| production  | `in_progress` | `06934abf5024f556b2ed0b8662a250fcaffa96c5` | Fleet and seven privileges verified; corrected production logger wiring is built, awaiting a coordinated idle window. |
+| Environment | Status     | Actual application revision                | Evidence / next step                                                                                          |
+| ----------- | ---------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`  | Not selected for this task                 | Owner selected direct production delivery in the source session.                                              |
+| production  | `deployed` | `57cc15137e62068ccf12b98eb4206b2dbbf43fef` | Corrected logger active; coordinated Gateway cutover and fresh FREE review acceptance verified, coverage 1/1. |
 
 ## Failure and evidence
 
@@ -356,3 +356,60 @@ phase. Missing service_tier is excluded on this path: the SaaS normalizer forces
 `default` before the SDK. The bounded Gateway diagnostic candidate remains
 staged; activation and one fresh, separately scoped review remain required to
 resolve the FREE failure. The historical MiMo PR244 failure is separate.
+
+## Final production acceptance — 2026-11-02
+
+The current four-role application fleet runs source
+`57cc15137e62068ccf12b98eb4206b2dbbf43fef`, image
+`sha256:3550f3c7ea126acdef99b25305afecc9a0462defdb380107743f9e6943637171`.
+It includes the corrected production logger and preserves the memory fixes.
+The older built image94 was not redeployed. API source/readiness were checked
+again immediately before the final test.
+
+The memory workstream owns the coordinated Gateway rollout. It activated
+`a717bfe50e46d01092eb380582c83d82c261b58c` with native source
+`f2deab244b62469cebfa1492e70d80a4f766dc1f`, preserving all 6565 historical
+request records and the three previously open executions. The new facade issues
+stateless HMAC execution locators instead of appending issued credentials to the
+old 128-entry catalogue. Its active runtime wiring was verified independently.
+The native source directly retains merged PR86, and its two OpenRouter replay
+implementation/test files remain byte-identical to that fix.
+
+The exact historical catalogue occupancy was not recovered. Current-worker
+request proofs established only 85 issued execution capabilities, so saturation
+is a source-backed failure mechanism, not a proven attribution of every older 503. The separate theory that 640 requests exceeded an SDK 128 limit was rejected:
+the actual SDK permits 10,000 requests; 128 limits concurrency. Existing response
+constructors and parsers have compatible schemas/status/content type.
+
+One fresh pre-cutover test failed with invalid_response/effect_unknown after
+preparation applied and before the SaaS binding attached. Its original request
+was not replayed. Its orphan execution `94530768-6e1a-452e-aa58-014339620196` was
+explicitly handed to the rollout owner for preservation, without forged bearer,
+manual authorization mutation or parser bypass.
+
+After the relevant Gateway fix was active, one new normal synchronize at head
+`be1bc76061dc664134e3c788cb107e71d5b90ffd` produced
+[successful run 41425170166](https://github.com/agent-teams-ai/sub2api/actions/runs/41425170166).
+The frozen provider was OpenRouter, model
+`nvidia/nemotron-3-ultra-550b-a55b:free`, account
+`3839fff1-2a48-4304-af7a-6727c09cfad8`. Required coverage is 1/1, accepted evidence 1,
+findings 0. [The complete summary](https://github.com/agent-teams-ai/sub2api/pull/89#issuecomment-6574335979)
+was independently read back: author `review-router-ai[bot]`, complete marker,
+Files reviewed 1/1, Not reviewed 0, Providers 1/1, No findings.
+
+Authorization `c86c9cfb-f5a7-40c0-894d-39c600343b0a` is revoked, both provider
+leases are released. Native execution `305c9a61-cf5b-4473-8f5a-caf5c5e63c72` is
+fenced with zero occupancy and scoped cleanup DONE; both requests have closure
+proofs. The required request completed. The optional PR-description request
+retains `effect_unknown` and was not presented as successful or retried.
+The held window for this test has ended; this is not global idle clearance.
+
+Private retained receipts:
+`/Users/belief/dev/projects/review-router/tmp/openrouter-free-followup-20261102/run-receipt.json`
+and
+`/Users/belief/dev/projects/review-router/tmp/openrouter-free-after-cutover-20261102/run-receipt.json`.
+PR89 remains open/Draft; branch, repository, data and artifacts are retained.
+No Brave browser was opened. The attempt-neutral wording change is merged in
+Action PR364 at `41c8d65d627bdf7eb0626b711fd57832ff63d7c3`; activation was not
+claimed by this workstream. No extra model run, app deployment or release was
+performed solely for that copy change.

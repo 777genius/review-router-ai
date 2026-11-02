@@ -4,6 +4,9 @@ node_modules
 .serena
 dist
 action-dist
+# Generated standalone parser and its byte-parity manifest; checked by the TS generator.
+deploy/self-hosted/conversation-verifier.mjs
+deploy/self-hosted/conversation-verifier.inputs.json
 build
 coverage
 pnpm-lock.yaml

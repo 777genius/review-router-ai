@@ -42,9 +42,9 @@ const actionSchema = {
       type: "object",
       additionalProperties: false,
       properties: {
-        kind: { const: "create" },
+        kind: { type: "string", const: "create" },
         body: { type: "string", minLength: 1, maxLength: 1000 },
-        knowledgeKind: { enum: ["rule", "observation"] },
+        knowledgeKind: { type: "string", enum: ["rule", "observation"] },
       },
       required: ["kind", "body", "knowledgeKind"],
     },
@@ -52,9 +52,9 @@ const actionSchema = {
       type: "object",
       additionalProperties: false,
       properties: {
-        kind: { const: "create" },
+        kind: { type: "string", const: "create" },
         body: { type: "string", minLength: 1, maxLength: 1000 },
-        knowledgeKind: { const: "exception" },
+        knowledgeKind: { type: "string", const: "exception" },
         exceptionRuleId: { type: "string" },
       },
       required: ["kind", "body", "knowledgeKind", "exceptionRuleId"],
@@ -63,7 +63,7 @@ const actionSchema = {
       type: "object",
       additionalProperties: false,
       properties: {
-        kind: { const: "update" },
+        kind: { type: "string", const: "update" },
         body: { type: "string", minLength: 1, maxLength: 1000 },
         entryId: { type: "string" },
         expectedRevision: { type: "string" },
@@ -74,7 +74,7 @@ const actionSchema = {
       type: "object",
       additionalProperties: false,
       properties: {
-        kind: { enum: ["retire", "forget", "relearn"] },
+        kind: { type: "string", enum: ["retire", "forget", "relearn"] },
         entryId: { type: "string" },
         expectedRevision: { type: "string" },
       },
@@ -88,7 +88,10 @@ export const conversationOutputSchema = {
     type: "object",
     additionalProperties: false,
     properties: {
-      kind: { enum: ["answer", "clarify", "effect_notice", "silent"] },
+      kind: {
+        type: "string",
+        enum: ["answer", "clarify", "effect_notice", "silent"],
+      },
       answer: { type: "string", maxLength: 12000 },
       action: actionSchema,
     },

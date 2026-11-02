@@ -8,6 +8,8 @@ import Fastify from "fastify";
 import pg from "pg";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import { executionConnector } from "@agent-teams/account-gateway/llm";
 import {
   afterAll,
   beforeAll,
@@ -348,7 +350,7 @@ describe.skipIf(!databaseUrl)(
             },
           ];
           response.write(
-            `data: ${JSON.stringify({ type: "response.output_item.done", item: output[0] })}\r\n\r\n`,
+            `data: ${JSON.stringify({ type: "response.output_text.done", text: output[0]!.content[0]!.text })}\r\n\r\n`,
           );
           return response.end(
             `data: ${JSON.stringify({ type: "response.completed", response: { id: "response-1", status: "completed", model, output: [], usage: { input_tokens: 1200, output_tokens: 40 } } })}\r\n\r\n`,
@@ -431,11 +433,15 @@ describe.skipIf(!databaseUrl)(
             bindingManifest,
             isCurrent: async () => true,
             inference: createConversationGatewayInference({
-              runAccess: {
+              control: createConsumerControlClient({
+                role: "consumer-control",
                 origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-                runControlBearer: "disposable-control-token",
+                token: "disposable-control-token",
                 timeoutMs: 5000,
-              },
+              }),
+              connectExecution: executionConnector({
+                origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+              }),
               prepare: {
                 operationId: `conversation-${processingId}`,
                 invocationRef: `conversation-${processingId}`,
@@ -448,7 +454,6 @@ describe.skipIf(!databaseUrl)(
                 limits,
                 deadline: budget.deadlineAt.toISOString(),
               },
-              requestId: `conversation-${processingId}-request`,
               model,
               expectedAuthorizationEpoch: 12,
               checkAuthority: () => selectionCurrent(prisma),
@@ -566,15 +571,16 @@ describe.skipIf(!databaseUrl)(
           accountRefs: ["selected-account"],
           limits: { requests: 1, concurrency: 1 },
         });
-        expect(
-          f.calls.find((call) => call.kind === "request")!.body,
-        ).toMatchObject({
+        const requestBody = f.calls.find(
+          (call) => call.kind === "request",
+        )!.body;
+        expect(requestBody).toMatchObject({
           model,
-          tools: [],
-          tool_choice: "none",
           stream: true,
           store: false,
         });
+        expect(requestBody).not.toHaveProperty("tools");
+        expect(requestBody).not.toHaveProperty("tool_choice");
         const row = await prisma.conversationProcessing.findUniqueOrThrow({
           where: { id: result.processingId },
         });

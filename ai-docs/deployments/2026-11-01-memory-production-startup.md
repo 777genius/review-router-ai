@@ -166,9 +166,9 @@ automatic-learning or conversational-quality result.
 Secret-free retained evidence archives are under the task worktree's
 `tmp/native-qualification-20261101/`; their hashes remain recorded by the operator.
 
-## Current shared application and acceptance
+## Historical shared application and acceptance, November 1
 
-The current shared application source is
+At the November 1 cutover, the shared application source was
 `e7f2e600acc896448b91ea0a9985c6e766a3c95b`, whose parent is the coordinated
 `14bead9640d0b4e6c6741aa5645c2a6c160fdd2f` release above. Its image is
 `sha256:7cee23648d3fb708fdf63f99fa0578e8d5726a512b06a5bbc992cdcf4cb6ec8a`.
@@ -176,7 +176,9 @@ Cutover was recorded at `2026-11-01T13:38:30Z`; all four roles reported the exac
 source, running with zero restarts, worker privileges passed all six checks and
 API readiness returned 200. Protected custody:
 `/srv/platform/projects/review-router/releases/fleet-overlay-e7f2e600-QWzrdEu2`.
-The earlier application revisions are historical, not the current baseline.
+This section is historical. The current Core57 / Action225 fleet and Gateway
+cutover are recorded in the verified November 2 section below. Actual memory
+delivery and signed Forget are tracked in the memory authorization record.
 See the companion [Gateway diagnostics record](2026-11-01-companion-gateway-refusal-diagnostics.md).
 
 [Shared acceptance run 41318061244](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41318061244)
@@ -227,3 +229,71 @@ Bootstrap [PR #773](https://github.com/777genius/review-router-ai/pull/773) merg
 preserving the `555ddc759` cleanup-repair ancestry. This is source delivery.
 Self-hosted environment installation/acceptance and automatic conversational
 learning qualification remain pending.
+
+## Verified Gateway cutover, 2026-11-02 09:47 UTC
+
+This supersedes the historical not-installed Gateway observation above. The
+application fleet remains Core `57cc15137e62068ccf12b98eb4206b2dbbf43fef` with
+Action `v1.0.225`; the actual reviewer delivery and signed physical Forget are
+recorded in [the authorization record](2026-11-01-memory-review-authorization.md).
+Automatic full-thread learning and self-hosted release acceptance remain pending.
+
+The deployed Gateway is now protected-main
+`a717bfe50e46d01092eb380582c83d82c261b58c` from PR95, paired with native Sub2API
+`f2deab244b62469cebfa1492e70d80a4f766dc1f`. The native executable SHA256 is
+`09a7ab6fabb829cdd4c86b9c2ce6d9425ab73a9b67f02aa15b1d2d23319e6f9d`.
+The immutable release directory is
+`/srv/platform/artifacts/review-router/account-gateway/releases/coherent-a717-f2de-node26-20261102/release`.
+Actual systemd readback verified the private Node26.11.1 executable and native
+child hash, canonical `ready` line, active/running state and zero restarts.
+
+The old execution-bearer registry accumulated issued capabilities with a fixed
+128-entry bound. Preparation committed before capability generation, so exhaustion
+could leave an applied prepare with no acknowledged grant. Live registry occupancy
+was not exposed and its exact count was not measured. The new source issues
+stateless HMAC execution locators; the existing protected signing key is retained.
+The remaining128-entry guard applies to configured bearers, not issued locators.
+
+Normal shutdown completed with MainPID0, no remaining cgroup writers and physical
+transport occupancy0. Verified custom-format backups of both databases and private
+configuration/authority snapshots preceded schema changes. Native canonical
+ApplyMigrations added only247/248/249 (314 to317 exact checksums). Canonical kernel
+009 through012 completed; whole-row comparison preserved all6565 historical
+requests, all3 open executions and their6 linked requests. No historical execution
+was closed, fenced, replayed or deleted. Credentials, authority and bootstrap bytes
+were retained. Do not start old writers against these newer schemas or restore a
+snapshot over subsequently accepted effects; recovery must preserve that history.
+
+Durable private receipts are under
+`/srv/platform/projects/review-router/account-gateway/upgrade-a717-f2de-20261102/`:
+`backup-ack.json`, `evidence/native/native-migration-result.json`,
+`evidence/kernel/kernel-apply-result.json` and `activation-result.json`.
+The initial backup verification failed because a buffered header read left the
+inherited file descriptor at4096; fresh unbuffered readback verified the same
+existing dump without repeating shutdown or its creation. Native backup used the
+existing container database administrator after the application role lacked read
+permission on one table; application privileges were not expanded.
+
+Fresh metadata task `rr-metadata-guard-probe-20261102-selected-2` completed normal
+selected-account grant admission and acknowledged close exactly once. Its
+unconditional transport guard prevented inference: access1, connector1, guard1,
+close1, closeAcknowledged1, cleanup closed, usage null. This is grant/lifecycle
+proof, not model-quality evidence. Historical unknown tasks were not repeated.
+
+One subsequent full tuning run `804d8189-23e4-46c9-8f42-0eca5e58dcb4`
+recorded24 observations with completed/closed extraction receipts, then stopped
+with `eval_native_readback_deadline` during a settled event replay. The actual
+three commands in that scenario were already published; the harness was polling
+`deliver` on a terminal command, whose normal contract returns null. Preserve this
+run as UNAVAILABLE. Fixing that harness boundary does not qualify the mechanism,
+issue a capability, consume a protected checkpoint or authorize replay of an
+unknown model request.
+
+The coordinated post-cutover FREE canary
+[run41425170166](https://github.com/agent-teams-ai/sub2api/actions/runs/41425170166)
+completed successfully against the activated pair: required coverage1/1 and one
+accepted evidence item. The main request has a COMPLETED closure proof; the
+optional PR-description request retains its EFFECT_UNKNOWN proof. Both SaaS leases
+were released, authorization revoked and the canary's own native execution fenced
+with occupancy0. This validates the ordinary review path after the upgrade, not
+automatic-memory quality. The three historical open executions were preserved.

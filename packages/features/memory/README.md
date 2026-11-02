@@ -26,10 +26,12 @@ configured provider for cleanup. Runtime retrieval failures still produce an
 empty memory bundle without blocking ordinary reviews. Use the same provider,
 namespace, generation and profile on all three hosts.
 
-The local, production/staging and self-hosted environment templates expose this
-same configuration. They do not provision Hindsight or qualify a deployment;
-native activation, inference configuration and existing-data disposition remain
-subject to the private runbook above. Explicit deployment opt-outs are preserved.
+The environment templates expose this same configuration. Self-hosted first
+startup runs [setup-memory](../../../deploy/hindsight/BOOTSTRAP.md) before the
+ordinary Compose command to provision and qualify the native backend and merge
+its private settings. Templates alone do not provision it. Native activation
+and existing-data disposition remain subject to the private runbook above.
+Explicit deployment opt-outs are preserved.
 
 ## Public boundary
 
@@ -130,16 +132,18 @@ old remote data was physically deleted.
 The current [owner-requested contract](../../../ai-docs/plans/2026-10-30-full-thread-memory-settings.md)
 uses the complete checked inline thread to interpret the selected maintainer's
 message. A clear contextual endorsement may produce an observation without a
-Save command. The native engine owns extraction; the existing conversation model
+Save command. The captured primary review account through Gateway owns extraction under [ADR034](../../../ai-docs/decisions/034-selected-account-memory-inference.md); the existing conversation model
 owns natural-language mutation intent. Ordinary contributors and bots remain
 context, not actors authorized to change memory. Current-source, audience, exact
-target/revision and replay checks still apply.
+target/revision and replay checks still apply. The selected-account extractor requires a fresh
+`transient-checked-inline-gateway-full-thread-v1` capability; source-only Gateway
+or native preview proof cannot activate it.
 
 Memory -> Settings contains **Require confirmation for memory changes**, shared
 by every repository in the workspace. Its default is off. Workspace owners/admins
 manage the setting in the existing versioned workspace configuration. Automatic
 mode admits permitted AI changes without another reply. Confirmation mode keeps
-native previews read-only and renders exact commands for proposed observations
+extraction previews read-only and renders exact commands for proposed observations
 or mutations. A maintainer can post one as a separate reply; altered text, kind,
 target or revision cannot authorize that command. English and Russian authored
 forms are supported, including `Remember observation: IDs keep leading zeroes.`,

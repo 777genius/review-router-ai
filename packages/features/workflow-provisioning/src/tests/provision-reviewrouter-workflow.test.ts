@@ -4,6 +4,8 @@ import {
   workspacePolicyDocumentFixture,
 } from "../../../review-config/src/tests/current-policy-fixture";
 import { describe, expect, it } from "vitest";
+import { qualifiedGatewayInteractionRuntimeSha } from "@reviewrouter/platform-config";
+import { conversationCapabilityFixture } from "../../../../platform/config/src/tests/conversation-qualification-fixture.js";
 import { parse } from "yaml";
 import {
   parseReviewConfigurationStrict,
@@ -1488,48 +1490,96 @@ it.each([
   },
 );
 
-it("installs the qualified immutable Gateway interaction alongside the unchanged neutral review caller", async () => {
-  const setupGateway = new CapturingSetupGateway(),
-    runtimeSha = "d".repeat(40);
-  await provisionReviewRouterWorkflow(
-    { ...gatewayInput, discussionMode: "suggest" },
-    {
-      setupGateway,
-      provisioning: new CapturingProvisioningRepository(),
-      configurations: savedConfigurations(),
-      trustedGithubRepositoryId: "123456",
-      gatewayInteractionRuntimeSha: runtimeSha,
-    },
-  );
-  const files = setupGateway.input!.workflowFiles;
-  const interaction = files.find(
-    (file) => file.path === ".github/workflows/reviewrouter-interaction.yml",
-  );
-  expect(interaction && "content" in interaction).toBe(true);
-  if (!interaction || !("content" in interaction))
-    throw new Error("missing_interaction_caller");
-  expect(
-    readAccountGatewayInteractionCallerSource(interaction.content),
-  ).toEqual({ runtimeSha, apiUrl: gatewayInput.apiUrl });
-  const caller = parse(interaction.content);
-  expect(caller.on.pull_request_review_comment.types).toEqual([
-    "created",
-    "edited",
-    "deleted",
-  ]);
-  expect(caller.jobs.interaction.with.interaction_backend).toBe(
-    "account-gateway",
-  );
-  expect(caller.jobs.interaction.secrets).toBeUndefined();
-  expect(interaction.content).not.toMatch(
-    /CODEX_AUTH_JSON|OPENAI_API_KEY|DISCUSSION_MODEL|github\.token/,
-  );
-  const review = files.find(
-    (file) => file.path === ".github/workflows/reviewrouter-review.yml",
-  );
-  expect(
-    review && "content" in review && parse(review.content).jobs.review.uses,
-  ).toBe(
-    "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
-  );
-});
+it.each(["repository-v1", "mechanism-v2", "stale-mechanism-v2"] as const)(
+  "installs the qualified immutable Gateway interaction through %s alongside the unchanged neutral review caller",
+  async (kind) => {
+    const setupGateway = new CapturingSetupGateway(),
+      runtimeSha = "d".repeat(40);
+    const capability = conversationCapabilityFixture({ runtimeSha });
+    if (kind === "stale-mechanism-v2")
+      capability.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
+    const qualification =
+      kind !== "repository-v1"
+        ? capability
+        : {
+            profileVersion: 1,
+            proofId: capability.proofId,
+            sourceProcessingProfile: capability.sourceProcessingProfile,
+            runtimeSha,
+            models: capability.models,
+            repositories: [
+              {
+                workspaceId: gatewayInput.workspaceId,
+                repositoryId: gatewayInput.repositoryId,
+              },
+            ],
+          };
+    const gatewayInteractionRuntimeSha = qualifiedGatewayInteractionRuntimeSha(
+      {
+        REVIEW_ROUTER_CONVERSATION_QUALIFICATION: JSON.stringify(qualification),
+        REVIEW_ROUTER_GATEWAY_INTERACTION_RUNTIME_SHA: runtimeSha,
+      },
+      gatewayInput,
+    );
+    if (kind === "stale-mechanism-v2") {
+      expect(gatewayInteractionRuntimeSha).toBeUndefined();
+      await expect(
+        provisionReviewRouterWorkflow(
+          { ...gatewayInput, discussionMode: "suggest" },
+          {
+            setupGateway,
+            provisioning: new CapturingProvisioningRepository(),
+            configurations: savedConfigurations(),
+            trustedGithubRepositoryId: "123456",
+          },
+        ),
+      ).rejects.toThrow("account_gateway_workflow_options_not_supported");
+      expect(setupGateway.input).toBeNull();
+      return;
+    }
+    expect(gatewayInteractionRuntimeSha).toBe(runtimeSha);
+    if (!gatewayInteractionRuntimeSha)
+      throw new Error("synthetic_capability_did_not_apply");
+    await provisionReviewRouterWorkflow(
+      { ...gatewayInput, discussionMode: "suggest" },
+      {
+        setupGateway,
+        provisioning: new CapturingProvisioningRepository(),
+        configurations: savedConfigurations(),
+        trustedGithubRepositoryId: "123456",
+        gatewayInteractionRuntimeSha,
+      },
+    );
+    const files = setupGateway.input!.workflowFiles;
+    const interaction = files.find(
+      (file) => file.path === ".github/workflows/reviewrouter-interaction.yml",
+    );
+    expect(interaction && "content" in interaction).toBe(true);
+    if (!interaction || !("content" in interaction))
+      throw new Error("missing_interaction_caller");
+    expect(
+      readAccountGatewayInteractionCallerSource(interaction.content),
+    ).toEqual({ runtimeSha, apiUrl: gatewayInput.apiUrl });
+    const caller = parse(interaction.content);
+    expect(caller.on.pull_request_review_comment.types).toEqual([
+      "created",
+      "edited",
+      "deleted",
+    ]);
+    expect(caller.jobs.interaction.with.interaction_backend).toBe(
+      "account-gateway",
+    );
+    expect(caller.jobs.interaction.secrets).toBeUndefined();
+    expect(interaction.content).not.toMatch(
+      /CODEX_AUTH_JSON|OPENAI_API_KEY|DISCUSSION_MODEL|github\.token/,
+    );
+    const review = files.find(
+      (file) => file.path === ".github/workflows/reviewrouter-review.yml",
+    );
+    expect(
+      review && "content" in review && parse(review.content).jobs.review.uses,
+    ).toBe(
+      "777genius/review-router/.github/workflows/reviewrouter-runtime.yml@workflow-v1",
+    );
+  },
+);

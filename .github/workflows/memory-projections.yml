@@ -229,6 +229,7 @@ jobs:
           pnpm exec vitest run \
             packages/features/memory/src/tests/memory-knowledge.pg.test.ts \
             apps/api/src/action-conversation-finite-path.pg.test.ts \
+            apps/api/src/action-conversation-memory-preview.pg.test.ts \
             apps/api/src/review-memory-admission.pg.test.ts \
             apps/api/src/review-memory-v4.postgres.test.ts \
             apps/worker/src/memory-knowledge-worker.pg.test.ts \
@@ -243,6 +244,7 @@ jobs:
           const expected = [
             'packages/features/memory/src/tests/memory-knowledge.pg.test.ts',
             'apps/api/src/action-conversation-finite-path.pg.test.ts',
+            'apps/api/src/action-conversation-memory-preview.pg.test.ts',
             'apps/api/src/review-memory-admission.pg.test.ts',
             'apps/api/src/review-memory-v4.postgres.test.ts',
             'apps/worker/src/memory-knowledge-worker.pg.test.ts',

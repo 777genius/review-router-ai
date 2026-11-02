@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { acquireCurrentScopeGuards } from "../../packages/platform/db/src/index.js";
 import {
   ProcessConversation,
   PrismaConversationProcessingStore,
@@ -36,12 +37,18 @@ import {
   hindsightMemoryBankId,
 } from "../../packages/features/memory/src/composition/index.js";
 import { memoryKnowledgeScopeKey } from "../../packages/features/memory/src/index.js";
+import { MemoryKnowledgeError } from "../../packages/features/memory/src/index.js";
+import type { MemoryKnowledgeRuntime } from "../../packages/features/memory/src/composition/index.js";
 import { approvedMemorySourceApplicable } from "../../packages/features/memory/src/infrastructure/prisma/approved-memory-source-applicable.js";
 import { createConversationMemoryPort } from "../../apps/api/src/action-conversation-composition.js";
 import {
-  createConversationPolicy,
-  readConversationQualification,
+  createConversationCandidatePolicy,
+  conversationCandidateMemoryPolicy,
+  type ConversationCapturedPolicy,
+  type ConversationOperationalModelBounds,
 } from "../../apps/api/src/action-conversation-policy.js";
+import { createConversationCandidateMemoryPreview } from "../../apps/api/src/action-conversation-candidate.js";
+import { conversationMemoryPreviewId } from "../../apps/api/src/action-conversation-memory-preview.js";
 import { admitMemoryReceiptInTransaction } from "../../apps/api/src/review-memory-admission.js";
 import type { MemoryKnowledgeAdmissionReceipt } from "../../packages/features/memory/src/index.js";
 import { HindsightMemoryStore } from "../../packages/context-memory/src/index.js";
@@ -68,6 +75,63 @@ export type ExplicitActionProof = {
   requireConfirmation: boolean;
   settingsRevision: string;
 };
+
+/** The original runtime's mutation closure must fence both candidate policy owners. */
+export function candidateWorkspaceMemorySettings(input: {
+  readonly settings: PrismaWorkspaceMemorySettings;
+  readonly templateWorkspaceId: string;
+  readonly disposableWorkspaceId: string;
+  readonly captured: () => ConversationCapturedPolicy | undefined;
+  readonly readPolicy: MemoryKnowledgeRuntime["policy"]["getPolicy"];
+}): NonNullable<
+  Parameters<typeof createMemoryKnowledgeRuntime>[0]["workspaceSettings"]
+> {
+  return async (workspaceId, transaction?: Prisma.TransactionClient) => {
+    if (workspaceId !== input.disposableWorkspaceId) {
+      if (transaction) throw new MemoryKnowledgeError("conflict");
+      return input.settings.read(workspaceId);
+    }
+    if (transaction)
+      await acquireCurrentScopeGuards(transaction, [
+        { scope: "workspace", workspaceId, mode: "shared" },
+        {
+          scope: "workspace",
+          workspaceId: input.templateWorkspaceId,
+          mode: "shared",
+        },
+      ]);
+    const template = await input.settings.read(
+      input.templateWorkspaceId,
+      transaction,
+    );
+    const disposable = await input.settings.read(workspaceId, transaction);
+    if (transaction) {
+      const captured = input.captured()?.policy;
+      const expected = captured?.bindingManifest.memorySettings as
+        | { revision?: unknown; templateRevision?: unknown }
+        | undefined;
+      if (
+        !captured?.automaticLearning ||
+        expected?.revision !== String(disposable.version ?? 0) ||
+        expected?.templateRevision !== String(template.version ?? 0)
+      )
+        throw new MemoryKnowledgeError("conflict");
+      // Normal entitlement/settings writers use these same guards. Reads remain
+      // stable through the mutation transaction, including the original service closure.
+      const policy = conversationCandidateMemoryPolicy(
+        await input.readPolicy({ workspaceId: input.templateWorkspaceId }),
+        await input.readPolicy({ workspaceId }),
+      );
+      if (!policy.memoryEnabled || !policy.automaticLearning)
+        throw new MemoryKnowledgeError("disabled");
+    }
+    return {
+      requireConfirmation:
+        template.requireConfirmation || disposable.requireConfirmation,
+      version: disposable.version,
+    };
+  };
+}
 export type Witness = {
   sourceIdentity?: "github-node-v1";
   scope?: MemoryKnowledgeScope;
@@ -97,6 +161,18 @@ export type Witness = {
   usage: unknown;
   productLatencyMs: number;
   nativeLatencyMs: number;
+  gatewayPreviewLatencyMs?: number;
+  /** Actual parent SDK cleanup observation, never inferred from a missing child call. */
+  gatewayParentCleanupPending?: boolean;
+  gatewayPreviewReceipt?: {
+    processingId: string;
+    observedModel: string | null;
+    usage: unknown;
+    requestEffect: string | null;
+    gatewayCleanup: string | null;
+    selectedAccountDigest: string;
+    candidateRunId: string | null;
+  } | null;
   inventory: InventoryEntry[];
   retained: (InventoryEntry & { body: string; bodyDigest: string })[];
   effects: {
@@ -147,9 +223,9 @@ export type InventoryEntry = {
   sourceActor: string | null;
   observedCommit: string | null;
 };
-const controls = (): RequestControls => ({
-  deadlineAt: new Date(Date.now() + 90_000),
-  signal: AbortSignal.timeout(90_000),
+const controls = (timeoutMs = 90_000): RequestControls => ({
+  deadlineAt: new Date(Date.now() + timeoutMs),
+  signal: AbortSignal.timeout(timeoutMs),
 });
 const rawHash = (body: string) =>
   createHash("sha256").update(body, "utf8").digest("hex");
@@ -163,6 +239,8 @@ export async function createEvaluationFixture(input: {
   corpusName?: CorpusName;
   repositoryKeys?: string[];
   template: { workspaceId: string; repositoryId: string };
+  variant: "native-selection-only" | "full-product";
+  candidateModels?: readonly ConversationOperationalModelBounds[];
 }) {
   const namespace = `eval_${rawHash(`${input.runId}:${input.scenario}`).slice(0, 40)}`;
   const pullRequestNumber =
@@ -176,22 +254,128 @@ export async function createEvaluationFixture(input: {
       repositoryKeys.length === 1 ? namespace : `${namespace}_${key}`,
   }));
   let scope = scopes[0]!;
-  const templateRepository = await input.prisma.repositoryConnection.findFirst({
+  const template = await input.prisma.repositoryConnection.findFirst({
     where: {
       id: input.template.repositoryId,
       workspaceId: input.template.workspaceId,
+      provider: "github",
       selected: true,
       archived: false,
+      installation: { status: "active" },
     },
     select: { githubRepositoryId: true, fullName: true },
   });
-  if (!templateRepository?.githubRepositoryId)
-    throw new Error("eval_qualified_processing_identity_missing");
-  const processingIdentity = evaluationProcessingIdentity({
-    ...input.template,
-    githubRepositoryId: String(templateRepository.githubRepositoryId),
-    fullName: templateRepository.fullName,
+  if (
+    !template?.githubRepositoryId ||
+    (input.variant === "full-product" && !input.candidateModels)
+  )
+    throw new Error("eval_template_selection_unavailable");
+  const candidateIdentity = (requested: typeof scope) => ({
+    workspaceId: requested.workspaceId,
+    repositoryId: requested.repositoryId,
+    repositoryStableId: `synthetic:${requested.repositoryId}`,
+    repositoryFullName: `disposable/${requested.repositoryId}`,
   });
+  const processingIdentity =
+    input.variant === "full-product"
+      ? candidateIdentity(scope)
+      : evaluationProcessingIdentity({
+          ...input.template,
+          githubRepositoryId: String(template.githubRepositoryId),
+          fullName: template.fullName,
+        });
+  const settings = new PrismaWorkspaceMemorySettings(input.prisma);
+  const nativeConfig = parseMemoryProviderConfig(input.env);
+  if (nativeConfig.kind !== "hindsight")
+    throw new Error("eval_native_runtime_unavailable");
+  const inventory = new HindsightMemoryStore({
+    baseUrl: nativeConfig.baseUrl,
+    apiKey: nativeConfig.apiKey,
+    bankForScope: (repositoryId) => {
+      const requested = scopes.find((row) => row.repositoryId === repositoryId);
+      if (!requested) throw new Error("eval_native_scope_invalid");
+      return hindsightMemoryBankId(nativeConfig, requested);
+    },
+    exactStatementStrategy: "router-approved-v1",
+  });
+  let capturedPolicy: ConversationCapturedPolicy | undefined;
+  const workspaceSettings =
+    input.variant === "full-product"
+      ? candidateWorkspaceMemorySettings({
+          settings,
+          templateWorkspaceId: input.template.workspaceId,
+          disposableWorkspaceId: scope.workspaceId,
+          captured: () => capturedPolicy,
+          readPolicy: (identity) => runtime.policy.getPolicy(identity),
+        })
+      : (workspaceId: string, transaction?: Prisma.TransactionClient) =>
+          settings.read(workspaceId, transaction);
+  const runtime = await createMemoryKnowledgeRuntime({
+    prisma: input.prisma,
+    env: input.env,
+    workspaceSettings,
+  });
+  if (!runtime.enabled) throw new Error("eval_native_runtime_unavailable");
+  let capturedReceipt: MemoryKnowledgeAdmissionReceipt | undefined;
+  const selectedPolicy =
+    input.variant === "full-product"
+      ? createConversationCandidatePolicy({
+          prisma: input.prisma,
+          runtime,
+          env: input.env,
+          template: {
+            ...input.template,
+            repositoryStableId: String(template.githubRepositoryId),
+          },
+          candidateRunId: `${input.runId}:${input.scenario}`,
+          models: input.candidateModels!,
+          onCaptured: (value) => {
+            capturedPolicy = value;
+          },
+          admitMemory: async (transaction, now) =>
+            capturedReceipt
+              ? capturedReceipt.scopes.every(
+                  (section) => section.entries.length === 0,
+                ) ||
+                admitMemoryReceiptInTransaction(
+                  transaction,
+                  runtime,
+                  capturedReceipt,
+                  {
+                    workspaceId: scope.workspaceId,
+                    repositoryId: scope.repositoryId,
+                    headSha: snapshot!.headSha,
+                    task: "conversation",
+                    now,
+                  },
+                )
+              : false,
+        })
+      : null;
+  // Capture real template account/policy metadata before creating disposable rows.
+  if (selectedPolicy) {
+    const preflight = await selectedPolicy.capture(
+      {
+        ...candidateIdentity(scope),
+        pullRequestNumber,
+        threadId: `${namespace}:preflight`,
+        sourceId: `${namespace}:preflight`,
+        sourceCommentId: "1",
+        sourceRevision: "preflight",
+        sourceUpdatedAt: new Date().toISOString(),
+        sourceActor: {
+          id: "github-user:eval-maintainer",
+          login: "maintainer",
+          kind: "human",
+        },
+      },
+      conversationDigest(`${namespace}:preflight`),
+      controls(),
+    );
+    if (!preflight.automaticLearning)
+      throw new Error("eval_template_learning_disabled");
+    capturedPolicy = undefined;
+  }
   await input.prisma.workspace.create({
     data: {
       id: scope.workspaceId,
@@ -199,22 +383,21 @@ export async function createEvaluationFixture(input: {
       name: `Disposable conversation evaluation ${namespace}`,
     },
   });
-  for (const repository of scopes)
+  for (const requested of scopes)
     await input.prisma.repositoryConnection.create({
       data: {
-        id: repository.repositoryId,
-        workspaceId: repository.workspaceId,
-        externalRepositoryId: repository.repositoryId,
+        id: requested.repositoryId,
+        workspaceId: requested.workspaceId,
+        externalRepositoryId: requested.repositoryId,
         owner: "disposable",
-        name: repository.repositoryId,
-        fullName: `disposable/${repository.repositoryId}`,
+        name: requested.repositoryId,
+        fullName: `disposable/${requested.repositoryId}`,
         defaultBranch: "main",
         visibility: "public",
         selected: true,
         archived: false,
       },
     });
-  const settings = new PrismaWorkspaceMemorySettings(input.prisma);
   const settingsOwnerId = `${namespace}_owner`;
   if (successor) {
     await input.prisma.user.create({ data: { id: settingsOwnerId } });
@@ -240,64 +423,6 @@ export async function createEvaluationFixture(input: {
   let selectedStatements: string[] = [];
   const explicitActions = new Map<string, ExplicitActionProof>();
   const explicitEntryCommands = new Map<string, string>();
-  const nativeConfig = parseMemoryProviderConfig({
-    ...input.env,
-    REVIEW_ROUTER_MEMORY_NAMESPACE: namespace,
-  });
-  if (nativeConfig.kind !== "hindsight")
-    throw new Error("eval_native_runtime_unavailable");
-  const inventory = new HindsightMemoryStore({
-    baseUrl: nativeConfig.baseUrl,
-    apiKey: nativeConfig.apiKey,
-    bankForScope: (repositoryId) => {
-      const selected = scopes.find((row) => row.repositoryId === repositoryId);
-      if (!selected) throw new Error("eval_native_scope_invalid");
-      return hindsightMemoryBankId(nativeConfig, selected);
-    },
-    exactStatementStrategy: "router-approved-v1",
-  });
-  const runtime = await createMemoryKnowledgeRuntime({
-    prisma: input.prisma,
-    env: { ...input.env, REVIEW_ROUTER_MEMORY_NAMESPACE: namespace },
-    workspaceSettings: (workspaceId, transaction) =>
-      new PrismaWorkspaceMemorySettings(input.prisma).read(
-        workspaceId,
-        transaction,
-      ),
-  });
-  if (!runtime.enabled) throw new Error("eval_native_runtime_unavailable");
-  const qualification = readConversationQualification(
-    input.env.REVIEW_ROUTER_CONVERSATION_QUALIFICATION,
-  );
-  if (!qualification) throw new Error("eval_gateway_profile_unavailable");
-  let capturedReceipt: MemoryKnowledgeAdmissionReceipt | undefined;
-  const selectedPolicy = createConversationPolicy({
-    prisma: input.prisma,
-    runtime: {
-      ...runtime,
-      policy: { getPolicy: () => runtime.policy.getPolicy(scope) },
-    },
-    env: input.env,
-    qualification,
-    admitMemory: async (transaction, now) =>
-      capturedReceipt
-        ? capturedReceipt.scopes.every(
-            (section) => section.entries.length === 0,
-          ) ||
-          admitMemoryReceiptInTransaction(
-            transaction,
-            runtime,
-            capturedReceipt,
-            {
-              workspaceId: scope.workspaceId,
-              repositoryId: scope.repositoryId,
-              headSha: snapshot!.headSha,
-              task: "conversation",
-              now,
-            },
-          )
-        : false,
-  });
   const sourceInventory = new Map<
     string,
     {
@@ -310,6 +435,7 @@ export async function createEvaluationFixture(input: {
     }
   >();
   let snapshot: ConversationSnapshot | undefined;
+  let currentIdentity: ConversationIdentity | undefined;
   const memoryActor: MemoryActor = {
     kind: "github_user",
     id: "github-user:eval-maintainer",
@@ -394,8 +520,8 @@ export async function createEvaluationFixture(input: {
   const sources: ConversationSourcePort & MemoryAutomaticSourceCurrentPort = {
     current: current.current,
     async identify() {
-      if (!snapshot) throw new Error("eval_snapshot_missing");
-      return snapshot;
+      if (!currentIdentity) throw new Error("eval_snapshot_missing");
+      return currentIdentity;
     },
     async read() {
       if (!snapshot) throw new Error("eval_snapshot_missing");
@@ -419,15 +545,14 @@ export async function createEvaluationFixture(input: {
     modelCalls = 0,
     inputBytes = 0,
     nativeLatencyMs = 0,
+    gatewayPreviewLatencyMs = 0,
+    gatewayPreviewReceipt: Witness["gatewayPreviewReceipt"] = null,
     observedModel: string | null = null,
     usage: unknown = null,
     deliveredBodyDigests: string[] = [],
     deliveredQualifiedBodyDigests: string[] = [],
     memoryManifest: Witness["memoryManifest"] = null;
-  const preview = createConfiguredMemorySourcePreview({
-    ...input.env,
-    REVIEW_ROUTER_MEMORY_NAMESPACE: namespace,
-  });
+  const preview = createConfiguredMemorySourcePreview(input.env);
   const observedPreview = {
     async preview(...args: Parameters<typeof preview.preview>) {
       previewCalls++;
@@ -444,15 +569,104 @@ export async function createEvaluationFixture(input: {
       }
     },
   };
+  const gatewayPreview = (
+    value: ConversationSnapshot,
+    processingId: string,
+  ) => {
+    const captured = capturedPolicy;
+    if (!captured) throw new Error("eval_candidate_capture_unavailable");
+    const port = createConversationCandidateMemoryPreview({
+      prisma: input.prisma,
+      parentId: processingId,
+      snapshot: value,
+      captured,
+      env: input.env,
+      isSourceCurrent: (budget) => sources.isCurrent(value, budget),
+    });
+    return {
+      async preview(...args: Parameters<typeof port.preview>) {
+        previewCalls++;
+        const start = Date.now();
+        try {
+          const result = await port.preview(...args);
+          selectedStatements =
+            result.status === "complete"
+              ? result.statements.map((statement) => statement.body)
+              : [];
+          return result;
+        } finally {
+          gatewayPreviewLatencyMs += Date.now() - start;
+          const row = await input.prisma.conversationProcessing.findUnique({
+            where: { id: conversationMemoryPreviewId(processingId) },
+            select: {
+              id: true,
+              observedModel: true,
+              observedUsage: true,
+              requestEffect: true,
+              result: true,
+              boundManifest: true,
+            },
+          });
+          if (row?.boundManifest) {
+            const account = (
+              JSON.parse(row.boundManifest) as {
+                account: Record<string, unknown>;
+              }
+            ).account;
+            const selected = Object.fromEntries(
+              [
+                "bindingId",
+                "bindingRevision",
+                "connectionId",
+                "gatewayAccountRef",
+                "profileRef",
+                "model",
+                "policySubject",
+                "policyRevision",
+                "expectedAuthorizationEpoch",
+                "configurationDigest",
+              ].map((key) => [key, account[key] ?? null]),
+            );
+            const result = row.result as { gatewayCleanup?: unknown } | null;
+            gatewayPreviewReceipt = {
+              processingId: row.id,
+              observedModel: row.observedModel,
+              usage: row.observedUsage,
+              requestEffect: row.requestEffect,
+              gatewayCleanup:
+                typeof result?.gatewayCleanup === "string"
+                  ? result.gatewayCleanup
+                  : null,
+              selectedAccountDigest: conversationDigest(selected),
+              candidateRunId:
+                typeof account.candidateEvaluationRunId === "string"
+                  ? account.candidateEvaluationRunId
+                  : null,
+            };
+          }
+        }
+      },
+    };
+  };
   const metadataHistory = new Map<string, MemoryKnowledgeEntryMetadata>();
   const readInventory = async (): Promise<InventoryEntry[]> => {
     const pages = await Promise.all(
-      scopes.map((requested) =>
-        service.list(
-          { actor: memoryActor, scope: requested, limit: 100 },
-          controls(),
-        ),
-      ),
+      scopes.map(async (requested) => {
+        const input = { actor: memoryActor, scope: requested, limit: 100 };
+        const budget = controls();
+        try {
+          return await service.list(input, budget);
+        } catch (error) {
+          if (
+            !(error instanceof MemoryKnowledgeError) ||
+            error.code !== "conflict" ||
+            !error.retryable
+          )
+            throw error;
+          // Revocation may advance the epoch during listing. Discard that page and read afresh once.
+          return service.list(input, budget);
+        }
+      }),
     );
     const page = {
       entries: pages.flatMap((row) => row.entries),
@@ -539,12 +753,25 @@ export async function createEvaluationFixture(input: {
     (await readInventory()).filter(qualifiedReadback);
   const drain = async (operationIds: readonly string[]) => {
     for (const commandId of operationIds) {
+      const effect = effectHistory.get(commandId);
+      if (!effect) throw new Error("eval_native_command_missing");
       // Forget fences reads immediately. Physical cleanup remains the existing operator's work.
-      if (effectHistory.get(commandId)?.kind === "forget") continue;
+      if (effect.kind === "forget") continue;
       for (let count = 0; count < 80; count++) {
+        // Settled replay returns old IDs; deliver deliberately returns null for terminal commands.
+        const current = await runtime.store.findCommand({
+          commandId,
+          scope: effect.scope,
+          generation: runtime.generation,
+        });
+        if (!current) throw new Error("eval_native_command_missing");
+        const state = current.operation.state;
+        if (state === "published" || state === "completed") break;
+        if (["failed", "unknown", "cleanup_pending"].includes(state))
+          throw new Error(`eval_native_delivery_${state}`);
         const operation = await service.deliver(
-          { scope, commandId },
-          controls(),
+          { scope: effect.scope, commandId },
+          controls(30_000),
         );
         if (
           operation?.state === "published" ||
@@ -566,10 +793,24 @@ export async function createEvaluationFixture(input: {
     scopes.map((requested) => [
       requested.repositoryId,
       createConversationMemoryPort({
-        runtime,
+        runtime:
+          input.variant === "full-product"
+            ? {
+                ...runtime,
+                policy: {
+                  async getPolicy(identity) {
+                    return conversationCandidateMemoryPolicy(
+                      await runtime.policy.getPolicy(input.template),
+                      await runtime.policy.getPolicy(identity),
+                    );
+                  },
+                },
+              }
+            : runtime,
         scope: requested,
         sources,
-        preview: observedPreview,
+        preview:
+          input.variant === "full-product" ? gatewayPreview : observedPreview,
         managed: (value) => ({ service, access, source: source(value) }),
         clock: { now: () => new Date() },
         contextAccess: () => access,
@@ -624,12 +865,15 @@ export async function createEvaluationFixture(input: {
   // Account/model/custody remain with the production selected-account policy.
   const policy: ConversationPolicyPort = {
     async capture(identity, processingId, budget) {
+      if (!selectedPolicy) throw new Error("eval_candidate_policy_unavailable");
       const base = await selectedPolicy.capture(identity, processingId, budget);
       const selectedSettings = successor
         ? await settings.read(scope.workspaceId)
         : null;
       currentPolicy = {
-        requireConfirmation: selectedSettings?.requireConfirmation ?? false,
+        requireConfirmation:
+          base.requireConfirmation ||
+          (selectedSettings?.requireConfirmation ?? false),
         settingsRevision: selectedSettings
           ? String(selectedSettings.version ?? 0)
           : "0",
@@ -657,7 +901,7 @@ export async function createEvaluationFixture(input: {
           base.discussionReplies &&
           (activeThread?.policy.discussionReplies ?? false),
         inference: {
-          async generate(request, requestBudget) {
+          async generate(request, requestBudget, beforeDispatch) {
             modelCalls++;
             inputBytes = Buffer.byteLength(JSON.stringify(request));
             const actualMemory = request.messages
@@ -690,7 +934,11 @@ export async function createEvaluationFixture(input: {
             deliveredQualifiedBodyDigests = delivered
               .filter(qualifiedReadback)
               .map((entry) => entry.bodyDigest);
-            const output = await inference.generate(request, requestBudget);
+            const output = await inference.generate(
+              request,
+              requestBudget,
+              beforeDispatch,
+            );
             observedModel = output.actualModel;
             usage = output.usage;
             return output;
@@ -816,8 +1064,14 @@ export async function createEvaluationFixture(input: {
       new ProcessConversation({
         sources,
         records: new PrismaConversationProcessingStore(input.prisma, {
-          workspaceId: processingIdentity.workspaceId,
-          repositoryId: processingIdentity.repositoryId,
+          workspaceId:
+            input.variant === "full-product"
+              ? requested.workspaceId
+              : processingIdentity.workspaceId,
+          repositoryId:
+            input.variant === "full-product"
+              ? requested.repositoryId
+              : processingIdentity.repositoryId,
         }),
         policies: policy,
         memory,
@@ -967,7 +1221,9 @@ export async function createEvaluationFixture(input: {
     const rootSource = corpusSourceId(namespace, root.id);
     const rootCommentId = commentIds.get(rootSource)!;
     const identity: ConversationIdentity = {
-      ...processingIdentity,
+      ...(input.variant === "full-product"
+        ? candidateIdentity(scope)
+        : processingIdentity),
       pullRequestNumber,
       threadId: `github-review-thread:${rootCommentId}`,
       sourceId: corpusSourceId(namespace, selected.id),
@@ -995,6 +1251,7 @@ export async function createEvaluationFixture(input: {
       body: message.body,
       bodyDigest: rawHash(message.body),
     }));
+    currentIdentity = identity;
     snapshot = {
       ...identity,
       messages,
@@ -1029,7 +1286,10 @@ export async function createEvaluationFixture(input: {
         input.prisma.conversationProcessing.count({
           where: {
             workspaceId: processingIdentity.workspaceId,
-            repositoryId: processingIdentity.repositoryId,
+            repositoryId:
+              input.variant === "full-product"
+                ? { in: scopes.map((value) => value.repositoryId) }
+                : processingIdentity.repositoryId,
             OR: [
               { sourceId: { startsWith: `github-node:${namespace}_` } },
               { pullRequestNumber },
@@ -1062,7 +1322,8 @@ export async function createEvaluationFixture(input: {
         ),
         processingRecords: count,
         scopeDigest: conversationDigest(scope),
-        nativeNamespace: namespace,
+        nativeNamespace: nativeConfig.namespace,
+        nativeGeneration: nativeConfig.generation,
       };
     },
     async run(thread: CorpusThread, event: CorpusEvent): Promise<Witness> {
@@ -1071,6 +1332,8 @@ export async function createEvaluationFixture(input: {
       modelCalls = 0;
       inputBytes = 0;
       nativeLatencyMs = 0;
+      gatewayPreviewLatencyMs = 0;
+      gatewayPreviewReceipt = null;
       observedModel = null;
       usage = null;
       deliveredBodyDigests = [];
@@ -1135,6 +1398,10 @@ export async function createEvaluationFixture(input: {
         usage,
         productLatencyMs,
         nativeLatencyMs,
+        gatewayPreviewLatencyMs,
+        gatewayParentCleanupPending:
+          capturedPolicy?.inferenceCleanupPending?.() ?? false,
+        gatewayPreviewReceipt,
         inventory,
         retained,
       };

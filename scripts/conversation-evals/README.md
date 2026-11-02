@@ -1,8 +1,8 @@
 # Conversation quality qualification
 
-This owner contains one synthetic corpus and a thin runner around the **actual**
-conversation application, PostgreSQL processing/memory stores, native memory
-preview/delivery/readback and selected-account Gateway policy. It creates no
+This owner contains versioned synthetic corpora and a thin runner around the **actual**
+conversation application, PostgreSQL processing/memory stores, selected-account
+Gateway extraction/replies and native delivery/readback. It creates no
 second extractor, semantic judge, memory store, inference service or product
 logging endpoint. The synthetic source authority is a fixture; this run does not
 qualify a real GitHub App installation or replace the disposable App-first E2E.
@@ -90,14 +90,27 @@ is insufficient proof of memory delivery. Raw customer data is never used; the
 bounded synthetic output and source labels are retained only in local evaluation
 results. Secrets, account credentials and raw Gateway event streams are excluded.
 
-Live quality requires the independently qualified strict-preview image/config,
-mission and native model plus the real selected-account Gateway setup. Missing
+Full-product candidate measurement requires a dedicated qualified native backend
+and a real selected-account Gateway setup. Ordinary native storage uses the
+configured `LLM_PROVIDER=none` profile and pinned local embeddings/reranking.
+The historical `native-selection-only` comparison retains its real strict-preview
+qualification/mission requirements; it is unavailable on a non-generative backend
+and does not stand in for Gateway extraction. Missing
 configuration produces `UNAVAILABLE`, never a passing mocked quality score.
 Deterministic product transport/authority suites remain separate contract proof.
 Human review binds rubric decisions to the result run ID and source-event IDs;
 there is no second LLM semantic verifier. Tune on the tuning split, then run one
 planned hold-out checkpoint. A failed hold-out becomes regression evidence; a
 new protected set is required before another independent qualification claim.
+
+The explicit API-owned candidate constructor reuses the production account,
+owner, epoch, selection and paid-dispatch guards. It captures the real template
+selection while durable attempts belong to fresh disposable processing scopes.
+Its manifest contains `candidateEvaluationRunId`, never `qualificationProofId`.
+No production capability or successful proof is needed or manufactured to measure
+a candidate. A model bounds declaration is an operational limit, not quality
+evidence. Neither the runner nor scorer activates production or issues a
+`transient-checked-inline-gateway-full-thread-v1` capability. Historical source-only Gateway proof remains parseable but cannot activate this extractor.
 
 ## Run
 
@@ -113,45 +126,86 @@ CONVERSATION_EVAL_LIVE=1 CONVERSATION_EVAL_DISPOSABLE=1 \
 CONVERSATION_EVAL_DATABASE_URL="$DISPOSABLE_LOOPBACK_DATABASE_URL" \
 CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID="$QUALIFIED_TEMPLATE_WORKSPACE_ID" \
 CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID="$QUALIFIED_TEMPLATE_REPOSITORY_ID" \
+CONVERSATION_EVAL_MODEL_BOUNDS_JSON='[{"profileId":"ACTUAL_SELECTED_PROFILE","model":"ACTUAL_SELECTED_MODEL","contextWindowTokens":32768,"tokensPerByteUpperBound":4}]' \
   node --import tsx scripts/conversation-evals/run.ts \
-  --split tuning --variant all --out tmp/conversation-results.json
+  --split tuning --variant full-product --out tmp/conversation-results.json
 ```
 
 Add `--corpus full-thread-v2` to the existing live command to select the successor.
 The results record both selector and revision; `score.ts` loads that exact corpus.
 Use a new explicit hold-out checkpoint only after tuning and protected-label review.
 
+For a bounded integration diagnostic, add `--scenario contextual-units` to the
+full-thread tuning command. The name must already exist in that corpus's tuning
+split; all threads/events belonging to that scenario remain intact. This does
+not accept custom messages, labels or settings. `--scenario` is rejected with
+hold-out or `--validate`, and unknown names are rejected before runtime imports,
+database clients or fixtures. Use the source graph through `node --import tsx`
+as above, without `--conditions=production`.
+
+Filtered runs retain actual witnesses and cleanup semantics, but always report
+`UNAVAILABLE`, exit 2, and record `diagnosticScenario`,
+`qualificationEligible: false` and `diagnostic_subset_not_qualification`, even
+when every observation completes. The scorer refuses these diagnostic reports.
+Omitting `--scenario` runs the entire selected split with the existing qualification
+gates; a diagnostic subset cannot replace that run or consume a protected checkpoint.
+
 The live database must be a migrated disposable loopback database whose name
 ends in `_test`. The runner creates fresh named workspace/repository rows and
-memory/native namespaces for each build, variant and scenario, then reads actual
+product scopes and native banks for each build, variant and scenario, then reads actual
 product and native inventory to prove cold state. It never truncates a database,
 seeds expected facts or reuses previous accepted records. Retained synthetic
 fixture scopes and native namespaces remain identifiable in the report for the
 existing operator full-forget/drain cleanup; do not delete metadata while native
 cleanup debt exists. Use the existing disposable database lifecycle.
 
-The template workspace/repository must already have a qualified selected review
-account, a real numeric GitHub repository identity and repository configuration.
-The model/processing identity and its processing rows use this actual template
-tenant consistently, so the unchanged production paid-dispatch grant owns the row.
-The memory host projects only workspace/repository fields of the checked snapshot
-to fresh memory scopes; source IDs, revisions, authors, bodies and thread evidence
-remain identical. Fresh workspace settings enter through the existing runtime
-policy port, and the account binding manifest remains the actual captured manifest.
-The fixture allocates a synthetic PR number per run namespace so shared-template
-reply reservations cannot consume another scenario's cap. The processing cold
-check covers the run namespace and allocated PR number in the shared template;
-memory entries, commands and native banks must all be actually empty. Reports
-record both scope identities and actual processing-row ownership. Two fresh memory
-repositories are logical memory-isolation fixtures, not two real App installations. The production selected-account policy
+Use a dedicated disposable native deployment, never production banks. Its
+configured namespace and generation must both start with `eval_`; unchanged
+production configuration is rejected before fixture creation. The runner keeps
+that deployment's one configured namespace/generation intact, matching its fresh
+provenance activation. Scenario isolation comes from unique product scope IDs and
+their native bank hashes, with observed cold inventory. It does not rewrite the
+installed ledger or invent a new generation. Models may mount read-only from
+the already pinned model inputs. Retain native cleanup debt and evidence until
+the owned deployment is safely drained/disposed or verified by its operator.
+
+The template workspace/repository must have an actual selected review account,
+a real numeric GitHub identity and repository configuration. The explicit
+candidate constructor captures that exact primary account/model and all live
+owner/binding/epoch authority; it never creates a production qualification.
+Processing rows and memory stay in the same fresh synthetic repository scopes,
+including the separately bounded repository-isolation suffixes in full-thread-v2.
+The real template and fresh workspace policy are both checked: a disabled template
+cannot be widened, and either confirmation requirement remains restrictive.
+The configured native namespace/generation and provenance ledger are unchanged.
+Cold checks cover every synthetic scope and processing row, with no seeded facts.
+Full checked context, bodyless revision evidence and effective settings are bound
+into the one-shot extraction input digest. The selected-account policy
 captures that binding; the fixture applies restrictive off/cap policy and uses
-fresh synthetic source scopes. All standard native provider/profile/namespace,
-strict-preview qualification/mission and Account Gateway run-access/relay/policy
+fresh synthetic source scopes. Replace the example model/profile strings with
+the actual selected pair. The example 32768 context and four tokens/byte are
+declared application planning bounds, not a claim about the model's capacity;
+the public Gateway catalog does not expose that capacity. Input/output caps
+remain enforced. A live corpus must settle without context errors before any
+quality claim. Those declarations cannot choose a different account/model.
+All standard native provider/profile/namespace and Account Gateway run-access/relay/policy
 variables must be configured through their existing owning mechanisms. The
 runner never manufactures a qualification or copies OAuth credentials. The
 transport sends real requests and can incur native and product inference cost.
 `native-selection-only` uses actual strict preview without durable effects; its
 selection metrics are separate from full-product retention and answer metrics.
+Run it separately only against its own genuinely qualified native configuration.
+Do not populate obsolete preview proofs/mission merely to unblock Gateway tests.
+
+Before a full-product run, the template metadata graph is: the selected repository
+and active installation, its workspace (plus account-owning workspace when
+different), active workspace/repository review-policy heads with their exact latest
+versions, all referenced provider profiles and their actual bindings/connections,
+the entitlement when present, and required FK user identities. Personal account
+use also needs the actual donor membership role/personal-owner relationship and
+the trusted personal-sharing setting. Preserve pending fences and availability
+truthfully; unavailable bindings stop capture. No sessions, user access tokens,
+comments, code, raw Gateway streams or broad production dump belong in this seed.
 
 A hold-out execution additionally requires a new explicit
 `CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID`. The runner exits 2 for unavailable
@@ -159,12 +213,26 @@ configuration or transport and 3 when an observed run awaits human review. These
 codes never mean a quality pass. No raw Gateway stream, secret or credential is
 written to results. Actual terminal model and usage evidence, native service time
 and product time are recorded separately; absent usage is not estimated.
+Gateway extraction additionally records its actual deterministic durable child
+attempt, completed effect, acknowledged Gateway cleanup, observed model,
+selected-account digest and candidate run identity. Pending or missing cleanup
+marks the run `UNAVAILABLE` and stops further model requests; retain the witness
+and settle the original execution rather than buying a replacement call. The candidate scorer rejects a missing, unsettled or different-run
+receipt, and requires cleanup `closed`. Before any calls, reports hash the actual common prompt, Gateway extractor,
+shared account-policy and vendored SDK provenance file bytes. Carry those exact
+source files at their repository paths in the frozen execution bundle; no
+source identity is read from an environment-provided SHA.
+These receipts establish execution identity; human review still decides quality.
 
 ## Human rubric and scoring
 
 Review only observed synthetic outputs, then create a JSON rubric with `runId`,
 `corpusRevision`, `reviewer`, `reviewedAt`, `entries` and `answers`:
 
+- A Gateway candidate rubric must include `candidateSourceProfile`, containing these
+  four values copied from the observed report's `profile`: `commonPromptSourceDigest`, `gatewayPreviewSourceDigest`,
+  `accountPolicySourceDigest`, and `gatewaySdkProvenanceDigest`. The scorer rejects
+  missing source identities or a mismatch between report and reviewed sources.
 - Each entry row binds `variant`, `namespace`, actual `entryId`, `entryRevision`, `bodyDigest`,
   `supportedFactIds`, `attributionCorrect`, and `wrongScope`. Unsupported facts
   have an empty `supportedFactIds`. For parser/native-only rows use the actual
@@ -217,7 +285,7 @@ in B's answer. The scorer cannot turn an unavailable run into a quality result.
 ## Focused regression checks
 
 ```sh
-node --import tsx --test scripts/conversation-evals/eval-risk.test.ts
+node --import tsx --test --test-concurrency=1 scripts/conversation-evals/eval-risk.test.ts
 GOMEMLIMIT=768MiB GOMAXPROCS=2 node scripts/local-checks/compiler-cli.ts \
   --native --strict --noEmit -p scripts/conversation-evals/tsconfig.json
 ```
@@ -232,9 +300,9 @@ never create a product bank or imply model-quality qualification.
 
 The earlier source-only refinement and mandatory exact-command behavior remain
 historical implementation evidence. The new authorized contract supplies the
-complete checked thread to native selection while preserving the selected human
+complete checked thread to selected-account Gateway selection while preserving the selected human
 maintainer as the write authority. Automatic mode is the workspace default;
-confirmation mode performs native selection read-only and exposes exact authored
+confirmation mode performs selection read-only and exposes exact authored
 commands through the existing conversation notice. Neither context nor a model's
 JSON grants another participant permission or bypasses target/revision checks.
 
@@ -244,9 +312,12 @@ do not remove a hold-out witness or treat structural validation as quality. The
 successor is separately selected and versioned, and its explicit confirmation
 events are visible inputs, not a repair silently applied to the old corpus.
 
-The qualified template account and the fresh product/source scopes must resolve
-through actual production binding and dispatch owners. The runner uses the same actual template identity for the processing row and
-selected-account grant; fresh scopes are declared separately for memory. A template
-identity that does not own the processing row cannot authorize paid dispatch. Missing or
-incompatible fixture setup remains UNAVAILABLE; it must never be repaired with
-a Prisma proxy, grant bypass, copied credentials or a mocked quality PASS.
+The selected template account and fresh synthetic product scopes resolve through
+the existing binding and dispatch owners. Candidate processing and memory use the
+same per-repository synthetic tenant, while the immutable account manifest binds
+the exact real template account/model and current owner/epoch. This is the explicit
+operator-only candidate constructor, not a production qualification or an Action
+request capability. Full-thread repository isolation does not widen the original
+synthetic identity guard. Missing or incompatible fixture setup remains UNAVAILABLE;
+never repair it with a Prisma proxy, grant bypass, copied credentials or a mocked
+quality PASS.

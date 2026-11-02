@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 import { createGitHubAutomaticMemorySourceCurrent } from "../infrastructure/github/github-automatic-memory-source-current";
 import type { MemoryAutomaticSourceCurrentPort } from "../application/ports/memory-automatic-source-port";
+import { createPrismaAutomaticMemorySourceCurrent } from "../composition/automatic-memory-source-current";
+import { StaticMemoryPolicyConfig } from "../application/ports/memory-policy-config-port";
 
 const digest = (body: string) =>
   createHash("sha256").update(body).digest("hex");
@@ -200,3 +203,146 @@ it("keeps legacy source-only cohorts within their original evidence boundary", a
   expect(await f.current({ ...f.input, binding })).toBe(true);
   expect(f.request).toHaveBeenCalledTimes(1);
 });
+
+function composedFixture(version: 1 | 2 = 2, staleSource = false) {
+  const f = fixture();
+  let selected = true;
+  const repository = {
+    githubRepositoryId: 12n,
+    fullName: "acme/project",
+    installation: { status: "active", githubInstallationId: 9n },
+  };
+  const findFirst = vi.fn(async () => (selected ? repository : null));
+  const createClient = vi.fn(async () => ({
+    request: f.request,
+    graphql: f.graphql,
+  }));
+  // Read the canonical source stamp as test data, without importing another
+  // package's private test implementation. This is synthetic admission input.
+  const sourceStamp = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../../platform/config/src/conversation-source-stamp.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as {
+    kind: string;
+    sourceProfile: {
+      commonPromptSourceDigest: string;
+      gatewayPreviewSourceDigest: string;
+      accountPolicySourceDigest: string;
+      gatewaySdkProvenanceDigest: string;
+    };
+  };
+  expect(sourceStamp.kind).toBe("reviewrouter-conversation-source-stamp/v1");
+  const capability = {
+    profileVersion: 2,
+    proofId: "qualified",
+    sourceProcessingProfile: "transient-checked-inline-gateway-full-thread-v1",
+    runtimeSha: "a".repeat(40),
+    coverage: "normal-current-product-admission",
+    sourceProfile: { ...sourceStamp.sourceProfile },
+    models: [
+      {
+        profileId: "openai-codex-oauth-responses-v1",
+        model: "gpt-6.1-sol",
+        contextWindowTokens: 128000,
+        tokensPerByteUpperBound: 4,
+      },
+    ],
+  };
+  if (staleSource)
+    capability.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
+  const {
+    sourceProfile: _sourceProfile,
+    coverage: _coverage,
+    ...shared
+  } = capability;
+  void _sourceProfile;
+  void _coverage;
+  const reader = createPrismaAutomaticMemorySourceCurrent({
+    prisma: { repositoryConnection: { findFirst } } as never,
+    policy: new StaticMemoryPolicyConfig(),
+    env: {
+      REVIEW_ROUTER_CONVERSATION_QUALIFICATION: JSON.stringify(
+        version === 2
+          ? capability
+          : {
+              ...shared,
+              profileVersion: 1,
+              repositories: [
+                {
+                  workspaceId: "original-workspace",
+                  repositoryId: "original-repository",
+                },
+              ],
+            },
+      ),
+    },
+    createClient,
+  });
+  return {
+    ...f,
+    repository,
+    findFirst,
+    createClient,
+    unselect: () => {
+      selected = false;
+    },
+    current: () =>
+      reader.current(f.input, { deadlineAt: new Date(Date.now() + 10_000) }),
+  };
+}
+
+it("v2 source readback applies to a new selected scope through the installed App and unchanged source evidence", async () => {
+  const f = composedFixture();
+  expect(await f.current()).toBe(true);
+  expect(f.findFirst).toHaveBeenCalledWith(
+    expect.objectContaining({
+      where: {
+        id: "repository",
+        workspaceId: "workspace",
+        provider: "github",
+        selected: true,
+        archived: false,
+      },
+    }),
+  );
+  expect(f.createClient).toHaveBeenCalledWith("9");
+  expect(await composedFixture(1).current()).toBe(false);
+});
+
+it("stale v2 source evidence cannot authorize current-source readback even when repository authority would otherwise be current", async () => {
+  const f = composedFixture(2, true);
+  expect(await f.current()).toBe(false);
+  expect(f.findFirst).not.toHaveBeenCalled();
+  expect(f.createClient).not.toHaveBeenCalled();
+});
+
+it.each([
+  "unselected",
+  "installation_inactive",
+  "foreign_source",
+  "source_edited",
+  "not_maintainer",
+] as const)(
+  "v2 evidence never substitutes current repository/source authority: %s",
+  async (change) => {
+    const f = composedFixture();
+    if (change === "unselected") f.unselect();
+    if (change === "installation_inactive")
+      f.repository.installation.status = "suspended";
+    if (change === "foreign_source")
+      f.sourceNode.pullRequest.repository.databaseId = 13;
+    if (change === "source_edited") f.sourceNode.body = "Changed source";
+    if (change === "not_maintainer")
+      f.request.mockResolvedValueOnce({
+        data: { permission: "read", role_name: "read", user: { id: 42 } },
+      });
+    expect(await f.current()).toBe(false);
+    if (change === "unselected" || change === "installation_inactive")
+      expect(f.createClient).not.toHaveBeenCalled();
+  },
+);

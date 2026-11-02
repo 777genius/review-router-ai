@@ -1241,6 +1241,12 @@ async function createSetupPullRequestMutation(
     });
     const transport = requiredWorkflowTransport(resolvedRuntime.config);
     const accountGateway = transport === "gateway";
+    const gatewayInteractionRuntimeSha = accountGateway
+      ? qualifiedGatewayInteractionRuntimeSha(process.env, {
+          workspaceId,
+          repositoryId,
+        })
+      : null;
     const mcpSecrets = accountGateway
       ? await contextToolsWorkflowSecrets(
           workspaceId,
@@ -1254,7 +1260,9 @@ async function createSetupPullRequestMutation(
     const managedReview = accountGateway || openRouterDirect;
     if (
       managedReview &&
-      (workflowStyle === "explicit" || discussionMode === "suggest")
+      (workflowStyle === "explicit" ||
+        (discussionMode === "suggest" &&
+          !(accountGateway && gatewayInteractionRuntimeSha)))
     ) {
       throw new Error(
         openRouterDirect
@@ -1508,6 +1516,9 @@ async function createSetupPullRequestMutation(
         ...(accountGateway
           ? {
               codexSessionMode: "account-gateway" as const,
+              ...(gatewayInteractionRuntimeSha
+                ? { gatewayInteractionRuntimeSha }
+                : {}),
               ...(mcpSecrets ? { mcpSecrets } : {}),
             }
           : openRouterDirect
@@ -1604,16 +1615,9 @@ async function createSetupPullRequestMutation(
             },
             {
               targets: new PrismaWorkflowProvisioningTarget(prisma),
-              ...(() => {
-                const gatewayInteractionRuntimeSha =
-                  qualifiedGatewayInteractionRuntimeSha(process.env, {
-                    workspaceId,
-                    repositoryId,
-                  });
-                return gatewayInteractionRuntimeSha
-                  ? { gatewayInteractionRuntimeSha }
-                  : {};
-              })(),
+              ...(gatewayInteractionRuntimeSha
+                ? { gatewayInteractionRuntimeSha }
+                : {}),
               ...(secretsRuntimeActionRef ? { secretsRuntimeActionRef } : {}),
               ...(claudeSubscriptionActionRef
                 ? { claudeSubscriptionActionRef }
