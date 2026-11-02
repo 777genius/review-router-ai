@@ -49,6 +49,7 @@ export async function executeReviewRouterOperatorCli(
     !poolCliOptions(command) &&
     command !== "config get" &&
     command !== "config set" &&
+    command !== "repositories confirm-installed" &&
     command !== "investigation status" &&
     command !== "investigation promotion-report"
   ) {
@@ -66,6 +67,37 @@ export async function executeReviewRouterOperatorCli(
     command,
   );
   const fetchImpl = dependencies.fetchImpl ?? fetch;
+
+  if (command === "repositories confirm-installed") {
+    const repository = requireOption(parsed, "repo");
+    const workspace = requireOption(parsed, "workspace");
+    const confirm = requireOption(parsed, "confirm");
+    if (
+      confirm !== repository ||
+      !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository)
+    )
+      throw new Error("reviewrouter_operator_confirmation_invalid");
+    try {
+      return await requestJson(
+        new URL(
+          "/api/operator/v1/workflow-provisioning/confirm-installed-gateway",
+          apiUrl,
+        ),
+        {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            ...operatorHeaders(credential),
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ workspace, repository, confirm }),
+        },
+        fetchImpl,
+      );
+    } catch {
+      throw new Error("reviewrouter_operator_workflow_confirmation_failed");
+    }
+  }
 
   if (poolCliOptions(command)) {
     return executePoolCli({
@@ -197,6 +229,8 @@ export async function executeReviewRouterOperatorCli(
 
 function allowedOptions(command: string): readonly string[] {
   switch (command) {
+    case "repositories confirm-installed":
+      return ["repo", "workspace", "confirm", "api-url", "profile"];
     case "config get":
       return [
         "repo",
@@ -433,6 +467,7 @@ function readOption(parsed: ParsedArguments, name: string): string | undefined {
 function usageText(): string {
   return [
     "ReviewRouter operator CLI",
+    "  reviewrouter repositories confirm-installed --workspace ID --repo OWNER/REPO --confirm OWNER/REPO [--profile PATH]",
     "  reviewrouter pool status --workspace SLUG",
     "  reviewrouter pool accounts import --workspace SLUG --label LABEL --auth-file PATH",
     "  reviewrouter pool accounts login --workspace SLUG --label LABEL [--auth-home PATH]",
@@ -466,7 +501,9 @@ async function main(): Promise<void> {
     result &&
     typeof result === "object" &&
     "status" in result &&
-    (result.status === "partial_failure" ||
+    (result.status === "blocked" ||
+      result.status === "conflict" ||
+      result.status === "partial_failure" ||
       result.status === "reconcile_required")
   ) {
     process.exitCode = 1;

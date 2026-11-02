@@ -53,6 +53,8 @@ The task file is authoritative; keep this summary in sync in the same commit.
 Missing entries do not prove that older changes are deployed: inspect the installed-to-target change range and
 the release runbook for additional required work before each rollout.
 
+Installed Gateway onboarding: [scoped operator path](2026-11-02-installed-gateway-operator-onboarding.md) — staging/production `pending`; qualify and deliver the genuine browser-free command before payments-sdk activation.
+
 ## Status contract
 
 Track status separately for each environment; add a named deployment/cohort when

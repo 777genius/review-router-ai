@@ -93,6 +93,8 @@ import {
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
   verifiedWorkflowRequirement,
+  createInstalledGatewayReviewConfirmation,
+  supportsInstalledGatewayReviewConfirmation,
   validateAccountGatewayActionRef,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
@@ -2466,6 +2468,58 @@ async function confirmSetupPullRequestMergedMutation(
       await assertCurrentSetup(verifiedWorkflowArtifact);
       await assertCurrentBinding();
       await assertCurrentGatewaySource!();
+      // The same installed-only production service backs owner/operator repair.
+      // Existing PR merges, hosted migrations and secret-bearing transports keep
+      // their specialized path below; no setup PR is created by confirmation.
+      if (
+        accountGateway &&
+        !hostedBinding &&
+        (!setupProvisioning || setupProvisioning.pullRequestUrl === null) &&
+        supportsInstalledGatewayReviewConfirmation(resolvedRuntime.config)
+      ) {
+        const confirmed = await createInstalledGatewayReviewConfirmation({
+          prisma,
+          env: process.env,
+          assertAuthorized: async () => {
+            const currentActor = await assertDashboardRepositoryMutationAllowed(
+              workspaceId,
+              githubRepository,
+            );
+            if (currentActor.actor !== actor.actor)
+              throw new Error("gateway_review_actor_changed");
+            await assertDashboardEntitlement({
+              prisma,
+              workspaceId,
+              actor: currentActor.actor,
+              feature: "workflow_provisioning",
+            });
+          },
+        }).confirm({ workspaceId, repositoryId, actor: actor.actor });
+        if (confirmed.status !== "ready") throw new Error(confirmed.issue);
+        await recordAuditEvent(
+          {
+            workspaceId,
+            actor: actor.actor,
+            action: "workflow.setup_pr_merged_confirmed",
+            targetType: "repository",
+            targetId: repositoryId,
+            metadata: {
+              repository: repository.fullName,
+              source: "workflow",
+              pullRequestNumber,
+              gatewayReviewV2Provisioning: "ready",
+              ...dashboardMutationAccessAuditMetadata(actor),
+            },
+          },
+          { auditLog: new PrismaAuditLogRepository(prisma) },
+        );
+        return {
+          notice: "setup_pr_merged",
+          repository: repository.fullName,
+          workspace: workspaceId,
+          section: "repositories",
+        };
+      }
       const actionCommitSha =
         verifiedWorkflowArtifact.actionVersion.match(
           /@([a-f0-9]{40})$/iu,
