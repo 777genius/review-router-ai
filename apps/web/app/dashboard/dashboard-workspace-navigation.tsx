@@ -1,3 +1,5 @@
+import type { DashboardOrganizationSecretPolicy } from "../../src/server/dashboard-organization-secret-policy";
+export type { DashboardOrganizationSecretPolicy } from "../../src/server/dashboard-organization-secret-policy";
 import type { PendingOrganizationInstallRequest } from "../../src/server/dashboard-app-install-request";
 import { ConnectSourceDialog } from "../connect-source-dialog";
 import {
@@ -43,12 +45,6 @@ export type DashboardWorkspace = {
     readonly targetType: string;
     readonly createdAt: Date;
   }[];
-};
-
-export type DashboardOrganizationSecretPolicy = {
-  readonly planName: string | null;
-  readonly privateRepositoriesAvailable: boolean | null;
-  readonly status: "available" | "permission_required" | "unknown";
 };
 
 export type DashboardWorkspaceSummary = {

@@ -112,7 +112,6 @@ import {
   canDashboardActorConfigureRepository,
   canDashboardActorMutateRepository,
   asDashboardGitHubActor,
-  createGitHubAppInstallationOctokit,
   getDashboardMutationStatus,
   getDashboardSignedInActor,
   getDashboardWorkspaceScope,
@@ -123,6 +122,7 @@ import {
   type GitHubUserRepositoryAccessStatus,
 } from "../../src/server/github-user-repository-access";
 import { getPrisma } from "../../src/server/prisma";
+import { loadOrganizationSecretPolicy } from "../../src/server/dashboard-organization-secret-policy";
 import { loadProviderListView } from "../../src/server/provider-list-view";
 import type { ProviderListView } from "../../src/features/provider-setup/provider-list-model";
 import {
@@ -255,7 +255,6 @@ import {
   selectDashboardWorkspace,
   dashboardWorkspaceUrlKey,
   type DashboardWorkspace,
-  type DashboardOrganizationSecretPolicy,
   type DashboardWorkspaceSummary,
 } from "./dashboard-workspace-navigation";
 
@@ -787,127 +786,6 @@ function repositoryEffectiveConfigs(
       ),
     ),
   };
-}
-
-const organizationSecretPolicyCache = new Map<
-  string,
-  | { readonly pending: Promise<DashboardOrganizationSecretPolicy> }
-  | {
-      readonly policy: DashboardOrganizationSecretPolicy;
-      readonly expiresAt: number;
-    }
->();
-const organizationSecretPolicyCacheMaxEntries = 128;
-const organizationSecretPolicyTtlMs = 5 * 60 * 1000;
-const organizationSecretPolicyPermissionTtlMs = 30 * 1000;
-const organizationSecretPolicyUnknownTtlMs = 5 * 1000;
-
-async function loadOrganizationSecretPolicy(input: {
-  readonly accountLogin: string;
-  readonly accountType: string;
-  readonly githubInstallationId: bigint;
-}): Promise<DashboardOrganizationSecretPolicy | null> {
-  if (input.accountType !== "Organization") {
-    return null;
-  }
-
-  const key = `${input.githubInstallationId}:${input.accountLogin.toLowerCase()}`;
-  const cached = organizationSecretPolicyCache.get(key);
-  if (cached) {
-    if ("pending" in cached) {
-      return cached.pending;
-    }
-    if (cached.expiresAt > Date.now()) {
-      organizationSecretPolicyCache.delete(key);
-      organizationSecretPolicyCache.set(key, cached);
-      return cached.policy;
-    }
-    organizationSecretPolicyCache.delete(key);
-  }
-
-  const pending = fetchOrganizationSecretPolicy(input).then((policy) => {
-    if (organizationSecretPolicyCache.get(key) !== entry) {
-      return policy;
-    }
-    const ttl =
-      policy.status === "available"
-        ? organizationSecretPolicyTtlMs
-        : policy.status === "permission_required"
-          ? organizationSecretPolicyPermissionTtlMs
-          : organizationSecretPolicyUnknownTtlMs;
-    organizationSecretPolicyCache.set(key, {
-      policy,
-      expiresAt: Date.now() + ttl,
-    });
-    return policy;
-  });
-  const entry = { pending };
-  organizationSecretPolicyCache.set(key, entry);
-  if (
-    organizationSecretPolicyCache.size > organizationSecretPolicyCacheMaxEntries
-  ) {
-    organizationSecretPolicyCache.delete(
-      organizationSecretPolicyCache.keys().next().value!,
-    );
-  }
-  return pending;
-}
-
-async function fetchOrganizationSecretPolicy(input: {
-  readonly accountLogin: string;
-  readonly githubInstallationId: bigint;
-}): Promise<DashboardOrganizationSecretPolicy> {
-  try {
-    const octokit = await createGitHubAppInstallationOctokit(
-      input.githubInstallationId.toString(),
-    );
-    const response = await octokit.request("GET /orgs/{org}", {
-      org: input.accountLogin,
-    });
-    const plan = (response.data as { readonly plan?: unknown }).plan;
-    const planName = readGitHubOrganizationPlanName(plan);
-
-    return {
-      planName,
-      privateRepositoriesAvailable: planName ? planName !== "free" : null,
-      status: planName ? "available" : "unknown",
-    };
-  } catch (error) {
-    const status = githubApiStatus(error);
-    return {
-      planName: null,
-      privateRepositoriesAvailable: null,
-      status:
-        status === 401 || status === 403 ? "permission_required" : "unknown",
-    };
-  }
-}
-
-function readGitHubOrganizationPlanName(value: unknown): string | null {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "name" in value &&
-    typeof value.name === "string" &&
-    value.name.trim().length > 0
-  ) {
-    return value.name.trim().toLowerCase();
-  }
-
-  return null;
-}
-
-function githubApiStatus(error: unknown): number | null {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    typeof error.status === "number"
-  ) {
-    return error.status;
-  }
-
-  return null;
 }
 
 type SortableDashboardWorkspace = {
