@@ -571,15 +571,10 @@ describe.skipIf(!databaseUrl)(
           accountRefs: ["selected-account"],
           limits: { requests: 1, concurrency: 1 },
         });
-        expect(
-          f.calls.find((call) => call.kind === "request")!.body,
-        ).toMatchObject({
-          model,
-          tools: [],
-          tool_choice: "none",
-          stream: true,
-          store: false,
-        });
+        const requestBody = f.calls.find((call) => call.kind === "request")!.body;
+        expect(requestBody).toMatchObject({ model, stream: true, store: false });
+        expect(requestBody).not.toHaveProperty("tools");
+        expect(requestBody).not.toHaveProperty("tool_choice");
         const row = await prisma.conversationProcessing.findUniqueOrThrow({
           where: { id: result.processingId },
         });
