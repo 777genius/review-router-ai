@@ -10,6 +10,7 @@ export {
 } from "@reviewrouter/platform-config";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import { executionConnector } from "@agent-teams/account-gateway/llm";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import { PrismaActionControlPlaneRepository } from "@reviewrouter/features-action-control-plane";
@@ -236,6 +237,8 @@ export async function admitConversationDispatch(
 }
 export type ConversationCapturedPolicy = {
   readonly policy: ConversationPolicy;
+  /** The same capture cannot buy child work while its parent grant has cleanup debt. */
+  readonly inferenceCleanupPending?: () => boolean;
   readonly checkSelection: (
     transaction: Prisma.TransactionClient,
   ) => Promise<boolean>;
@@ -507,9 +510,11 @@ function createSelectedAccountPolicy(
         timeoutMs: Math.min(10_000, relay.requestTimeoutMs),
         responseBytes: accountModelCatalogResponseBytes,
       });
+      let inferenceCleanupPending = false;
       const remoteCurrent = async (budget: RequestControls) => {
         try {
           if (
+            inferenceCleanupPending ||
             budget.signal?.aborted ||
             Date.now() >= budget.deadlineAt.getTime() ||
             conversationDigest(await capture()) !== conversationDigest(selected)
@@ -618,16 +623,8 @@ function createSelectedAccountPolicy(
       if (!(await remoteCurrent(controls)))
         throw new ConversationError("unavailable");
       const inference = createConversationGatewayInference({
-        runAccess: {
-          origin,
-          runControlBearer: bearer,
-          timeoutMs: Math.min(60_000, relay.requestTimeoutMs),
-          ...(env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN
-            ? {
-                controlOrigin: env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN,
-              }
-            : {}),
-        },
+        control,
+        connectExecution: executionConnector({ origin }),
         prepare: {
           operationId: `rr-conversation-${processingId}`,
           invocationRef: `rr-conversation-${processingId}`,
@@ -640,7 +637,6 @@ function createSelectedAccountPolicy(
           limits,
           deadline: controls.deadlineAt.toISOString(),
         },
-        requestId: `rr-conversation-${processingId}-request`,
         model: selected.provider.model,
         ...(selected.binding.expectedAuthorizationEpoch !== undefined
           ? {
@@ -680,6 +676,7 @@ function createSelectedAccountPolicy(
             }),
           ),
         async onObserved(value) {
+          inferenceCleanupPending = value.cleanup === "pending";
           await input.prisma.conversationProcessing.updateMany({
             where: {
               id: processingId,
@@ -689,7 +686,9 @@ function createSelectedAccountPolicy(
             data: {
               observedModel: value.model,
               ...(value.usage ? { observedUsage: value.usage } : {}),
-              requestEffect: "completed",
+              requestEffect: inferenceCleanupPending
+                ? "cleanup_pending"
+                : value.effect,
             },
           });
         },
@@ -713,11 +712,13 @@ function createSelectedAccountPolicy(
       };
       input.onCaptured?.({
         policy,
+        inferenceCleanupPending: () => inferenceCleanupPending,
         checkSelection: async (transaction) => {
           try {
             if (
+              inferenceCleanupPending ||
               conversationDigest(await captureWithin(transaction)) !==
-              conversationDigest(selected)
+                conversationDigest(selected)
             )
               return false;
             return !!(await transaction.repositoryConnection.findFirst({

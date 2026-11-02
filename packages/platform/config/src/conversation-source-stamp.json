@@ -3,7 +3,7 @@
   "sourceProfile": {
     "commonPromptSourceDigest": "df70cfbab982e42a68b227315cec249d7b0190838c766e05492e5006f0f48c0a",
     "gatewayPreviewSourceDigest": "7739c3f2471d54985b915957563f8448a9da6f0a213d943d63c6a179b05676f4",
-    "accountPolicySourceDigest": "9aaf1bb64b74ce11daad76de73869a12d595de41a4d8b07f67bfe3d148164817",
+    "accountPolicySourceDigest": "d30efb085d18626a164d5f02edac7ffd330a2c499beec2ff979eba9eea70abc6",
     "gatewaySdkProvenanceDigest": "d2a4394ecc1649f5b3837e5ec76407c2be38a98dcc941fc945bae324561a5eb3"
   }
 }

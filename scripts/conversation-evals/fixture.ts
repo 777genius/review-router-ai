@@ -162,6 +162,8 @@ export type Witness = {
   productLatencyMs: number;
   nativeLatencyMs: number;
   gatewayPreviewLatencyMs?: number;
+  /** Actual parent SDK cleanup observation, never inferred from a missing child call. */
+  gatewayParentCleanupPending?: boolean;
   gatewayPreviewReceipt?: {
     processingId: string;
     observedModel: string | null;
@@ -221,9 +223,9 @@ export type InventoryEntry = {
   sourceActor: string | null;
   observedCommit: string | null;
 };
-const controls = (): RequestControls => ({
-  deadlineAt: new Date(Date.now() + 90_000),
-  signal: AbortSignal.timeout(90_000),
+const controls = (timeoutMs = 90_000): RequestControls => ({
+  deadlineAt: new Date(Date.now() + timeoutMs),
+  signal: AbortSignal.timeout(timeoutMs),
 });
 const rawHash = (body: string) =>
   createHash("sha256").update(body, "utf8").digest("hex");
@@ -746,7 +748,7 @@ export async function createEvaluationFixture(input: {
       for (let count = 0; count < 80; count++) {
         const operation = await service.deliver(
           { scope, commandId },
-          controls(),
+          controls(30_000),
         );
         if (
           operation?.state === "published" ||
@@ -876,7 +878,7 @@ export async function createEvaluationFixture(input: {
           base.discussionReplies &&
           (activeThread?.policy.discussionReplies ?? false),
         inference: {
-          async generate(request, requestBudget) {
+          async generate(request, requestBudget, beforeDispatch) {
             modelCalls++;
             inputBytes = Buffer.byteLength(JSON.stringify(request));
             const actualMemory = request.messages
@@ -909,7 +911,11 @@ export async function createEvaluationFixture(input: {
             deliveredQualifiedBodyDigests = delivered
               .filter(qualifiedReadback)
               .map((entry) => entry.bodyDigest);
-            const output = await inference.generate(request, requestBudget);
+            const output = await inference.generate(
+              request,
+              requestBudget,
+              beforeDispatch,
+            );
             observedModel = output.actualModel;
             usage = output.usage;
             return output;
@@ -1370,6 +1376,8 @@ export async function createEvaluationFixture(input: {
         productLatencyMs,
         nativeLatencyMs,
         gatewayPreviewLatencyMs,
+        gatewayParentCleanupPending:
+          capturedPolicy?.inferenceCleanupPending?.() ?? false,
         gatewayPreviewReceipt,
         inventory,
         retained,

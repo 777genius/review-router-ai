@@ -358,6 +358,7 @@ test("runner persists reached witnesses on later failures and scorer refuses par
       "revoked",
       "first-cold",
       "later-cold",
+      "parent-pending",
     ]) {
       const fixtureSource = `
         let fixtures = 0, events = 0;
@@ -373,8 +374,10 @@ test("runner persists reached witnesses on later failures and scorer refuses par
             async run(thread, event) {
               const followup = event.messageId.includes("after-mutation");
               if ((mode === "event" && events === 1) || (mode === "followup" && followup)) throw new Error("eval_actual_target_unavailable");
+              if (mode === "parent-pending" && events > 0) throw new Error("synthetic_paid_continuation_forbidden");
               events++;
-              return { eventId:thread.id + ":" + event.messageId, status:"silent", previewCalls:1,
+              return { eventId:thread.id + ":" + event.messageId, status:"silent", previewCalls:mode === "parent-pending" ? 0 : 1,
+                gatewayParentCleanupPending:mode === "parent-pending",
                 modelCalls:1, inputBytes:71, usage:{syntheticTokens:17}, observedModel:"synthetic-test-only",
                 inventory:[{id:"synthetic-retained-" + events}], gatewayPreviewReceipt:{gatewayCleanup:"closed"},
                 deliveredBodyDigests:mode === "revoked" && followup ? ["synthetic-revoked"] : [] };
@@ -448,16 +451,18 @@ test("runner persists reached witnesses on later failures and scorer refuses par
       assert.equal(variant.status, "UNAVAILABLE");
       const failure = report.variants.at(-1);
       assert.equal(failure.status, "UNAVAILABLE");
-      assert.equal(
-        failure.diagnostic.phase,
-        mode.endsWith("cold")
-          ? "cold_start"
-          : mode === "event"
-            ? "event_execution"
-            : mode === "mutation"
-              ? "mutation"
-              : "mutation_followup",
-      );
+      if (mode === "parent-pending") assert.equal(report.variants.length, 1);
+      else
+        assert.equal(
+          failure.diagnostic.phase,
+          mode.endsWith("cold")
+            ? "cold_start"
+            : mode === "event"
+              ? "event_execution"
+              : mode === "mutation"
+                ? "mutation"
+                : "mutation_followup",
+        );
       if (mode === "first-cold") assert.deepEqual(variant.scenarios, []);
       else {
         assert.equal(variant.scenarios.length, 1);
@@ -474,7 +479,11 @@ test("runner persists reached witnesses on later failures and scorer refuses par
         assert.equal(first.inventory[0].id, "synthetic-retained-1");
         assert.equal(
           scenario.observations.length,
-          mode === "event" ? 1 : mode === "mutation" ? 6 : 7,
+          ["event", "parent-pending"].includes(mode)
+            ? 1
+            : mode === "mutation"
+              ? 6
+              : 7,
         );
         if (["followup", "revoked"].includes(mode)) {
           const last = scenario.observations.at(-1);
@@ -1669,6 +1678,16 @@ test("native evidence or another attempt cannot stand in for the current Gateway
     );
   }
   assert.equal(gatewayCandidateCleanupSettled(witness), true);
+  const pendingParent = {
+    ...witness,
+    previewCalls: 0,
+    gatewayParentCleanupPending: true,
+  };
+  assert.equal(gatewayCandidateCleanupSettled(pendingParent), false);
+  assert.throws(
+    () => requireGatewayCandidateReceipt(pendingParent, receipt.candidateRunId),
+    /cleanup_unsettled/,
+  );
   assert.throws(
     () =>
       requireGatewayCandidateReceipt(

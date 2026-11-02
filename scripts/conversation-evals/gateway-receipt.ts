@@ -3,11 +3,15 @@ import type { Witness } from "./fixture.js";
 
 /** Missing cleanup acknowledgment is debt, even after a completed model request. */
 export function gatewayCandidateCleanupSettled(
-  witness: Pick<Witness, "previewCalls" | "gatewayPreviewReceipt">,
+  witness: Pick<
+    Witness,
+    "previewCalls" | "gatewayPreviewReceipt" | "gatewayParentCleanupPending"
+  >,
 ): boolean {
   return (
-    witness.previewCalls === 0 ||
-    witness.gatewayPreviewReceipt?.gatewayCleanup === "closed"
+    witness.gatewayParentCleanupPending !== true &&
+    (witness.previewCalls === 0 ||
+      witness.gatewayPreviewReceipt?.gatewayCleanup === "closed")
   );
 }
 
@@ -16,6 +20,8 @@ export function requireGatewayCandidateReceipt(
   witness: Witness,
   candidateRunId: string,
 ): void {
+  if (witness.gatewayParentCleanupPending === true)
+    throw new Error("eval_gateway_candidate_cleanup_unsettled");
   if (witness.previewCalls === 0) return;
   const receipt = witness.gatewayPreviewReceipt;
   const expectedId = `rr-memory-${createHash("sha256").update(witness.processingId).digest("hex")}`;

@@ -958,7 +958,12 @@ it("candidate paid admission and observations address its disposable row, not th
       }),
     }),
   );
-  await transport!.onObserved!({ model: f.model, usage: null });
+  await transport!.onObserved!({
+    model: f.model,
+    usage: null,
+    effect: "completed",
+    cleanup: "closed",
+  });
   expect(f.transaction.conversationProcessing.updateMany).toHaveBeenCalledWith(
     expect.objectContaining({
       where: {
@@ -969,3 +974,49 @@ it("candidate paid admission and observations address its disposable row, not th
     }),
   );
 });
+
+it.each(["closed", "pending"] as const)(
+  "parent cleanup %s fences child authority for the same capture",
+  async (cleanup) => {
+    let transport:
+      | Parameters<
+          typeof conversationInference.createConversationGatewayInference
+        >[0]
+      | undefined;
+    vi.spyOn(
+      conversationInference,
+      "createConversationGatewayInference",
+    ).mockImplementation((value) => {
+      transport = value;
+      return {
+        generate: async () => {
+          throw new Error("synthetic_no_model_call");
+        },
+      };
+    });
+    const f = dynamicModelFixture({ candidate: true });
+    const policy = await f.capture();
+    const controls = { deadlineAt: new Date(Date.now() + 10_000) };
+    expect(await policy.isCurrent(controls)).toBe(true);
+    expect(await f.checkSelection()).toBe(true);
+    await transport!.onObserved!({
+      model: null,
+      usage: null,
+      effect: "not_dispatched",
+      cleanup,
+    });
+    expect(await policy.isCurrent(controls)).toBe(cleanup === "closed");
+    expect(await f.checkSelection()).toBe(cleanup === "closed");
+    expect(
+      f.transaction.conversationProcessing.updateMany,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: {
+          observedModel: null,
+          requestEffect:
+            cleanup === "pending" ? "cleanup_pending" : "not_dispatched",
+        },
+      }),
+    );
+  },
+);
