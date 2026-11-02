@@ -133,10 +133,10 @@ test("the focused workflow never gives PR jobs live credentials or runs protecte
   assert.doesNotMatch(workflow, /--split holdout/);
   assert.match(workflow, /permissions:\s*\n\s*contents: read/);
   assert.match(workflow, /if:.*workflow_dispatch.*live-tuning.*refs\/heads\/main/);
-  assert.match(workflow, /EVAL_CORPUS: \\$\\{\\{ inputs\\.corpus \\}\\}/);
-  assert.doesNotMatch(workflow, /--corpus \\"\\$\\{\\{ inputs\\.corpus/);
-  assert.doesNotMatch(workflow, /preflight \\"\\$\\{\\{ inputs\\.corpus/);
-  assert.doesNotMatch(workflow, /inspect \\"\\$\\{\\{ inputs\\.corpus/);
+  assert.match(workflow, /EVAL_CORPUS: \$\{\{ inputs\.corpus \}\}/);
+  assert.doesNotMatch(workflow, /--corpus "\$\{\{ inputs\.corpus/);
+  assert.doesNotMatch(workflow, /preflight "\$\{\{ inputs\.corpus/);
+  assert.doesNotMatch(workflow, /inspect "\$\{\{ inputs\.corpus/);
   assert.match(workflow, /MEMORY_EVAL_PRIVATE_RESULTS_DIR/);
   assert.match(workflow, /Verify operator-owned private evidence storage before paid inference/);
   assert.match(workflow, /install -m 0600/);
