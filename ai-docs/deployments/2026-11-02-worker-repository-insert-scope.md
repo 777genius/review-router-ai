@@ -44,7 +44,9 @@ roles and mistake the intended read-only failure for a guard failure.
    activation advisory lock across both transactions. The second transaction
    installs and verifies the owner-owned INSERT trigger **before** regranting
    worker INSERT. Absent, altered or disabled guard leaves writes revoked;
-   explicit owner repair is needed before recovery. Never bypass the guard.
+   explicit owner repair is needed before recovery. The same post-ACL denial
+   makes `GitHubInstallation` immutable to the worker while preserving the
+   API-owned webhook installation writer. Never bypass the guard.
 4. Verify under the actual worker LOGIN: same-installation, same-workspace
    GitHub inventory INSERT succeeds; cross-workspace, foreign-installation
    and mismatched repository IDs yield SQLSTATE 42501. Confirm no broad table

@@ -41,8 +41,11 @@ worker_write_absent() {
     has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','fullName','UPDATE'),
     has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','scmRepositoryIdentityId','UPDATE'),
     has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','INSERT'),
-    has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','UPDATE')")"
-  [ "$result" = 'f|f|f|f|f|f' ] ||
+    has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','UPDATE'),
+    has_table_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','INSERT'),
+    has_table_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','DELETE'),
+    has_column_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','workspaceId','UPDATE')")"
+  [ "$result" = 'f|f|f|f|f|f|f|f|f' ] ||
     fail "$label left worker writes after guard verification failure ($result)"
   deny_worker "$label-no-write" "$(insert_repo_sql "forbidden-$label" 'workspace-2' 'installation-1' '1088' 1088)"
 }
@@ -101,6 +104,12 @@ INSERT INTO public."ScmRepositoryIdentity" VALUES
   ('identity-a',NULL,NULL),
   ('identity-b','another-repository','workspace-1'),
   ('identity-c','repo-unbound','another-workspace');
+-- Canonical ACL initially gives broad worker DML on the installation anchor.
+-- Explicit column grants must also be stripped, not just table privileges.
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE
+  ON public."GitHubInstallation" TO reviewrouter_worker;
+GRANT INSERT ("id","workspaceId"), UPDATE ("id","workspaceId")
+  ON public."GitHubInstallation" TO reviewrouter_worker;
 GRANT SELECT ON public."RepositoryConnection", public."ScmRepositoryIdentity" TO reviewrouter_worker;
 GRANT UPDATE ("currentRepositoryConnectionId","currentWorkspaceId")
   ON public."ScmRepositoryIdentity" TO reviewrouter_worker;
@@ -136,7 +145,20 @@ deny_worker invalid_source_insert "$(insert_repo_sql 'forbidden-source' 'workspa
 deny_worker zero_repository_id "$(insert_repo_sql 'forbidden-zero' 'workspace-1' 'installation-1' '0' 0)"
 deny_worker null_installation_insert 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","provider","sourceBaseUrl","externalRepositoryId","githubRepositoryId") VALUES ('"'"'forbidden-null'"'"','"'"'workspace-1'"'"','"'"'github'"'"','"'"'https://github.com'"'"','"'"'1008'"'"',1008)'
 deny_worker insert_scm_identity 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","installationId","scmRepositoryIdentityId") VALUES ('"'"'forbidden-identity'"'"','"'"'workspace-1'"'"','"'"'installation-1'"'"','"'"'identity-a'"'"')'
-echo "ok - valid LOGIN insert and cross-tenant/identity/provider INSERT denials"
+# The guarded LOGIN cannot move or forge the installation tenant anchor.
+deny_worker forged_installation 'INSERT INTO public."GitHubInstallation" ("id","workspaceId") VALUES ('"'"'forged-anchor'"'"','"'"'workspace-2'"'"')'
+deny_worker moved_installation 'UPDATE public."GitHubInstallation" SET "workspaceId"='"'"'workspace-2'"'"' WHERE "id"='"'"'installation-1'"'"''
+deny_worker deleted_installation 'DELETE FROM public."GitHubInstallation" WHERE "id"='"'"'installation-1'"'"''
+[ "$(owner -qAt -c "SELECT has_table_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','SELECT')")" = t ] ||
+  fail "worker lost sanctioned read access to GitHubInstallation"
+echo "ok - valid LOGIN insert and cross-tenant/identity/provider INSERT denials; immutable tenant anchor"
+
+# Independent column-grant drift on the parent must also be stripped by the
+# post-ACL owner grant, while API-owned installation writers stay untouched.
+owner -c 'GRANT INSERT ("id"), UPDATE ("workspaceId") ON public."GitHubInstallation" TO reviewrouter_worker' > /dev/null
+apply_grant || fail "reapplication did not revoke parent column-grant drift"
+deny_worker anchor_drift_forgery 'INSERT INTO public."GitHubInstallation" ("id","workspaceId") VALUES ('"'"'anchor-after-drift'"'"','"'"'workspace-2'"'"')'
+deny_worker anchor_drift_move 'UPDATE public."GitHubInstallation" SET "workspaceId"='"'"'workspace-2'"'"' WHERE "id"='"'"'installation-1'"'"''
 
 # Re-apply after a previously successful worker grant without pre-revoking
 # even one column. A refused re-verification MUST commit denial before return.

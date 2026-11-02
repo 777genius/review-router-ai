@@ -17,6 +17,8 @@
 -- The owner-controlled BEFORE INSERT guard below closes the worker tenant
 -- mismatch after canonical ACL. Issue #761 still tracks canonical ACL policy.
 -- Idempotent; a failed guard verification must revoke *existing* worker writes.
+-- GitHubInstallation is the tenant anchor. The worker cannot forge/move/delete
+-- this parent; API-owned webhook installation writes retain their authority.
 --
 -- First commit a least-privilege denial before checking/installing the guard.
 -- A single transaction would roll back the denial with a failed verification,
@@ -37,27 +39,33 @@ BEGIN
 END
 $pre_revoke$;
 -- PostgreSQL table-level REVOKE does NOT remove independently granted
--- column-level rights. Revoke every extant table column to avoid stale grants
--- surviving new/old column lists; owner-only and under the activation lock.
-REVOKE INSERT, UPDATE ON TABLE public."RepositoryConnection" FROM reviewrouter_worker;
+-- column-level rights. The trusted parent anchor must also be immutable to the
+-- worker. This durable phase revokes all worker writes on both tables.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE
+  public."RepositoryConnection", public."GitHubInstallation"
+  FROM reviewrouter_worker;
 DO $revoke_write_columns$
 DECLARE
+  target_table text;
   columns_sql text;
 BEGIN
-  SELECT pg_catalog.string_agg(pg_catalog.format('%I', attribute.attname),
-                               ',' ORDER BY attribute.attnum)
-  INTO columns_sql
-  FROM pg_catalog.pg_attribute attribute
-  WHERE attribute.attrelid = 'public."RepositoryConnection"'::regclass
-    AND attribute.attnum > 0
-    AND NOT attribute.attisdropped;
-  IF columns_sql IS NULL THEN
-    RAISE EXCEPTION 'repository columns unavailable for revoke';
-  END IF;
-  EXECUTE pg_catalog.format(
-    'REVOKE INSERT (%s), UPDATE (%s) ON TABLE public."RepositoryConnection" FROM reviewrouter_worker',
-    columns_sql, columns_sql
-  );
+  FOREACH target_table IN ARRAY ARRAY['RepositoryConnection', 'GitHubInstallation'] LOOP
+    SELECT pg_catalog.string_agg(pg_catalog.format('%I', attribute.attname),
+                                 ',' ORDER BY attribute.attnum)
+    INTO columns_sql
+    FROM pg_catalog.pg_attribute attribute
+    WHERE attribute.attrelid =
+      pg_catalog.format('public.%I', target_table)::regclass
+      AND attribute.attnum > 0
+      AND NOT attribute.attisdropped;
+    IF columns_sql IS NULL THEN
+      RAISE EXCEPTION 'columns unavailable for write revoke on %', target_table;
+    END IF;
+    EXECUTE pg_catalog.format(
+      'REVOKE INSERT (%s), UPDATE (%s) ON TABLE public.%I FROM reviewrouter_worker',
+      columns_sql, columns_sql, target_table
+    );
+  END LOOP;
 END
 $revoke_write_columns$;
 COMMIT;
@@ -234,6 +242,26 @@ BEGIN
      OR has_table_privilege('reviewrouter_worker', 'public."RepositoryConnection"', 'UPDATE')
      OR has_table_privilege('reviewrouter_worker', 'public."RepositoryConnection"', 'DELETE') THEN
     RAISE EXCEPTION 'table-level write privilege must be absent';
+  END IF;
+  -- The GitHubInstallation workspace is a trusted tenant anchor, not a
+  -- value the same worker LOGIN may create, move, replace or delete.
+  IF has_table_privilege('reviewrouter_worker', 'public."GitHubInstallation"', 'INSERT')
+     OR has_table_privilege('reviewrouter_worker', 'public."GitHubInstallation"', 'UPDATE')
+     OR has_table_privilege('reviewrouter_worker', 'public."GitHubInstallation"', 'DELETE')
+     OR has_table_privilege('reviewrouter_worker', 'public."GitHubInstallation"', 'TRUNCATE')
+     OR EXISTS (
+       SELECT 1 FROM pg_catalog.pg_attribute column_record
+       WHERE column_record.attrelid = 'public."GitHubInstallation"'::regclass
+         AND column_record.attnum > 0
+         AND NOT column_record.attisdropped
+         AND (
+           pg_catalog.has_column_privilege(
+             'reviewrouter_worker', column_record.attrelid, column_record.attnum, 'INSERT')
+           OR pg_catalog.has_column_privilege(
+             'reviewrouter_worker', column_record.attrelid, column_record.attnum, 'UPDATE')
+         )
+     ) THEN
+    RAISE EXCEPTION 'worker GitHub installation tenant anchor must be immutable';
   END IF;
   IF NOT has_column_privilege('reviewrouter_worker', 'public."RepositoryConnection"', 'fullName', 'UPDATE')
      OR NOT has_column_privilege('reviewrouter_worker', 'public."RepositoryConnection"', 'githubRepositoryId', 'INSERT')

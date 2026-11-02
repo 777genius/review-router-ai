@@ -27,7 +27,10 @@ not their ownership relationship.
   verification, commit a full table-and-column worker INSERT/UPDATE revoke,
   maintaining the existing activation advisory fence through both transactions.
   A failure must not roll back this denial and leave stale grants active.
-  Preserve migration-000133 first-binding and canonical activation trust roots.
+  The worker must also lose all DML rights on the `GitHubInstallation` tenant
+  anchor (including independent column grants), or it could forge/move/delete
+  the parent that the trigger trusts. Preserve API-owned webhook writes,
+  migration-000133 first-binding and canonical activation trust roots.
 - Extend the **existing real PG17 LOGIN worker test**, not a mocked/superuser
   substitute: valid insert, wrong tenant/installation/provider/identity,
   missing parent, trigger tampering, idempotence and existing first-bind checks.

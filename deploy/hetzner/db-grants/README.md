@@ -44,8 +44,11 @@ The post-ACL grant now installs a separate owner-controlled, SECURITY DEFINER,
 BEFORE INSERT row guard. For the actual worker LOGIN, every inserted GitHub row
 must bind to an existing GitHub installation **in the same workspace**, use
 the matching GitHub repository ID and canonical source, and have no GitLab
-installation or pre-bound SCM identity. The installation is row-locked during
-validation to prevent a tenant-transfer race. Missing, disabled, altered or
+installation or pre-bound SCM identity. The installation is row-locked during validation to prevent a tenant-transfer
+race. The same post-ACL step revokes all worker writes to `GitHubInstallation`
+(including independent column privileges), so this LOGIN cannot forge, move,
+or delete the parent tenant anchor. API-owned webhook writers are unaffected.
+Missing, disabled, altered or
 untrusted trigger/function metadata fails closed before regranting INSERT.
 The grant first commits a full table- **and column-level** worker INSERT/UPDATE
 revoke, holding the activation advisory lock across the revoke and verification
