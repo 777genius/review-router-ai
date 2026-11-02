@@ -258,10 +258,14 @@ describe("observation-backed Codex rotating rollout verifier", () => {
       join(process.cwd(), "deploy/hetzner/db-grants/worker-repository-sync.sql"),
       "utf8",
     );
-    const body = /AS \\$worker_insert_body\\$([\\s\\S]*?)\\$worker_insert_body\\$;/u.exec(grant)?.[1];
+    const body =
+      /AS \$worker_insert_body\$([\s\S]*?)\$worker_insert_body\$;/u.exec(
+        grant,
+      )?.[1];
     expect(body).toBeDefined();
-    expect(digest(Buffer.from(body!.replace(/\\r\\n?/gu, "\\n").trim(), "utf8")))
-      .toBe(workerInsertGuard.bodySha256);
+    expect(
+      digest(Buffer.from(body!.replace(/\r\n?/gu, "\n").trim(), "utf8")),
+    ).toBe(workerInsertGuard.bodySha256);
   });
 
   it("attests the exact existing owner-operated INSERT guard without hiding new catalog objects", () => {
@@ -1325,7 +1329,9 @@ function addPostAclWorkerGuard(catalog: any): void {
   const original = catalog.functions.find(
     (entry: any) => entry.name === "codex_oauth_runtime_referential_action_guard",
   );
-  if (!original) throw new Error("missing baseline SECURITY DEFINER trigger function");
+  if (!original) {
+    throw new Error("missing baseline SECURITY DEFINER trigger function");
+  }
   catalog.functions.push({
     ...original,
     name: workerInsertGuard.function,
