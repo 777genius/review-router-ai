@@ -609,7 +609,15 @@ export async function createApiApp(
       : undefined);
 
   if (githubWebhookDependencies) {
-    await registerGitHubWebhookRoutes(app, githubWebhookDependencies);
+    await registerGitHubWebhookRoutes(app, {
+      ...githubWebhookDependencies,
+      onProcessingError: () => {
+        logger.error("GitHub webhook processing failed", {
+          code: "github_webhook_processing_failed",
+        });
+        githubWebhookDependencies.onProcessingError?.();
+      },
+    });
   }
 
   const gitLabIntegrationDependencies =
@@ -1284,7 +1292,15 @@ export async function createApiApp(
     trpcOptions: { router: appRouter },
   });
 
-  app.addHook("onError", async (_request, _reply, error) => {
+  app.addHook("onError", async (request, _reply, error) => {
+    // Webhook JSON parsing precedes the route handler. Its error may contain
+    // signed payload text and must never be recorded in operational logs.
+    if (request.routeOptions.url === "/webhooks/github") {
+      logger.error("GitHub webhook request failed", {
+        code: "github_webhook_request_failed",
+      });
+      return;
+    }
     logger.error("API request failed", { message: error.message });
   });
 
