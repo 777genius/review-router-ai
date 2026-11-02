@@ -1249,11 +1249,13 @@ it("Gateway suggest readiness stays closed without qualified interaction runtime
   expect(probe.inputs).toHaveLength(0);
 });
 
-it.each(["current", "missing", "stale"] as const)(
+it.each(["current", "missing", "stale", "source-stamp"] as const)(
   "v2 mechanism coverage still requires the normal exact interaction caller: %s",
   async (scenario) => {
     const apiUrl = "https://app.reviewrouter.dev";
     const capability = conversationCapabilityFixture();
+    if (scenario === "source-stamp")
+      capability.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
     const runtimeSha = qualifiedGatewayInteractionRuntimeSha(
       {
         REVIEW_ROUTER_CONVERSATION_QUALIFICATION: JSON.stringify(capability),
@@ -1261,6 +1263,23 @@ it.each(["current", "missing", "stale"] as const)(
       },
       { workspaceId: "new-workspace", repositoryId: "new-repository" },
     );
+    if (scenario === "source-stamp") {
+      expect(runtimeSha).toBeUndefined();
+      const probe = new CapturingWorkflowProbe({ status: "missing" });
+      expect(
+        await isWorkflowSetupAlreadyCurrent(
+          {
+            ...readinessInput,
+            actionRef: versionedActionRef,
+            codexSessionMode: "account-gateway",
+            discussionMode: "suggest",
+          },
+          { workflowProbe: probe },
+        ),
+      ).toBe(false);
+      expect(probe.inputs).toHaveLength(0);
+      return;
+    }
     expect(runtimeSha).toBe(capability.runtimeSha);
     if (!runtimeSha) throw new Error("synthetic_capability_did_not_apply");
     const review = renderAccountGatewayWorkflow({

@@ -1490,14 +1490,16 @@ it.each([
   },
 );
 
-it.each(["repository-v1", "mechanism-v2"] as const)(
+it.each(["repository-v1", "mechanism-v2", "stale-mechanism-v2"] as const)(
   "installs the qualified immutable Gateway interaction through %s alongside the unchanged neutral review caller",
   async (kind) => {
     const setupGateway = new CapturingSetupGateway(),
       runtimeSha = "d".repeat(40);
     const capability = conversationCapabilityFixture({ runtimeSha });
+    if (kind === "stale-mechanism-v2")
+      capability.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
     const qualification =
-      kind === "mechanism-v2"
+      kind !== "repository-v1"
         ? capability
         : {
             profileVersion: 1,
@@ -1519,6 +1521,22 @@ it.each(["repository-v1", "mechanism-v2"] as const)(
       },
       gatewayInput,
     );
+    if (kind === "stale-mechanism-v2") {
+      expect(gatewayInteractionRuntimeSha).toBeUndefined();
+      await expect(
+        provisionReviewRouterWorkflow(
+          { ...gatewayInput, discussionMode: "suggest" },
+          {
+            setupGateway,
+            provisioning: new CapturingProvisioningRepository(),
+            configurations: savedConfigurations(),
+            trustedGithubRepositoryId: "123456",
+          },
+        ),
+      ).rejects.toThrow("account_gateway_workflow_options_not_supported");
+      expect(setupGateway.input).toBeNull();
+      return;
+    }
     expect(gatewayInteractionRuntimeSha).toBe(runtimeSha);
     if (!gatewayInteractionRuntimeSha)
       throw new Error("synthetic_capability_did_not_apply");

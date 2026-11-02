@@ -15,6 +15,8 @@ export default [
       "node_modules/**",
       "dist/**",
       "action-dist/**",
+      // Generated from the authoritative TS parser; checked by exact bundle parity.
+      "deploy/self-hosted/conversation-verifier.mjs",
       "build/**",
       "**/dist/**",
       ".next/**",

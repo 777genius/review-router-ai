@@ -1,4 +1,5 @@
 import type { ConversationQualification } from "../conversation-qualification.js";
+import sourceStamp from "../conversation-source-stamp.json" with { type: "json" };
 
 /** Synthetic parser/authority input only; never a qualified release artifact. */
 export function conversationCapabilityFixture(
@@ -12,12 +13,7 @@ export function conversationCapabilityFixture(
     sourceProcessingProfile: "transient-checked-inline-gateway-full-thread-v1",
     runtimeSha: "a".repeat(40),
     coverage: "normal-current-product-admission",
-    sourceProfile: {
-      commonPromptSourceDigest: "1".repeat(64),
-      gatewayPreviewSourceDigest: "2".repeat(64),
-      accountPolicySourceDigest: "3".repeat(64),
-      gatewaySdkProvenanceDigest: "4".repeat(64),
-    },
+    sourceProfile: { ...sourceStamp.sourceProfile },
     models: [
       {
         profileId: "openai-codex-oauth-responses-v1",

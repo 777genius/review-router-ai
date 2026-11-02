@@ -1,4 +1,5 @@
 import { z } from "zod";
+import sourceStamp from "./conversation-source-stamp.json" with { type: "json" };
 
 const modelBounds = z
   .array(
@@ -54,6 +55,22 @@ const qualificationSchema = z.discriminatedUnion("profileVersion", [
   deploymentCapability,
 ]);
 export type ConversationQualification = z.infer<typeof qualificationSchema>;
+/** Installed source identity, not quality evidence. Never upgrades a declaration. */
+export function conversationSourceProfileMatches(
+  sourceProfile: Extract<
+    ConversationQualification,
+    { profileVersion: 2 }
+  >["sourceProfile"],
+): boolean {
+  const keys = Object.keys(
+    sourceStamp.sourceProfile,
+  ) as (keyof typeof sourceStamp.sourceProfile)[];
+  return (
+    sourceStamp.kind === "reviewrouter-conversation-source-stamp/v1" &&
+    keys.length === 4 &&
+    keys.every((key) => sourceProfile[key] === sourceStamp.sourceProfile[key])
+  );
+}
 /** Deployment evidence/bounds only. User learning authority stays with the existing memory policy. */
 export function readConversationQualification(
   raw: string | undefined,
@@ -73,7 +90,10 @@ export function conversationCapabilityAppliesToScope(
 ) {
   if (!q) return false;
   if (q.profileVersion === 2)
-    return Boolean(scope.workspaceId && scope.repositoryId);
+    return (
+      Boolean(scope.workspaceId && scope.repositoryId) &&
+      conversationSourceProfileMatches(q.sourceProfile)
+    );
   return q.repositories.some(
     (repository) =>
       repository.workspaceId === scope.workspaceId &&

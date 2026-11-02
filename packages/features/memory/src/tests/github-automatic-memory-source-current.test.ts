@@ -204,7 +204,7 @@ it("keeps legacy source-only cohorts within their original evidence boundary", a
   expect(f.request).toHaveBeenCalledTimes(1);
 });
 
-function composedFixture(version: 1 | 2 = 2) {
+function composedFixture(version: 1 | 2 = 2, staleSource = false) {
   const f = fixture();
   let selected = true;
   const repository = {
@@ -218,6 +218,8 @@ function composedFixture(version: 1 | 2 = 2) {
     graphql: f.graphql,
   }));
   const capability = conversationCapabilityFixture({ proofId: "qualified" });
+  if (staleSource)
+    capability.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
   const {
     sourceProfile: _sourceProfile,
     coverage: _coverage,
@@ -275,6 +277,13 @@ it("v2 source readback applies to a new selected scope through the installed App
   );
   expect(f.createClient).toHaveBeenCalledWith("9");
   expect(await composedFixture(1).current()).toBe(false);
+});
+
+it("stale v2 source evidence cannot authorize current-source readback even when repository authority would otherwise be current", async () => {
+  const f = composedFixture(2, true);
+  expect(await f.current()).toBe(false);
+  expect(f.findFirst).not.toHaveBeenCalled();
+  expect(f.createClient).not.toHaveBeenCalled();
 });
 
 it.each([

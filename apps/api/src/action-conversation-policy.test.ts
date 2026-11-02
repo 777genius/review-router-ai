@@ -109,6 +109,12 @@ it.each([
     capabilityV2: true,
     frozenV2: false,
   },
+  {
+    change: "source-stamp",
+    multiple: false,
+    capabilityV2: true,
+    frozenV2: true,
+  },
 ])(
   "checks primary companion authority at publication: $change, multiple=$multiple, capabilityV2=$capabilityV2, frozenV2=$frozenV2",
   async ({ change, multiple, capabilityV2, frozenV2 }) => {
@@ -230,6 +236,8 @@ it.each([
         },
       ],
     });
+    if (change === "source-stamp")
+      mechanism.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
     const qualification = capabilityV2
       ? mechanism
       : {
@@ -293,7 +301,7 @@ it.each([
         change === "unchanged",
       );
       expect(read).toHaveBeenCalledTimes(
-        change.startsWith("qualification") ? 0 : 1,
+        change.startsWith("qualification") || change === "source-stamp" ? 0 : 1,
       );
     } finally {
       read.mockRestore();
@@ -319,6 +327,7 @@ function dynamicModelFixture(
     accountRef?: string;
     qualifiedProfile?: string;
     qualifiedModel?: string;
+    staleSource?: boolean;
     sourceProcessingProfile?:
       | "transient-checked-inline-v1"
       | "transient-checked-inline-gateway-v1"
@@ -534,6 +543,14 @@ function dynamicModelFixture(
     } as never,
     qualification: options.capabilityV2
       ? conversationCapabilityFixture({
+          ...(options.staleSource
+            ? {
+                sourceProfile: {
+                  ...conversationCapabilityFixture().sourceProfile,
+                  accountPolicySourceDigest: "0".repeat(64),
+                },
+              }
+            : {}),
           models: [
             {
               profileId: options.qualifiedProfile ?? profileId,
@@ -724,6 +741,7 @@ it("v2 still rejects unselected repositories and foreign workspace bindings", as
 it.each([
   { qualifiedProfile: "unqualified-profile" },
   { qualifiedModel: "unqualified-model" },
+  { staleSource: true },
 ])("v2 retains exact model/profile qualification %j", async (options) => {
   const f = dynamicModelFixture({ capabilityV2: true, ...options });
   await expect(f.capture()).rejects.toThrow("unavailable");

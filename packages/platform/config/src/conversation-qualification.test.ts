@@ -123,6 +123,35 @@ it("applies explicit v2 mechanism evidence to new product scopes without grantin
   ).toBeUndefined();
 });
 
+it.each([
+  "commonPromptSourceDigest",
+  "gatewayPreviewSourceDigest",
+  "accountPolicySourceDigest",
+  "gatewaySdkProvenanceDigest",
+] as const)(
+  "keeps stale v2 declarations parseable but unavailable after source input %s changes",
+  (key) => {
+    const stale = conversationCapabilityFixture();
+    stale.sourceProfile[key] = "0".repeat(64);
+    const parsed = readConversationQualification(JSON.stringify(stale));
+    expect(parsed?.profileVersion).toBe(2);
+    const scope = {
+      workspaceId: "new-workspace",
+      repositoryId: "new-repository",
+    };
+    expect(conversationCapabilityAppliesToScope(parsed, scope)).toBe(false);
+    expect(
+      qualifiedGatewayInteractionRuntimeSha(
+        {
+          REVIEW_ROUTER_CONVERSATION_QUALIFICATION: JSON.stringify(stale),
+          REVIEW_ROUTER_GATEWAY_INTERACTION_RUNTIME_SHA: stale.runtimeSha,
+        },
+        scope,
+      ),
+    ).toBeUndefined();
+  },
+);
+
 const capability = conversationCapabilityFixture();
 it.each([
   { ...proof, repositories: undefined },

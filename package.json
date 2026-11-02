@@ -15,7 +15,7 @@
     "api:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/api dev",
     "worker:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/worker dev",
     "web:start": "pnpm --filter @reviewrouter/web exec next start",
-    "build": "turbo run build && node scripts/rewrite-dist-esm-imports.mjs",
+    "build": "node scripts/check-conversation-source-stamp.ts --check && node scripts/check-conversation-release-verifier.ts --check && turbo run build && node scripts/rewrite-dist-esm-imports.mjs",
     "protocol:bootstrap": "node scripts/check-review-action-v2-protocol.mjs --bootstrap-only",
     "protocol:generate": "node --conditions=production scripts/generate-review-action-v2-protocol.mjs",
     "protocol:check": "node scripts/check-review-action-v2-protocol.mjs",

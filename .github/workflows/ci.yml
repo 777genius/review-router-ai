@@ -504,6 +504,8 @@ jobs:
 
       - name: Memory installation tooling types and contracts
         run: |
+          node scripts/check-conversation-source-stamp.ts --check
+          node scripts/check-conversation-release-verifier.ts --check
           node scripts/local-checks/compiler-cli.ts --native --noEmit -p deploy/hindsight/tsconfig.bootstrap.json
           node --test deploy/hindsight/bootstrap.test.ts
           node --test deploy/self-hosted/setup-memory.test.ts
