@@ -47,6 +47,10 @@ the matching GitHub repository ID and canonical source, and have no GitLab
 installation or pre-bound SCM identity. The installation is row-locked during
 validation to prevent a tenant-transfer race. Missing, disabled, altered or
 untrusted trigger/function metadata fails closed before regranting INSERT.
+The grant first commits a full table- **and column-level** worker INSERT/UPDATE
+revoke, holding the activation advisory lock across the revoke and verification
+transactions, so a previously granted worker cannot keep writes after a refused
+re-verification. A failed post-ACL guard requires explicit operator repair.
 Other roles retain their existing canonical ACL and sanctioned writer paths.
 A disposable PG17 contract checks legitimate and adversarial INSERTs
 using the real worker LOGIN, plus existing first-bind UPDATE and advisory locks.

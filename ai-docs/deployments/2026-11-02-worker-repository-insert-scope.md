@@ -39,9 +39,12 @@ roles and mistake the intended read-only failure for a guard failure.
    insufficient.
 3. In an authorized release, apply the normal canonical ACL first, then the
    unchanged-position `deploy/hetzner/db-grants/worker-repository-sync.sql`
-   through the approved owner-controlled runner. Its transaction installs and
-   verifies the owner-owned INSERT trigger **before** granting worker INSERT.
-   Absent, altered or disabled guard must fail closed; never bypass it.
+   through the approved owner-controlled runner. It **commits revocation** of
+   all worker table/column INSERT+UPDATE rights first, holding a session-level
+   activation advisory lock across both transactions. The second transaction
+   installs and verifies the owner-owned INSERT trigger **before** regranting
+   worker INSERT. Absent, altered or disabled guard leaves writes revoked;
+   explicit owner repair is needed before recovery. Never bypass the guard.
 4. Verify under the actual worker LOGIN: same-installation, same-workspace
    GitHub inventory INSERT succeeds; cross-workspace, foreign-installation
    and mismatched repository IDs yield SQLSTATE 42501. Confirm no broad table

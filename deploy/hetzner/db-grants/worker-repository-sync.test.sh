@@ -32,6 +32,20 @@ apply_grant() { database < "$GRANT_SQL" > "$WORK/grant.log" 2>&1; }
 column_absent() {
   [ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','scmRepositoryIdentityId','UPDATE')")" = f ] || fail "SCM UPDATE was granted after refusal"
 }
+worker_write_absent() {
+  local label="$1"
+  local result
+  result="$(owner -qAt -c "SELECT
+    has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','id','INSERT'),
+    has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','fullName','INSERT'),
+    has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','fullName','UPDATE'),
+    has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','scmRepositoryIdentityId','UPDATE'),
+    has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','INSERT'),
+    has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','UPDATE')")"
+  [ "$result" = 'f|f|f|f|f|f' ] ||
+    fail "$label left worker writes after guard verification failure ($result)"
+  deny_worker "$label-no-write" "$(insert_repo_sql "forbidden-$label" 'workspace-2' 'installation-1' '1088' 1088)"
+}
 deny_worker() {
   local label="$1" sql="$2"
   if worker -c "$sql" > "$WORK/$label.log" 2>&1; then fail "$label unexpectedly succeeded"; fi
@@ -124,24 +138,21 @@ deny_worker null_installation_insert 'INSERT INTO public."RepositoryConnection" 
 deny_worker insert_scm_identity 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","installationId","scmRepositoryIdentityId") VALUES ('"'"'forbidden-identity'"'"','"'"'workspace-1'"'"','"'"'installation-1'"'"','"'"'identity-a'"'"')'
 echo "ok - valid LOGIN insert and cross-tenant/identity/provider INSERT denials"
 
-# Post-ACL re-application must fail closed on trigger drift before restoring
-# the ID INSERT grant; an owner may recover only after explicitly repairing it.
-owner -c 'REVOKE INSERT ("id") ON public."RepositoryConnection" FROM reviewrouter_worker' > /dev/null
+# Re-apply after a previously successful worker grant without pre-revoking
+# even one column. A refused re-verification MUST commit denial before return.
+# Real LOGIN INSERT must fail 42501 while any guard is absent or corrupted.
 owner -c 'ALTER TABLE public."RepositoryConnection" DISABLE TRIGGER "RepositoryConnection_worker_insert_scope_guard"' > /dev/null
 if apply_grant; then fail "disabled INSERT trigger unexpectedly accepted"; fi
-[ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','id','INSERT')")" = f ] \
-  || fail "INSERT privilege restored despite disabled trigger"
+worker_write_absent disabled-guard
 owner -c 'ALTER TABLE public."RepositoryConnection" ENABLE TRIGGER "RepositoryConnection_worker_insert_scope_guard"' > /dev/null
 apply_grant || fail "guard did not recover after explicit reenable"
-owner -c 'REVOKE INSERT ("id") ON public."RepositoryConnection" FROM reviewrouter_worker' > /dev/null
+worker -c "$(insert_repo_sql 'repo-after-reenable' 'workspace-1' 'installation-1' '1009' 1009)" > /dev/null ||
+  fail "legitimate worker INSERT not restored after explicit reenable"
 owner -c 'DROP TRIGGER "RepositoryConnection_worker_insert_scope_guard" ON public."RepositoryConnection"' > /dev/null
 if apply_grant; then fail "missing INSERT trigger unexpectedly accepted"; fi
-[ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','id','INSERT')")" = f ] \
-  || fail "INSERT privilege restored despite missing trigger"
+worker_write_absent missing-guard
 owner -c 'DROP FUNCTION public.reviewrouter_worker_repository_insert_guard()' > /dev/null
 apply_grant || fail "owner failed to reinitialize fully removed guard"
-
-owner -c 'REVOKE INSERT ("id") ON public."RepositoryConnection" FROM reviewrouter_worker' > /dev/null
 owner > "$WORK/insert-guard-tamper.log" 2>&1 <<'SQL'
 CREATE OR REPLACE FUNCTION public.reviewrouter_worker_repository_insert_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
@@ -149,11 +160,12 @@ SET search_path = pg_catalog, public
 AS $tampered$ BEGIN RETURN NEW; END $tampered$;
 SQL
 if apply_grant; then fail "tampered INSERT function unexpectedly accepted"; fi
-[ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','id','INSERT')")" = f ] \
-  || fail "INSERT restored despite tampered function body"
+worker_write_absent tampered-guard
 owner -c 'DROP TRIGGER "RepositoryConnection_worker_insert_scope_guard" ON public."RepositoryConnection"' > /dev/null
 owner -c 'DROP FUNCTION public.reviewrouter_worker_repository_insert_guard()' > /dev/null
 apply_grant || fail "owner failed to recover from tampered function after explicit reset"
+worker -c "$(insert_repo_sql 'repo-after-tamper-repair' 'workspace-1' 'installation-1' '1010' 1010)" > /dev/null ||
+  fail "legitimate worker INSERT not restored after explicit tamper repair"
 [ "$(owner -qAt -c "SELECT count(*) FROM public.\"RepositoryConnection\" WHERE \"id\" LIKE 'forbidden-%'")" = 0 ] \
   || fail "a denied cross-tenant INSERT persisted"
 echo "ok - disabled/missing/tampered INSERT guard blocks privilege reissue"

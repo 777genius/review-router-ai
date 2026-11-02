@@ -23,9 +23,11 @@ not their ownership relationship.
   identity, matching canonical GitHub IDs/source and an installation/workspace
   match checked under a row lock. Reject violations with SQLSTATE 42501.
 - Fail closed if the installed trigger is disabled, altered or does not point
-  to the expected owner-owned, search-path-pinned function. Do not grant INSERT
-  before verifying it. Preserve existing migration-000133 first-binding guard,
-  column-level permissions and activation advisory fence.
+  to the expected owner-owned, search-path-pinned function. Before guard
+  verification, commit a full table-and-column worker INSERT/UPDATE revoke,
+  maintaining the existing activation advisory fence through both transactions.
+  A failure must not roll back this denial and leave stale grants active.
+  Preserve migration-000133 first-binding and canonical activation trust roots.
 - Extend the **existing real PG17 LOGIN worker test**, not a mocked/superuser
   substitute: valid insert, wrong tenant/installation/provider/identity,
   missing parent, trigger tampering, idempotence and existing first-bind checks.

@@ -14,18 +14,62 @@
 -- UPDATE scmRepositoryIdentityId is permitted only behind the already installed
 -- migration 000133 guard: a first binding to the identity that already declares
 -- the same connection/workspace. Retargeting and clearing stay forbidden.
--- Not covered: the referential guard trigger fires on UPDATE of parent-FK
--- columns and on DELETE, not on INSERT, so an INSERT can still choose
--- workspaceId and installationId. See the tracking issue for the stronger option.
--- Idempotent.
+-- The owner-controlled BEFORE INSERT guard below closes the worker tenant
+-- mismatch after canonical ACL. Issue #761 still tracks canonical ACL policy.
+-- Idempotent; a failed guard verification must revoke *existing* worker writes.
+--
+-- First commit a least-privilege denial before checking/installing the guard.
+-- A single transaction would roll back the denial with a failed verification,
+-- leaving stale column INSERT permissions active if someone disabled the guard.
+-- Hold the SAME activation fence as a SESSION advisory lock across both
+-- transactions; psql closes its connection (and releases it) on any error.
 BEGIN;
 SET LOCAL search_path = pg_catalog, public;
 SET LOCAL lock_timeout = '5000ms';
 SET LOCAL statement_timeout = '120000ms';
--- Share the canonical ACL/activation runner's existing exclusion fence.
-SELECT pg_catalog.pg_advisory_xact_lock(1381126735, 1129271120);
+SELECT pg_catalog.pg_advisory_lock(1381126735, 1129271120);
 SET LOCAL ROLE reviewrouter;
-DO $$
+DO $pre_revoke$
+BEGIN
+  IF current_database() <> 'review_router_dimy' THEN
+    RAISE EXCEPTION 'unexpected database %', current_database();
+  END IF;
+END
+$pre_revoke$;
+-- PostgreSQL table-level REVOKE does NOT remove independently granted
+-- column-level rights. Revoke every extant table column to avoid stale grants
+-- surviving new/old column lists; owner-only and under the activation lock.
+REVOKE INSERT, UPDATE ON TABLE public."RepositoryConnection" FROM reviewrouter_worker;
+DO $revoke_write_columns$
+DECLARE
+  columns_sql text;
+BEGIN
+  SELECT pg_catalog.string_agg(pg_catalog.format('%I', attribute.attname),
+                               ',' ORDER BY attribute.attnum)
+  INTO columns_sql
+  FROM pg_catalog.pg_attribute attribute
+  WHERE attribute.attrelid = 'public."RepositoryConnection"'::regclass
+    AND attribute.attnum > 0
+    AND NOT attribute.attisdropped;
+  IF columns_sql IS NULL THEN
+    RAISE EXCEPTION 'repository columns unavailable for revoke';
+  END IF;
+  EXECUTE pg_catalog.format(
+    'REVOKE INSERT (%s), UPDATE (%s) ON TABLE public."RepositoryConnection" FROM reviewrouter_worker',
+    columns_sql, columns_sql
+  );
+END
+$revoke_write_columns$;
+COMMIT;
+
+-- With the durable revoke committed, install/verify before re-granting any
+-- INSERT/UPDATE privilege. The session lock still excludes canonical activation.
+BEGIN;
+SET LOCAL search_path = pg_catalog, public;
+SET LOCAL lock_timeout = '5000ms';
+SET LOCAL statement_timeout = '120000ms';
+SET LOCAL ROLE reviewrouter;
+DO $
 BEGIN
   IF current_database() <> 'review_router_dimy' THEN
     RAISE EXCEPTION 'unexpected database %', current_database();
@@ -179,7 +223,6 @@ $install_repository_insert_guard$;
 REVOKE ALL ON FUNCTION
   public.reviewrouter_worker_repository_insert_guard()
   FROM PUBLIC, reviewrouter_worker;
-REVOKE INSERT, UPDATE ON TABLE public."RepositoryConnection" FROM reviewrouter_worker;
 GRANT INSERT ("id","workspaceId","provider","sourceBaseUrl","externalRepositoryId","installationId","githubRepositoryId","owner","name","fullName","defaultBranch","visibility","selected","archived","stargazersCount","setupStatus","inventoryGeneration","lifecycleResolutionMode","lifecycleResolutionActivationVersion","lastSyncedAt","createdAt","updatedAt")
   ON TABLE public."RepositoryConnection" TO reviewrouter_worker;
 GRANT UPDATE ("workspaceId","provider","sourceBaseUrl","externalRepositoryId","installationId","owner","name","fullName","defaultBranch","visibility","archived","stargazersCount","selected","lastSyncedAt","inventoryGeneration","updatedAt","scmRepositoryIdentityId")
@@ -201,5 +244,7 @@ BEGIN
     RAISE EXCEPTION 'worker repository sync grant verification failed';
   END IF;
 END
-$$;
+$;
 COMMIT;
+-- The session is no longer allowed to retain the activation exclusion.
+SELECT pg_catalog.pg_advisory_unlock(1381126735, 1129271120);
