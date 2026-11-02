@@ -111,6 +111,7 @@ jobs:
           pnpm --filter @reviewrouter/platform-db db:generate
       - name: Assert private operator authorization, isolated DB/native and tuning-only
         env:
+          EVAL_CORPUS: ${{ inputs.corpus }}
           CONVERSATION_EVAL_OPERATOR_ACK: ${{ secrets.MEMORY_EVAL_OPERATOR_ACK }}
           CONVERSATION_EVAL_DATABASE_URL: ${{ secrets.MEMORY_EVAL_DISPOSABLE_DATABASE_URL }}
           REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: ${{ secrets.MEMORY_EVAL_HINDSIGHT_URL }}
@@ -119,7 +120,7 @@ jobs:
           REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: ${{ secrets.MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER }}
           REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_POLICY }}
           REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_RELAY_POLICY }}
-        run: node --import tsx scripts/conversation-evals/memory-quality-gate.ts preflight "${{ inputs.corpus }}"
+        run: node --import tsx scripts/conversation-evals/memory-quality-gate.ts preflight "$EVAL_CORPUS"
       - name: Verify operator-owned private evidence storage before paid inference
         shell: bash
         run: |
@@ -141,6 +142,7 @@ jobs:
       - name: Three real full-product tuning observations (fail on first unqualified result)
         shell: bash
         env:
+          EVAL_CORPUS: ${{ inputs.corpus }}
           CONVERSATION_EVAL_DATABASE_URL: ${{ secrets.MEMORY_EVAL_DISPOSABLE_DATABASE_URL }}
           REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: ${{ secrets.MEMORY_EVAL_HINDSIGHT_URL }}
           REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY: ${{ secrets.MEMORY_EVAL_HINDSIGHT_API_KEY }}
@@ -155,7 +157,7 @@ jobs:
           for attempt in 1 2 3; do
             output="$scratch/tuning-${attempt}.json"
             set +e
-            node --import tsx scripts/conversation-evals/run.ts --corpus "${{ inputs.corpus }}" --split tuning --variant full-product --out "$output"
+            node --import tsx scripts/conversation-evals/run.ts --corpus "$EVAL_CORPUS" --split tuning --variant full-product --out "$output"
             outcome=$?
             set -e
             # Never publish raw synthetic-model output or private account metadata
@@ -167,7 +169,7 @@ jobs:
               echo "::error::Real evaluation unavailable or failed; do not retry or consume protected holdout"
               exit 1
             fi
-            node --import tsx scripts/conversation-evals/memory-quality-gate.ts inspect "${{ inputs.corpus }}" "$output"
+            node --import tsx scripts/conversation-evals/memory-quality-gate.ts inspect "$EVAL_CORPUS" "$output"
           done
           echo "All three real observations require independent human rubrics; none is a semantic quality PASS."
       # Raw observations stay on the operator-controlled private runner for
