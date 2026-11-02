@@ -433,6 +433,7 @@ export async function createEvaluationFixture(input: {
     }
   >();
   let snapshot: ConversationSnapshot | undefined;
+  let currentIdentity: ConversationIdentity | undefined;
   const memoryActor: MemoryActor = {
     kind: "github_user",
     id: "github-user:eval-maintainer",
@@ -517,8 +518,8 @@ export async function createEvaluationFixture(input: {
   const sources: ConversationSourcePort & MemoryAutomaticSourceCurrentPort = {
     current: current.current,
     async identify() {
-      if (!snapshot) throw new Error("eval_snapshot_missing");
-      return snapshot;
+      if (!currentIdentity) throw new Error("eval_snapshot_missing");
+      return currentIdentity;
     },
     async read() {
       if (!snapshot) throw new Error("eval_snapshot_missing");
@@ -1221,6 +1222,7 @@ export async function createEvaluationFixture(input: {
       body: message.body,
       bodyDigest: rawHash(message.body),
     }));
+    currentIdentity = identity;
     snapshot = {
       ...identity,
       messages,
