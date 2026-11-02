@@ -60,9 +60,11 @@ import {
   assertDashboardRepositoryConfigMutationAllowed,
   assertDashboardRepositoryMutationAllowed,
   assertDashboardRepositoryRecoveryAllowed,
+  assertDashboardWorkspaceAdminMutationAllowed,
   createGitHubUserOctokit,
   getDashboardSignedInActor,
   mintFreshGitHubAppRepositorySecretWriteToken,
+  repositoryAccessRefreshErrorCode,
 } from "./dashboard-mutations";
 
 const repository = {
@@ -108,6 +110,17 @@ describe("dashboard repository mutations", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("refuses workspace-admin writes before identity or database work when disabled", async () => {
+    vi.stubEnv("REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS", "0");
+
+    await expect(
+      assertDashboardWorkspaceAdminMutationAllowed("workspace_1"),
+    ).rejects.toThrow("dashboard_mutations_disabled");
+
+    expect(mocks.getServerSession).not.toHaveBeenCalled();
+    expect(mocks.getPrisma).not.toHaveBeenCalled();
   });
 
   it("rejects repo-only mutations when the live collaborator permission no longer allows management", async () => {
@@ -371,6 +384,39 @@ describe("dashboard repository mutations", () => {
       mocks.updateRepositoryPermissionCacheFromLiveCheck,
     ).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["github_oauth_client_misconfigured", "dashboard_auth_misconfigured"],
+    ["github_oauth_refresh_failed", "repository_access_token_refresh_failed"],
+  ])(
+    "preserves the recovery category for %s before a GitHub request",
+    async (errorCode, expected) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      mocks.getValidGitHubUserAccessToken.mockResolvedValueOnce({
+        status: "refresh_failed",
+        errorCode,
+      });
+      await expect(
+        createGitHubUserOctokit({
+          userId: "user_1",
+          sourceProvider: "github",
+          externalUserId: "123",
+          sourceLogin: "maintainer",
+          githubUserId: "123",
+          githubLogin: "maintainer",
+          actor: "user:github:maintainer",
+        }),
+      ).rejects.toThrow(expected);
+      expect(
+        repositoryAccessRefreshErrorCode({
+          status: "token_refresh_failed",
+          errorCode,
+        }),
+      ).toBe(expected);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("creates a GitHub user-token requester for user-triggered repository writes", async () => {
     const fetchMock = vi.fn().mockResolvedValue(

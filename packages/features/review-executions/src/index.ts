@@ -23,3 +23,5 @@ export type {
   ReviewLifecycleAssignmentPlan,
   ReviewLifecycleTargetWitness,
 } from "./domain/review-lifecycle-assignment-plan";
+
+export * from "./domain/review-requested-dispatch-cleanup";

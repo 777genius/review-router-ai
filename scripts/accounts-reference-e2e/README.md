@@ -118,14 +118,18 @@ pnpm --dir scripts/accounts-reference-e2e run e2e -- \
   --repo-root "$PWD" \
   --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
   --lifecycle-fixture \
-  --expected-revision f4839fe0ca2329ca54fb3482138a3770a73bc5fc \
+  --expected-revision "$(git rev-parse HEAD)" \
   --work-dir "$PWD/tmp/accounts-reference-e2e/runs/candidate"
 ```
 
-For an integrated candidate, keep `--expected-revision` at the baseline above
-to record the comparison, or pass the candidate revision to make the expected
-revision explicit. Revision mismatch is reported, not silently treated as a
-browser pass.
+An explicit `--expected-revision` must be a lowercase 40-character commit SHA
+matching the requested checkout. A mismatch or unreadable identity exits with
+code `1` before creating the work directory or starting any database, Gateway
+or browser fixture. The checkout's Git top-level must be the requested source
+root; an enclosing repository or the caller's working directory cannot supply
+its identity. Omit the option for normal local runs. A source copy without its
+own Git metadata reports `unknown`; the historical Accounts UX baseline stays
+in the separate `baselineRevision` report field.
 
 ## Exit behavior and artifacts
 
@@ -271,19 +275,27 @@ keys, request bodies, and database credentials are not printed by the harness.
 Use `--resume-own-fixtures` only for bounded follow-up against this exact synthetic
 fixture family; the final full lane should use fresh checked-in migrations.
 
-The `Skills browser acceptance` GitHub workflow runs this same lane on a dedicated
-hosted macOS ARM64 runner with a fresh owned native PostgreSQL 17 cluster and the
-harness's locked Chromium. Prisma generation runs inside a real macOS network
-sandbox after a reachable loopback probe verifies that both a direct client and
-its descendant are denied. An unavailable sandbox or failed probe fails the job;
-there is no unisolated generation fallback. The workflow records the actual PG17
-version and stops only its owned cluster. It checks out the PR head explicitly, requires an unchanged
-source tree, and verifies an exact-head receipt with all 24 scenarios passing
-(the ten integration cases above plus fourteen UX resilience cases), zero
-failures, and zero skips. The workflow retains logs, receipts, screenshots, and
-failure traces as `skills-browser-<run-id>-<attempt>` artifacts for desktop/mobile
-visual review. It uses only generated fixture authority and does not call live
-SCM or model providers. The same workflow can be started with `workflow_dispatch`.
+The `Skills browser acceptance` GitHub workflow runs this same lane through the
+repository's maintained `CI_LINUX_BUILD_RUNNER` routing (currently four vCPU and
+16 GB RAM), with the existing hosted/fallback policy. The complete Next dev
+workload needs this memory headroom: the
+[2182909 run](https://github.com/777genius/review-router-ai/actions/runs/40955606323)
+recorded a 26-second Next diagnostic gap and only 393 MiB free during a genuine
+assigned-skill readback. The runner change preserves the 24 scenarios, their
+wait budgets, one worker and zero retries.
+
+Each job gets its own digest-pinned PostgreSQL 17 service on loopback and the
+harness's locked Chromium. Dependency preparation fetches the locked engines;
+Prisma generation then uses the maintained Linux network namespace isolation
+with `REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1`, failing if isolation is unavailable.
+The workflow retains the actual PostgreSQL version and service logs. It checks
+out the PR head explicitly, requires an unchanged source tree, and verifies an
+exact-head receipt with all 24 scenarios passing (the ten integration cases above
+plus fourteen UX resilience cases), zero failures and zero skips. Logs, receipts,
+screenshots and failure traces are retained as
+`skills-browser-<run-id>-<attempt>` artifacts for desktop/mobile visual review.
+The harness uses generated fixture authority and does not call live SCM or model
+providers. The same workflow can be started with `workflow_dispatch`.
 
 If the pinned Playwright browser download is unavailable, the existing
 `--browser-executable /absolute/path/to/chromium` option now reaches the actual
@@ -294,6 +306,56 @@ the default Playwright 1.64.1 Chromium archive returned a zero-length invalid ZI
 That temporary browser package is stored under `tmp/` and is not a production or
 workspace dependency.
 
+## Checked Skills catalog import
+
+The opt-in `--skills-fixture --skill-catalog-fixture` lane uses the real Next
+application, generated sessions, fresh PostgreSQL migrations, shared quotas,
+outbox, dedicated scan worker, and the pinned native SkillSpector service. UAP
+discovery/resolution and the AI model endpoint are loopback fixtures. Native
+static and AI analysis execute the installed upstream package; the model fixture
+returns structured responses and receives only a synthetic credential. This
+browser lane does not prove live catalog/provider availability or production
+container isolation; those boundaries have separate integration checks.
+
+Install Python 3.12 dependencies using both scanner lockfiles with
+`--require-hashes` (`--no-build-isolation` for `requirements.lock`), then point
+`REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON` at that virtual environment's Python.
+The Linux browser job also preloads both tokenizer encodings in
+`<venv>/share/tiktoken` so checking never needs to download them. The harness
+launches `test_service.py --with-loopback-ai` itself and starts the actual worker;
+do not supply live scanner/model credentials.
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='Catalog real checked import' \
+REVIEW_ROUTER_SKILL_SCANNER_TEST_PYTHON="$PWD/tmp/skill-scanner/venv/bin/python" \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" \
+  --database-url 'postgresql://fixture_owner@127.0.0.1:55442/review_router_accounts_reference_e2e_test?schema=public' \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/catalog" \
+  --skills-fixture --skill-catalog-fixture
+```
+
+The twelve browser scenarios cover search and source choice, exact text preview,
+native clear/warning/blocked results, separate opt-in AI checks, import into the
+existing repository assignment flow, same-page close/reopen, lost committed scan
+and import replies with exact retry, partial-report refusal and deliberate new
+attempt, independent warning/omission acknowledgement, inert markup, unsupported
+companion references, incomplete discovery, authority loss, real shared rate
+limits, expired historical reports, and late response/focus behavior. A partial
+report is an explicit contract fault applied after real native execution; the
+expired report is an inserted historical receipt, not a fabricated claim of a
+new execution. The warning and blocked cases use actual native findings.
+
+Desktop and 390×844 mobile screenshots include the list, preview, running check,
+clear/warning/blocked results, source failures, and existing assignment dialog.
+`skill-catalog-receipts.json` records authenticated service request paths, job
+identities, mode, native completion, explicit faults, and profile identities;
+it contains no tokens or skill bodies. The dedicated Linux job requires all
+twelve cases, zero skips, exact source revision, fresh migrations, and exactly
+eight completed native static checks plus one native AI check. The existing
+24-case Skills browser job remains separate and retains its original selector.
+
 ## Public model catalogs
 
 Use `ACCOUNTS_REFERENCE_E2E_GREP='public catalogs'` and `--catalog-fixture`
@@ -302,8 +364,8 @@ OAuth feature flag and preloads a harness-only HTTP fixture for the two fixed
 public catalog URLs. The actual server composition, normalization and cache run
 unchanged. The browser uses the current Providers dialog to verify the available
 direct OpenRouter and Claude catalogs, native IDs, manual refresh, cooldown,
-preserved typed selection and absence of automatic inference. The separate
-account-model lane checks account-scoped Codex discovery. The Gateway scenario
+preserved typed selection and absence of automatic inference. The same CI run
+also checks account-scoped Codex discovery. The Gateway scenario
 proves that public suggestions cannot become authorized account models.
 No provider credentials or external requests are needed.
 
@@ -343,6 +405,19 @@ selected account, saves its refreshed model, and adds the second account's
 model. This is an HTTP dependency fixture, not a live Codex/native proof.
 Use the existing explicit `--database-url` and `--browser-executable` options
 where PostgreSQL or a preinstalled Chromium is required.
+
+The Linux `catalog-browser` CI job runs the account-scoped Codex scenario and the
+direct public-catalog refresh scenario after its unchanged 12-case Skills catalog
+acceptance and eight-static/one-AI receipt checks. These two model scenarios share
+a second fresh service with the same pinned PostgreSQL 17 image on loopback port
+5433 and their own work directory. They run serially with separate browser contexts;
+the direct scenario closes without saving a provider. CI preserves and validates
+only Next's generated `next-env.d.ts` import change between runs, rejects other
+tracked changes, and requires an exact-head, empty-source-delta receipt with fresh
+migrations, successful boot, both named scenarios passing once, zero failures/skips,
+and no external network.
+Its separate `account-models-browser-<run-id>-<attempt>` artifact is retained even
+on failure; the fixture remains UI/read evidence, not live provider qualification.
 
 ## Provider settings UX integration
 
@@ -387,3 +462,49 @@ reported as an actual browser zoom test.
 
 These are controlled dependency and real application checks. They do not spend
 live provider quota or claim live provider availability or full review execution.
+
+## Installed review runtime readiness
+
+The runtime lane uses the same real Next app, generated session and disposable
+PostgreSQL fixture. It registers a synthetic producer with the current model
+dispatch contract, so the actual configured-release and database readers run:
+
+```bash
+ACCOUNTS_REFERENCE_E2E_GREP='review runtime readiness' \
+  node --import ./scripts/accounts-reference-e2e/node_modules/tsx/dist/loader.mjs \
+  scripts/accounts-reference-e2e/src/run.ts \
+  --repo-root "$PWD" --database-url "$ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL" \
+  --work-dir "$PWD/tmp/accounts-reference-e2e/runs/review-runtime" \
+  --review-runtime-fixture --catalog-fixture
+```
+
+It checks confirmed current, old immutable pin on the same transport, unknown
+pin, pending merge and failed setup states. Dashboard and the authenticated
+search route must agree on which repository is Ready; optimistic merge/provider
+events cannot promote unknown or stale runtime evidence. Create update PR and
+Verify setup remain distinct actions; an update is explained as a review-workflow
+change to merge on GitHub. The browser checks 1440px desktop and 390px mobile,
+dark/light themes, one 820px intermediate layout, no horizontal overflow, and the
+empty search state, saving screenshots under the run's `browser-artifacts/`
+directory.
+
+This profile generates a valid application encryption key and seeds a fresh,
+explicitly synthetic read-only GitHub permission-cache observation for a
+repository in the existing foreign workspace. The real cache reader observes a
+successful check without granting the viewer repository or workspace access.
+The browser verifies that the healthy-service notice is absent, the foreign
+workspace/repository remains invisible, and authenticated foreign search is
+denied. It makes no live GitHub OAuth or discovery call. Degraded-service copy
+and unavailable actions are covered separately by focused dashboard rendering
+tests.
+
+The catalog flag replaces only public catalog HTTP dependencies. No page or
+readiness API response is mocked, no real credentials are required, and no setup
+PR or external model request is sent. These checks do not attest an actual
+published caller, live provider/OAuth behavior, GitHub bot publication, or
+deployment fleet retirement; those remain separate final live gates.
+
+The existing `Unified OCR acceptance` workflow can also be started manually
+with `workflow_dispatch` to qualify a selected committed source. Each manual
+run has its own concurrency group and retains the same disposable PostgreSQL,
+read-only permissions, pinned Action/OCR and synthetic external boundaries.

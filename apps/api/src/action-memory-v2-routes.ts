@@ -12,6 +12,7 @@ import {
   MemoryKnowledgeError,
   memoryKnowledgeDigest,
   type MemoryActor,
+  type MemoryAutomaticSourceCurrentPort,
   type MemoryEntryRef,
   type MemoryKnowledgeEntryMetadata,
   type MemoryKnowledgeScope,
@@ -182,11 +183,15 @@ async function session(
   return claims;
 }
 
-function scopedService(
+export function createActionMemorySourceService(
   dependencies: ActionMemoryV2Dependencies,
   actor: MemoryActor,
   source: MemoryKnowledgeSource,
   scope: MemoryKnowledgeScope,
+  current?: {
+    readonly source: MemoryAutomaticSourceCurrentPort;
+    readonly verify: (controls: MemoryRequestControls) => Promise<boolean>;
+  },
 ) {
   const approvedSource: MemoryKnowledgeSource =
     scope.kind === "workspace" && source.visibility !== "public"
@@ -200,12 +205,13 @@ function scopedService(
         dependencies.sourceVerifier.repositoryMaintainers(),
     }),
     sourceAuthority: {
-      async verifySource(input) {
+      async verifySource(input, controls) {
         if (
           input.actor.id !== actor.id ||
           memoryKnowledgeDigest(input.scope) !== memoryKnowledgeDigest(scope) ||
           memoryKnowledgeDigest(input.source) !==
-            memoryKnowledgeDigest(approvedSource)
+            memoryKnowledgeDigest(approvedSource) ||
+          (current && !(await current.verify(controls)))
         )
           throw new MemoryKnowledgeError("forbidden");
         return approvedSource;
@@ -217,7 +223,7 @@ function scopedService(
   return {
     access,
     source: approvedSource,
-    service: dependencies.runtime.forAccess(access),
+    service: dependencies.runtime.forAccess(access, current?.source),
   };
 }
 
@@ -280,7 +286,7 @@ export async function registerActionMemoryV2Routes(
               workspaceId: claims.workspaceId,
               repositoryId: claims.repositoryId,
             };
-      const { access, service, source } = scopedService(
+      const { access, service, source } = createActionMemorySourceService(
         dependencies,
         verified.actor,
         verified.source,
@@ -366,7 +372,7 @@ export async function registerActionMemoryV2Routes(
         budget,
       );
       const metadata = await entry(dependencies, claims, id);
-      await scopedService(
+      await createActionMemorySourceService(
         dependencies,
         verified.actor,
         verified.source,
@@ -423,7 +429,7 @@ export async function registerActionMemoryV2Routes(
             workspaceId: claims.workspaceId,
             repositoryId: claims.repositoryId,
           };
-          await scopedService(
+          await createActionMemorySourceService(
             dependencies,
             verified.actor,
             verified.source,
@@ -452,7 +458,7 @@ export async function registerActionMemoryV2Routes(
             });
           if (!row) throw new MemoryKnowledgeError("not_found");
           const metadata = await entry(dependencies, claims, row.entryId);
-          const operation = await scopedService(
+          const operation = await createActionMemorySourceService(
             dependencies,
             verified.actor,
             verified.source,
@@ -484,7 +490,7 @@ export async function registerActionMemoryV2Routes(
           metadata.kind === "observation"
             ? { ...verified.source, observedCommitSha: input.source.headSha }
             : verified.source;
-        const { access, service, source } = scopedService(
+        const { access, service, source } = createActionMemorySourceService(
           dependencies,
           verified.actor,
           newSource,

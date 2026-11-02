@@ -3,6 +3,7 @@ import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
   requireGitHubAppPrivateKey,
   resolveReviewRouterCodexRotatingActionRef,
+  resolveReviewRouterActionRef,
 } from "@reviewrouter/platform-config";
 import {
   ManageProducerReleases,
@@ -93,6 +94,8 @@ export async function provisionGatewayReviewV2Repository(input: {
   readonly prisma: PrismaClient;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly command: GatewayReviewV2ProvisioningCommand;
+  /** Bound to a canonical immutable native caller by setup verification. */
+  readonly subscriptionAuthMode?: "claude-oauth";
   readonly assertCurrentSetupAndSource: () => Promise<void>;
 }): Promise<GatewayReviewV2ProvisioningResult> {
   if (
@@ -136,9 +139,10 @@ export async function provisionGatewayReviewV2Repository(input: {
       selectedProducerActionCommitSha: () => {
         try {
           return (
-            resolveReviewRouterCodexRotatingActionRef(input.env).split(
-              "@",
-            )[1] ?? null
+            (input.subscriptionAuthMode === "claude-oauth"
+              ? resolveReviewRouterActionRef(input.env)
+              : resolveReviewRouterCodexRotatingActionRef(input.env)
+            ).split("@")[1] ?? null
           );
         } catch {
           return null;

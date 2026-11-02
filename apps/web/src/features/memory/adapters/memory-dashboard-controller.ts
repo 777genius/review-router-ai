@@ -128,8 +128,9 @@ export function createMemoryDashboardController(dependencies: Dependencies) {
             status: metadata.lifecycle,
             body,
             topics: topicIds,
-            sourceLabel:
-              metadata.source?.type === "manual"
+            sourceLabel: metadata.automaticSource
+              ? "Learned from maintainer discussion"
+              : metadata.source?.type === "manual"
                 ? "Added in your workspace"
                 : metadata.source?.type === "github_comment"
                   ? "GitHub discussion"

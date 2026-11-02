@@ -61,3 +61,6 @@ export function readPersonalAccountSharingEnabled(
 ): boolean {
   return env.REVIEW_ROUTER_PERSONAL_ACCOUNT_SHARING_ENABLED === "1";
 }
+
+/** Deliberate server read bound for the complete qualified account catalog. */
+export const accountModelCatalogResponseBytes = 2 * 1024 * 1024;

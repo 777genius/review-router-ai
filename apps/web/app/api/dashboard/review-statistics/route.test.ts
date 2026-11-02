@@ -31,7 +31,7 @@ describe("Statistics private routes", () => {
       expect(response.headers.get("cache-control")).toBe("private, no-store");
     },
   );
-  it("returns report DTO without actor cache metadata", async () => {
+  it("returns the server-derived scope with the unchanged domain report", async () => {
     mocks.report.mockResolvedValue({
       actorId: "private-session-user",
       report: { totals: { reviews: 3 } },
@@ -41,7 +41,10 @@ describe("Statistics private routes", () => {
         "https://local.invalid/api/dashboard/review-statistics?workspaceId=workspace-a&days=30&severity=all",
       ),
     );
-    expect(await response.json()).toEqual({ totals: { reviews: 3 } });
+    expect(await response.json()).toEqual({
+      scope: { actorId: "private-session-user", workspaceId: "workspace-a" },
+      report: { totals: { reviews: 3 } },
+    });
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(mocks.report).toHaveBeenCalledWith("workspace-a", {
       days: 30,
@@ -70,13 +73,18 @@ describe("Statistics private routes", () => {
     },
   );
   it("retains exact issue request params", async () => {
-    mocks.issues.mockResolvedValue({ items: [], nextCursor: null });
+    const envelope = {
+      scope: { actorId: "session-user", workspaceId: "workspace-a" },
+      page: { items: [], nextCursor: null },
+    };
+    mocks.issues.mockResolvedValue(envelope);
     const response = await GETIssues(
       new NextRequest(
         "https://local.invalid/api/dashboard/review-statistics/issues?workspaceId=workspace-a&from=2026-10-01&to=2026-10-23&severity=minor&cursor=opaque",
       ),
     );
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(envelope);
     const params = mocks.issues.mock.calls[0]![1] as URLSearchParams;
     expect(params.get("from")).toBe("2026-10-01");
     expect(params.get("cursor")).toBe("opaque");

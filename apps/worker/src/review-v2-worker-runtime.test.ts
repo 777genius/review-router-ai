@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   OutboxHandlerError,
   type OutboxEvent,
 } from "@reviewrouter/features-outbox";
 import {
+  AdvanceReviewCompletionProcessStatus,
   ReviewCompletionWakeupKind,
   ReviewExecutionCompletionCoverage,
 } from "@reviewrouter/features-review-processes";
@@ -67,6 +68,8 @@ describe("review v2 worker runtime", () => {
       expiredExecutionsRecovered: 0,
       expiredExecutionConflicts: 0,
       expiredExecutionFailures: 0,
+      failures: [],
+      blockedPhases: [],
     });
     expect(composed).toBe(false);
 
@@ -161,6 +164,8 @@ describe("review v2 worker runtime", () => {
       expiredExecutionsRecovered: 0,
       expiredExecutionConflicts: 0,
       expiredExecutionFailures: 0,
+      failures: [],
+      blockedPhases: [],
     });
     expect(fixture.publications.requestCalls).toBe(1);
   });
@@ -245,8 +250,335 @@ describe("review v2 worker runtime", () => {
       }),
     ).resolves.toMatchObject({
       publicationProcessed: 1,
+      progressPromoted: null,
+      progressFailed: null,
+      failures: [
+        {
+          phase: "review_v2.progress_promotion",
+          safeErrorSummary: "projection_corrupt",
+        },
+        {
+          phase: "review_v2.progress_publication",
+          safeErrorSummary: "github_unavailable",
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["recovery", "recovered"],
+    ["execution_recovery", "expiredExecutionsScanned"],
+    ["intents", "intentsScanned"],
+    ["due", "advanced"],
+    ["publication", "publicationProcessed"],
+  ] as const)(
+    "isolates %s failure and keeps its metrics unavailable",
+    async (failed, metric) => {
+      const fixture = await createFixture();
+      const order: string[] = [];
+      const attempt = (phase: string) => {
+        order.push(phase);
+        if (phase === failed)
+          throw new Error("dependency github_pat_private123 unavailable");
+      };
+      const recovery = fixture.runtime.schedulers.recovery.scanNextPage.bind(
+        fixture.runtime.schedulers.recovery,
+      );
+      vi.spyOn(
+        fixture.runtime.schedulers.recovery,
+        "scanNextPage",
+      ).mockImplementation(async () => {
+        attempt("recovery");
+        return recovery();
+      });
+      const due = fixture.runtime.schedulers.due.execute.bind(
+        fixture.runtime.schedulers.due,
+      );
+      vi.spyOn(fixture.runtime.schedulers.due, "execute").mockImplementation(
+        async (input) => {
+          attempt("due");
+          return due(input);
+        },
+      );
+      const result = await runReviewV2Maintenance({
+        runtime: fixture.runtime,
+        ownerIdHash,
+        dueLimit: 10,
+        executionRecovery: {
+          execute: async () => {
+            attempt("execution_recovery");
+            return { scanned: 2, recovered: 1, conflicts: 0, failures: 0 };
+          },
+        },
+        intents: {
+          runMaintenance: async () => {
+            attempt("intents");
+            return { scanned: 2, dispatched: 1, recovered: 0, failed: 0 };
+          },
+        },
+        publication: {
+          runMaintenance: async () => {
+            attempt("publication");
+            return {
+              processed: 1,
+              manualRequired: 0,
+              terminalUnknown: 0,
+              settledExecutionIds: [],
+              progressSettlements: [],
+            };
+          },
+        },
+        progress: {
+          promoteSettledExecutions: async () => {
+            attempt("promotion");
+            return 0;
+          },
+          runMaintenance: async () => {
+            attempt("progress");
+            return {
+              claimed: 1,
+              published: 1,
+              deferred: 0,
+              suppressed: 0,
+              failed: 0,
+            };
+          },
+        },
+      });
+      expect(result[metric]).toBeNull();
+      expect(result.failures).toEqual([
+        {
+          phase: `review_v2.${failed}`,
+          safeErrorSummary: "dependency <redacted> unavailable",
+        },
+      ]);
+      expect(order).toEqual([
+        "recovery",
+        "execution_recovery",
+        "intents",
+        "due",
+        "publication",
+        ...(failed === "publication" ? [] : ["promotion", "progress"]),
+      ]);
+      if (failed === "publication") {
+        expect(result.progressPromoted).toBeNull();
+        expect(result.progressPublished).toBeNull();
+        expect(result.advanced).toBeNull();
+        expect(result.blockedPhases).toEqual([
+          {
+            phase: "review_v2.progress_promotion",
+            blockedBy: "review_v2.publication",
+          },
+          {
+            phase: "review_v2.progress_publication",
+            blockedBy: "review_v2.publication",
+          },
+        ]);
+      } else {
+        expect(result.publicationProcessed).toBe(1);
+        expect(result.progressPublished).toBe(1);
+        expect(result.blockedPhases).toEqual([]);
+      }
+    },
+  );
+
+  it("isolates failed publication wakeups without losing committed settlement evidence", async () => {
+    const fixture = await createFixture();
+    const wakeups: string[] = [];
+    const order: string[] = [];
+    vi.spyOn(fixture.runtime.advance, "execute").mockImplementation(
+      async ({ executionId }) => {
+        wakeups.push(executionId);
+        if (executionId === "bad")
+          throw Object.assign(new Error("failed github_pat_private123"), {
+            cause: "tenant-payload",
+          });
+        return { status: AdvanceReviewCompletionProcessStatus.Advanced };
+      },
+    );
+    vi.spyOn(fixture.runtime.schedulers.due, "execute").mockResolvedValue([]);
+    const promote = vi.fn(async () => {
+      order.push("promotion");
+      return 2;
+    });
+    const settlements = [
+      { executionId: "bad", outcome: "failed" as const },
+      { executionId: "good", outcome: "succeeded" as const },
+    ];
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+      publication: {
+        runMaintenance: async () => {
+          order.push("publication");
+          return {
+            processed: 2,
+            manualRequired: 0,
+            terminalUnknown: 0,
+            settledExecutionIds: ["bad", "good", "bad"],
+            progressSettlements: settlements,
+          };
+        },
+      },
+      progress: {
+        promoteSettledExecutions: promote,
+        runMaintenance: async () => {
+          order.push("progress");
+          return {
+            claimed: 2,
+            published: 2,
+            deferred: 0,
+            suppressed: 0,
+            failed: 0,
+          };
+        },
+      },
+    });
+    expect(wakeups).toEqual(["bad", "good"]);
+    expect(promote).toHaveBeenCalledExactlyOnceWith({ settlements });
+    expect(order).toEqual(["publication", "promotion", "progress"]);
+    expect(result).toMatchObject({
+      advanced: null,
+      publicationProcessed: 2,
+      progressPromoted: 2,
+      progressPublished: 2,
+      failures: [
+        {
+          phase: "review_v2.publication_wakeup",
+          safeErrorSummary: "failed <redacted>",
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("tenant-payload");
+  });
+
+  it("reports partial item failure but promotes only verified publication settlements", async () => {
+    const fixture = await createFixture();
+    const promote = vi.fn(async () => 1);
+    const publish = vi.fn(async () => ({
+      claimed: 1,
+      published: 1,
+      deferred: 0,
+      suppressed: 0,
+      failed: 0,
+    }));
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+      publication: {
+        async runMaintenance() {
+          return {
+            processed: 1,
+            manualRequired: 0,
+            terminalUnknown: 0,
+            settledExecutionIds: ["execution-1"],
+            progressSettlements: [
+              { executionId: "execution-1", outcome: "succeeded" as const },
+            ],
+            itemFailures: [
+              {
+                phase: "review_v2.publication_item",
+                safeErrorSummary: "provider_unavailable",
+              },
+            ],
+          };
+        },
+      },
+      progress: {
+        promoteSettledExecutions: promote,
+        runMaintenance: publish,
+      },
+    });
+    expect(promote).toHaveBeenCalledExactlyOnceWith({
+      settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
+    });
+    expect(publish).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      publicationProcessed: 1,
+      advanced: null,
+      progressPromoted: 1,
+      progressPublished: 1,
+      failures: [
+        {
+          phase: "review_v2.publication_item",
+          safeErrorSummary: "provider_unavailable",
+        },
+      ],
+      blockedPhases: [],
+    });
+  });
+
+  it("keeps already eligible progress publishing when optional publication is absent", async () => {
+    const fixture = await createFixture();
+    const promotion = vi.fn(async () => 0);
+    const publish = vi.fn(async () => ({
+      claimed: 1,
+      published: 1,
+      deferred: 0,
+      suppressed: 0,
+      failed: 0,
+    }));
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+      progress: {
+        promoteSettledExecutions: promotion,
+        runMaintenance: publish,
+      },
+    });
+    expect(promotion).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      publicationProcessed: 0,
       progressPromoted: 0,
-      progressFailed: 2,
+      progressPublished: 1,
+      failures: [],
+      blockedPhases: [],
+    });
+  });
+
+  it("still publishes already eligible progress after promotion alone fails", async () => {
+    const fixture = await createFixture();
+    const publish = vi.fn(async () => ({
+      claimed: 1,
+      published: 1,
+      deferred: 0,
+      suppressed: 0,
+      failed: 0,
+    }));
+    const result = await runReviewV2Maintenance({
+      runtime: fixture.runtime,
+      ownerIdHash,
+      dueLimit: 10,
+      publication: {
+        runMaintenance: async () => ({
+          processed: 1,
+          manualRequired: 0,
+          terminalUnknown: 0,
+          settledExecutionIds: [],
+          progressSettlements: [],
+        }),
+      },
+      progress: {
+        promoteSettledExecutions: async () => {
+          throw new Error("promotion_unavailable");
+        },
+        runMaintenance: publish,
+      },
+    });
+    expect(publish).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      progressPromoted: null,
+      progressPublished: 1,
+      failures: [
+        {
+          phase: "review_v2.progress_promotion",
+          safeErrorSummary: "promotion_unavailable",
+        },
+      ],
     });
   });
 

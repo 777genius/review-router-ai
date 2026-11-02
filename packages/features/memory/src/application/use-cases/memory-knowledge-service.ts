@@ -1,9 +1,15 @@
+import type {
+  MemoryAutomaticSourceStore,
+  MemoryAutomaticSourceCurrentPort,
+  MemoryAutomaticLearningResult,
+} from "../ports/memory-automatic-source-port";
 import { randomUUID } from "node:crypto";
 import type { MemoryActor } from "../../domain/memory-actor";
 import { createMemoryBodyHash } from "../../domain/memory-body";
 import { evaluateMemorySafety } from "../../domain/memory-safety-policy";
 import {
   MemoryKnowledgeError,
+  automaticMemoryCohortId,
   memoryKnowledgeBodyMatches,
   memoryKnowledgeBodyVisible,
   memoryKnowledgeCommandDigest,
@@ -12,6 +18,7 @@ import {
   normalizeMemoryKnowledgeCommand,
   sameMemoryKnowledgeScope,
   type MemoryEntryRef,
+  type MemoryAutomaticSourceBinding,
   type MemoryKnowledgeCommand,
   type MemoryKnowledgeEntryMetadata,
   type MemoryKnowledgeOperation,
@@ -30,8 +37,26 @@ import type {
   MemoryKnowledgeStore,
   MemoryVerifiedCleanupReceipt,
 } from "../ports/memory-knowledge-store-port";
-import type { MemoryPolicyConfigPort } from "../ports/memory-policy-config-port";
+import type {
+  MemoryPolicyConfig,
+  MemoryPolicyConfigPort,
+} from "../ports/memory-policy-config-port";
 import type { MemoryQuotaPolicyPort } from "../ports/memory-quota-policy-port";
+
+function assertAutomaticMutationPolicy(
+  policy: Pick<MemoryPolicyConfig, "requireConfirmation" | "settingsRevision">,
+  settingsRevision: string,
+): void {
+  if (
+    typeof settingsRevision !== "string" ||
+    !/^(0|[1-9]\d{0,9})$/.test(settingsRevision)
+  )
+    throw new MemoryKnowledgeError("invalid_input");
+  if (policy.requireConfirmation)
+    throw new MemoryKnowledgeError("input_required");
+  if (policy.settingsRevision !== settingsRevision)
+    throw new MemoryKnowledgeError("conflict");
+}
 
 export type MemoryKnowledgeView = {
   readonly metadata: MemoryKnowledgeEntryMetadata;
@@ -51,7 +76,21 @@ export type MemoryKnowledgeBundleItem =
       readonly sourceMetadata: readonly MemoryKnowledgeEntryMetadata[];
     });
 
+export type MemoryContextPolicy = {
+  readonly audience: "internal" | "public" | "repository";
+  readonly repositoryId: string;
+  readonly allowedTasks: readonly (
+    | "review"
+    | "investigation"
+    | "pr_description"
+    | "conversation"
+  )[];
+};
+
 export type MemoryKnowledgeBundleInput = {
+  readonly contextPolicy?: MemoryContextPolicy;
+  /** Trusted host lifetime of an immutable run; never accepted from a client request. */
+  readonly snapshotNotAfter?: Date;
   readonly actor: MemoryActor;
   readonly scopes: readonly MemoryKnowledgeScope[];
   readonly query: string;
@@ -59,6 +98,7 @@ export type MemoryKnowledgeBundleInput = {
 };
 
 export type MemoryKnowledgeBundle = {
+  readonly contextPolicy?: MemoryContextPolicy;
   readonly generation: string;
   readonly scopes: readonly {
     readonly scope: MemoryKnowledgeScope;
@@ -70,6 +110,7 @@ export type MemoryKnowledgeBundle = {
   readonly degraded: boolean;
 };
 export type MemoryKnowledgeAdmissionReceipt = {
+  readonly contextPolicy?: MemoryContextPolicy;
   readonly generation: string;
   readonly bundleHash: string;
   readonly scopes: readonly {
@@ -79,6 +120,7 @@ export type MemoryKnowledgeAdmissionReceipt = {
       readonly ref: MemoryEntryRef;
       readonly revision: string;
       readonly contentApprovalRevision: string;
+      readonly automaticSource?: MemoryAutomaticSourceBinding;
     }[];
   }[];
   readonly expiresAt: string;
@@ -111,6 +153,10 @@ export class MemoryKnowledgeService {
       readonly access: MemoryKnowledgeAccessPort;
       readonly policy: MemoryPolicyConfigPort;
       readonly quota: MemoryQuotaPolicyPort;
+      readonly automaticSources?: {
+        readonly store: MemoryAutomaticSourceStore;
+        readonly current: MemoryAutomaticSourceCurrentPort;
+      };
       readonly now?: () => Date;
       readonly deliveryRetentionMs?: number;
       /** Enable only within a qualified native operation-UUID retention/no-prune profile. */
@@ -143,6 +189,152 @@ export class MemoryKnowledgeService {
     return this.mutate(command, controls);
   }
 
+  async authorizeAutomaticSource(
+    actor: MemoryActor,
+    scope: MemoryKnowledgeScope,
+    controls: MemoryRequestControls,
+  ): Promise<void> {
+    await this.dependencies.access.authorize(
+      { actor, scope, action: "manage" },
+      controls,
+    );
+    const policy = await this.dependencies.policy.getPolicy({
+      workspaceId: scope.workspaceId,
+      repositoryId: scope.kind === "repository" ? scope.repositoryId : null,
+    });
+    if (
+      !policy.memoryEnabled ||
+      !policy.automaticLearning ||
+      scope.kind !== "repository"
+    )
+      throw new MemoryKnowledgeError("disabled");
+  }
+  /** Explicit maintainer transition; ordinary edits/replays never clear a source suppression. */
+  async relearnAutomatic(
+    input: {
+      readonly actor: MemoryActor;
+      readonly ref: MemoryEntryRef;
+      readonly expectedRevision: string;
+      readonly automaticSettingsRevision?: string;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<void> {
+    await this.authorizeAutomaticSource(input.actor, input.ref.scope, controls);
+    if (input.automaticSettingsRevision !== undefined)
+      assertAutomaticMutationPolicy(
+        await this.dependencies.policy.getPolicy({
+          workspaceId: input.ref.scope.workspaceId,
+          repositoryId:
+            input.ref.scope.kind === "repository"
+              ? input.ref.scope.repositoryId
+              : null,
+        }),
+        input.automaticSettingsRevision,
+      );
+    const metadata = await this.dependencies.store.findEntry(
+      input.ref,
+      this.dependencies.generation,
+    );
+    const automatic = this.dependencies.automaticSources;
+    if (
+      !metadata?.automaticSource ||
+      !automatic ||
+      metadata.revision !== input.expectedRevision
+    )
+      throw new MemoryKnowledgeError("conflict");
+    const state = await automatic.store.lookupLineage(
+      input.ref.scope,
+      metadata.automaticSource.lineageKey,
+    );
+    if (!state) throw new MemoryKnowledgeError("not_found");
+    await automatic.store.clearSuppression({
+      scope: input.ref.scope,
+      sourceId: state.sourceId,
+      expectedEpoch: state.binding.epoch,
+      expectedSuppressionEpoch: state.suppressionEpoch ?? "0",
+      ...(input.automaticSettingsRevision === undefined
+        ? {}
+        : { automaticSettingsRevision: input.automaticSettingsRevision }),
+      entry: {
+        ref: input.ref,
+        generation: this.dependencies.generation,
+        expectedRevision: input.expectedRevision,
+      },
+      now: this.now(),
+    });
+  }
+
+  /** Trusted application seam: standing policy is not a forged per-fact human approval. */
+  async saveAutomatic(
+    command: Extract<MemoryKnowledgeCommand, { readonly kind: "save" }>,
+    binding: MemoryAutomaticSourceBinding,
+    controls: MemoryRequestControls,
+  ) {
+    if (
+      command.knowledgeKind !== "observation" ||
+      command.ref.scope.kind !== "repository"
+    )
+      throw new MemoryKnowledgeError("forbidden");
+    return this.mutate(command, controls, { automaticSource: binding });
+  }
+  /** Prevalidate every frozen child before the owning store commits the cohort and all effects. */
+  async admitAutomaticSelection(
+    input: {
+      readonly reservation: Parameters<
+        MemoryKnowledgeStore["admitAutomaticSelection"]
+      >[0]["reservation"];
+      readonly children: readonly Extract<
+        MemoryKnowledgeCommand,
+        { kind: "save" }
+      >[];
+      readonly retirements: readonly {
+        readonly command: MemoryKnowledgeCommand & { kind: "retire" };
+        readonly binding: MemoryAutomaticSourceBinding;
+      }[];
+    },
+    controls: MemoryRequestControls,
+  ) {
+    assertAutomaticMutationPolicy(
+      await this.dependencies.policy.getPolicy({
+        workspaceId: input.reservation.input.scope.workspaceId,
+        repositoryId: input.reservation.input.scope.repositoryId,
+      }),
+      input.reservation.input.settingsRevision ?? "0",
+    );
+    const children = [];
+    for (const command of input.children) {
+      if (
+        command.knowledgeKind !== "observation" ||
+        command.ref.scope.kind !== "repository"
+      )
+        throw new MemoryKnowledgeError("forbidden");
+      children.push(await this.prepareMutation(command, controls));
+    }
+    const retirements = [];
+    for (const item of input.retirements)
+      retirements.push(
+        await this.prepareMutation(item.command, controls, {
+          internalRetirement: item.binding,
+        }),
+      );
+    this.check(controls);
+    return this.dependencies.store.admitAutomaticSelection({
+      reservation: input.reservation,
+      children,
+      retirements,
+    });
+  }
+  async retireAutomatic(
+    command: MemoryKnowledgeCommand & { readonly kind: "retire" },
+    binding: MemoryAutomaticSourceBinding,
+    controls: MemoryRequestControls,
+  ) {
+    return this.mutate(command, controls, { internalRetirement: binding });
+  }
+  async metadata(ref: MemoryEntryRef) {
+    return this.dependencies.store.findEntry(ref, this.dependencies.generation);
+  }
+
   private now(): Date {
     return this.dependencies.now?.() ?? new Date();
   }
@@ -157,7 +349,24 @@ export class MemoryKnowledgeService {
   private async mutate(
     input: MemoryKnowledgeCommand,
     controls: MemoryRequestControls,
+    authority: {
+      readonly automaticSource?: MemoryAutomaticSourceBinding;
+      readonly internalRetirement?: MemoryAutomaticSourceBinding;
+    } = {},
   ): Promise<MemoryKnowledgeOperation> {
+    return this.dependencies.store.admit(
+      await this.prepareMutation(input, controls, authority),
+    );
+  }
+
+  private async prepareMutation(
+    input: MemoryKnowledgeCommand,
+    controls: MemoryRequestControls,
+    authority: {
+      readonly automaticSource?: MemoryAutomaticSourceBinding;
+      readonly internalRetirement?: MemoryAutomaticSourceBinding;
+    } = {},
+  ): Promise<Parameters<MemoryKnowledgeStore["admit"]>[0]> {
     this.check(controls);
     let command = normalizeMemoryKnowledgeCommand(input);
     if (
@@ -181,6 +390,14 @@ export class MemoryKnowledgeService {
           ? command.ref.scope.repositoryId
           : null,
     });
+    if (
+      command.approval.automaticSettingsRevision !== undefined &&
+      !authority.internalRetirement
+    )
+      assertAutomaticMutationPolicy(
+        policy,
+        command.approval.automaticSettingsRevision,
+      );
     if (command.kind === "save" || command.kind === "topics") {
       const scopeKey =
         command.ref.scope.kind === "user_preference"
@@ -261,7 +478,8 @@ export class MemoryKnowledgeService {
     const retryMs = this.dependencies.resubmitWindowMs ?? 0;
     if (retryMs < 0 || retryMs > retentionMs)
       throw new MemoryKnowledgeError("invalid_input");
-    return this.dependencies.store.admit({
+    return {
+      ...authority,
       command,
       digest: memoryKnowledgeCommandDigest(command),
       now,
@@ -269,7 +487,81 @@ export class MemoryKnowledgeService {
       resubmitUntil: new Date(now.getTime() + retryMs),
       activeEntryLimit: quota.activeItems.limit,
       pendingCommandLimit: 100,
+    };
+  }
+
+  /** Bodyless progress for an accepted selection; reconciles lifecycle without extraction or delivery. */
+  async automaticOperations(
+    input: {
+      readonly actor: MemoryActor;
+      readonly scope: MemoryKnowledgeScope;
+      readonly sourceId: string;
+      readonly processingId: string;
+    },
+    controls: MemoryRequestControls,
+  ): Promise<MemoryAutomaticLearningResult | null> {
+    this.check(controls);
+    await this.dependencies.access.authorize(
+      { actor: input.actor, scope: input.scope, action: "read" },
+      controls,
+    );
+    const operations = await this.dependencies.store.findAutomaticOperations({
+      scope: input.scope,
+      generation: this.dependencies.generation,
+      sourceId: input.sourceId,
+      processingId: input.processingId,
     });
+    const cohortId = automaticMemoryCohortId(input.processingId);
+    const sources = this.dependencies.automaticSources?.store;
+    let source = await sources?.lookup(input.scope, input.sourceId);
+    const uncertainDelivery = operations.some(
+      (operation) =>
+        operation.state === "unknown" ||
+        operation.state === "failed" ||
+        operation.state === "cleanup_pending" ||
+        operation.safeReason === "input_required",
+    );
+    if (
+      sources &&
+      source?.state === "pending" &&
+      source.binding.cohortId === cohortId
+    ) {
+      const missingChildren = operations.length !== source.entryIds.length;
+      if (missingChildren || uncertainDelivery) {
+        await sources.invalidate({
+          scope: input.scope,
+          sourceId: input.sourceId,
+          cause: missingChildren ? "unavailable" : "delivery_uncertain",
+          expectedBinding: source.binding,
+          now: this.now(),
+        });
+        // A concurrent verified completion or supersession wins the conditional transition.
+        source = await sources.lookup(input.scope, input.sourceId);
+      }
+    }
+    const current =
+      source &&
+      source.state !== "unselected" &&
+      source.binding.cohortId === cohortId
+        ? source
+        : null;
+    if (!current && !operations.length) return null;
+    return {
+      cohortId,
+      entryIds:
+        current?.entryIds ??
+        operations.map((operation) => operation.ref.entryId),
+      operations,
+      state: !current
+        ? "needs_refresh"
+        : current.suppressed
+          ? "suppressed"
+          : current.state === "active" || current.state === "needs_refresh"
+            ? current.state
+            : uncertainDelivery || operations.length !== current.entryIds.length
+              ? "needs_refresh"
+              : "queued",
+    };
   }
 
   async progress(
@@ -646,6 +938,9 @@ export class MemoryKnowledgeService {
     input: MemoryKnowledgeBundleInput,
     controls: MemoryRequestControls,
   ): Promise<MemoryKnowledgeBundle> {
+    const snapshotNotAfter = input.snapshotNotAfter?.getTime();
+    if (snapshotNotAfter !== undefined && !Number.isFinite(snapshotNotAfter))
+      throw new MemoryKnowledgeError("invalid_input");
     const remaining = Math.min(
       2000,
       controls.deadlineAt.getTime() - this.now().getTime(),
@@ -654,12 +949,20 @@ export class MemoryKnowledgeService {
       const snapshot = {
         generation: this.dependencies.generation,
         scopes: [],
-        expiresAt: new Date(this.now().getTime() + 30000).toISOString(),
+        expiresAt: new Date(
+          snapshotNotAfter ?? this.now().getTime() + 30_000,
+        ).toISOString(),
         degraded: true,
       };
       return { ...snapshot, hash: memoryKnowledgeDigest(snapshot) };
     };
-    if (remaining <= 0 || controls.signal?.aborted) return empty();
+    if (
+      remaining <= 0 ||
+      controls.signal?.aborted ||
+      (snapshotNotAfter !== undefined &&
+        snapshotNotAfter <= this.now().getTime())
+    )
+      return empty();
     const cancelled = new AbortController();
     const signal = controls.signal
       ? AbortSignal.any([controls.signal, cancelled.signal])
@@ -669,10 +972,14 @@ export class MemoryKnowledgeService {
         cancelled.abort();
         resolve(empty());
       }, remaining);
-      this.buildBundle(input, {
-        deadlineAt: new Date(this.now().getTime() + remaining),
-        signal,
-      }).then(
+      this.buildBundle(
+        input,
+        {
+          deadlineAt: new Date(this.now().getTime() + remaining),
+          signal,
+        },
+        snapshotNotAfter,
+      ).then(
         (bundle) => {
           clearTimeout(timer);
           resolve(bundle);
@@ -686,13 +993,9 @@ export class MemoryKnowledgeService {
   }
 
   private async buildBundle(
-    input: {
-      readonly actor: MemoryActor;
-      readonly scopes: readonly MemoryKnowledgeScope[];
-      readonly query: string;
-      readonly limitPerScope?: number;
-    },
+    input: MemoryKnowledgeBundleInput,
     controls: MemoryRequestControls,
+    snapshotNotAfter: number | undefined,
   ): Promise<MemoryKnowledgeBundle> {
     const budget: MemoryRequestControls = {
       ...controls,
@@ -762,7 +1065,8 @@ export class MemoryKnowledgeService {
             input.actor,
             budget,
           );
-          if (admitted) items.push(admitted);
+          if (admitted && this.audienceEligible(admitted, input.contextPolicy))
+            items.push(admitted);
         }
         scopes.push({ scope, epoch, items });
       }
@@ -795,15 +1099,21 @@ export class MemoryKnowledgeService {
         ),
       ),
     );
-    const expiry = Math.min(this.now().getTime() + 30_000, ...validityBounds);
+    const expiry = Math.min(
+      snapshotNotAfter ?? this.now().getTime() + 30_000,
+      ...validityBounds,
+    );
     if (expiry <= this.now().getTime()) {
       scopes.length = 0;
       degraded = true;
     }
     const expiresAt = new Date(
-      expiry <= this.now().getTime() ? this.now().getTime() + 30_000 : expiry,
+      expiry <= this.now().getTime()
+        ? (snapshotNotAfter ?? this.now().getTime() + 30_000)
+        : expiry,
     ).toISOString();
     const snapshot = {
+      ...(input.contextPolicy ? { contextPolicy: input.contextPolicy } : {}),
       generation: this.dependencies.generation,
       scopes,
       expiresAt,
@@ -836,6 +1146,7 @@ export class MemoryKnowledgeService {
     if (memoryKnowledgeDigest(snapshot) !== hash)
       throw new MemoryKnowledgeError("conflict");
     return {
+      ...(bundle.contextPolicy ? { contextPolicy: bundle.contextPolicy } : {}),
       generation: bundle.generation,
       bundleHash: hash,
       expiresAt: bundle.expiresAt,
@@ -846,6 +1157,7 @@ export class MemoryKnowledgeService {
             ref: MemoryEntryRef;
             revision: string;
             contentApprovalRevision: string;
+            automaticSource?: MemoryAutomaticSourceBinding;
           }
         >();
         for (const item of section.items)
@@ -858,6 +1170,9 @@ export class MemoryKnowledgeService {
               ref: metadata.ref,
               revision: metadata.revision,
               contentApprovalRevision: metadata.contentApprovalRevision,
+              ...(metadata.automaticSource
+                ? { automaticSource: metadata.automaticSource }
+                : {}),
             });
           }
         return {
@@ -931,17 +1246,21 @@ export class MemoryKnowledgeService {
             metadata.revision !== expected.revision ||
             metadata.contentApprovalRevision !==
               expected.contentApprovalRevision ||
+            memoryKnowledgeDigest(metadata.automaticSource ?? null) !==
+              memoryKnowledgeDigest(expected.automaticSource ?? null) ||
             !memoryKnowledgeBodyVisible(metadata, "runtime", this.now()) ||
             !metadata.source ||
-            !(await this.dependencies.access.sourceApplicable(
-              {
-                actor: input.actor,
-                scope: section.scope,
-                source: metadata.source,
-                consumer: "runtime",
-              },
-              controls,
-            ))
+            !(metadata.automaticSource
+              ? await this.automaticEligible(metadata, controls)
+              : await this.dependencies.access.sourceApplicable(
+                  {
+                    actor: input.actor,
+                    scope: section.scope,
+                    source: metadata.source,
+                    consumer: "runtime",
+                  },
+                  controls,
+                ))
           )
             return false;
         }
@@ -1007,6 +1326,91 @@ export class MemoryKnowledgeService {
     }
   }
 
+  private audienceEligible(
+    item: MemoryKnowledgeBundleItem,
+    policy: MemoryContextPolicy | undefined,
+  ): boolean {
+    if (!policy || policy.audience === "internal") return true;
+    return (
+      item.type === "entry" ? [item.metadata] : item.sourceMetadata
+    ).every(
+      (metadata) =>
+        metadata.source &&
+        (metadata.source.visibility === "public" ||
+          (policy.audience === "repository" &&
+            metadata.ref.scope.kind === "repository" &&
+            metadata.ref.scope.repositoryId === policy.repositoryId &&
+            metadata.source.repositoryId === policy.repositoryId)),
+    );
+  }
+
+  private async automaticEligible(
+    metadata: MemoryKnowledgeEntryMetadata,
+    controls: MemoryRequestControls,
+  ): Promise<boolean> {
+    const binding = metadata.automaticSource,
+      automatic = this.dependencies.automaticSources;
+    if (!binding || !automatic || !metadata.source) return false;
+    const state = await automatic.store.lookupLineage(
+      metadata.ref.scope,
+      binding.lineageKey,
+    );
+    if (
+      !state ||
+      state.binding.cohortId !== binding.cohortId ||
+      state.binding.sourceRevision !== binding.sourceRevision
+    )
+      return false;
+    const recoverable =
+      state.state === "needs_refresh" &&
+      state.invalidatedBy === "unavailable" &&
+      state.lastCompleteCohort === true;
+    if (
+      !recoverable &&
+      !(await automatic.store.applicable(
+        metadata.ref,
+        metadata.generation,
+        binding,
+      ))
+    )
+      return false;
+    let current: boolean;
+    try {
+      current = await automatic.current.current(
+        { scope: metadata.ref.scope, source: metadata.source, binding },
+        controls,
+      );
+    } catch {
+      current = false;
+    }
+    if (!current) {
+      await automatic.store.invalidate({
+        scope: metadata.ref.scope,
+        sourceId: metadata.source.sourceId,
+        cause: "unavailable",
+        expectedBinding: state.binding,
+        now: this.now(),
+      });
+      return false;
+    }
+    if (recoverable) {
+      // Fresh checked provenance may recover the same complete cohort, never a changed/deleted source.
+      // This capture is discarded because its epoch changed; subsequent reads see the renewed receipt.
+      await automatic.store.recoverAvailability({
+        ref: metadata.ref,
+        generation: metadata.generation,
+        binding,
+        now: this.now(),
+      });
+      return false;
+    }
+    return automatic.store.applicable(
+      metadata.ref,
+      metadata.generation,
+      binding,
+    );
+  }
+
   private async entryEligible(
     entry: MemoryProviderEntry,
     metadata: MemoryKnowledgeEntryMetadata,
@@ -1027,6 +1431,8 @@ export class MemoryKnowledgeService {
       !memoryKnowledgeBodyVisible(metadata, consumer, this.now())
     )
       return false;
+    if (metadata.automaticSource)
+      return this.automaticEligible(metadata, controls);
     return this.dependencies.access.sourceApplicable(
       { actor, scope: metadata.ref.scope, source: metadata.source, consumer },
       controls,

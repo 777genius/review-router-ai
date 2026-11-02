@@ -14,6 +14,8 @@ import {
 } from "@reviewrouter/platform-db";
 import {
   evaluateResolutionHistory,
+  ensureResolutionHistoryActivated,
+  type ResolutionWriterDrainQualificationPort,
   type ReviewPublicationScope,
 } from "../index";
 import {
@@ -89,6 +91,100 @@ describeDatabase("resolution history PostgreSQL connection fence", () => {
   });
   afterAll(async () => {
     await prisma?.$disconnect();
+  });
+  it("leaves a new or existing legacy connection unchanged without deployment evidence", async () => {
+    const writers: ResolutionWriterDrainQualificationPort = {
+      qualify: async () => ({
+        status: "unqualified",
+        reasonCode: "witness_missing",
+      }),
+    };
+    await expect(
+      ensureResolutionHistoryActivated(scope, { activation: history, writers }),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reasonCode: "witness_missing",
+    });
+    const row = await prisma.repositoryConnection.findUniqueOrThrow({
+      where: { id: scope.repositoryConnectionId },
+    });
+    expect(row.lifecycleResolutionMode).toBe("legacy_open");
+    expect(row.lifecycleResolutionActivatedAt).toBeNull();
+    expect(row.lifecycleResolutionActivationVersion).toBe(0);
+  });
+
+  it("shares one ordinary activation cut across pushes and rejects fresh resolution after revocation without blocking exact settlement", async () => {
+    const proof = controlledRetiredWriterProof();
+    let qualified = true;
+    const writers: ResolutionWriterDrainQualificationPort = {
+      qualify: async () =>
+        qualified
+          ? { status: "qualified", proof }
+          : { status: "unqualified", reasonCode: "revoked" },
+    };
+    const activated = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        ensureResolutionHistoryActivated(scope, {
+          activation: history,
+          writers,
+        }),
+      ),
+    );
+    expect(activated).toEqual(Array(3).fill({ status: "guarded" }));
+    const cut = await history.readActivation(scope);
+    expect(cut?.activationVersion).toBe(1);
+    const pending = {
+      sourceKind: "canonical_operation" as const,
+      operationId: "issued-before-revocation",
+      publicationAttemptId: "publication",
+      executionId: "execution",
+      generation: "1",
+      reviewedHeadSha: "a".repeat(40),
+      bodyHash: "b".repeat(64),
+      state: "may_have_started" as const,
+      enteredAt: new Date().toISOString(),
+    };
+    const target = { ...scope, threadId: "existing-operation" };
+    const parentCreatedAt = new Date(
+      Date.parse(cut!.activatedAt) + 1,
+    ).toISOString();
+    await prisma.$transaction((transaction) =>
+      recordPendingResolution(transaction, target, pending, {
+        parentCreatedAt,
+        writers,
+      }),
+    );
+    qualified = false;
+    await expect(
+      prisma.$transaction((transaction) =>
+        recordPendingResolution(
+          transaction,
+          { ...scope, threadId: "fresh-operation" },
+          { ...pending, operationId: "after-revocation" },
+          { parentCreatedAt, writers },
+        ),
+      ),
+    ).rejects.toThrow("resolution_writer_qualification_unavailable");
+    await expect(
+      ensureResolutionHistoryActivated(scope, { activation: history, writers }),
+    ).resolves.toMatchObject({ status: "unavailable" });
+    expect(await history.readActivation(scope)).toEqual(cut);
+    await prisma.$transaction(async (transaction) => {
+      await recordPendingResolution(transaction, target, pending, {
+        reconciliationOnly: true,
+        writers,
+      });
+      await settleResolution(
+        transaction,
+        target,
+        pending.operationId,
+        "confirmed",
+        { effectId: "github-readback", observedAt: new Date().toISOString() },
+      );
+    });
+    const [settled] = await history.read(scope, [target.threadId]);
+    expect(settled?.confirmed?.operationId).toBe(pending.operationId);
+    expect(settled?.pending).toEqual([]);
   });
   it("accounts a paused legacy writer before drain and preserves its settlement after qualified cut", async () => {
     const entryInput = {

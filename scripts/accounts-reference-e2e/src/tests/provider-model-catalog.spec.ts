@@ -30,7 +30,8 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
   });
   const dialog = await openNewProvider(page, FIXTURES.workspaces.orgAlpha);
   await chooseSetupOption(page, "Provider", "OpenRouter");
-  const model = dialog.getByRole("textbox", { name: "Model", exact: true });
+  await dialog.getByRole("radio", { name: /^GitHub Secrets\b/u }).check();
+  const model = dialog.getByRole("combobox", { name: "Model", exact: true });
   await model.fill("openrouter-saved-model");
   await model.press("Escape");
   await expect(dialog).toBeVisible();
@@ -88,9 +89,10 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
   // Repository-scoped rotating Codex is not a workspace credential source.
   for (const [kind, label] of [
     ["openrouter", "OpenRouter"],
-    ["claude", "Claude Code subscription"],
+    ["claude", "Claude Code"],
   ] as const) {
     await chooseSetupOption(page, "Provider", label);
+    await dialog.getByRole("radio", { name: /^GitHub Secrets\b/u }).check();
     await model.fill(`${kind}-saved-model`);
     await model.press("Escape");
     await expect(dialog).toBeVisible();
@@ -105,9 +107,11 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
     await expect(
       dialog.getByText("Access to these models has not been checked."),
     ).toBeVisible();
-    await expect(dialog.getByRole("status")).toContainText(
-      "Please wait before refreshing again.",
-    );
+    await expect(
+      dialog
+        .getByRole("status")
+        .filter({ hasText: "Please wait before refreshing again." }),
+    ).toBeVisible();
     await model.fill("");
     await model.focus();
     await page
@@ -151,7 +155,7 @@ test("public catalogs Gateway allowlist is account-scoped and keeps an explicit 
   ).toHaveCount(0);
   await chooseSetupOption(page, "Account", FIXTURES.sourceLabels.orgAlpha);
   const model = dialog.getByRole("combobox", { name: "Model", exact: true });
-  await expect(model).toContainText("rr-e2e-model");
+  await expect(model).toHaveValue("rr-e2e-model");
   await model.click();
   await expect(
     page.getByRole("option", { name: "rr-e2e-model", exact: true }),
@@ -160,6 +164,13 @@ test("public catalogs Gateway allowlist is account-scoped and keeps an explicit 
     page.getByRole("option").filter({ hasText: "vendor/fixture" }),
   ).toHaveCount(0);
   await page.getByRole("option", { name: "rr-e2e-model", exact: true }).click();
+  await expect(model).toHaveValue("rr-e2e-model");
+  await expect(
+    dialog.getByRole("status").filter({
+      hasText:
+        "Models from the connected profile. Account-specific discovery is not offered.",
+    }),
+  ).toBeVisible();
   await expect(
     dialog.getByRole("button", { name: "Refresh models", exact: true }),
   ).toHaveCount(0);

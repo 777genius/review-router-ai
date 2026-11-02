@@ -1,9 +1,3 @@
-import { seedSkillsFixtures } from "./skills-fixtures.ts";
-import { seedSkillsReadinessFixtures } from "./skills-readiness-fixture.ts";
-import {
-  startSkillsGitHubFixture,
-  SKILLS_MANAGER_EXTERNAL_ID,
-} from "./skills-github-fixture.ts";
 import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { cpus, freemem, totalmem } from "node:os";
@@ -12,9 +6,13 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseCliOptions } from "./cli.ts";
+import { readSourceRevision } from "./source-revision.ts";
+import { warmNextClientScripts } from "./warm-next-client-scripts.ts";
 import {
   BASELINE_REVISION,
+  REVIEW_RUNTIME_FIXTURE_BOUNDARY,
   SKILLS_FIXTURE_BOUNDARY,
+  SKILL_CATALOG_FIXTURE_BOUNDARY,
   PROBE_FIXTURE_BOUNDARY,
   ACCOUNT_MODELS_FIXTURE_BOUNDARY,
   LIMITS_FIXTURE_BOUNDARY,
@@ -24,10 +22,6 @@ import {
   type FixtureSecrets,
   type RuntimeDescriptor,
 } from "./contracts.ts";
-import { createDatabaseFixture } from "./database.ts";
-import { startGatewayFixture } from "./gateway-fixture.ts";
-import { startNextApp } from "./app.ts";
-import { createSessionCookie, otherIdentity, viewerIdentity } from "./auth.ts";
 
 const execFileAsync = promisify(execFile);
 const harnessRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,22 +34,50 @@ type TestSummary = {
 };
 
 async function main(): Promise<void> {
-  const fixtureBoundary = process.argv.includes("--api-key-storage-fixture")
-    ? API_KEY_STORAGE_FIXTURE_BOUNDARY
-    : process.argv.includes("--skills-fixture")
-      ? SKILLS_FIXTURE_BOUNDARY
-      : process.argv.includes("--account-models-fixture")
-        ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
-        : process.argv.includes("--subscription-fixture")
-          ? SUBSCRIPTION_FIXTURE_BOUNDARY
-          : process.argv.includes("--limits-fixture")
-            ? LIMITS_FIXTURE_BOUNDARY
-            : process.argv.includes("--probe-fixture")
-              ? PROBE_FIXTURE_BOUNDARY
-              : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
+  const fixtureBoundary = process.argv.includes("--review-runtime-fixture")
+    ? REVIEW_RUNTIME_FIXTURE_BOUNDARY
+    : process.argv.includes("--skill-catalog-fixture")
+      ? SKILL_CATALOG_FIXTURE_BOUNDARY
+      : process.argv.includes("--api-key-storage-fixture")
+        ? API_KEY_STORAGE_FIXTURE_BOUNDARY
+        : process.argv.includes("--skills-fixture")
+          ? SKILLS_FIXTURE_BOUNDARY
+          : process.argv.includes("--account-models-fixture")
+            ? ACCOUNT_MODELS_FIXTURE_BOUNDARY
+            : process.argv.includes("--subscription-fixture")
+              ? SUBSCRIPTION_FIXTURE_BOUNDARY
+              : process.argv.includes("--limits-fixture")
+                ? LIMITS_FIXTURE_BOUNDARY
+                : process.argv.includes("--probe-fixture")
+                  ? PROBE_FIXTURE_BOUNDARY
+                  : "UI/read contract and authorization checks only; no native suspend, resume, erasure, or lifecycle proof";
   const options = parseCliOptions(process.argv);
+  const revision = await readSourceRevision(
+    options.repoRoot,
+    options.expectedRevision,
+  );
+  const [
+    { seedSkillsFixtures },
+    { seedReviewRuntimeFixtures },
+    { startSkillCatalogFixture },
+    { seedSkillsReadinessFixtures },
+    { startSkillsGitHubFixture, SKILLS_MANAGER_EXTERNAL_ID },
+    { createDatabaseFixture },
+    { startGatewayFixture },
+    { startNextApp },
+    { createSessionCookie, otherIdentity, viewerIdentity },
+  ] = await Promise.all([
+    import("./skills-fixtures.ts"),
+    import("./review-runtime-fixture.ts"),
+    import("./skill-catalog-fixture.ts"),
+    import("./skills-readiness-fixture.ts"),
+    import("./skills-github-fixture.ts"),
+    import("./database.ts"),
+    import("./gateway-fixture.ts"),
+    import("./app.ts"),
+    import("./auth.ts"),
+  ]);
   await ensureWorkDir(options.workDir);
-  const revision = await readRevision(options.repoRoot);
   const sourceDelta = await execFileAsync(
     "git",
     [
@@ -67,8 +89,18 @@ async function main(): Promise<void> {
       "--",
       "apps/web",
       "packages/features/provider-accounts",
+      "packages/features/provider-usage",
       "packages/platform/db",
       "scripts/accounts-reference-e2e/src",
+      ...(process.argv.includes("--skill-catalog-fixture")
+        ? [
+            "packages/features/review-skills",
+            "packages/features/rate-limits",
+            "packages/features/outbox",
+            "apps/worker",
+            "services/skill-scanner",
+          ]
+        : []),
     ],
     { maxBuffer: 256 * 1024 * 1024, encoding: "buffer" },
   )
@@ -89,6 +121,9 @@ async function main(): Promise<void> {
   let database: Awaited<ReturnType<typeof createDatabaseFixture>> | null = null;
   let gateway: Awaited<ReturnType<typeof startGatewayFixture>> | null = null;
   let app: Awaited<ReturnType<typeof startNextApp>> | null = null;
+  let skillCatalog: Awaited<
+    ReturnType<typeof startSkillCatalogFixture>
+  > | null = null;
   let summary: TestSummary = { passed: 0, failed: 0, skipped: 0, failures: [] };
   let failure: string | null = null;
   try {
@@ -98,6 +133,11 @@ async function main(): Promise<void> {
       databaseUrl: options.databaseUrl,
       isolatedPglite: options.isolatedPglite,
     });
+    if (
+      process.argv.includes("--review-runtime-fixture") &&
+      !process.argv.includes("--resume-own-fixtures")
+    )
+      await seedReviewRuntimeFixtures(database.databaseUrl);
     if (process.argv.includes("--skills-fixture")) {
       if (!process.argv.includes("--resume-own-fixtures")) {
         await seedSkillsFixtures(database.databaseUrl);
@@ -111,6 +151,13 @@ async function main(): Promise<void> {
       workDir: options.workDir,
       secrets,
     });
+    if (process.argv.includes("--skill-catalog-fixture")) {
+      skillCatalog = await startSkillCatalogFixture({
+        repoRoot: options.repoRoot,
+        workDir: options.workDir,
+        databaseUrl: database.databaseUrl,
+      });
+    }
     app = await startNextApp({
       repoRoot: options.repoRoot,
       workDir: options.workDir,
@@ -119,6 +166,7 @@ async function main(): Promise<void> {
       secrets,
       browserExecutable: options.browserExecutable,
       ...(skillsGitHub ? { skillsGitHub } : {}),
+      ...(skillCatalog ? { skillCatalog } : {}),
     });
     const viewer = await createSessionCookie(
       viewerIdentity(),
@@ -165,12 +213,27 @@ async function main(): Promise<void> {
         otherCookie: other.header,
         managerCookie: manager?.header ?? "",
         browserExecutable: options.browserExecutable,
+        ...(skillCatalog
+          ? {
+              skillCatalog: {
+                origin: skillCatalog.origin,
+                controlToken: skillCatalog.controlToken,
+              },
+            }
+          : {}),
       });
     }
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   } finally {
     await app?.stop().catch(() => undefined);
+    if (skillCatalog) {
+      await writeJson(
+        join(options.workDir, "skill-catalog-receipts.json"),
+        skillCatalog.snapshot(),
+      );
+      await skillCatalog.stop().catch(() => undefined);
+    }
     if (skillsGitHub)
       await writeJson(
         join(options.workDir, "skills-github-requests.json"),
@@ -270,27 +333,57 @@ async function verifyBoot(
   )
     throw new Error("accounts_reference_e2e_generated_session_not_authorized");
   checks.push("generated-session-ok");
-  if (process.argv.includes("--skills-fixture")) {
-    // Compile the authenticated Skills route during bounded fixture setup;
-    // browser navigation and acceptance assertions retain their own timeouts.
-    const skills = await fetch(
-      `${appUrl}/dashboard?section=skills&workspace=rr-e2e-personal-viewer`,
+  if (process.argv.includes("--review-runtime-fixture")) {
+    const repositories = await fetch(
+      `${appUrl}/dashboard?section=repositories&workspace=${FIXTURES.workspaces.personalViewer}`,
       {
         headers: { cookie: viewerCookie },
         redirect: "manual",
         signal: AbortSignal.timeout(120_000),
       },
     );
-    const skillsHtml = await skills.text();
+    const html = await repositories.text();
     if (
-      skills.status !== 200 ||
-      skillsHtml.includes("NEXT_REDIRECT") ||
-      !/<h2\b[^>]*\bid="review-skills-title"[^>]*>\s*Skills\s*<\/h2>/u.test(
-        skillsHtml,
-      )
+      repositories.status !== 200 ||
+      html.includes("NEXT_REDIRECT") ||
+      !html.includes('data-repository-row-id="rr-e2e-runtime-current"')
     )
-      throw new Error("accounts_reference_e2e_skills_warmup_not_authorized");
-    checks.push("skills-authenticated-render-warmed");
+      throw new Error("accounts_reference_e2e_runtime_readiness_warmup_failed");
+    checks.push("runtime-readiness-authenticated-render-warmed");
+  }
+  if (process.argv.includes("--skills-fixture")) {
+    // Warm both authenticated Skills entry points during bounded fixture setup;
+    // browser navigation and acceptance assertions retain their own timeouts.
+    const warmedScripts = new Set<string>();
+    for (const [section, ready] of [
+      [
+        "skills",
+        /<h2\b[^>]*\bid="review-skills-title"[^>]*>\s*Skills\s*<\/h2>/u,
+      ],
+      ["repositories", /<section\b[^>]*\bdata-repository-live-search\b/u],
+    ] as const) {
+      const signal = AbortSignal.timeout(120_000);
+      const response = await fetch(
+        `${appUrl}/dashboard?section=${section}&workspace=rr-e2e-personal-viewer`,
+        {
+          headers: { cookie: viewerCookie },
+          redirect: "manual",
+          signal,
+        },
+      );
+      const html = await response.text();
+      if (
+        response.status !== 200 ||
+        html.includes("NEXT_REDIRECT") ||
+        !ready.test(html)
+      )
+        throw new Error(
+          `accounts_reference_e2e_${section}_warmup_not_authorized`,
+        );
+      checks.push(`${section}-authenticated-render-warmed`);
+      await warmNextClientScripts(html, appUrl, signal, warmedScripts);
+      checks.push(`${section}-client-scripts-warmed`);
+    }
   }
   return { ok: true, checks };
 }
@@ -304,6 +397,7 @@ async function runPlaywright(input: {
   otherCookie: string;
   managerCookie: string;
   browserExecutable: string | null;
+  skillCatalog?: { readonly origin: string; readonly controlToken: string };
 }): Promise<TestSummary> {
   const playwrightBin = join(harnessRoot, "node_modules", ".bin", "playwright");
   await new Promise<void>((resolveRun, rejectRun) => {
@@ -316,6 +410,11 @@ async function runPlaywright(input: {
           ...process.env,
           ACCOUNTS_REFERENCE_E2E_BASE_URL: input.appUrl,
           ACCOUNTS_REFERENCE_E2E_GATEWAY_URL: input.gatewayUrl,
+          ACCOUNTS_REFERENCE_E2E_REVIEW_RUNTIME: process.argv.includes(
+            "--review-runtime-fixture",
+          )
+            ? "1"
+            : "0",
           ACCOUNTS_REFERENCE_E2E_API_KEY_STORAGE: process.argv.includes(
             "--api-key-storage-fixture",
           )
@@ -354,6 +453,15 @@ async function runPlaywright(input: {
           )
             ? "1"
             : "0",
+          ACCOUNTS_REFERENCE_E2E_SKILL_CATALOG: input.skillCatalog ? "1" : "0",
+          ...(input.skillCatalog
+            ? {
+                ACCOUNTS_REFERENCE_E2E_SKILL_CATALOG_URL:
+                  input.skillCatalog.origin,
+                ACCOUNTS_REFERENCE_E2E_SKILL_CATALOG_CONTROL:
+                  input.skillCatalog.controlToken,
+              }
+            : {}),
           ...(input.browserExecutable
             ? {
                 ACCOUNTS_REFERENCE_E2E_BROWSER_EXECUTABLE:
@@ -473,23 +581,6 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await (
     await import("node:fs/promises")
   ).writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-}
-
-async function readRevision(repoRoot: string): Promise<string> {
-  for (const cwd of [repoRoot, process.cwd()]) {
-    try {
-      const { stdout } = await execFileAsync("git", [
-        "-C",
-        cwd,
-        "rev-parse",
-        "HEAD",
-      ]);
-      return stdout.trim();
-    } catch {
-      // A staged copy may not carry .git; retain the baseline in the report.
-    }
-  }
-  return "unknown";
 }
 
 main().catch((error) => {

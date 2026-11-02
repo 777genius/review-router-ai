@@ -107,6 +107,12 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.3.0(jiti@2.6.1)(supports-color@8.1.1))
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
+      '@get-modular/resources':
+        specifier: 0.2.1
+        version: 0.2.1
       '@prisma/adapter-pg':
         specifier: 7.8.0
         version: 7.8.0
@@ -181,8 +187,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -210,6 +216,9 @@ importers:
       '@reviewrouter/features-conflict-review':
         specifier: workspace:*
         version: link:../../packages/features/conflict-review
+      '@reviewrouter/features-conversations':
+        specifier: workspace:*
+        version: link:../../packages/features/conversations
       '@reviewrouter/features-entitlements':
         specifier: workspace:*
         version: link:../../packages/features/entitlements
@@ -258,6 +267,9 @@ importers:
       '@reviewrouter/features-review-executions':
         specifier: workspace:*
         version: link:../../packages/features/review-executions
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-investigation-operations':
         specifier: workspace:*
         version: link:../../packages/features/review-investigation-operations
@@ -328,8 +340,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -342,6 +354,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@reviewrouter/features-action-control-plane':
+        specifier: workspace:*
+        version: link:../../packages/features/action-control-plane
       '@reviewrouter/features-audit-log':
         specifier: workspace:*
         version: link:../../packages/features/audit-log
@@ -393,6 +408,9 @@ importers:
       '@reviewrouter/features-review-context-tools':
         specifier: workspace:*
         version: link:../../packages/features/review-context-tools
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../../packages/features/review-providers
@@ -468,9 +486,6 @@ importers:
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
       zod:
         specifier: ^4.4.2
         version: 4.4.2
@@ -529,6 +544,9 @@ importers:
       '@reviewrouter/features-review-executions':
         specifier: workspace:*
         version: link:../../packages/features/review-executions
+      '@reviewrouter/features-review-history':
+        specifier: workspace:*
+        version: link:../../packages/features/review-history
       '@reviewrouter/features-review-investigation-operations':
         specifier: workspace:*
         version: link:../../packages/features/review-investigation-operations
@@ -547,6 +565,9 @@ importers:
       '@reviewrouter/features-review-run-control':
         specifier: workspace:*
         version: link:../../packages/features/review-run-control
+      '@reviewrouter/features-review-skills':
+        specifier: workspace:*
+        version: link:../../packages/features/review-skills
       '@reviewrouter/features-review-snapshots':
         specifier: workspace:*
         version: link:../../packages/features/review-snapshots
@@ -574,6 +595,12 @@ importers:
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+
+  packages/context-memory:
+    dependencies:
+      '@vectorize-io/hindsight-client':
+        specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+        version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
 
   packages/features/action-control-plane:
     dependencies:
@@ -698,6 +725,12 @@ importers:
         specifier: ^4.4.2
         version: 4.4.2
 
+  packages/features/conversations:
+    dependencies:
+      '@prisma/client':
+        specifier: ^7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+
   packages/features/entitlements:
     dependencies:
       '@prisma/client':
@@ -796,12 +829,18 @@ importers:
       '@reviewrouter/features-outbox':
         specifier: workspace:*
         version: link:../outbox
+      '@reviewrouter/platform-config':
+        specifier: workspace:*
+        version: link:../../platform/config
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
       '@vectorize-io/hindsight-client':
         specifier: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
         version: https://github.com/vectorize-io/hindsight/releases/download/v1.1.0/vectorize-io-hindsight-client-1.1.0.tgz
+      context-memory:
+        specifier: workspace:*
+        version: link:../../context-memory
     devDependencies:
       '@prisma/adapter-pg':
         specifier: 7.8.0
@@ -1065,6 +1104,40 @@ importers:
         specifier: workspace:*
         version: link:../../platform/db
 
+  packages/features/review-history:
+    dependencies:
+      '@get-modular/assembly':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@get-modular/core':
+        specifier: 0.7.0
+        version: 0.7.0
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+    devDependencies:
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
+      '@get-modular/resources':
+        specifier: 0.2.1
+        version: 0.2.1
+      '@prisma/adapter-pg':
+        specifier: 7.8.0
+        version: 7.8.0
+      '@reviewrouter/features-review-executions':
+        specifier: workspace:*
+        version: link:../review-executions
+      '@reviewrouter/features-review-processes':
+        specifier: workspace:*
+        version: link:../review-processes
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@types/node@22.20.1)(jsdom@29.1.1)(vite@8.1.5(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.23.1)(yaml@2.9.0))
+
   packages/features/review-investigation-operations:
     dependencies:
       '@prisma/client':
@@ -1169,6 +1242,9 @@ importers:
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@get-modular/conformance':
         specifier: 0.5.0
@@ -1179,6 +1255,12 @@ importers:
       '@prisma/adapter-pg':
         specifier: 7.8.0
         version: 7.8.0
+      '@reviewrouter/features-outbox':
+        specifier: workspace:*
+        version: link:../outbox
+      '@reviewrouter/features-rate-limits':
+        specifier: workspace:*
+        version: link:../rate-limits
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
@@ -1383,8 +1465,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz':
-    resolution: {integrity: sha512-GKTPdvYaxHif8Eue93M5Vd17rSMpChvPEvdYl/V8WuIZmDO02/JhojqoVyNujK+fgllwUjUTlga8/ytTh5ezZQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz':
+    resolution: {integrity: sha512-2JQuzFXHxT2i0KWUe6XFyk/IUUnxmfuSqRVI4MIpANjCnyuCXcGUba/ijhTKPIHeOZua2oAyw6JBaihObcBgCg==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6453,8 +6535,8 @@ packages:
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
-  zod@4.6.5:
-    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
   zustand@5.0.12:
     resolution: {integrity: sha512-i77ae3aZq4dhMlRhJVCYgMLKuSiZAaUPAct2AksxQ+gOtimhGMdXljRT21P5BNpeT4kXlLIckvkPM029OljD7g==}
@@ -6529,11 +6611,11 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0
-      zod: 4.6.5
+      zod: 4.6.7
 
   '@agent-teams/document-authoring@0.3.1':
     dependencies:
@@ -11695,7 +11777,7 @@ snapshots:
 
   zod@4.4.3: {}
 
-  zod@4.6.5: {}
+  zod@4.6.7: {}
 
   zustand@5.0.12(@types/react@19.2.14)(immer@11.2.6)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5)):
     optionalDependencies:

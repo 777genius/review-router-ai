@@ -92,6 +92,7 @@ export async function qualifyNative() {
       "hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension",
     HINDSIGHT_API_TENANT_API_KEY: serviceKey,
     HINDSIGHT_API_WORKER_ENABLED: "false",
+    HINDSIGHT_API_ENABLE_DRY_RUN_EXTRACT: "true",
     HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP: "false",
     HINDSIGHT_API_OPERATION_RETENTION_DAYS: "0",
     HINDSIGHT_API_OPERATION_CLEANUP_INTERVAL_SECONDS: "0",
@@ -109,6 +110,8 @@ export async function qualifyNative() {
     HINDSIGHT_API_RERANKER_SILICONFLOW_API_KEY: `${privacySentinel}_RERANK_KEY`,
     HINDSIGHT_API_RERANKER_SILICONFLOW_BASE_URL: stub.url,
     HINDSIGHT_API_LLM_MAX_RETRIES: "0",
+    // Strict preview must override both native content and transport retry defaults.
+    HINDSIGHT_API_RETAIN_LLM_MAX_RETRIES: "3",
     HINDSIGHT_API_EMBEDDINGS_MAX_RETRIES: "0",
     HINDSIGHT_API_RERANKER_MAX_RETRIES: "0",
     HINDSIGHT_API_WORKER_MAX_RETRIES: "0",
@@ -487,6 +490,71 @@ export async function qualifyNative() {
     }
     checkpoints.push(
       "all-native-executors-operation-pruning-disabled-for-bounded-stable-uuid-recovery",
+    );
+    // Actual patched native HTTP -> native extractor -> deterministic provider.
+    // Overflow above/below the old split floor may never become successful empty.
+    const strictBank = `${run}-strict-preview`;
+    await request(`/v1/default/banks/${strictBank}`, "PUT", {
+      name: "Synthetic strict preview qualification",
+    });
+    for (const [mode, size, success] of [
+      ["strict-overflow", 800, true],
+      ["strict-overflow", 200, true],
+      ["strict-malformed", 200, true],
+      ["strict-partial", 200, true],
+      ["strict-transport-failure", 200, true],
+      ["strict-empty", 200, false],
+    ] as const) {
+      stub.setMode(mode);
+      const before = stub.calls.extraction;
+      const response = await fetch(
+        `${base}/v1/default/banks/${strictBank}/memories/dry-run-extract`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            strict_preview: true,
+            content:
+              `${privacySentinel}_TRANSIENT_SELECTABLE RR_STRICT_PREVIEW_ONLY ` +
+              "x".repeat(size),
+            context: `${privacySentinel}_TRANSIENT_READONLY_CONTEXT`,
+            retain_extraction_mode: "concise",
+            retain_extract_causal_links: false,
+          }),
+          signal: AbortSignal.timeout(15000),
+        },
+      );
+      const result = await response.json();
+      assert.equal(
+        response.ok,
+        !success,
+        "Strict incomplete selection must not succeed",
+      );
+      assert.equal(
+        stub.calls.extraction - before,
+        1,
+        "Strict preview must dispatch exactly once: no split, transport or content retry",
+      );
+      if (!success) {
+        assert.equal(response.headers.get("X-Hindsight-Strict-Preview"), "v1");
+        assert.deepEqual((result as { facts: unknown[] }).facts, []);
+      }
+    }
+    stub.setMode("normal");
+    assert.equal(
+      (
+        await request<NativeList<unknown>>(
+          `/v1/default/banks/${strictBank}/documents?limit=100`,
+        )
+      ).total,
+      0,
+      "Transient dry run must not retain source documents",
+    );
+    checkpoints.push(
+      "strict-preview-single-dispatch-overflow-both-split-floor-sizes-no-false-empty-no-partial-no-content-or-transport-retries",
     );
     const adapter = await qualifyProductionAdapter(base, serviceKey, run);
     checkpoints.push(...adapter.checkpoints);

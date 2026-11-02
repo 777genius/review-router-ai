@@ -6,6 +6,9 @@ import {
   MemoryKnowledgeError,
   memoryKnowledgeDigest,
   type MemoryActor,
+  type MemoryAutomaticSourceCurrentPort,
+  type MemoryKnowledgeService,
+  type MemoryContextPolicy,
   type MemoryKnowledgeAdmissionReceipt,
   type MemoryKnowledgeBundleItem,
   type MemoryKnowledgeScope,
@@ -18,8 +21,13 @@ import {
   PrismaMemoryPermission,
 } from "@reviewrouter/features-memory/infrastructure";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
-import type { ReviewRunAuthorization } from "@reviewrouter/features-review-run-control";
+import type { MemoryAdmissionObserver } from "./review-memory-admission.js";
 import {
+  parseReviewRunRuntimeSnapshot,
+  type ReviewRunAuthorization,
+} from "@reviewrouter/features-review-run-control";
+import {
+  renderReviewMemoryPrompt,
   reviewMemoryBinding,
   reviewMemorySnapshotHash,
   type ReviewMemoryBinding,
@@ -39,7 +47,11 @@ const bindingSchema = z.object({
   headSha: commit,
   reviewRevisionHash: hash,
 });
-const bundleSchema = bindingSchema.strict();
+const bundleSchema = bindingSchema
+  .extend({
+    task: z.enum(["review", "investigation", "pr_description"]).optional(),
+  })
+  .strict();
 const admitSchema = bindingSchema
   .extend({
     bundleId: identifier,
@@ -84,6 +96,7 @@ export class ReviewMemoryRuntimeGateway {
       readonly access: {
         authorize(token: string): Promise<ReviewRunAuthorization | null>;
       };
+      readonly automaticCurrent?: MemoryAutomaticSourceCurrentPort;
       readonly now?: () => Date;
     },
   ) {}
@@ -134,7 +147,13 @@ export class ReviewMemoryRuntimeGateway {
       },
       now: () => this.now(),
     });
-    return { actor, service: this.dependencies.runtime.forAccess(access) };
+    return {
+      actor,
+      service: this.dependencies.runtime.forAccess(
+        access,
+        this.dependencies.automaticCurrent,
+      ),
+    };
   }
 
   async bundle(
@@ -143,6 +162,22 @@ export class ReviewMemoryRuntimeGateway {
     controls: MemoryRequestControls,
   ): Promise<ReviewMemoryBundle> {
     const authorization = await this.capture(token, input);
+    // Freeze the original maximum run lifetime before retrieval. The renewable
+    // token/row expiry is still enforced by capture on every receipt admission.
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    const snapshotNotAfter = new Date(
+      Math.min(
+        authorization.maxExpiresAt.getTime(),
+        snapshot ? Date.parse(snapshot.deadline) : NaN,
+      ),
+    );
+    if (
+      !Number.isFinite(snapshotNotAfter.getTime()) ||
+      snapshotNotAfter.getTime() <= this.now().getTime()
+    )
+      throw new MemoryKnowledgeError("forbidden");
     const policy = await this.dependencies.runtime.policy.getPolicy({
       workspaceId: authorization.workspaceId,
       repositoryId: authorization.repositoryConnectionId,
@@ -151,15 +186,34 @@ export class ReviewMemoryRuntimeGateway {
       ? reviewMemoryRuntimeScopes(authorization, policy)
       : [];
     const { actor, service } = this.service(authorization, scopes);
-    // The qualified profile exports approved statements only. A customer-supplied
-    // query could contain raw source even after secret/code pattern filtering.
-    const query =
-      "Approved repository review conventions and maintained project knowledge";
     checkDeadline(controls);
-    const bundle = await service.bundle(
-      { actor, scopes, query, limitPerScope: 6 },
+    const repository =
+      await this.dependencies.prisma.repositoryConnection.findFirst({
+        where: {
+          id: authorization.repositoryConnectionId,
+          workspaceId: authorization.workspaceId,
+        },
+        select: { visibility: true },
+      });
+    const task = input.task ?? "review";
+    const contextPolicy: MemoryContextPolicy =
+      task === "pr_description"
+        ? {
+            audience:
+              repository?.visibility === "private" ? "repository" : "public",
+            repositoryId: authorization.repositoryConnectionId,
+            allowedTasks: ["pr_description"],
+          }
+        : {
+            audience: "internal",
+            repositoryId: authorization.repositoryConnectionId,
+            allowedTasks: ["review", "investigation"],
+          };
+    const context = await captureAuthorizedMemoryContext(
+      { service, actor, scopes, contextPolicy, snapshotNotAfter },
       controls,
     );
+    const { bundle, receipt } = context;
     const current = await this.capture(token, input);
     if (
       current.mutationEpoch !== authorization.mutationEpoch ||
@@ -169,9 +223,9 @@ export class ReviewMemoryRuntimeGateway {
       throw new MemoryKnowledgeError("conflict");
     }
     checkDeadline(controls);
-    const receipt = service.createBundleReceipt(bundle);
     const wire: ReviewMemoryBundle = {
       protocolVersion: 2,
+      contextPolicy,
       ...reviewMemoryBinding(input),
       bundleId: randomUUID(),
       policyVersion: String(policy.policyVersion),
@@ -263,6 +317,55 @@ export class ReviewMemoryRuntimeGateway {
   }
 }
 
+/** Shared bounded retrieval, audience filtering, bodyless receipt and rendering for every task. */
+export async function captureAuthorizedMemoryContext(
+  input: {
+    readonly service: MemoryKnowledgeService;
+    readonly actor: MemoryActor;
+    readonly scopes: readonly MemoryKnowledgeScope[];
+    readonly contextPolicy: MemoryContextPolicy;
+    readonly snapshotNotAfter?: Date;
+  },
+  controls: MemoryRequestControls,
+) {
+  const bundle = await input.service.bundle(
+    {
+      actor: input.actor,
+      scopes: input.scopes,
+      query:
+        "Approved repository review conventions and maintained project knowledge",
+      limitPerScope: 6,
+      contextPolicy: input.contextPolicy,
+      ...(input.snapshotNotAfter
+        ? { snapshotNotAfter: input.snapshotNotAfter }
+        : {}),
+    },
+    controls,
+  );
+  const receipt = input.service.createBundleReceipt(bundle);
+  const items = bundle.scopes
+    .flatMap((section) =>
+      section.items.flatMap((item) => {
+        const mapped = wireItem(item, section.scope);
+        return mapped ? [mapped] : [];
+      }),
+    )
+    .slice(0, 12);
+  const text = items.length ? renderReviewMemoryPrompt({ items }) : "";
+  return {
+    bundle,
+    receipt,
+    text,
+    manifest: {
+      memoryBundleHash: bundle.hash,
+      memoryGeneration: bundle.generation,
+      memoryContextPolicy: input.contextPolicy,
+    },
+    admit: (next: MemoryRequestControls) =>
+      input.service.admitReceipt({ actor: input.actor, receipt }, next),
+  };
+}
+
 function checkDeadline(controls: MemoryRequestControls): void {
   if (controls.signal?.aborted || Date.now() >= controls.deadlineAt.getTime())
     throw new MemoryKnowledgeError("deadline_exceeded", true);
@@ -318,6 +421,23 @@ function wireItem(
       ),
       sourceIds: sources.map((source) => source.ref.entryId),
       temporalStatus: "historical",
+      ...(sources.some((source) => source.automaticSource)
+        ? {
+            sourceObservations: sources.flatMap((source) =>
+              source.automaticSource &&
+              source.applicability.observedCommitSha &&
+              source.originalStatementAt
+                ? [
+                    {
+                      entryId: source.ref.entryId,
+                      observedCommitSha: source.applicability.observedCommitSha,
+                      statementAt: source.originalStatementAt,
+                    },
+                  ]
+                : [],
+            ),
+          }
+        : {}),
       statementAt: sources
         .map((source) => source.originalStatementAt!)
         .sort()[0]!,
@@ -342,7 +462,12 @@ function wireItem(
     statementAt: metadata.originalStatementAt,
     lastVerifiedAt: metadata.lastVerifiedAt,
     ...(metadata.kind === "observation" && observedCommitSha
-      ? { observedCommitSha, temporalStatus: "at_commit" as const }
+      ? {
+          observedCommitSha,
+          temporalStatus: metadata.automaticSource
+            ? ("historical" as const)
+            : ("at_commit" as const),
+        }
       : {}),
     ...(metadata.kind === "exception"
       ? { exceptionRuleId: metadata.applicability.exceptionRule!.entryId }
@@ -353,6 +478,7 @@ function wireItem(
 export async function registerReviewMemoryRuntimeRoutes(
   app: FastifyInstance,
   gateway: ReviewMemoryRuntimeGateway,
+  observer?: MemoryAdmissionObserver,
 ): Promise<void> {
   for (const kind of ["bundle", "admit"] as const) {
     app.post(
@@ -360,15 +486,21 @@ export async function registerReviewMemoryRuntimeRoutes(
       { bodyLimit: 4_096, logLevel: "silent" },
       async (request, reply) => {
         reply.header("cache-control", "private, no-store");
+        const startedAt = performance.now();
+        let outcome: "eligible" | "denied" | "error" = "error";
+        let diagnosticCode: string | undefined;
+        let authorizationId: string | undefined;
         try {
           const authorization = request.headers.authorization;
           if (
             !authorization?.startsWith("Bearer ") ||
             authorization.length > 8_200
-          )
+          ) {
+            diagnosticCode = "authorization_required";
             return reply
               .code(401)
               .send({ code: "memory_authorization_required" });
+          }
           const token = authorization.slice(7);
           const timeoutMs = kind === "bundle" ? 2_000 : 450;
           const controls = {
@@ -385,11 +517,16 @@ export async function registerReviewMemoryRuntimeRoutes(
                 ),
               ),
             );
+          const admission = admitSchema.parse(request.body);
+          const eligible = await withinDeadline(controls, () =>
+            gateway.admit(token, admission, controls),
+          );
+          // A returned decision proves this binding passed the live authorizer.
+          authorizationId = admission.authorizationId;
+          outcome = eligible ? "eligible" : "denied";
           return reply.send({
             protocolVersion: 2,
-            eligible: await withinDeadline(controls, () =>
-              gateway.admit(token, admitSchema.parse(request.body), controls),
-            ),
+            eligible,
           });
         } catch (error) {
           const code =
@@ -398,11 +535,30 @@ export async function registerReviewMemoryRuntimeRoutes(
               : error instanceof z.ZodError
                 ? "invalid_input"
                 : "unavailable";
+          diagnosticCode = code;
           return reply
             .code(
               code === "forbidden" ? 403 : code === "invalid_input" ? 400 : 503,
             )
             .send({ code: `memory_${code}` });
+        } finally {
+          if (kind === "admit") {
+            try {
+              observer?.({
+                boundary: "preflight",
+                outcome,
+                phase: "complete",
+                elapsedMs: Math.max(
+                  0,
+                  Math.round(performance.now() - startedAt),
+                ),
+                ...(diagnosticCode ? { errorCode: diagnosticCode } : {}),
+                ...(authorizationId ? { authorizationId } : {}),
+              });
+            } catch {
+              // Diagnostics cannot change the public admission response.
+            }
+          }
         }
       },
     );

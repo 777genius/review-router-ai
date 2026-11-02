@@ -139,7 +139,11 @@ async function main(): Promise<void> {
   try {
     await writeJson(join(options.outDir, "seed.json"), await reseed());
     if (!options.flags.personalSharing)
-      gateway = await startGatewayCatalogFixture();
+      gateway = await startGatewayCatalogFixture({
+        reviewerAccounts:
+          options.flows &&
+          options.only?.test("flow-gateway-reviewer-roster") === true,
+      });
     app = await startNextApp({
       repoRoot,
       port,

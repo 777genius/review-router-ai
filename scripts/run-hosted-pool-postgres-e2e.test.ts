@@ -137,6 +137,46 @@ describe("hosted pool PostgreSQL migration ordering", () => {
     ]);
   });
 
+  it("adds the skills catalog after every historical handoff and before final verification", () => {
+    expect(source.match(/000150_skills_catalog_security/gu)).toHaveLength(1);
+    const preparation = section(
+      "function prepareMigrationRehearsal",
+      "function addMigration",
+    );
+    expectOrdered(preparation, [
+      "const excludedMigrations = new Set([",
+      "skillsCatalogMigration,",
+      "...(excludeHostedPoolMigrations",
+      "filter: (source) => !excludedMigrations.has(basename(source))",
+    ]);
+    expectOrdered(
+      section(
+        "function applySkillsCatalogMigration",
+        "function applyCodexOAuthV5Migrations",
+      ),
+      [
+        "addMigration(directory, skillsCatalogMigration)",
+        "runMigrationDeploy(directory, url)",
+      ],
+    );
+    expectOrdered(section("if (runMigration) {", "if (runPostgresE2e) {"), [
+      "await prepareCodexOAuthV5ReleaseAuthority(migrationDatabaseUrl)",
+      "for (const migrationName of providerRegistryMigrations)",
+      "applySkillsCatalogMigration(rehearsalDirectory, migrationDatabaseUrl)",
+      "const migrationCount =",
+    ]);
+    expectOrdered(section("if (runPostgresE2e) {", "} finally {"), [
+      "await prepareCodexOAuthV5ReleaseAuthority(databaseUrl)",
+      "await applyPublicEligibilityMigration(rehearsalDirectory, databaseUrl)",
+      "applySkillsCatalogMigration(rehearsalDirectory, databaseUrl)",
+      "await applyProductionRuntimeAcl(databaseUrl, database)",
+      "await prepareCodexOAuthV5ReleaseAuthority(canaryPhaseDatabaseUrl)",
+      "await applyPublicEligibilityMigration(\n      canaryDirectory,",
+      "applySkillsCatalogMigration(canaryDirectory, canaryPhaseDatabaseUrl)",
+      "await countAppliedMigrations(canaryPhaseDatabaseUrl)",
+    ]);
+  });
+
   it("uses one narrow, verified authority handoff and ordered deploy loop", () => {
     const authority = section(
       "async function prepareCodexOAuthV5ReleaseAuthority(url)",

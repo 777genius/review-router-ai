@@ -13,6 +13,7 @@ export type ReviewRunGatewayExecutionBinding = {
 };
 
 export type ReviewRunGatewayExecutionOwner = {
+  readonly allocationId?: string;
   readonly authorizationId: string;
   readonly identity: VerifiedScmRunIdentity;
   readonly runtimeSnapshotCanonicalJson: string;
@@ -41,6 +42,14 @@ export interface ReviewRunGatewayExecutionBindingPort {
     owner: ReviewRunGatewayExecutionOwner,
     binding: ReviewRunGatewayExecutionBinding,
   ): Promise<ReviewRunGatewayExecutionAttachment>;
+  /** Cleanup evidence only; never authorizes dispatch or fresh preparation. */
+  readForCleanup?(
+    owner: ReviewRunGatewayExecutionOwner,
+  ): Promise<ReviewRunGatewayExecutionBinding | null>;
+  completeCleanup?(
+    owner: ReviewRunGatewayExecutionOwner,
+    binding: ReviewRunGatewayExecutionBinding,
+  ): Promise<void>;
 }
 
 /** Snapshot only the actual authenticated owned tuple, before any await. */

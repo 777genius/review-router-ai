@@ -24,7 +24,9 @@ import {
   type ReviewRouterDiscussionMode,
   type ReviewRouterMcpSecrets,
   renderAccountGatewayWorkflow,
+  renderAccountGatewayInteractionWorkflow,
   renderProviderApiWorkflow,
+  renderClaudeSubscriptionWorkflow,
   renderReviewRouterSecretsCaller,
   readManagedReviewRouterCallerSource,
   readReviewRouterCallerSource,
@@ -42,8 +44,10 @@ export type WorkflowSetupReadinessInput = {
   readonly defaultBranch: string;
   readonly actionRef: string;
   readonly codexSessionMode?: "account-gateway";
+  readonly gatewayInteractionRuntimeSha?: string;
   readonly mcpSecrets?: ReviewRouterMcpSecrets;
   readonly providerApiAuthMode?: ProviderApiAuthMode;
+  readonly subscriptionAuthMode?: "claude-oauth";
   readonly providerKind?: ProviderKind;
   readonly discussionMode?: ReviewRouterDiscussionMode;
   readonly conflictReviewFallbackEnabled?: boolean;
@@ -70,13 +74,20 @@ export async function isWorkflowSetupAlreadyCurrent(
     Object.keys(input.mcpSecrets).length
   )
     return false;
-  if (input.discussionMode === "suggest") {
+  if (
+    input.discussionMode === "suggest" &&
+    !(
+      input.codexSessionMode === "account-gateway" &&
+      input.gatewayInteractionRuntimeSha
+    )
+  ) {
     return false;
   }
   if (
     input.secretsRuntimeActionRef &&
     !input.codexSessionMode &&
     !input.providerApiAuthMode &&
+    !input.subscriptionAuthMode &&
     !input.codexRotatingProviderInstanceId &&
     !input.conflictReviewFallbackEnabled &&
     !input.forkAgenticSandboxEnabled
@@ -108,9 +119,19 @@ export async function isWorkflowSetupAlreadyCurrent(
 
   if (
     input.codexSessionMode === "account-gateway" ||
-    input.providerApiAuthMode !== undefined
+    input.providerApiAuthMode !== undefined ||
+    input.subscriptionAuthMode !== undefined
   ) {
-    if (input.codexSessionMode && input.providerApiAuthMode) return false;
+    if (
+      [
+        input.codexSessionMode,
+        input.providerApiAuthMode,
+        input.subscriptionAuthMode,
+      ].filter((mode) => mode !== undefined).length !== 1 ||
+      (input.subscriptionAuthMode !== undefined &&
+        input.subscriptionAuthMode !== "claude-oauth")
+    )
+      return false;
     if (
       input.codexRotatingProviderInstanceId ||
       input.codexRotatingWorkflowSecretNamespace ||
@@ -134,16 +155,23 @@ export async function isWorkflowSetupAlreadyCurrent(
                 dependencies.resolvePublicApiUrl?.() ??
                 resolveWorkflowPublicApiUrl(),
             })
-          : renderAccountGatewayWorkflow({
-              actionRef: input.actionRef,
-              apiUrl:
-                dependencies.resolvePublicApiUrl?.() ??
-                resolveWorkflowPublicApiUrl(),
-              githubRepositoryId: input.githubRepositoryId,
-              ...(input.mcpSecrets !== undefined
-                ? { mcpSecrets: input.mcpSecrets }
-                : {}),
-            });
+          : input.subscriptionAuthMode === "claude-oauth"
+            ? renderClaudeSubscriptionWorkflow({
+                actionRef: input.actionRef,
+                apiUrl:
+                  dependencies.resolvePublicApiUrl?.() ??
+                  resolveWorkflowPublicApiUrl(),
+              })
+            : renderAccountGatewayWorkflow({
+                actionRef: input.actionRef,
+                apiUrl:
+                  dependencies.resolvePublicApiUrl?.() ??
+                  resolveWorkflowPublicApiUrl(),
+                githubRepositoryId: input.githubRepositoryId,
+                ...(input.mcpSecrets !== undefined
+                  ? { mcpSecrets: input.mcpSecrets }
+                  : {}),
+              });
     } catch {
       return false;
     }
@@ -154,7 +182,8 @@ export async function isWorkflowSetupAlreadyCurrent(
       defaultBranch: input.defaultBranch,
       workflowPath: expected.path,
       expectedActionRef:
-        input.providerApiAuthMode !== undefined
+        input.providerApiAuthMode !== undefined ||
+        input.subscriptionAuthMode !== undefined
           ? `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-execution-reusable.yml@${readManagedReviewRouterCallerSource(expected.content).runtimeRef}`
           : `${reviewRouterWorkflowContract.runtimeRepository}/${reviewRouterWorkflowContract.runtimePath}@${readReviewRouterCallerSource(expected.content).runtimeRef}`,
       expectedContentValidator: (workflow) =>
@@ -166,11 +195,48 @@ export async function isWorkflowSetupAlreadyCurrent(
       check.expectedContentMarkersFound !== true
     )
       return false;
+    if (
+      input.codexSessionMode === "account-gateway" &&
+      input.gatewayInteractionRuntimeSha
+    ) {
+      let interaction: ReturnType<
+        typeof renderAccountGatewayInteractionWorkflow
+      >;
+      try {
+        interaction = renderAccountGatewayInteractionWorkflow({
+          runtimeSha: input.gatewayInteractionRuntimeSha,
+          apiUrl:
+            dependencies.resolvePublicApiUrl?.() ??
+            resolveWorkflowPublicApiUrl(),
+        });
+      } catch {
+        return false;
+      }
+      const interactionCheck = await dependencies.workflowProbe.probeWorkflow({
+        githubInstallationId: input.githubInstallationId,
+        owner: input.owner,
+        name: input.name,
+        defaultBranch: input.defaultBranch,
+        workflowPath: interaction.path,
+        expectedActionRef: `${reviewRouterWorkflowContract.runtimeRepository}/.github/workflows/reviewrouter-interaction-reusable.yml@${input.gatewayInteractionRuntimeSha}`,
+        expectedContentValidator: (workflow) =>
+          areWorkflowDocumentsSemanticallyEqual(workflow, interaction.content),
+      });
+      if (
+        interactionCheck.status !== "present" ||
+        !interactionCheck.expectedActionRefFound ||
+        interactionCheck.expectedContentMarkersFound !== true
+      )
+        return false;
+    }
     const competingChecks = await Promise.all(
       [
         defaultWorkflowPath,
         defaultCodexRotatingWorkflowPath,
-        defaultInteractionWorkflowPath,
+        ...(input.codexSessionMode === "account-gateway" &&
+        input.gatewayInteractionRuntimeSha
+          ? []
+          : [defaultInteractionWorkflowPath]),
       ].map((workflowPath) =>
         dependencies.workflowProbe.probeWorkflow({
           githubInstallationId: input.githubInstallationId,

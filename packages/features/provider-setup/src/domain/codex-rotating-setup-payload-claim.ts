@@ -4,6 +4,7 @@ import {
   codexWorkflowPathForRepository,
   isCodexWorkflowRepositoryIdentityAdmitted,
   versionedProviderSecretNamePattern,
+  codexRuntimeMigrationSourceProofSchema,
 } from "@reviewrouter/features-codex-oauth-rotating";
 
 const opaqueId = z.string().regex(/^[A-Za-z0-9_.:-]{8,180}$/);
@@ -211,6 +212,7 @@ export const codexRotatingSetupPayloadClaimSchema = z
       .max(32 * 1024),
     installerVersion: z.string().min(1).max(120),
     installerDigest: sha256,
+    runtimeMigrationSource: codexRuntimeMigrationSourceProofSchema.optional(),
   })
   .strict();
 
@@ -302,10 +304,24 @@ export function codexRotatingSetupPayloadClaimsMatch(
   left: CodexRotatingSetupPayloadClaim,
   right: CodexRotatingSetupPayloadClaim,
 ): boolean {
-  return Object.keys(left).every(
-    (key) =>
-      left[key as keyof CodexRotatingSetupPayloadClaim] ===
-      right[key as keyof CodexRotatingSetupPayloadClaim],
+  const { runtimeMigrationSource: leftSource, ...leftClaim } = left;
+  const { runtimeMigrationSource: rightSource, ...rightClaim } = right;
+  const sameSource =
+    leftSource === undefined || rightSource === undefined
+      ? leftSource === rightSource
+      : leftSource.namespaceId === rightSource.namespaceId &&
+        leftSource.namespaceEpoch === rightSource.namespaceEpoch &&
+        leftSource.canonicalizationVersion ===
+          rightSource.canonicalizationVersion &&
+        leftSource.generationHash === rightSource.generationHash &&
+        leftSource.accountIdentityHash === rightSource.accountIdentityHash;
+  return (
+    sameSource &&
+    Object.keys(leftClaim).every(
+      (key) =>
+        leftClaim[key as keyof typeof leftClaim] ===
+        rightClaim[key as keyof typeof rightClaim],
+    )
   );
 }
 

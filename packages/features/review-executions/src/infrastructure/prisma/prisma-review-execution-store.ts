@@ -147,6 +147,7 @@ export class PrismaReviewExecutionStore
     private readonly prisma: PrismaClient,
     private readonly options: Readonly<{
       progressCapture?: ReviewExecutionProgressCapturePort;
+      historyCapture?: ReviewExecutionProgressCapturePort;
       inputAdmission?: ReviewExecutionInputAdmissionPort;
     }> = {},
   ) {}
@@ -155,6 +156,7 @@ export class PrismaReviewExecutionStore
     transaction: Transaction,
     execution: ReviewExecution,
   ): Promise<void> {
+    await this.options.historyCapture?.(transaction, execution);
     await this.options.progressCapture?.(transaction, execution);
   }
 
@@ -772,7 +774,7 @@ export class PrismaReviewExecutionStore
                     expiry.lease,
                     incumbentExecution,
                     expiry.execution,
-                    this.options.progressCapture,
+                    (tx, execution) => this.captureProgress(tx, execution),
                   );
                   snapshot = await loadSnapshot(
                     transaction,
@@ -1333,7 +1335,7 @@ export class PrismaReviewExecutionStore
             decision.lease,
             execution,
             decision.execution,
-            this.options.progressCapture,
+            (tx, execution) => this.captureProgress(tx, execution),
           );
           if (decision.status === LeaseTransitionDecisionStatus.Expired) {
             return { status: ReviewInvocationLeaseTransitionStatus.Expired };
@@ -1614,7 +1616,7 @@ export class PrismaReviewExecutionStore
               expiry.lease,
               incumbentExecution,
               expiry.execution,
-              this.options.progressCapture,
+              (tx, execution) => this.captureProgress(tx, execution),
             );
           }
           return true;
@@ -2123,6 +2125,8 @@ async function requiredStreamRecord(
 function executionCreateData(execution: ReviewExecution) {
   return {
     executionId: execution.executionId,
+    historyRootRequestId: execution.historyRootRequestId ?? null,
+    historyDispatchAttempt: execution.historyDispatchAttempt ?? null,
     ...scopeWhere(execution),
     generation: execution.generation,
     version: execution.version,

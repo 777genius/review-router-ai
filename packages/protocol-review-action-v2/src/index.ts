@@ -10,5 +10,6 @@ export {
   prDescriptionExtensionV1,
 } from "./generated/pr-description-invocation-manifest-v1.js";
 export * from "./generated/usage-v1.js";
+export * from "./generated/review-reviewer-plan.js";
 export * as reviewActionV2LegacySlot from "./generated/review-action-v2-legacy.js";
 export * from "./schema-slots.js";

@@ -9,7 +9,7 @@ import {
   DashboardSectionTabs,
 } from "./dashboard-section-tabs";
 import {
-  DASHBOARD_SECTIONS,
+  DASHBOARD_NAV_SECTIONS,
   dashboardSectionHref,
   dashboardSectionMeta,
   type DashboardSection,
@@ -231,14 +231,22 @@ export function WorkspaceSwitcher({
       ...(workspace.hasWorkspaceWideAccess
         ? {}
         : { statusLabel: "Repo access" }),
-      href: dashboardSectionHref(selectedSection, workspaceKey),
+      href: dashboardSectionHref(
+        selectedSection,
+        workspaceKey,
+        workspace.workspace.id,
+      ),
     };
   });
   const pendingTab = pendingOrganizationInstallRequest
     ? {
         id: pendingOrganizationInstallRequest.id,
         label: pendingOrganizationInstallRequest.accountLogin,
-        href: dashboardSectionHref(selectedSection),
+        href: dashboardSectionHref(
+          selectedSection,
+          undefined,
+          selectedSection === "context-tools" ? selectedWorkspaceId : undefined,
+        ),
         statusLabel: "Request pending",
       }
     : null;
@@ -274,25 +282,29 @@ export function WorkspaceSwitcher({
 export function DashboardSectionNav({
   selectedSection,
   workspaceKey,
+  workspaceId,
 }: {
   readonly selectedSection: DashboardSection;
   readonly workspaceKey: string;
+  readonly workspaceId?: string;
 }): React.ReactElement {
-  const items = DASHBOARD_SECTIONS.map((section) => ({
+  const items = DASHBOARD_NAV_SECTIONS.map((section) => ({
     section,
     label: dashboardSectionMeta[section].title,
     description: dashboardSectionMeta[section].navDescription,
-    href: dashboardSectionHref(section, workspaceKey),
+    href: dashboardSectionHref(section, workspaceKey, workspaceId),
   }));
+  const activeSection =
+    selectedSection === "setup" ? "providers" : selectedSection;
 
   return (
     <aside className="min-w-0">
       <DashboardSectionCompactNav
         items={items}
-        selectedSection={selectedSection}
+        selectedSection={activeSection}
       />
       <div className="dashboard-section-nav-scroll hidden lg:grid">
-        <DashboardSectionTabs items={items} selectedSection={selectedSection} />
+        <DashboardSectionTabs items={items} selectedSection={activeSection} />
       </div>
     </aside>
   );

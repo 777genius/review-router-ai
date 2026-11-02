@@ -1,6 +1,11 @@
 import type { ReviewRunAuthorization } from "../../domain/review-run-authorization";
+import type {
+  ReviewModelDispatchSettlementV2,
+  ReviewModelDispatchTerminalReceiptV2,
+} from "@reviewrouter/shared";
 
 export type ReviewRunCompanionRole =
+  | "finding_discovery"
   | "lifecycle_verification"
   | "pr_description";
 export type ReviewRunCompanionDispatchState =
@@ -23,11 +28,18 @@ export type ReviewRunCompanionDispatch = Readonly<{
   nativeRequestRef: string;
   role: ReviewRunCompanionRole;
   state: ReviewRunCompanionDispatchState;
+  /** Absent on historical V1 readbacks. */
+  dispatchVersion?: 2;
+  requestOrdinal?: number;
+  routeIdentityHash?: string;
+  requestBytes?: number;
+  maxOutputTokens?: number;
+  terminalReceipt?: ReviewModelDispatchTerminalReceiptV2 | null;
 }>;
 
 export type ReviewRunCompanionDispatchClaim = Omit<
   ReviewRunCompanionDispatch,
-  "role" | "state" | "nativeRequestRef"
+  "role" | "state" | "nativeRequestRef" | "terminalReceipt"
 > &
   Readonly<{
     runtimeSnapshotCanonicalJson: string;
@@ -38,6 +50,8 @@ export type ReviewRunCompanionDispatchClaim = Omit<
     capabilityMutationEpoch: bigint;
     capabilityReviewRevisionHash: string;
     capabilityScopeHash: string;
+    /** Server-owned native forwarding, never accepted from an HTTP body. */
+    forwardExisting?: true;
   }>;
 
 export class ReviewRunCompanionDispatchFailure extends Error {
@@ -54,6 +68,8 @@ export interface ReviewRunCompanionDispatchRepository {
       status: "claimed" | "restored";
       dispatch: ReviewRunCompanionDispatch;
       notAfter: Date;
+      /** Newly claimed V2 only; never stored or returned by claim readback. */
+      receiptToken?: string;
     }>
   >;
   read(
@@ -70,6 +86,15 @@ export interface ReviewRunCompanionDispatchRepository {
       "dispatch_may_have_started"
     >,
   ): Promise<void>;
+  readReceipt(
+    dispatchId: string,
+    receiptToken: string,
+  ): Promise<ReviewRunCompanionDispatch | null>;
+  settleReceipt(
+    dispatchId: string,
+    receiptToken: string,
+    settlement: ReviewModelDispatchSettlementV2,
+  ): Promise<ReviewRunCompanionDispatch>;
 }
 
 /** HTTP-facing consumer contract. Capability verification belongs to its
@@ -86,9 +111,20 @@ export interface ReviewRunCompanionDispatchAdmission {
       leaseCapability: string;
       fencingToken: string;
       preparedManifestKey: string;
+      dispatchVersion?: 2;
+      requestOrdinal?: number;
+      routeIdentityHash?: string;
+      requestBytes?: number;
+      maxOutputTokens?: number;
     }>,
     providerRequestEnvelopeHash: string,
   ): ReturnType<ReviewRunCompanionDispatchRepository["claim"]>;
   read: ReviewRunCompanionDispatchRepository["read"];
   settle: ReviewRunCompanionDispatchRepository["settle"];
+}
+
+export interface ReviewRunModelDispatchAdmission extends ReviewRunCompanionDispatchAdmission {
+  forward: ReviewRunCompanionDispatchAdmission["claim"];
+  readReceipt: ReviewRunCompanionDispatchRepository["readReceipt"];
+  settleReceipt: ReviewRunCompanionDispatchRepository["settleReceipt"];
 }

@@ -3,13 +3,11 @@ import * as c from "@agent-teams/account-gateway/contracts";
 import { GatewayError } from "@agent-teams/account-gateway/http";
 import { isPersonalOwnerOnlyProfile } from "@reviewrouter/features-provider-accounts";
 import type { AccountProfileView } from "./account-gateway-accounts";
-
-export const subscriptionProfileProviders = {
-  "kimi-code-global-responses-apikey-v1": "kimi",
-  "glm-coding-global-responses-apikey-v1": "glm",
-  "minimax-mplan-global-responses-apikey-v1": "minimax",
-  "grok-subscription-responses-oauth-v1": "grok",
-} as const;
+import {
+  subscriptionProfileDefinition,
+  subscriptionProfileProviders,
+} from "../features/account-gateway/subscription-profiles";
+export { subscriptionProfileProviders } from "../features/account-gateway/subscription-profiles";
 export function configuredSubscriptionProfiles(
   raw: string | undefined,
 ): string[] {
@@ -27,7 +25,8 @@ export function configuredSubscriptionProfiles(
 /** Project the qualified deployment catalog; this read has no provider effects. */
 export async function connectionProfiles(input: {
   legacy: readonly AccountProfileView[];
-  subscriptionProfileIds: readonly string[];
+  /** Omit when enriching an already authorized review catalog. */
+  subscriptionProfileIds?: readonly string[];
   capabilities?: () => Promise<c.ProviderConnectionCapabilities>;
 }): Promise<AccountProfileView[]> {
   let capabilities: c.ProviderConnectionCapabilities["capabilities"] = [];
@@ -52,16 +51,41 @@ export async function connectionProfiles(input: {
     throw new Error("accounts_unavailable");
   const result = input.legacy.map((legacy) => {
     const wire = byId.get(legacy.id);
-    return wire?.availability === "enabled"
-      ? { ...legacy, connection: connectionView(wire) }
-      : legacy;
+    if (!wire) return legacy;
+    const provider = accountProviderIdentity(legacy);
+    if (
+      wire.protocol !== legacy.protocol ||
+      (provider !== undefined && wire.provider.identity !== provider) ||
+      (legacy.authKind === "api_key" &&
+        !wire.authMethods.includes("api_key")) ||
+      (legacy.authKind === "oauth" &&
+        !wire.authMethods.some((method) => method.startsWith("oauth_")))
+    )
+      throw new Error("accounts_unavailable");
+    const models = legacy.models.filter((model) =>
+      wire.modelIds.includes(model),
+    );
+    const connection = connectionView(wire);
+    return {
+      ...legacy,
+      availability:
+        legacy.availability === "deployment_configuration_required"
+          ? legacy.availability
+          : wire.availability,
+      models,
+      connection: {
+        ...connection,
+        modelSettings: connection.modelSettings.filter((model) =>
+          models.includes(model.modelId),
+        ),
+      },
+    };
   });
+  if (input.subscriptionProfileIds === undefined) return result;
   for (const id of Object.keys(subscriptionProfileProviders)) {
     const wire = byId.get(id);
-    const provider =
-      subscriptionProfileProviders[
-        id as keyof typeof subscriptionProfileProviders
-      ];
+    const definition = subscriptionProfileDefinition(id)!;
+    const provider = definition.provider;
     if (
       !wire ||
       wire.provider.identity !== provider ||
@@ -69,7 +93,7 @@ export async function connectionProfiles(input: {
       wire.protocol !== "openai-responses"
     )
       continue;
-    const oauth = provider === "grok";
+    const oauth = definition.authKind === "oauth";
     if (
       !wire.authMethods.includes(oauth ? "oauth_authorization_code" : "api_key")
     )

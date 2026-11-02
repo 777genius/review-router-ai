@@ -3,7 +3,10 @@ import {
   parseProducerLifecycleVerificationProfile,
   parseProducerContextToolsProfile,
   parseReviewAgentProfiles,
+  parseProducerReviewerPlanProfile,
 } from "@reviewrouter/features-review-run-control";
+import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
+import { assertReviewModelDispatchDefaultAgents } from "@reviewrouter/shared/review-model-dispatch-default-agents";
 import {
   createRepositoryReleaseSelector,
   parseRepositoryReleaseBindings,
@@ -1319,6 +1322,8 @@ const releaseBundleCandidateKeys = Object.freeze([
 export function parseReviewV2ReleaseBundleCandidate(
   input: Record<string, unknown>,
 ): ReviewV2ReleaseBundleCandidate {
+  const hasModelDispatchProfile = Object.hasOwn(input, "modelDispatchProfile");
+  const hasReviewerPlanProfile = Object.hasOwn(input, "reviewerPlanProfile");
   const hasContextToolsProfile = Object.hasOwn(input, "contextToolsProfile");
   const hasPrDescriptionProfile = Object.hasOwn(input, "prDescriptionProfile");
   const hasLifecycleVerificationProfile = Object.hasOwn(
@@ -1329,6 +1334,8 @@ export function parseReviewV2ReleaseBundleCandidate(
     input,
     [
       ...releaseBundleCandidateKeys,
+      ...(hasModelDispatchProfile ? ["modelDispatchProfile"] : []),
+      ...(hasReviewerPlanProfile ? ["reviewerPlanProfile"] : []),
       ...(hasContextToolsProfile ? ["contextToolsProfile"] : []),
       ...(hasPrDescriptionProfile ? ["prDescriptionProfile"] : []),
       ...(hasLifecycleVerificationProfile
@@ -1385,7 +1392,22 @@ export function parseReviewV2ReleaseBundleCandidate(
           ),
         };
 
+  const agentProfiles = parseReviewAgentProfiles(input.agentProfiles);
+  const modelDispatchProfile = hasModelDispatchProfile
+    ? parseReviewModelDispatchProfileV2(input.modelDispatchProfile)
+    : null;
+  if (modelDispatchProfile)
+    assertReviewModelDispatchDefaultAgents(modelDispatchProfile, agentProfiles);
+
   return {
+    ...(modelDispatchProfile ? { modelDispatchProfile } : {}),
+    ...(hasReviewerPlanProfile
+      ? {
+          reviewerPlanProfile: parseProducerReviewerPlanProfile(
+            input.reviewerPlanProfile,
+          ),
+        }
+      : {}),
     ...(hasContextToolsProfile
       ? {
           contextToolsProfile: parseProducerContextToolsProfile(
@@ -1412,7 +1434,7 @@ export function parseReviewV2ReleaseBundleCandidate(
         }
       : {}),
     producerReleaseId: requireString(input, "producerReleaseId"),
-    agentProfiles: parseReviewAgentProfiles(input.agentProfiles),
+    agentProfiles,
     distributionKind,
     actionCommitSha: requireString(input, "actionCommitSha"),
     runtimeCommitSha: requireString(input, "runtimeCommitSha"),

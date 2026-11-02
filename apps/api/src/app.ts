@@ -1,11 +1,24 @@
+import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
 import {
   registerActionMemoryV2Routes,
   type ActionMemoryV2Dependencies,
 } from "./action-memory-v2-routes.js";
 import { GitHubMemorySourceVerifier } from "./github/github-memory-source-verifier.js";
+import {
+  registerActionConversationRoutes,
+  type ActionConversationDependencies,
+} from "./action-conversation-routes.js";
+import {
+  createActionConversationComposition,
+  createAutomaticConversationSourceCurrent,
+} from "./action-conversation-composition.js";
 import { registerMemoryOperatorRoutes } from "./memory-operator-routes.js";
-import { createReviewMemoryInputAdmission } from "./review-memory-admission.js";
+import {
+  createReviewMemoryInputAdmission,
+  createInvestigationMemoryInputAdmission,
+} from "./review-memory-admission.js";
 import {
   ReviewMemoryRuntimeGateway,
   registerReviewMemoryRuntimeRoutes,
@@ -25,6 +38,8 @@ import {
 } from "./review-run-gateway-checkout.js";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { registerReviewRunGatewayRelayRoutes } from "./review-run-gateway-relay.js";
+import { registerReviewModelDispatchRoutes } from "./review-model-dispatch.js";
+import { registerReviewRunHostedModelRoute } from "./review-run-hosted-model-route.js";
 import { createDefaultHostedPoolOperatorConnect } from "./hosted-pool-workflow-operator-composition.js";
 import {
   createHostedPoolOperatorComposition,
@@ -91,6 +106,7 @@ import {
   JoseGitLabCiIdTokenVerifier,
   registerGitLabIntegrationRoutes,
   StaticGitLabRepositoryRegistry,
+  normalizeGitLabSourceBaseUrl,
   type GitLabRepositoryContext,
   type RegisterGitLabIntegrationRoutesDependencies,
 } from "@reviewrouter/features-gitlab-integration";
@@ -116,6 +132,7 @@ import {
   isCodexRotatingOAuthAllowedForRepository,
   isCodexRotatingOAuthEnabled,
   readGitHubAppPrivateKey,
+  readConversationQualification,
   requireReviewRouterDatabaseRecoveryWitness,
   resolveReviewRouterCodexRotatingActionRef,
   resolveReviewRouterCodexRotatingTrustedActionRefs,
@@ -225,6 +242,7 @@ export type CreateApiAppOptions = {
   readonly reviewPublicationRequestV2Dependencies?: RegisterReviewPublicationRequestV2RoutesDependencies;
   readonly actionMemoryDependencies?: RegisterActionMemoryRoutesDependencies;
   readonly actionMemoryV2Dependencies?: ActionMemoryV2Dependencies;
+  readonly actionConversationDependencies?: ActionConversationDependencies;
   readonly operatorReviewConfigDependencies?: OperatorReviewConfigurationDependencies;
   readonly reviewInvestigationOperatorDependencies?: RegisterReviewInvestigationOperatorRoutesDependencies;
   readonly reviewInvestigationTelemetrySamples?: ReviewInvestigationTerminalTelemetrySamplePort;
@@ -288,6 +306,10 @@ export async function createApiApp(
     sdkGrowthAuthorityEnabled
       ? createPrismaClient()
       : undefined);
+  const historyFeature =
+    prisma && reviewActionV2Env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+      ? await createReviewHistoryFeature({ prisma })
+      : undefined;
   const codexRotatingOAuthEnabled =
     isCodexRotatingOAuthEnabled(reviewActionV2Env);
   await registerDashboardGatewayProbeAccessRoute(
@@ -587,7 +609,15 @@ export async function createApiApp(
       : undefined);
 
   if (githubWebhookDependencies) {
-    await registerGitHubWebhookRoutes(app, githubWebhookDependencies);
+    await registerGitHubWebhookRoutes(app, {
+      ...githubWebhookDependencies,
+      onProcessingError: () => {
+        logger.error("GitHub webhook processing failed", {
+          code: "github_webhook_processing_failed",
+        });
+        githubWebhookDependencies.onProcessingError?.();
+      },
+    });
   }
 
   const gitLabIntegrationDependencies =
@@ -646,6 +676,14 @@ export async function createApiApp(
                   privateKey: githubAppPrivateKey,
                   expectedApiUrl: publicApiUrl,
                   trustedActionRefs: codexRotatingTrustedActionRefs,
+                  ...(() => {
+                    const profile = readConversationQualification(
+                      reviewActionV2Env.REVIEW_ROUTER_CONVERSATION_QUALIFICATION,
+                    );
+                    return profile
+                      ? { gatewayInteractionRuntimeSha: profile.runtimeSha }
+                      : {};
+                  })(),
                 })
               : undefined;
           if (codexRotatingOAuthEnabled && !codexEffectAuthorityPrisma) {
@@ -682,6 +720,16 @@ export async function createApiApp(
               : undefined;
           const requestedIntentStore = new PrismaReviewRequestedIntentStore(
             prisma,
+            historyFeature
+              ? {
+                  historyCapture: {
+                    register: (tx, intent, metadata) =>
+                      historyFeature.writer.register(tx, intent, metadata),
+                    changed: (tx, intent, previous) =>
+                      historyFeature.writer.captureIntent(tx, intent, previous),
+                  },
+                }
+              : {},
           );
           const ledgerSecret =
             process.env.REVIEW_ROUTER_LEDGER_HMAC_KEY ??
@@ -886,6 +934,11 @@ export async function createApiApp(
   const memoryRuntime = prisma
     ? await createMemoryKnowledgeRuntime({
         prisma,
+        workspaceSettings: (workspaceId, transaction) =>
+          new PrismaWorkspaceMemorySettings(prisma).read(
+            workspaceId,
+            transaction,
+          ),
         env: {
           ...reviewActionV2Env,
           ...(options.memoryServiceEnabled === undefined
@@ -898,6 +951,9 @@ export async function createApiApp(
         },
       })
     : undefined;
+  const memoryAdmissionObserver = (
+    event: import("./review-memory-admission.js").MemoryAdmissionDiagnostic,
+  ) => logger.info("Memory admission diagnostic", event);
   const productionReviewActionV2Dependencies =
     reviewRunControlV2Enabled &&
     !options.reviewRunControlV2Dependencies &&
@@ -911,15 +967,23 @@ export async function createApiApp(
     disabledReviewActionV2RuntimeDependencies
       ? composeReviewActionV2ProductionRoutes({
           enabled: true,
+          ...(historyFeature ? { historyWriter: historyFeature.writer } : {}),
           ...(memoryRuntime
             ? {
-                memoryInputAdmission:
-                  createReviewMemoryInputAdmission(memoryRuntime),
+                memoryInputAdmission: createReviewMemoryInputAdmission(
+                  memoryRuntime,
+                  memoryAdmissionObserver,
+                ),
+                investigationMemoryInputAdmission:
+                  createInvestigationMemoryInputAdmission(memoryRuntime),
               }
             : {}),
           env: reviewActionV2Env,
           runtime: disabledReviewActionV2RuntimeDependencies,
           ...(prisma ? { prisma } : {}),
+          ...(hostedCodexRelayDependencies
+            ? { hostedRelay: hostedCodexRelayDependencies }
+            : {}),
           ...(options.actionOidcAudience
             ? { oidcAudience: options.actionOidcAudience }
             : {}),
@@ -1031,6 +1095,13 @@ export async function createApiApp(
       productionReviewActionV2Dependencies.contextTools,
     );
   }
+  if (productionReviewActionV2Dependencies?.modelDispatch) {
+    await registerReviewModelDispatchRoutes(
+      app,
+      productionReviewActionV2Dependencies.modelDispatch,
+      (diagnostic) => logger.warn(JSON.stringify(diagnostic)),
+    );
+  }
   if (productionReviewActionV2Dependencies?.accountGatewayRelay) {
     // Selected production path: ReviewRouter -> Account Gateway -> Sub2API.
     // Do not silently fall back to the legacy direct hosted Codex relay.
@@ -1049,6 +1120,18 @@ export async function createApiApp(
     await registerReviewRunCheckoutRoute(
       app,
       productionReviewActionV2Dependencies.providerApiCheckout,
+    );
+  }
+  if (productionReviewActionV2Dependencies?.modelRouteCheckout) {
+    await registerReviewRunCheckoutRoute(
+      app,
+      productionReviewActionV2Dependencies.modelRouteCheckout,
+    );
+  }
+  if (productionReviewActionV2Dependencies?.hostedModelRoute) {
+    await registerReviewRunHostedModelRoute(
+      app,
+      productionReviewActionV2Dependencies.hostedModelRoute,
     );
   }
   await registerHostedV4ReadRoutes(
@@ -1110,21 +1193,6 @@ export async function createApiApp(
     );
   }
 
-  if (
-    prisma &&
-    memoryRuntime &&
-    productionReviewActionV2Dependencies?.contextTools
-  ) {
-    await registerReviewMemoryRuntimeRoutes(
-      app,
-      new ReviewMemoryRuntimeGateway({
-        prisma,
-        runtime: memoryRuntime,
-        access: productionReviewActionV2Dependencies.contextTools,
-      }),
-    );
-  }
-
   await registerActionMemoryRoutes(app);
   const actionMemoryV2 =
     options.actionMemoryV2Dependencies ??
@@ -1146,6 +1214,43 @@ export async function createApiApp(
         }
       : undefined);
   if (actionMemoryV2) await registerActionMemoryV2Routes(app, actionMemoryV2);
+  if (
+    prisma &&
+    memoryRuntime &&
+    productionReviewActionV2Dependencies?.memoryRunAccess
+  ) {
+    await registerReviewMemoryRuntimeRoutes(
+      app,
+      new ReviewMemoryRuntimeGateway({
+        prisma,
+        runtime: memoryRuntime,
+        access: productionReviewActionV2Dependencies.memoryRunAccess,
+        ...(actionMemoryV2
+          ? {
+              automaticCurrent: createAutomaticConversationSourceCurrent({
+                prisma,
+                runtime: memoryRuntime,
+                env: reviewActionV2Env,
+                sourceVerifier: actionMemoryV2.sourceVerifier,
+              }),
+            }
+          : {}),
+      }),
+      memoryAdmissionObserver,
+    );
+  }
+  const actionConversation =
+    options.actionConversationDependencies ??
+    (actionMemoryV2 && prisma && memoryRuntime
+      ? createActionConversationComposition({
+          prisma,
+          runtime: memoryRuntime,
+          env: reviewActionV2Env,
+          action: actionMemoryV2,
+        })
+      : undefined);
+  if (actionConversation)
+    await registerActionConversationRoutes(app, actionConversation);
   if (prisma && memoryRuntime)
     await registerMemoryOperatorRoutes(app, {
       prisma,
@@ -1187,7 +1292,15 @@ export async function createApiApp(
     trpcOptions: { router: appRouter },
   });
 
-  app.addHook("onError", async (_request, _reply, error) => {
+  app.addHook("onError", async (request, _reply, error) => {
+    // Webhook JSON parsing precedes the route handler. Its error may contain
+    // signed payload text and must never be recorded in operational logs.
+    if (request.routeOptions.url === "/webhooks/github") {
+      logger.error("GitHub webhook request failed", {
+        code: "github_webhook_request_failed",
+      });
+      return;
+    }
     logger.error("API request failed", { message: error.message });
   });
 
@@ -1471,6 +1584,13 @@ function readGitLabStaticRepositories(
         repository.gitlabProjectId,
         "gitlabProjectId",
       ),
+      ...(repository.sourceBaseUrl !== undefined
+        ? {
+            sourceBaseUrl: normalizeGitLabSourceBaseUrl(
+              readString(repository.sourceBaseUrl, "sourceBaseUrl"),
+            ),
+          }
+        : {}),
       fullName: readString(repository.fullName, "fullName"),
       owner: readString(repository.owner, "owner"),
       selected: repository.selected !== false,

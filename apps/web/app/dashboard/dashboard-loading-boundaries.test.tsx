@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { redirect } from "next/navigation";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardWorkspaceLayout,
+  DashboardWorkspacePage,
   DashboardSectionContent,
   listDashboardRepositoryAccess,
   loadDashboardSectionData,
@@ -10,12 +12,43 @@ import {
 } from "./dashboard-workspace-page";
 import type { DashboardWorkspaceSummary } from "./dashboard-workspace-navigation";
 import type { EffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
+import type {
+  AccountsPage,
+  AccountsResult,
+} from "../../src/server/account-gateway-accounts";
+
+vi.mock("next/navigation", async (importOriginal) => {
+  const original = await importOriginal<typeof import("next/navigation")>();
+  return {
+    ...original,
+    redirect: vi.fn(original.redirect),
+    useRouter: () => ({ refresh: vi.fn() }),
+  };
+});
 
 const memoryKnowledge = vi.hoisted(() => ({
   load: vi.fn(async () => ({ workspaceId: "workspace-a", repositoryId: null })),
+  settings: vi.fn(async () => ({
+    requireConfirmation: false,
+    version: null,
+    canEdit: false,
+    mutationsEnabled: false,
+  })),
+}));
+const identity = vi.hoisted(() => ({
+  scope: vi.fn(
+    async (): Promise<unknown> => ({
+      kind: "all",
+      reason: "local_admin_override",
+    }),
+  ),
+  actor: vi.fn(async (): Promise<unknown> => null),
 }));
 vi.mock("../../src/server/dashboard-memory-knowledge", () => ({
   loadDashboardMemoryKnowledge: memoryKnowledge.load,
+}));
+vi.mock("../../src/server/dashboard-memory-settings", () => ({
+  loadDashboardMemorySettings: memoryKnowledge.settings,
 }));
 vi.mock(
   "../../src/features/memory/interface/components/memory-knowledge-workspace",
@@ -79,13 +112,17 @@ const fixtures = vi.hoisted(() => {
     organizationRequest: vi.fn(async () => ({
       data: { plan: { name: "team" } },
     })),
-    discovery: vi.fn(async () => ({
-      status: "ready" as const,
-      workspaceIds: ["workspace-a"],
-      repositoryIds: new Set(["repo-a"]),
-      directConfigRepositoryIds: new Set<string>(),
-      checkedAt: new Date("2026-09-01"),
-    })),
+    discovery: vi.fn(
+      async (): Promise<
+        Awaited<ReturnType<typeof listDashboardRepositoryAccess>>
+      > => ({
+        status: "ready" as const,
+        workspaceIds: ["workspace-a"],
+        repositoryIds: new Set(["repo-a"]),
+        directConfigRepositoryIds: new Set<string>(),
+        checkedAt: new Date("2026-09-01"),
+      }),
+    ),
     requestedCandidates: vi.fn(async () => []),
     diagnostics: vi.fn(async () => null),
     ruleset: vi.fn(async () => null),
@@ -123,10 +160,36 @@ const fixtures = vi.hoisted(() => {
     workspaceAdmin: vi.fn(async () => false),
     skillsDashboard: vi.fn(async () => ({ status: "signed_out" as const })),
     providerList: vi.fn(async () => ({ rows: [] }) as never),
+    gatewayAccounts: vi.fn(async () => ({ status: "unavailable" as const })),
+    gatewayHydration: vi.fn(
+      async (
+        ...args: [
+          string,
+          unknown,
+          AccountsResult<AccountsPage> | undefined,
+          readonly string[],
+        ]
+      ) => args[2],
+    ),
   };
   return { spies, EmptyStore: class {} };
 });
 const { spies } = fixtures;
+
+vi.mock("../../src/server/dashboard-gateway-accounts", () => ({
+  loadDashboardPersonalAccounts: async () => null,
+  loadDashboardGatewayAccounts: fixtures.spies.gatewayAccounts,
+  hydrateDashboardGatewayAccounts: fixtures.spies.gatewayHydration,
+}));
+vi.mock(
+  "../../src/server/prisma-gateway-review-v2-provisioning",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../../src/server/prisma-gateway-review-v2-provisioning")
+    >()),
+    readGatewayReviewV2RepositoryReadiness: async () => new Map(),
+  }),
+);
 
 vi.mock("../../src/server/review-skills-dashboard", () => ({
   loadReviewSkillsDashboard: fixtures.spies.skillsDashboard,
@@ -189,11 +252,8 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
     sourceLogin: "owner",
     sourceAvatarUrl: null,
   }),
-  getDashboardWorkspaceScope: async () => ({
-    kind: "all",
-    reason: "local_admin_override",
-  }),
-  getDashboardSignedInActor: async () => null,
+  getDashboardWorkspaceScope: identity.scope,
+  getDashboardSignedInActor: identity.actor,
   asDashboardGitHubActor: (actor: unknown) => actor,
   canDashboardActorAdminWorkspace: fixtures.spies.workspaceAdmin,
 }));
@@ -211,6 +271,7 @@ vi.mock("../../src/server/dashboard-codex-rotating-setup-readiness", () => ({
 }));
 vi.mock("../../src/server/openrouter-model-catalog", () => ({
   getReviewModelOptions: vi.fn(async () => []),
+  getProviderModelCatalogs: vi.fn(async () => []),
 }));
 vi.mock("../../src/server/hosted-pool-dashboard", () => ({
   loadHostedPoolDashboardView: fixtures.spies.hostedPool,
@@ -267,7 +328,10 @@ vi.mock("@reviewrouter/features-hosted-account-pool", () => ({
   PrismaHostedPoolQuery: fixtures.EmptyStore,
 }));
 vi.mock("@reviewrouter/features-provider-setup", () => ({}));
-vi.mock("@reviewrouter/features-memory", () => ({
+vi.mock("@reviewrouter/features-memory", async (importOriginal) => ({
+  MemoryKnowledgeError: (
+    await importOriginal<typeof import("@reviewrouter/features-memory")>()
+  ).MemoryKnowledgeError,
   simulateMemoryPolicyDecision: fixtures.spies.memorySimulation,
   listMemoryItemsForDashboard: fixtures.spies.memoryItems,
   listMemorySuggestionsForDashboard: fixtures.spies.memorySuggestions,
@@ -307,6 +371,178 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
 
 describe("dashboard server loading boundaries", () => {
+  it.each([
+    ["token_encryption_misconfigured", "token_encryption_key_missing"],
+    ["token_refresh_failed", "github_oauth_client_misconfigured"],
+  ] as const)(
+    "keeps available workspace content and offers support for %s",
+    async (status, errorCode) => {
+      spies.repositories.mockResolvedValueOnce([]);
+      const data = await loadDashboardSectionData(workspace, "policy", access);
+      const html = renderToStaticMarkup(
+        <WorkspaceCard
+          data={data}
+          mutationsEnabled
+          selectedSection="policy"
+          params={{}}
+          repositoryAccess={{ ...access, status, errorCode }}
+          workspaceKey="acme"
+          appInstallUrl={null}
+          modelOptions={[]}
+        />,
+      );
+      expect(html).toContain("Save workspace settings");
+      expect(html).toContain('aria-label="GitHub repository access"');
+      expect(html).toContain('href="/support"');
+      expect(html).toContain("Contact support");
+      expect(html).not.toMatch(
+        /Refresh (?:GitHub )?access|Reconnect GitHub|REVIEW_ROUTER_TOKEN|encryption|github_oauth_client_misconfigured/,
+      );
+    },
+  );
+
+  it("gives the same support action in the empty dashboard without exposing the internal cause", async () => {
+    identity.scope.mockResolvedValueOnce({
+      kind: "workspace_ids",
+      workspaceIds: [],
+    });
+    identity.actor.mockResolvedValueOnce({
+      sourceProvider: "github",
+      userId: "user_1",
+      githubLogin: "owner",
+    });
+    spies.discovery.mockResolvedValueOnce({
+      ...access,
+      status: "token_encryption_misconfigured",
+      workspaceIds: [],
+      repositoryIds: new Set(),
+      errorCode: "token_encryption_key_missing",
+    });
+    const html = renderToStaticMarkup(await DashboardWorkspacePage({}));
+    expect(html).toContain('href="/support"');
+    expect(html).toContain("Contact support");
+    expect(html).toContain("Connect source");
+    expect(html).not.toMatch(
+      /Refresh GitHub access|Reconnect GitHub|Status:|token_encryption|REVIEW_ROUTER_TOKEN/,
+    );
+    expect(spies.discovery).toHaveBeenCalledOnce();
+  });
+
+  it("hydrates the complete saved workspace and repository reviewer roster once after loading account metadata", async () => {
+    const provider = (gatewayBindingId: string) => ({
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayBindingId,
+      gatewayProfileRef: "openrouter-openai-responses-apikey-v1",
+      model: "openai/gpt-4.1",
+    });
+    const config = {
+      providers: [provider("binding_1"), provider("binding_2")],
+    };
+    const workspaceConfig = {
+      providers: [provider("binding_workspace")],
+    };
+    const ready = {
+      status: "ready",
+      config,
+      policy: { schemaVersion: 4 },
+      effectivePolicyDigest: "sha256:test",
+      revisionToken: "policy:test",
+      source: "repository",
+      workspaceVersion: 1,
+      repositoryVersion: 1,
+    } as unknown as Extract<EffectiveReviewConfiguration, { status: "ready" }>;
+    spies.policies.mockResolvedValueOnce({
+      workspace: {
+        ...ready,
+        config: workspaceConfig,
+        source: "workspace",
+        repositoryVersion: null,
+      } as unknown as Extract<
+        EffectiveReviewConfiguration,
+        { status: "ready" }
+      >,
+      repositories: new Map([["repo-a", ready]]),
+      workspacePolicy: null,
+      repositoryPolicies: new Map(),
+    });
+    await DashboardSectionContent({
+      context: {
+        mutationStatus: {
+          enabled: true,
+          signedIn: true,
+          sourceProvider: "github",
+          externalUserId: "github-user-a",
+          sourceLogin: "owner",
+          sourceAvatarUrl: null,
+          githubUserId: "github-user-a",
+          githubLogin: "owner",
+          githubAvatarUrl: null,
+          reason: "ready",
+        },
+        workspaceScope: { kind: "all", reason: "local_admin_override" },
+        signedInActor: null,
+        repositoryAccess: access,
+        workspaces: [workspace],
+      },
+      selectedWorkspace: workspace,
+      selectedSection: "repositories",
+      params: {},
+      workspaceKey: "acme",
+    });
+    expect(spies.gatewayAccounts).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+    );
+    expect(spies.gatewayHydration).toHaveBeenCalledExactlyOnceWith(
+      "workspace-a",
+      null,
+      { status: "unavailable" },
+      ["binding_workspace", "binding_1", "binding_2"],
+    );
+  });
+  it.each([
+    ["acme", "workspace-a", "acme"],
+    ["second", "workspace-b", "second"],
+    ["unknown", "workspace-a", "acme"],
+  ])(
+    "redirects the Context tools section to the authorized workspace selected by %s",
+    async (requested, id, key) => {
+      spies.summaries.mockResolvedValueOnce([
+        {
+          id: "workspace-a",
+          name: "acme",
+          slug: "acme",
+          installations: [],
+          gitLabInstallations: [],
+          repositories: [{ owner: "acme" }],
+          _count: { repositories: 2 },
+        },
+        {
+          id: "workspace-b",
+          name: "second",
+          slug: "second",
+          installations: [],
+          gitLabInstallations: [],
+          repositories: [{ owner: "second" }],
+          _count: { repositories: 2 },
+        },
+      ]);
+      await expect(
+        DashboardWorkspacePage({
+          searchParams: Promise.resolve({
+            section: "context-tools",
+            workspace: requested,
+            workspaceId: "unauthorized-workspace",
+          }),
+        }),
+      ).rejects.toThrow("NEXT_REDIRECT");
+      expect(redirect).toHaveBeenCalledWith(
+        `/dashboard/context-tools?workspaceId=${id}&workspace=${key}`,
+      );
+    },
+  );
+
   it("starts unrelated workspace reads while policy reads wait for scoped metadata", async () => {
     let resolveRepositories!: (
       value: Awaited<ReturnType<typeof spies.repositories>>,
@@ -776,7 +1012,7 @@ describe("dashboard server loading boundaries", () => {
   );
 
   it.each([true, false])(
-    "renders Accounts without interpreting its unrequested policy as missing (admin %s)",
+    "renders Connections within Providers without requesting policy (admin %s)",
     async (hasWorkspaceWideAccess) => {
       const data = await loadDashboardSectionData(
         { ...workspace, hasWorkspaceWideAccess },
@@ -798,8 +1034,12 @@ describe("dashboard server loading boundaries", () => {
       );
       expect(html).toContain("Accounts in acme");
       expect(html).toContain("Your accounts");
-      // The page no longer repeats "Accounts" as a top heading (UX batch 3).
       expect(html).not.toContain(">Accounts</h2>");
+      expect(html).toContain(">Providers</h2>");
+      expect(html).toContain('aria-label="Providers"');
+      expect(html).toContain(">Connections</a>");
+      expect(html).toContain(">Review providers</a>");
+      expect(html).toContain("/dashboard/setup?workspace=acme");
       expect(html).toContain("Choose providers and models for reviews");
       expect(html).not.toContain("Save workspace review settings");
       expect(html).not.toContain("retired format");
@@ -807,6 +1047,63 @@ describe("dashboard server loading boundaries", () => {
         hasWorkspaceWideAccess,
       );
       expect(spies.policies).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves the validated provider setup continuation across Providers views", async () => {
+    const data = await loadDashboardSectionData(workspace, "setup", access);
+    const html = renderToStaticMarkup(
+      <WorkspaceCard
+        data={data}
+        mutationsEnabled
+        selectedSection="setup"
+        params={{
+          keyProvider: "openrouter",
+          keyStorage: "reviewrouter",
+          keyWorkspace: "workspace-a",
+          keyRepository: ["repo-a", "repo-b"],
+        }}
+        repositoryAccess={access}
+        workspaceKey="acme"
+        appInstallUrl={null}
+        modelOptions={[]}
+      />,
+    );
+    expect(html).toContain(
+      "/dashboard?workspace=workspace-a&amp;keyProvider=openrouter&amp;keyStorage=reviewrouter&amp;keyWorkspace=workspace-a&amp;section=providers&amp;keyRepository=repo-a&amp;keyRepository=repo-b",
+    );
+    expect(html).toContain(
+      "/dashboard/setup?workspace=workspace-a&amp;keyProvider=openrouter&amp;keyStorage=reviewrouter&amp;keyWorkspace=workspace-a&amp;keyRepository=repo-a&amp;keyRepository=repo-b",
+    );
+  });
+
+  it.each(["provider_selection_required", "resave_required"] as const)(
+    "keeps Review settings focused on behavior and points to Providers (%s)",
+    async (reviewConfigStatus) => {
+      spies.repositories.mockResolvedValueOnce([]);
+      const data = await loadDashboardSectionData(workspace, "policy", access);
+      const html = renderToStaticMarkup(
+        <WorkspaceCard
+          data={{ ...data, reviewConfigStatus }}
+          mutationsEnabled
+          selectedSection="policy"
+          params={{}}
+          repositoryAccess={access}
+          workspaceKey="acme"
+          appInstallUrl={null}
+          modelOptions={[]}
+        />,
+      );
+      expect(html).toContain(">Review settings</h2>");
+      expect(html).toContain('aria-label="Default review provider"');
+      expect(html).toContain(
+        reviewConfigStatus === "resave_required"
+          ? "Default provider unavailable: saved settings use a retired format."
+          : "No default provider selected.",
+      );
+      expect(html).toContain("Manage providers and workspace default");
+      expect(html).toContain("/dashboard?section=providers&amp;workspace=acme");
+      expect(html).not.toContain("Choose a provider");
     },
   );
 
@@ -951,9 +1248,30 @@ describe("dashboard server loading boundaries", () => {
     },
   );
 
-  it.each(["knowledge", "suggestions", "table"])(
+  it.each([
+    "knowledge",
+    "suggestions",
+    "table",
+    "unavailable-settings",
+    "unavailable-knowledge",
+  ])(
     "loads authorized memory through its new facade without reactivating legacy mode %s",
     async (memoryMode) => {
+      if (memoryMode === "unavailable-settings")
+        memoryKnowledge.settings.mockRejectedValueOnce(
+          new Error("review_policy_resave_required"),
+        );
+      if (memoryMode === "unavailable-knowledge") {
+        memoryKnowledge.load.mockRejectedValueOnce(
+          new Error("native_provider_unavailable_private_detail"),
+        );
+        memoryKnowledge.settings.mockResolvedValueOnce({
+          requireConfirmation: false,
+          version: null,
+          canEdit: true,
+          mutationsEnabled: true,
+        });
+      }
       const content = await DashboardSectionContent({
         context: {
           mutationStatus: {
@@ -984,8 +1302,18 @@ describe("dashboard server loading boundaries", () => {
         workspaceKey: "acme",
       });
       const html = renderToStaticMarkup(content);
-      expect(html).toContain("Approved memory");
+      if (memoryMode === "unavailable-knowledge") {
+        expect(html).toContain("Memory is temporarily unavailable.");
+        expect(html).toContain("Require confirmation for memory changes");
+        expect(html).toContain("Save memory settings");
+        expect(html).toContain('name="workspaceId" value="workspace-a"');
+        expect(html).not.toContain(
+          "native_provider_unavailable_private_detail",
+        );
+      } else expect(html).toContain("Approved memory");
       expect(html).not.toContain("previous-item");
+      if (memoryMode === "unavailable-settings")
+        expect(html).toContain("Memory settings are temporarily unavailable.");
       expect(memoryKnowledge.load).toHaveBeenCalledExactlyOnceWith({
         workspaceId: "workspace-a",
         repositoryId: null,
@@ -1063,10 +1391,13 @@ describe("dashboard server loading boundaries", () => {
       },
       selectedWorkspace: workspace,
       selectedSection: "statistics",
-      params: {},
+      params: { statisticsDays: ["7", "30"], statisticsSeverity: "major" },
       workspaceKey: "acme",
     });
-    expect(content.props).toEqual({ workspaceId: "workspace-a" });
+    expect(content.props).toEqual({
+      workspaceId: "workspace-a",
+      params: { statisticsDays: ["7", "30"], statisticsSeverity: "major" },
+    });
     for (const spy of Object.values(spies)) expect(spy).not.toHaveBeenCalled();
   });
 });

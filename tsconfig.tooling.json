@@ -5,6 +5,8 @@
     "allowImportingTsExtensions": true
   },
   "include": [
+    "scripts/review-history-tooling/**/*.ts",
+    "scripts/activate-review-history.ts",
     "scripts/context-tools-e2e/**/*.ts",
     "scripts/update-mcp-catalog.ts",
     "scripts/lib/server-rendered-heading.ts",

@@ -1,5 +1,8 @@
 import { App } from "@octokit/app";
-import { reviewRouterWorkflowPath } from "@reviewrouter/shared";
+import {
+  isSafeGitHubBranchName,
+  reviewRouterWorkflowPath,
+} from "@reviewrouter/shared";
 import type {
   ReviewRequestedDispatchGatewayPort,
   ReviewRequestedIntent,
@@ -9,6 +12,7 @@ import {
   ReviewRequestedDispatchLookupStatus,
   ReviewRequestedDispatchRunStatus,
   ReviewRequestedDispatchSubmissionStatus,
+  reviewRequestedDispatchCleanupEvent,
 } from "@reviewrouter/features-review-executions";
 import type { createPrismaClient } from "@reviewrouter/platform-db";
 
@@ -98,7 +102,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
       installationId(target.githubInstallationId),
     );
     const response = await octokit.request(
-      "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}",
+      "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
       {
         owner: target.owner,
         repo: target.repo,
@@ -106,18 +110,28 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
           input.intent.sourceRunId,
           "review_requested_inspection_run_missing",
         ),
-        attempt_number: Number(
-          requiredRunIdentity(
-            input.intent.sourceRunAttempt,
-            "review_requested_inspection_attempt_missing",
-          ),
-        ),
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
       },
     );
-    const run = parseInspectionResponse(response.data, input.intent);
+    const run = parseInspectionResponse(
+      response.data,
+      input.intent,
+      this.workflowPath,
+    );
     if (!run.completed) {
       return { status: ReviewRequestedDispatchRunStatus.Pending };
+    }
+    if (reviewRequestedDispatchCleanupEvent(input.intent) !== null) {
+      return { status: ReviewRequestedDispatchRunStatus.TerminalStaleRevision };
+    }
+    // A completed run without a conclusion is not classifiable yet. Keep
+    // waiting: the authorization deadline still bounds the request, and a
+    // genuine failure must not be stopped as if an operator cancelled it.
+    if (run.conclusion === null) {
+      return { status: ReviewRequestedDispatchRunStatus.Pending };
+    }
+    if (!retryableRunConclusions.has(run.conclusion)) {
+      return { status: ReviewRequestedDispatchRunStatus.TerminalNotRetryable };
     }
     const pullRequest = await octokit.request(
       "GET /repos/{owner}/{repo}/pulls/{pull_number}",
@@ -138,6 +152,26 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     const octokit = await this.installations.forInstallation(
       installationId(target.githubInstallationId),
     );
+    // Cancellation addresses a run, not an attempt. Read the CURRENT attempt
+    // immediately before the effect and reject a rerun visible at this boundary.
+    const current = await octokit.request(
+      "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
+      {
+        owner: target.owner,
+        repo: target.repo,
+        run_id: requiredRunIdentity(
+          input.intent.sourceRunId,
+          "review_requested_cancellation_run_missing",
+        ),
+        headers: { "X-GitHub-Api-Version": "2026-03-10" },
+      },
+    );
+    const inspected = parseInspectionResponse(
+      current.data,
+      input.intent,
+      this.workflowPath,
+    );
+    if (inspected.completed) return;
     await octokit.request(
       "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel",
       {
@@ -379,10 +413,23 @@ function parseWorkflowRunsPage(
   return { matches, hasNextPage: data.workflow_runs.length === 100 };
 }
 
+/**
+ * Conclusions of a run that ended before authorization where a fresh dispatch
+ * may succeed. Any other reported conclusion (cancelled by an operator,
+ * skipped, awaiting approval, unrecognized) stops the request instead of
+ * redispatching it.
+ */
+const retryableRunConclusions: ReadonlySet<string> = new Set([
+  "failure",
+  "timed_out",
+  "startup_failure",
+]);
+
 function parseInspectionResponse(
   data: unknown,
   intent: ReviewRequestedIntent,
-): { readonly completed: boolean } {
+  workflowPath: string,
+): { readonly completed: boolean; readonly conclusion: string | null } {
   if (!isRecord(data)) {
     throw new Error("review_requested_inspection_response_invalid");
   }
@@ -398,12 +445,29 @@ function parseInspectionResponse(
     String(data.id) !== expectedRunId ||
     String(data.run_attempt) !== expectedAttempt ||
     data.event !== "workflow_dispatch" ||
+    !matchesWorkflowRunPath(data.path, workflowPath) ||
     data.display_title !== `ReviewRouter review ${intent.requestId}` ||
     typeof data.status !== "string"
   ) {
     throw new Error("review_requested_inspection_identity_invalid");
   }
-  return { completed: data.status === "completed" };
+  return {
+    completed: data.status === "completed",
+    conclusion: typeof data.conclusion === "string" ? data.conclusion : null,
+  };
+}
+
+function matchesWorkflowRunPath(value: unknown, workflowPath: string): boolean {
+  if (value === workflowPath) return true;
+  // GitHub's run response can qualify the workflow path with its control ref.
+  // Match the entire workflow portion and validate the ref, rather than
+  // discarding arbitrary bytes after an '@'.
+  const prefix = `${workflowPath}@`;
+  return (
+    typeof value === "string" &&
+    value.startsWith(prefix) &&
+    isSafeGitHubBranchName(value.slice(prefix.length))
+  );
 }
 
 function parseRevisionInspection(

@@ -6,7 +6,42 @@ datasource db {
   provider = "postgresql"
 }
 
+// Finite accepted conversation identity and bodyless input manifest. The bounded
+// result may contain only an unresolved reply, purged on terminal publication.
+// Source transcript, code, prompts and raw model events never belong in this row.
+model ConversationProcessing {
+  id String @id @default(uuid())
+  workspaceId String
+  repositoryId String
+  repositoryStableId String
+  repositoryFullName String
+  pullRequestNumber Int
+  threadId String
+  sourceId String
+  sourceCommentId String
+  sourceRevision String
+  sourceUpdatedAt DateTime
+  sourceActorId String
+  sourceActorLogin String
+  sourceActorKind String
+  purpose String @default("conversation-v1")
+  deadlineAt DateTime
+  boundManifest String?
+  modelDispatched Boolean @default(false)
+  observedModel String?
+  observedUsage Json?
+  requestEffect String?
+  status String @default("processing")
+  result Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryStableId, threadId, sourceId, sourceRevision, purpose], map: "ConversationProcessing_source_revision_key")
+  @@index([workspaceId, repositoryId, id])
+}
+
 model Workspace {
+  reviewSkillImportCandidates ReviewSkillImportCandidate[]
   reviewSkills ReviewSkill[]
   reviewSkillGrants ReviewSkillGrant[]
   reviewSkillLinks ReviewSkillLink[]
@@ -1137,9 +1172,11 @@ model ReviewOperationalSloProfileV2 {
 }
 
 model ProducerRelease {
+  reviewerPlanProfile                    Json?
   contextToolsProfile                     Json?
   prDescriptionProfile                    Json?
   lifecycleVerificationProfile            Json?
+  modelDispatchProfile                    Json?
   agentProfilesJson                       String?
   producerReleaseId                      String                     @id
   distributionKind                       ProducerDistributionKindV2
@@ -1244,6 +1281,7 @@ model ReviewSafetyEmergencyControl {
 }
 
 model ReviewRunAuthorization {
+  gatewayAllocationExecutions ReviewRunGatewayAllocationExecution[]
   authorizationId                                         String                        @id
   version                                                 Int                           @default(1)
   workspaceId                                             String
@@ -1285,6 +1323,18 @@ model ReviewRunAuthorization {
   @@unique([workspaceId, repositoryConnectionId, scmRepositoryIdentityId, sourceRunId, sourceRunAttempt, protocolOfferHash])
   @@index([repositoryConnectionId, pullRequestNumber, state, expiresAt])
   @@index([producerReleaseId, state])
+}
+
+model ReviewRunGatewayAllocationExecution {
+  authorizationId String
+  allocationId String
+  gatewayExecutionCanonicalJson String
+  createdAt DateTime @default(now())
+  cleanupCompletedAt DateTime?
+  authorization ReviewRunAuthorization @relation(fields: [authorizationId], references: [authorizationId], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([authorizationId, allocationId])
+  @@index([cleanupCompletedAt, authorizationId])
 }
 
 model ReviewRunAuthorizationRenewalReceipt {
@@ -1507,6 +1557,7 @@ model ReviewContextTargetReplayProof {
 }
 
 model ReviewRequestedIntent {
+  historyRootRequestId      String?
   requestId                 String                                 @id
   dispatchAttempt           Int                                    @default(1)
   version                   BigInt                                 @default(1)
@@ -1577,6 +1628,8 @@ model ReviewExecutionStreamV2 {
 }
 
 model ReviewExecutionV2 {
+  historyRootRequestId        String?
+  historyDispatchAttempt      Int?
   executionId                 String                 @id
   workspaceId                 String
   repositoryConnectionId      String
@@ -3380,6 +3433,29 @@ model MemoryKnowledgeMaintenanceFence {
   updatedAt  DateTime @default(now()) @updatedAt
 }
 
+// Bodyless, generation-independent source lineage. Raw source text is never stored.
+model MemoryAutomaticSource {
+  lineageKey String @id
+  workspaceId String
+  scopeKey String
+  state Json
+  updatedAt DateTime @default(now()) @updatedAt
+  @@index([workspaceId, scopeKey])
+}
+
+model MemoryAutomaticEntry {
+  generation String
+  scopeKey String
+  entryId String
+  lineageKey String
+  cohortId String
+  epoch String
+  bodyDigest String
+  ownership String
+  @@id([generation, scopeKey, entryId])
+  @@index([lineageKey, cohortId])
+}
+
 model MemoryKnowledgeSourceCursor {
   key         String   @id
   generation  String
@@ -4620,6 +4696,7 @@ model SdkGrowthFinalizedReportEvidence {
 
 // Explicit user-managed instructions. Repository skill bytes never enter these tables.
 model ReviewSkill {
+  catalogImports ReviewSkillImportCandidate[]
   id String @id
   sourceWorkspaceId String
   authorUserId String
@@ -4699,6 +4776,69 @@ model ReviewSkillRepositorySource {
   repository RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 }
 
+model ReviewSkillImportCandidate {
+  id String @id
+  workspaceId String
+  actorUserId String
+  name String
+  description String
+  instructions String
+  canonicalText String
+  contentDigest String @db.VarChar(71)
+  sourceRepository String
+  sourceCommit String @db.VarChar(40)
+  sourcePath String
+  sourceDigest String @db.VarChar(71)
+  omittedFields Json
+  hasResources Boolean
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  importedSkillId String?
+  importedScanId String?
+  importIntentDigest String? @db.VarChar(71)
+  importedAt DateTime? @db.Timestamptz(3)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  importedSkill ReviewSkill? @relation(fields: [importedSkillId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  scans ReviewSkillScan[] @relation("CatalogCandidateScans")
+  @@unique([id, workspaceId, actorUserId])
+  @@index([workspaceId, actorUserId, createdAt])
+  @@index([expiresAt])
+}
+
+model ReviewSkillScan {
+  id String @id
+  workspaceId String
+  actorUserId String
+  candidateId String
+  operationId String
+  requestDigest String @db.VarChar(71)
+  contentDigest String @db.VarChar(71)
+  mode String
+  profile Json
+  profileFingerprint String @db.VarChar(71)
+  reuseOfScanId String?
+  status String
+  report Json?
+  budgetUnits Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  startedAt DateTime? @db.Timestamptz(3)
+  completedAt DateTime? @db.Timestamptz(3)
+  expiresAt DateTime @db.Timestamptz(3)
+  claimId String?
+  claimVersion BigInt?
+  claimUntil DateTime? @db.Timestamptz(3)
+  executionDeadlineAt DateTime? @db.Timestamptz(3)
+  slotUntil DateTime? @db.Timestamptz(3)
+  candidate ReviewSkillImportCandidate @relation("CatalogCandidateScans", fields: [candidateId, workspaceId, actorUserId], references: [id, workspaceId, actorUserId], onDelete: Restrict, onUpdate: Restrict)
+  reuseOf ReviewSkillScan? @relation("ScanReuse", fields: [reuseOfScanId, workspaceId, contentDigest, profileFingerprint], references: [id, workspaceId, contentDigest, profileFingerprint], onDelete: Restrict, onUpdate: Restrict)
+  reusedBy ReviewSkillScan[] @relation("ScanReuse")
+  @@unique([workspaceId, actorUserId, operationId])
+  @@unique([id, workspaceId, contentDigest, profileFingerprint])
+  @@index([workspaceId, contentDigest, profileFingerprint, createdAt])
+  @@index([slotUntil])
+  @@index([expiresAt])
+}
+
 model ReviewContextConnection {
   workspaceId      String
   connectionId     String
@@ -4741,6 +4881,7 @@ model UsageCall {
   projection Json
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
   @@index([workspaceId, occurredAt, provider, actualModel])
+  @@index([workspaceId, actorId, occurredAt])
 }
 model UsageDedupeTombstone {
   sourceInstance String
@@ -4877,7 +5018,8 @@ model ReviewStatisticsIssueFact {
   @@index([repositoryConnectionId, workspaceId], map: "statistics_issue_repository_idx")
 }
 
-// One durable claim permits at most one native companion request per slot attempt.
+// V1 retains one companion request per slot. V2 accounts every model request
+// under the original run, including discovery, without storing provider bytes.
 model ReviewRunCompanionDispatchV1 {
   authorizationId String
   dispatchId String
@@ -4885,10 +5027,19 @@ model ReviewRunCompanionDispatchV1 {
   executionId String
   workSlotId String
   attemptOrdinal Int
+  dispatchVersion Int @default(1)
+  requestOrdinal Int @default(1)
   leaseId String
   fencingToken BigInt
   preparedManifestKey String
   providerRequestEnvelopeHash String
+  routeIdentityHash String?
+  requestBytes Int?
+  maxOutputTokens Int?
+  terminalReceiptJson Json?
+  receiptTokenHash String? @unique(map: "ReviewRunModelDispatch_receipt_token_key")
+  forwardedAt DateTime?
+  nativeEffectState String?
   nativeRequestRef String
   state String
   usageHash String?
@@ -4900,7 +5051,7 @@ model ReviewRunCompanionDispatchV1 {
   retainUntil DateTime
 
   @@id([authorizationId, dispatchId])
-  @@unique([authorizationId, workSlotId, attemptOrdinal])
+  @@unique([authorizationId, workSlotId, attemptOrdinal, requestOrdinal], map: "ReviewRunModelDispatch_scope_ordinal_key")
   @@index([retainUntil])
 }
 
@@ -4920,4 +5071,61 @@ model ReviewThreadResolutionGuardV1 {
   repositoryConnection RepositoryConnection @relation(fields: [repositoryConnectionId], references: [id], onDelete: Cascade)
 
   @@id([workspaceId, repositoryConnectionId, scmRepositoryIdentityId, pullRequestNumber, threadId])
+}
+
+
+model ReviewHistoryCoverage {
+  id String @id
+  coverageSince DateTime
+}
+
+model ReviewHistoryPullRequest {
+  id String @id
+  workspaceId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  lastAllocatedRunSequence BigInt @default(0)
+  latestRootRequestId String?
+  latestRunSequence BigInt?
+  latestRequestedAt DateTime?
+  latestStatus String?
+  repositoryFullName String?
+  pullRequestTitle String?
+  sourceBaseUrl String?
+  projectedAt DateTime?
+
+  @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber])
+  @@index([workspaceId, latestRequestedAt, id])
+  @@index([workspaceId, scmRepositoryIdentityId, latestRequestedAt, id])
+  @@index([workspaceId, latestStatus, latestRequestedAt, id])
+  @@index([workspaceId, pullRequestNumber, latestRequestedAt, id])
+}
+
+model ReviewHistoryRun {
+  rootRequestId String @id
+  pullRequestId String
+  workspaceId String
+  scmRepositoryIdentityId String
+  pullRequestNumber Int
+  originalRepositoryConnectionId String
+  runSequence BigInt
+  requestedAt DateTime
+  triggerKind String
+  headSha String
+  reviewRevisionHash String
+  repositoryFullName String?
+  pullRequestTitle String?
+  sourceBaseUrl String
+  boundExecutionId String?
+  boundDispatchAttempt Int?
+  selectedDispatchAttempt Int @default(0)
+  intentCursor Json?
+  executionCursor Json?
+  completionCursor Json?
+  status String?
+  projectedAt DateTime?
+  updatedAt DateTime
+
+  @@unique([workspaceId, scmRepositoryIdentityId, pullRequestNumber, runSequence])
+  @@index([workspaceId, pullRequestId, runSequence])
 }

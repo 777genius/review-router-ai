@@ -27,6 +27,24 @@ up.
 | Review runtime  | The customer's GitHub Actions workflow        | Runs the review on each pull request with the provider key                                | Partly: direct T0 settings in section 3 |
 | Account gateway | A separate service, not in this Compose stack | Signs in subscription accounts (for example Codex device login) and routes calls for them | No, see below                           |
 
+## Check database access after a deploy
+
+The default Compose stack connects as one database user, so every query is
+allowed. If you give the app, worker and web separate database roles, a missing
+grant does not show up in tests or at startup. It shows up later as events that
+fail with `permission denied` until they are dead lettered, for example
+repository sync or statistics. After each deploy run this with the worker DATABASE_URL
+(the supported policies are the dedicated `reviewrouter_worker` role and the
+default shared Compose role `reviewrouter`):
+
+```bash
+DATABASE_URL=... node scripts/check-runtime-db-privileges.mjs
+```
+
+It checks the privileges the worker is known to need and lists outbox dead
+letters from the last 7 days that failed with a permission error. It exits with
+1 if it finds a problem.
+
 ## Account gateway (not in this stack)
 
 The account gateway holds credentials for subscription accounts and executes
@@ -46,6 +64,18 @@ sign-in, account limits, and gateway-routed execution.
   self-hosted install until the gateway has a qualified deployment path.
 
 ## Services
+
+### Complete memory provider
+
+The first-install command below builds and qualifies the pinned private Hindsight
+backend, downloads pinned multilingual local models, starts its database/API/
+worker and configures the shared env automatically. The native services run
+separately from Compose, preserving the existing physical-Forget cleanup profile.
+Ordinary approved memory uses local embeddings and reranking with no generative
+account. Normal setup also consumes a qualified conversation capability when the
+release includes the source-owned artifact described below. It never creates that
+qualification from installed models or configuration.
+See the [memory startup reference](../hindsight/BOOTSTRAP.md) for recovery.
 
 The Compose stack starts:
 
@@ -369,6 +399,51 @@ critic are enabled only inside this disposable run; production effects,
 verified clean, and cross-revision replay remain disabled.
 
 ## 5. Start
+
+On the Linux x64 Docker host, prepare default memory before the first Compose
+startup. The command requires Node 24 or later, Git, Python 3, tar and outbound
+HTTPS. Keep the real env file private:
+
+```bash
+chmod 600 deploy/self-hosted/.env
+node deploy/self-hosted/setup-memory.ts "$PWD/deploy/self-hosted/.env"
+```
+
+This builds and runs the real native qualification, then downloads about 1 GB
+of pinned multilingual model weights. Allow several minutes and space for the
+native Docker images, private logs and models. It generates independent service
+credentials, preserves a private env backup, and atomically adds the provider
+settings without printing secrets. An explicit
+`REVIEW_ROUTER_MEMORY_PROVIDER=disabled` is preserved and skips provisioning.
+To put durable native state elsewhere, supply an absolute directory as the
+second argument. An optional third argument separates heavy build/download
+scratch work from durable models, evidence and runtime state. Completed phases
+are reused; a partial native qualification or
+installation is preserved for reconciliation rather than repeated blindly.
+
+If a genuinely qualified release includes
+`deploy/self-hosted/conversation-capability.json`, the same setup command validates
+its strict v2 declaration against all four actual implementation/provenance files
+in this checkout and the installed source stamp. It atomically installs the existing
+qualification and matching immutable interaction-runtime pin together with the
+provider settings. The generated standalone verifier uses the authoritative parser
+and needs no host `node_modules`, extra package installation or provider credentials.
+Normal repository setup and live source/account authority still apply; eligible new
+repositories use their current selected primary review account and supported model,
+without a per-repository operator qualification.
+
+No genuine conversation capability artifact is supplied by this implementation.
+Missing, invalid or mismatched release evidence leaves approved/manual memory
+available and reports an explicit unqualified conversation status. Existing
+qualification/pin assignments, including v1, partial or empty operator input, are
+preserved for reconciliation. Provider opt-outs and service pauses suppress new
+capability installation. A preserved v2 declaration with stale source hashes cannot
+authorize automatic processing after an upgrade; the runtime checks its current
+source stamp without overwriting the operator's env or disabling manual storage.
+Do not create a placeholder artifact or infer qualification from a successful parser,
+source-stamp check, native installation or synthetic fixture.
+
+Then use the normal stack startup:
 
 From `deploy/self-hosted`:
 

@@ -24,6 +24,7 @@ import {
 } from "../../src/features/review-skills/client-adapter";
 import { reviewSkillsKeys } from "../../src/features/review-skills/query-keys";
 import { SkillEditorDialog } from "./skill-editor-dialog";
+import { SkillCatalogDialog } from "./skill-catalog-dialog";
 import {
   AddWorkspaceSkillDialog,
   SkillAccessDialog,
@@ -65,6 +66,7 @@ export function ReviewSkillsLibrary({
     null,
   );
   const [linking, setLinking] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const [access, setAccess] = useState<ReviewSkillSummary | null>(null);
   const [repositories, setRepositories] = useState<RepositorySkill | null>(
     null,
@@ -157,9 +159,18 @@ export function ReviewSkillsLibrary({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {capabilities.canCreate ? (
-            <Button type="button" onClick={createEditor}>
-              Create skill
-            </Button>
+            <>
+              <Button type="button" onClick={createEditor}>
+                Create skill
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBrowsing(true)}
+              >
+                Browse catalog
+              </Button>
+            </>
           ) : null}
           {capabilities.canAdmin ? (
             <Button
@@ -432,6 +443,19 @@ export function ReviewSkillsLibrary({
                   document.sourceWorkspaceId,
                 ),
               });
+          }}
+        />
+      ) : null}
+      {capabilities.canCreate ? (
+        <SkillCatalogDialog
+          open={browsing}
+          workspaceId={workspaceId}
+          viewerId={viewerId}
+          onClose={() => setBrowsing(false)}
+          onImported={(document) => {
+            setBrowsing(false);
+            setRepositories(document);
+            void invalidate();
           }}
         />
       ) : null}

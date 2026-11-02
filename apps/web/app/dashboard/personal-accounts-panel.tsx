@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { QueryClient } from "@tanstack/react-query";
-import { accountsCopy } from "./accounts-copy";
 import type { AccountsBootstrap } from "../../src/server/account-gateway-accounts";
 import type {
   PersonalAccountsApi,
@@ -28,6 +27,7 @@ export function PersonalAccountsPanel({
   workspaceId,
   accessReadContext,
   setupIntent,
+  initiallyOpenConnect = false,
 }: {
   bootstrap: PersonalAccountsBootstrap;
   api: PersonalAccountsApi;
@@ -36,6 +36,7 @@ export function PersonalAccountsPanel({
   workspaceId?: string;
   accessReadContext?: string;
   setupIntent?: ApiKeySetupIntent | undefined;
+  initiallyOpenConnect?: boolean;
 }) {
   const readApi = useMemo(
     () =>
@@ -55,26 +56,15 @@ export function PersonalAccountsPanel({
     <section
       id="your-accounts"
       className="space-y-4"
-      aria-labelledby="personal-accounts-panel-title"
+      aria-label="Personal connection management"
     >
-      <div>
-        <h3
-          id="personal-accounts-panel-title"
-          className="text-lg font-semibold text-cyan-50"
-        >
-          {accountsCopy.own}
-        </h3>
-        <p className="mt-1 text-sm text-slate-400">
-          Connect an account once and choose where it can be used. Ownership and
-          credentials stay personal.
-        </p>
-      </div>
       <AccountGatewayControls
         key={management.context}
         bootstrap={management}
         managementScope="personal"
         workspaceId={workspaceId}
         setupIntent={setupIntent}
+        initiallyOpenConnect={initiallyOpenConnect}
         api={managementApi}
         queryClient={client}
         refreshRelated={refreshSharing}

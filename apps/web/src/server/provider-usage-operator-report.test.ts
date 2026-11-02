@@ -8,26 +8,37 @@ import { PrismaOperatorUsageReportReader } from "../../../../packages/features/p
 // Exercise authorization SQL against disposable PostgreSQL, including foreign admins.
 describe("operator usage authorization", () => {
   const db = new PGlite();
-  const queryRaw = async (
-    sql: { text: string; values: unknown[] } | TemplateStringsArray,
-    ...values: unknown[]
-  ) => {
-    const text = Array.isArray(sql)
-      ? sql.reduce(
-          (result, part, index) => result + (index ? `$${index}` : "") + part,
-          "",
+  const queryRawFor =
+    (queryable: Pick<PGlite, "query">) =>
+    async (
+      sql: { text: string; values: unknown[] } | TemplateStringsArray,
+      ...values: unknown[]
+    ) => {
+      const text = Array.isArray(sql)
+        ? sql.reduce(
+            (result, part, index) => result + (index ? `$${index}` : "") + part,
+            "",
+          )
+        : (sql as { text: string }).text;
+      return (
+        await queryable.query(
+          text,
+          Array.isArray(sql) ? values : (sql as { values: unknown[] }).values,
         )
-      : (sql as { text: string }).text;
-    return (
-      await db.query(
-        text,
-        Array.isArray(sql) ? values : (sql as { values: unknown[] }).values,
-      )
-    ).rows;
-  };
+      ).rows;
+    };
   const prisma = {
-    $transaction: (call: (tx: unknown) => unknown) =>
-      call({ $queryRaw: queryRaw }),
+    $transaction: async <T>(
+      call: (tx: { $queryRaw: ReturnType<typeof queryRawFor> }) => Promise<T>,
+      options?: { isolationLevel?: string },
+    ) => {
+      expect(options?.isolationLevel).toBe("RepeatableRead");
+      return db.transaction(async (tx) => {
+        // Real SQL transaction semantics; concurrent snapshot proof uses PG17.
+        await tx.exec("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        return call({ $queryRaw: queryRawFor(tx) });
+      });
+    },
   } as unknown as PrismaClient;
   const reader = new PrismaOperatorUsageReportReader(prisma, "operator");
   const query = {
@@ -38,7 +49,7 @@ describe("operator usage authorization", () => {
   };
   beforeAll(async () => {
     await db.exec(
-      `CREATE TABLE "Workspace" ("id" text PRIMARY KEY,"deletionState" text); CREATE TABLE "WorkspaceMember" ("workspaceId" text,"userId" text,"role" text); CREATE TABLE "UsageCall" ("workspaceId" text,"occurredAt" timestamptz,"callId" text,"projection" jsonb); CREATE TABLE "UsageSourceCheckpoint" ("workspaceId" text,"sourceInstance" text,"coveredFrom" timestamptz,"asOf" timestamptz,"disabledAt" timestamptz); INSERT INTO "Workspace" VALUES ('operator','active'),('foreign','active'); INSERT INTO "WorkspaceMember" VALUES ('operator','owner','owner'),('operator','admin','admin'),('operator','member','member'),('foreign','foreign-admin','admin');`,
+      `CREATE TABLE "Workspace" ("id" text PRIMARY KEY,"deletionState" text); CREATE TABLE "WorkspaceMember" ("workspaceId" text,"userId" text,"role" text); CREATE TABLE "UsageCall" ("workspaceId" text,"occurredAt" timestamptz,"callId" text,"projection" jsonb,"actorId" text,"provider" text,"route" text,"purpose" text,"bindingId" text,"runId" text); CREATE TABLE "UsageSourceCheckpoint" ("workspaceId" text,"sourceInstance" text,"coveredFrom" timestamptz,"asOf" timestamptz,"disabledAt" timestamptz); INSERT INTO "Workspace" VALUES ('operator','active'),('foreign','active'); INSERT INTO "WorkspaceMember" VALUES ('operator','owner','owner'),('operator','admin','admin'),('operator','member','member'),('foreign','foreign-admin','admin');`,
     );
   });
   afterAll(() => db.close());
@@ -86,12 +97,21 @@ describe("operator usage authorization", () => {
           },
         },
       ]);
-      await db.query(`INSERT INTO "UsageCall" VALUES ($1,$2,$3,$4)`, [
-        workspaceId,
-        new Date("2026-10-21"),
-        callId,
-        JSON.stringify(projection),
-      ]);
+      await db.query(
+        `INSERT INTO "UsageCall" VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          workspaceId,
+          new Date("2026-10-21"),
+          callId,
+          JSON.stringify(projection),
+          projection.identity.actorId,
+          projection.identity.provider,
+          projection.identity.route,
+          projection.identity.purpose,
+          projection.identity.bindingId,
+          projection.identity.runId,
+        ],
+      );
     }
     const report = await reader.report({ ...query, limit: 1 });
     expect(report.totals.providerAttempts).toBe(2);

@@ -1,0 +1,31 @@
+{
+  "contract": "provider-connections-sdk-provenance/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-codex-models-6eb715faf907.tgz",
+  "sha256": "6eb715faf9076d5962713c9cb0f2af5296548f293c1efd620fae22e50143710a",
+  "sdkSourceRepository": "agent-teams-ai/account-gateway",
+  "sdkSourceCommit": "f08ba6386fcb9d6a9f0fe20c146ca167bbd39222",
+  "gatewaySourceCommit": "75f75c8397f7d3ceb2d5ff2b5c591de4a4b6bbe9",
+  "nativeSourceCommit": "66f59ebbca525f2b7046b3e3e1fe6363761a4fde",
+  "sourceHashes": {
+    "packages/account-gateway/src/contracts/index.ts": "f887a82066a63b46748ea5443029ec4a46eac9e566eb83cfce70aca4de968185",
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "2b4654b5ab231ef24eebcc2a9d258a798c6ebe4fbd79b6ebe28cd6113d738778",
+    "packages/account-gateway/src/features/facade-client/http/index.ts": "b7125736aab2d33a3bfefb8a7a0cfe6f1106861f17c232fe9ea91562227125e2",
+    "packages/account-gateway/src/features/facade-client/http/ingress.ts": "ff5ef6485f57bd863c01ea2703e340e2f953414b91c9fc46401f8780fd4faa86",
+    "packages/account-gateway/src/get-modular/index.ts": "ec542951665e6888af4499353279997d37e0a3a097d6c7663f2e528a5943a2af",
+    "packages/account-gateway/src/http/index.ts": "9258b359647513b4acc9adc9e832657547edf4c72ddfd5201a14869a87984ed5",
+    "packages/account-gateway/src/index.ts": "bd6c6af89e671658566260e602f44823484beee2cf6a6a5286e114e01bb92a21"
+  },
+  "qualification": {
+    "sdk": "Node24/26 build/type/management+consumer-control HTTP contracts and consumer pin passed",
+    "gateway": "Node24/26 Checkpoint A+B and CodeQL passed on abecb4ac62b490543e8b730455d32b6b7cacb127 before squash merge",
+    "native": "Hosted selected OAuth service, account-models, handler/bootstrap and full transport passed; root-only bootstrap test skipped; GitHub Actions dispatch unavailable (HTTP422)",
+    "consumer": {
+      "status": "passed",
+      "receipt": "codex-models-6eb715faf907-rr-qualification.json",
+      "qualifiedSourceCommit": "76508fbf70830719bed1f1c2f07d55447e012782"
+    }
+  },
+  "publicPublished": false,
+  "productionActivated": false,
+  "previousProvenance": "grok-code-130ca3f00dcc-provenance.json"
+}

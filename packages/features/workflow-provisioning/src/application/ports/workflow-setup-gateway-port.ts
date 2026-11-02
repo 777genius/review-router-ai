@@ -28,7 +28,9 @@ export type WorkflowSetupGatewayInput = {
     | "repository_owned"
     | "hosted_pool"
     | "gateway"
-    | "provider_api";
+    | "provider_api"
+    | "runtime_migration"
+    | "claude_subscription";
   readonly workflowFiles: readonly WorkflowSetupFile[];
 };
 

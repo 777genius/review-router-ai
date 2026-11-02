@@ -87,6 +87,7 @@ import {
 import {
   forkAgenticSandboxHostedPoolActionMode,
   parseTrustedGitHubActionsOidcUrl,
+  requestHostedRelayGrantWithFreshGitHubOidc,
   runHostedCodexRelayTransport,
 } from "./hosted-codex-relay";
 
@@ -100,6 +101,10 @@ declare const __dirname: string | undefined;
 
 const defaultOidcAudience = "reviewrouter";
 const forkAgenticSandboxActionMode = "fork-agentic-sandbox";
+const preparedSubscriptionActionMode = "prepared-subscription";
+const preparedSubscriptionTransportEnvKey =
+  "REVIEWROUTER_PREPARED_MODEL_TRANSPORT";
+const hostedOriginalGrantEnvKey = "REVIEWROUTER_HOSTED_ORIGINAL_GRANT";
 const defaultChatGptCodexResponsesUrl =
   "https://chatgpt.com/backend-api/codex/responses";
 const bundledCodexPlatform = "linux-x64";
@@ -414,17 +419,22 @@ type LocalProviderProxyFactory = (input: {
   readonly upstreamResponsesUrl: string;
 }) => Promise<LocalProviderProxy>;
 
-type FullReviewRuntimeRunner = (input: {
+type FullReviewRuntimeBaseInput = {
   readonly inputs: ActionInputs;
-  readonly leaseId: string;
-  readonly codexBinaryPath: string;
   readonly env: NodeJS.ProcessEnv;
   readonly io: ActionIO;
   readonly fetchImpl: FetchLike;
   readonly workspace: string;
   readonly tempHome: string;
-  readonly tempCodexHome: string;
   readonly event: PullRequestEvent;
+  readonly executionDeadlineEpochMs: number;
+};
+
+type LegacyFullReviewRuntimeInput = FullReviewRuntimeBaseInput & {
+  readonly kind?: "legacy";
+  readonly leaseId: string;
+  readonly codexBinaryPath: string;
+  readonly tempCodexHome: string;
   readonly commentToken: string;
   readonly commentTokenExpiresAt?: string | undefined;
   readonly runtimeConfigVersion: number;
@@ -432,7 +442,6 @@ type FullReviewRuntimeRunner = (input: {
   readonly reviewSnapshotInputPath?: string | undefined;
   readonly reviewSnapshotOutputPath?: string | undefined;
   readonly reviewCheckpointFinalizationPath?: string | undefined;
-  readonly executionDeadlineEpochMs: number;
   readonly onCommentTokenUpdated?: ((token: string) => void) | undefined;
   readonly commentTokenRefreshUrl?: string | undefined;
   readonly commentTokenRefreshMode?:
@@ -441,7 +450,18 @@ type FullReviewRuntimeRunner = (input: {
     | undefined;
   readonly sessionBindingId?: string | undefined;
   readonly sessionBindingVersion?: number | undefined;
-}) => Promise<void>;
+};
+
+type PreparedHostedFullReviewRuntimeInput = FullReviewRuntimeBaseInput & {
+  readonly kind: "prepared-subscription";
+  readonly originalGrant: string;
+  readonly reviewRequestId: string;
+};
+
+type FullReviewRuntimeInput =
+  | LegacyFullReviewRuntimeInput
+  | PreparedHostedFullReviewRuntimeInput;
+type FullReviewRuntimeRunner = (input: FullReviewRuntimeInput) => Promise<void>;
 
 type CodexBinaryManifest = {
   readonly protocolVersion: 1;
@@ -1156,6 +1176,65 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
     input.env,
   );
   assertSameRepositoryPullRequest(event, input.env);
+  if (input.env.REVIEWROUTER_ACTION_V2_MODE === "t0") {
+    await assertSupportedRunnerEnvironment(input.env);
+    const githubWorkspace = input.env.GITHUB_WORKSPACE;
+    if (!githubWorkspace) throw new Error("missing_github_workspace");
+    const workspace = await realpath(githubWorkspace);
+    if (workspace === "/" || !(await lstat(workspace)).isDirectory()) {
+      throw new Error("hosted_parent_workspace_invalid");
+    }
+    // The original Hosted admission selects the account and request once. The
+    // public V2 parent then owns the admitted checkout and the common review.
+    // None of the legacy comment, snapshot or lease-failover paths run here.
+    clearActionAuthEnv(input.env);
+    const grant = await requestHostedRelayGrantWithFreshGitHubOidc({
+      env: input.env,
+      fetchImpl: input.fetchImpl,
+      apiUrl: input.inputs.apiUrl,
+      providerInstanceId: input.inputs.providerInstanceId,
+      workflowSchemaVersion: input.inputs.workflowSchemaVersion,
+      bindingId,
+      bindingVersion,
+      deferOidcRequestEnvCleanup: true,
+      maskSecret: (secret) => mask(input.io, secret),
+    });
+    if (grant.repository !== event.repository) {
+      throw new Error("hosted_grant_repository_mismatch");
+    }
+    const reviewRequestId = grant.runtimeEnv.REVIEW_REQUEST_ID;
+    if (
+      !reviewRequestId ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$/u.test(reviewRequestId)
+    ) {
+      throw new Error("hosted_grant_review_request_missing");
+    }
+    const reviewHome = await makeTempDirectory("reviewrouter-review-home-");
+    try {
+      await runReviewRuntimeWithinExecutionBudget({
+        executionDeadlineEpochMs: input.executionDeadlineEpochMs,
+        now: input.now,
+        run: () =>
+          input.fullReviewRuntimeRunner({
+            kind: "prepared-subscription",
+            inputs: input.inputs,
+            env: input.env,
+            io: input.io,
+            fetchImpl: input.fetchImpl,
+            workspace,
+            tempHome: reviewHome,
+            event,
+            executionDeadlineEpochMs: input.executionDeadlineEpochMs,
+            originalGrant: grant.grant,
+            reviewRequestId,
+          }),
+      });
+    } finally {
+      await removeTree(reviewHome);
+    }
+    notice(input.io, "ReviewRouter hosted pool review completed.");
+    return;
+  }
   const workspace = await resolveForkSandboxWorkspace(input.env);
   await assertForkSandboxWorkspace(workspace);
   await assertSupportedRunnerEnvironment(input.env);
@@ -4050,41 +4129,44 @@ export async function runReviewRuntimeWithinExecutionBudget(input: {
   await input.run();
 }
 
-async function runFullReviewRouterRuntime(input: {
-  readonly inputs: ActionInputs;
-  readonly leaseId: string;
-  readonly codexBinaryPath: string;
-  readonly env: NodeJS.ProcessEnv;
-  readonly io: ActionIO;
-  readonly fetchImpl: FetchLike;
-  readonly workspace: string;
-  readonly tempHome: string;
-  readonly tempCodexHome: string;
-  readonly event: PullRequestEvent;
-  readonly commentToken: string;
-  readonly commentTokenExpiresAt?: string | undefined;
-  readonly runtimeConfigVersion: number;
-  readonly runtimeEnv: Record<string, string>;
-  readonly reviewSnapshotInputPath?: string | undefined;
-  readonly reviewSnapshotOutputPath?: string | undefined;
-  readonly reviewCheckpointFinalizationPath?: string | undefined;
-  readonly executionDeadlineEpochMs: number;
-  readonly onCommentTokenUpdated?: ((token: string) => void) | undefined;
-  readonly commentTokenRefreshUrl?: string | undefined;
-  readonly commentTokenRefreshMode?:
-    | "codex-oauth-rotating"
-    | "hosted-relay"
-    | undefined;
-  readonly sessionBindingId?: string | undefined;
-  readonly sessionBindingVersion?: number | undefined;
-}): Promise<void> {
+async function runFullReviewRouterRuntime(
+  input: FullReviewRuntimeInput,
+): Promise<void> {
+  const actionPath = resolveGitHubActionPath(input.env);
+  const runtimePath = join(actionPath, "dist", "index.js");
+  await access(runtimePath, fsConstants.R_OK);
+  if (input.kind === "prepared-subscription") {
+    const parentEnv = buildPreparedHostedReviewRuntimeEnv(input);
+    const controller = new AbortController();
+    const cancel = () =>
+      controller.abort(new Error("prepared_hosted_review_cancelled"));
+    process.on("SIGINT", cancel);
+    process.on("SIGTERM", cancel);
+    try {
+      await runProcess({
+        command: process.execPath,
+        args: [runtimePath],
+        cwd: input.workspace,
+        env: parentEnv,
+        streamOutput: input.io,
+        timeoutMs: requireRemainingReviewExecutionBudgetMs({
+          executionDeadlineEpochMs: input.executionDeadlineEpochMs,
+          nowEpochMs: Date.now(),
+        }),
+        abortSignal: controller.signal,
+      });
+    } finally {
+      process.removeListener("SIGINT", cancel);
+      process.removeListener("SIGTERM", cancel);
+      delete parentEnv[hostedOriginalGrantEnvKey];
+      clearOidcRequestEnv(parentEnv);
+    }
+    return;
+  }
   assertProviderSecretInputsForRuntime({
     runtimeEnv: input.runtimeEnv,
     providerSecrets: input.inputs.providerSecrets,
   });
-  const actionPath = resolveGitHubActionPath(input.env);
-  const runtimePath = join(actionPath, "dist", "index.js");
-  await access(runtimePath, fsConstants.R_OK);
   const reviewThreadLifecycleResolveToken =
     input.env[reviewThreadLifecycleResolveTokenEnvKey]?.trim() || undefined;
   if (reviewThreadLifecycleResolveToken) {
@@ -4219,6 +4301,58 @@ function isPermanentPullRequestHeadPollFailure(error: unknown): boolean {
     (error.message === "comment_token_repository_mismatch" ||
       error.message === "github_pull_request_head_auth_expired")
   );
+}
+
+/** This is the trusted public Action parent, not the OCR/model subprocess.
+ * OIDC and the original opaque grant are passed only to that parent. It captures
+ * and removes the grant before building the existing restricted engine env. */
+export function buildPreparedHostedReviewRuntimeEnv(
+  input: PreparedHostedFullReviewRuntimeInput,
+): Record<string, string> {
+  const inherited = pruneCodexRotatingChildEnv(input.env);
+  for (const key of Object.keys(inherited)) {
+    if (
+      key === "CODEX_HOME" ||
+      key === "CODEX_CONFIG_TOML" ||
+      key === "REVIEWROUTER_CODEX_BINARY" ||
+      key === "REVIEW_AUTH_MODE" ||
+      key === "REVIEW_PROVIDERS" ||
+      key === "REQUIRED_HEALTHY_PROVIDERS" ||
+      key === "REVIEW_ROUTER_PR_WORKSPACE" ||
+      key.startsWith("REVIEWROUTER_COMMENT_") ||
+      key.startsWith("REVIEWROUTER_INCREMENTAL_SNAPSHOT_") ||
+      key.startsWith("REVIEWROUTER_REVIEW_CHECKPOINT_")
+    ) {
+      delete inherited[key];
+    }
+  }
+  const oidcUrl = input.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const oidcToken = input.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!oidcUrl || !oidcToken) throw new Error("missing_github_oidc_request");
+  return {
+    ...inherited,
+    HOME: input.tempHome,
+    GITHUB_WORKSPACE: input.workspace,
+    GITHUB_OUTPUT: join(input.tempHome, "github-output"),
+    CI: "true",
+    INPUT_MODE: preparedSubscriptionActionMode,
+    REVIEW_ROUTER_MODE: preparedSubscriptionActionMode,
+    REVIEWROUTER_ACTION_V2_MODE: "t0",
+    [preparedSubscriptionTransportEnvKey]: "hosted_pool",
+    [hostedOriginalGrantEnvKey]: input.originalGrant,
+    ACTIONS_ID_TOKEN_REQUEST_URL: oidcUrl,
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidcToken,
+    REVIEWROUTER_RUNTIME_CONFIG_MODE: "oidc",
+    REVIEWROUTER_STATIC_CONFIG_FALLBACK: "false",
+    REVIEWROUTER_API_URL: input.inputs.apiUrl,
+    REVIEWROUTER_CONTROL_PLANE_URL: input.inputs.apiUrl,
+    REVIEW_REQUEST_ID: input.reviewRequestId,
+    PR_NUMBER: String(input.event.number),
+    REVIEW_HEAD_SHA: input.event.headSha,
+    REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS: String(
+      input.executionDeadlineEpochMs,
+    ),
+  };
 }
 
 export function buildFullReviewRuntimeEnv(input: {

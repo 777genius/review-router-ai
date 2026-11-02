@@ -78,6 +78,23 @@ const hybridRotating = config([
 ]);
 
 describe("workflow requirement", () => {
+  it("accepts every all-Gateway roster and rejects a mixed transport without reducing it", () => {
+    const gateway = {
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      model: "gpt-5.5",
+      gatewayBindingId: "binding-1",
+      gatewayProfileRef: "profile-1",
+      ...settings,
+    } as const;
+    const plural = config([gateway, { ...gateway, model: "gpt-5.4" }]);
+    expect(requiredWorkflowTransport(plural)).toBe("gateway");
+    expect(requiredWorkflowRequirement(plural)).toBe("gateway");
+    expect(() =>
+      requiredWorkflowTransport(config([gateway, claude.providers[0]!])),
+    ).toThrow("account_gateway_mixed_transport_unsupported");
+  });
+
   it("tells CI-secret workflows of different secret providers apart", () => {
     // Both use GitHub secrets, but only the MiMo workflow forwards its key.
     expect(requiredWorkflowTransport(claude)).toBe("ci_secrets");

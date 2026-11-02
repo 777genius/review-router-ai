@@ -152,11 +152,25 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
       severity: "all",
     });
     expect(issues.items[0]).toMatchObject({
+      scmRepositoryIdentityId: "scm",
       title: "Earlier title",
       severity: "minor",
       caughtAt: "2026-10-22T11:00:00.000Z",
     });
   });
+  it("reads the repository without a row lock, which the worker role may not take", async () => {
+    queries.length = 0;
+    await projector.project(event({ executionId: "execution-no-lock" }));
+    const repositoryReads = queries.filter(({ query }) =>
+      query.includes('FROM "RepositoryConnection"'),
+    );
+    expect(repositoryReads.length).toBeGreaterThan(0);
+    for (const { query } of repositoryReads)
+      expect(query).not.toMatch(
+        /\bFOR\s+(NO\s+KEY\s+)?(UPDATE|SHARE)\b|\bFOR\s+KEY\s+SHARE\b/iu,
+      );
+  });
+
   it("counts empty successes and real reruns, excludes the upper UTC boundary, and needs no operational evidence", async () => {
     await projector.project(
       event({
@@ -364,6 +378,17 @@ describe.skipIf(!adminUrl)("review statistics real PostgreSQL", () => {
       "https://github.com/org/renamed",
     );
     expect(report.coverage.currentComplete).toBe(false);
+    const issues = await reader.readIssues({
+      actorId: "member",
+      workspaceId: "work",
+      from: report.period.from,
+      to: report.period.to,
+      severity: "all",
+    });
+    expect(issues.items[0]).toMatchObject({
+      repositoryId: "repo",
+      scmRepositoryIdentityId: "scm",
+    });
     // An unbound connection changed to another immutable SCM tuple is unsafe.
     await prisma.$executeRaw`UPDATE "RepositoryConnection" SET "externalRepositoryId"='other-external' WHERE "id"='repo'`;
     await expect(

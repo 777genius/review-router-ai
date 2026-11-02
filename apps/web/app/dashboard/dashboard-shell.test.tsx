@@ -64,6 +64,38 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("persistent dashboard shell", () => {
+  it("keeps Context tools selected and scoped when opening a direct link or switching workspaces", () => {
+    route.pathname = "/dashboard/context-tools";
+    route.search = "workspaceId=two";
+    render(
+      <DashboardShell {...shellProps}>
+        <div>Context tools content</div>
+      </DashboardShell>,
+    );
+    expect(
+      screen
+        .getByRole("tab", {
+          name: /Context tools\s*MCP connections for reviews/,
+        })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      screen
+        .getByRole("tab", { name: /two\s*3 repos/ })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      screen.getByRole("tab", { name: /one\s*3 repos/ }).getAttribute("href"),
+    ).toBe("/dashboard/context-tools?workspaceId=one&workspace=one");
+    expect(
+      screen
+        .getByRole("tab", {
+          name: /Context tools\s*MCP connections for reviews/,
+        })
+        .getAttribute("href"),
+    ).toBe("/dashboard/context-tools?workspaceId=two&workspace=two");
+  });
+
   it("keeps the workspace switcher and sidebar mounted while only content loads", () => {
     const view = render(
       <DashboardShell {...shellProps}>
@@ -154,7 +186,7 @@ describe("persistent dashboard shell", () => {
     ).toBe("page");
   });
 
-  it("uses fragment-free client links across Accounts and workspace changes", () => {
+  it("keeps Providers active on Connections and preserves its route across workspace changes", () => {
     route.pathname = "/dashboard/setup";
     route.search = "workspace=two&section=memory";
     render(
@@ -166,10 +198,11 @@ describe("persistent dashboard shell", () => {
     expect(workspaceTab.getAttribute("href")).toBe(
       "/dashboard/setup?workspace=one",
     );
-    const accountTab = screen.getByRole("tab", {
-      name: /Accounts\s*Workspace provider accounts/,
+    const providersTab = screen.getByRole("tab", {
+      name: /Providers\s*Connections and models/,
     });
-    expect(accountTab.getAttribute("aria-current")).toBe("page");
+    expect(providersTab.getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("tab", { name: /Accounts/i })).toBeNull();
     for (const link of document.querySelectorAll('a[href^="/dashboard"]')) {
       expect(link.getAttribute("data-next-link")).toBe("true");
     }

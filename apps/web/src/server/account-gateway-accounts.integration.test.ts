@@ -48,6 +48,18 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
   let receipt: c.Operation | undefined;
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
+    if (request.url === "/v1/provider-connection-capabilities") {
+      response.statusCode = 404;
+      response.end(
+        JSON.stringify({
+          code: "not_found",
+          traceRef: "fixture-missing-capabilities",
+          effect: "not_dispatched",
+          retry: { kind: "never" },
+        }),
+      );
+      return;
+    }
     if (request.method === "GET") {
       response.end(
         JSON.stringify(

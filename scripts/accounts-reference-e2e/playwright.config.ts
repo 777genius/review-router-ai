@@ -34,7 +34,10 @@ export default defineConfig({
           },
         }
       : {}),
-    trace: "retain-on-failure",
+    trace:
+      process.env.ACCOUNTS_REFERENCE_E2E_TRACE === "on"
+        ? "on"
+        : "retain-on-failure",
     screenshot: "only-on-failure",
     video: "off",
     actionTimeout: 10_000,

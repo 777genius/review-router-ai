@@ -1,3 +1,4 @@
+import { timeAnalyticsRead } from "./analytics-read-timing";
 import { PrismaWorkspaceAccessRepository } from "@reviewrouter/features-auth";
 import { PrismaUsageReportReader } from "@reviewrouter/features-provider-usage/composition";
 import {
@@ -91,16 +92,23 @@ export async function loadProviderUsage(
     workspace.deletionState !== "active"
   )
     throw new Error("usage_access_denied");
+  const effectiveAccess =
+    workspace.personalOwnerUserId === actor.userId ||
+    role === "owner" ||
+    role === "admin"
+      ? ("admin" as const)
+      : ("member" as const);
   const query = usageReportQuery(
     workspaceId,
     actor.userId,
-    workspace.personalOwnerUserId === actor.userId ||
-      role === "owner" ||
-      role === "admin"
-      ? "admin"
-      : "member",
+    effectiveAccess,
     filters,
   );
-  const report = await new PrismaUsageReportReader(prisma).report(query);
-  return buildUsageReport(report);
+  const report = await timeAnalyticsRead("usage.report", () =>
+    new PrismaUsageReportReader(prisma).report(query),
+  );
+  return {
+    scope: { actorId: actor.userId, workspaceId, effectiveAccess },
+    report: buildUsageReport(report),
+  };
 }

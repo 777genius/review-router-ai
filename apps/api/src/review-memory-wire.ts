@@ -19,6 +19,11 @@ export type ReviewMemoryItem = Readonly<{
   sourceIds: readonly string[];
   statementAt: string;
   lastVerifiedAt: string;
+  sourceObservations?: readonly {
+    readonly entryId: string;
+    readonly observedCommitSha: string;
+    readonly statementAt: string;
+  }[];
   observedCommitSha?: string;
   temporalStatus?: "historical" | "at_commit";
   exceptionRuleId?: string;
@@ -26,6 +31,16 @@ export type ReviewMemoryItem = Readonly<{
 
 export type ReviewMemoryBundle = ReviewMemoryBinding &
   Readonly<{
+    contextPolicy?: {
+      readonly audience: "internal" | "public" | "repository";
+      readonly repositoryId: string;
+      readonly allowedTasks: readonly (
+        | "review"
+        | "investigation"
+        | "pr_description"
+        | "conversation"
+      )[];
+    };
     protocolVersion: 2;
     bundleId: string;
     policyVersion: string;
@@ -37,7 +52,9 @@ export type ReviewMemoryBundle = ReviewMemoryBinding &
     reason: string | null;
   }>;
 
-export function renderReviewMemoryPrompt(bundle: ReviewMemoryBundle): string {
+export function renderReviewMemoryPrompt(
+  bundle: Pick<ReviewMemoryBundle, "items">,
+): string {
   const sections: readonly [ReviewMemoryItem["kind"], string][] = [
     ["rule", "APPROVED INTENDED RULES"],
     ["exception", "EXPLICIT SCOPED EXCEPTIONS"],
@@ -66,6 +83,9 @@ export function renderReviewMemoryPrompt(bundle: ReviewMemoryBundle): string {
             : {}),
           statementAt: item.statementAt,
           lastVerifiedAt: item.lastVerifiedAt,
+          ...(item.sourceObservations
+            ? { sourceObservations: item.sourceObservations }
+            : {}),
           ...(item.observedCommitSha
             ? { observedCommitSha: item.observedCommitSha }
             : {}),
@@ -86,6 +106,9 @@ export function reviewMemorySnapshotHash(bundle: ReviewMemoryBundle): string {
       canonicalJson({
         version: "review-memory-snapshot.v2",
         ...reviewMemoryBinding(bundle),
+        ...(bundle.contextPolicy
+          ? { contextPolicy: bundle.contextPolicy }
+          : {}),
         bundleId: bundle.bundleId,
         policyVersion: bundle.policyVersion,
         providerGeneration: bundle.providerGeneration,

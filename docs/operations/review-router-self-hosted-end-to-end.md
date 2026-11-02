@@ -260,6 +260,21 @@ account; those are covered by the live canary below.
 
 ## 7. Start the Control Plane
 
+Prepare ordinary memory on the Linux x64 Docker host before the first startup:
+
+```bash
+chmod 600 deploy/self-hosted/.env
+node deploy/self-hosted/setup-memory.ts "$PWD/deploy/self-hosted/.env"
+```
+
+This builds and qualifies the private native backend, downloads pinned
+multilingual local embedding/reranker models and merges generated provider
+settings into the shared env without printing credentials. Allow several minutes
+and image/model storage. It preserves an explicit
+`REVIEW_ROUTER_MEMORY_PROVIDER=disabled` opt-out. See the
+[memory startup reference](../../deploy/hindsight/BOOTSTRAP.md) for private state,
+partial-install recovery and the separate conversational learning boundary.
+
 ```bash
 docker compose \
   --env-file deploy/self-hosted/.env \

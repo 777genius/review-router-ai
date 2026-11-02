@@ -426,7 +426,7 @@ describe("offline Prisma generate", () => {
     );
   });
 
-  it("fails the aggregate gate for every unsuccessful required lane", () => {
+  it("checks every required lane when the workflow is not cancelled", () => {
     const workflow = parse(
       readFileSync(".github/workflows/ci.yml", "utf8"),
     ) as {
@@ -451,7 +451,7 @@ describe("offline Prisma generate", () => {
       "managed-migration-pg17",
     ];
     const gate = workflow.jobs["quality-gates"];
-    expect(gate?.if).toBe("${{ always() }}");
+    expect(gate?.if).toBe("${{ always() && !cancelled() }}");
     expect(gate?.needs?.toSorted()).toEqual(required.toSorted());
     const enforcement = gate?.steps?.find(
       (step) => step.name === "Enforce every quality and PG17 lane",
@@ -481,6 +481,28 @@ describe("offline Prisma generate", () => {
           `${variable}=${result || "missing"}: aggregate must fail`,
         ).toBe(1);
       }
+    }
+    // Draft pull requests skip the heavy lanes on purpose, but a failed,
+    // cancelled or missing lane must still fail the aggregate.
+    const runDraftGate = (results: Record<string, string>) =>
+      runGate({ ...results, DRAFT_PR: "true" });
+    expect(runDraftGate(success).status).toBe(0);
+    for (const variable of variables) {
+      expect(
+        runDraftGate({ ...success, [variable]: "skipped" }).status,
+        `${variable}=skipped: draft pull request may skip`,
+      ).toBe(0);
+      for (const result of ["failure", "cancelled", ""]) {
+        expect(
+          runDraftGate({ ...success, [variable]: result }).status,
+          `${variable}=${result || "missing"}: draft aggregate must fail`,
+        ).toBe(1);
+      }
+      expect(
+        runGate({ ...success, [variable]: "skipped", DRAFT_PR: "false" })
+          .status,
+        `${variable}=skipped: ready pull request must not skip`,
+      ).toBe(1);
     }
   });
 });

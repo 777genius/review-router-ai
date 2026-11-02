@@ -115,6 +115,60 @@ describeWithDatabase("review-run-control Prisma adapters", () => {
     }
   });
 
+  it("keeps one allowance owner when concurrent admissions change the protocol offer", async () => {
+    const seeded = await seedAtomicAdmissionContext(`${prefix}-offer-owner`);
+    try {
+      const changed = {
+        ...seeded,
+        candidate: {
+          ...seeded.candidate,
+          authorizationId: `${prefix}-changed-offer-authorization`,
+          protocolOfferHash: fixtureDigest(prefix, "changed-offer"),
+          oidcReplayKeyHash: fixtureDigest(prefix, "changed-offer-replay"),
+        },
+      };
+      const results = await Promise.all([
+        repositories.authorizations.createOrRestoreReviewRunAuthorizationAtomically(
+          seeded,
+        ),
+        repositories.authorizations.createOrRestoreReviewRunAuthorizationAtomically(
+          changed,
+        ),
+      ]);
+      const ownerIndex = results.findIndex(
+        (result) =>
+          result.status === ReviewRunAuthorizationCreateStatus.Created,
+      );
+      expect(ownerIndex).not.toBe(-1);
+      const competingIndex = ownerIndex === 0 ? 1 : 0;
+      expect([
+        ReviewRunAuthorizationCreateStatus.RunAttemptConflict,
+        ReviewRunAuthorizationCreateStatus.EligibilityChanged,
+      ]).toContain(results[competingIndex]!.status);
+      // PostgreSQL can abort the concurrent serializable transaction. A fresh
+      // admission still observes the original owner across changed offers.
+      await expect(
+        repositories.authorizations.createOrRestoreReviewRunAuthorizationAtomically(
+          competingIndex === 0 ? seeded : changed,
+        ),
+      ).resolves.toEqual({
+        status: ReviewRunAuthorizationCreateStatus.RunAttemptConflict,
+      });
+      expect(
+        await prisma.reviewRunAuthorization.count({
+          where: {
+            workspaceId: seeded.candidate.workspaceId,
+            sourceRunId: seeded.candidate.sourceRunId,
+            sourceRunAttempt: seeded.candidate.sourceRunAttempt,
+          },
+        }),
+      ).toBe(1);
+    } finally {
+      await seeded.restoreGlobalEmergencyControl();
+      await cleanup();
+    }
+  });
+
   reviewRunControlRepositoryContract("Prisma", prefix, async () => ({
     releases: repositories.producerReleases,
     identities: repositories.repositoryIdentities,

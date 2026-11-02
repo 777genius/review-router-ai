@@ -1,5 +1,10 @@
 import type { UsageProjection, UsageTokens } from "../domain/usage";
 import { costUnits, decimal } from "./usage-money";
+import {
+  classifyUsageContribution,
+  usageContributionProfile,
+} from "./usage-contribution";
+export { provenNotDispatched } from "./usage-contribution";
 export interface UsageCostSubtotal {
   currency: string;
   basis: "estimated" | "source_reported";
@@ -19,12 +24,15 @@ export interface UsageTotals {
   costs: UsageCostSubtotal[];
   unknownCostCount: number;
 }
-export function provenNotDispatched(p: UsageProjection): boolean {
-  return (
-    p.usage?.dispatchEffect === "not_dispatched" ||
-    (p.lifecycle?.dispatchEffect === "not_dispatched" &&
-      p.lifecycle.state !== "prepared")
-  );
+/** SQL integer sums arrive as text so precision is checked before DTO conversion. */
+export function checkedUsageInteger(value: number | string): number {
+  const n = Number(value);
+  if (
+    (typeof value === "string" && !/^-?\d+$/.test(value)) ||
+    !Number.isSafeInteger(n)
+  )
+    throw new Error("usage_report_overflow");
+  return n;
 }
 const tokenKeys = [
   "inputTotal",
@@ -51,24 +59,25 @@ export function aggregateUsage(
   let partialCount = 0;
   let unknownCount = 0;
   let diagnosticCount = 0;
+  let reportedSummaries = 0;
   let unknownCostCount = 0;
   const costs = new Map<
     string,
     { currency: string; basis: "estimated" | "source_reported"; units: bigint }
   >();
   for (const p of rows) {
+    // Callers own spend selection; this public helper sums every supplied row.
+    const contribution = classifyUsageContribution(usageContributionProfile(p));
     if (p.usage?.tokens.total == null) unknownTotalTokenCount++;
-    if (p.usage?.completeness === "partial") partialCount++;
-    if (!p.usage || p.usage.completeness === "unknown") unknownCount++;
-    if (p.identity.purpose === "diagnostic") diagnosticCount++;
+    partialCount += contribution.partialWeight;
+    unknownCount += contribution.unknownWeight;
+    diagnosticCount += contribution.diagnosticWeight;
+    reportedSummaries += contribution.summaryWeight;
     for (const k of tokenKeys) {
       const n = p.usage?.tokens[k] ?? null;
       if (n === null) unknownTokenValues++;
       else {
-        const sum = (tokens[k] ?? 0) + n;
-        if (!Number.isSafeInteger(sum))
-          throw new Error("usage_report_overflow");
-        tokens[k] = sum;
+        tokens[k] = checkedUsageInteger((tokens[k] ?? 0) + n);
       }
     }
     const cost = p.usage?.cost;
@@ -94,21 +103,14 @@ export function aggregateUsage(
     unknownCostCount,
     providerAttempts: attemptRows.filter(
       (p) =>
-        p.identity.granularity === "call" &&
-        !provenNotDispatched(p) &&
-        ((p.lifecycle?.dispatchEffect === "dispatched" &&
-          p.lifecycle.state !== "prepared") ||
-          (p.usage !== null &&
-            p.usage.dispatchEffect !== "not_dispatched" &&
-            p.usage.state !== "prepared")),
+        classifyUsageContribution(usageContributionProfile(p)).providerAttempt,
     ).length,
     logicalRuns: new Set(
       attemptRows
         .map((p) => p.identity.runId)
         .filter((id): id is string => id !== null),
     ).size,
-    reportedSummaries: rows.filter((p) => p.identity.granularity === "turn")
-      .length,
+    reportedSummaries,
     costs: [...costs.values()].map((c) => ({
       currency: c.currency,
       basis: c.basis,

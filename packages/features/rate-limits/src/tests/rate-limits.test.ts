@@ -11,6 +11,7 @@ import { pruneExpiredRateLimitBuckets } from "../application/use-cases/prune-exp
 import {
   createRateLimitDecision,
   RateLimitExceededError,
+  rateLimitRetryAfterSeconds,
 } from "../domain/rate-limit";
 
 class InMemoryRateLimitStore implements RateLimitStorePort {
@@ -25,9 +26,13 @@ class InMemoryRateLimitStore implements RateLimitStorePort {
     const existing = this.buckets.get(input.key);
     const reset =
       !existing || existing.windowEndsAt <= input.now
-        ? { count: 1, limit: input.limit, windowEndsAt: input.windowEndsAt }
+        ? {
+            count: input.amount ?? 1,
+            limit: input.limit,
+            windowEndsAt: input.windowEndsAt,
+          }
         : {
-            count: existing.count + 1,
+            count: existing.count + (input.amount ?? 1),
             limit: input.limit,
             windowEndsAt: existing.windowEndsAt,
           };
@@ -60,6 +65,27 @@ class InMemoryRateLimitStore implements RateLimitStorePort {
 }
 
 describe("rate limits", () => {
+  it("reserves weighted units and reports retry timing without changing ordinary requests", async () => {
+    const store = new InMemoryRateLimitStore();
+    const clock = staticClock("2026-05-03T12:00:30.000Z");
+    const rule = {
+      key: "scan:call-budget",
+      limit: 6,
+      amount: 4,
+      windowMs: 60_000,
+    };
+    const decision = await assertRateLimit(rule, { rateLimits: store, clock });
+    expect(decision.remaining).toBe(2);
+    expect(rateLimitRetryAfterSeconds(decision, clock.now())).toBe(30);
+    await expect(
+      assertRateLimit(rule, { rateLimits: store, clock }),
+    ).rejects.toBeInstanceOf(RateLimitExceededError);
+    for (const amount of [0, -1, 1.5, Number.NaN, 2_147_483_647])
+      await expect(
+        assertRateLimit({ ...rule, amount }, { rateLimits: store, clock }),
+      ).rejects.toThrow("rate_limit_amount_invalid");
+    expect(store.buckets.get(rule.key)?.count).toBe(8);
+  });
   it("allows requests inside a fixed window and blocks after the limit", async () => {
     const store = new InMemoryRateLimitStore();
     const clock = staticClock("2026-05-03T12:00:30.000Z");

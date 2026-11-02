@@ -3,6 +3,7 @@ import { reviewActionV2ContractSlot } from "@reviewrouter/protocol-review-action
 import { hasAuthorizedReviewInvestigationExtension } from "./review-action-v2-investigation-extension-admission.js";
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { vi } from "vitest";
+import { ReviewActionV2RouteFailure } from "@reviewrouter/features-action-control-plane/v2";
 import { createRepositoryReleaseSelector } from "./review-action-v2-repository-release-selection";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -633,6 +634,7 @@ describe("Review Action v2 run-control composition", () => {
       () => Promise<{
         compatible: boolean;
         providerApiAuthMode?: ProviderApiAuthMode;
+        subscriptionAuthMode?: "claude-oauth";
       }>
     >(async () => ({ compatible: false }));
     const direct = createServerOwnedReviewActionV2AdmissionFacts({
@@ -681,6 +683,38 @@ describe("Review Action v2 run-control composition", () => {
         providerVoteLanes: facts.providerVoteLanes,
       },
     });
+    verify.mockResolvedValue({
+      compatible: true,
+      subscriptionAuthMode: "claude-oauth",
+    });
+    await expect(direct.resolve(input)).resolves.toMatchObject({
+      revision: {
+        subscriptionAuthMode: "claude-oauth",
+        modelTransport: "provider_api",
+      },
+    });
+    for (const source of [
+      { compatible: true },
+      {
+        compatible: true,
+        providerApiAuthMode: "openrouter-api" as const,
+        subscriptionAuthMode: "claude-oauth" as const,
+      },
+    ]) {
+      verify.mockResolvedValue(source);
+      const previous = resolveRevision.mock.calls.length;
+      await expect(direct.resolve(input)).rejects.toMatchObject({
+        statusCode: 403,
+      });
+      expect(resolveRevision.mock.calls).toHaveLength(previous);
+    }
+    verify.mockResolvedValue({
+      compatible: true,
+      subscriptionAuthMode: "claude-oauth",
+    });
+    await expect(
+      direct.resolve({ ...input, claims: { ...claims, workflow_sha: "" } }),
+    ).rejects.toMatchObject({ statusCode: 403 });
   });
 
   it.each([
@@ -1180,7 +1214,7 @@ describe("Review Action v2 run-control composition", () => {
     },
   );
 
-  it.each(["legacy", "direct"] as const)(
+  it.each(["legacy", "direct", "claude"] as const)(
     "authorizes and restores the exact %s OIDC/protocol replay",
     async (route) => {
       if (route === "direct")
@@ -1188,6 +1222,12 @@ describe("Review Action v2 run-control composition", () => {
           ...facts,
           modelTransport: "provider_api",
           providerApiAuthMode: "openrouter-api",
+        };
+      if (route === "claude")
+        facts = {
+          ...facts,
+          modelTransport: "provider_api",
+          subscriptionAuthMode: "claude-oauth",
         };
       const handlers = createReviewActionV2RunControlHandlers(dependencies);
       const request = authorizeRequest();
@@ -1209,7 +1249,7 @@ describe("Review Action v2 run-control composition", () => {
       const emittedFacts = JSON.parse(
         first.result.authorizationFactsCanonicalJson!,
       );
-      if (route === "direct")
+      if (route === "direct" || route === "claude")
         expect(emittedFacts.workflowIdentityHash).toBe(
           persisted!.workflowIdentityHash,
         );
@@ -1997,6 +2037,51 @@ describe("Review Action v2 run-control composition", () => {
       statusCode: 403,
       errorCode: ReviewActionV2ProtocolErrorCode.Forbidden,
       issues: ["trust_domain_not_enabled"],
+    });
+  });
+
+  it("reports a moved pull request head as terminal resource_gone", async () => {
+    const handlers = createReviewActionV2RunControlHandlers({
+      ...dependencies,
+      admissionFacts: {
+        resolve: async () => {
+          throw new ReviewActionV2RouteFailure(
+            412,
+            ReviewActionV2ProtocolErrorCode.StalePrecondition,
+            ["review_request_revision_moved"],
+          );
+        },
+      },
+    });
+
+    await expect(
+      handlers.authorize!.execute(authorizeRequest()),
+    ).rejects.toMatchObject({
+      statusCode: 410,
+      errorCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+      issues: ["review_request_revision_moved"],
+    });
+  });
+
+  it("keeps other stale preconditions retryable by leaving them unmapped", async () => {
+    const handlers = createReviewActionV2RunControlHandlers({
+      ...dependencies,
+      admissionFacts: {
+        resolve: async () => {
+          throw new ReviewActionV2RouteFailure(
+            412,
+            ReviewActionV2ProtocolErrorCode.StalePrecondition,
+            ["admission_facts_changed"],
+          );
+        },
+      },
+    });
+
+    await expect(
+      handlers.authorize!.execute(authorizeRequest()),
+    ).rejects.toMatchObject({
+      statusCode: 412,
+      errorCode: ReviewActionV2ProtocolErrorCode.StalePrecondition,
     });
   });
 

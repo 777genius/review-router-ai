@@ -320,6 +320,7 @@ describe("native executing source closure", () => {
         .matchAll(/"([^"]+)"/gu),
     ].map((m) => m[1]);
     expect(files).toContain("scripts/review-skills-runtime-grants.ts");
+    expect(files).toContain("scripts/skill-catalog-runtime-grants.ts");
     for (const file of files) {
       mkdirSync(dirname(join(directory, file)), { recursive: true });
       copyFileSync(join(root, file), join(directory, file));

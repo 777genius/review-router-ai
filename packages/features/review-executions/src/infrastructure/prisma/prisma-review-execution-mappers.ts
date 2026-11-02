@@ -59,6 +59,7 @@ export function intentToDomain(record: IntentRecord): ReviewRequestedIntent {
   }
   return {
     requestId: record.requestId,
+    historyRootRequestId: record.historyRootRequestId,
     dispatchAttempt: record.dispatchAttempt,
     version: record.version,
     workspaceId: record.workspaceId,
@@ -208,6 +209,8 @@ export function executionToDomain(
 ): ReviewExecution {
   return {
     executionId: record.executionId,
+    historyRootRequestId: record.historyRootRequestId,
+    historyDispatchAttempt: record.historyDispatchAttempt,
     workspaceId: record.workspaceId,
     repositoryConnectionId: record.repositoryConnectionId,
     scmRepositoryIdentityId: record.scmRepositoryIdentityId,

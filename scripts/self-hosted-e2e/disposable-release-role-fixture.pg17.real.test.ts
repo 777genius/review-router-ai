@@ -1756,6 +1756,13 @@ const boundarySql = readFileSync(
       ).toBe("t");
       query("postgres", "DROP DATABASE rr_role_test");
       query("postgres", "DROP DATABASE rr_role_provider");
+      expect(
+        query(
+          "postgres",
+          `SELECT count(*) FROM pg_catalog.pg_database
+      WHERE datname IN ('rr_role_test','rr_role_provider')`,
+        ),
+      ).toBe("0");
       query("postgres", disposableReleaseMigrationRoleCleanupSql(oid));
       expect(
         query(

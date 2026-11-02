@@ -17,6 +17,12 @@ export class PrismaReviewStatisticsProjector implements ReviewStatisticsProjecto
     const event = normalizeStatisticsEvent(input),
       hash = statisticsEventHash(event);
     return this.prisma.$transaction(async (tx) => {
+      // Plain read on purpose. The worker role may only SELECT repository
+      // connections, and any row lock (FOR SHARE and friends) needs UPDATE
+      // privilege, which sent every settled event to the dead letter queue in
+      // production. The composite foreign key on the fact insert already blocks
+      // a concurrent delete, and the stored identity is checked against this
+      // read, so no extra lock is needed.
       const repository = await tx.$queryRaw<
         {
           id: string;
@@ -25,7 +31,7 @@ export class PrismaReviewStatisticsProjector implements ReviewStatisticsProjecto
           sourceBaseUrl: string;
           externalRepositoryId: string;
         }[]
-      >`SELECT "id", "scmRepositoryIdentityId", "provider", "sourceBaseUrl", "externalRepositoryId" FROM "RepositoryConnection" WHERE "id"=${event.repositoryConnectionId} AND "workspaceId"=${event.workspaceId} FOR SHARE`;
+      >`SELECT "id", "scmRepositoryIdentityId", "provider", "sourceBaseUrl", "externalRepositoryId" FROM "RepositoryConnection" WHERE "id"=${event.repositoryConnectionId} AND "workspaceId"=${event.workspaceId}`;
       if (!repository[0]) {
         const exists = await tx.$queryRaw<
           { id: string }[]

@@ -176,6 +176,9 @@ export type ActionSessionClaims = {
   readonly githubRunAttempt: string;
   readonly eventName: (typeof allowedActionEvents)[number];
   readonly workflowPath?: string;
+  /** Signed reusable source facts; finite contextual profiles require an exact immutable match. */
+  readonly jobWorkflowRef?: string;
+  readonly jobWorkflowSha?: string;
   readonly reviewKind?: "normal" | "conflict-head";
   readonly conflictDispatchId?: string;
   readonly pullRequestNumber?: number;

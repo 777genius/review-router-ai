@@ -339,7 +339,7 @@ async function saveReviewPolicyWrites(
   mode: Readonly<{ requireProvider: boolean }>,
 ): Promise<readonly SavedReviewPolicy[]> {
   const workspaceId = input.workspaceId;
-  const writes = planWrites(workspaceId, input.writes);
+  let writes = planWrites(workspaceId, input.writes);
   await acquireCurrentScopeGuards(
     tx,
     writes.map((write) => ({ ...write.target, mode: "exclusive" as const })),
@@ -364,12 +364,33 @@ async function saveReviewPolicyWrites(
     workspaceId,
     targetKey: workspaceKey,
   });
+  if (
+    input.expectedWorkspaceVersion !== undefined &&
+    (storedWorkspaceHead?.version ?? null) !== input.expectedWorkspaceVersion
+  )
+    throw new WriteConflict();
   const workspaceWrite = writes.find(
     (write) => write.target.scope === "workspace",
   );
   const storedWorkspace = storedWorkspaceHead
     ? parseStoredReviewPolicy("workspace", storedWorkspaceHead)
     : null;
+  // A generic workspace save may omit the Memory form's setting. Preserve
+  // it under the same workspace write lock, before materialization and CAS.
+  if (storedWorkspace?.memory !== undefined) {
+    writes = writes.map((write) =>
+      write.target.scope === "workspace" &&
+      (!("memory" in write.policy) || write.policy.memory === undefined)
+        ? {
+            ...write,
+            policy: {
+              ...write.policy,
+              memory: storedWorkspace.memory,
+            } as WorkspaceReviewPolicy,
+          }
+        : write,
+    );
+  }
   if (!workspaceWrite && !storedWorkspace) {
     if (storedWorkspaceHead) throw new Error("review_policy_resave_required");
     // The caller writes the workspace document in the same batch and rereads.
@@ -394,8 +415,24 @@ async function saveReviewPolicyWrites(
         new Set(writes.map((write) => write.targetKey)),
       )
     : [];
-  const draftedWorkspace = (workspaceWrite?.policy ??
-    storedWorkspace) as WorkspaceReviewPolicy;
+  const draftedWorkspace = (writes.find(
+    (write) => write.target.scope === "workspace",
+  )?.policy ?? storedWorkspace) as WorkspaceReviewPolicy;
+  // Workspace memory settings require current admin authority even when the
+  // provider selection stays unchanged. The workspace/member locks above hold
+  // this decision through the policy write and its version CAS.
+  if (
+    workspaceWrite &&
+    (draftedWorkspace.memory !== undefined ||
+      storedWorkspace?.memory !== undefined) &&
+    authority &&
+    lockedAuthority
+  )
+    authority.authorize({
+      ...lockedAuthority,
+      target: workspaceWrite.target,
+      profiles: [],
+    });
   // Each write's effective selections, still naming drafts by draft ID.
   const selected = writes.map(
     (write) =>
@@ -545,16 +582,27 @@ async function saveReviewPolicyWrites(
   for (const descendant of descendants) {
     const policy = parseStoredReviewPolicy("repository", descendant.head);
     if (!policy) continue;
-    resolveEffectiveReviewPolicy({
-      target: {
-        scope: "repository",
-        workspaceId,
-        repositoryId: descendant.repositoryId,
-      },
-      workspace: nextWorkspace,
-      repository: policy,
-      profiles,
-    });
+    try {
+      resolveEffectiveReviewPolicy({
+        target: {
+          scope: "repository",
+          workspaceId,
+          repositoryId: descendant.repositoryId,
+        },
+        workspace: nextWorkspace,
+        repository: policy,
+        profiles,
+      });
+    } catch (error) {
+      if (
+        error instanceof ReviewPolicyMaterializationError &&
+        error.code === "review_execution_limits_incompatible"
+      )
+        throw new Error("review_inherited_execution_limits_incompatible", {
+          cause: error,
+        });
+      throw error;
+    }
   }
   // Single-document saves promise a usable configuration.
   if (mode.requireProvider && effective.some(({ resolved }) => !resolved))
@@ -636,7 +684,7 @@ async function saveReviewPolicyWrites(
       select: { version: true, schemaVersion: true, policyJson: true },
     });
     savedHeads.set(write.targetKey, head);
-    saved.push({
+    const savedPolicy: SavedReviewPolicy = {
       target: write.target,
       version,
       configuration: resolved
@@ -649,7 +697,8 @@ async function saveReviewPolicyWrites(
               write.target.scope === "repository" ? version : null,
           })
         : null,
-    });
+    };
+    saved.push(savedPolicy);
     if (input.audit && !write.implicit)
       await recordAuditEvent(
         {
@@ -663,6 +712,9 @@ async function saveReviewPolicyWrites(
               : workspaceId,
           metadata: {
             ...input.audit.metadata,
+            ...input.audit.metadataForSavedConfiguration?.(
+              savedPolicy.configuration,
+            ),
             version,
             providerSelected: resolved !== null,
           },

@@ -1,0 +1,39 @@
+# Attach the web process and dedicated scan worker to this private network. No host ports.
+services:
+  skill-scanner:
+    build: .
+    image: reviewrouter-skill-scanner:local
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    pids_limit: 64
+    cpus: 1
+    tmpfs:
+      - /scan:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=0700
+    environment:
+      SKILL_SCANNER_TOKEN: ${REVIEW_ROUTER_SKILL_SCANNER_TOKEN:?Required private scanner token}
+      SKILL_SCANNER_EGRESS_PROXY: http://skill-scanner-egress:8082
+      SKILL_SCANNER_LLM_URL: ${SKILL_SCANNER_LLM_URL:-}
+      SKILL_SCANNER_LLM_MODEL: ${SKILL_SCANNER_LLM_MODEL:-}
+      SKILL_SCANNER_LLM_KEY: ${SKILL_SCANNER_LLM_KEY:-}
+    networks: [skill-scan-private]
+    depends_on: [skill-scanner-egress]
+  skill-scanner-egress:
+    image: reviewrouter-skill-scanner:local
+    entrypoint: [/venv/bin/python, -I, /app/egress.py]
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 16
+    cpus: 0.25
+    networks: [skill-scan-private, skill-scan-egress]
+networks:
+  skill-scan-private:
+    internal: true
+  skill-scan-egress: {}

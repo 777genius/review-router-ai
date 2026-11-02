@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { reviewerPlanDescriptorDigest } from "../packages/shared/src/review-reviewer-plan";
 import {
   assertFullCommitSha,
   buildHandoffManifest,
@@ -35,6 +36,57 @@ const capabilityGolden = JSON.parse(
 };
 
 describe("review Action v2 release manifests", () => {
+  it("binds reviewer-plan compatibility through manifest and registration only with its canonical parser", () => {
+    const reviewerPlanProfile = {
+      planVersion: 1,
+      descriptorDigest: reviewerPlanDescriptorDigest,
+    };
+    const generated = JSON.parse(fixture("contract-source/manifest.json"));
+    expect(
+      parseProtocolGenerationManifest(
+        JSON.stringify({ ...generated, reviewerPlanProfile }),
+      ).reviewerPlanProfile,
+    ).toEqual(reviewerPlanProfile);
+    const legacy = parseReleaseManifest(fixture("expected-release.json"));
+    const oldHandoff = parseHandoffManifest(fixture("expected-handoff.json"));
+    expect(() =>
+      buildReleaseManifest({
+        ...legacy,
+        handoffManifest: oldHandoff,
+        reviewerPlanProfile,
+      }),
+    ).toThrow("no bound canonical parser");
+    const handoff = {
+      ...oldHandoff,
+      generatedFileDigests: {
+        ...oldHandoff.generatedFileDigests,
+        "review-reviewer-plan.ts": "a".repeat(64),
+      },
+    };
+    const release = buildReleaseManifest({
+      ...legacy,
+      handoffManifest: handoff,
+      handoffManifestDigest: sha256Digest(canonicalJson(handoff)),
+      reviewerPlanProfile,
+    });
+    expect(
+      parseReleaseManifest(canonicalJson(release)).reviewerPlanProfile,
+    ).toEqual(reviewerPlanProfile);
+    expect(
+      buildReleaseRegistrationCandidateFields(release).reviewerPlanProfile,
+    ).toEqual(reviewerPlanProfile);
+    for (const invalid of [
+      null,
+      { ...reviewerPlanProfile, planVersion: 2 },
+      { ...reviewerPlanProfile, enabled: true },
+      { ...reviewerPlanProfile, descriptorDigest: `sha256:${"0".repeat(64)}` },
+    ])
+      expect(() =>
+        parseProtocolGenerationManifest(
+          JSON.stringify({ ...generated, reviewerPlanProfile: invalid }),
+        ),
+      ).toThrow();
+  });
   it("generates byte-stable handoff and release fixtures", () => {
     const generation = parseProtocolGenerationManifest(
       fixture("contract-source/manifest.json"),

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
+import { accountModelCatalogResponseBytes } from "@reviewrouter/features-provider-accounts/composition";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import * as composition from "./personal-account-composition";
@@ -153,7 +154,7 @@ it.each(["ORIGIN", "TOKEN"] as const)(
       origin: "https://personal.example.test",
       token: "dedicated-consumer-token",
       timeoutMs: 10000,
-      responseBytes: 65536,
+      responseBytes: accountModelCatalogResponseBytes,
     });
     expect(h.control.profiles).not.toHaveBeenCalled();
   },
@@ -313,6 +314,34 @@ it("projects enabled subscription capabilities into the existing personal compos
   );
   expect(h.capabilities).toHaveBeenCalledTimes(1);
   expect(h.control.profiles).not.toHaveBeenCalled();
+  expect(h.control.operation).not.toHaveBeenCalled();
+});
+it("applies qualified model settings to existing API-key profiles as well as subscriptions", async () => {
+  h.subscriptionProfileIds = [];
+  const capability = {
+    ...glmCapability,
+    profileId: "profile",
+    provider: { identity: "mimo", label: "MiMo" },
+    modelIds: ["qualified-model"],
+    models: [{ ...glmCapability.models[0]!, modelId: "qualified-model" }],
+  };
+  h.capabilities.mockResolvedValue({
+    contract: "provider-connections/v1",
+    capabilities: [capability],
+  });
+  const service = (await composition.productionPersonalAccounts())!;
+  expect(await service.reviewProfiles("org")).toMatchObject([
+    {
+      id: "profile",
+      models: ["qualified-model"],
+      connection: {
+        provider: "mimo",
+        modelSettings: [{ modelId: "qualified-model", reasoning: null }],
+      },
+    },
+  ]);
+  expect(h.capabilities).toHaveBeenCalledOnce();
+  expect(h.control.get).not.toHaveBeenCalled();
   expect(h.control.operation).not.toHaveBeenCalled();
 });
 it("revalidates the current actor after the awaited capability read", async () => {

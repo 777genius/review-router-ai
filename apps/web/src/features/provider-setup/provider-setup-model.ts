@@ -1,4 +1,5 @@
 import type { ProviderIdentity } from "./provider-identity";
+import type { SetupProviderId } from "./setup-provider";
 import {
   decideProviderManagement,
   type ProviderManagementActor,
@@ -18,7 +19,6 @@ import {
   apiKeyProviderForAuthMode,
   getApiKeyProvider,
   type ProviderAuthMode,
-  type ApiKeyProviderId,
 } from "@reviewrouter/features-review-providers";
 
 /**
@@ -106,6 +106,12 @@ export type ProviderSetupRepositoryView = Readonly<{
   source: "repository" | "workspace" | "none";
   /** Its own selection, when it has one. */
   selection: ReviewProviderSelection | null;
+  selections?: readonly ReviewProviderSelection[];
+  version?: number | null;
+  execution?: Readonly<{
+    providerMaxParallel?: number | undefined;
+    inlineMinAgreement?: number | undefined;
+  }>;
   /** Going back to the workspace default. */
   useDefault: ProviderSetupDecision;
 }>;
@@ -115,11 +121,17 @@ export type ProviderSetupView = Readonly<{
   target: ProviderSetupTarget["kind"];
   repositories: readonly ProviderSetupRepositoryView[];
   defaultSelection: ReviewProviderSelection | null;
+  defaultSelections?: readonly ReviewProviderSelection[];
+  workspaceVersion?: number | null;
+  execution?: Readonly<{
+    providerMaxParallel: number;
+    inlineMinAgreement: number;
+  }>;
   profiles: readonly ProviderProfileOption[];
   sources: readonly ProviderSourceOption[];
   viewerIsAdmin: boolean;
   /** Enrollment capabilities, independent of whether an account exists yet. */
-  gatewayApiKeyProviders?: readonly ApiKeyProviderId[];
+  gatewaySetupProviders?: readonly SetupProviderId[];
 }>;
 
 /** Verified facts of one dialog read. */
@@ -142,11 +154,23 @@ export type ProviderSetupFacts = Readonly<{
     rotatingRepositoryId: string | null;
   }>[];
   defaultSelection: ReviewProviderSelection | null;
+  defaultSelections?: readonly ReviewProviderSelection[];
+  workspaceVersion?: number | null;
+  execution?: Readonly<{
+    providerMaxParallel: number;
+    inlineMinAgreement: number;
+  }>;
   repositories: readonly Readonly<{
     id: string;
     fullName: string;
     capability: ProviderRepositoryCapability | null;
     ownSelection: ReviewProviderSelection | null;
+    ownSelections?: readonly ReviewProviderSelection[];
+    version?: number | null;
+    execution?: Readonly<{
+      providerMaxParallel?: number | undefined;
+      inlineMinAgreement?: number | undefined;
+    }>;
     rotatingAvailable: boolean;
   }>[];
   managedKeys: Readonly<
@@ -159,7 +183,7 @@ export type ProviderSetupFacts = Readonly<{
     >
   >;
   claudeCodeEnabled: boolean;
-  gatewayApiKeyProviders?: readonly ApiKeyProviderId[];
+  gatewaySetupProviders?: readonly SetupProviderId[];
 }>;
 
 const allowed: ProviderSetupDecision = { allowed: true };
@@ -239,7 +263,10 @@ export function buildProviderSetupView(
         credentialKind: profile.credentialKind,
         gatewayBindingId: profile.gatewayBindingId,
         gatewayProfileRef: profile.gatewayProfileRef ?? null,
-        isDefault: facts.defaultSelection?.profileId === profile.id,
+        isDefault: (
+          facts.defaultSelections ??
+          (facts.defaultSelection ? [facts.defaultSelection] : [])
+        ).some((selection) => selection.profileId === profile.id),
       };
       if (facts.target === "workspace")
         return [
@@ -413,17 +440,30 @@ export function buildProviderSetupView(
           ? "workspace"
           : "none",
       selection: repository.ownSelection,
+      selections:
+        repository.ownSelections ??
+        (repository.ownSelection ? [repository.ownSelection] : []),
+      version: repository.version ?? null,
+      execution: repository.execution ?? {},
       useDefault: decide({
         kind: "clear_selection",
         repository: repositoryFacts(repository),
       }),
     })),
     defaultSelection: facts.defaultSelection,
+    defaultSelections:
+      facts.defaultSelections ??
+      (facts.defaultSelection ? [facts.defaultSelection] : []),
+    workspaceVersion: facts.workspaceVersion ?? null,
+    execution: facts.execution ?? {
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    },
     profiles,
     sources,
     viewerIsAdmin: admin,
-    ...(facts.gatewayApiKeyProviders
-      ? { gatewayApiKeyProviders: facts.gatewayApiKeyProviders }
+    ...(facts.gatewaySetupProviders
+      ? { gatewaySetupProviders: facts.gatewaySetupProviders }
       : {}),
   };
 }

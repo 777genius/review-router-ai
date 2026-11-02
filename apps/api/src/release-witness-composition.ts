@@ -41,6 +41,8 @@ import {
 } from "./release-witness-adapters.js";
 import { registerReleaseWitnessRoutes } from "./release-witness-routes.js";
 import { canonicalActivationCatalogPolicyDigests } from "@reviewrouter/features-release-rollout";
+import type { ResolutionWriterFleetObservationPort } from "@reviewrouter/features-review-publishing/v2";
+import { AttestResolutionWriterQualification } from "./release-witness-resolution-writers.js";
 
 export async function createReleaseWitnessApp(input: {
   readonly witnessPrisma: PrismaClient;
@@ -72,6 +74,8 @@ export async function createReleaseWitnessApp(input: {
   readonly trustedBindingPolicy?: TrustedReleaseWitnessPolicy;
   readonly signingKeyId?: string;
   readonly signingPrivateKeyPem?: string;
+  /** Supplied by the actual host deployment observer; absence keeps activation unavailable. */
+  readonly resolutionWriterObservations?: ResolutionWriterFleetObservationPort;
 }): Promise<FastifyInstance> {
   if (!/^[a-f0-9]{64}$/u.test(input.triggerTokenSha256))
     throw new Error("release_witness_credential_hash_invalid");
@@ -259,6 +263,23 @@ export async function createReleaseWitnessApp(input: {
   await registerReleaseWitnessRoutes(app, {
     observeCleanup,
     ...(attestBinding ? { attestBinding } : {}),
+    ...(input.resolutionWriterObservations &&
+    input.signingKeyId &&
+    input.signingPrivateKeyPem
+      ? {
+          attestResolutionWriters: new AttestResolutionWriterQualification(
+            input.resolutionWriterObservations,
+            new Ed25519ReleaseWitnessSignerAdapter(
+              input.signingKeyId,
+              input.signingPrivateKeyPem,
+            ),
+            {
+              assertOrdinary: assertAuthorityReady,
+              assertForceNew: forceNewAuthority,
+            },
+          ),
+        }
+      : {}),
     triggerTokenSha256: input.triggerTokenSha256,
   });
   return app;

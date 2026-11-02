@@ -62,7 +62,7 @@ export function DashboardShell({
     workspaces.length > 0
       ? selectDashboardWorkspace(
           workspaces,
-          params.workspace ?? "",
+          dashboardWorkspaceParam(pathname, params),
           params.installation_id ?? "",
         )
       : null;
@@ -77,7 +77,7 @@ export function DashboardShell({
     pendingParams && workspaces.length > 0
       ? selectDashboardWorkspace(
           workspaces,
-          pendingParams.workspace ?? "",
+          dashboardWorkspaceParam(target?.pathname ?? pathname, pendingParams),
           pendingParams.installation_id ?? "",
         )
       : null;
@@ -129,6 +129,7 @@ export function DashboardShell({
               nav={
                 <DashboardSectionNav
                   selectedSection={selectedSection}
+                  workspaceId={selectedWorkspace.workspace.id}
                   workspaceKey={dashboardWorkspaceUrlKey(
                     selectedWorkspace.workspace,
                     workspaces,
@@ -215,12 +216,26 @@ function firstValueParams(
   return params;
 }
 
+function dashboardWorkspaceParam(
+  pathname: string,
+  params: Record<string, string>,
+): string {
+  return pathname === "/dashboard/context-tools"
+    ? (params.workspaceId ?? params.workspace ?? "")
+    : (params.workspace ?? "");
+}
+
 function dashboardSection(pathname: string, params: Record<string, string>) {
+  if (pathname === "/dashboard/context-tools") return "context-tools" as const;
   return pathname === "/dashboard/setup"
     ? ("setup" as const)
     : resolveDashboardSection(params);
 }
 
 function isDashboardPath(pathname: string): boolean {
-  return pathname === "/dashboard" || pathname === "/dashboard/setup";
+  return [
+    "/dashboard",
+    "/dashboard/setup",
+    "/dashboard/context-tools",
+  ].includes(pathname);
 }

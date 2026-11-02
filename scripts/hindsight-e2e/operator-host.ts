@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { lstatSync, readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 
 export type DockerExecutorInspection = {
   Id: string;
@@ -62,6 +64,7 @@ export function nativeSqlArguments(
   imageDigest: string,
   steps: readonly NativeSqlStep[],
   readOnly = true,
+  environmentFile?: string,
 ): string[] {
   const dsn = new URL(apiDsn);
   assert(dsn.protocol === "postgresql:" || dsn.protocol === "postgres:");
@@ -71,6 +74,24 @@ export function nativeSqlArguments(
     "application_name",
     readOnly ? "rr-native-cleanup-read-observer" : "rr-native-provenance-admin",
   );
+  if (environmentFile !== undefined) {
+    assert(
+      isAbsolute(environmentFile),
+      "Native SQL environment path must be absolute",
+    );
+    const metadata = lstatSync(environmentFile);
+    assert(
+      metadata.isFile() &&
+        metadata.uid === process.getuid?.() &&
+        (metadata.mode & 0o077) === 0,
+      "Native SQL environment must be an operator-owned private regular file",
+    );
+    assert(
+      readFileSync(environmentFile, "utf8") ===
+        `HINDSIGHT_API_DATABASE_URL=${dsn}\n`,
+      "Native SQL environment differs from the bound database endpoint",
+    );
+  }
   const python =
     'import asyncio,json,os,sys; import asyncpg\nasync def main():\n c=await asyncpg.connect(os.environ["HINDSIGHT_API_DATABASE_URL"],timeout=10)\n try:\n  async with c.transaction(readonly=sys.argv[2]=="true"):\n   steps=json.loads(sys.argv[1])\n   for step in steps[:-1]: await c.execute(step["statement"],*step.get("parameters",[]))\n   step=steps[-1]\n   value=await c.fetchval(step["statement"],*step.get("parameters",[]))\n   print("" if value is None else value)\n finally: await c.close()\nasyncio.run(main())';
   return [
@@ -78,8 +99,9 @@ export function nativeSqlArguments(
     "--rm",
     "--network",
     "host",
-    "--env",
-    `HINDSIGHT_API_DATABASE_URL=${dsn}`,
+    ...(environmentFile === undefined
+      ? ["--env", `HINDSIGHT_API_DATABASE_URL=${dsn}`]
+      : ["--env-file", environmentFile]),
     imageDigest,
     "python",
     "-c",

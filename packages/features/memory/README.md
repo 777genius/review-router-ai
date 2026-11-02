@@ -11,6 +11,28 @@ never reconstructed from Router's database.
 and the [private Hindsight runbook](../../../deploy/hindsight/README.md) define
 ownership, qualification and activation requirements.
 
+## Default enablement
+
+Web, API and worker automatically select Hindsight when its private URL or API
+key is configured and `REVIEW_ROUTER_MEMORY_PROVIDER` is unset or blank. The
+complete URL, key, namespace and exact qualified profile are still required;
+partial configuration fails validation. Empty development/build environments
+start without memory. Setting `REVIEW_ROUTER_MEMORY_PROVIDER=disabled` remains
+an explicit opt-out, including for deployments that previously set this value.
+
+The service flag and eligible workspace policy already default to enabled.
+`REVIEW_ROUTER_MEMORY_ENABLED=false` pauses new usage while retaining the
+configured provider for cleanup. Runtime retrieval failures still produce an
+empty memory bundle without blocking ordinary reviews. Use the same provider,
+namespace, generation and profile on all three hosts.
+
+The environment templates expose this same configuration. Self-hosted first
+startup runs [setup-memory](../../../deploy/hindsight/BOOTSTRAP.md) before the
+ordinary Compose command to provision and qualify the native backend and merge
+its private settings. Templates alone do not provision it. Native activation
+and existing-data disposition remain subject to the private runbook above.
+Explicit deployment opt-outs are preserved.
+
 ## Public boundary
 
 `@reviewrouter/features-memory` exports domain/application contracts, policy,
@@ -95,7 +117,7 @@ exact replay.
 
 `.github/workflows/memory-projections.yml` runs **Memory authority and delivery**:
 real PostgreSQL17 command authority, API admission races, historical execution
-lease contracts, and persisted outbox-to-worker delivery. All four suites must
+lease contracts, and persisted outbox-to-worker delivery. All five suites must
 execute with zero skipped tests. Native Docker/image qualification is separate;
 unit tests and source inspection do not establish a native-image runtime pass.
 
@@ -104,3 +126,43 @@ worker and obsolete UI have been removed. Historical migrations and old data and
 receipt tables remain for explicit migration, remote cleanup and audit review.
 They are not a runtime content source. A new provider generation does not prove
 old remote data was physically deleted.
+
+## Conversational learning and confirmation settings
+
+The current [owner-requested contract](../../../ai-docs/plans/2026-10-30-full-thread-memory-settings.md)
+uses the complete checked inline thread to interpret the selected maintainer's
+message. A clear contextual endorsement may produce an observation without a
+Save command. The captured primary review account through Gateway owns extraction under [ADR034](../../../ai-docs/decisions/034-selected-account-memory-inference.md); the existing conversation model
+owns natural-language mutation intent. Ordinary contributors and bots remain
+context, not actors authorized to change memory. Current-source, audience, exact
+target/revision and replay checks still apply. The selected-account extractor requires a fresh
+`transient-checked-inline-gateway-full-thread-v1` capability; source-only Gateway
+or native preview proof cannot activate it.
+
+Memory -> Settings contains **Require confirmation for memory changes**, shared
+by every repository in the workspace. Its default is off. Workspace owners/admins
+manage the setting in the existing versioned workspace configuration. Automatic
+mode admits permitted AI changes without another reply. Confirmation mode keeps
+extraction previews read-only and renders exact commands for proposed observations
+or mutations. A maintainer can post one as a separate reply; altered text, kind,
+target or revision cannot authorize that command. English and Russian authored
+forms are supported, including `Remember observation: IDs keep leading zeroes.`,
+`Запомни правило: Use pnpm.`, `Update mem_example@2: Use Vitest.` and
+`Забудь mem_example@2`.
+
+New AI writes recheck the setting at their final transaction. Changing it does
+not erase existing knowledge or cancel already-admitted external operations.
+Manual dashboard/slash commands and necessary source revocation retain their
+existing authority. A confirmed observation is a new human-authored source, not
+an implicit activation of an earlier automatic cohort.
+
+Automatic records retain only a bodyless version vector of context messages.
+Changed/deleted evidence makes derived knowledge inapplicable; appending a new
+message or the bot's own reply does not. An explicit maintainer-requested save or
+update retains the existing maintained-knowledge contract: it approves the frozen
+statement, so a later edit to the discussion does not silently undo that decision.
+Plain factual agreement must not be misclassified as such a mutation; the semantic
+evals distinguish these intents. Raw transcripts stay transient. See the
+[deployment task](../../../ai-docs/deployments/2026-10-29-conversational-memory.md)
+for actual-model and installed-App qualification; fixture passes do not establish
+semantic accuracy or activate the feature.

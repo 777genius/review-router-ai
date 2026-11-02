@@ -41,6 +41,7 @@ function facts(
     providers: rotating,
     requiredWorkflowRequirement: null,
     installedWorkflowRequirement: null,
+    runtimeCompatibility: "compatible",
     setupStatus: "configured",
     setupNeedsAttention: false,
     healthStatus: "healthy",
@@ -55,12 +56,14 @@ function facts(
 }
 
 const ready = {
+  runtimeCompatibility: "compatible",
   healthStatus: "healthy",
   workflowCurrent: true,
   workflowUpdateRequired: false,
   step: "ready",
 } as const satisfies EffectiveProviderReadiness;
 const providerMissing = {
+  runtimeCompatibility: "compatible",
   healthStatus: "provider_needs_setup",
   workflowCurrent: true,
   workflowUpdateRequired: false,
@@ -68,6 +71,22 @@ const providerMissing = {
 } as const satisfies EffectiveProviderReadiness;
 
 describe("resolveEffectiveProviderReadiness", () => {
+  it.each(["unknown", "update_required"] as const)(
+    "%s runtime cannot be made ready by an old healthy report",
+    (runtimeCompatibility) => {
+      const result = resolveEffectiveProviderReadiness(
+        facts({
+          runtimeCompatibility,
+          providerSetup: [row("codex", rotating[0].authMode)],
+        }),
+      );
+      expect(result).toMatchObject({
+        runtimeCompatibility,
+        workflowCurrent: false,
+        step: "setup_pr",
+      });
+    },
+  );
   it.each<readonly [string, Partial<EffectiveProviderReadinessFacts>, object]>([
     [
       "no effective configuration keeps a healthy report from counting",

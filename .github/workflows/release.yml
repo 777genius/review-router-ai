@@ -27,7 +27,7 @@ concurrency:
 jobs:
   trust-bootstrap:
     name: verify-protected-main-and-release-environment
-    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RELEASE_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       actions: read
@@ -104,7 +104,7 @@ jobs:
     name: validate-and-prepare-release
     needs: trust-bootstrap
     environment: production-release
-    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RELEASE_LINUX_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: read
       contents: read
@@ -328,7 +328,7 @@ jobs:
     name: publish-hosted-runtime-image
     needs: [trust-bootstrap, prepare-release]
     environment: production-release
-    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RELEASE_LINUX_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: read
       contents: read
@@ -424,7 +424,7 @@ jobs:
     name: attest-hosted-runtime-identity
     needs: [trust-bootstrap, prepare-release, publish-runtime]
     environment: production-release
-    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RELEASE_LINUX_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: read
       attestations: write
@@ -444,7 +444,7 @@ jobs:
     name: publish-tags-assets-and-release
     needs: [trust-bootstrap, prepare-release, publish-runtime, attest-runtime]
     environment: production-release
-    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RELEASE_LINUX_RUNNER || 'ubuntu-latest' }}
     permissions:
       actions: read
       contents: write

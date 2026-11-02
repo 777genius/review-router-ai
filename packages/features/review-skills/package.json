@@ -18,15 +18,23 @@
       "types": "./src/testing/index.ts",
       "production": "./dist/testing/index.js",
       "default": "./src/testing/index.ts"
+    },
+    "./portable": {
+      "types": "./src/portable.ts",
+      "production": "./dist/portable.js",
+      "default": "./src/portable.ts"
     }
   },
   "dependencies": {
     "@prisma/client": "7.8.0",
     "@reviewrouter/shared": "workspace:*",
     "@get-modular/core": "0.7.0",
-    "@get-modular/assembly": "0.7.0"
+    "@get-modular/assembly": "0.7.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@reviewrouter/features-outbox": "workspace:*",
+    "@reviewrouter/features-rate-limits": "workspace:*",
     "@get-modular/conformance": "0.5.0",
     "@get-modular/resources": "0.2.1",
     "@prisma/adapter-pg": "7.8.0",

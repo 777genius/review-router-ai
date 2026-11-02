@@ -336,6 +336,7 @@ describe("HostedCodexGrantIssuer", () => {
       runtimeEnv: {
         REVIEW_PROVIDERS: "codex/gpt-5.5",
         REVIEW_AUTH_MODE: "codex_subscription_oauth_hosted_pool",
+        REVIEW_REQUEST_ID: "review-request-1",
       },
       commentToken: "github-comment-token",
       commentTokenRefreshCapability: "r".repeat(43),

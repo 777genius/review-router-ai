@@ -55,9 +55,14 @@ export async function chooseSetupOption(
 }
 
 export async function expectNoHorizontalOverflow(page: Page) {
-  await expect
-    .poll(() =>
-      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-    )
-    .toBe(true);
+  // Setup events refresh the real dashboard and can replace its execution
+  // context during this read. Retry only the layout assertion, never an action;
+  // persistent overflow must still fail within the same bounded wait.
+  await expect(async () => {
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }).toPass({ timeout: 5000 });
 }

@@ -5,6 +5,8 @@
     "skipLibCheck": false
   },
   "include": [
+    "packages/features/review-history/src/**/*.ts",
+    "scripts/review-history-tooling/**/*.ts",
     "packages/features/review-providers/src/composition/**/*.ts",
     "packages/features/provider-usage/src/composition/**/*.ts",
     "packages/features/provider-accounts/src/account-limits/composition*.ts",

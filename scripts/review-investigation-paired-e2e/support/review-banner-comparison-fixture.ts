@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import type { FakeGitHubTransport } from "../../review-action-v2-production-e2e/support/fake-github.js";
+import { publishedReviewCommentTimestamps } from "./review-comment-fixture.js";
 
 /** Synthetic GitHub observations; mutations are issued by the real App gateway. */
 export function installComparisonThreadBoundary(github: FakeGitHubTransport) {
@@ -116,8 +117,7 @@ export function installComparisonThreadBoundary(github: FakeGitHubTransport) {
         viewerDidAuthor: true,
         author: { login: "reviewrouter-e2e[bot]", __typename: "Bot" },
         body: `<!-- reviewrouter:finding:v2:${lineageId} -->\n### Original unsafe return\n**Severity: major**\nThe unsafe return permits an incorrect runtime result.`,
-        createdAt: "2026-01-01T00:00:00Z",
-        updatedAt: "2026-01-01T00:00:00Z",
+        ...publishedReviewCommentTimestamps("2026-01-01T00:00:00Z"),
         path,
         line: 1,
         originalLine: 1,

@@ -82,7 +82,7 @@ describe("Providers list view", () => {
     ]);
     expect(row(view, "team").actions).toEqual({
       edit: denied("profile_creator_required"),
-      makeDefault: null,
+      makeDefault: denied("workspace_admin_required"),
       removeDefault: denied("workspace_admin_required"),
       remove: denied("profile_creator_required"),
       replaceKey: null,
@@ -115,7 +115,7 @@ describe("Providers list view", () => {
     expect(view.add).toEqual({ allowed: true });
     expect(row(view, "team").actions).toEqual({
       edit: { allowed: true },
-      makeDefault: null,
+      makeDefault: { allowed: true },
       removeDefault: { allowed: true },
       remove: denied("provider_in_use"),
       replaceKey: null,

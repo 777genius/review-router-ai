@@ -35,7 +35,7 @@ describe("complete memory runtime composition", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("constructs the disabled default without native or database I/O", async () => {
+  it("starts without native or database I/O when no backend is configured", async () => {
     const runtime = await createMemoryKnowledgeRuntime({ prisma, env: {} });
     expect(runtime.enabled).toBe(false);
     expect(runtime.generation).toBe("memory-v1");
@@ -44,6 +44,25 @@ describe("complete memory runtime composition", () => {
     expect(query).not.toHaveBeenCalled();
     expect(disconnect).not.toHaveBeenCalled();
   });
+
+  it.each([undefined, "false"])(
+    "automatically composes the configured backend with service override=%s",
+    async (enabled) => {
+      const runtime = await createMemoryKnowledgeRuntime({
+        prisma,
+        env: {
+          ...hindsightEnv,
+          REVIEW_ROUTER_MEMORY_PROVIDER: undefined,
+          REVIEW_ROUTER_MEMORY_ENABLED: enabled,
+        },
+      });
+      expect(runtime.enabled).toBe(enabled !== "false");
+      expect(runtime.providerProfileVersion).toBe(HINDSIGHT_MEMORY_PROFILE);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(query).not.toHaveBeenCalled();
+      expect(disconnect).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["true", "false"])(
     "composes the selected provider without I/O when service enabled=%s",

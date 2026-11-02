@@ -34,6 +34,7 @@ type IssueRow = RepositoryMetadata & {
   title: string;
   severity: StatisticsSeverity;
   repositoryConnectionId: string;
+  scmRepositoryIdentityId: string;
   pullRequestNumber: number;
   caughtAt: Date;
 };
@@ -312,7 +313,7 @@ export class PrismaReviewStatisticsReader implements ReviewStatisticsReader {
             ? Prisma.empty
             : Prisma.sql`AND (f."caughtAt",f."id")<(${new Date(cursor.at)},${cursor.id})`;
         const rows = await tx.$queryRaw<IssueRow[]>(
-          Prisma.sql`SELECT f."id",f."title",f."severity",f."repositoryConnectionId",f."pullRequestNumber",f."caughtAt",r."fullName",r."provider",r."sourceBaseUrl" FROM "ReviewStatisticsIssueFact" f JOIN "RepositoryConnection" r ON r."id"=f."repositoryConnectionId" AND r."workspaceId"=f."workspaceId" WHERE f."workspaceId"=${input.workspaceId} AND f."caughtAt">=${new Date(input.from)} AND f."caughtAt"<${new Date(input.to)} ${severityClause(input.severity)} ${repositoryFilter} ${continuation} ORDER BY f."caughtAt" DESC,f."id" DESC LIMIT 26`,
+          Prisma.sql`SELECT f."id",f."title",f."severity",f."repositoryConnectionId",f."scmRepositoryIdentityId",f."pullRequestNumber",f."caughtAt",r."fullName",r."provider",r."sourceBaseUrl" FROM "ReviewStatisticsIssueFact" f JOIN "RepositoryConnection" r ON r."id"=f."repositoryConnectionId" AND r."workspaceId"=f."workspaceId" WHERE f."workspaceId"=${input.workspaceId} AND f."caughtAt">=${new Date(input.from)} AND f."caughtAt"<${new Date(input.to)} ${severityClause(input.severity)} ${repositoryFilter} ${continuation} ORDER BY f."caughtAt" DESC,f."id" DESC LIMIT 26`,
         );
         const page = rows.slice(0, 25),
           last = page.at(-1);
@@ -323,6 +324,7 @@ export class PrismaReviewStatisticsReader implements ReviewStatisticsReader {
             severity: r.severity,
             repositoryId: r.repositoryConnectionId,
             repositoryFullName: r.fullName,
+            scmRepositoryIdentityId: r.scmRepositoryIdentityId,
             pullRequestNumber: r.pullRequestNumber,
             pullRequestUrl: repositoryUrl(r, r.pullRequestNumber),
             caughtAt: r.caughtAt.toISOString(),

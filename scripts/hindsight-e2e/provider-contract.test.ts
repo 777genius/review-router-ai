@@ -466,6 +466,48 @@ test("configuration is local and rejects credential-bearing URLs and unqualified
   );
 });
 
+test("configured memory is enabled by default with explicit disable and strict incomplete-config errors", () => {
+  const env = {
+    REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE: HINDSIGHT_MEMORY_PROFILE,
+    REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: "http://native.test",
+    REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY: "synthetic-key",
+    REVIEW_ROUTER_MEMORY_NAMESPACE: "test",
+  };
+  for (const provider of [undefined, "", " ", "hindsight"]) {
+    const selected = parseMemoryProviderConfig({
+      ...env,
+      REVIEW_ROUTER_MEMORY_PROVIDER: provider,
+    });
+    assert.equal(selected.kind, "hindsight");
+  }
+  assert.deepEqual(
+    parseMemoryProviderConfig({
+      ...env,
+      REVIEW_ROUTER_MEMORY_PROVIDER: "disabled",
+    }),
+    { kind: "disabled", generation: "memory-v1" },
+  );
+  assert.equal(
+    parseMemoryProviderConfig({
+      ...env,
+      REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: " ",
+      REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY: "",
+    }).kind,
+    "disabled",
+  );
+  for (const [key, reason] of [
+    ["REVIEW_ROUTER_MEMORY_HINDSIGHT_URL", "url_invalid"],
+    ["REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY", "key_invalid"],
+    ["REVIEW_ROUTER_MEMORY_NAMESPACE", "namespace_invalid"],
+    ["REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE", "profile_unqualified"],
+  ] as const) {
+    assert.throws(
+      () => parseMemoryProviderConfig({ ...env, [key]: "" }),
+      new RegExp(`^Error: memory_provider_${reason}$`),
+    );
+  }
+});
+
 test("stable UUID recovery window is explicit, integer-bounded and restricted to the exact Hindsight profile", () => {
   const env = {
     REVIEW_ROUTER_MEMORY_PROVIDER: "hindsight",

@@ -2,7 +2,10 @@ import {
   MemoryKnowledgeError,
   type MemoryActor,
 } from "@reviewrouter/features-memory";
-import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import {
+  createPrismaAutomaticMemorySourceCurrent,
+  createMemoryKnowledgeRuntime,
+} from "@reviewrouter/features-memory/composition";
 import {
   PrismaMemoryKnowledgeAccess,
   PrismaMemoryPermission,
@@ -17,6 +20,7 @@ import type {
   MemoryDashboardMutation,
   MemoryScopeSelection,
 } from "../features/memory/application/memory-knowledge-view";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
 import {
   createGitHubAppInstallationOctokit,
   getDashboardSignedInActor,
@@ -45,6 +49,8 @@ async function productionMemoryDashboard(workspaceId: string) {
   const runtime = await createMemoryKnowledgeRuntime({
     prisma,
     env: process.env,
+    workspaceSettings: (workspaceId, transaction) =>
+      new PrismaWorkspaceMemorySettings(prisma).read(workspaceId, transaction),
   });
   const permissions = new PrismaMemoryPermission(prisma, {
     repositoryMaintainers: createPrismaMemoryRepositoryMaintainers({
@@ -66,7 +72,18 @@ async function productionMemoryDashboard(workspaceId: string) {
   const controller = createMemoryDashboardController({
     actor,
     access,
-    service: runtime.forAccess(access),
+    service: runtime.forAccess(
+      access,
+      createPrismaAutomaticMemorySourceCurrent({
+        prisma,
+        policy: runtime.policy,
+        env: process.env,
+        createClient: async (installationId) =>
+          createGitHubAppInstallationOctokit(
+            installationId,
+          ) as unknown as import("@reviewrouter/features-memory/composition").MemorySourceGitHubClient,
+      }),
+    ),
     store: runtime.store,
     generation: runtime.generation,
     providerProfileVersion: runtime.providerProfileVersion,

@@ -660,7 +660,7 @@ export class FetchHostedCodexStreamingRelay implements HostedCodexStreamingRelay
       readonly sourceState: "prepared" | "response_started";
     },
   ): Promise<string> {
-    if (!this.failoverEnabled)
+    if (!this.failoverEnabled || authorization.allowAccountFailover === false)
       throw new Error("hosted_codex_failover_disabled");
     const result = await failoverCurrentRelayRequestBeforeEffect(
       {

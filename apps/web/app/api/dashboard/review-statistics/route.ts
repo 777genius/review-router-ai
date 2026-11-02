@@ -15,11 +15,14 @@ export async function GET(request: NextRequest) {
       { status: 400, headers },
     );
   try {
-    const { report } = await loadStatisticsReport(
+    const { actorId, report } = await loadStatisticsReport(
       workspaceId,
       readStatisticsFilter(params),
     );
-    return NextResponse.json(report, { headers });
+    return NextResponse.json(
+      { scope: { actorId, workspaceId }, report },
+      { headers },
+    );
   } catch (error) {
     const status = statisticsErrorStatus(error);
     return NextResponse.json(

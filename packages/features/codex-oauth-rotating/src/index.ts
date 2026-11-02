@@ -5,5 +5,7 @@ export * from "./domain/workflow-source-attestation";
 export * from "./domain/provider-mutation-fence";
 export * from "./domain/provider-secret-namespace";
 export * from "./domain/provider-secret-transition-policy";
+export * from "./domain/runtime-migration";
+export * from "./domain/runtime-migration-workflow";
 export * from "./action/direct-fork-responses";
 export * from "./action/hosted-codex-relay";

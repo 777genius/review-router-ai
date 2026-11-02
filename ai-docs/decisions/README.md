@@ -4,6 +4,8 @@ Decision records capture important product and architecture choices.
 
 ## Index
 
+- [ADR-034: Selected-account memory inference and reproducible startup](./034-selected-account-memory-inference.md)
+
 - [ADR-001: SaaS as Control Plane Only in v1](./001-saas-control-plane-only.md)
 - [ADR-002: TypeScript Monorepo](./002-typescript-monorepo.md)
 - [ADR-003: Fastify + tRPC + Next.js](./003-fastify-trpc-next.md)
@@ -34,3 +36,5 @@ Decision records capture important product and architecture choices.
 - [ADR-028: Revision-Aware Review Evidence](./028-revision-aware-review-evidence.md)
 - [ADR-029: Opt-in Hosted Workspace Account Pool](./029-opt-in-hosted-workspace-account-pool.md)
 - [ADR-030: Consumer Module Standard Scope for the WEB Trust-Overlap Host Slice](./030-web-trust-host-consumer-module-standard-scope.md)
+- [ADR-032: Review History ownership and scoped composition](./032-review-history-scoped-composition.md)
+- [ADR-033: Checked conversational source processing and finite plain inference](./033-conversational-memory-source-processing.md)

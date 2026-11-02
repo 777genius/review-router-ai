@@ -32,11 +32,15 @@
     "@reviewrouter/platform-signed-capabilities": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
     "@octokit/app": "^16.1.2",
-    "@reviewrouter/features-sdk-growth-authority": "workspace:*"
+    "@reviewrouter/features-sdk-growth-authority": "workspace:*",
+    "@reviewrouter/features-review-skills": "workspace:*",
+    "@reviewrouter/features-review-history": "workspace:*"
   },
   "scripts": {
     "dev": "tsx watch src/worker.ts",
     "build": "node ../../scripts/local-checks/compiler-cli.ts --native -p tsconfig.build.json",
-    "typecheck": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json"
+    "typecheck": "node ../../scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.json",
+    "skills:dev": "tsx src/skill-scan-worker.ts",
+    "skills:start": "node --conditions=production dist/skill-scan-worker.js"
   }
 }

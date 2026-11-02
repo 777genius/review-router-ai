@@ -1,3 +1,4 @@
+import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import {
   validateReviewPublicationLifecycleVerification,
@@ -9,6 +10,16 @@ import {
   assertReviewRunCompanionDispatchEvidence,
 } from "./review-lifecycle-verification.js";
 import { createReviewRunGatewayModelSettingsReader } from "./review-run-gateway-model-settings.js";
+import type { ReviewModelDispatchApi } from "./review-model-dispatch.js";
+import { assertReviewModelDispatchEvidence } from "./review-model-dispatch-evidence.js";
+import { confirmOriginalHostedReviewBindingForCompletion } from "./review-run-hosted-binding.js";
+import { createHostedModelDispatchProofReconciler } from "./review-model-dispatch-hosted-proof.js";
+import {
+  createReviewRunHostedModelRoute,
+  type ReviewRunHostedModelRoute,
+} from "./review-run-hosted-model-route.js";
+import type { RegisterHostedCodexRelayRoutesDependencies } from "@reviewrouter/features-hosted-account-pool";
+import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
 import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import { createProviderUsageActionSessionIssuer } from "./provider-usage-action-session.js";
@@ -30,12 +41,16 @@ import {
 } from "@reviewrouter/features-review-context-tools";
 import { createContextIssueReader } from "./github/context-issue-read.js";
 import type { ContextToolsRunAccess } from "./review-context-tools.js";
-import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import {
+  accountModelCatalogResponseBytes,
+  readPersonalAccountSharingEnabled,
+} from "@reviewrouter/features-provider-accounts/composition";
 import { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 export { createTrustedProducerReleaseMaterializer } from "@reviewrouter/features-review-run-control/composition";
 import {
   createReviewRunGatewayCheckout,
   createReviewRunProviderApiCheckout,
+  createReviewRunModelRouteCheckout,
   type ReviewRunGatewayCheckout,
   type ReviewRunGatewayCheckoutTarget,
 } from "./review-run-gateway-checkout.js";
@@ -83,6 +98,7 @@ import {
   loadConfiguredInvestigationPrivateMaterial,
   NodeSha256InvestigationDigest,
   PrismaInvestigationStore,
+  type PrismaInvestigationStoreOptions,
 } from "@reviewrouter/features-review-investigations/composition";
 import {
   InvestigationRolloutCapability,
@@ -169,6 +185,8 @@ import {
   ResolveReviewSafetyPolicy,
   ReviewTaskKind,
   canonicalJson,
+  getPrimaryReviewRunReviewer,
+  getReviewRunReviewer,
   parseReviewRunRuntimeSnapshot,
   reviewRunGatewayOwnedIdentity,
   reviewInvestigationCapabilityV1,
@@ -330,9 +348,16 @@ export type ReviewActionV2ProductionRoutes = Readonly<{
     typeof createProviderUsageArtifactRecovery
   >;
   contextTools?: ContextToolsRunAccess;
+  /** Run-wide memory is shared by the captured reviewers; tool access remains reviewer-scoped. */
+  memoryRunAccess?: Readonly<{
+    authorize(token: string): Promise<ReviewRunAuthorization | null>;
+  }>;
   accountGatewayRelay?: ReviewRunGatewayRelay;
+  modelDispatch?: ReviewModelDispatchApi;
   accountGatewayCheckout?: ReviewRunGatewayCheckout;
   providerApiCheckout?: ReviewRunGatewayCheckout;
+  modelRouteCheckout?: ReviewRunGatewayCheckout;
+  hostedModelRoute?: ReviewRunHostedModelRoute;
   hostedV4: HostedV4ReadRoutesDependencies;
   hostedV4Relay: Readonly<{
     enabled: false;
@@ -506,11 +531,14 @@ export function composeReviewActionV2ProductionRunControl(input: {
 }
 
 export function composeReviewActionV2ProductionRoutes(input: {
+  readonly historyWriter?: HistoryCapture;
   readonly memoryInputAdmission?: ReviewExecutionInputAdmissionPort;
+  readonly investigationMemoryInputAdmission?: PrismaInvestigationStoreOptions["inputAdmission"];
   readonly enabled: boolean;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly runtime: ReviewActionV2RouteRuntime;
   readonly prisma?: PrismaClient | undefined;
+  readonly hostedRelay?: RegisterHostedCodexRelayRoutesDependencies;
   readonly oidcAudience?: string | undefined;
   readonly ledgerHmacSecret?: string | undefined;
   readonly investigationTelemetrySamples?:
@@ -629,8 +657,24 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ),
   );
 
+  const historyWriter =
+    input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+      ? input.historyWriter
+      : undefined;
+  if (input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1" && !historyWriter)
+    throw new Error("review_history_capture_binding_required");
   const requestedIntentStore = new PrismaReviewRequestedIntentStore(
     input.prisma,
+    historyWriter
+      ? {
+          historyCapture: {
+            register: (tx, intent, metadata) =>
+              historyWriter.register(tx, intent, metadata),
+            changed: (tx, intent, previous) =>
+              historyWriter.captureIntent(tx, intent, previous),
+          },
+        }
+      : {},
   );
   const admissionFacts = createServerOwnedReviewActionV2AdmissionFacts({
     providerApiSource: workflowInventory,
@@ -696,6 +740,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
   } as const;
 
   const executionStore = new PrismaReviewExecutionStore(input.prisma, {
+    ...(historyWriter
+      ? {
+          historyCapture: (tx, execution) =>
+            historyWriter.captureExecution(tx, execution),
+        }
+      : {}),
     ...(input.memoryInputAdmission
       ? { inputAdmission: input.memoryInputAdmission }
       : {}),
@@ -751,6 +801,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
   );
   const investigationStore = new PrismaInvestigationStore(input.prisma, {
     operationalRetentionMs: productionTiming.retentionDurationMs,
+    ...(input.investigationMemoryInputAdmission
+      ? { inputAdmission: input.investigationMemoryInputAdmission }
+      : {}),
   });
   const investigationTerminalTelemetry =
     composePrismaReviewInvestigationTerminalTelemetry({
@@ -897,10 +950,17 @@ export function composeReviewActionV2ProductionRoutes(input: {
         "prisma"
       >,
     ) => assertReviewRunCompanionDispatchEvidence({ ...facts, prisma }),
+    verifyModelDispatchEvidence: (
+      facts: Omit<
+        Parameters<typeof assertReviewModelDispatchEvidence>[0],
+        "prisma"
+      >,
+    ) => assertReviewModelDispatchEvidence({ ...facts, prisma }),
   } as const;
   const snapshotPublication = composeReviewActionV2SnapshotPublicationRoutes({
     runtime: schemaBoundRuntime,
     prisma: input.prisma,
+    env: input.env,
     authorizations: runControl.authorizations,
     authorizationQueries: repositories.authorizations,
     releases: repositories.producerReleases,
@@ -1205,7 +1265,10 @@ export function composeReviewActionV2ProductionRoutes(input: {
             )
           : null;
         if (checkoutTarget) {
-          const original = checkoutSnapshot?.gateway;
+          const original =
+            checkoutSnapshot?.snapshotVersion === 3
+              ? checkoutSnapshot.gateway
+              : null;
           if (!checkoutSnapshot || (original && !original.limits)) return false;
           // Checkout keeps connection-before-binding-before-authorization order;
           // all following local reads use this transaction, without HTTP.
@@ -1320,30 +1383,89 @@ export function composeReviewActionV2ProductionRoutes(input: {
   );
   const accountGatewayControlOrigin =
     input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN;
+  const modelDispatchAdmission = createReviewRunCompanionDispatchAdmission({
+    prisma,
+    verifyLease: (token, now) => capabilities.verifyLease(token, now),
+    async lockSelection(transaction, authorization) {
+      const snapshot = parseReviewRunRuntimeSnapshot(
+        authorization.runtimeSnapshotCanonicalJson,
+      );
+      if (!snapshot) return false;
+      const allocationId =
+        snapshot.snapshotVersion === 4
+          ? getPrimaryReviewRunReviewer(snapshot).transport.allocationId
+          : undefined;
+      if (snapshot.snapshotVersion === 4 || snapshot.gateway)
+        await runtimeSnapshots.lockGatewaySelection(
+          transaction,
+          authorization.workspaceId,
+          snapshot,
+          allocationId,
+        );
+      const live = await runtimeSnapshots.isLive(
+        { snapshot, identity: authorization, now: clock.now() },
+        transaction,
+      );
+      return (
+        live &&
+        (allocationId === undefined ||
+          (await runtimeSnapshots.isAllocationLive(
+            {
+              snapshot,
+              allocationId,
+              identity: authorization,
+              now: clock.now(),
+            },
+            transaction,
+          )))
+      );
+    },
+  });
+  const modelDispatch: ReviewModelDispatchApi = {
+    authorizations: runControl.authorizations,
+    admission: modelDispatchAdmission,
+    reconcileNativeProof: createHostedModelDispatchProofReconciler({
+      prisma,
+      admission: modelDispatchAdmission,
+    }),
+    async checkAuthority(authorization) {
+      const revision = await currentRevision.resolve(
+        authorizationScope(authorization),
+      );
+      return (
+        revision.status === CurrentReviewRevisionStatus.Found &&
+        canonicalJson(revision.revision) ===
+          canonicalJson(authorizationRevision(authorization))
+      );
+    },
+  };
+  const hostedModelRoute = input.hostedRelay?.enabled
+    ? createReviewRunHostedModelRoute({
+        prisma,
+        api: modelDispatch,
+        native: input.hostedRelay,
+      })
+    : undefined;
+  const accountGatewayConsumerControl = accountGatewayRelayPolicy
+    ? createConsumerControlClient({
+        role: "consumer-control",
+        origin:
+          accountGatewayControlOrigin ??
+          requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN"),
+        token: requiredEnv(
+          input.env,
+          "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+        ),
+        timeoutMs: Math.min(10000, accountGatewayRelayPolicy.requestTimeoutMs),
+        responseBytes: accountModelCatalogResponseBytes,
+      })
+    : undefined;
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
-        accountModelCatalogEnabled:
-          input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
-        companionDispatches: createReviewRunCompanionDispatchAdmission({
-          prisma,
-          verifyLease: (token, now) => capabilities.verifyLease(token, now),
-          async lockSelection(transaction, authorization) {
-            const snapshot = parseReviewRunRuntimeSnapshot(
-              authorization.runtimeSnapshotCanonicalJson,
-            );
-            if (!snapshot?.gateway) return false;
-            await runtimeSnapshots.lockGatewaySelection(
-              transaction,
-              authorization.workspaceId,
-              snapshot,
-            );
-            return runtimeSnapshots.isLive(
-              { snapshot, identity: authorization, now: clock.now() },
-              transaction,
-            );
-          },
-        }),
+        readPreparationOperation: (operationId, options) =>
+          accountGatewayConsumerControl!.operation(operationId, options),
+        companionDispatches: modelDispatchAdmission,
         usage: createGatewayUsageRecorder(prisma, async (auth) => {
           const target = await resolveCheckoutRepository(auth);
           return target
@@ -1409,33 +1531,76 @@ export function composeReviewActionV2ProductionRoutes(input: {
     privateKey: githubAppPrivateKey,
     resolveRepository: resolveCheckoutRepository,
   });
-  const contextTools: ContextToolsRunAccess = {
-    authorize: async (token) => {
-      try {
-        const resolved =
-          await runControl.authorizations.resolveReviewRunAuthorizationToken({
-            token,
-          });
-        if (
-          resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid
-        )
-          return null;
-        const authorization = resolved.authorization;
-        if (
-          authorization.state !== RunAuthorizationState.Active ||
-          authorization.expiresAt <= clock.now() ||
-          authorization.maxExpiresAt <= clock.now()
-        )
-          return null;
-        const target = await resolveCheckoutRepository(authorization);
-        return target &&
-          (await confirmAccountGatewayAuthority(token, authorization, target))
-          ? authorization
-          : null;
-      } catch {
+  const authorizeRunAccess = async (
+    token: string,
+    request:
+      | { readonly kind: "reviewer"; readonly reviewerId: string | undefined }
+      | { readonly kind: "memory" },
+  ): Promise<ReviewRunAuthorization | null> => {
+    try {
+      const resolved =
+        await runControl.authorizations.resolveReviewRunAuthorizationToken({
+          token,
+        });
+      if (resolved.status !== ReviewRunAuthorizationTokenResolutionStatus.Valid)
         return null;
-      }
-    },
+      const authorization = resolved.authorization;
+      if (
+        authorization.state !== RunAuthorizationState.Active ||
+        authorization.expiresAt <= clock.now() ||
+        authorization.maxExpiresAt <= clock.now()
+      )
+        return null;
+      const snapshot = parseReviewRunRuntimeSnapshot(
+        authorization.runtimeSnapshotCanonicalJson,
+      );
+      if (!snapshot) return null;
+      if (snapshot.snapshotVersion === 4) {
+        // Tools always identify their captured reviewer. Memory is one shared run input,
+        // so every captured allocation must pass the same existing binding guard.
+        if (request.kind === "reviewer" && request.reviewerId === undefined)
+          return null;
+        const reviewers =
+          request.kind === "memory"
+            ? snapshot.reviewers
+            : [getReviewRunReviewer(snapshot, request.reviewerId!)];
+        const allocations = new Set(
+          reviewers.map((reviewer) => reviewer.transport.allocationId),
+        );
+        for (const allocationId of allocations) {
+          const selected = await gatewayBindings.read({
+            authorizationId: authorization.authorizationId,
+            allocationId,
+            identity: reviewRunGatewayOwnedIdentity(authorization),
+            runtimeSnapshotCanonicalJson:
+              authorization.runtimeSnapshotCanonicalJson!,
+          });
+          if (selected.status !== "live") return null;
+        }
+      } else if (
+        request.kind === "reviewer" &&
+        request.reviewerId !== undefined
+      )
+        return null;
+      // Memory is bound to the admitted immutable revision and rechecks local
+      // repository/identity/installation authority. Canonical SCM freshness stays
+      // with execution and paid dispatch; its remote reads cannot fit the memory
+      // receipt preflight budget. Tools retain their full SCM check.
+      const target =
+        request.kind === "memory"
+          ? await readCheckoutTarget(prisma, authorization)
+          : await resolveCheckoutRepository(authorization);
+      return target &&
+        (await confirmAccountGatewayAuthority(token, authorization, target))
+        ? authorization
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const contextTools: ContextToolsRunAccess = {
+    authorize: (token, reviewerId) =>
+      authorizeRunAccess(token, { kind: "reviewer", reviewerId }),
     deliver: (workspaceId, plan) =>
       deliverContextCredentials(workspaceId, plan, {
         store: new PrismaContextConnectionStore(prisma),
@@ -1451,7 +1616,10 @@ export function composeReviewActionV2ProductionRoutes(input: {
     readIssue: (authorization, issueNumber) =>
       issueReader.read(authorization, issueNumber),
   };
-  const providerApiCheckout = createReviewRunProviderApiCheckout({
+  const memoryRunAccess = {
+    authorize: (token: string) => authorizeRunAccess(token, { kind: "memory" }),
+  };
+  const checkoutDependencies = {
     lifecycleObservationAuthors: [
       ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
     ],
@@ -1461,32 +1629,35 @@ export function composeReviewActionV2ProductionRoutes(input: {
     maxInFlight: 4,
     timeoutMs: 30_000,
     resolveRepository: resolveCheckoutRepository,
+  };
+  const providerApiCheckout =
+    createReviewRunProviderApiCheckout(checkoutDependencies);
+  const modelRouteCheckout = createReviewRunModelRouteCheckout({
+    ...checkoutDependencies,
+    async confirmHostedRoute({ authorization, snapshot }) {
+      if (!snapshot.hosted) return false;
+      return confirmOriginalHostedReviewBindingForCompletion({
+        reader: prisma,
+        identity: authorization,
+        configuration: parseReviewConfigurationStrict(
+          JSON.parse(snapshot.configurationCanonicalJson),
+        ),
+        configurationVersion: snapshot.configurationVersion,
+        now: clock.now(),
+        original: snapshot.hosted,
+      });
+    },
   });
   const accountGatewayCheckout = accountGatewayRelayPolicy
     ? createReviewRunGatewayCheckout({
+        ...checkoutDependencies,
         readSelectedModelSettings: createReviewRunGatewayModelSettingsReader({
-          accountModelCatalogEnabled:
-            input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
           accounts: new PrismaProviderAccountRepository(
             prisma,
             input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
             readPersonalAccountSharingEnabled(input.env),
           ),
-          control: createConsumerControlClient({
-            role: "consumer-control",
-            origin:
-              accountGatewayControlOrigin ??
-              requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN"),
-            token: requiredEnv(
-              input.env,
-              "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
-            ),
-            timeoutMs: Math.min(
-              10000,
-              accountGatewayRelayPolicy.requestTimeoutMs,
-            ),
-            responseBytes: 262144,
-          }),
+          control: accountGatewayConsumerControl!,
           profiles: accountGatewayRelayPolicy.profiles.map(
             (entry) => entry.profile,
           ),
@@ -1497,16 +1668,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
               }
             : {}),
         }),
-        lifecycleObservationAuthors: [
-          ...trustedReviewCommandLedgerAuthorsFromEnv(input.env),
-        ],
-        authorizations: runControl.authorizations,
         bindings: gatewayBindings,
-        confirmAuthority: confirmAccountGatewayAuthority,
-        issuer: workflowInventory,
         maxInFlight: Math.min(4, accountGatewayRelayPolicy.maxInFlight),
         timeoutMs: Math.min(30_000, accountGatewayRelayPolicy.requestTimeoutMs),
-        resolveRepository: resolveCheckoutRepository,
       })
     : undefined;
   const providerUsage = createProviderUsageApi({
@@ -1551,8 +1715,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
       privateKey: githubAppPrivateKey,
     }),
     providerApiCheckout,
+    modelRouteCheckout,
+    modelDispatch,
+    ...(hostedModelRoute ? { hostedModelRoute } : {}),
     reviewSkills: createReviewRunSkillsReader(runControl.authorizations),
     contextTools,
+    memoryRunAccess,
     ...(accountGatewayRelay ? { accountGatewayRelay } : {}),
     ...(accountGatewayCheckout ? { accountGatewayCheckout } : {}),
     hostedV4,

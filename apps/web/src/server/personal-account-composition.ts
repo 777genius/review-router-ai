@@ -19,7 +19,10 @@ import {
   PrismaPersonalAccountOperations,
   PrismaPersonalCanonicalOperations,
 } from "@reviewrouter/features-provider-accounts/synchronization";
-import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
+import {
+  accountModelCatalogResponseBytes,
+  readPersonalAccountSharingEnabled,
+} from "@reviewrouter/features-provider-accounts/composition";
 import {
   accountsServerAdapter,
   loadAccountsBootstrap,
@@ -76,7 +79,7 @@ export async function productionPersonalAccounts() {
     token:
       process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_PERSONAL_CONTROL_TOKEN ?? "",
     timeoutMs: 10000,
-    responseBytes: 65536,
+    responseBytes: accountModelCatalogResponseBytes,
   };
   const control = createConsumerControlClient(controlSettings);
   const lifecycleReader = createAccountLifecycleReader({
@@ -126,6 +129,9 @@ export async function productionPersonalAccounts() {
       oauthMethods: ["browser"],
     });
   const profiles = [...legacyProfiles];
+  let connectionCapabilities:
+    | Promise<c.ProviderConnectionCapabilities>
+    | undefined;
   if (
     settings.subscriptionProfileIds !== undefined &&
     (settings.subscriptionProfileIds.length > 0 ||
@@ -139,11 +145,14 @@ export async function productionPersonalAccounts() {
       timeoutMs: 10000,
       responseBytes: 65536,
     });
+    connectionCapabilities = checked(() =>
+      management.getProviderConnectionCapabilities(),
+    );
     const subscriptions = await checked(() =>
       connectionProfiles({
         legacy: [],
         subscriptionProfileIds: settings.subscriptionProfileIds,
-        capabilities: () => management.getProviderConnectionCapabilities(),
+        capabilities: () => connectionCapabilities!,
       }),
     );
     profiles.push(
@@ -412,8 +421,16 @@ export async function productionPersonalAccounts() {
           ]
         : [];
     });
+    // Apply the same qualified capabilities to existing API-key and OAuth
+    // profiles as to coding plans. Public model metadata is never admission.
+    const qualified = await connectionProfiles({
+      legacy: available,
+      ...(connectionCapabilities
+        ? { capabilities: () => connectionCapabilities! }
+        : {}),
+    });
     await workspaceAccess(workspaceId);
-    return available;
+    return qualified;
   }
   async function models(workspaceId: string) {
     const available = await reviewProfiles(workspaceId);

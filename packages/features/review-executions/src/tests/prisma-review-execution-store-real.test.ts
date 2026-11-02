@@ -15,6 +15,7 @@ import { PrismaReviewRequestedIntentStore } from "../infrastructure/prisma/prism
 import {
   ReviewRequestAdmissionState,
   ReviewRequestedIntentState,
+  ReviewRequestedIntentTerminalReason,
   ReviewRequestedTriggerKind,
 } from "../domain/review-requested-intent";
 import {
@@ -26,9 +27,11 @@ import {
 } from "../application/ports/review-execution-ports";
 import {
   ReviewRequestedClaimStatus,
+  ReviewRequestedDispatchRunStatus,
   ReviewRequestedRegisterStatus,
   ReviewRequestedTransitionStatus,
 } from "../application/ports/review-requested-intent-ports";
+import { RecoverReviewRequestedDispatches } from "../application/use-cases/recover-review-requested-dispatches";
 import {
   leaseCommand,
   prepareAndAdmit,
@@ -54,6 +57,12 @@ const historicalAuthorizationOmit = {
 if (databaseUrl) {
   beforeAll(async () => {
     prisma = createPrismaClient({ databaseUrl, poolMax: 8 });
+    // Test-only bridge: current generated Prisma reads/writes these nullable
+    // lineage columns even with history capture disabled. Keep the historical
+    // authority/attachment assertions at 000079; this does not qualify a new
+    // production binary against an unmigrated schema or activate history.
+    await prisma.$executeRaw`ALTER TABLE "ReviewRequestedIntent" ADD COLUMN IF NOT EXISTS "historyRootRequestId" TEXT`;
+    await prisma.$executeRaw`ALTER TABLE "ReviewExecutionV2" ADD COLUMN IF NOT EXISTS "historyRootRequestId" TEXT, ADD COLUMN IF NOT EXISTS "historyDispatchAttempt" INTEGER`;
     await seedSharedProfiles();
   });
 
@@ -378,6 +387,299 @@ if (databaseUrl) {
       );
     });
 
+    it.each([
+      "supersede-unresolved",
+      "supersede-known",
+      "close-known",
+    ] as const)(
+      "persists submitted dispatch cleanup with its transition and retains unresolved evidence (%s)",
+      async (mode) => {
+        const harness = await createHarness();
+        const store =
+          harness.requestedIntents as PrismaReviewRequestedIntentStore;
+        const now = new Date();
+        const candidate = {
+          ...harness.scope,
+          requestId: `cleanup-${randomUUID()}`,
+          revision: {
+            baseSha: "a".repeat(40),
+            mergeBaseSha: "b".repeat(40),
+            headSha: "c".repeat(40),
+            reviewRevisionHash: hash(1),
+          },
+          triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+          deliveryIdentityHash: hashFromText(randomUUID()),
+          canonicalRequestHash: hashFromText(randomUUID()),
+          notBefore: now,
+          createdAt: now,
+          retainUntil: new Date(now.getTime() + 86400000),
+        };
+        await store.registerIntent({ candidate });
+        const claimed = await store.claimIntent({
+          requestId: candidate.requestId,
+          claimId: randomUUID(),
+          ownerIdHash: hashFromText(randomUUID()),
+          now,
+          claimUntil: new Date(now.getTime() + 30000),
+        });
+        const claim = claimed.intent!.claim!;
+        const deadline = new Date(now.getTime() + 120000);
+        const submission = {
+          requestId: candidate.requestId,
+          claimId: claim.claimId,
+          ownerIdHash: claim.ownerIdHash,
+          fencingToken: claim.fencingToken,
+          now,
+          nextResolutionAt: new Date(now.getTime() + 1000),
+          resolutionDeadlineAt: deadline,
+        };
+        await store.beginSubmission(submission);
+        if (mode !== "supersede-unresolved")
+          await store.recordDispatch({
+            ...submission,
+            sourceRunId: "701",
+            sourceRunAttempt: "1",
+          });
+        const persistedDeadline = (await store.findByRequestId(
+          candidate.requestId,
+        ))!.resolutionDeadlineAt;
+        if (mode === "close-known") {
+          await store.cancelPreAdmission({ ...harness.scope, now });
+          await store.cancelPreAdmission({ ...harness.scope, now });
+        } else {
+          const next = {
+            ...candidate,
+            requestId: `cleanup-new-${randomUUID()}`,
+            deliveryIdentityHash: hashFromText(randomUUID()),
+            canonicalRequestHash: hashFromText(randomUUID()),
+            revision: {
+              ...candidate.revision,
+              headSha: "d".repeat(40),
+              reviewRevisionHash: hash(2),
+            },
+          };
+          await store.registerIntent({ candidate: next });
+          await store.registerIntent({ candidate: next });
+        }
+        await expect(
+          store.findByRequestId(candidate.requestId),
+        ).resolves.toMatchObject({
+          state: ReviewRequestedIntentState.Superseded,
+          nextResolutionAt: null,
+          resolutionDeadlineAt: persistedDeadline,
+        });
+        const events = await prisma.outboxEvent.findMany({
+          where: {
+            aggregateId: candidate.requestId,
+            type: "review.requested_dispatch_cleanup",
+          },
+        });
+        expect(events).toHaveLength(1);
+        expect(events[0]!.payload).toMatchObject({
+          requestId: candidate.requestId,
+          sourceRunId: mode === "supersede-unresolved" ? null : "701",
+        });
+        if (mode === "supersede-unresolved") {
+          const unknown = (await store.findByRequestId(candidate.requestId))!;
+          const originalPayload = structuredClone(events[0]!.payload);
+          const bindings = await Promise.all(
+            ["701", "702"].map((sourceRunId) =>
+              store.bindCleanupRunTarget({
+                requestId: unknown.requestId,
+                expectedVersion: unknown.version,
+                sourceRunId,
+                sourceRunAttempt: "1",
+              }),
+            ),
+          );
+          const applied = bindings.filter(
+            (binding) =>
+              binding.status === ReviewRequestedTransitionStatus.Applied,
+          );
+          expect(applied).toHaveLength(1);
+          const bound = applied[0]!.intent!;
+          expect(
+            bindings.filter(
+              (binding) =>
+                binding.status === ReviewRequestedTransitionStatus.Conflict ||
+                binding.status === ReviewRequestedTransitionStatus.StaleClaim,
+            ),
+          ).toHaveLength(1);
+          expect(
+            await store.bindCleanupRunTarget({
+              requestId: unknown.requestId,
+              expectedVersion: unknown.version,
+              sourceRunId: bound.sourceRunId!,
+              sourceRunAttempt: "1",
+            }),
+          ).toMatchObject({
+            status: ReviewRequestedTransitionStatus.Restored,
+            intent: { version: bound.version, sourceRunId: bound.sourceRunId },
+          });
+          expect(
+            await store.bindCleanupRunTarget({
+              requestId: unknown.requestId,
+              expectedVersion: bound.version,
+              sourceRunId: bound.sourceRunId === "701" ? "702" : "701",
+              sourceRunAttempt: "1",
+            }),
+          ).toMatchObject({ status: ReviewRequestedTransitionStatus.Conflict });
+          expect(
+            (
+              await prisma.outboxEvent.findUniqueOrThrow({
+                where: { id: events[0]!.id },
+              })
+            ).payload,
+          ).toEqual(originalPayload);
+          expect(
+            await prisma.outboxEvent.count({
+              where: {
+                aggregateId: unknown.requestId,
+                type: "review.requested_dispatch_cleanup",
+              },
+            }),
+          ).toBe(1);
+        }
+        await prisma.reviewRequestedIntent.update({
+          where: { requestId: candidate.requestId },
+          data: { retainUntil: new Date(now.getTime() - 1000) },
+        });
+        await prisma.outboxEvent.update({
+          where: { id: events[0]!.id },
+          data: { status: "dead_letter" },
+        });
+        await store.pruneRetainedIntents({ limit: 1000 });
+        await expect(
+          store.findByRequestId(candidate.requestId),
+        ).resolves.not.toBeNull();
+        await prisma.outboxEvent.update({
+          where: { id: events[0]!.id },
+          data: { status: "processed" },
+        });
+        await store.pruneRetainedIntents({ limit: 1000 });
+        await expect(
+          store.findByRequestId(candidate.requestId),
+        ).resolves.toBeNull();
+      },
+    );
+
+    it("durably retries authorization-timeout cleanup when immediate cancellation fails", async () => {
+      const harness = await createHarness();
+      const store =
+        harness.requestedIntents as PrismaReviewRequestedIntentStore;
+      const now = new Date();
+      const requestId = `timeout-cleanup-${randomUUID()}`;
+      await store.registerIntent({
+        candidate: {
+          ...harness.scope,
+          requestId,
+          revision: {
+            baseSha: "a".repeat(40),
+            mergeBaseSha: "b".repeat(40),
+            headSha: "c".repeat(40),
+            reviewRevisionHash: hash(1),
+          },
+          triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+          deliveryIdentityHash: hashFromText(randomUUID()),
+          canonicalRequestHash: hashFromText(randomUUID()),
+          notBefore: now,
+          createdAt: now,
+          retainUntil: new Date(now.getTime() + 86400000),
+        },
+      });
+      const claimed = await store.claimIntent({
+        requestId,
+        claimId: randomUUID(),
+        ownerIdHash: hashFromText(randomUUID()),
+        now,
+        claimUntil: new Date(now.getTime() + 30000),
+      });
+      const claim = claimed.intent!.claim!;
+      const submission = {
+        requestId,
+        claimId: claim.claimId,
+        ownerIdHash: claim.ownerIdHash,
+        fencingToken: claim.fencingToken,
+        now,
+        nextResolutionAt: new Date(now.getTime() + 10),
+        resolutionDeadlineAt: new Date(now.getTime() + 30),
+      };
+      await store.beginSubmission(submission);
+      await store.recordDispatch({
+        ...submission,
+        sourceRunId: "701",
+        sourceRunAttempt: "1",
+      });
+      // Real database deadlines: caller-supplied future time must not create the regression.
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      let cancels = 0;
+      const recovery = new RecoverReviewRequestedDispatches(
+        store,
+        store,
+        {
+          async prepare() {
+            throw new Error("unexpected_dispatch");
+          },
+          async findByRequestIdentity() {
+            throw new Error("unexpected_lookup");
+          },
+          async inspectKnownRun() {
+            return { status: ReviewRequestedDispatchRunStatus.Pending };
+          },
+          async cancelKnownRun() {
+            cancels++;
+            throw new Error("injected_pre_http_transport_failure");
+          },
+        },
+        { now: () => new Date() },
+        {
+          ids: {
+            nextRequestId: () => {
+              throw new Error("unexpected_successor");
+            },
+          },
+          digest: { digestUtf8: async (value) => hashFromText(value) },
+        },
+      );
+      expect(await recovery.execute({ limit: 10 })).toMatchObject({
+        recovered: 1,
+        failed: 0,
+      });
+      expect(cancels).toBe(1);
+      await expect(store.findByRequestId(requestId)).resolves.toMatchObject({
+        state: ReviewRequestedIntentState.Terminal,
+        terminalReason:
+          ReviewRequestedIntentTerminalReason.AuthorizationDeadlineExceeded,
+        sourceRunId: "701",
+        authorizationId: null,
+        executionId: null,
+      });
+      const events = await prisma.outboxEvent.findMany({
+        where: {
+          aggregateId: requestId,
+          type: "review.requested_dispatch_cleanup",
+        },
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]!.status).toBe("pending");
+      expect(events[0]!.payload).toMatchObject({
+        requestId,
+        sourceRunId: "701",
+        sourceRunAttempt: "1",
+      });
+      expect(await recovery.execute({ limit: 10 })).toMatchObject({
+        scanned: 0,
+      });
+      expect(
+        await prisma.outboxEvent.count({
+          where: {
+            aggregateId: requestId,
+            type: "review.requested_dispatch_cleanup",
+          },
+        }),
+      ).toBe(1);
+    });
+
     it("retries registration when admission wins the supersede compare-and-set", async () => {
       const harness = await createHarness();
       const intentStore =
@@ -505,6 +807,14 @@ if (databaseUrl) {
         admission: { state: ReviewRequestAdmissionState.Admitted },
         supersededByRequestId: null,
       });
+      await expect(
+        prisma.outboxEvent.count({
+          where: {
+            aggregateId: oldRequestId,
+            type: "review.requested_dispatch_cleanup",
+          },
+        }),
+      ).resolves.toBe(0);
       expect(hookInvocations).toBe(1);
     });
 
@@ -1580,6 +1890,8 @@ async function createHarness(
       prDescriptionProfile: true,
       contextToolsProfile: true,
       lifecycleVerificationProfile: true,
+      modelDispatchProfile: true,
+      reviewerPlanProfile: true,
     },
     data: {
       producerReleaseId,

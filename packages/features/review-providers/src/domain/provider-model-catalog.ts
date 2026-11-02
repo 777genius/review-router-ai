@@ -9,6 +9,11 @@ export type PublicCatalogProvider = Extract<
   "codex" | "claude" | "openrouter"
 >;
 export type CatalogCapability = boolean | null;
+export type CatalogSelectionOptions = Readonly<{
+  requiresTools?: boolean;
+  /** Only qualified transports may opt into catalog-admitted routing ids. */
+  allowRoutingModels?: boolean;
+}>;
 export type ProviderCatalogModel = {
   readonly id: string;
   readonly name: string;
@@ -22,6 +27,7 @@ export type ProviderCatalogModel = {
     readonly input: number | null;
     readonly output: number | null;
     readonly cacheRead?: number | null;
+    readonly cacheWrite?: number | null;
   } | null;
 };
 export type ProviderModelCatalogSnapshot = {
@@ -36,87 +42,151 @@ export type ProviderModelCatalogSnapshot = {
   readonly skippedModelCount?: number;
 };
 
+const recommendedFreeOpenRouterModelIds = [
+  "poolside/laguna-m.1:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "openai/gpt-oss-120b:free",
+  "openrouter/owl-alpha",
+] as const;
+
+export function isFreeCatalogModel(model: ProviderCatalogModel): boolean {
+  return (
+    model.pricing?.input === 0 &&
+    model.pricing.output === 0 &&
+    (model.pricing.cacheRead ?? 0) === 0 &&
+    (model.pricing.cacheWrite ?? 0) === 0
+  );
+}
+
+export function catalogModelUnsupportedReason(
+  providerKind: ProviderKind,
+  model: ProviderCatalogModel,
+  input: CatalogSelectionOptions = {},
+): string | null {
+  if (
+    providerKind === "openrouter" &&
+    input.allowRoutingModels !== true &&
+    model.id.startsWith("openrouter/") &&
+    model.id !== "openrouter/owl-alpha"
+  )
+    return "This OpenRouter routing model is not supported for reviews.";
+  if (model.textInput === false || model.textOutput === false)
+    return "Not a text review model.";
+  if (model.textInput !== true || model.textOutput !== true)
+    return "Text capabilities unknown.";
+  if (input.requiresTools !== false && model.toolCalling !== true)
+    return "Tool calling support not confirmed.";
+  return null;
+}
+
+function openRouterRecommendationRank(model: ProviderCatalogModel): number {
+  if (model.id === "openai/gpt-5.3-codex") return 0;
+  const index = recommendedFreeOpenRouterModelIds.indexOf(
+    model.id as (typeof recommendedFreeOpenRouterModelIds)[number],
+  );
+  return index !== -1 && isFreeCatalogModel(model) ? index + 1 : Infinity;
+}
+
+/** Shared display policy for public snapshots and the OpenRouter adapter. */
+export function compareOpenRouterCatalogModels(
+  left: ProviderCatalogModel,
+  right: ProviderCatalogModel,
+  input: CatalogSelectionOptions = {},
+): number {
+  const leftUnsupported = catalogModelUnsupportedReason(
+    "openrouter",
+    left,
+    input,
+  );
+  const rightUnsupported = catalogModelUnsupportedReason(
+    "openrouter",
+    right,
+    input,
+  );
+  if (Boolean(leftUnsupported) !== Boolean(rightUnsupported))
+    return leftUnsupported ? 1 : -1;
+  const leftRank = leftUnsupported
+    ? Infinity
+    : openRouterRecommendationRank(left);
+  const rightRank = rightUnsupported
+    ? Infinity
+    : openRouterRecommendationRank(right);
+  if (leftRank !== rightRank) return leftRank < rightRank ? -1 : 1;
+  if (isFreeCatalogModel(left) !== isFreeCatalogModel(right))
+    return isFreeCatalogModel(left) ? -1 : 1;
+  const totalPrice = (model: ProviderCatalogModel) =>
+    (model.pricing?.input ?? Infinity) + (model.pricing?.output ?? Infinity);
+  const leftPrice = totalPrice(left);
+  const rightPrice = totalPrice(right);
+  if (leftPrice !== rightPrice) return leftPrice < rightPrice ? -1 : 1;
+  return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+}
+
 export function catalogSnapshotOptions(
   snapshot: ProviderModelCatalogSnapshot,
-  input: { readonly requiresTools?: boolean } = {},
+  input: CatalogSelectionOptions = {},
 ): readonly ReviewModelOption[] {
   const locals = listStaticReviewModelOptions().filter(
     (option) => option.provider === snapshot.providerKind,
   );
   const localIds = new Set(locals.map((option) => option.value));
-  const publicOptions = snapshot.models
-    .filter((model) => !localIds.has(model.id))
-    .map((model): ReviewModelOption => {
-      const unsupported =
-        model.textInput === false || model.textOutput === false
-          ? "Not a text review model."
-          : model.textInput !== true || model.textOutput !== true
-            ? "Text capabilities unknown."
-            : input.requiresTools !== false && model.toolCalling !== true
-              ? "Tool calling support not confirmed."
-              : null;
-      // Router-owned IDs require explicit runtime support independent of public metadata.
-      const reason =
-        snapshot.providerKind === "openrouter" &&
-        model.id.startsWith("openrouter/") &&
-        model.id !== "openrouter/owl-alpha"
-          ? "OpenRouter router-owned ids need action runtime support first."
-          : unsupported;
-      const free = model.pricing?.input === 0 && model.pricing?.output === 0;
-      const recommended = [
-        "poolside/laguna-m.1:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",
-        "openai/gpt-oss-120b:free",
-        "openrouter/owl-alpha",
-      ].includes(model.id);
-      const money = (value: number | null | undefined) =>
-        value == null
-          ? "unknown"
-          : value === 0
-            ? "$0"
-            : value < 0.01
-              ? `$${value.toFixed(4)}`
-              : `$${value.toFixed(2)}`;
-      const pricing = `${money(model.pricing?.input)}/${money(model.pricing?.output)} per 1M input/output`;
-      return {
-        value: model.id,
-        label: model.name.replace(/\s+\(free\)$/i, ""),
-        provider: snapshot.providerKind,
-        description: `${model.id} - ${pricing}. ${reason ?? "Public catalog; account access not checked."}`,
-        ...(reason
-          ? { disabled: true, badge: "Unsupported" as const }
-          : snapshot.providerKind === "openrouter" &&
-              (free ||
-                (model.pricing?.input ?? 0) > 0 ||
-                (model.pricing?.output ?? 0) > 0)
-            ? {
-                badge: free
-                  ? recommended
-                    ? ("FREE RECOMMENDED" as const)
-                    : ("FREE" as const)
-                  : ("PAID" as const),
-              }
-            : {}),
-      };
-    });
-  const ranks = [
-    "openai/gpt-5.3-codex",
-    "poolside/laguna-m.1:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "openai/gpt-oss-120b:free",
-    "openrouter/owl-alpha",
-  ];
+  const models = snapshot.models.filter((model) => !localIds.has(model.id));
   if (snapshot.providerKind === "openrouter")
-    publicOptions.sort((a, b) => {
-      if (!!a.disabled !== !!b.disabled) return a.disabled ? 1 : -1;
-      const rank = (id: string) =>
-        ranks.indexOf(id) === -1 ? 999 : ranks.indexOf(id);
-      const difference = rank(a.value) - rank(b.value);
-      if (difference) return difference;
-      if (a.badge !== b.badge)
-        return a.badge === "FREE" ? -1 : b.badge === "FREE" ? 1 : 0;
-      return a.label.localeCompare(b.label);
-    });
+    models.sort((left, right) =>
+      compareOpenRouterCatalogModels(left, right, input),
+    );
+  const publicOptions = models.map((model): ReviewModelOption => {
+    const reason = catalogModelUnsupportedReason(
+      snapshot.providerKind,
+      model,
+      input,
+    );
+    const free = isFreeCatalogModel(model);
+    const recommended = openRouterRecommendationRank(model) < Infinity;
+    const money = (value: number | null | undefined) =>
+      value == null
+        ? "unknown"
+        : value === 0
+          ? "$0"
+          : value < 0.01
+            ? `$${value.toLocaleString("en-US", { useGrouping: false, maximumSignificantDigits: 4 })}`
+            : `$${value.toFixed(2)}`;
+    const pricing = `${money(model.pricing?.input)}/${money(model.pricing?.output)} per 1M input/output${model.pricing?.cacheRead != null ? `; ${money(model.pricing.cacheRead)} per 1M cache read` : ""}${model.pricing?.cacheWrite != null ? `; ${money(model.pricing.cacheWrite)} per 1M cache write` : ""}`;
+    const context =
+      model.contextTokens === null
+        ? "Context unknown"
+        : `${model.contextTokens.toLocaleString("en-US")} token context`;
+    const provenance =
+      snapshot.source === "local"
+        ? "Built-in fallback; public metadata unavailable."
+        : snapshot.state === "stale"
+          ? "Cached public catalog; account access not checked."
+          : "Public catalog; account access not checked.";
+    const metadataDescription = `${model.id} - ${pricing}. ${context}. ${provenance}`;
+    return {
+      value: model.id,
+      label: model.name.replace(/\s+\(free\)$/i, ""),
+      provider: snapshot.providerKind,
+      metadataDescription,
+      description: `${metadataDescription}${reason ? ` ${reason}` : ""}`,
+      ...(reason
+        ? { disabled: true, badge: "Unsupported" as const }
+        : snapshot.providerKind === "openrouter" &&
+            (free ||
+              (model.pricing?.input ?? 0) > 0 ||
+              (model.pricing?.output ?? 0) > 0 ||
+              (model.pricing?.cacheRead ?? 0) > 0 ||
+              (model.pricing?.cacheWrite ?? 0) > 0)
+          ? {
+              badge: free
+                ? recommended
+                  ? ("FREE RECOMMENDED" as const)
+                  : ("FREE" as const)
+                : ("PAID" as const),
+            }
+          : {}),
+    };
+  });
   return [...locals, ...publicOptions];
 }
 

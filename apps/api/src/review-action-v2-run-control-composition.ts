@@ -81,6 +81,7 @@ export type ReviewActionV2ResolvedRevision = {
   readonly producerActionCommitSha: string;
   readonly modelTransport: ReviewAgentProfile["modelTransports"][number];
   readonly providerApiAuthMode?: ProviderApiAuthMode;
+  readonly subscriptionAuthMode?: "claude-oauth";
   readonly contextToolGithubSecrets?: Readonly<Record<string, string>>;
   readonly providerVoteLanes: readonly ProviderVoteLane[];
 };
@@ -173,6 +174,7 @@ export type ServerOwnedReviewActionV2AdmissionDependencies = {
     }): Promise<{
       readonly compatible: boolean;
       readonly providerApiAuthMode?: ProviderApiAuthMode;
+      readonly subscriptionAuthMode?: "claude-oauth";
       readonly mcpSecrets?: Readonly<Record<string, string>>;
     }>;
   };
@@ -353,6 +355,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
       const { actionCommitSha: producerActionCommitSha, modelTransport } =
         producerExecutionFromClaims(input.claims);
       let providerApiAuthMode: ProviderApiAuthMode | undefined;
+      let subscriptionAuthMode: "claude-oauth" | undefined;
       const canonicalDirectCaller =
         modelTransport === "provider_api" &&
         input.claims.workflow_ref.startsWith(
@@ -398,13 +401,18 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
                 },
               )
             : undefined;
-        if (!source?.compatible || !source.providerApiAuthMode)
+        if (
+          !source?.compatible ||
+          (source.providerApiAuthMode !== undefined) ===
+            (source.subscriptionAuthMode === "claude-oauth")
+        )
           throw routeFailure(
             403,
             ReviewActionV2ProtocolErrorCode.Forbidden,
             "provider_api_workflow_source_not_canonical",
           );
         providerApiAuthMode = source.providerApiAuthMode;
+        subscriptionAuthMode = source.subscriptionAuthMode;
       }
       const revision = await dependencies.revisionResolver.resolve({
         workspaceId: input.repository.workspaceId,
@@ -498,6 +506,7 @@ export function createServerOwnedReviewActionV2AdmissionFacts(
           producerActionCommitSha,
           modelTransport,
           ...(providerApiAuthMode ? { providerApiAuthMode } : {}),
+          ...(subscriptionAuthMode ? { subscriptionAuthMode } : {}),
           ...(contextToolGithubSecrets ? { contextToolGithubSecrets } : {}),
           providerVoteLanes: dependencies.providerVoteLanes.map((lane) => ({
             ...lane,
@@ -748,7 +757,13 @@ export function createReviewActionV2RunControlHandlers(
   return {
     authorize: {
       capabilityEnabled: true,
-      execute: async (request) => authorizeReviewRun(request, dependencies),
+      execute: async (request) => {
+        try {
+          return await authorizeReviewRun(request, dependencies);
+        } catch (error) {
+          throw toAuthorizeContractFailure(error);
+        }
+      },
     },
     renew: {
       capabilityEnabled: true,
@@ -840,6 +855,9 @@ async function authorizeReviewRun(
     ...(resolved.facts.providerApiAuthMode
       ? { providerApiAuthMode: resolved.facts.providerApiAuthMode }
       : {}),
+    ...(resolved.facts.subscriptionAuthMode
+      ? { subscriptionAuthMode: resolved.facts.subscriptionAuthMode }
+      : {}),
     producerReleaseId: resolved.facts.producerReleaseId,
     ...(selectedRelease &&
     selectedRelease.producerReleaseId !== attestedBaseRelease.producerReleaseId
@@ -915,7 +933,8 @@ async function authorizeReviewRun(
         pullRequestNumber: success.authorization.pullRequestNumber,
         sourceRunId: success.authorization.sourceRunId,
         sourceRunAttempt: success.authorization.sourceRunAttempt,
-        ...(resolved.facts.providerApiAuthMode !== undefined
+        ...(resolved.facts.providerApiAuthMode !== undefined ||
+        resolved.facts.subscriptionAuthMode !== undefined
           ? { workflowIdentityHash: success.authorization.workflowIdentityHash }
           : {}),
         baseSha: success.authorization.baseSha,
@@ -1592,6 +1611,33 @@ function mapSuccessStatus(
     case ReviewRunAuthorizationUseCaseStatus.Renewed:
       return ReviewRunAuthorizationResultStatus.Renewed;
   }
+}
+
+// `stale_precondition` is not part of the `review_run_authorize` contract, so
+// the route layer masks it as a retryable 500 `ambiguous_outcome` and the
+// Action retries a run that can never succeed. When the pull request head has
+// moved past the queued run, `resource_gone` (in the contract, retry class
+// `never`) says so. Other stale preconditions are races inside the server
+// (changed admission facts, safety decision, producer release) that a retry of
+// the same request can clear, so they keep the retryable masking.
+const movedRevisionIssues: ReadonlySet<string> = new Set([
+  "review_request_revision_moved",
+  CanonicalReviewRevisionResolutionStatus.RevisionMoved,
+]);
+
+function toAuthorizeContractFailure(error: unknown): unknown {
+  if (
+    error instanceof ReviewActionV2RouteFailure &&
+    error.errorCode === ReviewActionV2ProtocolErrorCode.StalePrecondition &&
+    error.issues.some((issue) => movedRevisionIssues.has(issue))
+  ) {
+    return new ReviewActionV2RouteFailure(
+      410,
+      ReviewActionV2ProtocolErrorCode.ResourceGone,
+      error.issues,
+    );
+  }
+  return error;
 }
 
 function routeFailure(

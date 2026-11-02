@@ -1,3 +1,8 @@
+import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
+import {
+  createReviewHistoryChangedHandler,
+  reviewHistoryHandlerDefinition,
+} from "./review-history-worker-runtime";
 import { createReviewStatisticsFeature } from "@reviewrouter/features-review-statistics/composition";
 import { createReviewStatisticsSettlementCapture } from "./review-statistics-settlement-capture";
 import {
@@ -10,6 +15,8 @@ import { App } from "@octokit/app";
 import {
   reviewRequestIngressEventType,
   reviewRequestIngressEventVersion,
+  reviewRequestedDispatchCleanupEventType,
+  reviewRequestedDispatchCleanupEventVersion,
 } from "@reviewrouter/features-review-executions";
 import { PrismaReviewExecutionStore } from "@reviewrouter/features-review-executions/composition";
 import {
@@ -41,6 +48,7 @@ import {
 import { PrismaMemoryUsageEventRepository } from "@reviewrouter/features-memory/infrastructure";
 import { MemoryKnowledgeError } from "@reviewrouter/features-memory";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
 import {
   PrismaRateLimitStore,
   pruneExpiredRateLimitBuckets,
@@ -84,9 +92,11 @@ import {
 } from "./memory-knowledge-worker";
 import {
   runOutboxWorkerLoop,
+  runOutboxWorkerOnce,
   safeWorkerErrorSummary,
   sleep,
 } from "./outbox-worker-loop";
+import { runWorkerBatch } from "./worker-batch";
 import { InvestigationPrunerMaintenanceAdapter } from "./review-investigation-maintenance-adapter";
 import { WorkerInvestigationExecutionAuthority } from "./review-investigation-execution-authority";
 import {
@@ -122,6 +132,11 @@ async function main(): Promise<void> {
     const memoryRuntime = await createMemoryKnowledgeRuntime({
       prisma,
       env: process.env,
+      workspaceSettings: (workspaceId, transaction) =>
+        new PrismaWorkspaceMemorySettings(prisma).read(
+          workspaceId,
+          transaction,
+        ),
     });
     const memoryWorker = createMemoryKnowledgeWorker({
       generation: memoryRuntime.generation,
@@ -164,6 +179,7 @@ async function main(): Promise<void> {
         });
       },
     });
+    const history = await createReviewHistoryFeature({ prisma });
     const statistics = await createReviewStatisticsFeature({ prisma });
     const settlementHook = createReviewStatisticsSettlementCapture(
       statistics.outboxWriter,
@@ -183,6 +199,9 @@ async function main(): Promise<void> {
           githubAppId,
           githubPrivateKey,
           settlementHook,
+          ...(process.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+            ? { historyWriter: history.writer }
+            : {}),
         });
       },
     });
@@ -200,6 +219,7 @@ async function main(): Promise<void> {
     const handlers = [
       ...memoryWorker.handlers,
       createReviewStatisticsSettledHandler(statistics.projector),
+      createReviewHistoryChangedHandler(history.projector),
       ...createOutboxHandlers(prisma, clock),
       ...reviewV2Worker.handlers,
       ...sdkGrowthPublication.handlers,
@@ -220,7 +240,7 @@ async function main(): Promise<void> {
     const pruneReviewExecutionCheckpoints =
       createReviewExecutionCheckpointMaintenance(prisma, clock);
     const reviewInvestigationMaintenance =
-      createReviewInvestigationMaintenanceRunner(prisma, clock);
+      createReviewInvestigationMaintenanceRunner(prisma, clock, history.writer);
     const pruneMemoryUsageTelemetry =
       createMemoryUsageTelemetryMaintenanceRunner(prisma, clock);
     const limit = readPositiveIntegerEnv("REVIEW_ROUTER_OUTBOX_BATCH_SIZE", 25);
@@ -237,40 +257,40 @@ async function main(): Promise<void> {
       .digest("hex");
     const takeoverEnabled =
       process.env.REVIEW_ROUTER_OUTBOX_FENCED_TAKEOVER_ENABLED === "1";
-    const processBatch = async () => {
-      await sdkGrowthPublication.runMaintenance();
-      const result =
-        handlers.length > 0
-          ? await processOutboxBatch(
-              {
-                limit,
-                handlers,
-                knownHandlers: knownOutboxHandlers,
-                claimOwnerHash,
-                processingLeaseMs: processingStaleAfterMs,
-                heartbeatIntervalMs,
-                takeoverEnabled,
-              },
-              {
-                outbox,
-                clock,
-              },
-            )
-          : emptyOutboxBatchResult();
-      await pruneRateLimits();
-      await pruneActionOidcReplayNonces();
-      await pruneReviewSnapshots();
-      await pruneReviewExecutionCheckpoints();
-      await reviewInvestigationMaintenance.runMaintenance();
-      await memoryWorker.runMaintenance();
-      await pruneMemoryUsageTelemetry();
-      await reviewV2Worker.runMaintenance();
-      return result;
-    };
+    const processBatch = () =>
+      runWorkerBatch({
+        sdkGrowthMaintenance: () => sdkGrowthPublication.runMaintenance(),
+        processOutbox: async () =>
+          handlers.length > 0
+            ? await processOutboxBatch(
+                {
+                  limit,
+                  handlers,
+                  knownHandlers: knownOutboxHandlers,
+                  claimOwnerHash,
+                  processingLeaseMs: processingStaleAfterMs,
+                  heartbeatIntervalMs,
+                  takeoverEnabled,
+                },
+                {
+                  outbox,
+                  clock,
+                },
+              )
+            : emptyOutboxBatchResult(),
+        pruneRateLimits,
+        pruneActionOidcReplayNonces,
+        pruneReviewSnapshots,
+        pruneReviewExecutionCheckpoints,
+        reviewInvestigationMaintenance: () =>
+          reviewInvestigationMaintenance.runMaintenance(),
+        memoryMaintenance: () => memoryWorker.runMaintenance(),
+        pruneMemoryUsageTelemetry,
+        reviewV2Maintenance: () => reviewV2Worker.runMaintenance(),
+      });
 
     if (process.env.REVIEW_ROUTER_WORKER_ONCE === "1") {
-      const result = await processBatch();
-      logger.info("ReviewRouter worker processed one outbox batch", result);
+      await runOutboxWorkerOnce({ processor: { processBatch }, logger });
       return;
     }
 
@@ -303,6 +323,11 @@ async function main(): Promise<void> {
 }
 
 const knownOutboxHandlers = [
+  reviewHistoryHandlerDefinition,
+  {
+    type: reviewRequestedDispatchCleanupEventType,
+    version: reviewRequestedDispatchCleanupEventVersion,
+  },
   reviewStatisticsHandlerDefinition,
   {
     type: githubReviewRequestIngressEventType,
@@ -564,6 +589,7 @@ function createReviewExecutionCheckpointMaintenance(
 function createReviewInvestigationMaintenanceRunner(
   prisma: ReturnType<typeof createPrismaClient>,
   clock: SystemClock,
+  historyWriter: import("@reviewrouter/features-review-history/composition").HistoryCapture,
 ) {
   return createReviewInvestigationMaintenanceFeature({
     env: process.env,
@@ -572,7 +598,15 @@ function createReviewInvestigationMaintenanceRunner(
       const expiredTurns = new ReconcileExpiredActiveTurn(
         investigations,
         new WorkerInvestigationExecutionAuthority(
-          new PrismaReviewExecutionStore(prisma),
+          new PrismaReviewExecutionStore(
+            prisma,
+            process.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
+              ? {
+                  historyCapture: (tx, execution) =>
+                    historyWriter.captureExecution(tx, execution),
+                }
+              : {},
+          ),
           new PrismaReviewRunAuthorizationRepository(prisma),
         ),
         new NodeSha256InvestigationDigest(),

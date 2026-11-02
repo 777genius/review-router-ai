@@ -7,6 +7,8 @@ on:
       - packages/features/auth/**
       - packages/platform/db/**
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/install-private-dependencies.mjs
       - .github/workflows/provider-accounts-c1.yml
   push:
     branches: [main]
@@ -15,18 +17,21 @@ on:
       - packages/features/auth/**
       - packages/platform/db/**
       - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/install-private-dependencies.mjs
       - .github/workflows/provider-accounts-c1.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: provider-accounts-c1-${{ github.ref }}
-  cancel-in-progress: true
+  # Manual qualification must not cancel branch/PR checks or another manual mode.
+  group: provider-accounts-c1-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   qualify:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     services:
       postgres:
@@ -56,7 +61,7 @@ jobs:
       - name: Install pinned dependencies
         run: |
           npm install --global pnpm@11.28.7
-          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
       - name: Prepare pinned native TypeScript compiler
         run: pnpm compiler:prepare
       - name: Generate and validate actual Prisma schema

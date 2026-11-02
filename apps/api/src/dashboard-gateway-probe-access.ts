@@ -105,11 +105,7 @@ export function createDashboardGatewayProbeAccess(input: {
           !row ||
           !profile ||
           profile.protocol !== "openai-responses" ||
-          !gatewayProfileAcceptsRequestedModel(
-            profile,
-            request.model,
-            input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1",
-          )
+          !gatewayProfileAcceptsRequestedModel(profile, request.model)
         )
           throw new Error("denied");
         const account = c.account.parse(

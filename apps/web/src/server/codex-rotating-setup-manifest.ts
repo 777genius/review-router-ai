@@ -10,7 +10,9 @@ import {
   encodeCodexRotatingSetupManifest,
   fingerprintDatabaseRecoveryWitness,
   renderCodexRotatingInstallerCommand,
+  codexRuntimeMigrationBindingSchema,
   type CodexRotatingInstallerArgument,
+  type CodexRuntimeMigrationBinding,
 } from "@reviewrouter/features-provider-setup";
 import { isCodexRotatingOAuthAllowedForRepository } from "@reviewrouter/platform-config";
 import type { CodexRotatingSeedScriptDescriptor } from "./codex-rotating-seed-script";
@@ -19,6 +21,7 @@ import {
   lockCodexRotatingProviderRow,
   lockCodexRotatingSetupProvider,
 } from "./codex-rotating-provider-mutation-fence";
+import { assertOriginalCodexRuntimeMigrationSource } from "./codex-runtime-migration-source";
 
 const setupManifestTtlSeconds = 15 * 60;
 const setupFetchedRecoveryWindowMs = 24 * 60 * 60 * 1000;
@@ -101,13 +104,28 @@ export async function issueCodexRotatingSetupCommand(input: {
     readonly epoch: bigint;
   };
   readonly admittedOperation?: CodexRotatingSetupAdmittedOperation;
+  readonly runtimeMigration?: {
+    readonly binding: CodexRuntimeMigrationBinding;
+    /** Re-observes exact disabled ingress and complete queue under this fence. */
+    readonly assertDrained: () => Promise<void>;
+  };
   readonly now?: Date;
 }): Promise<{
   readonly command: string;
   readonly expiresAt: string;
   readonly providerInstanceId: string;
+  readonly runtimeMigration?: {
+    readonly migrationId: string;
+    readonly dispatchAdmission: "fresh" | "readback_only";
+  };
 }> {
   assertSetupIssuanceEnabled(input.runtimeEnvironment);
+  const runtimeMigration = input.runtimeMigration
+    ? codexRuntimeMigrationBindingSchema.parse(input.runtimeMigration.binding)
+    : undefined;
+  if (runtimeMigration && input.recovery) {
+    throw new Error("codex_runtime_migration_recovery_conflict");
+  }
   if (input.recovery && !input.installerArguments?.includes("--force-reseed")) {
     throw new Error("codex_rotating_setup_recovery_force_required");
   }
@@ -361,7 +379,33 @@ export async function issueCodexRotatingSetupCommand(input: {
           )
         : null;
 
+      if (
+        (parsedActive?.success &&
+          parsedActive.data.runtimeMigration &&
+          JSON.stringify(parsedActive.data.runtimeMigration) !==
+            JSON.stringify(runtimeMigration)) ||
+        (runtimeMigration &&
+          allocationActive &&
+          (!parsedActive?.success ||
+            JSON.stringify(parsedActive.data.runtimeMigration) !==
+              JSON.stringify(runtimeMigration)))
+      ) {
+        throw new Error("codex_runtime_migration_recovery_required");
+      }
+      if (runtimeMigration) {
+        await assertOriginalCodexRuntimeMigrationSource({
+          tx,
+          providerInstanceRowId: provider.id,
+          binding: runtimeMigration,
+          githubRepositoryId: input.githubRepositoryId,
+          stage: allocationActive ? "setup" : "before_setup",
+        });
+        await input.runtimeMigration!.assertDrained();
+      }
+
       let manifest = parsedActive?.success ? parsedActive.data : null;
+      let migrationDispatchAdmission: "fresh" | "readback_only" =
+        "readback_only";
       if (
         allocationActive &&
         (!manifest ||
@@ -384,7 +428,8 @@ export async function issueCodexRotatingSetupCommand(input: {
 
       if (!manifest) {
         const setupNonce = `stp:${randomUUID()}`;
-        const manifestId = `codex_setup_${randomUUID()}`;
+        const manifestId =
+          runtimeMigration?.migrationId ?? `codex_setup_${randomUUID()}`;
         const mutationEpoch = provider.mutationEpoch + 1n;
         manifest = buildCodexRotatingSetupManifest({
           repositoryFullName: input.repositoryFullName,
@@ -399,6 +444,7 @@ export async function issueCodexRotatingSetupCommand(input: {
           ttlSeconds: setupManifestTtlSeconds,
           generationHashSalt: provider.generationHashSalt,
           accountFingerprintSalt: provider.accountFingerprintSalt,
+          ...(runtimeMigration ? { runtimeMigration } : {}),
         });
         await tx.codexOAuthProviderInstance.update({
           where: { id: provider.id },
@@ -440,6 +486,7 @@ export async function issueCodexRotatingSetupCommand(input: {
           ${databaseRecoveryWitness}
         )
         `;
+        migrationDispatchAdmission = "fresh";
         if (recoveryRequest) {
           await transitionRecoveryRequestToManifestIssued(tx, {
             recoveryRequestRowId: recoveryRequest.id,
@@ -453,7 +500,7 @@ export async function issueCodexRotatingSetupCommand(input: {
         }
       }
 
-      return setupCommandResult({
+      const result = setupCommandResult({
         manifest,
         setupManifestUrl: input.setupManifestUrl,
         ...(input.setupPrepareUrl
@@ -472,6 +519,15 @@ export async function issueCodexRotatingSetupCommand(input: {
           ? { installerArguments: input.installerArguments }
           : {}),
       });
+      return runtimeMigration
+        ? {
+            ...result,
+            runtimeMigration: {
+              migrationId: runtimeMigration.migrationId,
+              dispatchAdmission: migrationDispatchAdmission,
+            },
+          }
+        : result;
     },
     { timeout: setupTransactionTimeoutMs },
   );
@@ -733,6 +789,10 @@ export async function resolveCodexRotatingSetupManifestForNonce(input: {
   readonly databaseRecoveryWitness: string;
   readonly runtimeEnvironment?: NodeJS.ProcessEnv;
   readonly now?: Date;
+  readonly authorizeRuntimeMigration?: (
+    tx: SetupManifestTransaction,
+    manifest: ReturnType<typeof codexRotatingSetupManifestSchema.parse>,
+  ) => Promise<void>;
 }): Promise<{
   readonly manifestBase64: string;
   readonly expiresAt: string;
@@ -759,6 +819,22 @@ export async function resolveCodexRotatingSetupManifestForNonce(input: {
         input.databaseRecoveryWitness,
       );
       const manifest = codexRotatingSetupManifestSchema.parse(row.manifestJson);
+      if (manifest.runtimeMigration) {
+        if (
+          !input.authorizeRuntimeMigration ||
+          new Date(manifest.expiresAt) <= now
+        ) {
+          throw new Error("codex_runtime_migration_oidc_required");
+        }
+        await assertOriginalCodexRuntimeMigrationSource({
+          tx,
+          providerInstanceRowId: row.providerInstanceRowId,
+          binding: manifest.runtimeMigration,
+          githubRepositoryId: manifest.repositoryId,
+          stage: "setup",
+        });
+        await input.authorizeRuntimeMigration(tx, manifest);
+      }
       await assertCurrentSetupManifestRepositoryIdentity(tx, {
         providerInstanceRowId: row.providerInstanceRowId,
         manifest,

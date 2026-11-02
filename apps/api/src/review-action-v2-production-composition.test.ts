@@ -24,6 +24,7 @@ import {
 import { ProducerReleaseState } from "@reviewrouter/features-review-run-control";
 import { describe, expect, it, vi } from "vitest";
 import { createApiApp } from "./app.js";
+import { reviewModelDispatchContract } from "@reviewrouter/shared";
 import {
   reviewActionV2ContextReplayActiveKeyIdEnv,
   reviewActionV2ContextReplayKeysEnv,
@@ -83,6 +84,50 @@ const runtime = {
 };
 
 describe("Review Action v2 production composition", () => {
+  it("records closed claim rejection through the production logger with Fastify logging disabled", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let app: Awaited<ReturnType<typeof createApiApp>> | undefined;
+    try {
+      app = await createApiApp({
+        prisma: inertPrisma(),
+        healthDependencies: [],
+        reviewRunControlV2Enabled: true,
+        reviewActionV2Env: productionEnv(),
+      });
+      expect(app.log.level).toBeUndefined();
+      app.log.warn("secret-disabled-request-logger");
+      expect(warn).not.toHaveBeenCalled();
+      const response = await app.inject({
+        method: "POST",
+        url: reviewModelDispatchContract.claimPath,
+        headers: {
+          authorization: "Bearer secret-run-token",
+          [reviewModelDispatchContract.receiptHeader]: "secret-receipt-token",
+        },
+        payload: { executionId: "secret-caller-execution" },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toEqual({
+        code: "model_dispatch_claim_requires_run_authority",
+      });
+      expect(warn.mock.calls).toEqual([
+        [
+          JSON.stringify({
+            event: "review_model_dispatch_claim_rejected",
+            phase: "authentication",
+            code: "model_dispatch_claim_requires_run_authority",
+            httpStatus: 401,
+          }),
+          {},
+        ],
+      ]);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-");
+    } finally {
+      await app?.close();
+      warn.mockRestore();
+    }
+  });
+
   it("wires the trusted App PR facts and configured cap into real intent admission", async () => {
     const now = new Date();
     let intent: ReviewRequestedIntent = {

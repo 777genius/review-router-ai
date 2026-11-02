@@ -1077,6 +1077,10 @@ function fixture(
     codexOAuthSecretNamespace: {
       findUnique: vi.fn(async () => ({ workflowSchemaVersion: 5 })),
     },
+    // These scenarios use ordinary setup manifests, not the migration purpose.
+    codexOAuthSetupPayloadClaim: {
+      findFirst: vi.fn(async () => null),
+    },
     codexOAuthProviderInstance: {
       findUnique: vi.fn(async () => {
         providerReads++;

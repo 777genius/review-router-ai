@@ -1,0 +1,71 @@
+{
+  "scope": "Review History only; existing feature and WEB trust-host adoptions remain unchanged",
+  "decision": "ai-docs/decisions/032-review-history-scoped-composition.md",
+  "owner": "reviewrouter/review-history",
+  "standards": {
+    "consumerModuleStandard": {
+      "repository": "agent-teams-ai/get-modular",
+      "commit": "7a7c4c54add9ccc06509423d7b89bcfc037227b1",
+      "path": "docs/architecture/common-assembly.md",
+      "anchor": "#consumer-module-standard",
+      "gitBlob": "df4eff7235ac781ec574903c6b2aec13bcd7bfaa",
+      "sha256": "3c5814ebf1ab1bd17688e49955aa0baa2ee91dd3a369adcea4d38aaccd53ba86"
+    },
+    "moduleAuthoringGuide": {
+      "repository": "agent-teams-ai/get-modular",
+      "commit": "7a7c4c54add9ccc06509423d7b89bcfc037227b1",
+      "path": "docs/guides/module-authoring.md",
+      "sha256": "9bdbc6a6eac511691cf429c7e7e12b4cf4fd86ec16a348fb3af7a46c989af144"
+    },
+    "featureModuleStandard": {
+      "version": "v1.1",
+      "sha256": "cfa088ef7396139554fe5e3bcc839271b23299c6b60c569a3a7f1cd7c9f0bc6c"
+    },
+    "engineeringQualityStandard": {
+      "repository": "agent-teams-ai/.github",
+      "commit": "c8f3e7ba220241f79292c84c72712653019aa1df",
+      "path": "docs/engineering-quality-standard.md"
+    }
+  },
+  "packages": {
+    "@get-modular/core": "0.7.0",
+    "@get-modular/assembly": "0.7.0",
+    "@get-modular/conformance": "0.5.0",
+    "@get-modular/resources": "0.2.1"
+  },
+  "sourceRoot": "packages/features/review-history/src",
+  "layoutMapping": {
+    "physical": "packages/features/review-history/src",
+    "conformance": "features/review-history"
+  },
+  "productionRoot": "packages/features/review-history/src/composition/review-history.root.ts",
+  "group": "packages/features/review-history/src/composition/review-history.group.ts",
+  "module": "packages/features/review-history/src/composition/review-history.module.ts",
+  "namespace": "reviewrouter",
+  "input": "reviewrouter/history-database/host",
+  "implementation": "reviewrouter/review-history/default",
+  "lifetime": {
+    "owner": "existing API/worker/Web host",
+    "borrowed": ["Prisma client"],
+    "ownedResources": []
+  },
+  "fixedAdapters": [
+    "apps/api/src/app.ts",
+    "apps/api/src/review-action-v2-production-composition.ts",
+    "apps/worker/src/worker.ts",
+    "apps/worker/src/review-v2-production-runtime.ts",
+    "apps/web/src/server/review-history.ts",
+    "apps/web/app/dashboard/review-history-section.tsx"
+  ],
+  "blockingCommands": ["pnpm history:architecture", "pnpm modular:qualify"],
+  "exceptions": [],
+  "notAdopted": [
+    {
+      "path": "packages/features/review-statistics/src",
+      "owner": "reviewrouter/statistics",
+      "reason": "Existing independent feature and source policy; this change consumes no Statistics internals",
+      "reviewTrigger": "New independently assembled relationship with History"
+    }
+  ],
+  "claimLimit": "Source/layout/wiring and disposable DB evidence for History only; no production activation or whole-repository conformance"
+}

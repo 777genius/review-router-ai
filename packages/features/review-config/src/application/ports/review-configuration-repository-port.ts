@@ -66,7 +66,8 @@ export type ProviderSelectionAuthorityFacts = Readonly<{
 
 /**
  * The signed-in user of a selection write. `authorize` runs only when the
- * stored selection of the target scope changes; throwing refuses the write.
+ * stored selection changes or explicit workspace memory settings are written;
+ * throwing refuses the write.
  */
 export type ProviderSelectionAuthority = Readonly<{
   userId: string;
@@ -166,6 +167,10 @@ export type ReviewPolicyWriteAudit = Readonly<{
   actor: string;
   action: string;
   metadata?: Readonly<Record<string, unknown>>;
+  /** Pure synchronous projection of the exact configuration saved by this write. */
+  metadataForSavedConfiguration?: (
+    configuration: SavedReviewPolicy["configuration"],
+  ) => Readonly<Record<string, unknown>>;
 }>;
 
 export type SavedReviewPolicy = Readonly<{
@@ -207,6 +212,8 @@ export interface ReviewConfigurationRepositoryPort {
   saveNextVersions(input: {
     readonly workspaceId: string;
     readonly writes: readonly ReviewPolicyWrite[];
+    /** Observed inherited workspace head, checked under the same scope locks. */
+    readonly expectedWorkspaceVersion?: number | null;
     readonly selectionAuthority?: ProviderSelectionAuthority;
     readonly profileDrafts?: readonly ProviderProfileDraft[];
     /**

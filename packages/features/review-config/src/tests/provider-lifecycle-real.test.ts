@@ -17,6 +17,10 @@ import {
   type EffectiveReviewConfigurationValidatorPort,
   type ProviderSelectionDraft,
 } from "../application/use-cases/manage-provider-selections";
+import {
+  assignProviderSelectionsToRepositories,
+  setWorkspaceDefaultProviders,
+} from "../application/use-cases/manage-provider-rosters";
 import type { ProviderProfileModelChangeValidator } from "../application/use-cases/manage-workspace-provider-profiles";
 import { resolveEffectiveReviewConfiguration } from "../application/use-cases/resolve-effective-review-configuration";
 import { ProviderManagementDeniedError } from "../domain/provider-management-policy";
@@ -924,5 +928,174 @@ databaseTests("provider profile lifecycle on PostgreSQL", () => {
       expect(row).not.toContain(secret);
       expect(row).not.toMatch(/encryptedApiKey|"apiKey"|sk-[A-Za-z0-9]/);
     }
+  });
+  it("serializes observed whole-list saves and rejects a workspace shrink that breaks an explicit descendant requirement", async () => {
+    const a = await hostedProfile("gpt-5.3");
+    const b = await hostedProfile("gpt-5.4");
+    const target = { scope: "workspace" as const, workspaceId };
+    const initial = await deps.policyHeads.readPolicyHeads(target);
+    const first = await setWorkspaceDefaultProviders(
+      {
+        workspaceId,
+        actor: owner,
+        expectedVersion: initial.workspace?.version ?? null,
+        selections: [
+          { ...settings, profileId: a.id },
+          { ...settings, profileId: b.id },
+        ],
+        executionPatch: { providerMaxParallel: 2, inlineMinAgreement: 1 },
+      },
+      deps,
+    );
+    const concurrent = await Promise.allSettled([
+      setWorkspaceDefaultProviders(
+        {
+          workspaceId,
+          actor: owner,
+          expectedVersion: first.version,
+          selections: [
+            { ...settings, profileId: a.id },
+            { ...settings, profileId: b.id },
+          ],
+          executionPatch: { inlineMinAgreement: 2 },
+        },
+        deps,
+      ),
+      setWorkspaceDefaultProviders(
+        {
+          workspaceId,
+          actor: owner,
+          expectedVersion: first.version,
+          selections: [
+            { ...settings, profileId: b.id },
+            { ...settings, profileId: a.id },
+          ],
+          executionPatch: { inlineMinAgreement: 1 },
+        },
+        deps,
+      ),
+    ]);
+    expect(
+      concurrent.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      concurrent.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    await deps.configurations.saveNextVersions({
+      workspaceId,
+      writes: [
+        {
+          target: { scope: "repository", workspaceId, repositoryId: repoA },
+          policy: {
+            schemaVersion: 4,
+            execution: { inlineMinAgreement: 2 },
+            reviewLanguage: "fr",
+          },
+        },
+      ],
+    });
+    const before = await deps.policyHeads.readPolicyHeads({
+      scope: "repository",
+      workspaceId,
+      repositoryId: repoA,
+    });
+    const versionsBefore = await countVersions();
+    await expect(
+      setWorkspaceDefaultProviders(
+        {
+          workspaceId,
+          actor: owner,
+          expectedVersion: before.workspace!.version,
+          selections: [{ ...settings, profileId: a.id }],
+        },
+        deps,
+      ),
+    ).rejects.toThrow("review_inherited_execution_limits_incompatible");
+    expect(await countVersions()).toBe(versionsBefore);
+    const after = await deps.policyHeads.readPolicyHeads({
+      scope: "repository",
+      workspaceId,
+      repositoryId: repoA,
+    });
+    expect(after.workspace).toEqual(before.workspace);
+    expect(after.repository).toEqual(before.repository);
+    const stale = await assignProviderSelectionsToRepositories(
+      {
+        workspaceId,
+        actor: owner,
+        expectedWorkspaceVersion: before.workspace!.version - 1,
+        selections: [
+          { ...settings, profileId: a.id },
+          { ...settings, profileId: b.id },
+        ],
+        repositories: [
+          {
+            repositoryId: repoA,
+            capability: "direct_config",
+            expectedVersion: before.repository!.version,
+          },
+        ],
+      },
+      deps,
+    );
+    expect(stale).toEqual([{ repositoryId: repoA, status: "conflict" }]);
+    expect(await countVersions()).toBe(versionsBefore);
+  });
+
+  it("resolves all draft profiles once across actual bulk assignment transactions", async () => {
+    const drafts = [`gpt-5.2-${prefix}`, `gpt-5.1-${prefix}`].map(
+      (model, index) => {
+        const draft = draftOf(
+          { kind: "hosted_pool" },
+          {
+            kind: "hosted_pool",
+            authMode: "codex_subscription_oauth_hosted_pool",
+          },
+          model,
+        );
+        const id = `bulk-draft-${index}`;
+        return {
+          draft: { ...draft.draft, draftId: id },
+          profile: { ...draft.profile, id },
+        };
+      },
+    );
+    const heads = await deps.policyHeads.readRepositoryPolicyHeads({
+      workspaceId,
+      repositoryIds: [repoA, repoB],
+    });
+    const beforeCount = await countProfiles();
+    const results = await assignProviderSelectionsToRepositories(
+      {
+        workspaceId,
+        actor: owner,
+        expectedWorkspaceVersion: heads.workspace!.version,
+        selections: drafts.map((draft) => ({
+          ...settings,
+          profileId: draft.draft.draftId,
+        })),
+        drafts,
+        executionPatch: { providerMaxParallel: 2 },
+        repositories: [repoA, repoB].map((repositoryId) => ({
+          repositoryId,
+          capability: "direct_config",
+          expectedVersion:
+            heads.repositories.get(repositoryId)?.version ?? null,
+        })),
+      },
+      deps,
+    );
+    expect(results.map((result) => result.status)).toEqual([
+      "applied",
+      "applied",
+    ]);
+    expect(await countProfiles()).toBe(beforeCount + 2);
+    if (results[0]?.status !== "applied" || results[1]?.status !== "applied")
+      throw new Error("bulk_assignment_failed");
+    expect(results[0].profileIds).toEqual(results[1].profileIds);
+    expect(results[0].profileIds).toHaveLength(2);
+    expect(
+      results[0].profileIds.some((id) => id.startsWith("bulk-draft")),
+    ).toBe(false);
   });
 });

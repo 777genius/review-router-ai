@@ -4,6 +4,12 @@ This file is the source of truth for ReviewRouter git flow, deploy sequencing,
 and release tags. Keep `README.md` and `AGENTS.md` as links to this
 file instead of duplicating the process there.
 
+Task-specific rollout instructions and environment status are tracked in the
+[deployment task registry](../deployments/README.md). Before a deploy or release,
+inspect that registry for applicable unfinished work and include its ordered
+steps in the rollout. Record the actual outcome afterward. This file remains the
+source of truth for release gates, migration sequencing, approvals, and tags.
+
 ## Repositories
 
 ReviewRouter has two release-coupled repositories:
@@ -220,6 +226,28 @@ Why the Action repo goes first:
 - control plane release workflow checks that the matching Action tag already exists.
 - Customer workflows call the Action/reusable workflow first.
 - Conflict runtime then checks out the control plane runtime using the same `runtime_ref`.
+
+### Managed OCR component assets
+
+Before activating a managed OCR profile or changing the implicit engine selection,
+verify availability of its exact binary at the runtime bootstrap URL:
+`https://github.com/777genius/review-router/releases/download/ocr-v<packageVersion>/opencodereview-linux-amd64`.
+A producer attestation or successful CLI build alone does not publish this asset.
+
+Use the qualified source commit and pinned `tools/ocr/build.sh` toolchain/patches.
+Require the generated qualification manifest to match the checked-in manifest
+byte-for-byte. Require the binary SHA-256 digest to match the approved profile
+binary SHA-256. Create a new component release as Draft targeting
+that exact qualified commit, upload `opencodereview-linux-amd64`, `MANIFEST` and
+`opencodereview-linux-amd64.sha256`, then download and verify all three assets before
+publishing with `makeLatest=false`. Reconcile an existing tag/release instead of
+overwriting it. Keep `v1`, `workflow-v1`, immutable Action releases and producer
+approvals unchanged.
+
+Verify the published binary anonymously through the fixed bootstrap URL and compare
+its digest before enabling the profile for new reviews. Preserve the previous engine
+selection until this prerequisite passes. Record the component release, artifact
+identities, selection change and actual runtime verification in the deployment task.
 
 ## Action Runtime Release
 
@@ -801,13 +829,62 @@ Dispatch recovery is deliberately asymmetric:
 - A returned run ID binds the intent directly; a lost/unknown response is resolved
   only by bounded workflow-run lookup and never by repeating that POST.
 - Retry with a new request identity only after a definite no-effect result and
-  within `REVIEW_ROUTER_REVIEW_V2_INTENT_MAX_DISPATCH_ATTEMPTS`.
+  within `REVIEW_ROUTER_REVIEW_V2_INTENT_MAX_DISPATCH_ATTEMPTS`. A completed run
+  that never authorized counts as no-effect only when it concluded `failure`,
+  `timed_out` or `startup_failure` on the unchanged revision. Any other
+  conclusion (for example cancelled by an operator) supersedes the request
+  without a successor; a completed run without a conclusion keeps waiting until
+  its deadline. Each successor waits `REVIEW_ROUTER_REVIEW_V2_INTENT_RETRY_MS`,
+  doubled per earlier failed attempt and capped at one hour (a base delay above
+  one hour stays constant).
 - Terminalize an unresolved dispatch or missing OIDC authorization at its
-  persisted deadline, then release the PR lane. Best-effort cancellation targets
-  only the exact known workflow run.
+  persisted deadline, then release the PR lane. `DispatchOutcomeUnknown` and
+  `AuthorizationDeadlineExceeded` also persist a cleanup event in that same
+  transaction. An immediate cancellation failure cannot remove that obligation.
 - Keep the dispatch resolution window shorter than the authorization window. The
   production defaults are 5 minutes and 30 minutes respectively, allowing normal
   hosted-runner queue delay without treating it as an unknown POST outcome.
+
+### Superseded unadmitted Actions cleanup
+
+Superseding a submitted, unadmitted request also writes
+`review.requested_dispatch_cleanup@v1` in the same database transaction. The
+worker resolves the original request identity and durably binds the first discovered
+run ID/attempt before inspection or cancellation. Binding is version-fenced and
+cannot replace an already known target. Retries use that persisted target and
+do not repeat discovery. The original null-target outbox payload remains immutable
+and replay-valid after binding. The worker validates the current Actions attempt
+and workflow path, requests cancellation, and marks the event processed
+only after terminal readback. Admitted providers keep their existing drain
+contract. Dispatch deadlines retain their original meaning; an absent lookup
+never proves that an in-flight dispatch POST had no effect.
+
+The same obligation covers submitted, unadmitted terminal requests with
+`DispatchOutcomeUnknown` or `AuthorizationDeadlineExceeded`. It excludes proven
+no-effect recovery, completed-run retries, and requests already linked to an
+authorization or execution. Completed cleanup readback does not require the PR
+to remain accessible. Replaying a terminal transition produced by this version
+does not create a second event.
+
+This change needs no schema or public Action upgrade. Deploy the API and worker
+as one coherent batch, with a compatible worker available to consume cleanup.
+Workers predating cleanup do not own the event type and leave it pending. The
+previous supersession-only consumer knows the type but rejects terminal payloads:
+stop or coherently replace ALL previous cleanup consumers before ANY new sticky
+binding, including bindings for existing superseded events. Merely upgrading the
+terminal-event producer after one new worker is insufficient: an old consumer
+would reject an immutable null-target payload after another worker binds its
+intent. Keep compatible consumers when rolling back until ALL newly bound,
+unprocessed cleanup events and new terminal events are processed or explicitly
+reconciled; do not roll back onto these pending obligations.
+New workers register the event as known even when review processing is disabled.
+Retry failures use the existing
+bounded outbox backoff (20 attempts); exhaustion retains a dead letter and the
+request for operator reconciliation. After confirming the exact request/run,
+retry that dead letter through the existing outbox recovery flow. Never treat
+an unresolved dead letter as successful cancellation or replay the dispatch POST.
+Previously superseded or terminal requests have no new event retroactively;
+reconcile those separately using their retained request/run identities.
 
 Rollback before step 8 disables ingress first and drains persisted intents through
 the still-enabled worker. After intent-required admission or v2 mutation authority

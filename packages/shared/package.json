@@ -18,6 +18,11 @@
       "types": "./src/scm/index.ts",
       "production": "./dist/scm/index.js",
       "default": "./src/scm/index.ts"
+    },
+    "./review-model-dispatch-default-agents": {
+      "types": "./src/review-model-dispatch-default-agents.ts",
+      "production": "./dist/review-model-dispatch-default-agents.js",
+      "default": "./src/review-model-dispatch-default-agents.ts"
     }
   },
   "scripts": {

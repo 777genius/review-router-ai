@@ -1,3 +1,10 @@
+import type { MemorySourcePreviewPort } from "../application/ports/memory-source-preview-port";
+import type {
+  MemoryAutomaticSourceCurrentPort,
+  MemoryAutomaticSourceStore,
+} from "../application/ports/memory-automatic-source-port";
+import { MemoryAutomaticSourceService } from "../application/use-cases/memory-automatic-source-service";
+import { PrismaMemoryAutomaticSourceStore } from "../infrastructure/prisma/prisma-memory-automatic-source-store";
 import { validateMemoryOperatorCredentials } from "../infrastructure/config/memory-operator-config";
 import {
   assemblyFor,
@@ -5,7 +12,7 @@ import {
   type CapabilityContract,
 } from "@get-modular/assembly";
 import { compileComposition, defineModule, required } from "@get-modular/core";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaEntitlementRepository } from "@reviewrouter/features-entitlements";
 import type { MemoryCleanupProofPort } from "../application/ports/memory-cleanup-proof-port";
 import { createHindsightCleanupProofAdapter } from "../infrastructure/hindsight/hindsight-cleanup-proof-adapter";
@@ -16,7 +23,10 @@ import type {
   MemoryOperationObserver,
 } from "../application/ports/memory-knowledge-provider-port";
 import type { MemoryKnowledgeStore } from "../application/ports/memory-knowledge-store-port";
-import type { MemoryPolicyConfigPort } from "../application/ports/memory-policy-config-port";
+import type {
+  MemoryPolicyConfigPort,
+  MemoryWorkspaceSettings,
+} from "../application/ports/memory-policy-config-port";
 import { MemoryKnowledgeService } from "../application/use-cases/memory-knowledge-service";
 import { MemoryKnowledgeError } from "../domain/memory-knowledge";
 import { parseMemoryProviderConfig } from "../infrastructure/config/memory-provider-config";
@@ -37,7 +47,16 @@ export type MemoryKnowledgeRuntime = {
   readonly policy: MemoryPolicyConfigPort;
   readonly cleanupProof: MemoryCleanupProofPort | null;
   /** The host supplies an authenticated product/source context for each request. */
-  forAccess(access: MemoryKnowledgeAccessPort): MemoryKnowledgeService;
+  readonly automaticSources: MemoryAutomaticSourceStore;
+  forAccess(
+    access: MemoryKnowledgeAccessPort,
+    automaticCurrent?: MemoryAutomaticSourceCurrentPort,
+  ): MemoryKnowledgeService;
+  forAutomaticLearning(
+    access: MemoryKnowledgeAccessPort,
+    current: MemoryAutomaticSourceCurrentPort,
+    preview: MemorySourcePreviewPort,
+  ): MemoryAutomaticSourceService;
 };
 
 class DisabledMemoryProvider implements Provider {
@@ -92,6 +111,11 @@ export async function createMemoryKnowledgeRuntime(input: {
   readonly prisma: PrismaClient;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
+  /** Host-owned settings; transaction reads acquire the settings writer's shared guard. */
+  readonly workspaceSettings?: (
+    workspaceId: string,
+    transaction?: Prisma.TransactionClient,
+  ) => Promise<MemoryWorkspaceSettings>;
 }): Promise<MemoryKnowledgeRuntime> {
   const config = parseMemoryProviderConfig(input.env);
   validateMemoryOperatorCredentials({
@@ -132,10 +156,36 @@ export async function createMemoryKnowledgeRuntime(input: {
   const runtimeFactory = implement<Capabilities>()(
     runtimeModule,
     async ({ provider }) => {
-      const store = new PrismaMemoryKnowledgeStore(input.prisma);
+      const authorizeAutomaticMutation = async (
+        tx: Prisma.TransactionClient,
+        workspaceId: string,
+        revision: string,
+      ) => {
+        const settings = await input.workspaceSettings?.(workspaceId, tx);
+        if (
+          settings?.requireConfirmation ||
+          String(settings?.version ?? 0) !== revision
+        )
+          throw new MemoryKnowledgeError("conflict");
+      };
+      const store = new PrismaMemoryKnowledgeStore(input.prisma, {
+        automaticSourcesEnabled: true,
+        providerProfileVersion,
+        authorizeAutomaticMutation,
+      });
+      const automaticSources = new PrismaMemoryAutomaticSourceStore(
+        input.prisma,
+        { authorizeAutomaticMutation },
+      );
       const entitlements = new PrismaEntitlementRepository(input.prisma);
       const policy = new EntitlementMemoryPolicyConfig(entitlements, {
         serviceEnabled: enabled,
+        ...(input.workspaceSettings
+          ? {
+              workspaceSettings: (workspaceId) =>
+                input.workspaceSettings!(workspaceId),
+            }
+          : {}),
       });
       const quota = new EntitlementMemoryQuotaPolicy(entitlements);
       const instance: MemoryKnowledgeRuntime = {
@@ -148,12 +198,31 @@ export async function createMemoryKnowledgeRuntime(input: {
           config.kind === "hindsight"
             ? createHindsightCleanupProofAdapter(config, input.env)
             : null,
-        forAccess: (access) =>
+        automaticSources,
+        forAutomaticLearning: (access, current, preview) =>
+          new MemoryAutomaticSourceService({
+            preview,
+            current,
+            sources: automaticSources,
+            knowledge: instance.forAccess(access, current),
+            generation: config.generation,
+            providerProfileVersion,
+            ...(input.now ? { now: input.now } : {}),
+          }),
+        forAccess: (access, automaticCurrent) =>
           new MemoryKnowledgeService({
             generation: config.generation,
             providerProfileVersion,
             store,
             access,
+            ...(automaticCurrent
+              ? {
+                  automaticSources: {
+                    store: automaticSources,
+                    current: automaticCurrent,
+                  },
+                }
+              : {}),
             policy,
             quota,
             reader: provider,

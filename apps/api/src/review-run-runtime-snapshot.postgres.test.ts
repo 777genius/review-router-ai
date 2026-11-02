@@ -1108,6 +1108,8 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       const pin = parseReviewRunRuntimeSnapshot(
         row.runtimeSnapshotCanonicalJson,
       )!;
+      if (pin.snapshotVersion !== 3)
+        throw new Error("legacy_fixture_snapshot_expected");
       expect(pin.configurationSource).toBe("repository");
       expect(pin.configurationVersion).toBe(1);
       expect(
@@ -2548,6 +2550,8 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       });
       if (replacedPin && "captureDenied" in replacedPin)
         throw new Error(`snapshot_capture_denied:${replacedPin.captureDenied}`);
+      if (replacedPin && replacedPin.snapshotVersion !== 3)
+        throw new Error("legacy_fixture_snapshot_expected");
       expect(replacedPin?.gateway?.bindingId).toBe(replacementBinding.id);
       await expect(harness.authorize()).rejects.toThrow();
       expect(
@@ -2669,6 +2673,8 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
       const ordinaryPin = parseReviewRunRuntimeSnapshot(
         ordinary.runtimeSnapshotCanonicalJson,
       )!;
+      if (ordinaryPin.snapshotVersion !== 3)
+        throw new Error("legacy_fixture_snapshot_expected");
       expect(ordinaryPin.gateway).toBeNull();
       const ordinaryCreation = await fresh.outboxEvent.findFirstOrThrow({
         where: {

@@ -11,7 +11,10 @@ import {
   ReviewSkillsClientError,
 } from "../../src/features/review-skills/client-adapter";
 import { reviewSkillsKeys } from "../../src/features/review-skills/query-keys";
-import type { ReviewSkillsInput } from "../../src/features/review-skills/contracts";
+import type {
+  ReviewSkillAssignmentResult,
+  ReviewSkillsInput,
+} from "../../src/features/review-skills/contracts";
 import { loadReviewSkillsClientContext } from "./review-skills-actions";
 import { useRepositorySelection } from "./repository-action-selection";
 import {
@@ -126,7 +129,9 @@ export function RepositorySkillsOperation({
   const [creating, setCreating] = useState(false);
   const [include, setInclude] = useState("**");
   const [exclude, setExclude] = useState("");
-  const [success, setSuccess] = useState("");
+  const [success, setSuccess] = useState<ReviewSkillAssignmentResult | null>(
+    null,
+  );
   const [pathDrafts, setPathDrafts] = useState<
     ReadonlyMap<string, SkillBindingPathsDraft>
   >(() => new Map());
@@ -176,12 +181,11 @@ export function RepositorySkillsOperation({
     mode === "add" &&
     rows.some((row) => selected.has(row.skillId) && !row.available);
   const apply = useMutation({
+    onMutate: () => setSuccess(null),
     mutationFn: (command: ReviewSkillsInput<"applyAssignments">) =>
       requestReviewSkills("applyAssignments", command),
     onSuccess: async (result, command) => {
-      setSuccess(
-        `${result.added} added, ${result.removed} removed, ${result.unchanged} already in the requested state.`,
-      );
+      setSuccess(result);
       setSelected(new Set());
       if (command.mode === "remove")
         setPathDrafts((prior) => {
@@ -204,11 +208,15 @@ export function RepositorySkillsOperation({
     apply.error.code === "unknown";
   const controlsLocked =
     apply.isPending || completionUnknown || nestedPending.size > 0;
+  // A confirmed write may still be refreshing its rows. Keep those rows locked,
+  // but let the user close without waiting for a read that can be slow or fail.
+  const closeLocked =
+    (apply.isPending && success === null) || nestedPending.size > 0;
   const dirtyPathCount = [...pathDrafts.values()].filter(
     skillBindingPathsDraftIsDirty,
   ).length;
   const close = () => {
-    if (apply.isPending || nestedPending.size > 0) return;
+    if (closeLocked) return;
     if (
       dirtyPathCount > 0 &&
       !window.confirm("Discard your unsaved skill path changes?")
@@ -251,7 +259,6 @@ export function RepositorySkillsOperation({
       )
     )
       return;
-    setSuccess("");
     apply.mutate({
       workspaceId,
       repositoryIds,
@@ -280,14 +287,14 @@ export function RepositorySkillsOperation({
     setFocusedSkillId(null);
     setSelected(new Set());
     setMode("add");
-    setSuccess("");
+    setSuccess(null);
     apply.reset();
   };
   return (
     <SkillsDialog
       open
       onClose={close}
-      pending={apply.isPending || nestedPending.size > 0}
+      pending={closeLocked}
       title={
         assignedOnly
           ? "Assigned skills"
@@ -354,7 +361,8 @@ export function RepositorySkillsOperation({
           ) : null}
           {success ? (
             <p role="status" className="text-sm text-emerald-200">
-              {success}
+              {success.added} added, {success.removed} removed,{" "}
+              {success.unchanged} already in the requested state.
             </p>
           ) : null}
         </>
@@ -429,7 +437,7 @@ export function RepositorySkillsOperation({
               onClick={() => {
                 setMode(value);
                 setSelected(new Set());
-                setSuccess("");
+                setSuccess(null);
                 apply.reset();
               }}
             >
@@ -721,7 +729,7 @@ export function RepositorySkillsOperation({
             setSelected((prior) => new Set([...prior, document.skillId]));
             setSearch(Array.from(document.name).slice(0, 100).join(""));
             setFocusedSkillId(document.skillId);
-            setSuccess("");
+            setSuccess(null);
             apply.reset();
             void client.invalidateQueries({
               queryKey: reviewSkillsKeys.workspace(viewerId, workspaceId),

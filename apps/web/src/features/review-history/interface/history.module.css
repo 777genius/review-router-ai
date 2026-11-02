@@ -1,0 +1,235 @@
+.root {
+  min-width: 0;
+  color: var(--rr-color-text);
+}
+.root .statusBadge {
+  font-size: 0.75rem;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  padding: 0.2rem 0.45rem;
+}
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.4rem;
+}
+.title {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+.subtitle {
+  margin: 0.4rem 0 0;
+  color: var(--rr-color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+.filters {
+  display: grid;
+  grid-template-columns:
+    minmax(12rem, 1.6fr) minmax(10rem, 1.2fr) minmax(9rem, 1fr)
+    minmax(9rem, 1fr);
+  gap: 0.85rem;
+  margin-bottom: 0.6rem;
+  align-items: end;
+}
+.filters input {
+  font-size: 1rem;
+}
+.coverage {
+  margin: 1rem 0;
+  color: var(--rr-color-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+.rows,
+.runList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.row {
+  border-top: 1px solid var(--rr-color-border);
+  min-width: 0;
+}
+.row:last-child {
+  border-bottom: 1px solid var(--rr-color-border);
+}
+.rowSummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem 1.4rem;
+  align-items: start;
+  padding: 1.2rem 0;
+}
+.identity {
+  min-width: 0;
+}
+.prLink,
+.prTitle {
+  display: inline;
+  font-size: 0.9rem;
+  font-weight: 550;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.prLink {
+  color: var(--rr-color-text);
+}
+.prLink:hover {
+  color: var(--rr-chart-cyan);
+}
+.prLink svg {
+  display: inline;
+  margin-inline-start: 0.4rem;
+  vertical-align: baseline;
+  color: var(--rr-color-text-muted);
+}
+.metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.75rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: var(--rr-color-text-muted);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.rowState {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.6rem;
+  padding-top: 0.15rem;
+}
+.rowState time {
+  font-size: 0.7rem;
+  color: var(--rr-color-text-muted);
+  line-height: 1.65;
+}
+.disclosure {
+  grid-column: 1/-1;
+  justify-self: start;
+  min-height: 2.75rem;
+  margin-inline-start: -0.6rem;
+}
+.expandedIcon {
+  transform: rotate(180deg);
+}
+.history {
+  margin: 0 0 1.2rem 1rem;
+  padding-inline-start: 1rem;
+  border-inline-start: 1px solid var(--rr-color-border);
+}
+.run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rr-color-border);
+}
+.run time {
+  color: var(--rr-color-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: 1.2rem;
+  font-size: 0.8rem;
+  color: var(--rr-color-text-muted);
+}
+.status,
+.localStatus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 1.6rem 0;
+  color: var(--rr-color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.localStatus {
+  padding: 0.8rem 0;
+}
+.notice {
+  margin: 1rem 0;
+  color: var(--rr-color-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
+.empty {
+  padding: 1.7rem 0;
+  color: var(--rr-color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.8;
+}
+.empty p {
+  margin: 0 0 0.35rem;
+}
+.skeleton {
+  display: block;
+  height: 0.8rem;
+  width: 8rem;
+  border-radius: 0.2rem;
+  background: var(--rr-color-border);
+}
+.root a:focus-visible {
+  outline: 2px solid var(--rr-color-focus);
+  outline-offset: 4px;
+  border-radius: 0.15rem;
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 1150px) {
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rowSummary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.7rem;
+  }
+  .rowState {
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.8rem;
+  }
+  .rowState time {
+    font-size: 0.75rem;
+  }
+  .history {
+    margin-inline-start: 0.25rem;
+    padding-inline-start: 0.75rem;
+  }
+  .pagination {
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+}

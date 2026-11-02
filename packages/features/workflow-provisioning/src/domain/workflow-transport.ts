@@ -53,10 +53,11 @@ export function inspectRequiredWorkflowTransport(
   ) {
     const parsed = parseReviewConfigurationStrict(config);
     if (
-      parsed.providers.length !== 1 ||
-      parsed.providers[0]?.authMode !== "codex_account_gateway"
+      !parsed.providers.every(
+        (provider) => provider.authMode === "codex_account_gateway",
+      )
     ) {
-      throw new Error("account_gateway_single_provider_required");
+      throw new Error("account_gateway_mixed_transport_unsupported");
     }
     return "gateway";
   }
@@ -141,6 +142,17 @@ export function ciSecretsWorkflowProviderKind(
   return config.providers.some((provider) => provider.kind === "claude")
     ? "claude"
     : undefined;
+}
+
+/** The native subscription caller has one credential and one selected model. */
+export function isClaudeSubscriptionConfiguration(
+  config: ReviewConfiguration,
+): boolean {
+  return (
+    config.providers.length === 1 &&
+    config.providers[0]?.kind === "claude" &&
+    config.providers[0].authMode === "claude_code_oauth"
+  );
 }
 
 /** Hybrid providers whose secrets a rotating workflow passes through. */

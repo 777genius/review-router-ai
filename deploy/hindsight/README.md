@@ -247,6 +247,19 @@ the native DB URL to point at a loopback PostgreSQL17 process. Every read-only S
 observation connects through the **actual inspected API DSN** from the exact native
 image; no plan-selected PostgreSQL container can supply absence evidence.
 
+For a deployment created by the bundled bootstrap, include
+`postgresInfrastructure: {containerId, imageDigest, port}` in the operator plan.
+Use the exact `containers.postgres` ID from its verified existing bootstrap state,
+resolve the unchanged immutable `postgresImage` configuration to its Docker image
+ID, and use the configured `postgresPort`. The operator checks that exact running
+PostgreSQL17 container, bootstrap command, loopback endpoint and unchanged process
+lifetime throughout cleanup. It never stops or restarts PostgreSQL. This binding
+does not supply SQL absence evidence; SQL still uses the inspected API DSN.
+Without this explicit binding, a same-label PostgreSQL container is rejected.
+Unknown same-label containers and all other native-image/database writers remain
+part of the strict executor census. The complete host census supports at most
+1,024 containers; exceeding that limit refuses cleanup rather than hiding records.
+
 The supported deployment mechanism is standalone Docker with Swarm inactive,
 automatic container restart disabled (`--restart=no`), and no Compose, Swarm or
 Kubernetes reconciler. Create an operator-owned mode0700 directory and use the

@@ -12,10 +12,8 @@ import {
   type UsageIdentity,
   type UsageProjection,
 } from "../domain/usage";
-import {
-  buildUsagePeriodReport,
-  type UsagePeriodReport,
-} from "../application/report-usage";
+import type { UsagePeriodReport } from "../application/report-usage";
+import { readPrismaUsagePeriodReport } from "./prisma-usage-report";
 import { IngestUsage } from "../application/ingest-usage";
 import {
   validateReportQuery,
@@ -230,67 +228,74 @@ export class PrismaUsageStore implements UsageStore {
 export class PrismaUsageReportReader implements UsageReportReader {
   constructor(private readonly prisma: PrismaClient) {}
   async report(q: UsageReportQuery) {
-    const report = buildUsagePeriodReport(await this.query(q, false), q);
-    const unattributed = await this.prisma.$queryRaw<
-      { count: bigint }[]
-    >`SELECT COUNT(*) AS "count" FROM "UsageUnattributedObservation" WHERE "workspaceId"=${q.workspaceId} AND "observedAt">=${q.from} AND "observedAt"<${q.to} AND "resolvedAt" IS NULL`;
+    validateReportQuery(q);
+    return this.prisma.$transaction(
+      async (tx) => {
+        const report = await readPrismaUsagePeriodReport(tx, q);
+        const unattributed = await tx.$queryRaw<
+          { count: bigint }[]
+        >`SELECT COUNT(*) AS "count" FROM "UsageUnattributedObservation" WHERE "workspaceId"=${q.workspaceId} AND "observedAt">=${q.from} AND "observedAt"<${q.to} AND "resolvedAt" IS NULL`;
 
-    const checkpoints = await this.prisma.$queryRaw<
-      {
-        sourceInstance: string;
-        coveredFrom: Date;
-        asOf: Date | null;
-        failureCount: number;
-        nextAttemptAt: Date | null;
-        deadLetteredAt: Date | null;
-        lastErrorCode: string | null;
-      }[]
-    >`SELECT "sourceInstance","coveredFrom","asOf","failureCount","nextAttemptAt","deadLetteredAt","lastErrorCode" FROM "UsageSourceCheckpoint" WHERE "workspaceId"=${q.workspaceId} AND "disabledAt" IS NULL`;
-    const coverageFilters = [
-      Prisma.sql`"workspaceId"=${q.workspaceId}`,
-      Prisma.sql`"issuedAt"<${q.to}`,
-      Prisma.sql`"expiresAt">=${q.from}`,
-    ];
-    if (q.access === "member")
-      coverageFilters.push(Prisma.sql`"actorId"=${q.actorId}`);
-    if (q.purpose) coverageFilters.push(Prisma.sql`"purpose"=${q.purpose}`);
-    if (q.runId) coverageFilters.push(Prisma.sql`"runId"=${q.runId}`);
-    if (q.bindingId)
-      coverageFilters.push(Prisma.sql`"bindingId"=${q.bindingId}`);
-    const coverage = await this.prisma.$queryRaw<
-      {
-        invocationId: string;
-        producerCoverage: UsagePeriodReport["deliveryCoverage"][number]["coverage"];
-      }[]
-    >(
-      Prisma.sql`SELECT "invocationId","producerCoverage" FROM "ProviderUsageGrant" WHERE ${Prisma.join(coverageFilters, " AND ")}`,
+        const checkpoints = await tx.$queryRaw<
+          {
+            sourceInstance: string;
+            coveredFrom: Date;
+            asOf: Date | null;
+            failureCount: number;
+            nextAttemptAt: Date | null;
+            deadLetteredAt: Date | null;
+            lastErrorCode: string | null;
+          }[]
+        >`SELECT "sourceInstance","coveredFrom","asOf","failureCount","nextAttemptAt","deadLetteredAt","lastErrorCode" FROM "UsageSourceCheckpoint" WHERE "workspaceId"=${q.workspaceId} AND "disabledAt" IS NULL`;
+        const coverageFilters = [
+          Prisma.sql`"workspaceId"=${q.workspaceId}`,
+          Prisma.sql`"issuedAt"<${q.to}`,
+          Prisma.sql`"expiresAt">=${q.from}`,
+        ];
+        if (q.access === "member")
+          coverageFilters.push(Prisma.sql`"actorId"=${q.actorId}`);
+        if (q.purpose) coverageFilters.push(Prisma.sql`"purpose"=${q.purpose}`);
+        if (q.runId) coverageFilters.push(Prisma.sql`"runId"=${q.runId}`);
+        if (q.bindingId)
+          coverageFilters.push(Prisma.sql`"bindingId"=${q.bindingId}`);
+        const coverage = await tx.$queryRaw<
+          {
+            invocationId: string;
+            producerCoverage: UsagePeriodReport["deliveryCoverage"][number]["coverage"];
+          }[]
+        >(
+          Prisma.sql`SELECT "invocationId","producerCoverage" FROM "ProviderUsageGrant" WHERE ${Prisma.join(coverageFilters, " AND ")}`,
+        );
+        return {
+          ...report,
+          unattributedCount:
+            q.access === "admin" ? Number(unattributed[0]?.count ?? 0n) : null,
+          deliveryCoverage: coverage.map((row) => ({
+            invocationId: row.invocationId,
+            coverage: row.producerCoverage,
+          })),
+          sources: checkpoints.map((row) => ({
+            sourceInstance: row.sourceInstance,
+            failureCount: row.failureCount,
+            nextAttemptAt: row.nextAttemptAt?.toISOString() ?? null,
+            deadLetteredAt: row.deadLetteredAt?.toISOString() ?? null,
+            lastErrorCode: row.lastErrorCode,
+            coveredFrom: row.coveredFrom.toISOString(),
+            asOf: row.asOf?.toISOString() ?? null,
+            lagMs: row.asOf
+              ? Math.max(0, Date.now() - row.asOf.getTime())
+              : null,
+          })),
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
-    return {
-      ...report,
-      unattributedCount:
-        q.access === "admin" ? Number(unattributed[0]?.count ?? 0n) : null,
-      deliveryCoverage: coverage.map((row) => ({
-        invocationId: row.invocationId,
-        coverage: row.producerCoverage,
-      })),
-      sources: checkpoints.map((row) => ({
-        sourceInstance: row.sourceInstance,
-        failureCount: row.failureCount,
-        nextAttemptAt: row.nextAttemptAt?.toISOString() ?? null,
-        deadLetteredAt: row.deadLetteredAt?.toISOString() ?? null,
-        lastErrorCode: row.lastErrorCode,
-        coveredFrom: row.coveredFrom.toISOString(),
-        asOf: row.asOf?.toISOString() ?? null,
-        lagMs: row.asOf ? Math.max(0, Date.now() - row.asOf.getTime()) : null,
-      })),
-    };
   }
   read(q: UsageReportQuery): Promise<readonly UsageProjection[]> {
-    return this.query(q, true);
+    return this.query(q);
   }
   private async query(
     q: UsageReportQuery,
-    paginate: boolean,
   ): Promise<readonly UsageProjection[]> {
     validateReportQuery(q);
     const filters = [
@@ -303,15 +308,14 @@ export class PrismaUsageReportReader implements UsageReportReader {
     if (q.bindingId) filters.push(Prisma.sql`"bindingId"=${q.bindingId}`);
     if (q.runId) filters.push(Prisma.sql`"runId"=${q.runId}`);
     if (q.purpose) filters.push(Prisma.sql`"purpose"=${q.purpose}`);
-    if (paginate && q.provider)
-      filters.push(Prisma.sql`"provider"=${q.provider}`);
-    if (paginate && q.model)
+    if (q.provider) filters.push(Prisma.sql`"provider"=${q.provider}`);
+    if (q.model)
       filters.push(
         Prisma.sql`"projection"->'identity'->>'requestedModel'=${q.model}`,
       );
-    if (paginate && q.after) filters.push(Prisma.sql`"callId">${q.after}`);
+    if (q.after) filters.push(Prisma.sql`"callId">${q.after}`);
     const rows = await this.prisma.$queryRaw<{ projection: UsageProjection }[]>(
-      Prisma.sql`SELECT "projection" FROM "UsageCall" WHERE ${Prisma.join(filters, " AND ")} ORDER BY "callId" ${paginate ? Prisma.sql`LIMIT ${q.limit ?? 100}` : Prisma.empty}`,
+      Prisma.sql`SELECT "projection" FROM "UsageCall" WHERE ${Prisma.join(filters, " AND ")} ORDER BY "callId" LIMIT ${q.limit ?? 100}`,
     );
     return rows.map((r) => r.projection);
   }

@@ -11,6 +11,7 @@ import {
   type assertLifecycleVerificationDispatchEvidence,
   type assertReviewRunCompanionDispatchEvidence,
 } from "./review-lifecycle-verification.js";
+import type { assertReviewModelDispatchEvidence } from "./review-model-dispatch-evidence.js";
 import {
   AcceptReviewObservationStatus,
   LookupReviewEvidenceStatus,
@@ -69,6 +70,7 @@ import {
   ReviewTrustDomain,
   canonicalJson,
   parseReviewRunRuntimeSnapshot,
+  reviewAgentExecutionProviderKind,
   type ReviewProtocolLimitsProfileQueryPort,
   type ReviewRunAuthorization,
   type ReviewRunAuthorizationQueryPort,
@@ -193,6 +195,12 @@ type CommonDependencies = Readonly<{
   verifyCompanionDispatchEvidence?: (
     input: Omit<
       Parameters<typeof assertReviewRunCompanionDispatchEvidence>[0],
+      "prisma"
+    >,
+  ) => Promise<void>;
+  verifyModelDispatchEvidence?: (
+    input: Omit<
+      Parameters<typeof assertReviewModelDispatchEvidence>[0],
       "prisma"
     >,
   ) => Promise<void>;
@@ -1070,12 +1078,19 @@ async function attachObservation(
     const reusableSlot = snapshot.execution.workSlots.find(
       (slot) => slot.workSlotId === request.workSlotId,
     );
-    if (reusableSlot?.taskKind === ReviewTaskKind.LifecycleRevalidation) {
-      assertLifecycleVerificationWorkSlots(authorization, [reusableSlot]);
+    const reusableRuntime = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    if (
+      reusableSlot &&
+      (reusableSlot.taskKind === ReviewTaskKind.LifecycleRevalidation ||
+        reusableRuntime?.modelDispatchCapability)
+    ) {
+      if (reusableSlot.taskKind === ReviewTaskKind.LifecycleRevalidation)
+        assertLifecycleVerificationWorkSlots(authorization, [reusableSlot]);
       if (
-        parseReviewRunRuntimeSnapshot(
-          authorization.runtimeSnapshotCanonicalJson,
-        )?.lifecycleVerificationCapability
+        reusableRuntime?.lifecycleVerificationCapability ||
+        reusableRuntime?.modelDispatchCapability
       ) {
         const reusableObservation = await d.observations.findById(
           request.observationId,
@@ -1447,9 +1462,12 @@ async function finalizeExecution(
     leases: d.executionQueries,
     projection,
   });
+  const publicationRuntime = parseReviewRunRuntimeSnapshot(
+    authorization.runtimeSnapshotCanonicalJson,
+  );
   if (
-    parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
-      ?.lifecycleVerificationCapability
+    publicationRuntime?.lifecycleVerificationCapability ||
+    publicationRuntime?.modelDispatchCapability
   ) {
     const root = record(projection, "projection_envelope_invalid");
     const publishing = record(root.publishing, "projection_publishing_invalid");
@@ -1458,22 +1476,33 @@ async function finalizeExecution(
         publishing.prDescription,
       ).generationProvenance;
       const lease = await d.executionQueries.findLease(provenance.leaseId);
-      if (!lease?.preparedManifestKey || !d.verifyCompanionDispatchEvidence)
+      if (
+        !lease?.preparedManifestKey ||
+        (publicationRuntime.modelDispatchCapability
+          ? !d.verifyModelDispatchEvidence
+          : !d.verifyCompanionDispatchEvidence)
+      )
         throw failure(
           422,
           ReviewActionV2ProtocolErrorCode.InvariantViolation,
           "pr_description_dispatch_proof_unavailable",
         );
-      await d.verifyCompanionDispatchEvidence({
+      const source = {
         authorization,
-        role: "pr_description",
+        role: "pr_description" as const,
         executionId: snapshot.execution.executionId,
         workSlotId: lease.workSlotId,
         leaseId: lease.leaseId,
         fencingToken: lease.fencingToken,
         preparedManifestKey: lease.preparedManifestKey,
         providerRequestEnvelopeHash: provenance.providerRequestEnvelopeHash,
-      });
+      };
+      if (publicationRuntime.modelDispatchCapability)
+        await d.verifyModelDispatchEvidence!({
+          ...source,
+          actualModel: provenance.actualModel,
+        });
+      else await d.verifyCompanionDispatchEvidence!(source);
     }
   }
   const now = d.now();
@@ -1596,6 +1625,7 @@ async function lookupEvidence(
   );
   authorizedVote(authorization, request.providerVoteIdentityHash);
   const manifest = parseManifest(request.manifestCanonicalJson);
+  assertCapturedReviewerManifest(authorization, slot, manifest);
   const scopeHash = await authorizationScopeHash(authorization, d.digest);
   requireEqual(manifest.scopeHash, scopeHash, "manifest_scope_mismatch");
   requireEqual(
@@ -2171,6 +2201,7 @@ async function validatePreparedManifest(
   assignmentManifestCanonicalJson?: string | null,
 ) {
   const manifest = parseManifest(request.manifestCanonicalJson);
+  assertCapturedReviewerManifest(authorization, slot, manifest);
   if (
     serializeProviderInvocationManifestCanonicalWireJson(manifest) !==
     request.manifestCanonicalJson
@@ -2289,7 +2320,44 @@ async function assertLifecycleLeaseEvidence(
   const slot = snapshot.execution.workSlots.find(
     (item) => item.workSlotId === workSlotId,
   );
-  if (!slot || slot.taskKind !== ReviewTaskKind.LifecycleRevalidation) return;
+  if (!slot) return;
+  const runtime = parseReviewRunRuntimeSnapshot(
+    authorization.runtimeSnapshotCanonicalJson,
+  );
+  if (runtime?.modelDispatchCapability) {
+    const role =
+      slot.taskKind === ReviewTaskKind.FindingDiscovery
+        ? "finding_discovery"
+        : slot.taskKind === ReviewTaskKind.LifecycleRevalidation
+          ? "lifecycle_verification"
+          : slot.taskKind === ReviewTaskKind.PrDescription
+            ? "pr_description"
+            : null;
+    if (
+      !role ||
+      !lease.preparedManifestCanonicalJson ||
+      !lease.preparedManifestKey ||
+      !d.verifyModelDispatchEvidence
+    )
+      throw failure(
+        422,
+        ReviewActionV2ProtocolErrorCode.InvariantViolation,
+        "model_dispatch_proof_unavailable",
+      );
+    const manifest = parseManifest(lease.preparedManifestCanonicalJson);
+    await d.verifyModelDispatchEvidence({
+      authorization,
+      executionId: snapshot.execution.executionId,
+      workSlotId,
+      leaseId: lease.leaseId,
+      fencingToken: lease.fencingToken,
+      preparedManifestKey: lease.preparedManifestKey,
+      providerRequestEnvelopeHash: manifest.providerRequestEnvelopeHash,
+      actualModel,
+      role,
+    });
+  }
+  if (slot.taskKind !== ReviewTaskKind.LifecycleRevalidation) return;
   assertLifecycleVerificationWorkSlots(authorization, [slot]);
   const capability = parseReviewRunRuntimeSnapshot(
     authorization.runtimeSnapshotCanonicalJson,
@@ -2298,7 +2366,7 @@ async function assertLifecycleLeaseEvidence(
   if (
     !lease.preparedManifestCanonicalJson ||
     !lease.preparedManifestKey ||
-    !d.verifyLifecycleDispatchEvidence
+    (!runtime?.modelDispatchCapability && !d.verifyLifecycleDispatchEvidence)
   )
     throw failure(
       422,
@@ -2325,7 +2393,8 @@ async function assertLifecycleLeaseEvidence(
     capability.model,
     "lifecycle_verification_actual_model_mismatch",
   );
-  await d.verifyLifecycleDispatchEvidence({
+  if (runtime?.modelDispatchCapability) return;
+  await d.verifyLifecycleDispatchEvidence!({
     authorization,
     executionId: snapshot.execution.executionId,
     workSlotId,
@@ -2347,18 +2416,27 @@ async function assertLifecycleObservationSource(
   const slot = target.execution.workSlots.find(
     (item) => item.workSlotId === workSlotId,
   );
-  if (!slot || slot.taskKind !== ReviewTaskKind.LifecycleRevalidation) return;
-  assertLifecycleVerificationPreparedPlan(
-    authorization,
-    target.execution.assignmentManifestCanonicalJson
-      ? JSON.parse(target.execution.assignmentManifestCanonicalJson)
-      : null,
-    slot,
-    manifest,
+  const runtime = parseReviewRunRuntimeSnapshot(
+    authorization.runtimeSnapshotCanonicalJson,
   );
   if (
-    !parseReviewRunRuntimeSnapshot(authorization.runtimeSnapshotCanonicalJson)
-      ?.lifecycleVerificationCapability
+    !slot ||
+    (slot.taskKind !== ReviewTaskKind.LifecycleRevalidation &&
+      !runtime?.modelDispatchCapability)
+  )
+    return;
+  if (slot.taskKind === ReviewTaskKind.LifecycleRevalidation)
+    assertLifecycleVerificationPreparedPlan(
+      authorization,
+      target.execution.assignmentManifestCanonicalJson
+        ? JSON.parse(target.execution.assignmentManifestCanonicalJson)
+        : null,
+      slot,
+      manifest,
+    );
+  if (
+    !runtime?.lifecycleVerificationCapability &&
+    !runtime?.modelDispatchCapability
   )
     return;
   const [source, sourceLease, sourceAuthorization] = await Promise.all([
@@ -2380,15 +2458,33 @@ async function assertLifecycleObservationSource(
     sourceLease.providerInvocationKey !== observation.providerInvocationKey ||
     sourceAuthorization.reviewRevisionHash !==
       authorization.reviewRevisionHash ||
-    !parseReviewRunRuntimeSnapshot(
-      sourceAuthorization.runtimeSnapshotCanonicalJson,
-    )?.lifecycleVerificationCapability
+    (!runtime?.modelDispatchCapability &&
+      !parseReviewRunRuntimeSnapshot(
+        sourceAuthorization.runtimeSnapshotCanonicalJson,
+      )?.lifecycleVerificationCapability)
   )
     throw failure(
       422,
       ReviewActionV2ProtocolErrorCode.InvariantViolation,
       "lifecycle_verification_original_source_unavailable",
     );
+  if (runtime?.modelDispatchCapability) {
+    const sourceRoute = parseReviewRunRuntimeSnapshot(
+      sourceAuthorization.runtimeSnapshotCanonicalJson,
+    )?.modelDispatchCapability;
+    if (
+      !sourceRoute ||
+      sourceRoute.routeIdentityHash !==
+        runtime.modelDispatchCapability.routeIdentityHash ||
+      sourceRoute.model !== runtime.modelDispatchCapability.model ||
+      sourceRoute.transport !== runtime.modelDispatchCapability.transport
+    )
+      throw failure(
+        422,
+        ReviewActionV2ProtocolErrorCode.InvariantViolation,
+        "model_dispatch_original_source_unavailable",
+      );
+  }
   await assertLifecycleLeaseEvidence(
     sourceAuthorization,
     source,
@@ -3165,4 +3261,29 @@ function failure(
   issue: string,
 ) {
   return new ReviewActionV2RouteFailure(statusCode, errorCode, [issue]);
+}
+
+function assertCapturedReviewerManifest(
+  authorization: ReviewRunAuthorization,
+  slot: Pick<ReviewWorkSlotPlan, "providerVoteIdentityHash" | "providerKind">,
+  manifest: ProviderInvocationManifest,
+): void {
+  const snapshot = parseReviewRunRuntimeSnapshot(
+    authorization.runtimeSnapshotCanonicalJson,
+  );
+  if (snapshot?.snapshotVersion !== 4) return;
+  const reviewer = snapshot.reviewers.find(
+    (row) => row.providerVoteIdentityHash === slot.providerVoteIdentityHash,
+  );
+  if (
+    !reviewer ||
+    String(reviewAgentExecutionProviderKind(reviewer.agentProfile)) !==
+      String(slot.providerKind) ||
+    reviewer.requestedModel !== manifest.requestedModel
+  )
+    throw failure(
+      403,
+      ReviewActionV2ProtocolErrorCode.Forbidden,
+      "manifest_reviewer_mismatch",
+    );
 }

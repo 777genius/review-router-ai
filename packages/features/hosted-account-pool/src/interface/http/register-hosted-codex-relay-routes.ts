@@ -119,6 +119,8 @@ export interface HostedCodexCommentTokenIssuerPort {
 }
 
 export type AuthorizedHostedCodexRelay = {
+  /** Qualified V2 requests pin the original grant account for every role. */
+  readonly allowAccountFailover?: false;
   readonly grantId: string;
   readonly requestId: string;
   readonly accountId: string;

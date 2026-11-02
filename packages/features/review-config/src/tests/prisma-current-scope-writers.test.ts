@@ -1,6 +1,7 @@
 import { switchRepositoryConfigurationAuthMode } from "../../../workflow-provisioning/src/infrastructure/prisma/prisma-hosted-pool-configuration";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
+import type { SavedReviewPolicy } from "../application/ports/review-configuration-repository-port";
 import {
   acquireReviewConfigurationWriteScope,
   PrismaReviewConfigurationRepository,
@@ -208,6 +209,71 @@ describe("production config and entitlement scope writers", () => {
     expect(h.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: "Serializable",
     });
+  });
+
+  it("projects audit metadata from the exact saved configuration before committing", async () => {
+    const h = harness();
+    const projectMetadata = vi.fn(
+      (configuration: SavedReviewPolicy["configuration"]) => ({
+        model: configuration?.config.providers[0]?.model,
+        version: -1,
+        providerSelected: false,
+      }),
+    );
+    const [saved] = await new PrismaReviewConfigurationRepository(
+      h.client,
+      undefined,
+      false,
+      undefined,
+    ).saveNextVersions({
+      workspaceId: "w",
+      writes: [{ target, policy: { schemaVersion: 4, providers: selections } }],
+      audit: {
+        actor: "user:owner",
+        action: "review_config.saved",
+        metadata: { accessSource: "workspace_admin", model: "stale-model" },
+        metadataForSavedConfiguration: projectMetadata,
+      },
+    });
+
+    expect(projectMetadata).toHaveBeenCalledExactlyOnceWith(
+      saved!.configuration,
+    );
+    expect(h.tx.auditEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        targetId: "r",
+        metadata: {
+          accessSource: "workspace_admin",
+          model: saved!.configuration!.config.providers[0]!.model,
+          version: 1,
+          providerSelected: true,
+        },
+      }),
+    });
+    expect(h.events.indexOf("audit")).toBeLessThan(h.events.indexOf("commit"));
+  });
+
+  it("propagates an audit append failure through the policy transaction", async () => {
+    const h = harness();
+    h.tx.auditEvent.create.mockRejectedValueOnce(
+      new Error("audit_append_failed"),
+    );
+    await expect(
+      new PrismaReviewConfigurationRepository(
+        h.client,
+        undefined,
+        false,
+        undefined,
+      ).saveNextVersions({
+        workspaceId: "w",
+        writes: [
+          { target, policy: { schemaVersion: 4, providers: selections } },
+        ],
+        audit: { actor: "user:owner", action: "review_config.saved" },
+      }),
+    ).rejects.toThrow("audit_append_failed");
+    expect(h.events).not.toContain("commit");
+    expect(h.events.at(-1)).toBe("rollback");
   });
 
   it("reuses entry guards after an upstream row lock without reacquiring an ancestor", async () => {

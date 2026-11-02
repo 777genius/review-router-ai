@@ -29,7 +29,7 @@ import {
 } from "./dashboard-provider-selections";
 import { productionPersonalAccounts } from "./personal-account-composition";
 import { loadAccountsBootstrap } from "./account-gateway-accounts";
-import { apiKeyProviderForGatewayProfile } from "../features/provider-setup/api-key-storage";
+import { gatewaySetupProvidersForProfiles } from "../features/provider-setup/setup-provider";
 
 /** GitHub permission checks one dialog view runs at once. */
 const GITHUB_PERMISSION_CHECK_CONCURRENCY = 5;
@@ -171,24 +171,14 @@ export async function loadProviderSetupView(input: {
         .listGatewayAccounts(personal.scope, null)
         .catch(() => ({ status: "unavailable" as const }))
     : (await loadAccountsBootstrap(workspaceId).catch(() => null))?.page;
-  const gatewayApiKeyProviders =
+  const gatewaySetupProviders =
     enrollment?.status === "ok"
-      ? [
-          ...new Set(
-            enrollment.value.profiles.flatMap((profile) => {
-              const provider =
-                profile.availability !== "deployment_configuration_required"
-                  ? apiKeyProviderForGatewayProfile(profile)
-                  : undefined;
-              return provider ? [provider] : [];
-            }),
-          ),
-        ]
+      ? gatewaySetupProvidersForProfiles(enrollment.value.profiles)
       : [];
 
   return buildProviderSetupView({
     workspaceId,
-    gatewayApiKeyProviders,
+    gatewaySetupProviders,
     target: target.kind,
     actor: facts.actor,
     workspace: facts.workspace,
@@ -223,6 +213,12 @@ export async function loadProviderSetupView(input: {
           : null,
     })),
     defaultSelection: workspacePolicy?.providers?.[0] ?? null,
+    defaultSelections: workspacePolicy?.providers ?? [],
+    workspaceVersion: heads.workspace?.version ?? null,
+    execution: workspacePolicy?.execution ?? {
+      providerMaxParallel: 1,
+      inlineMinAgreement: 1,
+    },
     repositories: orderedRepositories.map((repository) => {
       const head = heads.repositories.get(repository.id);
       const policy = head ? parseStoredReviewPolicy("repository", head) : null;
@@ -231,6 +227,9 @@ export async function loadProviderSetupView(input: {
         fullName: repository.fullName,
         capability: capabilities.get(repository.id) ?? null,
         ownSelection: policy?.providers?.[0] ?? null,
+        ownSelections: policy?.providers ?? [],
+        version: head?.version ?? null,
+        execution: policy?.execution ?? {},
         rotatingAvailable:
           repository.provider === "github" &&
           isCodexRotatingOAuthAllowedForRepository(repository.fullName),

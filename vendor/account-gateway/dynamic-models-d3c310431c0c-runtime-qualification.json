@@ -1,0 +1,164 @@
+{
+  "contract": "provider-connections-runtime-qualification/v1",
+  "gatewaySourceCommit": "811f9637ef4fbba1c6958d8c4fafcae6acce5a95",
+  "nativeSourceCommit": "cadc51bbf4e0877cf2f986721abe52da101840a0",
+  "sdkArchive": "agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz",
+  "sdkSHA256": "d3c310431c0c7a821246edc89153a3d1a8ffe139e5406bc34b21101f248185f4",
+  "gatewayCI": {
+    "status": "completed",
+    "conclusion": "success",
+    "headSha": "811f9637ef4fbba1c6958d8c4fafcae6acce5a95",
+    "nodeLanes": ["24.21.0", "26.11.1"],
+    "checkpointA": {
+      "runId": 40737080837,
+      "status": "completed",
+      "conclusion": "success",
+      "headSha": "811f9637ef4fbba1c6958d8c4fafcae6acce5a95",
+      "url": "https://github.com/agent-teams-ai/account-gateway/actions/runs/40737080837"
+    },
+    "checkpointB": {
+      "runId": 40737080985,
+      "status": "completed",
+      "conclusion": "success",
+      "headSha": "811f9637ef4fbba1c6958d8c4fafcae6acce5a95",
+      "url": "https://github.com/agent-teams-ai/account-gateway/actions/runs/40737080985"
+    },
+    "codeQL": {
+      "runId": 40737073231,
+      "status": "completed",
+      "conclusion": "success",
+      "headSha": "811f9637ef4fbba1c6958d8c4fafcae6acce5a95",
+      "url": "https://github.com/agent-teams-ai/account-gateway/actions/runs/40737073231"
+    },
+    "previousSuccessfulHead": {
+      "headSha": "386923fca77ed3ebfb1edcc3b25d294c1b8ad07f",
+      "checkpointA": "https://github.com/agent-teams-ai/account-gateway/actions/runs/40736659600",
+      "checkpointB": "https://github.com/agent-teams-ai/account-gateway/actions/runs/40736659527"
+    }
+  },
+  "gatewayOwnerAuthorityRegression": {
+    "fullIngressTests": "35 passed, zero failures, zero skips",
+    "kernelTypecheck": "passed",
+    "sourceCommit": "386923fca77ed3ebfb1edcc3b25d294c1b8ad07f",
+    "regressionRedBefore": true,
+    "quotaContractsRemainUnsupported": true
+  },
+  "joined": {
+    "phase": "completed",
+    "contract": "gateway-native-provider-joined/v1",
+    "nativeBinarySHA256": "b6199c1267a657af43beac757c158149df33040fc75fce906d103f5ec1f1c395",
+    "nativeHead": "cadc51bbf4e0877cf2f986721abe52da101840a0",
+    "gatewayBaseHead": "811f9637ef4fbba1c6958d8c4fafcae6acce5a95",
+    "gatewaySourceArchiveSHA256": "66b69bc95845990135a23310faa27ea3f58cf662e6e57c695db5c14a3b52ee3a",
+    "sourceHashes": {
+      "harness": "f0465dc40e7cbff157464cb522ca3f074756f067d4b5924b78abb0fa0dd71c12",
+      "nativeFixture": "28092b1b1d868711feac27d14880579e1558a915ff45d8837b12c7464e37c6f3",
+      "sdkHTTP": "6156abd2c7d0ad69ee9fc95be2815668fc36ecaad6b64fc901add2af3e66fa7b"
+    },
+    "nativeHTTP": true,
+    "gatewayFacadeAndSDK": true,
+    "rrAcceptance": false,
+    "rrReceipts": [],
+    "actualPostgreSQL": true,
+    "providerShapedFixture": true,
+    "liveProviderAccount": false,
+    "providers": ["kimi", "glm", "minimax", "grok"],
+    "controlledTextAndFunctionToolRoundTrip": true,
+    "dynamicOpenRouterDiscoveryAndDispatch": true,
+    "dynamicOpenRouterAuthoritativeRemoval": true,
+    "dynamicOpenRouterQualifiedReasoning": true,
+    "dynamicOpenRouterImmutableAnchor": true,
+    "minimaxReasoningContentRoundTrip": true,
+    "reconnectRetainsAccount": true,
+    "canonicalErasure": true,
+    "grokRefresh": true,
+    "inertReadProviderCalls": 0,
+    "wrongOwnerDenied": true,
+    "nativeDiagnosticBytes": 428
+  },
+  "observedJoinedReceiptSHA256": "06ddd80517d80f9262b5330b731995849d0146a51344a54d104babed73886a7e",
+  "observedJoinedLogSHA256": "b6e8a6c61a05775d0f4d7f75122a96d03fffe47aacf091473ef6350f04519c57",
+  "nativeProductionBuild": {
+    "sourceCommit": "cadc51bbf4e0877cf2f986721abe52da101840a0",
+    "toolchain": "go1.27.3 linux/amd64",
+    "sourceWorktreeCleanBeforeAndAfterBuild": true,
+    "vcsStamp": "explicitly disabled per operator production command; clean exact source is bound by this external receipt. Joined fixture separately requires embedded revision and vcs.modified=false.",
+    "binarySHA256": "d2af06360f65ddba845cb5ffb18b06fb908766d8c41e057ac210749eb961b637",
+    "migrationTestBinarySHA256": "c70858521a07a280e0f671a9ed345d7cf4a26f486398e9697e135f6bdef32932"
+  },
+  "nativePostgresQualification": {
+    "sourceCommit": "cadc51bbf4e0877cf2f986721abe52da101840a0",
+    "gatewayCommit": "811f9637ef4fbba1c6958d8c4fafcae6acce5a95",
+    "recordedAtUTC": "2026-10-28T17:35:41.885249+00:00",
+    "exitCode": 0,
+    "testBinarySHA256": "c70858521a07a280e0f671a9ed345d7cf4a26f486398e9697e135f6bdef32932",
+    "logSHA256": "98b10138f87923953281d382a462b000cf10f6f15a4b197593ee5bbda2fc91b3",
+    "passedTestNodes": 30,
+    "failedTestNodes": 0,
+    "skippedTestNodes": 0,
+    "qualification": "Verifies exact stock embedded migration258 checksum/function body and enabled account trigger after successful final SDK/Gateway/native joined run, then rollback-only account guard regression.",
+    "productionActivated": false
+  },
+  "nativePureProjectionTests": {
+    "sha256": "ab7424c2410b083af79300749ee10e32dcf207680e1ed8966cc248c29bbea500",
+    "pass": 18,
+    "fail": 0,
+    "skip": 0,
+    "scope": "Standalone pure projection and existing Codex wire-boundary tests; run immediately before committing unchanged final projector source."
+  },
+  "nativeServiceUnitGate": {
+    "status": "not_passed",
+    "reason": "NOT PASSED: prior service run has no live Go/compiler/test process, zero-byte output and no exit receipt",
+    "testsOrFlagsWeakened": false
+  },
+  "nativeStandardCI": {
+    "repositoryActionsPermissionsEnabled": true,
+    "repositoryActionsAllowed": "all",
+    "shaPinningRequired": true,
+    "workflowId": 373703849,
+    "workflowState": "active",
+    "dispatchAttempts": 1,
+    "dispatchHTTPStatus": 422,
+    "dispatchError": "Actions has been disabled for this repository",
+    "organizationPolicyReadHTTPStatus": 403,
+    "organizationPolicyError": "admin:org or actions policy permission unavailable",
+    "settingsMutated": false
+  },
+  "runtimeSourceCompatibility": {
+    "workflowChannel": "workflow-v1",
+    "sourceRepository": "777genius/review-router",
+    "sourceCommit": "056952b5a3d625fd1d19384942d452114804380f",
+    "sourceInspection": {
+      "workflow-account-gateway-mimo-catalog": {
+        "sha256": "af6c2088fb42105a6d768557503c54492a6d13f96736c721a816290bd82cbbb9",
+        "matchesPreviouslyInspectedSource": true
+      },
+      "workflow-admitted-gateway-codex-model-settings": {
+        "sha256": "ea1c07e6a7789416c62eae09959a787c8680cb740530646f4f3e7552798ca749",
+        "matchesPreviouslyInspectedSource": true
+      },
+      "workflow-production-t0-review-runner": {
+        "sha256": "8e9ace30af70737920db1e98f8901e50a9e039e50802f8bccda5de358dd802a6",
+        "matchesPreviouslyInspectedSource": true
+      },
+      "workflow-codex-provider": {
+        "sha256": "da0e703dc3bff79df0fc34ba920cc8e50705ea73f41413b065accc8991adfbc0",
+        "inspectedAtExactSourceCommit": true
+      },
+      "workflow-account-gateway-model-transport": {
+        "sha256": "d21aad96fa2da2ca4c188a541a93fc0fccab0c1be4f613a5423b2b97ca17ed84",
+        "inspectedAtExactSourceCommit": true
+      }
+    },
+    "boundary": "Static source compatibility inspection; no workflow, live provider, or production deployment executed.",
+    "gatewayDefaultTierNormalization": {
+      "verified": true,
+      "function": "normalizeCodexGatewayServiceTier",
+      "scope": "Current Gateway loopback path inserts service_tier default only when absent, before forwarding; direct-provider path retains separate policy."
+    }
+  },
+  "publicPublished": false,
+  "productionActivated": false,
+  "liveProviderAccount": false,
+  "browserAcceptance": false
+}

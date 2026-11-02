@@ -26,6 +26,45 @@ afterEach(() => {
 });
 
 describe("RepositorySetupDisclosureToggle", () => {
+  it.each(["unknown", "update_required"] as const)(
+    "does not turn %s runtime support into Ready after a provider confirmation",
+    async (runtimeCompatibility) => {
+      render(
+        <>
+          <RepositorySetupDisclosureToggle
+            repositoryId="repo_1"
+            disclosureId="setup_repo_1"
+            currentStep="setup_pr"
+            runtimeCompatibility={runtimeCompatibility}
+            expectedProviderAuthModes={["openrouter_api_key"]}
+          />
+          <RepositorySetupReadyGate
+            repositoryId="repo_1"
+            currentStep="setup_pr"
+            runtimeCompatibility={runtimeCompatibility}
+            expectedProviderAuthModes={["openrouter_api_key"]}
+          >
+            <div>Configured policy editor</div>
+          </RepositorySetupReadyGate>
+        </>,
+      );
+      window.dispatchEvent(
+        setupPullRequestMergedEvent({
+          repositoryId: "repo_1",
+        }),
+      );
+      window.dispatchEvent(
+        providerSetupConfirmedEvent({
+          repositoryId: "repo_1",
+          repositoryFullName: "acme/repo",
+          providerKind: "openrouter",
+          authMode: "openrouter_api_key",
+        }),
+      );
+      await waitFor(() => expect(screen.getByText("1/4")).toBeTruthy());
+      expect(screen.queryByText("Configured policy editor")).toBeNull();
+    },
+  );
   it.each([
     ["openrouter_api_key", "setup_pr", "1/4"],
     ["openrouter_api_key", "merge_setup_pr", "2/4"],

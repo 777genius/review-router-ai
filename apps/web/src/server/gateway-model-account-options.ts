@@ -196,12 +196,14 @@ export function createGatewayModelAccountOptions(input: {
       throw new RowDenied();
     let scopedProfile: AccountProfileView = profile;
     let modelCatalog: ModelAccount["modelCatalog"];
-    if (
-      readModels &&
-      input.env.REVIEW_ROUTER_CODEX_ACCOUNT_MODEL_CATALOG_ENABLED === "1" &&
-      profile.id === "openai-codex-oauth-responses-v1" &&
-      profile.authKind === "oauth"
-    ) {
+    const discoverySource = profile.authKind
+      ? c.accountModelDiscoverySource({
+          profileId: profile.id,
+          protocol: profile.protocol,
+          authKind: profile.authKind,
+        })
+      : undefined;
+    if (readModels && discoverySource) {
       let models: c.AccountModels;
       try {
         models = gateway.readAccountModels
@@ -222,6 +224,13 @@ export function createGatewayModelAccountOptions(input: {
         // A malformed/failed response is not an explicit authorized fallback.
         models = { status: "unknown" };
       }
+      if (
+        models.status === "snapshot" &&
+        (models.source !== discoverySource ||
+          Date.parse(models.fetchedAt) > Date.now() ||
+          Date.parse(models.expiresAt) <= Date.now())
+      )
+        models = { status: "unknown" };
       // Re-read the exact authorized binding and remote account after discovery.
       // The Gateway independently fences physical identity during discovery.
       const after = await detail(authority, bindingId);
@@ -234,8 +243,11 @@ export function createGatewayModelAccountOptions(input: {
         throw new RowDenied();
       if (models.status === "snapshot") {
         const connection = profile.connection ?? {
-          provider: "openai" as const,
-          planLabel: "Codex",
+          provider:
+            discoverySource === "codex"
+              ? ("openai" as const)
+              : ("openrouter" as const),
+          planLabel: profile.label,
           regionLabel: "Global",
           completionInputKind: "none" as const,
           personalOnly: false,
@@ -249,7 +261,7 @@ export function createGatewayModelAccountOptions(input: {
         };
         modelCatalog = {
           status: "snapshot",
-          source: "codex",
+          source: models.source,
           fetchedAt: models.fetchedAt,
           expiresAt: models.expiresAt,
           models: scopedProfile.models,

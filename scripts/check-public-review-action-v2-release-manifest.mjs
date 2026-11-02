@@ -97,12 +97,18 @@ export function checkReleaseManifest(input) {
     runtimeEntrypointDigest: verifiedAction.runtimeEntrypointDigest,
     contextGatewayReleaseMetadata: verifiedAction.contextGatewayReleaseMetadata,
     agentProfiles: verifiedAction.agentProfiles,
+    ...(verifiedAction.modelDispatchProfile === undefined
+      ? {}
+      : { modelDispatchProfile: verifiedAction.modelDispatchProfile }),
     ...(verifiedAction.lifecycleVerificationProfile === undefined
       ? {}
       : {
           lifecycleVerificationProfile:
             verifiedAction.lifecycleVerificationProfile,
         }),
+    ...(verifiedAction.reviewerPlanProfile === undefined
+      ? {}
+      : { reviewerPlanProfile: verifiedAction.reviewerPlanProfile }),
     ...(verifiedAction.contextToolsProfile === undefined
       ? {}
       : { contextToolsProfile: verifiedAction.contextToolsProfile }),

@@ -71,7 +71,7 @@ export type ProviderListRow = Readonly<{
   actions: Readonly<{
     /** Rename and change the model. */
     edit: ProviderListDecision;
-    /** Null on the default itself. */
+    /** Choose the default, or edit the current default's review settings. */
     makeDefault: ProviderListDecision | null;
     /** Only on the default. */
     removeDefault: ProviderListDecision | null;
@@ -143,9 +143,11 @@ export function buildProviderListView(
       repositoryId: profile.rotatingRepositoryId,
     };
     const stored = usageById.get(profile.id);
-    const isDefault = facts.defaultProfileId === profile.id;
+    const isDefault =
+      facts.defaultProfileId === profile.id ||
+      stored?.workspaceDefault === true;
     const usage: ProviderListUsage = {
-      workspaceDefault: isDefault || stored?.workspaceDefault === true,
+      workspaceDefault: isDefault,
       repositories: (stored?.repositoryIds ?? []).map((id) => ({
         id,
         fullName: facts.repositoryNames.get(id) ?? id,
@@ -180,9 +182,8 @@ export function buildProviderListView(
       creator: creatorOf(facts, profile.createdByUserId),
       actions: {
         edit: decide({ kind: "edit_profile", profile: profileFacts }),
-        makeDefault: isDefault
-          ? null
-          : profile.credentialKind === "hosted_pool"
+        makeDefault:
+          profile.credentialKind === "hosted_pool"
             ? // A hosted pool comes from each repository's session source.
               { allowed: false, reason: "hosted_pool_not_default" }
             : decide({ kind: "set_default", profile: profileFacts }),
@@ -213,7 +214,9 @@ export function buildProviderListView(
     workspaceId: facts.workspaceId,
     viewerIsAdmin: admin,
     accessRightsAdminOnly: facts.workspace.providerManagementAdminOnly,
-    hasDefault: facts.defaultProfileId !== null,
+    hasDefault:
+      facts.defaultProfileId !== null ||
+      facts.usage.some((item) => item.workspaceDefault),
     add:
       !add.allowed && add.reason === "workspace_admin_required"
         ? { allowed: false, reason: "list_add_admin_required" }

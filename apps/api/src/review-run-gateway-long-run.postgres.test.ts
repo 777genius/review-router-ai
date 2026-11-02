@@ -365,7 +365,11 @@ describe.skipIf(process.env.RR_P115_PG_TEST !== "1")(
         const pin = parseReviewRunRuntimeSnapshot(
           initial.runtimeSnapshotCanonicalJson,
         );
-        if (!pin?.gateway?.limits || !first.oidcExpiresAt)
+        if (
+          pin?.snapshotVersion !== 3 ||
+          !pin.gateway?.limits ||
+          !first.oidcExpiresAt
+        )
           throw new Error("p115_pin_missing");
         const formerTtl = initial.createdAt.getTime() + ttlMs;
         expect(initial.createdAt.getTime()).toBe(admissionTime);

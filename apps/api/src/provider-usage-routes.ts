@@ -24,10 +24,14 @@ import {
 import {
   PrismaUsageStore,
   PrismaUsageReportReader,
+  PrismaUsageAttributionReader,
   createProviderUsage,
 } from "@reviewrouter/features-provider-usage/composition";
 import {
   parseReviewRunRuntimeSnapshot,
+  getPrimaryReviewRunReviewer,
+  getReviewRunReviewer,
+  getReviewRunGatewayAllocation,
   type ManageReviewRunAuthorizations,
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
@@ -311,8 +315,19 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
     });
     if (!release || release.revokedAt)
       throw new UsageAccessError("usage_producer_denied");
+    const primary =
+      snapshot.snapshotVersion === 4
+        ? getPrimaryReviewRunReviewer(snapshot)
+        : undefined;
+    const gateway =
+      snapshot.snapshotVersion === 4
+        ? getReviewRunGatewayAllocation(
+            snapshot,
+            primary!.transport.allocationId,
+          )
+        : snapshot.gateway;
     const invocationId =
-      snapshot.gateway?.invocationId ?? `${auth.authorizationId}-provider-api`;
+      gateway?.invocationId ?? `${auth.authorizationId}-provider-api`;
     if (request.invocationId && request.invocationId !== invocationId)
       throw new UsageAccessError("usage_scope_mismatch");
     const now = new Date();
@@ -329,7 +344,7 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
       runAttempt: Number(auth.sourceRunAttempt),
       authorizationId: auth.authorizationId,
       actorId,
-      bindingId: snapshot.gateway?.bindingId ?? null,
+      bindingId: gateway?.bindingId ?? null,
       producerDigest: release.runtimeEntrypointDigest,
       workflowIdentity: auth.workflowIdentityHash,
       jobIdentity: auth.oidcReplayKeyHash,
@@ -343,7 +358,13 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
     const config = parseReviewConfigurationStrict(
       JSON.parse(snapshot.configurationCanonicalJson),
     );
-    const provider = config.providers[snapshot.gateway?.providerIndex ?? 0];
+    const provider =
+      config.providers[
+        primary?.providerIndex ??
+          (snapshot.snapshotVersion === 3
+            ? (snapshot.gateway?.providerIndex ?? 0)
+            : -1)
+      ];
     if (!provider) throw new UsageAccessError("usage_scope_mismatch");
     const priceSnapshot = await (
       input.priceSnapshots ?? (await providerUsagePriceSnapshots())
@@ -380,8 +401,12 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
         provider: providerUsageConfiguredProvider(provider).provider,
         requestedModel:
           providerUsageConfiguredProvider(provider).requestedModel,
-        runtimeType: snapshot.agent.agentKind,
-        route: snapshot.gateway ? "gateway" : "direct",
+        runtimeType:
+          primary?.agentProfile.agentKind ??
+          (snapshot.snapshotVersion === 3
+            ? snapshot.agent.agentKind
+            : "unknown"),
+        route: gateway ? "gateway" : "direct",
         purpose: "review" as const,
       },
     };
@@ -598,7 +623,17 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
           JSON.parse(snapshot.configurationCanonicalJson),
         )
       : null;
-    const provider = config?.providers[snapshot?.gateway?.providerIndex ?? 0];
+    const primary =
+      snapshot?.snapshotVersion === 4
+        ? getPrimaryReviewRunReviewer(snapshot)
+        : undefined;
+    const provider =
+      config?.providers[
+        primary?.providerIndex ??
+          (snapshot?.snapshotVersion === 3
+            ? (snapshot.gateway?.providerIndex ?? 0)
+            : -1)
+      ];
     const expected =
       bootstrap ??
       actionSession ??
@@ -607,7 +642,11 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
             provider: providerUsageConfiguredProvider(provider).provider,
             requestedModel:
               providerUsageConfiguredProvider(provider).requestedModel,
-            runtimeType: snapshot.agent.agentKind,
+            runtimeType:
+              primary?.agentProfile.agentKind ??
+              (snapshot.snapshotVersion === 3
+                ? snapshot.agent.agentKind
+                : "unknown"),
             purpose: "review",
           }
         : null);
@@ -624,26 +663,68 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
       ...(serviceTier === undefined ? {} : { serviceTier }),
     }));
 
+    const attribution =
+      snapshot?.snapshotVersion === 4
+        ? new PrismaUsageAttributionReader(input.prisma)
+        : undefined;
+    const exactPrices = new Map<string, UsagePriceSnapshot | null>();
     for (const fact of facts) {
       const i = fact.identity;
+      let selectedExpected = expected;
+      let selectedInvocationId = g.invocationId;
+      let selectedBindingId = g.bindingId;
+      if (snapshot?.snapshotVersion === 4) {
+        if (!i.parentScope) throw new UsageAccessError("usage_scope_mismatch");
+        let reviewer;
+        try {
+          reviewer = getReviewRunReviewer(snapshot, i.parentScope);
+        } catch {
+          throw new UsageAccessError("usage_scope_mismatch");
+        }
+        const allocation = getReviewRunGatewayAllocation(
+          snapshot,
+          reviewer.transport.allocationId,
+        );
+        const lane = config!.providers[reviewer.providerIndex];
+        if (!lane) throw new UsageAccessError("usage_scope_mismatch");
+        const durable = await attribution!.findIdentity({
+          workspaceId: g.workspaceId,
+          callId: i.callId,
+        });
+        if (!durable || canonicalJson(durable) !== canonicalJson(i))
+          throw new UsageAccessError("usage_scope_mismatch");
+        selectedExpected = {
+          provider: providerUsageConfiguredProvider(lane).provider,
+          requestedModel: reviewer.requestedModel,
+          runtimeType: durable.runtimeType,
+          purpose: "review",
+        };
+        selectedInvocationId = allocation.invocationId;
+        selectedBindingId = allocation.bindingId;
+        const dispatch = await attribution!.readDispatchSnapshot({
+          workspaceId: g.workspaceId,
+          callId: i.callId,
+        });
+        exactPrices.set(i.callId, dispatch?.priceSnapshot ?? null);
+      }
       if (
         fact.sourceInstance !== `runner/${g.id}` ||
         (!g.bindingId && !i.callId.startsWith(`${g.id}-`)) ||
-        i.provider !== expected.provider ||
-        i.requestedModel !== expected.requestedModel ||
-        i.runtimeType !== expected.runtimeType ||
+        i.provider !== selectedExpected.provider ||
+        i.requestedModel !== selectedExpected.requestedModel ||
+        i.runtimeType !== selectedExpected.runtimeType ||
         i.workspaceId !== g.workspaceId ||
         i.repositoryId !== g.repositoryId ||
         i.runId !== g.runId ||
         i.runAttempt !== g.runAttempt ||
-        i.invocationId !== g.invocationId ||
+        i.invocationId !== selectedInvocationId ||
         i.authorizationId !== g.authorizationId ||
         i.actorId !== g.actorId ||
-        i.bindingId !== g.bindingId ||
+        i.bindingId !== selectedBindingId ||
         fact.authority === "native" ||
         fact.cost?.basis === "estimated" ||
-        i.purpose !== expected.purpose ||
-        (i.route === "gateway") !== (g.bindingId !== null)
+        i.purpose !== selectedExpected.purpose ||
+        (i.route === "gateway") !== (selectedBindingId !== null)
       )
         throw new UsageAccessError("usage_scope_mismatch");
     }
@@ -653,11 +734,17 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
         await feature
       ).ingestUsage.execute(fact, {
         workspaceId: g.workspaceId,
-        invocationId: g.invocationId,
+        invocationId:
+          snapshot?.snapshotVersion === 4
+            ? fact.identity.invocationId
+            : g.invocationId,
         source: "runner",
         now: new Date(),
         replayUntil: grant.replayUntil,
-        serverPriceSnapshot: priceSnapshot,
+        serverPriceSnapshot:
+          snapshot?.snapshotVersion === 4
+            ? (exactPrices.get(fact.identity.callId) ?? null)
+            : priceSnapshot,
         originalEventNotBefore: g.issuedAt,
       });
       accepted.push({

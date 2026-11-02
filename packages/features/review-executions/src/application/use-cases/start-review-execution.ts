@@ -60,6 +60,8 @@ type RequestedIntentResolution =
   | {
       readonly status: RequestedIntentResolutionStatus.Resolved;
       readonly requestId: string;
+      readonly historyRootRequestId: string | null;
+      readonly historyDispatchAttempt: number;
     }
   | {
       readonly status:
@@ -185,6 +187,16 @@ export class StartReviewExecution {
         scope: input.scope,
         expectedStreamVersion: current?.version ?? 0n,
         executionId: input.executionId,
+        historyRootRequestId:
+          requestedIntentResolution.status ===
+          RequestedIntentResolutionStatus.Resolved
+            ? requestedIntentResolution.historyRootRequestId
+            : null,
+        historyDispatchAttempt:
+          requestedIntentResolution.status ===
+          RequestedIntentResolutionStatus.Resolved
+            ? requestedIntentResolution.historyDispatchAttempt
+            : null,
         authorizationId: input.authorizationId,
         producerReleaseId: authorization.producerReleaseId,
         mutationEpoch: authorization.mutationEpoch,
@@ -490,6 +502,8 @@ export class StartReviewExecution {
       ? {
           status: RequestedIntentResolutionStatus.Resolved,
           requestId: intent.requestId,
+          historyRootRequestId: intent.historyRootRequestId ?? null,
+          historyDispatchAttempt: intent.dispatchAttempt,
         }
       : { status: RequestedIntentResolutionStatus.Conflict };
   }

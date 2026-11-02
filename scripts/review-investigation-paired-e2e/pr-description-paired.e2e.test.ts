@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import Fastify from "fastify";
@@ -19,6 +19,18 @@ import {
   resetReviewActionV2E2EDatabase,
 } from "../review-action-v2-production-e2e/support/review-action-v2-e2e-harness.js";
 
+import { composeReviewActionV2ProductionRoutes } from "../../apps/api/src/review-action-v2-production-composition.js";
+import { createReviewMemoryInputAdmission } from "../../apps/api/src/review-memory-admission.js";
+import {
+  ReviewMemoryRuntimeGateway,
+  registerReviewMemoryRuntimeRoutes,
+} from "../../apps/api/src/review-memory-runtime.js";
+import {
+  audienceMemoryStatements,
+  createApprovedMemoryFixture,
+  cleanupApprovedMemoryFixture,
+} from "../memory-e2e/support/approved-memory-fixture.js";
+
 const enabled =
   process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E === "1";
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
@@ -33,6 +45,8 @@ const hash = (value: string | Uint8Array) =>
   : it.skip.each([false, true]))(
   "pairs the real public description factory/manifest with PG auxiliary authority and App publication (body conflict=%s)",
   async (bodyConflict) => {
+    const httpFetch = globalThis.fetch.bind(globalThis);
+    const generation = `paired-description-${randomUUID()}`;
     await resetReviewActionV2E2EDatabase(databaseUrl!);
     const fixture = await createReviewActionV2E2EHarness(databaseUrl!, {
       prDescriptionProfile: true,
@@ -174,6 +188,31 @@ const hash = (value: string | Uint8Array) =>
       const authorized = await fixture.authorize({
         providerApiAuthMode: "openrouter-api",
       });
+      await fixture.prisma.repositoryConnection.update({
+        where: { id: fixture.repositoryConnectionId },
+        data: { visibility: "public" },
+      });
+      const approvedMemory = await createApprovedMemoryFixture({
+        prisma: fixture.prisma,
+        workspaceId: fixture.workspaceId,
+        repositoryId: fixture.repositoryConnectionId,
+        generation,
+        statements: audienceMemoryStatements,
+      });
+      const memoryRoutes = composeReviewActionV2ProductionRoutes({
+        enabled: true,
+        env: fixture.env,
+        prisma: fixture.prisma,
+        runtime: {
+          readServerTime: async () => new Date(),
+          createRequestId: () => randomUUID(),
+        },
+        memoryInputAdmission: createReviewMemoryInputAdmission(
+          approvedMemory.runtime,
+        ),
+      });
+      if (!memoryRoutes.contextTools)
+        throw new Error("paired_description_memory_authority_missing");
       const flow = await fixture.createCommittedFlow({
         authorization: authorized,
         prDescription: true,
@@ -183,7 +222,16 @@ const hash = (value: string | Uint8Array) =>
         app,
         fixture.routes.providerApiCheckout!,
       );
-      await registerReviewExecutionV2Routes(app, fixture.routes.execution);
+      await registerReviewExecutionV2Routes(app, memoryRoutes.execution);
+      await registerReviewMemoryRuntimeRoutes(
+        app,
+        new ReviewMemoryRuntimeGateway({
+          prisma: fixture.prisma,
+          runtime: approvedMemory.runtime,
+          access: memoryRoutes.contextTools,
+        }),
+      );
+      const apiUrl = await app.listen({ host: "127.0.0.1", port: 0 });
       const checkoutResponse = await app.inject({
         method: "POST",
         url: "/api/action/v2/provider-api/checkout",
@@ -203,6 +251,7 @@ const hash = (value: string | Uint8Array) =>
         adapterModule,
         clientModule,
         configModule,
+        memoryModule,
       ] = await Promise.all([
         load(
           "src/review-orchestration/infrastructure/pr-description-generation.ts",
@@ -215,6 +264,7 @@ const hash = (value: string | Uint8Array) =>
         ),
         load("src/control-plane/review-action-v2-client.ts"),
         load("src/config/loader.ts"),
+        load("src/control-plane/review-memory-v2.ts"),
       ]);
       const authorization = adapterModule.projectReviewRunAuthorization(
         authorized.result,
@@ -245,37 +295,76 @@ const hash = (value: string | Uint8Array) =>
         retryPolicyVersion: slot.retryPolicyVersion,
         shardKey: slot.shardKey,
       };
+      const pr = {
+        number: 42,
+        title: "Preserve invoice selection",
+        body: originalBody,
+        author: "fixture",
+        draft: false,
+        labels: [],
+        additions: 1,
+        deletions: 1,
+        baseSha: fixture.fakeGitHub.revision.baseSha,
+        headSha: fixture.fakeGitHub.revision.headSha,
+        diff: "",
+        files: [
+          {
+            filename: "src/invoice.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            changes: 2,
+            patch:
+              "-return invoices;\n+return invoices.filter(invoice => invoice.owner === owner);",
+          },
+        ],
+      };
+      const session = await memoryModule.ReviewMemorySession.capture({
+        apiUrl,
+        authorizationToken: authorization.authorizationToken,
+        enabled: true,
+        task: "pr_description",
+        pr,
+        fetchImpl: httpFetch,
+        binding: {
+          authorizationId: authorization.authorizationId,
+          repositoryConnectionId: authorization.facts.repositoryConnectionId,
+          pullRequestNumber: authorization.facts.pullRequestNumber,
+          baseSha: authorization.facts.baseSha,
+          headSha: authorization.facts.headSha,
+          reviewRevisionHash: authorization.facts.reviewRevisionHash,
+        },
+      });
+      const snapshot = session.current();
+      expect(snapshot).not.toBeNull();
+      expect(snapshot.bundle.contextPolicy).toEqual({
+        audience: "public",
+        repositoryId: fixture.repositoryConnectionId,
+        allowedTasks: ["pr_description"],
+      });
+      const receipt =
+        await fixture.prisma.memoryKnowledgeBundleReceipt.findUniqueOrThrow({
+          where: {
+            authorizationId_snapshotHash: {
+              authorizationId: authorization.authorizationId,
+              snapshotHash: snapshot.hash,
+            },
+          },
+        });
+      expect(receipt.receipt).toMatchObject({
+        contextPolicy: snapshot.bundle.contextPolicy,
+      });
+      for (const { body } of audienceMemoryStatements)
+        expect(JSON.stringify(receipt.receipt)).not.toContain(body);
       const parent = parentModule.createPrDescriptionGeneration({
+        memorySnapshot: snapshot,
         enabled: true,
         capabilityJson: runtimeEnv.REVIEW_ROUTER_PR_DESCRIPTION_CAPABILITY_JSON,
         requestedModel: "openai/gpt-5.3-codex",
         providerKind: "codex",
         reviewRevisionHash: flow.reviewRevisionHash,
         config: capturedConfig,
-        pr: {
-          number: 42,
-          title: "Preserve invoice selection",
-          body: originalBody,
-          author: "fixture",
-          draft: false,
-          labels: [],
-          additions: 1,
-          deletions: 1,
-          baseSha: fixture.fakeGitHub.revision.baseSha,
-          headSha: fixture.fakeGitHub.revision.headSha,
-          diff: "",
-          files: [
-            {
-              filename: "src/invoice.ts",
-              status: "modified",
-              additions: 1,
-              deletions: 1,
-              changes: 2,
-              patch:
-                "-return invoices;\n+return invoices.filter(invoice => invoice.owner === owner);",
-            },
-          ],
-        },
+        pr,
         warn: (message: string) => {
           throw new Error(message);
         },
@@ -286,6 +375,9 @@ const hash = (value: string | Uint8Array) =>
             requestBody: Uint8Array;
           }) => {
             generatedRequests += 1;
+            expect(hash(requestBody)).toBe(
+              invocation.manifestFacts.providerRequestEnvelopeHash,
+            );
             const body = JSON.parse(Buffer.from(requestBody).toString("utf8"));
             expect(body).toMatchObject({
               model: "openai/gpt-5.3-codex",
@@ -295,6 +387,19 @@ const hash = (value: string | Uint8Array) =>
               max_output_tokens: 1200,
             });
             expect(body.input[0].content[0].type).toBe("input_text");
+            const taskInput = JSON.parse(body.input[0].content[0].text);
+            expect(taskInput.authorizedProjectContext).toBe(
+              snapshot.renderedPrompt,
+            );
+            expect(taskInput.authorizedProjectContext).toContain(
+              audienceMemoryStatements[2]!.body,
+            );
+            expect(Buffer.from(requestBody).toString("utf8")).not.toContain(
+              audienceMemoryStatements[0]!.body,
+            );
+            expect(Buffer.from(requestBody).toString("utf8")).not.toContain(
+              audienceMemoryStatements[1]!.body,
+            );
             return {
               generatedMarkdown,
               actualModel: body.model,
@@ -313,26 +418,16 @@ const hash = (value: string | Uint8Array) =>
         );
       const manifest = await assembler.assemble(invocation);
       expect(JSON.parse(manifest.manifestCanonicalJson)).toMatchObject({
+        memoryBundleHash: snapshot.hash,
         taskKindSet: ["pr_description"],
         providerPolicyVersion: "pr-description-provider-policy.v1",
         requestedModel: "openai/gpt-5.3-codex",
       });
       const client = new clientModule.ReviewActionV2Client({
-        apiUrl: "https://paired.example",
+        apiUrl,
+        allowInsecureLocalhost: true,
         maxAttempts: 1,
-        fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
-          const request = new Request(input, init);
-          const response = await app.inject({
-            method: request.method as "POST",
-            url: new URL(request.url).pathname,
-            headers: Object.fromEntries(request.headers),
-            payload: await request.text(),
-          });
-          return new Response(response.body, {
-            status: response.statusCode,
-            headers: { "content-type": "application/json" },
-          });
-        },
+        fetchImpl: httpFetch,
       });
       const controlPlane = new adapterModule.ReviewActionV2ControlPlaneAdapter(
         client,
@@ -348,6 +443,15 @@ const hash = (value: string | Uint8Array) =>
       };
       const acquired = await controlPlane.acquireInvocationLease(acquireInput);
       expect(acquired.status).toBe("acquired");
+      const grantedLease =
+        await fixture.prisma.reviewInvocationLeaseV2.findUniqueOrThrow({
+          where: { leaseId: acquired.lease.leaseId },
+        });
+      expect(grantedLease.preparedManifestKey).toBe(manifest.manifestKey);
+      expect(
+        JSON.parse(grantedLease.preparedManifestCanonicalJson!)
+          .memoryBundleHash,
+      ).toBe(snapshot.hash);
       // An actual repeated wire acquisition cannot authorize a second parent request.
       expect(
         (
@@ -419,6 +523,11 @@ const hash = (value: string | Uint8Array) =>
     } finally {
       vi.restoreAllMocks();
       await app.close();
+      await cleanupApprovedMemoryFixture(
+        fixture.prisma,
+        generation,
+        fixture.workspaceId,
+      );
       await fixture.close();
       await resetReviewActionV2E2EDatabase(databaseUrl!);
     }

@@ -188,6 +188,32 @@ export function renderReviewRouterProviderApiCaller(options: {
   if (!isProviderApiAuthMode(mode))
     throw new Error("provider_api_mode_invalid");
   const descriptor = providerApiDescriptors[mode];
+  return renderPreparedCredentialCaller(options, {
+    selector: `provider_api_auth_mode: ${mode}`,
+    secretName: descriptor.secretName,
+  });
+}
+
+/** Exact-pinned native subscription route; the token remains a repository secret. */
+export function renderReviewRouterClaudeSubscriptionCaller(options: {
+  readonly controlPlaneUrl?: string;
+  readonly runtimeRef: string;
+}): string {
+  return renderPreparedCredentialCaller(options, {
+    selector: "subscription_auth_mode: claude-oauth",
+    secretName: "CLAUDE_CODE_OAUTH_TOKEN",
+  });
+}
+
+function renderPreparedCredentialCaller(
+  options: {
+    readonly controlPlaneUrl?: string;
+    readonly runtimeRef: string;
+  },
+  credential: { readonly selector: string; readonly secretName: string },
+): string {
+  if (!/^[a-f0-9]{40}$/.test(options.runtimeRef))
+    throw new Error("review_workflow_runtime_ref_invalid");
   const caller = renderReviewRouterCaller(options);
   return (
     caller.replace(
@@ -202,9 +228,9 @@ export function renderReviewRouterProviderApiCaller(options: {
       review_timeout_minutes: 240
       max_changed_lines: '0'
       workflow_schema_version: ${providerApiCheckoutCompanionContract.workflowSchemaVersion}
-      provider_api_auth_mode: ${mode}
+      ${credential.selector}
     secrets:
-      ${descriptor.secretName}: \${{ secrets.${descriptor.secretName} }}
+      ${credential.secretName}: \${{ secrets.${credential.secretName} }}
 `
   );
 }

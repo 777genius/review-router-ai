@@ -36,9 +36,13 @@ export {
   runReviewConfigurationTransaction,
 } from "./infrastructure/prisma/prisma-transaction-retry";
 export * from "./infrastructure/prisma/prisma-workspace-review-settings";
+export * from "./infrastructure/prisma/prisma-workspace-memory-settings";
+export * from "./application/use-cases/manage-workspace-memory-settings";
 export * from "./infrastructure/prisma/prisma-workspace-provider-profile-repository";
 export { type ProviderProfileWriteOptions } from "./infrastructure/prisma/prisma-provider-profile-writes";
 export {
   PrismaReviewPolicyHeadReader,
   type ReviewPolicyReader,
 } from "./infrastructure/prisma/prisma-review-policy-head-reader";
+
+export * from "./application/use-cases/manage-provider-rosters";

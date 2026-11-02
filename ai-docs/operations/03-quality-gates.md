@@ -16,10 +16,20 @@ Automated guardrail:
 pnpm architecture:check
 ```
 
-This script scans `packages/features/*/src/domain` and
-`packages/features/*/src/application` so adapter/framework imports fail before
-review. If a legitimate new adapter is added, put it under `infrastructure` or
-`interface` and expose it through an application port.
+The core-import guard scans TypeScript source under feature `src` roots,
+including subfeatures such as `src/v2/domain` and
+`src/account-limits/application`. The first architectural layer directory after
+`src` determines ownership: `domain` and `application` are core;
+`infrastructure`, `interface`, `composition`, `adapters`, `contract-source`,
+`testing` and `tests` are outer boundaries. Thus `domain/infrastructure` remains
+core, while `infrastructure/domain` remains an adapter. Tests within a core
+layer remain governed.
+
+The guard preserves its prohibited adapter/framework import list; the other
+`architecture:check` lanes enforce their own documented scopes. Passing these
+checks does not establish repository-wide or transitive dependency conformance.
+Put a new adapter under `infrastructure` or `interface` and expose its capability
+through an application port.
 
 ## CI Gate
 

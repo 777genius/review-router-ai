@@ -1,4 +1,9 @@
 import {
+  parseReviewModelDispatchProfileV2,
+  type ReviewModelDispatchProfileV2,
+} from "@reviewrouter/shared";
+import { assertReviewModelDispatchDefaultAgents } from "@reviewrouter/shared/review-model-dispatch-default-agents";
+import {
   ProducerDistributionKind,
   ProducerReleaseState,
   ReviewCapabilityProfile,
@@ -15,6 +20,43 @@ import {
   parseReviewAgentProfiles,
   type ReviewAgentProfile,
 } from "./review-agent-profile";
+import { reviewerPlanDescriptorDigest } from "@reviewrouter/shared";
+
+export type ProducerReviewerPlanProfile = Readonly<{
+  planVersion: 1;
+  descriptorDigest: string;
+}>;
+
+/** Immutable producer compatibility, independent of engine profile bytes. */
+export function parseProducerReviewerPlanProfile(
+  value: unknown,
+): ProducerReviewerPlanProfile {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).sort().join(",") !== "descriptorDigest,planVersion" ||
+    !("planVersion" in value) ||
+    value.planVersion !== 1 ||
+    !("descriptorDigest" in value) ||
+    typeof value.descriptorDigest !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(value.descriptorDigest)
+  )
+    invalid("producer_reviewer_plan_profile_invalid");
+  return Object.freeze({
+    planVersion: 1,
+    descriptorDigest: value.descriptorDigest,
+  });
+}
+
+export function supportsProducerReviewerPlanV1(
+  value: ProducerReviewerPlanProfile | undefined,
+): boolean {
+  return (
+    value?.planVersion === 1 &&
+    value.descriptorDigest === reviewerPlanDescriptorDigest
+  );
+}
 
 export const prDescriptionExtensionIdV1 = "pr-description.v1";
 
@@ -160,6 +202,7 @@ export type ReviewOperationalSloProfileV2 = ReviewOperationalSloThresholds & {
 };
 
 export type ProducerRelease = {
+  readonly reviewerPlanProfile?: ProducerReviewerPlanProfile;
   readonly contextToolsProfile?: ProducerContextToolsProfile;
   readonly producerReleaseId: string;
   readonly distributionKind: ProducerDistributionKind;
@@ -173,6 +216,7 @@ export type ProducerRelease = {
   readonly agentProfiles: readonly ReviewAgentProfile[] | null;
   readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
   readonly lifecycleVerificationProfile?: ProducerLifecycleVerificationProfile | null;
+  readonly modelDispatchProfile?: ReviewModelDispatchProfileV2 | null;
   readonly schemaDigest: string;
   readonly capabilityProfile: ReviewCapabilityProfile;
   readonly protocolLimitsProfileId: string;
@@ -369,7 +413,21 @@ export function createProducerRelease(
   ) {
     invalid("hosted_composite_wrapper_digest_required");
   }
+  const agentProfiles =
+    candidate.agentProfiles == null
+      ? null
+      : parseReviewAgentProfiles(candidate.agentProfiles);
+  const modelDispatchProfile =
+    candidate.modelDispatchProfile == null
+      ? null
+      : parseReviewModelDispatchProfileV2(candidate.modelDispatchProfile);
+  if (modelDispatchProfile)
+    assertReviewModelDispatchDefaultAgents(
+      modelDispatchProfile,
+      agentProfiles ?? [],
+    );
   return {
+    ...(modelDispatchProfile ? { modelDispatchProfile } : {}),
     ...(candidate.prDescriptionProfile == null
       ? {}
       : {
@@ -394,10 +452,14 @@ export function createProducerRelease(
     contextGatewayPolicyVersion,
     contextGatewayEntrypointDigest,
     reviewInvestigationProfile,
-    agentProfiles:
-      candidate.agentProfiles == null
-        ? null
-        : parseReviewAgentProfiles(candidate.agentProfiles),
+    agentProfiles,
+    ...(candidate.reviewerPlanProfile !== undefined
+      ? {
+          reviewerPlanProfile: parseProducerReviewerPlanProfile(
+            candidate.reviewerPlanProfile,
+          ),
+        }
+      : {}),
     ...(candidate.contextToolsProfile !== undefined
       ? {
           contextToolsProfile: parseProducerContextToolsProfile(
@@ -438,6 +500,13 @@ export function producerReleaseImmutableKey(
   release: ProducerRelease | ProducerReleaseCandidate,
 ): string {
   return canonicalJson({
+    ...(release.modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+            release.modelDispatchProfile,
+          ),
+        }),
     ...(release.prDescriptionProfile == null
       ? {}
       : {
@@ -468,6 +537,13 @@ export function producerReleaseImmutableKey(
     reviewInvestigationPolicyHash:
       release.reviewInvestigationProfile?.policyHash ?? null,
     agentProfiles: release.agentProfiles ?? null,
+    ...(release.reviewerPlanProfile !== undefined
+      ? {
+          reviewerPlanProfile: parseProducerReviewerPlanProfile(
+            release.reviewerPlanProfile,
+          ),
+        }
+      : {}),
     ...(release.contextToolsProfile !== undefined
       ? {
           contextToolsProfile: parseProducerContextToolsProfile(
@@ -487,6 +563,13 @@ export function cloneProducerRelease(
 ): ProducerRelease {
   return {
     ...release,
+    ...(release.reviewerPlanProfile !== undefined
+      ? {
+          reviewerPlanProfile: parseProducerReviewerPlanProfile(
+            release.reviewerPlanProfile,
+          ),
+        }
+      : {}),
     ...(release.contextToolsProfile !== undefined
       ? {
           contextToolsProfile: parseProducerContextToolsProfile(
@@ -494,6 +577,13 @@ export function cloneProducerRelease(
           ),
         }
       : {}),
+    ...(release.modelDispatchProfile == null
+      ? {}
+      : {
+          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+            release.modelDispatchProfile,
+          ),
+        }),
     ...(release.prDescriptionProfile == null
       ? {}
       : {

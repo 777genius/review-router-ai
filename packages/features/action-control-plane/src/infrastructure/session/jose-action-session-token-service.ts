@@ -69,6 +69,7 @@ export class JoseActionSessionTokenService implements ActionSessionTokenServiceP
         : {}),
       githubActorLogin: optionalString(payload.githubActorLogin),
       ...optionalGithubActorId(payload.githubActorId),
+      ...optionalReusableSource(payload),
       githubRunId: assertString(payload.githubRunId, "githubRunId"),
       githubRunAttempt: assertString(
         payload.githubRunAttempt,
@@ -83,6 +84,34 @@ export class JoseActionSessionTokenService implements ActionSessionTokenServiceP
       protocolVersion: 1,
     };
   }
+}
+
+function optionalReusableSource(
+  payload: Record<string, unknown>,
+): Pick<ActionSessionClaims, "jobWorkflowRef" | "jobWorkflowSha"> {
+  if (
+    payload.jobWorkflowRef === undefined &&
+    payload.jobWorkflowSha === undefined
+  )
+    return {};
+  if (
+    (payload.jobWorkflowRef !== undefined &&
+      (typeof payload.jobWorkflowRef !== "string" ||
+        !payload.jobWorkflowRef ||
+        payload.jobWorkflowRef.length > 500)) ||
+    (payload.jobWorkflowSha !== undefined &&
+      (typeof payload.jobWorkflowSha !== "string" ||
+        !/^[a-f0-9]{40}$/.test(payload.jobWorkflowSha)))
+  )
+    throw new Error("invalid_action_session_reusable_source");
+  return {
+    ...(typeof payload.jobWorkflowRef === "string"
+      ? { jobWorkflowRef: payload.jobWorkflowRef }
+      : {}),
+    ...(typeof payload.jobWorkflowSha === "string"
+      ? { jobWorkflowSha: payload.jobWorkflowSha }
+      : {}),
+  };
 }
 
 function optionalGithubActorId(

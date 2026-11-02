@@ -69,6 +69,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "github_validation_failed",
       "github_service_unavailable",
       "setup_pr_not_merged",
+      "setup_legacy_workflows_present",
       "setup_pr_closed",
       "setup_pr_branch_deleted",
       "setup_pr_wrong_base_branch",
@@ -174,7 +175,10 @@ export function safeDashboardErrorCode(error: unknown): string {
   }
   const githubStatus = dashboardErrorHttpStatus(error);
   if (githubStatus > 0) {
-    return githubDashboardErrorCodeForStatus(githubStatus);
+    const code = githubDashboardErrorCodeForStatus(githubStatus);
+    if (code === "github_operation_failed")
+      logUnclassifiedDashboardError(error, code);
+    return code;
   }
   if (
     isSafeDashboardErrorCodeShape(message) &&
@@ -182,7 +186,29 @@ export function safeDashboardErrorCode(error: unknown): string {
   ) {
     return message;
   }
+  logUnclassifiedDashboardError(error, "github_operation_failed");
   return "github_operation_failed";
+}
+
+/**
+ * The browser only ever gets the generic code for an unclassified failure, so
+ * the real reason is written to the server log. Only the error name, a bounded
+ * message and the HTTP status are logged, never request bodies or tokens.
+ */
+function logUnclassifiedDashboardError(error: unknown, code: string): void {
+  if (typeof window !== "undefined") return;
+  console.error(
+    "dashboard_action_unclassified_error",
+    JSON.stringify({
+      code,
+      name: error instanceof Error ? error.name : typeof error,
+      message:
+        error instanceof Error
+          ? error.message.replace(/\s+/gu, " ").slice(0, 200)
+          : "non_error_thrown",
+      status: dashboardErrorHttpStatus(error) || undefined,
+    }),
+  );
 }
 
 // Machine-generated codes only: free-form text, paths and tokens must never

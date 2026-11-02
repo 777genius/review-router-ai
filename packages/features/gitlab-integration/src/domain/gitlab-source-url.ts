@@ -7,7 +7,7 @@ export function parseGitLabSourceUrl(input: {
   readonly value: string;
   readonly defaultBaseUrl?: string | undefined;
 }): GitLabSourceUrl {
-  const defaultBaseUrl = normalizeBaseUrl(
+  const defaultBaseUrl = normalizeGitLabSourceBaseUrl(
     input.defaultBaseUrl ?? "https://gitlab.com",
   );
   const raw = input.value.trim();
@@ -56,7 +56,7 @@ function parseUrlLike(value: string, defaultBaseUrl: string): URL {
   }
 }
 
-function normalizeBaseUrl(value: string): string {
+export function normalizeGitLabSourceBaseUrl(value: string): string {
   let parsed: URL;
   try {
     parsed = new URL(value);

@@ -27,6 +27,7 @@ import {
 import { codexRotatingSetupLedger } from "./codex-rotating-setup-ledger";
 import { PrismaCodexRotatingWorkflowNamespace } from "./prisma-codex-rotating-workflow-namespace";
 import type { CodexRotatingWriterSchemaPolicy } from "./codex-rotating-writer-schema-policy";
+import { completeCodexRuntimeMigrationActivation } from "./codex-runtime-migration-activation";
 
 type GitHubRequester = {
   request(
@@ -139,6 +140,12 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
         workflowPath,
       ),
     );
+    await completeCodexRuntimeMigrationActivation({
+      prisma: input.prisma,
+      claimId: inspection.claimId,
+      namespaceId: namespace.namespaceId,
+      expectedApiUrl: input.expectedApiUrl,
+    });
     return {
       status:
         result.status === "already_active" ? "already_active" : "activated",
@@ -243,6 +250,12 @@ export async function activateConfirmedCodexNamespaceAfterWorkflowMerge(input: {
     workflowSemanticSha256: attestation.workflowSemanticSha256,
     sourceTrust: attestation.sourceTrust,
     workflowSchemaVersion: attestation.workflowSchemaVersion,
+  });
+  await completeCodexRuntimeMigrationActivation({
+    prisma: input.prisma,
+    claimId: inspection.claimId,
+    namespaceId: namespace.namespaceId,
+    expectedApiUrl: input.expectedApiUrl,
   });
   return {
     status: "activated",

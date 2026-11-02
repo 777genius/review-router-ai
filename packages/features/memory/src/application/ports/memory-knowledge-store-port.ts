@@ -6,8 +6,13 @@ import type {
   MemoryKnowledgeErrorCode,
   MemoryKnowledgeOperation,
   MemoryKnowledgeScope,
+  MemoryAutomaticSourceBinding,
 } from "../../domain/memory-knowledge";
 import type { MemoryProviderOperation } from "./memory-knowledge-provider-port";
+import type {
+  MemoryAutomaticSourceStore,
+  MemoryAutomaticSourceState,
+} from "./memory-automatic-source-port";
 
 export type MemoryStoredCommand = {
   readonly operation: MemoryKnowledgeOperation;
@@ -69,6 +74,8 @@ export interface MemoryKnowledgeStore {
   >;
   admit(input: {
     readonly command: MemoryKnowledgeCommand;
+    readonly automaticSource?: MemoryAutomaticSourceBinding;
+    readonly internalRetirement?: MemoryAutomaticSourceBinding;
     readonly digest: string;
     readonly now: Date;
     readonly deliveryExpiresAt: Date;
@@ -76,6 +83,24 @@ export interface MemoryKnowledgeStore {
     readonly activeEntryLimit: number | null;
     readonly pendingCommandLimit: number;
   }): Promise<MemoryKnowledgeOperation>;
+  /** Cohort cursor, complete frozen envelopes, and outbox records commit together. */
+  admitAutomaticSelection(input: {
+    readonly reservation: Parameters<MemoryAutomaticSourceStore["reserve"]>[0];
+    readonly children: readonly Parameters<MemoryKnowledgeStore["admit"]>[0][];
+    readonly retirements: readonly Parameters<
+      MemoryKnowledgeStore["admit"]
+    >[0][];
+  }): Promise<{
+    readonly source: MemoryAutomaticSourceState;
+    readonly operations: readonly MemoryKnowledgeOperation[];
+  }>;
+  /** Immutable bodyless child association survives source supersession and envelope expiry. */
+  findAutomaticOperations(input: {
+    readonly scope: MemoryKnowledgeScope;
+    readonly generation: string;
+    readonly sourceId: string;
+    readonly processingId: string;
+  }): Promise<readonly MemoryKnowledgeOperation[]>;
   findEntry(
     ref: MemoryEntryRef,
     generation: string,

@@ -1,4 +1,5 @@
 import { persistedReviewExecutionRestore } from "./review-execution-publication-restore.js";
+import type { EnsureReviewResolutionHistory } from "./review-resolution-history.js";
 import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
@@ -138,6 +139,80 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
         sourceExecutionGeneration: "2",
       },
     });
+  });
+
+  it.each([0, 1])(
+    "activates ordinary comparison capture before reading %i previous targets",
+    async (targetCount) => {
+      const order: string[] = [];
+      const ensureResolutionHistory = vi.fn(async () => {
+        order.push("ensure");
+        return { status: "guarded" as const };
+      });
+      const routes = createRoutes(undefined, undefined, undefined, undefined, {
+        authorization: verifierAuthorization(),
+        snapshot: null,
+        ensureResolutionHistory,
+        liveLifecycle: {
+          resolve: async () => {
+            order.push("live");
+            return {
+              status: LiveReviewPublicationLifecycleStatus.Available,
+              reviewedHeadSha: authorization.headSha,
+              commandLedgerWatermark: 0n,
+              targets: targetCount ? [liveHistoryTarget()] : [],
+            };
+          },
+        },
+        resolutionHistory: {
+          read: async () => {
+            order.push("history");
+            return [];
+          },
+        },
+      });
+      await routes.snapshot.restore!.execute({
+        ...envelope("activation"),
+        authorizationToken: "authorization-token",
+        reviewRevisionHash: authorization.reviewRevisionHash,
+        purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
+      });
+      expect(order).toEqual(["ensure", "live", "history"]);
+      expect(ensureResolutionHistory).toHaveBeenCalledWith(publicationScope());
+    },
+  );
+
+  it("keeps a missing fleet witness explicit without reading targets or inventing history", async () => {
+    const live = vi.fn();
+    const read = vi.fn();
+    const routes = createRoutes(undefined, undefined, undefined, undefined, {
+      authorization: verifierAuthorization(),
+      snapshot: null,
+      ensureResolutionHistory: async () => ({
+        status: "unavailable",
+        reasonCode: "resolution_writer_witness_unavailable",
+      }),
+      liveLifecycle: { resolve: live },
+      resolutionHistory: { read },
+    });
+    const response = await routes.snapshot.restore!.execute({
+      ...envelope("unqualified"),
+      authorizationToken: "authorization-token",
+      reviewRevisionHash: authorization.reviewRevisionHash,
+      purpose: ReviewSnapshotRestorePurpose.ComparisonBaselineV1,
+    });
+    expect(response.result).toHaveProperty("payloadCanonicalJson");
+    expect(
+      JSON.parse(
+        (response.result as { payloadCanonicalJson: string })
+          .payloadCanonicalJson,
+      ),
+    ).toMatchObject({
+      resolutionHistory: null,
+      historyUnavailableReason: "resolution_history_unavailable",
+    });
+    expect(live).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
   });
 
   it.each(["missing", "expired"] as const)(
@@ -2023,6 +2098,7 @@ function createRoutes(
     readonly snapshot?: ReviewSnapshotV2Record | null;
     readonly liveLifecycle?: LiveReviewPublicationLifecyclePort;
     readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
+    readonly ensureResolutionHistory?: EnsureReviewResolutionHistory;
     readonly publications?: ReviewPublicationAttemptQueryPort;
     readonly authorization?: ReviewRunAuthorization;
     readonly executions?: Pick<ReviewExecutionQueryPort, "findExecution"> &
@@ -2103,6 +2179,9 @@ function createRoutes(
       : {}),
     ...(overrides.resolutionHistory
       ? { resolutionHistory: overrides.resolutionHistory }
+      : {}),
+    ...(overrides.ensureResolutionHistory
+      ? { ensureResolutionHistory: overrides.ensureResolutionHistory }
       : {}),
     now: () => now,
   });

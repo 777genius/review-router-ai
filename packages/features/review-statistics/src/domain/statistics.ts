@@ -65,6 +65,7 @@ export type StatisticsIssue = {
   readonly severity: StatisticsSeverity;
   readonly repositoryId: string;
   readonly repositoryFullName: string;
+  readonly scmRepositoryIdentityId: string;
   readonly pullRequestNumber: number;
   readonly pullRequestUrl: string | null;
   readonly caughtAt: string;

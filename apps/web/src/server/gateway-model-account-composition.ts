@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createManagementClient } from "@agent-teams/account-gateway/http";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
+import { accountModelCatalogResponseBytes } from "@reviewrouter/features-provider-accounts/composition";
 import {
   accountsServerAdapter,
   accountGatewayProfilesConfiguration,
@@ -38,7 +39,7 @@ export async function productionGatewayModelAccounts(workspaceId: string) {
       origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
       token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
       timeoutMs: 10000,
-      responseBytes: 65536,
+      responseBytes: accountModelCatalogResponseBytes,
     }),
     ownerRef: (owner) =>
       owner.kind === "user"

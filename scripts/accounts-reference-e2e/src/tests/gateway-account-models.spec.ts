@@ -44,6 +44,8 @@ async function choose(page: Page, label: string, value: string) {
     name: label === "Account" ? /^Account\b/ : label,
     exact: true,
   });
+  // An unavailable saved value filters this editable model input's suggestions.
+  if (label === "Model") await control.fill("");
   await expect(async () => {
     if (!(await page.getByRole("listbox").count())) await control.click();
     await expect(
@@ -51,6 +53,7 @@ async function choose(page: Page, label: string, value: string) {
     ).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 20000 });
   await page.getByRole("option").filter({ hasText: value }).click();
+  if (label === "Model") await expect(control).toHaveValue(value);
 }
 async function profiles() {
   return withDatabase(
@@ -91,11 +94,13 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   await row.getByRole("button", { name: "Edit", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const model = dialog.getByRole("combobox", { name: "Model", exact: true });
-  await expect(model).toContainText(savedModel);
-  await expect(dialog.getByRole("status")).toContainText(
-    "Account model catalog.",
-  );
-  await expect(model).toContainText(savedModel);
+  // Account and public provider catalogs expose independent status regions.
+  const accountCatalogStatus = dialog
+    .getByRole("status")
+    .filter({ hasText: /^Account model catalog\./u });
+  await expect(model).toHaveValue(savedModel);
+  await expect(accountCatalogStatus).toBeVisible();
+  await expect(model).toHaveValue(savedModel);
   await choose(page, "Model", CODEX_A_MODEL);
   // The same model is now offered only by account B; A must reject the stale
   // selection at the real server action before changing the profile row.
@@ -109,13 +114,12 @@ test("dynamic Codex account models work in provider edit and add with exact bind
       ?.model,
   ).toBe(savedModel);
   const before = await fixture("initial");
-  await dialog
+  await accountCatalogStatus
+    .locator("..")
     .getByRole("button", { name: "Refresh models", exact: true })
     .click();
-  await expect(dialog.getByRole("status")).toContainText(
-    "Account model catalog.",
-  );
-  await expect(model).toContainText(CODEX_A_MODEL);
+  await expect(accountCatalogStatus).toBeVisible();
+  await expect(model).toHaveValue(CODEX_A_MODEL);
   await choose(page, "Model", CODEX_A_REFRESHED);
   const after = await fixture();
   const forceReads = after.reads
@@ -148,19 +152,28 @@ test("dynamic Codex account models work in provider edit and add with exact bind
 
   await page.getByRole("button", { name: "Add provider", exact: true }).click();
   await expect(dialog).toBeVisible();
-  await choose(page, "Provider", "Connected account");
+  await choose(page, "Provider", "Codex");
+  await expect(
+    dialog.getByRole("radio", { name: /^ReviewRouter\b/u }),
+  ).toBeChecked();
   await choose(page, "Account", FIXTURES.sourceLabels.orgAlpha);
   const useDefault = dialog.getByRole("checkbox", {
     name: /Use as workspace default/,
   });
   if (await useDefault.isChecked()) await useDefault.uncheck();
   await choose(page, "Model", CODEX_B_MODEL);
-  await expect(dialog.getByRole("status")).toContainText(
-    "Account model catalog.",
-  );
+  await expect(accountCatalogStatus).toBeVisible();
   await dialog
     .getByRole("button", { name: "Add provider", exact: true })
     .click();
+  const savedResult = dialog.getByRole("region", {
+    name: "Provider saved",
+    exact: true,
+  });
+  await expect(
+    savedResult.getByRole("heading", { name: "Provider saved", exact: true }),
+  ).toBeVisible();
+  await savedResult.getByRole("button", { name: "Done", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(await profiles()).toEqual(
     expect.arrayContaining([
@@ -202,7 +215,10 @@ test("provider settings geometry stays aligned on desktop, mobile and narrow lay
       path: info.outputPath(`provider-empty-${theme}.png`),
       fullPage: true,
     });
-    await choose(page, "Provider", "Connected account");
+    await choose(page, "Provider", "Codex");
+    await expect(
+      dialog.getByRole("radio", { name: /^ReviewRouter\b/u }),
+    ).toBeChecked();
     await expect(
       dialog.getByRole("combobox", { name: "Model", exact: true }),
     ).toHaveCount(0);

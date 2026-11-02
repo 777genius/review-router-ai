@@ -2,7 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   isQualifiedResolutionWriterProof,
+  resolutionWriterProofMatchesCut,
   type ResolutionWriterDrainQualification,
+  type ResolutionWriterDrainQualificationPort,
 } from "../../application/use-cases/activate-review-resolution-history";
 import { canonicalReviewPublicationJson } from "../../domain/canonical-review-publication-json";
 import type {
@@ -18,6 +20,7 @@ import {
   type ConfirmedResolutionFact,
   type PendingResolutionFact,
   type ResolutionHistory,
+  type ResolutionHistoryCut,
   type ResolutionThreadScope,
 } from "../../domain/review-thread-resolution-history";
 
@@ -38,6 +41,29 @@ type GuardRow = Readonly<{
   pendingFactsJson: unknown;
 }>;
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
+
+function historyCutOf(connection: Connection): ResolutionHistoryCut | null {
+  if (
+    connection.lifecycleResolutionMode !== "guarded" ||
+    !connection.lifecycleResolutionActivatedAt ||
+    !connection.lifecycleResolutionWriterDigest ||
+    connection.lifecycleResolutionActivationVersion < 1
+  )
+    return null;
+  return {
+    activatedAt: connection.lifecycleResolutionActivatedAt.toISOString(),
+    activationVersion: connection.lifecycleResolutionActivationVersion,
+    writerDigest: connection.lifecycleResolutionWriterDigest,
+    ...(connection.lifecycleResolutionBootstrapJson == null
+      ? {}
+      : {
+          bootstrap: parseResolutionHistoryBootstrap(
+            connection.lifecycleResolutionBootstrapJson,
+            connection.lifecycleResolutionActivatedAt.toISOString(),
+          )!,
+        }),
+  };
+}
 
 /** All writers share this connection lock; retention of detailed receipts is independent. */
 export async function lockResolutionConnection(
@@ -84,6 +110,7 @@ export async function recordPendingResolution(
     readonly allowDuringDrain?: boolean;
     readonly reconciliationOnly?: boolean;
     readonly parentCreatedAt?: string;
+    readonly writers?: ResolutionWriterDrainQualificationPort;
   } = {},
 ): Promise<void> {
   const connection = await lockResolutionConnection(transaction, scope);
@@ -109,6 +136,21 @@ export async function recordPendingResolution(
     connection.lifecycleResolutionMode !== "legacy_open"
   )
     throw new Error("guarded_publication_required");
+  if (
+    connection.lifecycleResolutionMode === "guarded" &&
+    fact.sourceKind === "canonical_operation" &&
+    !options.reconciliationOnly &&
+    options.writers
+  ) {
+    const qualification = await options.writers.qualify(scope);
+    const cut = historyCutOf(connection);
+    if (
+      qualification.status !== "qualified" ||
+      !cut ||
+      !resolutionWriterProofMatchesCut(qualification.proof, cut)
+    )
+      throw new Error("resolution_writer_qualification_unavailable");
+  }
   const existing = await readGuard(transaction, scope);
   const { confirmed, pending } = parseResolutionFacts(
     existing?.confirmedFactJson,
@@ -214,6 +256,17 @@ export type ResolutionWriterQuiescenceProof =
 export class PrismaReviewThreadResolutionHistory {
   constructor(private readonly prisma: PrismaClient) {}
 
+  async readActivation(
+    scope: ReviewPublicationScope,
+  ): Promise<ResolutionHistoryCut | null> {
+    return this.prisma.$transaction(async (transaction) => {
+      const connection = await lockResolutionConnection(transaction, scope);
+      if (connection.scmRepositoryIdentityId !== scope.scmRepositoryIdentityId)
+        throw new Error("resolution_repository_binding_changed");
+      return historyCutOf(connection);
+    });
+  }
+
   async enterLegacy(
     input: Readonly<{
       workspaceId: string;
@@ -275,27 +328,7 @@ export class PrismaReviewThreadResolutionHistory {
       const connection = await lockResolutionConnection(transaction, scope);
       if (connection.scmRepositoryIdentityId !== scope.scmRepositoryIdentityId)
         throw new Error("resolution_repository_binding_changed");
-      const historyCut =
-        connection.lifecycleResolutionMode === "guarded" &&
-        connection.lifecycleResolutionActivatedAt &&
-        connection.lifecycleResolutionWriterDigest &&
-        connection.lifecycleResolutionActivationVersion > 0
-          ? {
-              activatedAt:
-                connection.lifecycleResolutionActivatedAt.toISOString(),
-              activationVersion:
-                connection.lifecycleResolutionActivationVersion,
-              writerDigest: connection.lifecycleResolutionWriterDigest,
-              ...(connection.lifecycleResolutionBootstrapJson == null
-                ? {}
-                : {
-                    bootstrap: parseResolutionHistoryBootstrap(
-                      connection.lifecycleResolutionBootstrapJson,
-                      connection.lifecycleResolutionActivatedAt.toISOString(),
-                    )!,
-                  }),
-            }
-          : null;
+      const historyCut = historyCutOf(connection);
       const ids = [...new Set(threadIds)].sort();
       const guards = new Map<string, GuardRow>();
       for (let offset = 0; offset < ids.length; offset += 512) {

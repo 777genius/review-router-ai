@@ -37,6 +37,29 @@ describe("Statistics server section", () => {
     });
     expect(first.props.seedId).not.toBe(second.props.seedId);
   });
+  it("honors SSR filter values and rejects duplicate arrays without reading a report", async () => {
+    mocks.load.mockResolvedValue({
+      actorId: "actor-a",
+      report: statisticsFixture(),
+    });
+    await ReviewStatisticsSection({
+      workspaceId: "workspace-a",
+      params: { statisticsDays: "7", statisticsSeverity: "major" },
+    });
+    expect(mocks.load).toHaveBeenCalledWith("workspace-a", {
+      days: 7,
+      severity: "major",
+    });
+    mocks.load.mockClear();
+    const content = renderToStaticMarkup(
+      await ReviewStatisticsSection({
+        workspaceId: "workspace-a",
+        params: { statisticsDays: ["7", "90"] },
+      }),
+    );
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(content).toContain("Reset statistics filters");
+  });
   it.each([new Error("database unavailable"), new StatisticsAccessError()])(
     "catches initial errors inside the section and provides retry",
     async (error) => {
@@ -50,6 +73,10 @@ describe("Statistics server section", () => {
       expect(content).toContain("Retry statistics");
       expect(content).not.toContain("All-severity review summary");
       expect(content).not.toContain("database unavailable");
+      if (!(error instanceof StatisticsAccessError)) {
+        expect(content).toContain("Period");
+        expect(content).toContain("Severity");
+      }
     },
   );
   it("preserves real Next redirect and dynamic-render control flow without logging", async () => {

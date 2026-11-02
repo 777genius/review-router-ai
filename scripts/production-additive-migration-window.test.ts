@@ -137,6 +137,18 @@ describe("production additive migration window", () => {
     ).toThrow("production_migration_ledger_outside_window");
   });
 
+  it("refuses the concurrent member index as a transaction-wrapped additive target", () => {
+    const concurrentIndex = "000155_usage_member_report_index";
+    expect(targetMigrations).not.toContain(concurrentIndex);
+    expect(() =>
+      planProductionAdditiveMigrations({
+        catalog: [...catalog, concurrentIndex],
+        rows: [applied(catalog[0]), applied(anchor)],
+        checksums,
+      }),
+    ).toThrow("production_migration_catalog_outside_window");
+  });
+
   it("strips only a whole-file transaction envelope", () => {
     expect(
       stripMigrationTransaction(

@@ -24,7 +24,13 @@ import { normalizeSecretSafePostgresArguments } from "./lib/secret-safe-command-
 import {
   reviewSkillsRuntimeGrantStatements,
   reviewSkillsRuntimeGateStatements,
+  reviewSkillsRuntimeTables,
+  reviewSkillsWebUpdateColumns,
 } from "./review-skills-runtime-grants.ts";
+import {
+  skillCatalogWebUpdateColumns,
+  skillCatalogWorkerUpdateColumns,
+} from "./skill-catalog-runtime-grants.ts";
 import { effectivePrincipalInventorySql } from "../packages/features/release-rollout/src/adapters/effective-principal-postgres.mjs";
 import { fencedLiveV70V73CatalogDigestSql } from "../packages/features/release-rollout/src/adapters/live-v70-v72-catalog-digest.mjs";
 import {
@@ -489,6 +495,11 @@ export const runtimeAuthorityReadOnlyTables = Object.freeze([
 export const workerOwnedMaintenanceCheckpointTable =
   "ReviewInvestigationMaintenanceCheckpoint";
 export const dashboardOwnedContextConnectionTable = "ReviewContextConnection";
+export const conversationMetadataTable = "ConversationProcessing";
+export const automaticMemoryMetadataTables = Object.freeze([
+  "MemoryAutomaticSource",
+  "MemoryAutomaticEntry",
+]);
 
 export const providerRuntimeUpdateColumns = Object.freeze([
   "state",
@@ -2772,7 +2783,9 @@ BEGIN
         'HostedCodexRuntimeClosure','HostedCodexCommentTokenMint',
         'HostedCodexCommentTokenRevocationProof','HostedCodexCommentRefreshCapability',
         'HostedCodexCommentRefreshUse','ReviewProviderScopeConcurrencyControl',
-        'ProviderAccountConnection','WorkspaceAccountBinding','${dashboardOwnedContextConnectionTable}'
+        'ProviderAccountConnection','WorkspaceAccountBinding','${dashboardOwnedContextConnectionTable}',
+        'ReviewSkillImportCandidate','ReviewSkillScan','${conversationMetadataTable}',${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")},
+        ${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}
       ) AND attribute.attnum>0 AND NOT attribute.attisdropped
     ), sequence_facts AS (
       SELECT role_name, role_kind, relname,
@@ -2811,7 +2824,12 @@ BEGIN
          OR NOT has_schema_privilege(role_name,'public','USAGE')
          OR has_schema_privilege(role_name,'public','CREATE'))
        OR EXISTS (SELECT 1 FROM table_facts WHERE
-         can_select IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN relname IN (
+         can_select IS DISTINCT FROM (CASE
+         WHEN relname='${conversationMetadataTable}' THEN role_kind='api'
+         WHEN relname IN (${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}) THEN role_kind IN ('api','web','worker')
+         WHEN relname IN ('ReviewSkillImportCandidate','ReviewSkillScan') THEN role_kind IN ('web','worker')
+         WHEN relname IN (${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN role_kind IN ('web','api')
+         WHEN role_kind='custody' THEN relname IN (
            'HostedCodexRuntimeGate','GitHubInstallation','RepositoryConnection','HostedCodexPool',
            'HostedCodexRepositoryBinding','HostedCodexInvocationGrant',
            'HostedCodexCommentRefreshCapability','HostedCodexCommentRefreshUse','HostedCodexCommentTokenMint')
@@ -2821,7 +2839,11 @@ BEGIN
            AND (relname <> 'CodexOAuthWorkflowCompatibility' OR role_kind IN ('api','web'))
            AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind IN ('api','web'))
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
-         OR can_insert IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN relname='HostedCodexCommentRefreshUse'
+         OR can_insert IS DISTINCT FROM (CASE
+         WHEN relname='${conversationMetadataTable}' THEN role_kind='api'
+         WHEN relname IN (${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}) THEN role_kind IN ('api','worker')
+         WHEN relname IN ('ReviewSkillImportCandidate','ReviewSkillScan',${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN role_kind='web'
+         WHEN role_kind='custody' THEN relname='HostedCodexCommentRefreshUse'
          WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
          ELSE role_kind <> 'effect-authority' AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine',
@@ -2833,7 +2855,11 @@ BEGIN
            AND relname <> 'HostedCodexCommentTokenMint'
            AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
-         OR can_update IS DISTINCT FROM (CASE WHEN role_kind='custody' THEN false
+         OR can_update IS DISTINCT FROM (CASE
+         WHEN relname='${conversationMetadataTable}' THEN role_kind='api'
+         WHEN relname IN (${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}) THEN role_kind IN ('api','web','worker')
+         WHEN relname IN ('ReviewSkillImportCandidate','ReviewSkillScan',${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN false
+         WHEN role_kind='custody' THEN false
          WHEN role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding') THEN false
          ELSE role_kind <> 'effect-authority' AND relname NOT IN (
            '_prisma_migrations','RepositoryConnection','CodexOAuthChildIdentityQuarantine',
@@ -2845,7 +2871,11 @@ BEGIN
            AND relname <> 'HostedCodexCommentTokenMint'
            AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND (relname <> '${workerOwnedMaintenanceCheckpointTable}' OR role_kind = 'worker') END)
-         OR can_delete IS DISTINCT FROM (role_kind NOT IN ('effect-authority','custody')
+         OR can_delete IS DISTINCT FROM (CASE
+         WHEN relname IN ('${conversationMetadataTable}',${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}) THEN false
+         WHEN relname IN ('ReviewSkillImportCandidate','ReviewSkillScan') THEN role_kind='worker'
+         WHEN relname IN (${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN role_kind='web' AND relname='ReviewSkillBinding'
+         ELSE role_kind NOT IN ('effect-authority','custody')
            AND (relname <> '${dashboardOwnedContextConnectionTable}' OR role_kind = 'web')
            AND NOT (role_kind='api' AND relname IN ('ProviderAccountConnection','WorkspaceAccountBinding'))
            AND relname NOT IN (
@@ -2857,7 +2887,7 @@ BEGIN
            'RuntimeGenerationWitnessProof','RuntimeCanaryChallenge','RuntimeCanaryChallengeProof',
            'HostedCodexCommentTokenRevocationProof','${workerOwnedMaintenanceCheckpointTable}',
            'HostedCodexRuntimeGate','HostedCodexRuntimeClosure',
-           'ReviewProviderScopeConcurrencyControl','HostedCodexCommentTokenMint'))
+           'ReviewProviderScopeConcurrencyControl','HostedCodexCommentTokenMint') END)
          OR can_truncate OR can_reference OR can_trigger)
        OR EXISTS (
          SELECT 1 FROM column_facts
@@ -2866,6 +2896,19 @@ BEGIN
            OR column_facts.can_insert IS DISTINCT FROM table_facts.can_insert
            OR column_facts.can_reference IS DISTINCT FROM table_facts.can_reference
            OR column_facts.can_update IS DISTINCT FROM CASE
+             WHEN column_facts.relname IN (${reviewSkillsRuntimeTables.map((name) => `'${name}'`).join(",")}) THEN
+               column_facts.role_kind='web' AND (${Object.entries(
+                 reviewSkillsWebUpdateColumns,
+               )
+                 .filter(([, columns]) => columns.length)
+                 .map(
+                   ([table, columns]) =>
+                     `(column_facts.relname='${table}' AND column_facts.attname IN (${columns.map((name) => `'${name}'`).join(",")}))`,
+                 )
+                 .join(" OR ")})
+             WHEN column_facts.relname IN ('ReviewSkillImportCandidate','ReviewSkillScan') THEN
+               (column_facts.role_kind='web' AND column_facts.relname='ReviewSkillImportCandidate' AND column_facts.attname IN (${skillCatalogWebUpdateColumns.map((name) => `'${name}'`).join(",")}))
+               OR (column_facts.role_kind='worker' AND column_facts.relname='ReviewSkillScan' AND column_facts.attname IN (${skillCatalogWorkerUpdateColumns.map((name) => `'${name}'`).join(",")}))
              WHEN column_facts.role_kind='custody'
                AND column_facts.relname='HostedCodexCommentRefreshCapability'
                AND column_facts.attname=ANY(ARRAY['useCount','lastUsedAt','revision','updatedAt'])
@@ -2918,6 +2961,7 @@ BEGIN
          WHEN role_kind='web' AND proname='codex_oauth_provider_identity_repair_challenge' THEN argument_types='text, text, text, text, text, text, text, bigint, text, text, text, text, text, text, bigint'
          WHEN role_kind='web' AND proname='codex_oauth_repair_quarantined_provider' THEN argument_types='text, text, text, text, text, text, text, bigint, text, text, text, text, text, text, bigint, text'
          WHEN role_kind='web' AND proname='codex_oauth_reattest_active_namespace_v4_to_v5' THEN argument_types='text, text, text, text, bigint, text, text, text, text, text, integer, integer, text, text, text, text, text, text, text, text, integer'
+         WHEN proname='rr_review_skills_repository_lock' THEN role_kind='web' AND argument_types='text, text[]'
          ELSE false END)
        OR has_database_privilege('public',current_database(),'CONNECT')
        OR has_database_privilege('public',current_database(),'CREATE')
@@ -5127,6 +5171,8 @@ export function runtimeGrantStatements(
     ...runtimeAuthorityReadOnlyTables,
     workerOwnedMaintenanceCheckpointTable,
     dashboardOwnedContextConnectionTable,
+    conversationMetadataTable,
+    ...automaticMemoryMetadataTables,
   ]
     .map((table) => `'${table}'`)
     .join(",");
@@ -5293,6 +5339,22 @@ BEGIN
   END IF;
 END
 $context_connection_acl$;
+DO $conversation_memory_metadata_acl$
+DECLARE target text;
+BEGIN
+  FOREACH target IN ARRAY ARRAY['${conversationMetadataTable}',${automaticMemoryMetadataTables.map((name) => `'${name}'`).join(",")}]
+  LOOP
+    IF to_regclass(format('public.%I',target)) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I',target,'${username}');
+      IF ('${role}'='api' OR ('${role}'='worker' AND target <> '${conversationMetadataTable}')) THEN
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE public.%I TO %I',target,'${username}');
+      ELSIF ('${role}'='web' AND target <> '${conversationMetadataTable}') THEN
+        EXECUTE format('GRANT SELECT, UPDATE ON TABLE public.%I TO %I',target,'${username}');
+      END IF;
+    END IF;
+  END LOOP;
+END
+$conversation_memory_metadata_acl$;
 ${role === "api" ? accountAdmissionApiGrantStatements() : ""}
 REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM ${username};
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ${username};

@@ -85,6 +85,8 @@ export type MemoryKnowledgeApproval = {
   readonly actor: MemoryActor;
   readonly approvedAt: string;
   readonly authorityRevision: string;
+  /** Present only when workspace policy authorizes an AI-generated mutation. */
+  readonly automaticSettingsRevision?: string;
 };
 
 export type MemoryKnowledgeApplicability = {
@@ -93,9 +95,80 @@ export type MemoryKnowledgeApplicability = {
   readonly exceptionRule: MemoryEntryRef | null;
 };
 
+/** Bodyless revisions of the complete checked thread used by automatic selection. */
+export type MemoryAutomaticContextEvidence = {
+  readonly threadId: string;
+  readonly messages: readonly {
+    readonly id: string;
+    readonly updatedAt: string;
+    readonly bodyDigest: string;
+    readonly replyTo: string | null;
+  }[];
+};
+
+export function normalizeMemoryAutomaticContextEvidence(
+  evidence: MemoryAutomaticContextEvidence,
+): MemoryAutomaticContextEvidence {
+  assertKeys(evidence, ["threadId", "messages"]);
+  const rootId =
+    typeof evidence.threadId === "string"
+      ? evidence.threadId.match(
+          /^github-review-thread:([1-9][0-9]{0,15})$/,
+        )?.[1]
+      : undefined;
+  if (
+    !rootId ||
+    !Number.isSafeInteger(Number(rootId)) ||
+    !Array.isArray(evidence.messages) ||
+    evidence.messages.length < 2 ||
+    evidence.messages.length > 10_000
+  )
+    throw new MemoryKnowledgeError("invalid_input");
+  const ids = new Set<string>();
+  let roots = 0;
+  const messages = evidence.messages.map((message) => {
+    assertKeys(message, ["id", "updatedAt", "bodyDigest", "replyTo"]);
+    if (
+      typeof message.id !== "string" ||
+      !/^github-node:[a-zA-Z0-9_+/=-]{1,256}$/.test(message.id) ||
+      ids.has(message.id) ||
+      typeof message.updatedAt !== "string" ||
+      !Number.isFinite(Date.parse(message.updatedAt)) ||
+      new Date(message.updatedAt).toISOString() !== message.updatedAt ||
+      typeof message.bodyDigest !== "string" ||
+      !/^[a-f0-9]{64}$/.test(message.bodyDigest) ||
+      (message.replyTo !== null && message.replyTo !== rootId)
+    )
+      throw new MemoryKnowledgeError("invalid_input");
+    ids.add(message.id);
+    if (message.replyTo === null) roots++;
+    return {
+      id: message.id,
+      updatedAt: message.updatedAt,
+      bodyDigest: message.bodyDigest,
+      replyTo: message.replyTo,
+    };
+  });
+  if (roots !== 1) throw new MemoryKnowledgeError("invalid_input");
+  return { threadId: evidence.threadId, messages };
+}
+
+export type MemoryAutomaticSourceBinding = {
+  readonly lineageKey: string;
+  readonly cohortId: string;
+  readonly epoch: string;
+  readonly sourceRevision: string;
+  readonly policyRevision: string;
+  readonly sourceActorId: string;
+  readonly observedCommitSha: string;
+  /** Absent only on cohorts selected under the previous source-only contract. */
+  readonly contextEvidence?: MemoryAutomaticContextEvidence;
+};
+
 /** Current provider bodies and current topic membership are deliberately absent. */
 export type MemoryKnowledgeEntryMetadata = {
   readonly ref: MemoryEntryRef;
+  readonly automaticSource?: MemoryAutomaticSourceBinding;
   readonly generation: string;
   readonly revision: string;
   readonly contentApprovalRevision: string | null;
@@ -239,7 +312,12 @@ export function normalizeMemoryKnowledgeCommand(
         : []),
   ]);
   assertKeys(command.ref, ["type", "scope", "entryId"]);
-  assertKeys(command.approval, ["actor", "approvedAt", "authorityRevision"]);
+  assertKeys(command.approval, [
+    "actor",
+    "approvedAt",
+    "authorityRevision",
+    "automaticSettingsRevision",
+  ]);
   assertKeys(command.approval.actor, ["kind", "id", "githubUserId", "login"]);
   memoryKnowledgeScopeKey(command.ref.scope);
   if (
@@ -253,6 +331,12 @@ export function normalizeMemoryKnowledgeCommand(
     !command.approval.actor.id ||
     !command.approval.authorityRevision ||
     !Number.isFinite(Date.parse(command.approval.approvedAt))
+  )
+    throw new MemoryKnowledgeError("invalid_input");
+  if (
+    command.approval.automaticSettingsRevision !== undefined &&
+    (typeof command.approval.automaticSettingsRevision !== "string" ||
+      !/^(0|[1-9]\d{0,9})$/.test(command.approval.automaticSettingsRevision))
   )
     throw new MemoryKnowledgeError("invalid_input");
   if (
@@ -375,6 +459,20 @@ export function memoryKnowledgeCommandDigest(
   command: MemoryKnowledgeCommand,
 ): string {
   return memoryKnowledgeDigest(normalizeMemoryKnowledgeCommand(command));
+}
+
+/** One cohort identity shared by selection, admission and accepted-operation recovery. */
+export function automaticMemoryCohortId(processingId: string): string {
+  return memoryKnowledgeDigest(["automatic-cohort", processingId]);
+}
+
+/** Stable identity shared by automatic admission and accepted-operation recovery. */
+export function automaticMemoryChildCommandId(
+  processingId: string,
+  index: number | string,
+): string {
+  const hex = memoryKnowledgeDigest(["automatic-command", processingId, index]);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 export function memoryKnowledgeBodyMatches(

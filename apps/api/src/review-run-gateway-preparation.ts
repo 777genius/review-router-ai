@@ -42,6 +42,11 @@ export type ReviewRunGatewayPreparationResult =
  * No transport/capability is returned through the safe selected-facts result. */
 export function createReviewRunGatewayPreparation(input: {
   readonly authorizationId: string;
+  readonly allocationId?: string;
+  readonly readPreparationOperation?: (
+    operationId: string,
+    options: CallOptions,
+  ) => Promise<c.Operation | undefined>;
   readonly identity: VerifiedScmRunIdentity;
   readonly runAccess: RunAccessConfig;
   readonly authorizations: ReviewRunAuthorizationQueryPort;
@@ -49,6 +54,7 @@ export function createReviewRunGatewayPreparation(input: {
   readonly bindings: ReviewRunGatewayExecutionBindingPort;
 }) {
   const authorizationId = input.authorizationId;
+  const allocationId = input.allocationId;
   const identity = reviewRunGatewayOwnedIdentity(input.identity);
   const authorizations = input.authorizations;
   const snapshots = input.snapshots;
@@ -88,7 +94,16 @@ export function createReviewRunGatewayPreparation(input: {
         return { status: "denied" };
       const canonical = authorization.runtimeSnapshotCanonicalJson;
       const snapshot = parseReviewRunRuntimeSnapshot(canonical);
-      const original = snapshot?.gateway;
+      const original =
+        snapshot?.snapshotVersion === 4
+          ? allocationId === undefined
+            ? undefined
+            : snapshot.allocations.find(
+                (row) => row.allocationId === allocationId,
+              )
+          : allocationId === undefined
+            ? snapshot?.gateway
+            : undefined;
       if (
         !canonical ||
         !snapshot ||
@@ -121,6 +136,7 @@ export function createReviewRunGatewayPreparation(input: {
       if (!live()) return { status: "denied" };
       const owner = {
         authorizationId,
+        ...(allocationId === undefined ? {} : { allocationId }),
         identity,
         runtimeSnapshotCanonicalJson: canonical,
       };
@@ -133,6 +149,7 @@ export function createReviewRunGatewayPreparation(input: {
         !reviewRunGatewayEpochMatches(
           snapshot,
           saved.binding.authorizationEpoch,
+          allocationId,
         )
       )
         return { status: "denied" };
@@ -141,6 +158,13 @@ export function createReviewRunGatewayPreparation(input: {
       if (!recovery && initialAttempted) return { status: "denied" };
       if (
         !(await snapshots.isLive({ snapshot, identity, now: new Date() })) ||
+        (snapshot.snapshotVersion === 4 &&
+          !(await snapshots.isAllocationLive?.({
+            snapshot,
+            allocationId: allocationId!,
+            identity,
+            now: new Date(),
+          }))) ||
         !live()
       )
         return { status: "denied" };
@@ -206,7 +230,11 @@ export function createReviewRunGatewayPreparation(input: {
         attached: false,
       };
       if (
-        !reviewRunGatewayEpochMatches(snapshot, selected.authorizationEpoch)
+        !reviewRunGatewayEpochMatches(
+          snapshot,
+          selected.authorizationEpoch,
+          allocationId,
+        )
       ) {
         // The acquired exact capability is cleanup-only. Retain it for close,
         // but never attach, dispatch or recover another preparation for this pin.
@@ -236,6 +264,7 @@ export function createReviewRunGatewayPreparation(input: {
       throw new GatewayError("invalid_input", "not_dispatched");
     const saved = await bindings.read({
       authorizationId,
+      ...(allocationId === undefined ? {} : { allocationId }),
       identity,
       runtimeSnapshotCanonicalJson: current.canonical,
     });
@@ -265,16 +294,129 @@ export function createReviewRunGatewayPreparation(input: {
   }
   function begin(recovery: boolean) {
     // Repeated calls cannot replace the handle observed by close().
-    if (inFlight)
-      return Promise.resolve<ReviewRunGatewayPreparationResult>({
-        status: "denied",
-      });
+    if (inFlight && pending) return pending;
     pending = run(recovery);
     return pending;
+  }
+  async function recoverForCleanup(options: CallOptions = {}): Promise<void> {
+    if (session || allocationId === undefined) return;
+    initialAttempted = true; // Unknown cleanup never proves absence of a physical effect.
+    if (!input.readPreparationOperation || !bindings.readForCleanup) return;
+    const authorization =
+      await authorizations.findReviewRunAuthorizationById(authorizationId);
+    if (
+      !authorization ||
+      !Object.entries(identity).every(
+        ([key, value]) => Reflect.get(authorization, key) === value,
+      )
+    )
+      return;
+    const canonical = authorization.runtimeSnapshotCanonicalJson;
+    const snapshot = parseReviewRunRuntimeSnapshot(canonical);
+    if (
+      !canonical ||
+      snapshot?.snapshotVersion !== 4 ||
+      authorization.maxExpiresAt.toISOString() !== snapshot.deadline
+    )
+      return;
+    const original = snapshot.allocations.find(
+      (row) => row.allocationId === allocationId,
+    );
+    if (!original) return;
+    const owner = {
+      authorizationId,
+      allocationId,
+      identity,
+      runtimeSnapshotCanonicalJson: canonical,
+    };
+    const saved = await bindings.readForCleanup(owner);
+    // Consumer-control proves the ORIGINAL operation before any run-access call.
+    // The run-control credential cannot query operations and is never widened.
+    const proof = await input.readPreparationOperation(
+      original.operationId,
+      options,
+    );
+    if (!proof) return;
+    const operation = c.preparationOperation.parse(proof);
+    if (
+      operation.operationRef !== original.operationId ||
+      operation.state !== "applied" ||
+      operation.result?.kind !== "execution" ||
+      operation.result.accountRef !== original.permittedAccountRef ||
+      operation.result.deadline !== snapshot.deadline ||
+      (saved && operation.result.executionRef !== saved.executionRef) ||
+      !reviewRunGatewayEpochMatches(
+        snapshot,
+        operation.result.authorizationEpoch,
+        allocationId,
+      )
+    )
+      return;
+    const intent = c.prepare.parse({
+      operationId: original.operationId,
+      invocationRef: original.invocationId,
+      attemptRef: original.attemptId,
+      accountRefs: [original.permittedAccountRef],
+      subjectRef: original.policySubject,
+      policyRevision: original.policyRevision,
+      bindingRevision: original.bindingRevision,
+      profileId: original.profileRef,
+      limits: { ...original.limits },
+      deadline: snapshot.deadline,
+    });
+    const prepared = await prepareAccess(intent, options);
+    const restored = c.preparationOperation.parse(prepared.operation);
+    if (
+      restored.state !== "applied" ||
+      restored.operationRef !== original.operationId ||
+      restored.result?.kind !== "execution" ||
+      restored.result.executionRef !== operation.result.executionRef ||
+      restored.result.accountRef !== operation.result.accountRef ||
+      restored.result.authorizationEpoch !==
+        operation.result.authorizationEpoch ||
+      restored.result.deadline !== snapshot.deadline ||
+      prepared.executionRef !== restored.result.executionRef
+    )
+      return;
+    const binding = parseReviewRunGatewayExecutionBinding(
+      canonicalJson({
+        bindingVersion: 1,
+        operationId: original.operationId,
+        executionRef: restored.result.executionRef,
+        accountRef: restored.result.accountRef,
+        authorizationEpoch: restored.result.authorizationEpoch,
+        deadline: snapshot.deadline,
+      }),
+    );
+    if (saved && canonicalJson(saved) !== canonicalJson(binding)) return;
+    const admission = c.admission.parse(prepared.admission);
+    const expected = c.admission.parse({
+      invocationRef: original.invocationId,
+      attemptRef: original.attemptId,
+      accountRef: binding.accountRef,
+      authorizationEpoch: binding.authorizationEpoch,
+      subjectRef: original.policySubject,
+      policyRevision: original.policyRevision,
+      bindingRevision: original.bindingRevision,
+      profileId: original.profileRef,
+      limits: { ...original.limits },
+      expiresAt: snapshot.deadline,
+    });
+    if (canonicalJson(admission) !== canonicalJson(expected)) return;
+    // Cleanup-only: never attach, reopen authority or permit a request.
+    session = {
+      client: prepared.client,
+      admission,
+      binding,
+      canonical,
+      attached: false,
+    };
+    closed = true;
   }
   return Object.freeze({
     prepare: () => begin(false),
     recoverSameOperation: () => begin(true),
+    recoverForCleanup,
     // Private backend capabilities, never part of the preparation result/SQL DTO.
     hasSession: () => session?.attached === true && !closed,
     isPreparing: () => inFlight,
@@ -371,9 +513,10 @@ export function createReviewRunGatewayPreparation(input: {
           );
         });
       }
+      if (!session) await recoverForCleanup(options);
       const current = session;
       if (!current) return { state: "unknown" as const };
-      return current.client.close(
+      const operation = await current.client.close(
         current.binding.executionRef,
         {
           operationId: `rr-close-${createHash("sha256").update(current.binding.operationId).digest("hex")}`,
@@ -381,6 +524,17 @@ export function createReviewRunGatewayPreparation(input: {
         },
         options,
       );
+      if (operation.state === "applied")
+        await bindings.completeCleanup?.(
+          {
+            authorizationId,
+            ...(allocationId === undefined ? {} : { allocationId }),
+            identity,
+            runtimeSnapshotCanonicalJson: current.canonical,
+          },
+          current.binding,
+        );
+      return operation;
     },
   });
 }

@@ -13,6 +13,94 @@ afterEach(() => {
   }
 });
 
+describe("nested feature layer coverage", () => {
+  it("counts pure domain and application files below v2 and account-limits prefixes", () => {
+    const root = createFixture("export type Investigation = string;\n");
+    for (const prefix of [
+      "packages/features/review-publishing/src/v2",
+      "packages/features/provider-accounts/src/account-limits",
+    ]) {
+      writeFile(
+        root,
+        `${prefix}/domain/model.ts`,
+        "export type Model = string;\n",
+      );
+      writeFile(
+        root,
+        `${prefix}/application/use-case.ts`,
+        'import type { Model } from "../domain/model";\nexport type Result = Model;\n',
+      );
+    }
+    expect(runChecker(root)).toContain("passed for 5 domain/application files");
+  });
+
+  for (const prefix of [
+    "packages/features/review-publishing/src/v2/domain",
+    "packages/features/provider-accounts/src/account-limits/application",
+  ]) {
+    it.each([
+      ["value import", 'import { PrismaClient } from "@prisma/client";\n'],
+      ["type import", 'import type { PrismaClient } from "@prisma/client";\n'],
+      [
+        "dynamic import",
+        'export const load = () => import("@prisma/client");\n',
+      ],
+      ["re-export", 'export type { PrismaClient } from "@prisma/client";\n'],
+    ])("rejects a %s under " + prefix, (_kind, source) => {
+      const root = createFixture("export type Investigation = string;\n");
+      writeFile(root, `${prefix}/leak.ts`, source);
+      expect(() => runChecker(root)).toThrow(
+        /Prisma is an infrastructure adapter/,
+      );
+    });
+  }
+
+  it("keeps adapter siblings and outer-layer domain folders outside the core guard", () => {
+    const root = createFixture("export type Investigation = string;\n");
+    for (const outer of [
+      "infrastructure",
+      "interface",
+      "composition",
+      "adapters",
+      "contract-source",
+      "testing",
+      "tests",
+    ]) {
+      // Contract-source retains its separate declarative-only ratchet.
+      const source =
+        outer === "contract-source"
+          ? "export type Snapshot = string;\n"
+          : 'import type { PrismaClient } from "@prisma/client";\n';
+      writeFile(
+        root,
+        `packages/features/provider-accounts/src/account-limits/${outer}/adapter.ts`,
+        source,
+      );
+      writeFile(
+        root,
+        `packages/features/review-publishing/src/v2/${outer}/domain/mapper.ts`,
+        source,
+      );
+    }
+    expect(runChecker(root)).toContain("passed for 1 domain/application files");
+  });
+
+  it.each(["infrastructure", "tests"])(
+    "keeps %s folders inside a first domain layer governed",
+    (nested) => {
+      const root = createFixture("export type Investigation = string;\n");
+      writeFile(
+        root,
+        `packages/features/review-publishing/src/v2/domain/${nested}/leak.test.ts`,
+        'import type { PrismaClient } from "@prisma/client";\n',
+      );
+      expect(() => runChecker(root)).toThrow(
+        /Prisma is an infrastructure adapter/,
+      );
+    },
+  );
+});
+
 describe("review-investigations architecture ratchet", () => {
   it("accepts a strict package with domain-only dependencies", () => {
     const root = createFixture(
@@ -174,11 +262,68 @@ describe("usage producer protocol transport boundary", () => {
       root,
       "packages/features/action-control-plane/package.json",
       JSON.stringify({
-        exports: { ".": {}, "./v2": {}, "./v2/contract-source": {} },
+        exports: {
+          ".": {},
+          "./oidc": {
+            types: "./src/oidc.ts",
+            production: "./dist/oidc.js",
+            default: "./src/oidc.ts",
+          },
+          "./v2": {},
+          "./v2/contract-source": {},
+        },
       }),
     );
     return root;
   }
+  it.each(["./internal", "./*"])(
+    "rejects an unreviewed export %s",
+    (subpath) => {
+      const root = protocolFixture();
+      writeFile(
+        root,
+        "packages/features/action-control-plane/package.json",
+        JSON.stringify({
+          exports: {
+            ".": {},
+            "./oidc": {
+              types: "./src/oidc.ts",
+              production: "./dist/oidc.js",
+              default: "./src/oidc.ts",
+            },
+            "./v2": {},
+            "./v2/contract-source": {},
+            [subpath]: "./src/index.ts",
+          },
+        }),
+      );
+      expect(() => runChecker(root)).toThrow(/reviewed oidc, v2 interface/);
+    },
+  );
+
+  it("rejects redirecting the OIDC seam to the eager root adapter graph", () => {
+    const root = protocolFixture();
+    writeFile(
+      root,
+      "packages/features/action-control-plane/package.json",
+      JSON.stringify({
+        exports: {
+          ".": {},
+          "./oidc": {
+            types: "./src/index.ts",
+            production: "./dist/index.js",
+            default: "./src/index.ts",
+          },
+          "./v2": {},
+          "./v2/contract-source": {},
+        },
+      }),
+    );
+    expect(() => runChecker(root)).toThrow(
+      /isolated reviewed verifier adapter/,
+    );
+  });
+
   it("accepts only the three named usage transport adapters and fixture", () => {
     const root = protocolFixture();
     for (const file of [

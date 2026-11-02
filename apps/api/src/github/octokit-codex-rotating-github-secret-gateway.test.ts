@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import {
   renderReviewRouterCaller,
   renderReviewRouterProviderApiCaller,
+  renderReviewRouterClaudeSubscriptionCaller,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/protocol-review-workflow";
 import {
@@ -18,6 +19,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV1,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
   renderCodexRotatingInteractionWorkflow,
+  renderAccountGatewayInteractionWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
 import { OctokitCodexRotatingGitHubSecretGateway as ExplicitApiUrlOctokitCodexRotatingGitHubSecretGateway } from "./octokit-codex-rotating-github-secret-gateway.js";
 
@@ -56,6 +58,84 @@ vi.mock("@octokit/request", () => ({
 }));
 
 describe("OctokitCodexRotatingGitHubSecretGateway", () => {
+  it("admits the exact qualified Gateway interaction at the signed caller commit without a Codex workflow or secret", async () => {
+    const runtimeSha = "a".repeat(40);
+    const source = renderAccountGatewayInteractionWorkflow({
+      runtimeSha,
+      apiUrl: "https://api.reviewrouter.org",
+    }).content;
+    mocks.auth.mockResolvedValueOnce({
+      token: "fixture-read",
+      expiresAt: "2126-01-01T00:00:00.000Z",
+      permissions: { contents: "read" },
+    });
+    mocks.request
+      .mockRejectedValueOnce({ status: 404 })
+      .mockResolvedValueOnce(fileContent(source));
+    const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+      appId: "123",
+      privateKey: "fixture-key",
+      trustedActionRefs: [],
+      gatewayInteractionRuntimeSha: runtimeSha,
+    });
+    expect(
+      await gateway.verifyManagedV2SessionBootstrapSource({
+        githubInstallationId: "123",
+        githubRepositoryId: "456",
+        repositoryFullName: "owner/repo",
+        owner: "owner",
+        workflowPath: ".github/workflows/reviewrouter-interaction.yml",
+        workflowSha: "b".repeat(40),
+      }),
+    ).toEqual({ compatible: true });
+    expect(
+      mocks.request.mock.calls.every((call) => call[1].ref === "b".repeat(40)),
+    ).toBe(true);
+    expect(JSON.stringify(mocks.auth.mock.calls)).not.toContain("secrets");
+  });
+  it.each(["runtime", "deleted-event", "backend"])(
+    "rejects changed qualified Gateway interaction %s before session admission",
+    async (change) => {
+      const runtimeSha = "a".repeat(40);
+      let source = renderAccountGatewayInteractionWorkflow({
+        runtimeSha,
+        apiUrl: "https://api.reviewrouter.org",
+      }).content;
+      source =
+        change === "runtime"
+          ? source.replaceAll(runtimeSha, "c".repeat(40))
+          : change === "deleted-event"
+            ? source.replace("created, edited, deleted", "created, edited")
+            : source.replace(
+                "interaction_backend: account-gateway",
+                "interaction_backend: codex-secrets",
+              );
+      mocks.auth.mockResolvedValueOnce({
+        token: "fixture-read",
+        expiresAt: "2126-01-01T00:00:00.000Z",
+        permissions: { contents: "read" },
+      });
+      mocks.request
+        .mockRejectedValueOnce({ status: 404 })
+        .mockResolvedValueOnce(fileContent(source));
+      const gateway = new OctokitCodexRotatingGitHubSecretGateway({
+        appId: "123",
+        privateKey: "fixture-key",
+        trustedActionRefs: [],
+        gatewayInteractionRuntimeSha: runtimeSha,
+      });
+      expect(
+        await gateway.verifyManagedV2SessionBootstrapSource({
+          githubInstallationId: "123",
+          githubRepositoryId: "456",
+          repositoryFullName: "owner/repo",
+          owner: "owner",
+          workflowPath: ".github/workflows/reviewrouter-interaction.yml",
+          workflowSha: "b".repeat(40),
+        }),
+      ).toEqual({ compatible: false });
+    },
+  );
   it("joins the canonical rendered named bundle at signed workflow SHA to captured GitHub refs", async () => {
     const source = renderReviewRouterCaller({
       mcpSecrets: { DOCS_TOKEN: "DOCS_MCP_TOKEN" },
@@ -182,7 +262,16 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       );
     },
   );
-  it.each(["canonical", "wrong-pin", "wrong-secret", "gateway-source"])(
+  it.each([
+    "canonical",
+    "wrong-pin",
+    "wrong-secret",
+    "gateway-source",
+    "claude",
+    "claude-other-secret",
+    "claude-mixed",
+    "claude-other-pin",
+  ])(
     "checks direct source transport and executed pin: %s",
     async (scenario) => {
       const expectedSha = "a".repeat(40);
@@ -200,6 +289,22 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
         );
       if (scenario === "gateway-source")
         source = renderReviewRouterCaller({ runtimeRef: expectedSha });
+      if (scenario.startsWith("claude")) {
+        source = renderReviewRouterClaudeSubscriptionCaller({
+          runtimeRef:
+            scenario === "claude-other-pin" ? "c".repeat(40) : expectedSha,
+        });
+        if (scenario === "claude-other-secret")
+          source = source.replace(
+            "secrets.CLAUDE_CODE_OAUTH_TOKEN",
+            "secrets.OTHER_TOKEN",
+          );
+        if (scenario === "claude-mixed")
+          source = source.replace(
+            "subscription_auth_mode: claude-oauth",
+            "subscription_auth_mode: claude-oauth\n      provider_api_auth_mode: openrouter-api",
+          );
+      }
       mocks.auth.mockResolvedValueOnce({
         token: "fixture-read",
         expiresAt: "2026-10-14T20:00:00.000Z",
@@ -222,9 +327,12 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
           expectedProviderApiActionCommitSha: expectedSha,
         }),
       ).resolves.toEqual({
-        compatible: scenario === "canonical",
+        compatible: scenario === "canonical" || scenario === "claude",
         ...(scenario === "canonical"
           ? { providerApiAuthMode: "openrouter-api" }
+          : {}),
+        ...(scenario === "claude"
+          ? { subscriptionAuthMode: "claude-oauth" }
           : {}),
       });
       expect(mocks.request).toHaveBeenCalledWith(

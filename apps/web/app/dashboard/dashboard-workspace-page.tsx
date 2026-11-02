@@ -1,5 +1,13 @@
+import { inspectConfiguredRuntimeMigrationTarget } from "../../src/server/workflow-provisioning/approved-codex-runtime-migration-ref";
 import { savedProviderIdentity } from "../../src/server/provider-identity";
+import { randomUUID } from "node:crypto";
+import {
+  readDashboardRuntimeReleases,
+  type DashboardRuntimeReleases,
+} from "../../src/server/review-runtime-readiness";
+import { createPrismaReviewRunControlRepositories } from "@reviewrouter/features-review-run-control/composition";
 import { ReviewStatisticsSection } from "./review-statistics-section";
+import { ReviewHistorySection } from "./review-history-section";
 import { ReviewSkillsSection } from "./review-skills-section";
 import { RepositorySkillsDialog } from "./repository-skills-dialog";
 import { listDashboardContextConnections } from "../../src/server/context-tools";
@@ -17,7 +25,11 @@ import {
   type GatewayAgentProfileOption,
 } from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
-import { readApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
+import {
+  apiKeySetupHref,
+  readApiKeySetupIntent,
+  type ApiKeySetupIntent,
+} from "../../src/features/provider-setup/api-key-storage";
 import { ApiKeySetupReturn } from "./provider-setup/api-key-setup-return";
 import { apiKeyProviders } from "@reviewrouter/features-review-providers";
 import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
@@ -25,6 +37,7 @@ import { ProviderModelCatalogProvider } from "./provider-model-catalog";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
 import {
   loadDashboardGatewayAccounts,
+  hydrateDashboardGatewayAccounts,
   loadDashboardPersonalAccounts,
 } from "../../src/server/dashboard-gateway-accounts";
 import {
@@ -58,6 +71,7 @@ import { PrismaHostedPoolQuery } from "@reviewrouter/features-hosted-account-poo
 import {
   buildProviderSecretSetupGuidance,
   type RepositorySetupStepId,
+  type ReviewRuntimeCompatibility,
 } from "@reviewrouter/features-provider-setup";
 import {
   listWorkspaceOutboxFailures,
@@ -156,7 +170,9 @@ import { ActionToast } from "../action-toast";
 import { ConnectSourceDialog } from "../connect-source-dialog";
 import { RepositoryVisibilityBadge } from "../repository-visibility-badge";
 import { DashboardInstallRequestToast } from "./dashboard-install-request-toast";
+import { ProvidersHubNav } from "./dashboard-section-tabs";
 import {
+  dashboardClientNavigationHref,
   dashboardPath,
   dashboardPathFromSearchParams,
   dashboardSectionHref,
@@ -199,6 +215,8 @@ import {
 import { RepositorySetupStatusRefresher } from "./repository-setup-status-refresher";
 import { MemoryKnowledgeWorkspace } from "../../src/features/memory/interface/components/memory-knowledge-workspace";
 import { loadDashboardMemoryKnowledge } from "../../src/server/dashboard-memory-knowledge";
+import { loadDashboardMemorySettings } from "../../src/server/dashboard-memory-settings";
+import { MemorySettings } from "./memory-settings";
 import { memoryDashboardPublicError } from "../../src/features/memory/adapters/memory-dashboard-controller";
 import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
@@ -218,6 +236,10 @@ import {
   isSetupRecoveryIssue,
   orgRulesetErrorText,
   orgRulesetStatusTone,
+  repositoryAccessPresentation,
+  repositoryAccessErrorPresentation,
+  repositoryWorkflowUpdateCopy,
+  repositoryWorkflowVerificationCopy,
 } from "./dashboard-copy";
 import {
   SourceProviderLabel,
@@ -358,6 +380,7 @@ async function loadDashboardWorkspaceSummaries(
 }
 
 type DashboardWorkspaceData = {
+  runtimeReleases?: DashboardRuntimeReleases | null;
   hasWorkspaceWideAccess: boolean;
   workspace: DashboardWorkspace;
   repositoryCount: number;
@@ -436,6 +459,14 @@ export async function loadDashboardSectionData(
   const needsReadiness =
     section === "repositories" || section === "diagnostics";
   const needsConfig = needsReadiness || section === "policy";
+  const runtimeReleasesPromise = needsReadiness
+    ? readDashboardRuntimeReleases({
+        inspectRuntimeMigrationTarget: inspectConfiguredRuntimeMigrationTarget,
+        env: process.env,
+        releases:
+          createPrismaReviewRunControlRepositories(prisma).producerReleases,
+      })
+    : Promise.resolve(null);
   const repositoryStore = new PrismaRepositoryConnectionRepository(prisma);
   const healthStore = new PrismaRepositoryHealthRepository(prisma);
   const entitlementStore = new PrismaEntitlementRepository(prisma);
@@ -688,6 +719,7 @@ export async function loadDashboardSectionData(
       : {};
   return {
     ...otherSettings,
+    runtimeReleases: await runtimeReleasesPromise,
     providerList,
     canSetDefaultProvider,
     hasWorkspaceWideAccess,
@@ -1224,6 +1256,17 @@ export async function DashboardWorkspacePage({
     selectedWorkspace.workspace,
     workspaces,
   );
+  if (selectedSection === "context-tools") {
+    redirect(
+      dashboardClientNavigationHref(
+        dashboardSectionHref(
+          "context-tools",
+          workspaceKey,
+          selectedWorkspace.workspace.id,
+        ),
+      ),
+    );
+  }
   const sectionBoundaryKey = JSON.stringify([
     selectedWorkspace.workspace.id,
     selectedSection,
@@ -1268,6 +1311,26 @@ export async function DashboardSectionContent({
       />
     );
   if (selectedSection === "memory") {
+    const settings = await loadDashboardMemorySettings(
+      selectedWorkspace.workspace.id,
+    ).catch(() => null);
+    const settingsSection = settings ? (
+      <MemorySettings
+        workspaceId={selectedWorkspace.workspace.id}
+        {...settings}
+      />
+    ) : (
+      <section
+        aria-label="Memory settings"
+        className="mx-auto w-full max-w-5xl border-t border-white/10 py-6"
+      >
+        <h2 className="text-lg font-semibold text-slate-100">Settings</h2>
+        <p role="status" className="mt-3 text-sm text-slate-400">
+          Memory settings are temporarily unavailable. Refresh this page to try
+          again.
+        </p>
+      </section>
+    );
     try {
       const page = await loadDashboardMemoryKnowledge({
         workspaceId: selectedWorkspace.workspace.id,
@@ -1280,29 +1343,51 @@ export async function DashboardSectionContent({
         topicId:
           typeof params.memoryTopic === "string" ? params.memoryTopic : null,
       });
-      return <MemoryKnowledgeWorkspace initialData={page} />;
+      return (
+        <>
+          <MemoryKnowledgeWorkspace initialData={page} />
+          {settingsSection}
+        </>
+      );
     } catch (error) {
       const safe = memoryDashboardPublicError(error);
       return (
-        <section
-          aria-labelledby="memory-unavailable-title"
-          className="max-w-3xl py-8"
-        >
-          <h1 id="memory-unavailable-title" className="text-3xl font-semibold">
-            Memory
-          </h1>
-          <p role="status" className="mt-4 text-sm leading-6 text-slate-400">
-            {safe.status === 403
-              ? "You do not have permission to view memory in this workspace."
-              : "Memory is temporarily unavailable. Please refresh this page to try again."}
-          </p>
-        </section>
+        <>
+          <section
+            aria-labelledby="memory-unavailable-title"
+            className="max-w-3xl py-8"
+          >
+            <h1
+              id="memory-unavailable-title"
+              className="text-3xl font-semibold"
+            >
+              Memory
+            </h1>
+            <p role="status" className="mt-4 text-sm leading-6 text-slate-400">
+              {safe.status === 403
+                ? "You do not have permission to view memory in this workspace."
+                : "Memory is temporarily unavailable. Please refresh this page to try again."}
+            </p>
+          </section>
+          {settingsSection}
+        </>
       );
     }
   }
+  if (selectedSection === "reviews") {
+    return (
+      <ReviewHistorySection
+        workspaceId={selectedWorkspace.workspace.id}
+        params={params}
+      />
+    );
+  }
   if (selectedSection === "statistics") {
     return (
-      <ReviewStatisticsSection workspaceId={selectedWorkspace.workspace.id} />
+      <ReviewStatisticsSection
+        workspaceId={selectedWorkspace.workspace.id}
+        params={params}
+      />
     );
   }
   const { workspaceScope, mutationStatus, repositoryAccess } = context;
@@ -1329,20 +1414,21 @@ export async function DashboardSectionContent({
   const personal = wantsAccounts
     ? await loadDashboardPersonalAccounts(selectedWorkspace.workspace.id)
     : null;
+  const dataPromise = loadDashboardSectionData(
+    selectedWorkspace,
+    selectedSection,
+    repositoryAccess,
+    supportAudit,
+    context.signedInActor,
+  );
   const [
     data,
     modelOptions,
-    gatewayAccounts,
+    initialGatewayAccounts,
     contextConnections,
     modelCatalogSnapshots,
   ] = await Promise.all([
-    loadDashboardSectionData(
-      selectedWorkspace,
-      selectedSection,
-      repositoryAccess,
-      supportAudit,
-      context.signedInActor,
-    ),
+    dataPromise,
     wantsProviderDialog ? getReviewModelOptions() : Promise.resolve([]),
     wantsProviderDialog ||
     selectedSection === "diagnostics" ||
@@ -1357,6 +1443,22 @@ export async function DashboardSectionContent({
       : Promise.resolve([]),
     wantsProviderDialog ? getProviderModelCatalogs() : Promise.resolve([]),
   ]);
+  const gatewayAccounts = await hydrateDashboardGatewayAccounts(
+    selectedWorkspace.workspace.id,
+    personal,
+    initialGatewayAccounts,
+    [
+      data.reviewConfig?.config,
+      ...data.repositoryConfigs.map((row) => row.effective),
+    ].flatMap(
+      (config) =>
+        config?.providers.flatMap((provider) =>
+          provider.authMode === "codex_account_gateway"
+            ? [provider.gatewayBindingId]
+            : [],
+        ) ?? [],
+    ),
+  );
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
   const agentProfileOptions = loadGatewayAgentProfileOptions();
@@ -1421,7 +1523,11 @@ function DashboardEmptyAccessState({
   readonly githubAvatarUrl: string | null;
   readonly appInstallUrl: string | null;
 }): React.ReactElement {
-  const copy = dashboardRepositoryAccessEmptyCopy(repositoryAccess.status);
+  const copy = repositoryAccessPresentation(
+    repositoryAccess.status,
+    repositoryAccess.errorCode,
+    "empty",
+  );
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 md:py-10">
@@ -1443,13 +1549,13 @@ function DashboardEmptyAccessState({
           <p className="text-sm leading-6 text-slate-300 sm:text-base">
             {copy.body}
           </p>
-          {repositoryAccess.errorCode ? (
-            <p className="text-xs leading-5 text-slate-500">
-              Status: <code>{repositoryAccess.errorCode}</code>
-            </p>
-          ) : null}
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
+          {copy.actionUrl ? (
+            <LinkButton href={copy.actionUrl} size="lg" className="rounded-2xl">
+              {copy.actionLabel}
+            </LinkButton>
+          ) : null}
           {copy.reconnect ? (
             <GitHubSignInButton
               callbackUrl="/dashboard"
@@ -1463,15 +1569,19 @@ function DashboardEmptyAccessState({
           <ConnectSourceDialog
             appInstallUrl={appInstallUrl}
             triggerLabel="Connect source"
-            triggerVariant={copy.reconnect ? "outline" : "solid"}
+            triggerVariant={
+              copy.reconnect || copy.actionUrl ? "outline" : "solid"
+            }
             triggerSize="lg"
             triggerClassName="rounded-2xl"
           />
-          <RepositoryAccessRefreshForm
-            triggerLabel="Refresh GitHub access"
-            size="lg"
-            className="rounded-2xl"
-          />
+          {copy.canRefresh ? (
+            <RepositoryAccessRefreshForm
+              triggerLabel="Refresh GitHub access"
+              size="lg"
+              className="rounded-2xl"
+            />
+          ) : null}
         </div>
       </section>
     </main>
@@ -1524,23 +1634,38 @@ function RepositoryAccessRefreshNotice({
   readonly workspaceKey: string;
   readonly selectedSection: DashboardSection;
 }): React.ReactElement {
-  const copy = repositoryAccessNoticeCopy(repositoryAccess.status);
+  const copy = repositoryAccessPresentation(
+    repositoryAccess.status,
+    repositoryAccess.errorCode,
+  );
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-200/10 bg-slate-950/60 p-4">
+    <section
+      aria-label="GitHub repository access"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-200/10 bg-slate-950/60 p-4"
+    >
       <div className="min-w-0">
         <Badge tone={copy.tone}>{copy.badge}</Badge>
         <p className="mt-2 text-sm font-semibold leading-6 text-cyan-50">
           {copy.title}
         </p>
         <p className="mt-2 text-sm leading-6 text-slate-300">{copy.body}</p>
-        <p className="mt-1 text-xs leading-5 text-slate-500">
-          {repositoryAccess.checkedAt
-            ? `Last checked ${repositoryAccess.checkedAt.toISOString()}`
-            : "Access has not been cached yet."}
-        </p>
+        {repositoryAccess.checkedAt ? (
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Last checked {repositoryAccess.checkedAt.toISOString()}
+          </p>
+        ) : null}
       </div>
       <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+        {copy.actionUrl ? (
+          <LinkButton
+            href={copy.actionUrl}
+            size="sm"
+            className="w-full sm:w-auto"
+          >
+            {copy.actionLabel}
+          </LinkButton>
+        ) : null}
         {copy.reconnect ? (
           <GitHubSignInButton
             callbackUrl={dashboardSectionHref(selectedSection, workspaceKey)}
@@ -1551,133 +1676,17 @@ function RepositoryAccessRefreshNotice({
             Reconnect GitHub
           </GitHubSignInButton>
         ) : null}
-        <RepositoryAccessRefreshForm
-          workspaceKey={workspaceKey}
-          section={selectedSection}
-          triggerLabel="Refresh GitHub access"
-          className="w-full sm:w-auto"
-        />
+        {copy.canRefresh ? (
+          <RepositoryAccessRefreshForm
+            workspaceKey={workspaceKey}
+            section={selectedSection}
+            triggerLabel="Refresh GitHub access"
+            className="w-full sm:w-auto"
+          />
+        ) : null}
       </div>
-    </div>
+    </section>
   );
-}
-
-function repositoryAccessNoticeCopy(status: GitHubUserRepositoryAccessStatus): {
-  readonly badge: string;
-  readonly title: string;
-  readonly body: string;
-  readonly reconnect: boolean;
-  readonly tone: "accent" | "warning";
-} {
-  if (status === "token_missing") {
-    return {
-      badge: "GitHub reconnect required",
-      title: "Signed in, but repository discovery is not connected yet.",
-      body: "Reconnect GitHub once so ReviewRouter can discover installed organization repositories where your GitHub role has write, maintain, or admin access.",
-      reconnect: true,
-      tone: "warning",
-    };
-  }
-  if (
-    status === "token_revoked" ||
-    status === "token_expired" ||
-    status === "token_refresh_failed" ||
-    status === "token_decryption_failed"
-  ) {
-    return {
-      badge: "GitHub authorization expired",
-      title: "Reconnect GitHub to refresh repository access.",
-      body: "Your GitHub authorization is no longer usable for repository discovery. Reconnecting updates the token without asking for provider secrets.",
-      reconnect: true,
-      tone: "warning",
-    };
-  }
-  if (status === "token_encryption_misconfigured") {
-    return {
-      badge: "Configuration required",
-      title: "Repository discovery is not enabled yet.",
-      body: "Server token encryption is not configured, so repo-scoped discovery cannot store GitHub user tokens safely.",
-      reconnect: false,
-      tone: "warning",
-    };
-  }
-  if (status === "github_error") {
-    return {
-      badge: "GitHub access",
-      title: "GitHub repository access could not be refreshed.",
-      body: "Try refreshing access again shortly. Existing workspace access still works, but repo-scoped organizations may be missing until GitHub discovery succeeds.",
-      reconnect: false,
-      tone: "warning",
-    };
-  }
-
-  return {
-    badge: "GitHub access",
-    title: "Repository access is scoped by GitHub permissions.",
-    body: "Repository visibility comes from your GitHub App authorization and is limited to repos where your GitHub role has write, maintain, or admin access.",
-    reconnect: false,
-    tone: "accent",
-  };
-}
-
-function dashboardRepositoryAccessEmptyCopy(
-  status: GitHubUserRepositoryAccessStatus,
-): {
-  readonly badge: string;
-  readonly title: string;
-  readonly body: string;
-  readonly reconnect: boolean;
-  readonly tone: "accent" | "warning" | "success";
-} {
-  if (status === "token_missing") {
-    return {
-      badge: "GitHub reconnect required",
-      title: "Reconnect GitHub to show repositories you can manage.",
-      body: "ReviewRouter needs the GitHub App user authorization from your sign-in to discover installed repositories where you have write, maintain, or admin access.",
-      reconnect: true,
-      tone: "warning",
-    };
-  }
-  if (
-    status === "token_revoked" ||
-    status === "token_expired" ||
-    status === "token_refresh_failed" ||
-    status === "token_decryption_failed"
-  ) {
-    return {
-      badge: "GitHub authorization expired",
-      title: "Reconnect GitHub to refresh repository access.",
-      body: "Your GitHub authorization is no longer usable for repository discovery. Reconnecting updates the token without asking for provider secrets.",
-      reconnect: true,
-      tone: "warning",
-    };
-  }
-  if (status === "token_encryption_misconfigured") {
-    return {
-      badge: "Configuration required",
-      title: "Repository discovery is not enabled yet.",
-      body: "Set REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY so ReviewRouter can store GitHub user tokens encrypted at rest. Until then, workspace admins can still use the dashboard, but maintainer repository discovery is disabled.",
-      reconnect: false,
-      tone: "warning",
-    };
-  }
-  if (status === "github_error") {
-    return {
-      badge: "GitHub API unavailable",
-      title: "Repository access could not be refreshed.",
-      body: "GitHub did not return the installation repository list. Retry in a moment; ReviewRouter will not expand access while the check is unavailable.",
-      reconnect: false,
-      tone: "warning",
-    };
-  }
-
-  return {
-    badge: "No repositories found",
-    title: "No connected repositories found.",
-    body: "Connect GitHub repositories, then return to the dashboard to finish setup. GitLab is in development and not available yet.",
-    reconnect: false,
-    tone: "accent",
-  };
 }
 
 export function WorkspaceCard({
@@ -1725,6 +1734,22 @@ export function WorkspaceCard({
     hostedPool,
   } = data;
   const keySetupIntent = readApiKeySetupIntent(params, workspace.id);
+  const providerHubNav =
+    selectedSection === "setup" || selectedSection === "providers" ? (
+      <ProvidersHubNav
+        selectedSection={selectedSection}
+        providersHref={
+          keySetupIntent
+            ? apiKeySetupHref("providers", keySetupIntent)
+            : dashboardSectionHref("providers", workspaceKey)
+        }
+        connectionsHref={
+          keySetupIntent
+            ? apiKeySetupHref("accounts", keySetupIntent)
+            : dashboardSectionHref("setup", workspaceKey)
+        }
+      />
+    ) : null;
   const continuationRepositories = keySetupIntent?.repositoryIds.map((id) =>
     repositories.find(
       (repository) =>
@@ -1777,19 +1802,14 @@ export function WorkspaceCard({
           params={params}
           selectedSection={selectedSection}
         />
-        <DashboardSectionHeader selectedSection="setup" />
+        <DashboardSectionHeader selectedSection="providers" />
+        {providerHubNav}
         {keySetupIntent ? (
           <ApiKeySetupReturn
             intent={keySetupIntent}
             accounts={gatewayAccounts}
           />
         ) : null}
-        <a
-          className="inline-block text-sm text-cyan-200 underline"
-          href={dashboardSectionHref("providers", workspaceKey)}
-        >
-          Choose providers and models for reviews
-        </a>
         <AccountGatewayAccountsSection
           workspaceId={workspace.id}
           workspaceName={workspace.name}
@@ -1840,6 +1860,7 @@ export function WorkspaceCard({
           selectedSection={selectedSection}
         />
         <DashboardSectionHeader selectedSection="providers" />
+        {providerHubNav}
         {keySetupIntent && keySetupTarget ? (
           <ProviderSetupDialog
             workspaceId={workspace.id}
@@ -1912,6 +1933,7 @@ export function WorkspaceCard({
     modelOptions,
     gatewayAccounts,
     agentProfileOptions,
+    initialIntent: keySetupIntent ?? undefined,
   } as const;
   const requestedRepositoryFullName = readParam(params.repository);
   const providerSecretCheckFailedRepositoryFullName =
@@ -1953,6 +1975,7 @@ export function WorkspaceCard({
         ),
         installedWorkflowRequirement:
           repositoryProvisioning?.installedWorkflowRequirement ?? null,
+        workflowProvisioning: repositoryProvisioning ?? null,
       };
     }),
     health,
@@ -1961,6 +1984,7 @@ export function WorkspaceCard({
     hostedRepositories: hostedPool.repositories,
     gatewayAccounts,
     gatewayReadiness,
+    runtimeReleases: data.runtimeReleases ?? null,
     providerSecretCheckFailedRepositoryFullName:
       providerSecretCheckFailedRepositoryFullName || null,
   });
@@ -2128,16 +2152,23 @@ export function WorkspaceCard({
                   default provider and these settings. A repository can override
                   both from its row in Repositories.
                 </p>
-                <ProviderLine
-                  {...providerDialog}
-                  summary={defaultSummary}
-                  target={{ kind: "workspace" }}
-                />
+                <p
+                  className="text-sm text-slate-300"
+                  aria-label="Default review provider"
+                >
+                  {(defaultSummary.profiles?.length ?? 0) > 1
+                    ? `Default reviewers: ${defaultSummary.profiles!.map((profile) => (profile ? providerLabelWithModel(profile) : "Unavailable reviewer")).join("; ")}`
+                    : defaultSummary.profile
+                      ? `Default provider: ${providerLabelWithModel(defaultSummary.profile)}`
+                      : defaultSummary.source === "unreadable"
+                        ? "Default provider unavailable: saved settings use a retired format."
+                        : "No default provider selected."}
+                </p>
                 <a
                   className="inline-block text-sm text-cyan-200 underline"
                   href={dashboardSectionHref("providers", workspaceKey)}
                 >
-                  Rename, edit or remove providers in Providers
+                  Manage providers and workspace default
                 </a>
                 <WorkspaceReviewSettingsForm
                   workspaceId={workspace.id}
@@ -2386,11 +2417,6 @@ function DashboardSectionHeader(
       },
 ): React.ReactElement | null {
   const { selectedSection } = props;
-  // The header card's eyebrow and description ("Workspace credentials",
-  // "Connect accounts once…") only repeated the Accounts panel below, and the
-  // title repeated it again at the page top; the page opens straight into the
-  // section's own description.
-  if (selectedSection === "setup") return null;
   const meta = dashboardSectionMeta[selectedSection];
   const status =
     selectedSection === "other" || selectedSection === "providers"
@@ -2398,9 +2424,11 @@ function DashboardSectionHeader(
       : selectedSection === "repositories"
         ? `${props.repositoryCount} synced repositories`
         : selectedSection === "policy"
-          ? props.defaultProvider.profile
-            ? `Default: ${providerLabelWithModel(props.defaultProvider.profile)}`
-            : "No default provider"
+          ? (props.defaultProvider.profiles?.length ?? 0) > 1
+            ? `${props.defaultProvider.profiles!.length} default reviewers`
+            : props.defaultProvider.profile
+              ? `Default: ${providerLabelWithModel(props.defaultProvider.profile)}`
+              : "No default provider"
           : selectedSection === "memory"
             ? "In development"
             : "Metadata only";
@@ -2553,6 +2581,7 @@ type ProviderDialogProps = Readonly<{
   modelOptions: readonly ReviewModelOption[];
   gatewayAccounts: AccountsResult<AccountsPage> | undefined;
   agentProfileOptions: readonly GatewayAgentProfileOption[];
+  initialIntent?: ApiKeySetupIntent | undefined;
 }>;
 
 function RepositoryTable({
@@ -2618,7 +2647,14 @@ function RepositoryTable({
   const noProvider: ProviderLineSummary = { source: "none", profile: null };
 
   const rows = repositoryReadiness.map(
-    ({ repository, healthStatus, workflowCurrent, step, readiness }) => {
+    ({
+      repository,
+      healthStatus,
+      workflowCurrent,
+      runtimeCompatibility,
+      step,
+      readiness,
+    }) => {
       const repositoryHealth = repositoryHealthById.get(repository.id);
       const repositoryProvisioning = repositoryProvisioningById.get(
         repository.id,
@@ -2647,6 +2683,7 @@ function RepositoryTable({
         setupPullRequestUrl,
         setupIssue,
         workflowCurrent,
+        runtimeCompatibility,
         setupProgressStep: step,
         readiness,
         searchableText,
@@ -2713,6 +2750,17 @@ function RepositoryTable({
         data-repository-table
         className="rounded-[1.5rem] border border-cyan-200/10 bg-slate-950/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
       >
+        {providerDialog.initialIntent?.storage === "github_secrets" ? (
+          <p
+            role="status"
+            className="border-b border-cyan-200/10 px-4 py-3 text-sm leading-6 text-slate-300"
+          >
+            Choose the repository rows, then Configure providers. Your provider
+            and GitHub Secrets choice are kept; you can paste the key once and
+            install it in the selected repositories when automatic installation
+            is available.
+          </p>
+        ) : null}
         {repositories.length === 0 ? (
           <div className="p-5">
             <Badge tone="warning">No repositories yet</Badge>
@@ -2766,6 +2814,7 @@ function RepositoryTable({
                   setupPullRequestUrl,
                   setupIssue,
                   workflowCurrent,
+                  runtimeCompatibility,
                   setupProgressStep,
                 }) => {
                   const repositoryPolicy = repositoryConfigById.get(
@@ -2890,6 +2939,11 @@ function RepositoryTable({
                             repositoryId={repository.id}
                             disclosureId={setupDisclosureId}
                             currentStep={setupProgressStep}
+                            runtimeCompatibility={runtimeCompatibility}
+                            runtimeVerificationNeeded={
+                              runtimeCompatibility === "unknown" &&
+                              repository.setupStatus === "configured"
+                            }
                             gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
                               gatewayReadiness.get(repository.id),
                             )}
@@ -2905,6 +2959,22 @@ function RepositoryTable({
                         data-repository-setup-panel
                       >
                         <div className="rounded-2xl border border-cyan-200/10 bg-slate-950/45 px-4 pb-1 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] sm:px-5">
+                          {runtimeCompatibility === "update_required" ? (
+                            <p
+                              className="mb-3 text-sm leading-6 text-amber-200"
+                              role="status"
+                            >
+                              {repositoryWorkflowUpdateCopy.status}
+                            </p>
+                          ) : runtimeCompatibility === "unknown" &&
+                            repository.setupStatus === "configured" ? (
+                            <p
+                              className="mb-3 text-sm leading-6 text-slate-400"
+                              role="status"
+                            >
+                              {repositoryWorkflowVerificationCopy.status}
+                            </p>
+                          ) : null}
                           <RepositorySetupProgressPanel
                             workspace={workspace}
                             workspaceKey={workspaceKey}
@@ -2912,6 +2982,7 @@ function RepositoryTable({
                             setupPullRequestUrl={setupPullRequestUrl}
                             setupIssue={setupIssue}
                             workflowCurrent={workflowCurrent}
+                            runtimeCompatibility={runtimeCompatibility}
                             mutationsEnabled={mutationsEnabled}
                             providerDialog={providerDialog}
                             providerSummary={summary}
@@ -2929,6 +3000,7 @@ function RepositoryTable({
                       <RepositorySetupReadyGate
                         repositoryId={repository.id}
                         currentStep={setupProgressStep}
+                        runtimeCompatibility={runtimeCompatibility}
                         gatewayReviewV2Ready={isGatewayReviewV2RepositoryReady(
                           gatewayReadiness.get(repository.id),
                         )}
@@ -2993,6 +3065,7 @@ function RepositorySetupProgressPanel({
   setupPullRequestUrl,
   setupIssue,
   workflowCurrent,
+  runtimeCompatibility,
   mutationsEnabled,
   providerDialog,
   providerSummary,
@@ -3007,6 +3080,7 @@ function RepositorySetupProgressPanel({
   readonly setupPullRequestUrl: string | null;
   readonly setupIssue: string | null;
   readonly workflowCurrent: boolean;
+  readonly runtimeCompatibility: ReviewRuntimeCompatibility;
   readonly mutationsEnabled: boolean;
   readonly providerDialog: ProviderDialogProps;
   readonly providerSummary: ProviderLineSummary;
@@ -3065,6 +3139,7 @@ function RepositorySetupProgressPanel({
       initialSetupPullRequestUrl={setupPullRequestUrl}
       initialSetupIssue={setupIssue}
       workflowCurrent={workflowCurrent}
+      runtimeCompatibility={runtimeCompatibility}
       mutationsEnabled={mutationsEnabled}
       initialStep={currentStep}
       gatewayReviewV2Readiness={gatewayReviewV2Readiness}
@@ -3173,6 +3248,9 @@ function workspaceProviderSummary(
     ? {
         source: "workspace",
         profile: providerProfileSummary(data.providerProfiles, selection),
+        profiles: (data.workspacePolicy?.providers ?? []).map((row) =>
+          providerProfileSummary(data.providerProfiles, row),
+        ),
       }
     : { source: "none", profile: null };
 }
@@ -3205,6 +3283,9 @@ function repositoryProviderSummary(
     return {
       source: "repository",
       profile: providerProfileSummary(data.providerProfiles, own),
+      profiles: (config?.policy?.providers ?? []).map((row) =>
+        providerProfileSummary(data.providerProfiles, row),
+      ),
     };
   const inherited = workspaceProviderSummary(data);
   return inherited.source === "workspace"
@@ -3670,11 +3751,14 @@ function DashboardActionToast({
   const prUrl = safeGitHubDashboardLink(readParam(params.pr)) ?? undefined;
 
   if (error) {
+    const access = repositoryAccessErrorPresentation(error);
     return (
       <ActionToast
         tone="danger"
-        title="Action needs attention"
+        title={access?.title ?? "Action needs attention"}
         body={dashboardErrorText(error)}
+        actionUrl={access?.actionUrl}
+        actionLabel={access?.actionLabel}
         clearUrlSearchParams={dashboardErrorToastSearchParams}
         setUrlSearchParams={{ section: selectedSection }}
       />
@@ -3728,7 +3812,10 @@ async function ProviderUsageSection({ workspaceId }: { workspaceId: string }) {
     <ProviderUsageView
       key={workspaceId}
       workspaceId={workspaceId}
-      initialReport={report}
+      actorId={report.scope.actorId}
+      effectiveAccess={report.scope.effectiveAccess}
+      seedId={randomUUID()}
+      initialReport={report.report}
       initialFilters={initialFilters}
     />
   );

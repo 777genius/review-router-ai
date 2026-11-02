@@ -72,7 +72,7 @@ class StaticVerifier implements GitLabCiIdTokenVerifierPort {
 }
 
 class StaticRepositories implements GitLabRepositoryPort {
-  async findSelectedRepositoryByGitLabProjectId(): Promise<GitLabRepositoryContext> {
+  async findRepositoryByGitLabProjectIdentity(): Promise<GitLabRepositoryContext> {
     return repository;
   }
 }

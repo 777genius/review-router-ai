@@ -1,6 +1,7 @@
 import {
   providerApiAuthModes,
   providerApiDescriptors,
+  reviewModelDispatchContract,
   type ProviderApiAuthMode,
 } from "@reviewrouter/shared";
 import Fastify from "fastify";
@@ -17,7 +18,10 @@ import {
   registerReviewRunCheckoutRoute,
 } from "./review-run-gateway-checkout";
 
-function fixture(mode: ProviderApiAuthMode = "openrouter-api") {
+function fixture(
+  mode: ProviderApiAuthMode = "openrouter-api",
+  agentKind: "codex" | "ocr" = "codex",
+) {
   const descriptor = providerApiDescriptors[mode];
   const configuration = {
     ...workspacePolicyFixture,
@@ -34,12 +38,12 @@ function fixture(mode: ProviderApiAuthMode = "openrouter-api") {
     ],
   };
   const agent = {
-    profileRef: "codex-default",
-    agentKind: "codex",
+    profileRef: `${agentKind}-default`,
+    agentKind,
     packageVersion: "1.0.0",
     binarySha256: "a".repeat(64),
     modelTransports: ["provider_api"],
-    contextGateway: true,
+    contextGateway: agentKind === "codex",
     cancellation: true,
   };
   const snapshot = {
@@ -60,6 +64,26 @@ function fixture(mode: ProviderApiAuthMode = "openrouter-api") {
     },
     configurationCanonicalJson: canonicalJson(configuration),
     deadline: "2126-01-01T00:00:00.000Z",
+    ...(agentKind === "ocr"
+      ? {
+          modelDispatchCapability: {
+            extensionId: reviewModelDispatchContract.extensionId,
+            version: 2,
+            transport: "runner_local_responses",
+            wireProtocol: "openai-responses",
+            outputTokenLimit: "upstream_request",
+            routeIdentityHash: "d".repeat(64),
+            providerIndex: 0,
+            model: descriptor.defaultModel,
+            deadline: "2126-01-01T00:00:00.000Z",
+            maxRequests: 8,
+            maxConcurrentRequests: 1,
+            maxRequestBytes: 65536,
+            maxResponseBytes: 32768,
+            maxOutputTokens: 4096,
+          },
+        }
+      : {}),
     gateway: null,
   };
   const authorization = {
@@ -145,6 +169,64 @@ it("denies incompatible frozen policy before minting any SCM token", async () =>
   ).rejects.toMatchObject({ statusCode: 403 });
   expect(issuer).not.toHaveBeenCalled();
 });
+
+it.each(providerApiAuthModes)(
+  "the existing %s checkout admits only its exact captured OCR V2 route",
+  async (mode) => {
+    const f = fixture(mode, "ocr");
+    const otherMode = providerApiAuthModes.find((entry) => entry !== mode)!;
+    await expect(
+      f.checkout.issue("authorization-token", new AbortController().signal, {
+        providerApiAuthMode: otherMode,
+        workflowSchemaVersion: 2,
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(f.issuer).not.toHaveBeenCalled();
+
+    const result = await f.checkout.issue(
+      "authorization-token",
+      new AbortController().signal,
+      { providerApiAuthMode: mode, workflowSchemaVersion: 2 },
+    );
+    expect(result.runtimeConfig.runtimeEnv.REVIEW_AUTH_MODE).toBe(mode);
+    expect(
+      JSON.parse(
+        result.runtimeConfig.runtimeEnv.REVIEW_ROUTER_AGENT_PROFILE_JSON!,
+      ).agentKind,
+    ).toBe("ocr");
+    expect(
+      JSON.parse(
+        result.runtimeConfig.runtimeEnv[
+          reviewModelDispatchContract.capabilityRuntimeEnvKey
+        ]!,
+      ),
+    ).toEqual(f.snapshot.modelDispatchCapability);
+    expect(f.issuer).toHaveBeenCalledOnce();
+  },
+);
+
+it.each(["missing", "native-subscription-wire"] as const)(
+  "does not admit OCR through the old API checkout with a %s dispatch capability",
+  async (mutation) => {
+    const f = fixture("openrouter-api", "ocr");
+    const snapshot = JSON.parse(f.authorization.runtimeSnapshotCanonicalJson!);
+    if (mutation === "missing") delete snapshot.modelDispatchCapability;
+    else {
+      snapshot.modelDispatchCapability.wireProtocol = "codex-responses";
+      snapshot.modelDispatchCapability.outputTokenLimit = "terminal_acceptance";
+    }
+    Object.assign(f.authorization, {
+      runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+    });
+    await expect(
+      f.checkout.issue("authorization-token", new AbortController().signal, {
+        providerApiAuthMode: "openrouter-api",
+        workflowSchemaVersion: 2,
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(f.issuer).not.toHaveBeenCalled();
+  },
+);
 
 it("accepts only the strict finite companion request, independently of Gateway routing", async () => {
   const { checkout, issuer } = fixture();

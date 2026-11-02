@@ -4,6 +4,10 @@ import { parseDocument } from "yaml";
 import { isLoopbackHostname } from "@reviewrouter/shared";
 import sodium from "libsodium-wrappers";
 import {
+  codexRuntimeMigrationBindingSchema,
+  type CodexRuntimeMigrationBinding,
+} from "./runtime-migration";
+import {
   assertCanonicalCodexRotatingProviderId,
   canonicalCodexRotatingProviderId,
   codexRotatingProviderIdSchema,
@@ -347,6 +351,7 @@ export const codexRotatingSetupManifestSchema = z
       .strict(),
     generationHashSalt: z.string().regex(base64UrlPattern),
     accountFingerprintSalt: z.string().regex(base64UrlPattern),
+    runtimeMigration: codexRuntimeMigrationBindingSchema.optional(),
   })
   .strict()
   .superRefine((manifest, context) => {
@@ -381,6 +386,7 @@ export function buildCodexRotatingSetupManifest(input: {
   readonly ttlSeconds?: number;
   readonly generationHashSalt?: string;
   readonly accountFingerprintSalt?: string;
+  readonly runtimeMigration?: CodexRuntimeMigrationBinding;
 }): CodexRotatingSetupManifest {
   const now = input.now ?? new Date();
   const ttlSeconds = input.ttlSeconds ?? 15 * 60;
@@ -404,6 +410,9 @@ export function buildCodexRotatingSetupManifest(input: {
     generationHashSalt: input.generationHashSalt ?? createCodexRotatingSalt(),
     accountFingerprintSalt:
       input.accountFingerprintSalt ?? createCodexRotatingSalt(),
+    ...(input.runtimeMigration
+      ? { runtimeMigration: input.runtimeMigration }
+      : {}),
   } satisfies CodexRotatingSetupManifest;
 
   return codexRotatingSetupManifestSchema.parse(manifest);

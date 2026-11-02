@@ -11,7 +11,9 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
+  renderAccountGatewayInteractionWorkflow,
   renderProviderApiWorkflow,
+  renderClaudeSubscriptionWorkflow,
   defaultWorkflowPath,
   defaultCodexRotatingWorkflowPath,
   defaultInteractionWorkflowPath,
@@ -27,13 +29,18 @@ import {
 import {
   renderedWorkflowRequirement,
   inspectRequiredWorkflowTransport,
+  isClaudeSubscriptionConfiguration,
+  workflowRequirement,
   type WorkflowTransport,
 } from "../../domain/workflow-transport";
 import type { WorkflowProvisioningRepositoryPort } from "../ports/workflow-provisioning-repository-port";
 import type { WorkflowSetupGatewayPort } from "../ports/workflow-setup-gateway-port";
 
 export type ProvisionReviewRouterWorkflowDependencies = {
+  readonly gatewayInteractionRuntimeSha?: string;
   readonly secretsRuntimeActionRef?: string;
+  /** Exact registered producer qualified for the saved native Claude route. */
+  readonly claudeSubscriptionActionRef?: string;
   readonly setupGateway: WorkflowSetupGatewayPort;
   readonly provisioning: WorkflowProvisioningRepositoryPort;
   readonly auditLog?: AuditLogRepositoryPort;
@@ -65,6 +72,14 @@ export async function provisionReviewRouterWorkflow(
     throw new Error(transport.reason);
   const gatewaySelected = transport === "gateway";
   const providerApiSelected = transport === "provider_api";
+  const claudeSubscriptionSelected = Boolean(
+    saved &&
+    isClaudeSubscriptionConfiguration(saved.config) &&
+    saved.config.providers[0]!.agenticContext !== false &&
+    dependencies.claudeSubscriptionActionRef,
+  );
+  if (dependencies.claudeSubscriptionActionRef && !claudeSubscriptionSelected)
+    throw new Error("claude_subscription_workflow_not_qualified");
   const selectedProviderApiMode =
     providerApiSelected && saved
       ? providerApiConfigurationMode(saved.config)
@@ -77,6 +92,27 @@ export async function provisionReviewRouterWorkflow(
     throw new Error("mcp_secrets_gateway_workflow_required");
   if (input.providerApiAuthMode && !providerApiSelected)
     throw new Error("openrouter_direct_requires_single_provider");
+  if (input.subscriptionAuthMode && !claudeSubscriptionSelected)
+    throw new Error("claude_subscription_workflow_not_qualified");
+  if (
+    claudeSubscriptionSelected &&
+    (input.providerApiAuthMode !== undefined ||
+      input.codexSessionMode !== undefined ||
+      input.runtimeConfigMode !== "oidc" ||
+      input.staticRuntimeEnv !== undefined ||
+      (input.workflowStyle !== undefined &&
+        input.workflowStyle !== "reusable") ||
+      input.conflictReviewFallbackEnabled === true ||
+      input.forkAgenticSandboxEnabled === true ||
+      (input.discussionMode !== undefined && input.discussionMode !== "off") ||
+      input.codexRotatingProviderInstanceId !== undefined ||
+      input.codexRotatingWorkflowSecretNamespace !== undefined ||
+      input.codexRotatingReviewActionV2Mode !== undefined ||
+      input.codexRotatingWorkflowSchemaVersion !== undefined ||
+      (input.workflowPath !== undefined &&
+        input.workflowPath !== reviewRouterWorkflowContract.callerPath))
+  )
+    throw new Error("claude_subscription_workflow_options_not_supported");
   if (
     providerApiSelected &&
     (input.providerApiAuthMode !== selectedProviderApiMode ||
@@ -105,7 +141,7 @@ export async function provisionReviewRouterWorkflow(
     throw new Error("account_gateway_saved_config_required");
   }
   if (
-    (gatewaySelected || providerApiSelected) &&
+    (gatewaySelected || providerApiSelected || claudeSubscriptionSelected) &&
     (!dependencies.trustedGithubRepositoryId ||
       input.githubRepositoryId !== dependencies.trustedGithubRepositoryId)
   ) {
@@ -121,7 +157,9 @@ export async function provisionReviewRouterWorkflow(
         input.workflowStyle !== "reusable") ||
       input.conflictReviewFallbackEnabled === true ||
       input.forkAgenticSandboxEnabled === true ||
-      (input.discussionMode !== undefined && input.discussionMode !== "off") ||
+      (input.discussionMode !== undefined &&
+        input.discussionMode !== "off" &&
+        !dependencies.gatewayInteractionRuntimeSha) ||
       input.codexRotatingProviderInstanceId !== undefined ||
       input.codexRotatingWorkflowSecretNamespace !== undefined ||
       input.codexRotatingReviewActionV2Mode !== undefined ||
@@ -148,9 +186,22 @@ export async function provisionReviewRouterWorkflow(
           actionRef: input.actionRef,
           apiUrl: input.apiUrl,
         })
-      : undefined;
+      : claudeSubscriptionSelected
+        ? renderClaudeSubscriptionWorkflow({
+            actionRef: dependencies.claudeSubscriptionActionRef!,
+            apiUrl: input.apiUrl,
+          })
+        : undefined;
   const plan = createProvisionWorkflowPlan(
-    managedFile ? { ...input, workflowPath: managedFile.path } : input,
+    managedFile
+      ? {
+          ...input,
+          workflowPath: managedFile.path,
+          ...(claudeSubscriptionSelected
+            ? { actionRef: dependencies.claudeSubscriptionActionRef! }
+            : {}),
+        }
+      : input,
   );
   const actionVersion = gatewaySelected
     ? reviewRouterWorkflowContract.channel
@@ -171,11 +222,13 @@ export async function provisionReviewRouterWorkflow(
       : plan.codexRotatingProviderInstanceId
         ? "rotating"
         : "ci_secrets";
-  const attemptRequirement = renderedWorkflowRequirement(
-    attemptTransport,
-    plan.staticRuntimeEnv,
-    selectedProviderApiMode,
-  );
+  const attemptRequirement = claudeSubscriptionSelected
+    ? workflowRequirement("ci_secrets", ["claude"])
+    : renderedWorkflowRequirement(
+        attemptTransport,
+        plan.staticRuntimeEnv,
+        selectedProviderApiMode,
+      );
   const attempt = await dependencies.provisioning.beginAttempt({
     workspaceId: plan.workspaceId,
     repositoryId: plan.repositoryId,
@@ -249,12 +302,21 @@ export async function provisionReviewRouterWorkflow(
             operation: "delete" as const,
             markerGroups: getLegacyReviewRouterWorkflowDeletionMarkerGroups(),
           },
-          {
-            path: defaultInteractionWorkflowPath,
-            operation: "delete" as const,
-            markerGroups:
-              getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups(),
-          },
+          ...(gatewaySelected && dependencies.gatewayInteractionRuntimeSha
+            ? [
+                renderAccountGatewayInteractionWorkflow({
+                  runtimeSha: dependencies.gatewayInteractionRuntimeSha,
+                  apiUrl: plan.apiUrl,
+                }),
+              ]
+            : [
+                {
+                  path: defaultInteractionWorkflowPath,
+                  operation: "delete" as const,
+                  markerGroups:
+                    getLegacyReviewRouterInteractionWorkflowDeletionMarkerGroups(),
+                },
+              ]),
           managedFile,
         ]
       : renderReviewRouterWorkflowFiles({
@@ -311,7 +373,9 @@ export async function provisionReviewRouterWorkflow(
           ? {
               setupMode: gatewaySelected
                 ? ("gateway" as const)
-                : ("provider_api" as const),
+                : claudeSubscriptionSelected
+                  ? ("claude_subscription" as const)
+                  : ("provider_api" as const),
             }
           : {}),
         workflowFiles,

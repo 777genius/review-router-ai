@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 import { fact } from "./fixture";
 import {
@@ -18,6 +18,15 @@ import {
   PrismaUsageReportReader,
 } from "../infrastructure/prisma-usage-store";
 import { PrismaUsageReconciliation } from "../infrastructure/prisma-usage-reconciliation";
+import { PrismaOperatorUsageReportReader } from "../infrastructure/prisma-operator-usage-report-reader";
+import {
+  selectProjection,
+  type UsageFact,
+  type UsageProjection,
+} from "../domain/usage";
+import { buildUsagePeriodReport } from "../application/report-usage";
+import type { UsageReportQuery } from "../application/ports";
+import { qualifyUsageSqlReport } from "./usage-sql-qualification";
 const adminUrl = process.env.USAGE_TEST_POSTGRES_ADMIN_URL;
 // Opt-in dedicated disposable DB; no application DATABASE_URL is read.
 describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
@@ -49,6 +58,70 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
     now,
     replayUntil: new Date("2026-11-01"),
   };
+  function reportProjection(
+    scope: string,
+    id: string,
+    identity: Partial<UsageFact["identity"]> = {},
+    overrides: Partial<UsageFact> = {},
+  ): UsageProjection {
+    return selectProjection([
+      fact({
+        authority: identity.route === "direct" ? "runtime" : "native",
+        ...overrides,
+        eventId: `${scope}-${id}`,
+        identity: {
+          ...fact().identity,
+          workspaceId: scope,
+          callId: `${scope}-${id}`,
+          runId: `${scope}-run`,
+          parentScope: scope,
+          ...identity,
+        },
+      }),
+    ]);
+  }
+  async function seedReport(
+    scope: string,
+    rows: readonly UsageProjection[],
+    deletionState: "active" | "delete_pending" = "active",
+  ) {
+    await prisma.workspace.create({
+      data: { id: scope, slug: scope, name: scope, deletionState },
+    });
+    await prisma.usageCall.createMany({
+      data: rows.map((projection) => ({
+        callId: projection.identity.callId,
+        workspaceId: projection.identity.workspaceId,
+        actorId: projection.identity.actorId,
+        provider: projection.identity.provider,
+        route: projection.identity.route,
+        bindingId: projection.identity.bindingId,
+        runId: projection.identity.runId,
+        purpose: projection.identity.purpose,
+        occurredAt: new Date(projection.identity.occurredAt),
+        identityHash: "report-fixture",
+        projection: projection as unknown as Prisma.InputJsonValue,
+      })),
+    });
+  }
+  const reportQuery = (scope: string): UsageReportQuery => ({
+    workspaceId: scope,
+    actorId: null,
+    access: "admin",
+    from: new Date("2026-10-01"),
+    to: new Date("2026-11-01"),
+  });
+  const measured = (total: number | null, amount: string | null = "0.1") => ({
+    tokens: {
+      inputTotal: total,
+      outputTotal: total === null ? null : 0,
+      cacheRead: total === null ? null : 0,
+      cacheWrite: total === null ? null : 0,
+      reasoning: total === null ? null : 0,
+      total,
+    },
+    cost: amount === null ? null : { ...fact().cost!, amount },
+  });
   beforeAll(async () => {
     initialRoles = roles();
     execFileSync(
@@ -805,6 +878,497 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
       await runtime.$disconnect();
     }
   });
+  it("matches full report accounting across partial families, original attempts, dimensions and actor scope", async () => {
+    const scope = "sql-report-parity";
+    const a = reportProjection(
+      scope,
+      "a",
+      { provider: "A", requestedModel: "X" },
+      measured(8, "0.01"),
+    );
+    const b = reportProjection(
+      scope,
+      "b",
+      { provider: "B", requestedModel: "Y", actorId: "actor-2" },
+      { ...measured(12, "0.02"), completeness: "partial" },
+    );
+    const c = reportProjection(
+      scope,
+      "c",
+      { provider: "A", requestedModel: "X" },
+      measured(5, "0.03"),
+    );
+    const d = reportProjection(
+      scope,
+      "d",
+      {
+        provider: "B",
+        requestedModel: "Y",
+        actorId: "actor-2",
+        route: "direct",
+      },
+      measured(7, "0.04"),
+    );
+    const summary = reportProjection(
+      scope,
+      "s",
+      { provider: "A", requestedModel: "X", granularity: "turn" },
+      {
+        ...measured(100),
+        childCallIds: [a.identity.callId, b.identity.callId],
+      },
+    );
+    const completeSummary = reportProjection(
+      scope,
+      "t",
+      { granularity: "turn" },
+      {
+        ...measured(999),
+        childCallIds: [c.identity.callId, d.identity.callId],
+      },
+    );
+    const unknown = reportProjection(scope, "u", {
+      provider: "U",
+      requestedModel: null,
+    });
+    unknown.lifecycle = fact({
+      authority: "lifecycle",
+      identity: unknown.identity,
+    });
+    unknown.usage = null;
+    const prepared = reportProjection(scope, "p", {
+      provider: "P",
+      runId: `${scope}-prepared`,
+    });
+    prepared.lifecycle = fact({
+      authority: "lifecycle",
+      identity: prepared.identity,
+      state: "prepared",
+      dispatchEffect: "not_dispatched",
+    });
+    prepared.usage = null;
+    const nondispatched = reportProjection(
+      scope,
+      "n",
+      { provider: "N", runId: `${scope}-not-dispatched` },
+      { ...measured(900), state: "failed", dispatchEffect: "not_dispatched" },
+    );
+    const unbounded = reportProjection(scope, "v", {
+      provider: "V",
+      granularity: "turn",
+      runId: `${scope}-unbounded`,
+    });
+    const zero = reportProjection(
+      scope,
+      "z",
+      { provider: "A", requestedModel: "zero", purpose: "diagnostic" },
+      {
+        ...measured(0, "0"),
+        cost: { ...fact().cost!, currency: "EUR", amount: "0" },
+      },
+    );
+    const rows = [
+      a,
+      b,
+      c,
+      d,
+      nondispatched,
+      prepared,
+      summary,
+      completeSummary,
+      unknown,
+      unbounded,
+      zero,
+    ];
+    await seedReport(scope, [
+      ...rows,
+      reportProjection(
+        scope,
+        "out-of-period",
+        { occurredAt: "2026-09-30T23:59:59.999Z" },
+        measured(600),
+      ),
+    ]);
+    await seedReport(`${scope}-foreign`, [
+      reportProjection(`${scope}-foreign`, "foreign", {}, measured(500)),
+    ]);
+    const reader = new PrismaUsageReportReader(prisma);
+    const query = { ...reportQuery(scope), limit: 2 };
+    const report = await reader.report(query);
+    expect(report).toEqual({
+      ...buildUsagePeriodReport(rows, query),
+      unattributedCount: 0,
+    });
+    // Independent arithmetic: the partial family contributes 100; the complete
+    // family contributes 5 + 7; unknown/prepared observations add no known tokens.
+    expect(report.totals).toMatchObject({
+      tokens: { total: 112 },
+      providerAttempts: 6,
+      logicalRuns: 4,
+      reportedSummaries: 1,
+      diagnosticCount: 1,
+      unknownCount: 2,
+      unknownTotalTokenCount: 2,
+      unknownTokenValues: 12,
+      unknownCostCount: 2,
+    });
+    expect(report.totals.costs).toEqual([
+      { currency: "USD", basis: "source_reported", amount: "0.17" },
+      { currency: "EUR", basis: "source_reported", amount: "0" },
+    ]);
+    expect(report.partialChildCount).toBe(2);
+    expect(report.unboundedSummaryCount).toBe(1);
+    // The first legacy bucket contains c, d, z and the selected summary. Missing
+    // usage falls back to its requested provider, so U/P form separate buckets.
+    expect(report.groups[0]!.totals).toMatchObject({
+      providerAttempts: 3,
+      logicalRuns: 1,
+    });
+    const filteredQuery = { ...query, provider: "B", model: "Y" };
+    const filtered = await reader.report(filteredQuery);
+    expect(filtered).toEqual({
+      ...buildUsagePeriodReport(rows, filteredQuery),
+      unattributedCount: 0,
+    });
+    expect(filtered.totals).toMatchObject({
+      tokens: { total: 7 },
+      providerAttempts: 2,
+    });
+    expect(filtered.partialChildCount).toBe(1);
+    expect(filtered.overview.facets).toEqual(report.overview.facets);
+    const memberQuery = {
+      ...query,
+      access: "member" as const,
+      actorId: "actor-2",
+    };
+    const member = await reader.report(memberQuery);
+    expect(member).toEqual(buildUsagePeriodReport([b, d], memberQuery));
+    expect(member.totals).toMatchObject({
+      tokens: { total: 19 },
+      providerAttempts: 2,
+      partialCount: 1,
+    });
+    expect(member.overview.facets.providers).toEqual(["B"]);
+    const familyOwnerQuery = { ...memberQuery, actorId: "actor-1" };
+    const familyOwner = await reader.report(familyOwnerQuery);
+    expect(familyOwner).toEqual(
+      buildUsagePeriodReport(
+        rows.filter((p) => p.identity.actorId === "actor-1"),
+        familyOwnerQuery,
+      ),
+    );
+    // A foreign actor's complete child cannot complete this member's family.
+    expect(familyOwner.totals.tokens.total).toBe(1099);
+    expect(familyOwner.totals.reportedSummaries).toBe(2);
+  });
+
+  it("rejects globally overlapping missing-child manifests even when their models are filtered out", async () => {
+    const scope = "sql-report-conflict";
+    await seedReport(scope, [
+      reportProjection(scope, "visible", { provider: "visible" }),
+      reportProjection(
+        scope,
+        "summary-a",
+        { granularity: "turn", provider: "hidden-a" },
+        { childCallIds: ["missing-child"] },
+      ),
+      reportProjection(
+        scope,
+        "summary-b",
+        { granularity: "turn", provider: "hidden-b" },
+        { childCallIds: ["missing-child"] },
+      ),
+    ]);
+    await expect(
+      new PrismaUsageReportReader(prisma).report({
+        ...reportQuery(scope),
+        provider: "visible",
+      }),
+    ).rejects.toThrow("usage_authority_conflict");
+  });
+
+  it("uses JS UTF16 ordering for independent call/run pages and absent cursors", async () => {
+    const scope = "sql-report-order";
+    const suffixes = ["z", "\u{10000}", "\uE000"];
+    await seedReport(
+      scope,
+      suffixes.map((id) =>
+        reportProjection(scope, id, { runId: `${scope}-${id}` }, measured(1)),
+      ),
+    );
+    const reader = new PrismaUsageReportReader(prisma);
+    const query = { ...reportQuery(scope), limit: 1 };
+    let after: string | undefined;
+    let runAfter: string | undefined;
+    for (const suffix of suffixes) {
+      const page = await reader.report({
+        ...query,
+        ...(after ? { after } : {}),
+        ...(runAfter ? { runAfter } : {}),
+      });
+      expect(page.rows.map((p) => p.identity.callId)).toEqual([
+        `${scope}-${suffix}`,
+      ]);
+      expect(page.overview.runs.map((p) => p.runId)).toEqual([
+        `${scope}-${suffix}`,
+      ]);
+      expect(page.totals.tokens.total).toBe(3);
+      after = page.nextCursor ?? undefined;
+      runAfter = page.overview.nextRunCursor ?? undefined;
+    }
+    expect(after).toBeUndefined();
+    expect(runAfter).toBeUndefined();
+    const absent = `${scope}-\u{10001}`;
+    const page = await reader.report({
+      ...query,
+      after: absent,
+      runAfter: absent,
+    });
+    expect(page.rows[0]!.identity.callId).toBe(`${scope}-\uE000`);
+    expect(page.overview.runs[0]!.runId).toBe(`${scope}-\uE000`);
+    const callOnly = await reader.report({ ...query, after: `${scope}-z` });
+    expect(callOnly.rows[0]!.identity.callId).toBe(`${scope}-\u{10000}`);
+    expect(callOnly.overview.runs[0]!.runId).toBe(`${scope}-z`);
+  });
+
+  it("retains raw UTC day spelling, endpoint precision, first-seen groups and exact money", async () => {
+    const scope = "sql-report-raw";
+    const rows = [
+      reportProjection(
+        scope,
+        "a",
+        { provider: "Z", occurredAt: "2026-10-20T24:00:00Z" },
+        {
+          ...measured(null, "9007199254740991.000000000001"),
+          actualProvider: "Z",
+        },
+      ),
+      reportProjection(
+        scope,
+        "b",
+        { provider: "A", occurredAt: "2026-10-21T00:00:00.0Z" },
+        {
+          ...measured(0),
+          actualProvider: "A",
+          cost: { ...fact().cost!, currency: "EUR", amount: "0" },
+        },
+      ),
+      reportProjection(
+        scope,
+        "c",
+        { provider: "C", occurredAt: "2026-10-21T00:00:00.000Z" },
+        { ...measured(5, "0.000000000001"), actualProvider: "C" },
+      ),
+      reportProjection(
+        scope,
+        "d",
+        { provider: "C", occurredAt: "2026-10-21T00:00:00Z" },
+        { ...measured(7, "0"), actualProvider: "C" },
+      ),
+    ];
+    await seedReport(scope, rows);
+    const query = reportQuery(scope);
+    const report = await new PrismaUsageReportReader(prisma).report(query);
+    expect(report).toEqual({
+      ...buildUsagePeriodReport(rows, query),
+      unattributedCount: 0,
+    });
+    expect(report.totals.tokens.total).toBe(12);
+    expect(report.totals.costs).toEqual([
+      {
+        currency: "USD",
+        basis: "source_reported",
+        amount: "9007199254740991.000000000002",
+      },
+      { currency: "EUR", basis: "source_reported", amount: "0" },
+    ]);
+    expect(
+      report.groups.map((g) => [g.provider, g.day, g.totals.tokens.total]),
+    ).toEqual([
+      ["Z", "2026-10-20", null],
+      ["A", "2026-10-21", 0],
+      ["C", "2026-10-21", 12],
+    ]);
+    expect(report.overview.runs[0]).toMatchObject({
+      firstOccurredAt: "2026-10-20T24:00:00Z",
+      lastOccurredAt: "2026-10-21T00:00:00Z",
+    });
+    const overflowScope = "sql-report-overflow";
+    await seedReport(overflowScope, [
+      reportProjection(
+        overflowScope,
+        "a",
+        {},
+        measured(Number.MAX_SAFE_INTEGER),
+      ),
+      reportProjection(overflowScope, "b", {}, measured(1)),
+    ]);
+    await expect(
+      new PrismaUsageReportReader(prisma).report(reportQuery(overflowScope)),
+    ).rejects.toThrow("usage_report_overflow");
+  });
+
+  it("keeps family selection, totals and hydrated rows on one real RepeatableRead snapshot", async () => {
+    const scope = "sql-report-snapshot";
+    const a = reportProjection(scope, "a", {}, measured(8));
+    const b = reportProjection(
+      scope,
+      "b",
+      {},
+      { ...measured(12), completeness: "partial" },
+    );
+    const summary = reportProjection(
+      scope,
+      "s",
+      { granularity: "turn" },
+      {
+        ...measured(100),
+        childCallIds: [a.identity.callId, b.identity.callId],
+      },
+    );
+    await seedReport(scope, [a, b, summary]);
+    const writer = createPrismaClient({ databaseUrl });
+    let corrected = false;
+    const observed = new Proxy(prisma, {
+      get(target, key) {
+        if (key === "$transaction")
+          return async <T>(
+            run: (tx: Prisma.TransactionClient) => Promise<T>,
+            options?: { isolationLevel?: Prisma.TransactionIsolationLevel },
+          ) => {
+            expect(options?.isolationLevel).toBe("RepeatableRead");
+            return target.$transaction(
+              async (tx) =>
+                run(
+                  new Proxy(tx, {
+                    get(transaction, member) {
+                      if (member === "$queryRaw")
+                        return async (
+                          sql: Prisma.Sql | TemplateStringsArray,
+                          ...values: unknown[]
+                        ) => {
+                          const result = await transaction.$queryRaw(
+                            sql,
+                            ...values,
+                          );
+                          const text = Array.isArray(sql)
+                            ? sql.join("")
+                            : (sql as Prisma.Sql).text;
+                          if (
+                            !corrected &&
+                            text.includes("usage-report:families")
+                          ) {
+                            corrected = true;
+                            await writer.usageCall.update({
+                              where: { callId: b.identity.callId },
+                              data: {
+                                projection: {
+                                  ...b,
+                                  usage: {
+                                    ...b.usage!,
+                                    completeness: "complete",
+                                  },
+                                } as unknown as Prisma.InputJsonValue,
+                              },
+                            });
+                          }
+                          return result;
+                        };
+                      const value = Reflect.get(transaction, member);
+                      return typeof value === "function"
+                        ? value.bind(transaction)
+                        : value;
+                    },
+                  }),
+                ),
+              options,
+            );
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    try {
+      const first = await new PrismaUsageReportReader(observed).report(
+        reportQuery(scope),
+      );
+      expect(corrected).toBe(true);
+      expect(first.totals.tokens.total).toBe(100);
+      expect(first.rows.map((p) => p.identity.callId)).toEqual([
+        summary.identity.callId,
+      ]);
+      const next = await new PrismaUsageReportReader(prisma).report(
+        reportQuery(scope),
+      );
+      expect(next.totals.tokens.total).toBe(20);
+      expect(next.rows.map((p) => p.identity.callId)).toEqual([
+        a.identity.callId,
+        b.identity.callId,
+      ]);
+    } finally {
+      await writer.$disconnect();
+    }
+  });
+
+  it("retains operator authority and active-workspace scope through the shared reader", async () => {
+    const scope = "sql-report-operator";
+    const actorId = `${scope}-admin`;
+    await prisma.user.create({ data: { id: actorId } });
+    await seedReport(scope, [
+      reportProjection(scope, "a", { bindingId: scope }, measured(11)),
+    ]);
+    await seedReport(`${scope}-other`, [
+      reportProjection(
+        `${scope}-other`,
+        "b",
+        { bindingId: scope },
+        measured(13),
+      ),
+    ]);
+    await seedReport(
+      `${scope}-deleted`,
+      [
+        reportProjection(
+          `${scope}-deleted`,
+          "c",
+          { bindingId: scope },
+          measured(999),
+        ),
+      ],
+      "delete_pending",
+    );
+    await prisma.workspaceMember.create({
+      data: { workspaceId: scope, userId: actorId, role: "admin" },
+    });
+    const reader = new PrismaOperatorUsageReportReader(prisma, scope);
+    const query = {
+      operatorWorkspaceId: scope,
+      actorId,
+      bindingId: scope,
+      from: new Date("2026-10-01"),
+      to: new Date("2026-11-01"),
+    };
+    expect((await reader.report(query)).totals.tokens.total).toBe(24);
+    await prisma.workspaceMember.deleteMany({
+      where: { workspaceId: scope, userId: actorId },
+    });
+    await expect(reader.report(query)).rejects.toThrow("usage_access_denied");
+    await prisma.workspaceMember.create({
+      data: { workspaceId: scope, userId: actorId, role: "owner" },
+    });
+    await prisma.workspace.update({
+      where: { id: scope },
+      data: { deletionState: "delete_pending" },
+    });
+    await expect(reader.report(query)).rejects.toThrow("usage_access_denied");
+  });
+
+  it.runIf(process.env.USAGE_SQL_QUALIFICATION === "1")(
+    "qualifies bounded report reads and actual scan plans",
+    () => qualifyUsageSqlReport(prisma),
+    180000,
+  );
+
   it("deletes workspace projections, disables checkpoint and denies new ingest", async () => {
     await prisma.workspace.update({
       where: { id: "workspace-1" },

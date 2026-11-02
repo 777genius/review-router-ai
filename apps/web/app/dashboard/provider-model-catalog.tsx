@@ -94,11 +94,15 @@ export function useProviderModelCatalogs(
     : fallback;
   return {
     options,
-    optionsFor(kind: ProviderKind, requiresTools: boolean) {
+    optionsFor(
+      kind: ProviderKind,
+      requiresTools: boolean,
+      policy: { readonly allowRoutingModels?: boolean } = {},
+    ) {
       const index = providers.findIndex((provider) => provider === kind);
       const snapshot = queries[index]?.data;
       return snapshot
-        ? catalogSnapshotOptions(snapshot, { requiresTools })
+        ? catalogSnapshotOptions(snapshot, { requiresTools, ...policy })
         : options.filter((option) => option.provider === kind);
     },
     status(kind: ProviderKind) {

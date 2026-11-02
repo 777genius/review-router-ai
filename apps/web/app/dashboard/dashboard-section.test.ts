@@ -18,6 +18,12 @@ describe("dashboard section routing", () => {
       "/dashboard?section=statistics&workspace=acme#dashboard-section-content",
     );
   });
+  it("links Context tools with the workspace id required by its admin API", () => {
+    expect(dashboardSectionHref("context-tools", "acme", "workspace-id")).toBe(
+      "/dashboard/context-tools?workspaceId=workspace-id&workspace=acme#dashboard-section-content",
+    );
+  });
+
   it("sends Setup to its own page while keeping the workspace query", () => {
     expect(dashboardSectionHref("setup", "acme")).toBe(
       "/dashboard/setup?workspace=acme#dashboard-section-content",

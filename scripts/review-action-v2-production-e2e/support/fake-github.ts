@@ -35,6 +35,12 @@ export class FakeGitHubTransport {
   revision: FakeGitHubRevision;
   sourceRunId: string;
   sourceRunAttempt = "1";
+  workflowPath = ".github/workflows/reviewrouter-review.yml";
+  readonly dispatches: Array<{
+    readonly requestId: string;
+    readonly sourceRunId: string;
+  }> = [];
+  pullRequestTitle = "Joined source review history";
   failNextCommentAfterWrite = false;
   private nextExternalId = 10_000;
 
@@ -107,10 +113,11 @@ export class FakeGitHubTransport {
       url.pathname ===
         `/app/installations/${this.options.installationId}/access_tokens`
     ) {
+      const tokenRequest = await requestJson(request);
       return json(201, {
         token: "fake-installation-token",
         expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-        permissions: {
+        permissions: tokenRequest.permissions ?? {
           checks: "write",
           contents: "read",
           issues: "write",
@@ -127,6 +134,21 @@ export class FakeGitHubTransport {
     }
 
     const repositoryPrefix = `/repos/${this.options.owner}/${this.options.repo}`;
+    if (
+      method === "POST" &&
+      decodeURIComponent(url.pathname) ===
+        `${repositoryPrefix}/actions/workflows/${this.workflowPath}/dispatches`
+    ) {
+      const body = await requestJson(request);
+      const inputs = record(body.inputs);
+      const requestId = requiredString(inputs.review_request_id);
+      this.sourceRunId = String(
+        BigInt(this.options.sourceRunId) + BigInt(this.dispatches.length),
+      );
+      this.sourceRunAttempt = "1";
+      this.dispatches.push({ requestId, sourceRunId: this.sourceRunId });
+      return json(200, { workflow_run_id: Number(this.sourceRunId) });
+    }
     const attemptPrefix = `${repositoryPrefix}/actions/runs/${this.sourceRunId}/attempts/`;
     const attempt = url.pathname.startsWith(attemptPrefix)
       ? url.pathname.slice(attemptPrefix.length)
@@ -137,6 +159,10 @@ export class FakeGitHubTransport {
         repository: { id: Number(this.options.repositoryId) },
         run_attempt: Number(attempt),
         pull_requests: [{ number: this.options.pullRequestNumber }],
+        event: "workflow_dispatch",
+        path: this.workflowPath,
+        display_title: `ReviewRouter review ${this.dispatches.at(-1)?.requestId ?? "fixture"}`,
+        status: "in_progress",
       });
     }
 
@@ -149,6 +175,10 @@ export class FakeGitHubTransport {
         repository: { id: Number(this.options.repositoryId) },
         run_attempt: Number(this.sourceRunAttempt),
         pull_requests: [{ number: this.options.pullRequestNumber }],
+        event: "workflow_dispatch",
+        path: this.workflowPath,
+        display_title: `ReviewRouter review ${this.dispatches.at(-1)?.requestId ?? "fixture"}`,
+        status: "in_progress",
       });
     }
     if (
@@ -159,11 +189,23 @@ export class FakeGitHubTransport {
       return json(200, {
         number: this.options.pullRequestNumber,
         state: "open",
+        title: this.pullRequestTitle,
+        draft: false,
+        user: { type: "User" },
+        additions: 2,
+        deletions: 1,
         base: {
           sha: this.revision.baseSha,
+          ref: "main",
+          repo: {
+            id: Number(this.options.repositoryId),
+            full_name: `${this.options.owner}/${this.options.repo}`,
+          },
+        },
+        head: {
+          sha: this.revision.headSha,
           repo: { full_name: `${this.options.owner}/${this.options.repo}` },
         },
-        head: { sha: this.revision.headSha },
       });
     }
     if (

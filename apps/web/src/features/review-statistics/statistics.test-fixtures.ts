@@ -1,9 +1,9 @@
 import {
   StatisticsDayCoverage,
   StatisticsSeverity,
-  type StatisticsIssue,
   type StatisticsReport,
 } from "@reviewrouter/features-review-statistics";
+import type { StatisticsIssueView } from "./application/statistics-model";
 export const statisticsFixture = (): StatisticsReport => ({
   period: {
     from: "2026-09-24T00:00:00.000Z",
@@ -62,13 +62,15 @@ export const statisticsFixture = (): StatisticsReport => ({
     },
   ],
 });
-export const issueFixture = (id = "issue-a"): StatisticsIssue => ({
+export const issueFixture = (id = "issue-a"): StatisticsIssueView => ({
   id,
   title: `Issue ${id}`,
   severity: StatisticsSeverity.Major,
   repositoryId: "repo-a",
+  scmRepositoryIdentityId: "scm-a",
   repositoryFullName: "acme/project",
   pullRequestNumber: 17,
   pullRequestUrl: "https://github.com/acme/project/pull/17",
   caughtAt: "2026-10-23T10:00:00.000Z",
+  history: { status: "not_recorded" },
 });

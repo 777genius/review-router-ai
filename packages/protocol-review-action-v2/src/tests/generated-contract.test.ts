@@ -104,6 +104,30 @@ describe("generated Review Action v2 negotiation contract", () => {
     expect(createGeneratedCapturedReviewSkills(emptySkills)).toEqual(
       createCapturedReviewSkills(emptySkills),
     );
+
+    const reviewerPlanSource = await readFile(
+      new URL("../../../shared/src/review-reviewer-plan.ts", import.meta.url),
+      "utf8",
+    );
+    const generatedReviewerPlan = await readFile(
+      new URL("../generated/review-reviewer-plan.ts", import.meta.url),
+      "utf8",
+    );
+    expect(generatedReviewerPlan).toBe(
+      "// Generated from shared/src/review-reviewer-plan.ts. Do not edit.\n" +
+        reviewerPlanSource.replace(
+          '"./review-agent-profile"',
+          '"./review-agent-profile.js"',
+        ),
+    );
+    expect(sha256(generatedReviewerPlan)).toBe(
+      "bbef9f5bd70778cf7b0858a84e1d866b5d2e8f97c2738c0210ff45705c7cf4c5",
+    );
+    expect(manifest.reviewerPlanProfile).toEqual({
+      planVersion: 1,
+      descriptorDigest:
+        "sha256:f6a45d7039129a813690f5f769052d3ba078418eb123b0c0c710ef790d2919d6",
+    });
   });
 
   it("keeps auxiliary normalization separate from the published review V1 language", async () => {

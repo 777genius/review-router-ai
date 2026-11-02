@@ -1,38 +1,16 @@
 import type { ReviewPublicationScope } from "../../domain/review-publication-attempt";
 import { canonicalReviewPublicationJson } from "../../domain/canonical-review-publication-json";
+import type { ResolutionHistoryCut } from "../../domain/review-thread-resolution-history";
 
-/** Qualification comes from the actual managed deployment executor, never an HTTP socket or idle counter. */
-export type ManagedResolutionWriterDrainQualification = Readonly<{
-  writerDigest: string;
-  qualificationSource: "managed_executor_handler_settlement.v1";
-  executors: readonly Readonly<{
-    executorId: string;
-    binaryDigest: string;
-    acceptsNewRequests: false;
-    handlerSettlement: "terminal_or_exact_durable_pending";
-  }>[];
-}>;
-/** This proves retirement and ingress removal, not terminal outcomes of old handler promises. */
-export type RetiredLegacyWritersQuarantineQualification = Readonly<{
-  qualificationSource: "retired_legacy_writers_quarantine.v1";
-  writerDigest: string;
-  scopeKind: "all_managed_legacy_resolution_writers";
-  inventoryComplete: true;
-  retiredAt: string;
-  executorSetHash: string;
-  proofHash: string;
-  executors: readonly Readonly<{
-    executorId: string;
-    binaryDigest: string;
-    retiredAt: string;
-    acceptsNewRequests: false;
-    restartable: false;
-  }>[];
-  ingress: Readonly<{ observedAt: string; oldExecutorIds: readonly string[] }>;
-}>;
-export type ResolutionWriterDrainQualification =
-  | ManagedResolutionWriterDrainQualification
-  | RetiredLegacyWritersQuarantineQualification;
+import type {
+  RetiredLegacyWritersQuarantineQualification,
+  ResolutionWriterDrainQualification,
+} from "../../domain/resolution-writer-witness";
+export type {
+  ManagedResolutionWriterDrainQualification,
+  RetiredLegacyWritersQuarantineQualification,
+  ResolutionWriterDrainQualification,
+} from "../../domain/resolution-writer-witness";
 
 export function retiredLegacyWriterExecutorSetHash(
   executors: RetiredLegacyWritersQuarantineQualification["executors"],
@@ -135,6 +113,75 @@ export interface ResolutionHistoryActivationPort {
     scope: ReviewPublicationScope,
     proof: ResolutionWriterDrainQualification,
   ): Promise<void>;
+}
+
+export interface ResolutionHistoryActivationStatePort extends ResolutionHistoryActivationPort {
+  readActivation(
+    scope: ReviewPublicationScope,
+  ): Promise<ResolutionHistoryCut | null>;
+}
+
+export function resolutionWriterProofMatchesCut(
+  proof: ResolutionWriterDrainQualification,
+  cut: ResolutionHistoryCut,
+): boolean {
+  return (
+    proof.writerDigest === cut.writerDigest &&
+    (proof.qualificationSource === "retired_legacy_writers_quarantine.v1"
+      ? cut.bootstrap?.proofHash === proof.proofHash
+      : cut.bootstrap === undefined)
+  );
+}
+
+/** Ordinary reviews may activate history; missing deployment evidence never starts a drain. */
+export async function ensureResolutionHistoryActivated(
+  scope: ReviewPublicationScope,
+  dependencies: Readonly<{
+    activation: ResolutionHistoryActivationStatePort;
+    writers: ResolutionWriterDrainQualificationPort;
+  }>,
+): Promise<
+  | Readonly<{ status: "guarded" }>
+  | Readonly<{ status: "unavailable"; reasonCode: string }>
+> {
+  try {
+    const existing = await dependencies.activation.readActivation(scope);
+    const preflight = await dependencies.writers.qualify(scope);
+    if (preflight.status !== "qualified")
+      return { status: "unavailable", reasonCode: preflight.reasonCode };
+    if (existing)
+      return resolutionWriterProofMatchesCut(preflight.proof, existing)
+        ? { status: "guarded" }
+        : {
+            status: "unavailable",
+            reasonCode: "resolution_activation_writer_conflict",
+          };
+    const result = await activateReviewResolutionHistory(scope, {
+      activation: dependencies.activation,
+      writers: {
+        async qualify(currentScope) {
+          const current = await dependencies.writers.qualify(currentScope);
+          if (current.status !== "qualified") return current;
+          return canonicalReviewPublicationJson(current.proof) ===
+            canonicalReviewPublicationJson(preflight.proof)
+            ? current
+            : {
+                status: "unqualified",
+                reasonCode: "resolution_writer_qualification_changed",
+              };
+        },
+      },
+    });
+    return result.status === "guarded"
+      ? result
+      : { status: "unavailable", reasonCode: result.reasonCode };
+  } catch {
+    // Retain the cut, pending effects, and any drain already established under the lock.
+    return {
+      status: "unavailable",
+      reasonCode: "resolution_history_activation_unavailable",
+    };
+  }
 }
 
 /** Without verified settlement or retired-writer quarantine, the connection stays draining. */

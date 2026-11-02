@@ -170,6 +170,17 @@ class InvestigationAggregateHydrationError extends Error {
 
 export type PrismaInvestigationStoreOptions = Readonly<{
   operationalRetentionMs: number;
+  inputAdmission?: {
+    lock(
+      transaction: Prisma.TransactionClient,
+      candidate: Omit<CreateReviewInvestigationLeaseInput, "fencingToken">,
+    ): Promise<void>;
+    admit(
+      transaction: Prisma.TransactionClient,
+      candidate: Omit<CreateReviewInvestigationLeaseInput, "fencingToken">,
+      now: Date,
+    ): Promise<boolean>;
+  };
 }>;
 
 const defaultOptions: PrismaInvestigationStoreOptions = Object.freeze({
@@ -317,6 +328,7 @@ export class PrismaInvestigationStore
   ): Promise<InvestigationLeaseAcquireResult> {
     return this.prisma.$transaction(
       async (transaction) => {
+        await this.options.inputAdmission?.lock(transaction, candidate);
         await transaction.$queryRaw(Prisma.sql`
           SELECT "investigationId"
           FROM "ReviewInvestigation"
@@ -374,6 +386,25 @@ export class PrismaInvestigationStore
             null,
           );
         }
+        const memoryHash = (
+          JSON.parse(candidate.investigationManifestCanonicalJson) as {
+            memoryBundleHash?: unknown;
+          }
+        ).memoryBundleHash;
+        if (
+          memoryHash !== null &&
+          memoryHash !== undefined &&
+          (!this.options.inputAdmission ||
+            !(await this.options.inputAdmission.admit(
+              transaction,
+              candidate,
+              await investigationDatabaseNow(transaction),
+            )))
+        )
+          return investigationLeaseAcquireResult(
+            InvestigationLeaseAcquireStatus.BindingStale,
+            null,
+          );
         const activeRecord =
           await transaction.reviewInvestigationLease.findFirst({
             where: {

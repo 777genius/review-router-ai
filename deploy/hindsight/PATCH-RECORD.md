@@ -6,13 +6,43 @@ Profile: `approved-source-v1`. Native source: Hindsight **v1.1.0**,
 Dependency-lock SHA256:
 `bbd9c8232906ea947c8fdc4096f75d2e778b921af5bdeac09f553495f81f9666`.
 
-This is a bounded patch of diagnostic sinks. It changes no extraction,
+The original approved-source hardening is a bounded patch of diagnostic sinks.
+That part changes no extraction,
 embedding, graph, ranking, consolidation, source update, cancellation, retry
 classification or task scheduling algorithm. Original exceptions remain intact
 for native classification; only diagnostic rendering and stored error strings
 change. `hardening.patch` is the exact upstream diff, generated from pinned
 preimage hashes by `prepare-hardening.ts`. Unexpected source or lock changes
 fail preparation rather than silently applying a fuzzy patch.
+
+## Scoped strict-preview successor
+
+The derivative now also includes `prepare-strict-preview.ts` and
+`strict-preview.py`, applied to the same exact reviewed native revision. This is
+a separate, opt-in **dry-run-only** execution-control patch. Normal approved
+statement retain, chunks storage, consolidation, ranking and existing generation
+behavior remain unchanged.
+
+Requests with `strict_preview: true` require one complete extraction chunk and
+one provider. They disable native content-validation and transport retries,
+propagate output overflow without automatic splitting, reject dropped/partial
+facts, and return the `X-Hindsight-Strict-Preview: v1` marker only after complete
+success. An empty fact list is successful only after a completed native abstention.
+The patch does not extract, verify or deduplicate facts in Router.
+
+The source fixture executes the actual patched extraction functions for overflow
+above and below the old split floor, malformed/partial/dropped output and genuine
+abstention. The real Docker/API qualification additionally observes the provider
+call count with nonzero configured retain retry defaults. Selectable source and
+read-only context carry the existing private sentinel, so the normal native
+logging/database sink checks cover this transient source class as well. Its raw
+bodies must never become document or async-operation payloads.
+
+These controls are prerequisites, not activation evidence. The transient source
+profile remains unavailable until the exact final image, runtime privacy canary,
+model/mission/source-fidelity quality and product admission profile have their
+own qualification receipts. The portable adapter requires that deployment binding;
+a source fixture or a configuration flag alone never qualifies it.
 
 ## Sinks covered
 

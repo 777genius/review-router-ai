@@ -39,9 +39,12 @@ export interface UsageOverview {
   hasDirectObservations: boolean;
   observationsWithoutRunId: number;
 }
-const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-const identityKey = (p: UsageRequestedIdentity) =>
+export const compareUsageStrings = (a: string, b: string) =>
+  a < b ? -1 : a > b ? 1 : 0;
+export const usageRequestedIdentityKey = (p: UsageRequestedIdentity) =>
   JSON.stringify([p.provider, p.requestedModel]);
+const compare = compareUsageStrings;
+const identityKey = usageRequestedIdentityKey;
 const requestedIdentity = (p: UsageProjection): UsageRequestedIdentity => ({
   provider: p.identity.provider,
   requestedModel: p.identity.requestedModel,
@@ -118,19 +121,9 @@ function ranked<T extends UsageModelAggregate>(
     .slice(0, 3)
     .map(({ m }) => m);
 }
-/** Structural scope has already been enforced by the reader; facets never expand it. */
-export function buildUsageOverview(
-  structuralRows: readonly UsageProjection[],
-  selected: readonly UsageProjection[],
-  attempts: readonly UsageProjection[],
-  query: UsageReportQuery,
-): UsageOverview {
-  const modelKey = (p: UsageProjection) => identityKey(requestedIdentity(p));
-  const aggregateModels = buckets(selected, attempts, modelKey).map((g) => ({
-    ...requestedIdentity(g.rows[0]!),
-    totals: g.totals,
-    ...annotations(g.rows),
-  }));
+export function buildUsageTopModels(
+  aggregateModels: readonly UsageModelAggregate[],
+): UsageOverview["topModels"] {
   const costBuckets = [
     ...new Map(
       aggregateModels.flatMap((m) =>
@@ -146,6 +139,33 @@ export function buildUsageOverview(
   ]
     .sort(([a], [b]) => compare(a, b))
     .map(([, bucket]) => bucket);
+  return {
+    tokens: ranked(aggregateModels, (m) => m.totals.tokens.total),
+    requests: ranked(aggregateModels, (m) => m.totals.providerAttempts),
+    costs: costBuckets.map((bucket) => ({
+      ...bucket,
+      models: ranked(aggregateModels, (m) => {
+        const cost = m.totals.costs.find(
+          (c) => c.currency === bucket.currency && c.basis === bucket.basis,
+        );
+        return cost ? costUnits(cost.amount) : null;
+      }),
+    })),
+  };
+}
+/** Structural scope has already been enforced by the reader; facets never expand it. */
+export function buildUsageOverview(
+  structuralRows: readonly UsageProjection[],
+  selected: readonly UsageProjection[],
+  attempts: readonly UsageProjection[],
+  query: UsageReportQuery,
+): UsageOverview {
+  const modelKey = (p: UsageProjection) => identityKey(requestedIdentity(p));
+  const aggregateModels = buckets(selected, attempts, modelKey).map((g) => ({
+    ...requestedIdentity(g.rows[0]!),
+    totals: g.totals,
+    ...annotations(g.rows),
+  }));
   const runs = buckets(selected, attempts, (p) => p.identity.runId).map((g) => {
     const times = g.rows
       .map((p) => p.identity.occurredAt)
@@ -182,19 +202,7 @@ export function buildUsageOverview(
       totals: g.totals,
       ...annotations(g.rows),
     })),
-    topModels: {
-      tokens: ranked(aggregateModels, (m) => m.totals.tokens.total),
-      requests: ranked(aggregateModels, (m) => m.totals.providerAttempts),
-      costs: costBuckets.map((bucket) => ({
-        ...bucket,
-        models: ranked(aggregateModels, (m) => {
-          const cost = m.totals.costs.find(
-            (c) => c.currency === bucket.currency && c.basis === bucket.basis,
-          );
-          return cost ? costUnits(cost.amount) : null;
-        }),
-      })),
-    },
+    topModels: buildUsageTopModels(aggregateModels),
     runs: page,
     nextRunCursor: after.length > page.length ? page.at(-1)!.runId : null,
     facets: {

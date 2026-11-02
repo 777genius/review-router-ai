@@ -5,6 +5,8 @@ export type ReviewModelOption = {
   readonly label: string;
   readonly provider: ProviderKind;
   readonly description?: string;
+  /** Catalog facts only, without transport/capability refusal text. */
+  readonly metadataDescription?: string;
   readonly badge?: "FREE RECOMMENDED" | "FREE" | "PAID" | "Unsupported";
   readonly disabled?: boolean;
 };

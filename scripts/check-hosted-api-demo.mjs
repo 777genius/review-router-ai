@@ -68,17 +68,16 @@ assert(
   healthResponse.headers.get("access-control-allow-origin") === "*",
   "health missing public CORS header",
 );
+const { body: ready } = await fetchJson("/ready");
+assert(ready.status === "ok", "ready endpoint is not ready");
 assert(
-  Array.isArray(health.dependencies) &&
-    health.dependencies.some(
+  Array.isArray(ready.dependencies) &&
+    ready.dependencies.some(
       (dependency) =>
         dependency.name === "database" && dependency.status === "ok",
     ),
-  "database dependency is not ok",
+  "database readiness dependency is not ok",
 );
-
-const { body: ready } = await fetchJson("/ready");
-assert(ready.status === "ready", "ready endpoint is not ready");
 
 const { body: demo, response: demoResponse } = await fetchJson("/demo");
 assert(demo.product === "ReviewRouter", "demo product mismatch");

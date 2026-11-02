@@ -29,6 +29,7 @@ on:
         type: string
         default: ""
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
@@ -37,9 +38,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep this namespace stable; legacy always() runs retain their old group.
-  group: ci-v2-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve the current namespace and isolate each manual qualification run.
+  group: ci-v2-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 env:
   NODE_VERSION: "26.11.1"
@@ -62,7 +63,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 801e49c724babc36f707d7dfd051f6bb5be8598a
+  REVIEW_ROUTER_PAIRED_ACTION_REF: 034d367f5a3a0358fe5a850f496362d504f3028a
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -74,8 +75,8 @@ env:
 jobs:
   release-authority-pg17-contract:
     name: Dedicated Release Authority PG17 contract
-    if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract) }}
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract) }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE: postgres:17.5-bookworm@sha256:fbcea1bd13b6a882cd6caa6b58db3ae5c102efe50ec625b3e2a5cbc50db5bfe4
@@ -131,6 +132,31 @@ jobs:
         run: docker pull "$REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE"
       - name: Run dedicated authority contract
         run: bash packages/platform/release-authority-db/test-contract.sh
+      - name: Verify worker repository sync least-privilege contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id=""
+          cleanup() {
+            local status=$?
+            if [ -n "$container_id" ]; then docker rm -f "$container_id" >/dev/null 2>&1 || true; fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          container_id=$(docker run --rm -d --network none \
+            -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=postgres \
+            "$REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE")
+          ready=false
+          for ((attempt=0; attempt<60; attempt++)); do
+            if docker exec "$container_id" pg_isready -h 127.0.0.1 -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" = true ] || { docker logs "$container_id"; exit 1; }
+          bash deploy/hetzner/db-grants/worker-repository-sync.test.sh \
+            docker exec -i "$container_id" psql -h 127.0.0.1 -U postgres
       - name: Run digest-pinned activation adversarial proof
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -152,7 +178,7 @@ jobs:
   private-pg16-to-pg17-rehearsal:
     name: Full private PG16 to PG17 rehearsal
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.private_pg16_to_pg17_rehearsal) || (github.event_name == 'workflow_dispatch' && inputs.activation_catalog_policy_capture) }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -232,7 +258,8 @@ jobs:
 
   codex-rotating-installer-portability:
     name: Rotating installer lock (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && matrix.os || startsWith(matrix.os, 'ubuntu-') && (vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || matrix.os) || matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -274,7 +301,8 @@ jobs:
 
   self-hosted-e2e:
     name: Self-hosted E2E
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
 
     steps:
@@ -296,7 +324,8 @@ jobs:
 
   hosted-runtime-image:
     name: Hosted runtime OCI build
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 25
 
     steps:
@@ -319,7 +348,8 @@ jobs:
 
   managed-migration-pg17:
     name: Managed migration PG17 (${{ matrix.lane }})
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -394,7 +424,8 @@ jobs:
         static-checks,
         managed-migration-pg17,
       ]
-    if: ${{ always() }}
+    if: ${{ always() && !cancelled() }}
+    # This checkout-free gate only aggregates results; reserve heavy runners for tests.
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
@@ -406,17 +437,30 @@ jobs:
           QUALITY_SOURCE_CERTIFICATION_RESULT: ${{ needs.quality-source-certification.result }}
           STATIC_CHECKS_RESULT: ${{ needs.static-checks.result }}
           MANAGED_PG17_RESULT: ${{ needs.managed-migration-pg17.result }}
+          # Draft pull requests intentionally skip the heavy lanes; marking
+          # the pull request ready runs them (ready_for_review). Push, manual
+          # and ready pull request runs still require every lane to succeed.
+          DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
         run: |
           set -euo pipefail
-          test "$QUALITY_RESULT" = success
-          test "$QUALITY_DB_CONTRACTS_RESULT" = success
-          test "$QUALITY_SOURCE_CERTIFICATION_RESULT" = success
-          test "$STATIC_CHECKS_RESULT" = success
-          test "$MANAGED_PG17_RESULT" = success
+          allowed=success
+          if [ "${DRAFT_PR:-false}" = "true" ]; then allowed="success skipped"; fi
+          for result in \
+            "$QUALITY_RESULT" \
+            "$QUALITY_DB_CONTRACTS_RESULT" \
+            "$QUALITY_SOURCE_CERTIFICATION_RESULT" \
+            "$STATIC_CHECKS_RESULT" \
+            "$MANAGED_PG17_RESULT"; do
+            case " $allowed " in
+              *" $result "*) ;;
+              *) echo "lane result '$result' is not allowed" >&2; exit 1 ;;
+            esac
+          done
 
   static-checks:
     name: Static Checks
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -450,14 +494,27 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: Hetzner release verification contract
+        run: bash deploy/hetzner/release.test.sh
+
       - name: Typecheck
         env:
           TURBO_CONCURRENCY: "1"
         run: pnpm typecheck
 
+      - name: Memory installation tooling types and contracts
+        run: |
+          node scripts/check-conversation-source-stamp.ts --check
+          node scripts/check-conversation-release-verifier.ts --check
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p deploy/hindsight/tsconfig.bootstrap.json
+          node --test deploy/hindsight/bootstrap.test.ts
+          node --test deploy/self-hosted/setup-memory.test.ts
+          node --test deploy/hetzner/fleet-overlay/fleet-overlay.node-test.mjs
+
   quality:
     name: Quality Checks
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -566,6 +623,15 @@ jobs:
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
 
+      # Keep one idle snapshot before application suites open concurrent sessions.
+      # Replaying 000079 after later migrations create global roles is unsafe.
+      - name: Prepare isolated History template
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -X -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE review_router_history_template TEMPLATE review_router_ci_test'
+          psql -X -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'ALTER DATABASE review_router_history_template ALLOW_CONNECTIONS false'
+
       - name: Apply dev database migrations
         run: pnpm db:migrate:deploy
 
@@ -602,8 +668,15 @@ jobs:
 
       - name: Unit tests
         env:
+          AUTH_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          GITLAB_INVENTORY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          GITLAB_INVENTORY_REQUIRE_POSTGRES: "1"
+          PUBLICATION_WORK_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           USAGE_REDRIVE_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           STATISTICS_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          HISTORY_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
+          HISTORY_TEST_POSTGRES_TEMPLATE_DATABASE: review_router_history_template
+          HISTORY_REQUIRE_POSTGRES: "1"
         run: pnpm test
 
       - name: Architecture boundaries
@@ -655,7 +728,8 @@ jobs:
 
   quality-db-contracts:
     name: DB Contract and Migration Checks
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -785,6 +859,7 @@ jobs:
             packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
             apps/api/src/sdk-growth-verifier-custody.pg.test.ts \
             apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts \
+            packages/features/review-config/src/tests/workspace-memory-settings-real.test.ts \
             scripts/sdk-growth-application-schema-checkpoint.test.ts \
             --reporter=json --outputFile="$results"; then
             RESULTS_PATH="$results" node --input-type=module <<'NODE'
@@ -826,6 +901,7 @@ jobs:
             "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
             "apps/api/src/sdk-growth-verifier-custody.pg.test.ts",
             "apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts",
+            "packages/features/review-config/src/tests/workspace-memory-settings-real.test.ts",
             "scripts/sdk-growth-application-schema-checkpoint.test.ts",
           ];
           const suites = report.testResults.map((suite) =>
@@ -847,7 +923,7 @@ jobs:
           }
           console.log(JSON.stringify({
             head: process.env.EXPECTED_HEAD,
-            command: "pnpm exec vitest run <seven required PostgreSQL suites> --reporter=json",
+            command: "pnpm exec vitest run <required PostgreSQL suites> --reporter=json",
             executed: report.numTotalTests,
             passed: report.numPassedTests,
             skipped: report.numPendingTests + report.numTodoTests,
@@ -931,6 +1007,9 @@ jobs:
       - name: Backup restore smoke test
         run: pnpm db:restore:smoke
 
+      - name: Build portable memory runtime
+        run: pnpm --filter context-memory build
+
       - name: Webhook lifecycle DB E2E
         run: node scripts/run-with-env.mjs pnpm spike:webhook-lifecycle:e2e
 
@@ -954,7 +1033,8 @@ jobs:
 
   quality-source-certification:
     name: Source and Certification Checks
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/review_router_ci_test?schema=public
@@ -988,7 +1068,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          persist-credentials: false
+          # The release bridge verifies the historical canonical S2 handoff.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -1012,6 +1094,11 @@ jobs:
         env:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
+
+      - name: Build shared release-contract parsing helpers
+        run: |
+          pnpm --filter @reviewrouter/shared build
+          node scripts/rewrite-dist-esm-imports.mjs
 
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check
@@ -1158,6 +1245,21 @@ jobs:
       - name: Install paired Review Action dependencies
         run: npm ci --ignore-scripts --prefix .paired/review-router-action
 
+      - name: Set up pinned Go for the paired OCR executable
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.26.10"
+          cache: false
+
+      - name: Build and verify the exact paired OCR executable
+        working-directory: .paired/review-router-action
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          test "$(go env GOOS)/$(go env GOARCH)" = linux/amd64
+          tools/ocr/build.sh --out "$RUNNER_TEMP/reviewrouter-paired-ocr"
+          diff -u tools/ocr/qualifications/unified-model-routes-v3.manifest "$RUNNER_TEMP/reviewrouter-paired-ocr/MANIFEST"
+
       - name: Paired Review Action lifecycle producer and fixture tests
         run: |
           npm --prefix .paired/review-router-action test -- \
@@ -1181,6 +1283,7 @@ jobs:
       - name: Paired Review Action to control plane investigation E2E
         env:
           REVIEW_ROUTER_ACTION_SOURCE_DIR: ${{ github.workspace }}/.paired/review-router-action
+          REVIEW_ROUTER_PAIRED_OCR_BINARY: ${{ runner.temp }}/reviewrouter-paired-ocr/opencodereview
         run: pnpm review-investigation:paired-e2e
 
       - name: Captured Skills control plane to paired runtime HTTP proof

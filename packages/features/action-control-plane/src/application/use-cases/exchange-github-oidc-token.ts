@@ -159,6 +159,12 @@ export async function exchangeGitHubOidcToken(
     githubRunAttempt: claims.run_attempt,
     eventName: claims.event_name,
     workflowPath,
+    ...(claims.job_workflow_ref
+      ? { jobWorkflowRef: claims.job_workflow_ref }
+      : {}),
+    ...(claims.job_workflow_sha
+      ? { jobWorkflowSha: claims.job_workflow_sha.toLowerCase() }
+      : {}),
     ...(conflictReview
       ? {
           reviewKind: conflictReview.reviewKind,
