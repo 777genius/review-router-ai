@@ -146,6 +146,12 @@ try {
     }
 
     const html = await response.text();
+    if (path === "/") {
+      const discoveryLinks = [...html.matchAll(/<link\\b[^>]*>/gi)].map(([tag]) => tag);
+      if (!discoveryLinks.some((tag) => /\\brel="describedby"/.test(tag) && /\\bhref="\\/llms\\.txt"/.test(tag))) {
+        await fail("home missing llms.txt v2 describedby link");
+      }
+    }
     if (
       path === "/" &&
       (!html.includes("free-ci-control-plane") ||
