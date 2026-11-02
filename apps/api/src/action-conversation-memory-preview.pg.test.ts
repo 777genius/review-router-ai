@@ -233,6 +233,7 @@ describe.skipIf(!databaseUrl)(
       ambiguous = false,
       seedSource = true,
       reasoningEffort: "medium" | null = "medium",
+      modelText?: string,
     ) {
       const selectedAccount = {
         ...account,
@@ -405,13 +406,15 @@ describe.skipIf(!databaseUrl)(
                   content: [
                     {
                       type: "output_text",
-                      text: JSON.stringify({
-                        statements: [
-                          {
-                            body: "Opaque identifiers preserve leading zeroes.",
-                          },
-                        ],
-                      }),
+                      text:
+                        modelText ??
+                        JSON.stringify({
+                          statements: [
+                            {
+                              body: "Opaque identifiers preserve leading zeroes.",
+                            },
+                          ],
+                        }),
                     },
                   ],
                 },
@@ -807,8 +810,18 @@ describe.skipIf(!databaseUrl)(
       const task = f.requests[0] as {
         instructions: string;
         input: { content: { text: string }[] }[];
-        text: { format: { schema: unknown } };
       };
+      expect(task).not.toHaveProperty("text");
+      const schema = JSON.parse(task.instructions.split("\nJSON Schema: ")[1]!);
+      expect(schema).toMatchObject({
+        additionalProperties: false,
+        properties: {
+          statements: {
+            maxItems: 4,
+            items: { additionalProperties: false },
+          },
+        },
+      });
       const text = task.input[0]!.content[0]!.text;
       const projection = JSON.parse(text);
       expect(projection.selectedSource).toEqual({
@@ -842,7 +855,7 @@ describe.skipIf(!databaseUrl)(
         conversationDigest({
           instructions: task.instructions,
           input: text,
-          outputSchema: task.text.format.schema,
+          outputSchema: schema,
         }),
       );
       expect(JSON.stringify(f.requests[0])).not.toContain(
@@ -878,6 +891,38 @@ describe.skipIf(!databaseUrl)(
         expect((await f.preview()).status).toBe("incomplete");
         expect(f.prepares).toHaveLength(0);
         expect(f.requests).toHaveLength(0);
+      },
+    );
+    it.each([
+      "invalid JSON",
+      '```json\n{"statements":[]}\n```',
+      '{"statements":[],"extra":true}',
+      '{"statements":[{"body":"A concrete fact.","extra":true}]}',
+      JSON.stringify({
+        statements: Array.from({ length: 5 }, () => ({
+          body: "A concrete fact.",
+        })),
+      }),
+      JSON.stringify({ statements: [{ body: "x".repeat(1001) }] }),
+    ])(
+      "invalid text JSON extraction %s produces no statements or retry",
+      async (modelText) => {
+        const f = await fixture(undefined, false, true, "medium", modelText);
+        expect((await f.preview()).status).toBe("incomplete");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+        expect(f.closes()).toBe(1);
+        const row = await prisma.conversationProcessing.findUniqueOrThrow({
+          where: { id: conversationMemoryPreviewId(f.parentId) },
+        });
+        expect(row.status).toBe("output_unavailable");
+        expect(row.requestEffect).toBe("completed");
+        expect(
+          (row.result as { gatewayFailureCode?: string }).gatewayFailureCode,
+        ).toBe("output_invalid");
+        expect((await f.preview()).status).toBe("incomplete");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
       },
     );
     it.each([null, "medium"] as const)(

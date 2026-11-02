@@ -241,14 +241,11 @@ it("uses actual SDK reduction and exact selected account/model policy with one a
     store: false,
     max_output_tokens: 2048,
     reasoning: { effort: "medium" },
-    text: {
-      format: {
-        type: "json_schema",
-        strict: true,
-        schema: conversationOutputSchema.schema,
-      },
-    },
   });
+  expect(body).not.toHaveProperty("text");
+  expect(body.instructions).toBe(
+    `Synthetic test instructions.\nReturn exactly one JSON object matching this schema. No Markdown fences or surrounding text.\nJSON Schema: ${JSON.stringify(conversationOutputSchema.schema)}`,
+  );
   expect(dispatched.requestId).toBe("rr-conversation-original-a1-r");
   expect(f.close.mock.calls[0]![1].operationId).toBe(
     "rr-conversation-original-a1-c",

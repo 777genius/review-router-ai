@@ -51,14 +51,27 @@ const outputSchema = {
   required: ["statements"],
   additionalProperties: false,
 } as const;
+const jsonInstructions = `${instructions}\nReturn exactly one JSON object matching this schema. No Markdown fences or surrounding text.\nJSON Schema: ${JSON.stringify(outputSchema)}`;
 
 function decode(value: unknown): readonly { readonly body: string }[] {
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 1 ||
+    !Object.hasOwn(value, "statements")
+  )
     throw new Error();
   const statements = (value as { statements?: unknown }).statements;
   if (!Array.isArray(statements) || statements.length > 4) throw new Error();
   return statements.map((statement: unknown) => {
-    if (!statement || typeof statement !== "object" || Array.isArray(statement))
+    if (
+      !statement ||
+      typeof statement !== "object" ||
+      Array.isArray(statement) ||
+      Object.keys(statement).length !== 1 ||
+      !Object.hasOwn(statement, "body")
+    )
       throw new Error();
     const body = (statement as { body?: unknown }).body;
     if (
@@ -319,14 +332,17 @@ export function createConversationMemoryPreview(input: {
           policyRevision: account.policyRevision,
           bindingRevision: account.bindingRevision,
         },
-        instructions,
+        instructions: jsonInstructions,
         input: JSON.stringify(projection),
-        output: { mode: "json_schema", schema: outputSchema },
+        output: { mode: "text" },
         ...(account.reasoningEffort ? { effort: account.reasoningEffort } : {}),
         maxOutputTokens: account.limits.tokens,
         deadline: deadlineAt,
         limits: { outputBytes: Math.min(262_144, account.limits.outputBytes) },
-        decode,
+        decode: (value: unknown) => {
+          if (typeof value !== "string") throw new Error();
+          return decode(JSON.parse(value) as unknown);
+        },
       };
       const bytes = 4096 + Buffer.byteLength(JSON.stringify(task));
       if (
@@ -368,7 +384,7 @@ export function createConversationMemoryPreview(input: {
           threadDigest: s.threadDigest,
           headSha: s.headSha,
           inputDigest: conversationDigest({
-            instructions,
+            instructions: task.instructions,
             input: task.input,
             outputSchema,
           }),
