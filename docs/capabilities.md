@@ -26,17 +26,23 @@ Sources: [provider catalog](../packages/features/review-providers/src/domain/pro
 
 ## Feature availability
 
-| Feature           | Availability and limits                                                                                                                                                                                                                                                    |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Memory            | Full-thread inline replies and learning, scoped rules/observations, and optional confirmation. Live full-thread model and App qualification remain outstanding. [Status](../ai-docs/deployments/2026-10-29-conversational-memory.md).                                      |
-| Skills            | Versioned text-only instructions, cross-workspace sharing, repository assignment, catalog preview and checks. Production text-only E2E verified; catalog needs configured scanner/resolver. No scripts run. [Status](../ai-docs/deployments/2026-10-28-skills-catalog.md). |
-| MCP context tools | Approved remote HTTPS tools for compatible agentic OCR/Gateway reviews. Two-reviewer MCP canary passed; not every connection/engine is supported. [Status](../ai-docs/deployments/2026-11-01-reviewer-v4-mcp.md).                                                          |
-| Statistics        | Reviews, distinct PRs, issues by severity and coverage-aware trends. Availability/completeness depends on captured and reconciled data. [Status](../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md).                                                   |
-| Review history    | GitHub v2 PR and review-run lifecycle, search and reruns; verified in production for supported reviews recorded after activation, without legacy backfill. [Status](../ai-docs/deployments/2026-10-28-review-history.md).                                                  |
-| Usage             | Provider/model/run attempts, known tokens and costs. Source coverage and unknown values are explicit; final task-specific rollout verification remains. [Status](../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md).                                   |
+| Feature           | Availability and limits                                                                                                      | Rollout              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| Memory            | Full-thread replies and learning, scoped knowledge, optional confirmation; live model/App rollout still needs qualification. | [status][memory]     |
+| Skills            | Versioned text instructions, sharing, assignments and checked imports; production text-only E2E verified.                    | [status][skills]     |
+| MCP context tools | Approved remote HTTPS tools for compatible OCR/Gateway; two-reviewer canary verified.                                        | [status][mcp]        |
+| Statistics        | PRs, reviews, issues and trends; completeness requires verified capture and reconciliation.                                  | [status][statistics] |
+| Review history    | GitHub v2 review runs, filters and reruns; production capture since activation, no historical backfill.                      | [status][history]    |
+| Usage             | Provider/model/run attempts, known tokens and costs; coverage-aware, rollout verification ongoing.                           | [status][usage]      |
 
-Capabilities described here are not proof that every hosted workspace has the
-same deployed release or enabled feature.
+[memory]: ../ai-docs/deployments/2026-10-29-conversational-memory.md
+[skills]: ../ai-docs/deployments/2026-10-28-skills-catalog.md
+[mcp]: ../ai-docs/deployments/2026-11-01-reviewer-v4-mcp.md
+[statistics]: ../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md
+[history]: ../ai-docs/deployments/2026-10-28-review-history.md
+[usage]: ../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md
+
+Features in source are not necessarily active in every hosted workspace.
 
 ## Hosting and data
 
