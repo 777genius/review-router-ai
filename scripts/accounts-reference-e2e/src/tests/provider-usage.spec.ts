@@ -601,6 +601,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(usage.getByRole("alert")).toContainText(
       "Usage report unavailable",
     );
+    await page.screenshot({
+      path: info.outputPath("usage-run-page-error.png"),
+      fullPage: true,
+    });
     await usage
       .getByRole("button", { name: "Previous run page", exact: true })
       .click();
@@ -609,6 +613,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
       runRowsBeforeFailure,
     );
     await expect(kpi("Known tokens")).toContainText("858");
+    await page.screenshot({
+      path: info.outputPath("usage-run-page-recovered.png"),
+      fullPage: true,
+    });
     await page.unroute("**/api/dashboard/provider-usage?**");
     await usage
       .getByRole("button", { name: "Next run page", exact: true })
@@ -748,6 +756,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await expect(usage.getByRole("alert")).toContainText(
       "Usage report unavailable",
     );
+    await page.screenshot({
+      path: info.outputPath("usage-observation-page-error.png"),
+      fullPage: true,
+    });
     await usage
       .getByRole("button", { name: "Previous observation page", exact: true })
       .click();
@@ -762,6 +774,10 @@ test("provider usage overview keeps complete period totals, charts, models and r
         .textContent(),
     ).toBe(observationRowsBeforeFailure);
     await expect(kpi("Known tokens")).toContainText("858");
+    await page.screenshot({
+      path: info.outputPath("usage-observation-page-recovered.png"),
+      fullPage: true,
+    });
     await page.unroute("**/api/dashboard/provider-usage?**");
     await usage
       .getByRole("button", { name: "Next observation page", exact: true })
