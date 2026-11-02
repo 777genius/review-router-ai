@@ -23,7 +23,8 @@ describe("signed GitHub webhook HTTP failure privacy", () => {
       rejectMarkFailed: false,
       rejectCallback: true,
     },
-  ])("keeps $scenario errors opaque", async ({ rejectMarkFailed, rejectCallback }) => {
+  ])("keeps $scenario errors opaque", async (scenario) => {
+    const { rejectMarkFailed, rejectCallback } = scenario;
     const app = Fastify({ logger: false });
     const onProcessingError = vi.fn(() => {
       if (rejectCallback) throw new Error(`observer failure: ${leaked}`);
