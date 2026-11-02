@@ -24,7 +24,10 @@ const loopback = (value: string, suffix: string): void => {
   }
   if (
     !["127.0.0.1", "localhost"].includes(url.hostname) ||
-    (suffix !== "" && !url.pathname.endsWith(suffix))
+    (suffix !== "" && !url.pathname.endsWith(suffix)) ||
+    // PostgreSQL query parameters can override the URL host/port or socket path.
+    url.search !== "" ||
+    url.hash !== ""
   )
     throw new Error("eval_isolated_endpoint_required");
 };
