@@ -31,10 +31,16 @@ The existing pressure cleanup skipped active authorizations until their immutabl
 
 ## Wording and rollback
 
-Attempt-neutral incomplete-review wording was already merged in public Action PR364 at `41c8d65d627bdf7eb0626b711fd57832ff63d7c3`, with activation still pending in the previous incident record. Reuse that existing fix in the coordinated Action release rather than adding a duplicate copy change. The current incident's old “exhausted retry attempts” text remains misleading for a one-attempt run until that runtime is adopted.
+Attempt-neutral incomplete-review wording was already merged in public Action PR364 at `41c8d65d627bdf7eb0626b711fd57832ff63d7c3`, and confirmed as an ancestor of public release226 Action `fa3e87a7` (ahead1/behind0); activation is still pending. Reuse that existing fix in the coordinated Action release rather than adding a duplicate copy change. The current incident's old “exhausted retry attempts” text remains misleading for a one-attempt run until that runtime is adopted.
 
 A compatible API rollback restores the former delay in pressure cleanup; it must preserve native operations, authorizations, admitted work and all receipts. Never free unknown custody or revoke unrelated runs as a workaround. Preserve the shared test stand and repositories.
 
 ## Execution log
 
-- 2026-11-02: GitHub comment/run logs,15 exact terminal workflow states and safe native operation projections collected read-only in `tmp/pr786-review-failure/`. No production mutation, model replay, cap change or deployment executed by this lane. Remote qualification and live acceptance remain pending.
+- 2026-11-02: GitHub comment/run logs,15 exact terminal workflow states and safe native operation projections collected read-only in `tmp/pr786-review-failure/`. No production mutation, model replay, cap change or deployment executed by this lane. Server qualification passed: strict API typing and all93 relay/App-reader/real-Octokit transport cases with zero skipped; the new relay regression failed on the prior relay as expected. Receipt: `/srv/workers/rr-operator790-20261102-165027/relay-qualification/receipt.json`. CI, production rollout, native custody reconciliation and live acceptance remain pending.
+
+## API signal lifecycle follow-up
+
+The installed server did not wire SIGTERM/SIGINT to Fastify close, so a normal container stop did not establish that retained Gateway cleanup ran. This implementation now installs idempotent signal handlers before listening: both signals share one awaited app.close call; repeated signals do not bypass a pending drain. A close rejection sets exitCode1 and logs a fixed safe message without raw error data. There is no force exit and no claim that an unknown native close became physically closed. The currently running old API is not repaired by this source change.
+
+A real Fastify child-process acceptance pauses its preClose hook, verifies both signal orders and a single close call while duplicate signals arrive, then allows natural exit. A real-close failure projection checks unsuccessful exit and secret-free logging. This follow-up passed strict API typing and all3 real-child acceptance cases with zero skipped. Receipt: `/srv/workers/rr-operator790-20261102-165027/graceful-qualification/receipt.json`. Previously accepted relay cases were not repeated. The separate old-process custody handoff must be reconciled before replacing the old API.
