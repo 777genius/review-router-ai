@@ -32,21 +32,66 @@ apply_grant() { database < "$GRANT_SQL" > "$WORK/grant.log" 2>&1; }
 column_absent() {
   [ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','scmRepositoryIdentityId','UPDATE')")" = f ] || fail "SCM UPDATE was granted after refusal"
 }
+# Reproduce an actual stale-grant state *before* every refused guard check.
+# Both table-level and independent column grants must exist; a rollback-only
+# revoke would otherwise pass a test that begins from an already-clean ACL.
+reintroduce_worker_write_drift() {
+  owner -c 'GRANT INSERT, UPDATE, DELETE, TRUNCATE ON public."RepositoryConnection", public."GitHubInstallation" TO reviewrouter_worker' > /dev/null
+  owner -c 'GRANT INSERT ("id","workspaceId","fullName","installationId"), UPDATE ("id","fullName","installationId","scmRepositoryIdentityId") ON public."RepositoryConnection" TO reviewrouter_worker' > /dev/null
+  owner -c 'GRANT INSERT ("id","workspaceId"), UPDATE ("id","workspaceId") ON public."GitHubInstallation" TO reviewrouter_worker' > /dev/null
+  local before
+  before="$(owner -qAt -c "SELECT
+    has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','INSERT'),
+    has_table_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','DELETE'),
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) acl
+      WHERE a.attrelid='public.\"RepositoryConnection\"'::regclass
+        AND a.attname='fullName'
+        AND acl.grantee='reviewrouter_worker'::regrole
+        AND acl.privilege_type='INSERT'
+    ),
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) acl
+      WHERE a.attrelid='public.\"GitHubInstallation\"'::regclass
+        AND a.attname='workspaceId'
+        AND acl.grantee='reviewrouter_worker'::regrole
+        AND acl.privilege_type='UPDATE'
+    )")"
+  [ "$before" = 't|t|t|t' ] ||
+    fail "pre-refusal worker table/independent column writes were not actually present ($before)"
+}
 worker_write_absent() {
   local label="$1"
   local result
+  # Dynamically examine every current column, not only a small sample of
+  # allowed columns, so adding an untested writable column cannot pass.
   result="$(owner -qAt -c "SELECT
-    has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','id','INSERT'),
-    has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','fullName','INSERT'),
-    has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','fullName','UPDATE'),
-    has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','scmRepositoryIdentityId','UPDATE'),
-    has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','INSERT'),
-    has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','UPDATE'),
-    has_table_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','INSERT'),
-    has_table_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','DELETE'),
-    has_column_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','workspaceId','UPDATE')")"
-  [ "$result" = 'f|f|f|f|f|f|f|f|f' ] ||
-    fail "$label left worker writes after guard verification failure ($result)"
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_class c
+      WHERE c.oid IN (
+        'public.\"RepositoryConnection\"'::regclass,
+        'public.\"GitHubInstallation\"'::regclass
+      ) AND (
+        has_table_privilege('reviewrouter_worker',c.oid,'INSERT')
+        OR has_table_privilege('reviewrouter_worker',c.oid,'UPDATE')
+        OR has_table_privilege('reviewrouter_worker',c.oid,'DELETE')
+        OR has_table_privilege('reviewrouter_worker',c.oid,'TRUNCATE')
+      )
+    ),
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid IN (
+        'public.\"RepositoryConnection\"'::regclass,
+        'public.\"GitHubInstallation\"'::regclass
+      ) AND a.attnum > 0 AND NOT a.attisdropped AND (
+        has_column_privilege('reviewrouter_worker',a.attrelid,a.attnum,'INSERT')
+        OR has_column_privilege('reviewrouter_worker',a.attrelid,a.attnum,'UPDATE')
+      )
+    )")"
+  [ "$result" = 'f|f' ] ||
+    fail "$label left any worker table or column writes after refused guard verification ($result)"
   deny_worker "$label-no-write" "$(insert_repo_sql "forbidden-$label" 'workspace-2' 'installation-1' '1088' 1088)"
 }
 deny_worker() {
@@ -144,7 +189,19 @@ deny_worker invalid_provider_insert "$(insert_repo_sql 'forbidden-provider' 'wor
 deny_worker invalid_source_insert "$(insert_repo_sql 'forbidden-source' 'workspace-1' 'installation-1' '1007' 1007 github 'https://attacker.invalid')"
 deny_worker zero_repository_id "$(insert_repo_sql 'forbidden-zero' 'workspace-1' 'installation-1' '0' 0)"
 deny_worker null_installation_insert 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","provider","sourceBaseUrl","externalRepositoryId","githubRepositoryId") VALUES ('"'"'forbidden-null'"'"','"'"'workspace-1'"'"','"'"'github'"'"','"'"'https://github.com'"'"','"'"'1008'"'"',1008)'
-deny_worker insert_scm_identity 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","installationId","scmRepositoryIdentityId") VALUES ('"'"'forbidden-identity'"'"','"'"'workspace-1'"'"','"'"'installation-1'"'"','"'"'identity-a'"'"')'
+# The ordinary grant omits this column, so merely asserting SQLSTATE 42501
+# would only test the ACL. Temporarily grant it in the disposable PG17 fixture
+# and prove the actual guard message rejects an otherwise valid GitHub row.
+owner -c 'GRANT INSERT ("scmRepositoryIdentityId") ON public."RepositoryConnection" TO reviewrouter_worker' > /dev/null
+if worker -c 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","installationId","provider","sourceBaseUrl","externalRepositoryId","githubRepositoryId","scmRepositoryIdentityId") VALUES ('"'"'forbidden-identity'"'"','"'"'workspace-1'"'"','"'"'installation-1'"'"','"'"'github'"'"','"'"'https://github.com'"'"','"'"'1011'"'"',1011,'"'"'identity-a'"'"')' > "$WORK/insert_scm_identity.log" 2>&1; then
+  fail "pre-bound SCM identity unexpectedly inserted"
+fi
+grep -Eq 'ERROR:[[:space:]]+42501: worker_repository_insert_identity_forbidden' "$WORK/insert_scm_identity.log" ||
+  fail "SCM identity was not rejected by the BEFORE INSERT guard: $(cat "$WORK/insert_scm_identity.log")"
+owner -c 'REVOKE INSERT ("scmRepositoryIdentityId") ON public."RepositoryConnection" FROM reviewrouter_worker' > /dev/null
+[ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','scmRepositoryIdentityId','INSERT')")" = f ] ||
+  fail "temporary SCM INSERT privilege survived the guard assertion"
+echo "ok - insert_scm_identity rejected by the actual BEFORE INSERT guard"
 # The guarded LOGIN cannot move or forge the installation tenant anchor.
 deny_worker forged_installation 'INSERT INTO public."GitHubInstallation" ("id","workspaceId") VALUES ('"'"'forged-anchor'"'"','"'"'workspace-2'"'"')'
 deny_worker moved_installation 'UPDATE public."GitHubInstallation" SET "workspaceId"='"'"'workspace-2'"'"' WHERE "id"='"'"'installation-1'"'"''
@@ -164,6 +221,7 @@ deny_worker anchor_drift_move 'UPDATE public."GitHubInstallation" SET "workspace
 # even one column. A refused re-verification MUST commit denial before return.
 # Real LOGIN INSERT must fail 42501 while any guard is absent or corrupted.
 owner -c 'ALTER TABLE public."RepositoryConnection" DISABLE TRIGGER "RepositoryConnection_worker_insert_scope_guard"' > /dev/null
+reintroduce_worker_write_drift
 if apply_grant; then fail "disabled INSERT trigger unexpectedly accepted"; fi
 worker_write_absent disabled-guard
 owner -c 'ALTER TABLE public."RepositoryConnection" ENABLE TRIGGER "RepositoryConnection_worker_insert_scope_guard"' > /dev/null
@@ -171,6 +229,7 @@ apply_grant || fail "guard did not recover after explicit reenable"
 worker -c "$(insert_repo_sql 'repo-after-reenable' 'workspace-1' 'installation-1' '1009' 1009)" > /dev/null ||
   fail "legitimate worker INSERT not restored after explicit reenable"
 owner -c 'DROP TRIGGER "RepositoryConnection_worker_insert_scope_guard" ON public."RepositoryConnection"' > /dev/null
+reintroduce_worker_write_drift
 if apply_grant; then fail "missing INSERT trigger unexpectedly accepted"; fi
 worker_write_absent missing-guard
 owner -c 'DROP FUNCTION public.reviewrouter_worker_repository_insert_guard()' > /dev/null
@@ -181,6 +240,7 @@ RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $tampered$ BEGIN RETURN NEW; END $tampered$;
 SQL
+reintroduce_worker_write_drift
 if apply_grant; then fail "tampered INSERT function unexpectedly accepted"; fi
 worker_write_absent tampered-guard
 owner -c 'DROP TRIGGER "RepositoryConnection_worker_insert_scope_guard" ON public."RepositoryConnection"' > /dev/null
