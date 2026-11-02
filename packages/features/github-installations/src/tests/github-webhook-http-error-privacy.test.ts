@@ -8,14 +8,26 @@ const leaked = "github_pat_privateSuperSecret123";
 
 describe("signed GitHub webhook HTTP failure privacy", () => {
   it.each([
-    { scenario: "handler rejection", rejectMarkFailed: false },
+    {
+      scenario: "handler rejection",
+      rejectMarkFailed: false,
+      rejectCallback: false,
+    },
     {
       scenario: "delivery failure persistence rejection",
       rejectMarkFailed: true,
+      rejectCallback: false,
     },
-  ])("keeps $scenario errors opaque", async ({ rejectMarkFailed }) => {
+    {
+      scenario: "processing callback failure",
+      rejectMarkFailed: false,
+      rejectCallback: true,
+    },
+  ])("keeps $scenario errors opaque", async ({ rejectMarkFailed, rejectCallback }) => {
     const app = Fastify({ logger: false });
-    const onProcessingError = vi.fn();
+    const onProcessingError = vi.fn(() => {
+      if (rejectCallback) throw new Error(`observer failure: ${leaked}`);
+    });
     const deliveries = {
       tryStartProcessing: vi.fn(async () => true),
       markProcessed: vi.fn(async () => {}),

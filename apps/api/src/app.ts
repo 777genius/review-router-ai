@@ -615,6 +615,7 @@ export async function createApiApp(
         logger.error("GitHub webhook processing failed", {
           code: "github_webhook_processing_failed",
         });
+        githubWebhookDependencies.onProcessingError?.();
       },
     });
   }

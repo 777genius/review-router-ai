@@ -53,6 +53,14 @@ export async function registerGitHubWebhookRoutes(
   app: FastifyInstance,
   dependencies: RegisterGitHubWebhookRoutesDependencies,
 ): Promise<void> {
+  const notifyProcessingError = () => {
+    try {
+      dependencies.onProcessingError?.();
+    } catch {
+      // Observer failures must never change the opaque webhook response.
+    }
+  };
+
   await app.register(rawBody, {
     field: "rawBody",
     global: false,
@@ -76,7 +84,7 @@ export async function registerGitHubWebhookRoutes(
         error.statusCode < 500
           ? error.statusCode
           : 500;
-      if (status === 500) dependencies.onProcessingError?.();
+      if (status === 500) notifyProcessingError();
       return reply.code(status).send({
         error:
           status < 500
@@ -374,7 +382,7 @@ export async function registerGitHubWebhookRoutes(
     } catch {
       // A caught error will no longer reach Fastify's onError hook. Record only
       // a bounded opaque failure event, never raw provider/tenant error text.
-      dependencies.onProcessingError?.();
+      notifyProcessingError();
       return reply
         .code(500)
         .send({ error: "github_webhook_processing_failed" });
