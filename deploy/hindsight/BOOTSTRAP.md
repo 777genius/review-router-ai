@@ -78,7 +78,8 @@ Run the native backend separately using this Linux bootstrap. It shares the
 existing standalone Docker deployment lock and provenance installer, preserving
 the physical-Forget operator's supported inventory. Native containers have
 `restart=no`; do not add them to Compose, systemd restart loops, or another
-reconciler. A host reboot requires an explicit locked restart.
+reconciler. A host reboot requires the explicit locked resume below; Compose startup alone
+does not resume these native containers.
 
 ## Prepare the reviewed inputs
 
@@ -196,3 +197,53 @@ node scripts/hindsight-e2e/deployment-lock.ts /absolute/operator/deployment.lock
 The native API and at least one separate worker remain part of the exact
 standalone inventory. Preserve credentials, the volume, provenance, pending
 commands and cleanup evidence through recovery and backups.
+
+## Explicit completed-deployment resume
+
+After Router PostgreSQL and the existing Router API are healthy, resume an
+unchanged completed native installation with:
+
+```sh
+node deploy/self-hosted/setup-memory.ts resume /absolute/selfhost.env /absolute/operator-directory
+```
+
+This reads the configured `REVIEW_ROUTER_API_URL` and the private saved provider
+tuple. It does not rebuild, download models, requalify, merge environment settings,
+rotate credentials or recreate containers. Explicit service/provider opt-outs
+remain authoritative. The lower-level equivalent is
+`node deploy/hindsight/bootstrap.ts resume /absolute/bootstrap.json https://actual-router-api-origin`.
+The API origin must be the actual configured HTTPS endpoint or loopback HTTP;
+no guessed Docker gateway or unauthenticated no-debt declaration is accepted.
+
+The whole operation holds the same deployment `flock` as physical Forget. It
+checks the complete bounded Docker census, exact saved IDs/images/environment,
+commands, standalone `restart=no` profile, model/data/cache mounts and exclusive
+volume users. Both native writers must be exited with PID zero; mixed or unknown
+states require reconciliation. The operator-authenticated Router owner atomically
+pauses and drains submissions, reserves a UUID bound to the actual provider
+identity and refuses any retained unresolved Forget debt, including older
+unmapped generations. A generic maintenance unpause cannot steal that reservation.
+Only the saved PostgreSQL is started first if needed. Its existing provenance
+ledger is verified read-only before starting the saved API and worker once.
+Readiness and a repeated exact census precede the atomic no-debt finish/unpause.
+
+Logical Forget remains admissible during the paused launch. If one arrives,
+finish refuses to unpause; the controller stops only writers started by its own
+recorded attempt and hands maintenance back paused for normal cleanup. No
+physical Forget can complete while the shared host lock is held. This does not
+claim that no writer can briefly start after a concurrent logical Forget.
+
+Private `resume-attempt.json` retains the UUID, binding digest, epochs and start
+intents. A lost finish response is reconciled against the exact durable completed
+marker; it never triggers a second start or a fresh attempt. If completion cannot
+be established, retain the ambiguous journal and actual container states for
+explicit operator reconciliation. Do not assert a retained pause, blindly stop
+writers after an unknown finish, delete the journal or reinstall provenance.
+A definite failure may retain PostgreSQL running and maintenance paused; neither
+is successful recovery or physical cleanup. The existing cleanup procedure owns
+outstanding Forget work and its signed completion.
+
+This is a finite explicit command, not unattended reboot recovery. No daemon,
+automatic reconciler or changed container restart policy is installed. Deployment
+and real stop/start acceptance remain pending until the exact source passes its
+remote PostgreSQL/API and stock self-hosted lifecycle checks.

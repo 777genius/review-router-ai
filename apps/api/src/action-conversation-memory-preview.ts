@@ -236,8 +236,10 @@ export function createConversationMemoryPreview(input: {
           templateRevision?: string;
         };
       };
+      // Slow selected models still share the original bounded conversation deadline.
+      // Do not cancel an in-flight extraction at an unrelated 25-second sublimit.
       const remaining = Math.min(
-        25_000,
+        60_000,
         controls.deadlineAt.getTime() - Date.now(),
       );
       if (

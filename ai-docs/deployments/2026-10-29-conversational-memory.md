@@ -383,6 +383,34 @@ The failed r1 holdout stays frozen as tuning regression. Required remaining work
    confirmation/replies-off, authorization and Forget in the existing disposable
    repository; preserve unrelated FREE defaults and policy/MCP settings.
 5. Publish only a genuine source/model-bound qualification artifact and complete
-   clean stock self-hosted installation/update acceptance. Cold-boot/resume is
-   still unresolved under the native `restart=no` cleanup contract; no daemon,
-   restart-policy change or fictional no-cleanup-debt authority is an accepted fix.
+   clean stock self-hosted installation/update acceptance. The [explicit resume successor](2026-11-02-memory-explicit-resume.md) is source-only,
+   awaiting coherent delivery and real stop/start acceptance under `restart=no`;
+   unattended recovery remains unresolved. No daemon, restart-policy change or
+   fictional no-cleanup-debt authority is an accepted fix.
+
+## Follow-up candidate and concrete retrieval defects
+
+Remote source QA for checkpoint `aa99ad70d` and paired Action `fa3e87a71`
+passed 158 tests with zero skips, strict API/evaluation/helper types, scoped
+lint, source-stamp and generated-verifier parity. This qualifies those source
+boundaries, not production activation or model quality.
+
+The single subsequent tuning run `dd890971-1d14-42ea-8444-bbfc70aec217`
+remains **UNAVAILABLE**, with eight of fifty events reached. Report SHA256:
+`280cf89f9abb9b468de3745f0a0d6dd82c8f01a096d77a460925ffdf1b24bb20`.
+Contextual endorsement now retained the concrete milliseconds fact, but linked
+recall failed. Scoped read-only investigation found valid/current metadata and
+native content: the generic review-conventions query returned zero results,
+while the actual next-thread question returned the correct fact. The repair
+passes only bounded current-source text to the existing authorized retrieval
+helper, preserving its filters and admission boundaries.
+
+The last extraction hit its exact 25-second child deadline. Normal readback and
+kernel metadata confirmed physical closure with occupancy zero, but its request
+remains `effect_unknown`; no text, usage or cause is invented and it is not
+replayed. The repair allows up to sixty seconds inside the original bounded
+ninety-second conversation deadline. A separate observed semantic error still
+classified a factual engineering imperative as a maintained-memory request;
+generic instructions now distinguish those comments from explicit memory
+operations. These changed sources require fresh remote QA and tuning. No r2
+protected checkpoint has been consumed, and no qualification PASS is claimed.

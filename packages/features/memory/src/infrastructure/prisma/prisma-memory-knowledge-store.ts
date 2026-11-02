@@ -34,6 +34,14 @@ import type {
   MemoryKnowledgeMaintenanceState,
 } from "../../application/ports/memory-knowledge-store-port";
 import type { MemoryProviderOperation } from "../../application/ports/memory-knowledge-provider-port";
+import {
+  nativeStartupActor,
+  readNativeStartupOwner as parseStartupOwner,
+  nativeStartupBarrierKey,
+  type MemoryNativeStartupInput,
+  type MemoryNativeStartupChange,
+  type MemoryNativeStartupState,
+} from "../../application/memory-native-startup";
 
 type Database = PrismaClient | Prisma.TransactionClient;
 type CommandRow = {
@@ -71,6 +79,13 @@ type EntryRow = {
   revocationCommandId: string | null;
 };
 const terminal = new Set(["published", "completed", "failed"]);
+const readNativeStartupOwner = (actor: string) => {
+  try {
+    return parseStartupOwner(actor);
+  } catch {
+    throw new MemoryKnowledgeError("conflict");
+  }
+};
 
 /** Acquires host authority guards and rereads settings before any memory lock. */
 export type AuthorizeAutomaticMemoryMutation = (
@@ -96,10 +111,43 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
     return readMemoryMaintenanceState(this.prisma, generation);
   }
 
+  private async resumePending(
+    tx: Prisma.TransactionClient,
+    generation: string,
+    epoch: string,
+    now: Date,
+  ): Promise<void> {
+    const pending = await tx.$queryRaw<CommandRow[]>(
+      Prisma.sql`SELECT c.* FROM "MemoryKnowledgeCommand" c JOIN "MemoryKnowledgeEntry" e ON e."generation"=c."generation" AND e."scopeKey"=c."scopeKey" AND e."entryId"=c."entryId" AND e."pendingCommandId"=c."id" WHERE c."generation"=${generation} AND c."state" NOT IN ('published','completed','failed','cleanup_pending') AND c."envelope" IS NOT NULL AND c."deliveryExpiresAt">${now} ORDER BY c."id" LIMIT 1001`,
+    );
+    if (pending.length > 1000) throw new MemoryKnowledgeError("input_required");
+    if (pending.length)
+      await tx.outboxEvent.createMany({
+        data: pending.map((row) => ({
+          id: randomUUID(),
+          type: "memory.knowledge.command.requested",
+          version: 2,
+          idempotencyKey: `memory.knowledge.command.resume:${row.id}:${epoch}`,
+          workspaceId: row.workspaceId,
+          aggregateId: row.entryId,
+          payload: {
+            commandId: row.id,
+            generation: row.generation,
+            scope: row.envelope!.ref.scope,
+          },
+          occurredAt: now,
+        })),
+      });
+  }
+
   async setMaintenancePaused(
     input: Parameters<MemoryKnowledgeStore["setMaintenancePaused"]>[0],
   ): Promise<MemoryKnowledgeMaintenanceState> {
-    if (!input.actor || !/^[0-9]+$/.test(input.expectedEpoch))
+    if (
+      !input.actor ||
+      input.actor.startsWith("startup:") ||
+      !/^[0-9]+$/.test(input.expectedEpoch)
+    )
       throw new MemoryKnowledgeError("invalid_input");
     return this.boundedTransaction(input.now, input.deadlineAt, async (tx) => {
       await tx.$executeRaw(
@@ -108,36 +156,151 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       const current = await readMemoryMaintenanceState(tx, input.generation);
       if (current.epoch !== input.expectedEpoch)
         throw new MemoryKnowledgeError("conflict");
+      const [row] = await tx.$queryRaw<{ actor: string }[]>(
+        Prisma.sql`SELECT "actor" FROM "MemoryKnowledgeMaintenanceFence" WHERE "generation"=${input.generation}`,
+      );
+      if (
+        !input.paused &&
+        row &&
+        readNativeStartupOwner(row.actor)?.phase === "paused"
+      )
+        throw new MemoryKnowledgeError("conflict");
       if (current.paused === input.paused) return current;
       const epoch = String(BigInt(current.epoch) + 1n);
       await tx.$executeRaw(
         Prisma.sql`INSERT INTO "MemoryKnowledgeMaintenanceFence" ("generation","epoch","paused","actor","updatedAt") VALUES (${input.generation},${BigInt(epoch)},${input.paused},${input.actor},${input.now}) ON CONFLICT ("generation") DO UPDATE SET "epoch"=EXCLUDED."epoch","paused"=EXCLUDED."paused","actor"=EXCLUDED."actor","updatedAt"=EXCLUDED."updatedAt"`,
       );
-      if (!input.paused) {
-        const pending = await tx.$queryRaw<CommandRow[]>(
-          Prisma.sql`SELECT c.* FROM "MemoryKnowledgeCommand" c JOIN "MemoryKnowledgeEntry" e ON e."generation"=c."generation" AND e."scopeKey"=c."scopeKey" AND e."entryId"=c."entryId" AND e."pendingCommandId"=c."id" WHERE c."generation"=${input.generation} AND c."state" NOT IN ('published','completed','failed','cleanup_pending') AND c."envelope" IS NOT NULL AND c."deliveryExpiresAt">${input.now} ORDER BY c."id" LIMIT 1001`,
-        );
-        if (pending.length > 1000)
-          throw new MemoryKnowledgeError("input_required");
-        if (pending.length)
-          await tx.outboxEvent.createMany({
-            data: pending.map((row) => ({
-              id: randomUUID(),
-              type: "memory.knowledge.command.requested",
-              version: 2,
-              idempotencyKey: `memory.knowledge.command.resume:${row.id}:${epoch}`,
-              workspaceId: row.workspaceId,
-              aggregateId: row.entryId,
-              payload: {
-                commandId: row.id,
-                generation: row.generation,
-                scope: row.envelope!.ref.scope,
-              },
-              occurredAt: input.now,
-            })),
-          });
-      }
+      if (!input.paused)
+        await this.resumePending(tx, input.generation, epoch, input.now);
       return { generation: input.generation, epoch, paused: input.paused };
+    });
+  }
+
+  private async startupSnapshot(
+    tx: Prisma.TransactionClient,
+    input: MemoryNativeStartupInput,
+  ): Promise<MemoryNativeStartupState> {
+    if (!/^[a-f0-9]{64}$/.test(input.bindingDigest))
+      throw new MemoryKnowledgeError("invalid_input");
+    const [row] = await tx.$queryRaw<
+      { epoch: bigint; paused: boolean; actor: string }[]
+    >(
+      Prisma.sql`SELECT "epoch","paused","actor" FROM "MemoryKnowledgeMaintenanceFence" WHERE "generation"=${input.generation}`,
+    );
+    // Global retained debt is conservative: historical generations have no complete
+    // immutable backend mapping. Never infer disjointness from the current config.
+    const [debt] = await tx.$queryRaw<
+      { pending: boolean }[]
+    >(Prisma.sql`SELECT (
+      EXISTS(SELECT 1 FROM "MemoryKnowledgeCommand" WHERE "commandKind"='forget' AND (
+        ("state"<>'completed' AND NOT ("state"='failed' AND "cleanupReceiptId" IS NOT NULL)) OR
+        ("state"='completed' AND "cleanupReceiptId" IS NULL))) OR
+      EXISTS(SELECT 1 FROM "MemoryKnowledgeEntry" WHERE "lifecycle"='forget_pending')
+    ) AS pending`);
+    const owner = row ? readNativeStartupOwner(row.actor) : null;
+    if (owner && row?.paused !== (owner.phase !== "complete"))
+      throw new MemoryKnowledgeError("conflict");
+    return {
+      generation: input.generation,
+      epoch: String(row?.epoch ?? 0),
+      paused: row?.paused ?? false,
+      owner,
+      cleanupDebt: debt?.pending !== false,
+    };
+  }
+
+  async nativeStartupState(
+    input: MemoryNativeStartupInput,
+  ): Promise<MemoryNativeStartupState> {
+    return this.boundedTransaction(input.now, input.deadlineAt, async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${nativeStartupBarrierKey},0))`,
+      );
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${deliveryFenceKey(input.generation)},0))`,
+      );
+      return this.startupSnapshot(tx, input);
+    });
+  }
+
+  async beginNativeStartup(
+    input: MemoryNativeStartupChange,
+  ): Promise<MemoryNativeStartupState> {
+    return this.changeNativeStartup(input, "paused");
+  }
+  async finishNativeStartup(
+    input: MemoryNativeStartupChange,
+  ): Promise<MemoryNativeStartupState> {
+    return this.changeNativeStartup(input, "complete");
+  }
+  async abortNativeStartup(
+    input: MemoryNativeStartupChange,
+  ): Promise<MemoryNativeStartupState> {
+    return this.changeNativeStartup(input, "aborted");
+  }
+  private async changeNativeStartup(
+    input: MemoryNativeStartupChange,
+    phase: "paused" | "complete" | "aborted",
+  ): Promise<MemoryNativeStartupState> {
+    let actor: string;
+    try {
+      actor = nativeStartupActor({
+        attemptId: input.attemptId,
+        bindingDigest: input.bindingDigest,
+        phase,
+      });
+    } catch {
+      throw new MemoryKnowledgeError("invalid_input");
+    }
+    if (!/^(0|[1-9][0-9]*)$/.test(input.expectedEpoch))
+      throw new MemoryKnowledgeError("invalid_input");
+    return this.boundedTransaction(input.now, input.deadlineAt, async (tx) => {
+      // Only Forget admissions take this barrier shared, before their generation
+      // fence. This avoids reversing automatic-selection's existing lock order.
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${nativeStartupBarrierKey},0))`,
+      );
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${deliveryFenceKey(input.generation)},0))`,
+      );
+      const current = await this.startupSnapshot(tx, input);
+      const sameOwner =
+        current.owner?.attemptId === input.attemptId &&
+        current.owner.bindingDigest === input.bindingDigest;
+      if (
+        sameOwner &&
+        current.owner?.phase === phase &&
+        current.paused === (phase !== "complete") &&
+        current.epoch === String(BigInt(input.expectedEpoch) + 1n)
+      ) {
+        if (phase === "paused" && current.cleanupDebt)
+          throw new MemoryKnowledgeError("conflict");
+        return current;
+      }
+      if (
+        current.epoch !== input.expectedEpoch ||
+        (phase !== "aborted" && current.cleanupDebt) ||
+        (phase === "paused"
+          ? current.paused
+          : !current.paused || !sameOwner || current.owner?.phase !== "paused")
+      )
+        throw new MemoryKnowledgeError("conflict");
+      const epoch = String(BigInt(current.epoch) + 1n);
+      await tx.$executeRaw(
+        Prisma.sql`INSERT INTO "MemoryKnowledgeMaintenanceFence" ("generation","epoch","paused","actor","updatedAt") VALUES (${input.generation},${BigInt(epoch)},${phase !== "complete"},${actor},${input.now}) ON CONFLICT ("generation") DO UPDATE SET "epoch"=EXCLUDED."epoch","paused"=EXCLUDED."paused","actor"=EXCLUDED."actor","updatedAt"=EXCLUDED."updatedAt"`,
+      );
+      if (phase === "complete")
+        await this.resumePending(tx, input.generation, epoch, input.now);
+      return {
+        ...current,
+        epoch,
+        paused: phase !== "complete",
+        owner: {
+          attemptId: input.attemptId,
+          bindingDigest: input.bindingDigest,
+          phase,
+        },
+      };
     });
   }
 
@@ -346,6 +509,13 @@ export class PrismaMemoryKnowledgeStore implements MemoryKnowledgeStore {
       JSON.stringify(command).length > 16_000
     )
       throw new MemoryKnowledgeError("invalid_input");
+
+    // Startup's all-generation no-debt CAS serializes only new Forget intents.
+    // Take it before the generation barrier; automatic children cannot be Forget.
+    if (command.kind === "forget")
+      await tx.$executeRaw(
+        Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${nativeStartupBarrierKey},0))`,
+      );
 
     // Pause and admission use the same order as transport/cleanup: generation
     // barrier first, then scope locks. A pause cannot overtake an admitted write.

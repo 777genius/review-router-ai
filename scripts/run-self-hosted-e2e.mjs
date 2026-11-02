@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   installSelfHostedMemory,
+  resumeSelfHostedMemory,
   disposeSelfHostedMemory,
   assertComposeMemoryEnvironment,
 } from "./self-hosted-e2e/native-memory-install.ts";
@@ -104,6 +105,53 @@ try {
     "-p",
     "scripts/self-hosted-e2e/tsconfig.memory.json",
   ]);
+  // A fresh product DB proves the resume is exercised before any Save/Forget debt.
+  runComposeWithSanitizedOutput([
+    "exec",
+    "-T",
+    "worker",
+    "node",
+    "--import",
+    "tsx",
+    "scripts/self-hosted-e2e/native-memory-storage.ts",
+    "startup-preflight",
+  ]);
+  const liveApiId = captureCompose(["ps", "--quiet", "api"]).trim();
+  const liveApiState = JSON.parse(
+    capture("docker", ["inspect", "--format", "{{json .State}}", liveApiId]),
+  );
+  console.log(
+    JSON.stringify(
+      await resumeSelfHostedMemory(
+        envFile,
+        tempDirectory,
+        `http://127.0.0.1:${ports.api}`,
+        async () => {
+          const current = JSON.parse(
+            capture("docker", [
+              "inspect",
+              "--format",
+              "{{json .State}}",
+              liveApiId,
+            ]),
+          );
+          if (
+            !current.Running ||
+            current.Pid !== liveApiState.Pid ||
+            current.StartedAt !== liveApiState.StartedAt
+          )
+            throw new Error(
+              "selfhost_api_lifetime_changed_during_native_resume",
+            );
+          await assertHealthEndpoint(
+            `http://127.0.0.1:${ports.api}/health`,
+            "review-router-api",
+          );
+        },
+      ),
+    ),
+  );
+  assertComposeState(installedMemory.values);
   runComposeWithSanitizedOutput([
     "exec",
     "-T",
@@ -281,7 +329,7 @@ console.log("Self-hosted E2E passed.");
 console.log(`control-plane-commit=${controlPlaneCommit}`);
 console.log(`action-ref=${testEnv.REVIEW_ROUTER_ACTION_REF}`);
 console.log(
-  "compose=healthy migrations=idempotent review-v2=passed investigation-same-release=passed action-oidc=passed memory=real-install-save-read-recall-forget-exclusion sandbox=removed logs=clean",
+  "compose=healthy migrations=idempotent review-v2=passed investigation-same-release=passed action-oidc=passed memory=real-install-resume-save-read-recall-forget-exclusion sandbox=removed logs=clean",
 );
 
 function createTestSecrets() {

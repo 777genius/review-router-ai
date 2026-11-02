@@ -1054,6 +1054,7 @@ describe.skipIf(!databaseUrl)(
         getPolicy: async () =>
           createMemoryPolicyConfig({ requireConfirmation }),
       };
+      const recalledQueries: string[] = [];
       const knowledge = new MemoryKnowledgeService({
         generation,
         providerProfileVersion: profile,
@@ -1062,7 +1063,10 @@ describe.skipIf(!databaseUrl)(
         policy,
         reader: {
           read: async () => null,
-          recall: async () => [],
+          recall: async (request) => {
+            recalledQueries.push(request.query);
+            return [];
+          },
           list: async () => ({ entries: [], nextCursor: null }),
         },
         writer: {} as never,
@@ -1138,6 +1142,30 @@ describe.skipIf(!databaseUrl)(
       // Confirmation mode rejects an unauthored body at the actual adapter boundary.
       const identity = await f.sources.identify(input, controls());
       const checked = await f.sources.read(identity, controls());
+      const retrievalBody =
+        "Which project convention applies here? " + "x".repeat(1100);
+      await productMemory.context(
+        {
+          ...checked,
+          messages: checked.messages.map((message) => ({
+            ...message,
+            body:
+              message.id === checked.sourceId
+                ? retrievalBody
+                : "NON_SELECTED_PRIVATE_THREAD_TEXT",
+          })),
+        },
+        controls(),
+      );
+      expect(recalledQueries.length).toBeGreaterThan(0);
+      expect(
+        recalledQueries.every(
+          (query) => query === retrievalBody.slice(0, 1000),
+        ),
+      ).toBe(true);
+      expect(recalledQueries.join(" ")).not.toContain(
+        "NON_SELECTED_PRIVATE_THREAD_TEXT",
+      );
       await expect(
         productMemory.action(
           checked,

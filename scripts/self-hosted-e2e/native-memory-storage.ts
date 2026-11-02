@@ -30,7 +30,7 @@ assert(health.ok, "selfhost_native_bridge_unavailable");
 const id = `selfhost-memory-${randomUUID()}`;
 const prisma = createPrismaClient({ poolMax: 2 });
 const controls = () => ({ deadlineAt: new Date(Date.now() + 25_000) });
-try {
+async function proveStorage() {
   // The ordinary authenticated workspace-user fixture: real user + owner
   // membership, checked by the production permission adapter without overrides.
   await prisma.user.create({ data: { id } });
@@ -220,6 +220,28 @@ try {
       productPhysicalForgetClaimed: false,
     }),
   );
+}
+try {
+  if (process.argv[2] === "startup-preflight") {
+    const [entries, commands] = await Promise.all([
+      prisma.memoryKnowledgeEntry.count(),
+      prisma.memoryKnowledgeCommand.count(),
+    ]);
+    assert.equal(
+      entries,
+      0,
+      "resume_acceptance_requires_fresh_product_storage",
+    );
+    assert.equal(commands, 0, "resume_acceptance_requires_zero_prior_commands");
+    console.log(
+      JSON.stringify({
+        status: "selfhost_memory_resume_preflight_passed",
+        entries,
+        commands,
+        nativeBridgeReady: true,
+      }),
+    );
+  } else await proveStorage();
 } finally {
   await prisma.$disconnect();
 }

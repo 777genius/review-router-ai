@@ -13,6 +13,11 @@ import type {
   MemoryAutomaticSourceStore,
   MemoryAutomaticSourceState,
 } from "./memory-automatic-source-port";
+import type {
+  MemoryNativeStartupInput,
+  MemoryNativeStartupChange,
+  MemoryNativeStartupState,
+} from "../memory-native-startup";
 
 export type MemoryStoredCommand = {
   readonly operation: MemoryKnowledgeOperation;
@@ -46,6 +51,18 @@ export type MemoryKnowledgeMaintenanceState = {
 
 /** All admission/settlement methods are cross-process database transactions. No in-memory leases. */
 export interface MemoryKnowledgeStore {
+  nativeStartupState(
+    input: MemoryNativeStartupInput,
+  ): Promise<MemoryNativeStartupState>;
+  beginNativeStartup(
+    input: MemoryNativeStartupChange,
+  ): Promise<MemoryNativeStartupState>;
+  finishNativeStartup(
+    input: MemoryNativeStartupChange,
+  ): Promise<MemoryNativeStartupState>;
+  abortNativeStartup(
+    input: MemoryNativeStartupChange,
+  ): Promise<MemoryNativeStartupState>;
   maintenanceState(
     generation: string,
   ): Promise<MemoryKnowledgeMaintenanceState>;

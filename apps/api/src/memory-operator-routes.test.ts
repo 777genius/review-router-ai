@@ -212,6 +212,34 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
       },
     };
     const store = {
+      nativeStartupState: vi.fn(async () => ({
+        generation,
+        epoch: "0",
+        paused: false,
+        owner: null,
+        cleanupDebt: false,
+      })),
+      beginNativeStartup: vi.fn(async () => ({
+        generation,
+        epoch: "1",
+        paused: true,
+        owner: null,
+        cleanupDebt: false,
+      })),
+      finishNativeStartup: vi.fn(async () => ({
+        generation,
+        epoch: "2",
+        paused: false,
+        owner: null,
+        cleanupDebt: false,
+      })),
+      abortNativeStartup: vi.fn(async () => ({
+        generation,
+        epoch: "2",
+        paused: true,
+        owner: null,
+        cleanupDebt: true,
+      })),
       maintenanceState: vi.fn(async () => ({
         ...maintenance,
         paused: options.paused ?? true,
@@ -294,6 +322,13 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
       generation,
       store,
       cleanupProof: proof,
+      nativeStartupBinding: {
+        namespace: "test",
+        generation,
+        imageDigest: `sha256:${"a".repeat(64)}`,
+        profile: "hindsight-v1.1.0-chunks-v1",
+        endpointDigest: "b".repeat(64),
+      },
     } as unknown as MemoryKnowledgeRuntime;
     const app = Fastify({ logger: false });
     apps.push(app);
@@ -758,6 +793,93 @@ describe("private memory cleanup proof and operator HTTP contracts", () => {
         })
       ).statusCode,
     ).toBe(400);
+  });
+
+  it("binds startup changes to the server-owned provider tuple and rejects caller authority claims before store I/O", async () => {
+    const { app, store } = await fixture();
+    const denied = await app.inject({
+      method: "GET",
+      url: "/api/internal/memory/startup",
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(store.nativeStartupState).not.toHaveBeenCalled();
+    const current = await app.inject({
+      method: "GET",
+      url: "/api/internal/memory/startup",
+      headers: auth,
+    });
+    expect(current.statusCode).toBe(200);
+    expect(current.headers["cache-control"]).toBe("private, no-store");
+    const body = current.json();
+    expect(body).toMatchObject({
+      generation,
+      epoch: "0",
+      paused: false,
+      cleanupDebt: false,
+      binding: { namespace: "test", generation },
+    });
+    expect(current.body).not.toContain(token);
+    const input = {
+      attemptId: "d93f5a02-5384-498b-9e31-3c1c719f83c9",
+      expectedEpoch: "0",
+      bindingDigest: body.bindingDigest,
+    };
+    for (const payload of [
+      { ...input, actor: "startup:forged" },
+      { ...input, cleanupDebt: false },
+      { ...input, generation: "other" },
+    ])
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/api/internal/memory/startup/begin",
+            headers: auth,
+            payload,
+          })
+        ).statusCode,
+      ).toBe(400);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/internal/memory/startup/begin",
+          headers: auth,
+          payload: { ...input, bindingDigest: "c".repeat(64) },
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(store.beginNativeStartup).not.toHaveBeenCalled();
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/internal/memory/startup/begin",
+          headers: auth,
+          payload: input,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(store.beginNativeStartup).toHaveBeenCalledWith({
+      ...input,
+      generation,
+      now,
+      deadlineAt: new Date(now.getTime() + 30000),
+    });
+    store.finishNativeStartup.mockRejectedValueOnce(
+      new MemoryKnowledgeError("conflict"),
+    );
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/internal/memory/startup/finish",
+          headers: auth,
+          payload: { ...input, expectedEpoch: "1" },
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(store.abortNativeStartup).not.toHaveBeenCalled();
   });
 
   it("normalizes store failures, stale settlement fences and missing verifier without leaking private diagnostics", async () => {

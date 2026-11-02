@@ -453,10 +453,10 @@ describe.skipIf(!databaseUrl)(
               >`SELECT "source" FROM "PreviewAuthority" WHERE "id"=1`
             )[0]!.source,
         });
-      const preview = (projection = source) =>
-        create().preview(projection, {
-          deadlineAt: new Date(Date.now() + 30_000),
-        });
+      const preview = (
+        projection = source,
+        deadlineAt = new Date(Date.now() + 30_000),
+      ) => create().preview(projection, { deadlineAt });
       return {
         preview,
         prepares,
@@ -773,7 +773,11 @@ describe.skipIf(!databaseUrl)(
 
     it("routes the selected user account and policy, and concurrent/restarted replay buys no second call", async () => {
       const f = await fixture();
-      const results = await Promise.all([f.preview(), f.preview()]);
+      const deadlineAt = new Date(Date.now() + 30_000);
+      const results = await Promise.all([
+        f.preview(source, deadlineAt),
+        f.preview(source, deadlineAt),
+      ]);
       expect(results.filter((r) => r.status === "complete")).toHaveLength(1);
       expect(f.prepares).toHaveLength(1);
       expect(f.prepares[0]).toMatchObject({
@@ -782,6 +786,9 @@ describe.skipIf(!databaseUrl)(
         policyRevision: 2,
         bindingRevision: 3,
         profileId: account.profileRef,
+        // An admitted extraction receives the remaining original budget, not a
+        // shorter subdeadline that can interrupt an otherwise valid response.
+        deadline: deadlineAt.toISOString(),
       });
       expect(f.requests).toHaveLength(1);
       expect(f.requests[0]).toMatchObject({

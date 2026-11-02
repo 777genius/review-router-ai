@@ -307,6 +307,14 @@ export function createConversationMemoryPort(input: {
   const { scope, sources, preview, managed } = input;
   const memory: ConversationMemoryPort = {
     async context(snapshot, controls) {
+      // Retrieve for the current authored source, not a generic review topic or other authors' text.
+      const selectedBody = snapshot.messages.find(
+        (message) => message.id === snapshot.sourceId,
+      )?.body;
+      const query = selectedBody
+        ?.trim()
+        .slice(0, 1000)
+        .replace(/[\uD800-\uDBFF]$/, "");
       const policy = await input.runtime.policy.getPolicy(scope);
       const scopes = reviewMemoryRuntimeScopes(
         {
@@ -328,6 +336,7 @@ export function createConversationMemoryPort(input: {
           service: input.runtime.forAccess(access, sources),
           actor: runtimeActor,
           scopes,
+          ...(query ? { query } : {}),
           contextPolicy: {
             audience:
               snapshot.visibility === "public" ? "public" : "repository",

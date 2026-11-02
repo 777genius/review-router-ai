@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   assertSandboxMounts,
   assertComposeMemoryEnvironment,
+  assertStoppedSelfHostedMemory,
+  assertSelfHostedResumeOrigin,
 } from "./native-memory-install.ts";
 import { validateConfig } from "../../deploy/hindsight/bootstrap.ts";
 
@@ -124,5 +126,77 @@ test("credential mismatch fails without printing either service key", () => {
       error instanceof Error &&
       !error.message.includes("private-key") &&
       !error.message.includes(settings.REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY),
+  );
+});
+
+test("resume stop proof accepts all exact stopped IDs and rejects a partial or live lifecycle", () => {
+  const containers = {
+    postgres: "1".repeat(64),
+    api: "2".repeat(64),
+    worker: "3".repeat(64),
+  };
+  const stopped = Object.values(containers).map((Id) => ({
+    Id,
+    HostConfig: { RestartPolicy: { Name: "no" } },
+    State: {
+      Running: false,
+      Pid: 0,
+      Status: "exited",
+      ExitCode: 0,
+      Restarting: false,
+      Paused: false,
+      Dead: false,
+    },
+  })) as unknown as Records;
+  assertStoppedSelfHostedMemory(stopped, containers);
+  for (const change of [
+    (record: Records[number]) => ({
+      ...record,
+      State: { ...record.State, Running: true, Pid: 123 },
+    }),
+    (record: Records[number]) => ({
+      ...record,
+      State: { ...record.State, Restarting: true },
+    }),
+    (record: Records[number]) => ({
+      ...record,
+      HostConfig: { ...record.HostConfig, RestartPolicy: { Name: "always" } },
+    }),
+    (record: Records[number]) => ({ ...record, Id: "4".repeat(64) }),
+  ]) {
+    const altered = [...structuredClone(stopped)];
+    altered[1] = change(altered[1]!);
+    assert.throws(() => assertStoppedSelfHostedMemory(altered, containers));
+  }
+  assert.throws(() =>
+    assertStoppedSelfHostedMemory(stopped.slice(1), containers),
+  );
+  assert.throws(() =>
+    assertStoppedSelfHostedMemory(stopped, {
+      ...containers,
+      worker: containers.api,
+    }),
+  );
+});
+
+test("explicit resume origin must match the fresh sandbox API binding", () => {
+  const environment = "REVIEW_ROUTER_API_BIND=127.0.0.1:14000\n";
+  assertSelfHostedResumeOrigin(environment, "http://127.0.0.1:14000");
+  for (const origin of [
+    "http://127.0.0.1:14001",
+    "https://foreign.example",
+    "http://127.0.0.1:14000/other",
+    "http://127.0.0.1:14000?query=1",
+    "http://private:credential@127.0.0.1:14000",
+  ])
+    assert.throws(() => assertSelfHostedResumeOrigin(environment, origin));
+  assert.throws(() =>
+    assertSelfHostedResumeOrigin(
+      environment + environment,
+      "http://127.0.0.1:14000",
+    ),
+  );
+  assert.throws(() =>
+    assertSelfHostedResumeOrigin("", "http://127.0.0.1:14000"),
   );
 });

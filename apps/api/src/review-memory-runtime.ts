@@ -325,6 +325,7 @@ export async function captureAuthorizedMemoryContext(
     readonly scopes: readonly MemoryKnowledgeScope[];
     readonly contextPolicy: MemoryContextPolicy;
     readonly snapshotNotAfter?: Date;
+    readonly query?: string;
   },
   controls: MemoryRequestControls,
 ) {
@@ -333,6 +334,7 @@ export async function captureAuthorizedMemoryContext(
       actor: input.actor,
       scopes: input.scopes,
       query:
+        input.query ??
         "Approved repository review conventions and maintained project knowledge",
       limitPerScope: 6,
       contextPolicy: input.contextPolicy,
