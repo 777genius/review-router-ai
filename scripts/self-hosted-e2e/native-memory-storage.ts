@@ -171,10 +171,18 @@ try {
   const forgotten = await progress(forgetId, ["cleanup_pending", "completed"]);
   const providerConfig = parseMemoryProviderConfig(process.env);
   assert(providerConfig.kind === "hindsight");
-  assert.equal(
-    await new HindsightMemoryProvider(providerConfig).read(ref, controls()),
-    null,
-  );
+  const nativeCurrentDocumentAbsent =
+    (await new HindsightMemoryProvider(providerConfig).read(
+      ref,
+      controls(),
+    )) === null;
+  // A pending physical cleanup may retain native content. Product read/recall
+  // must already fence it; only completed cleanup requires native absence.
+  if (forgotten.state === "completed")
+    assert(
+      nativeCurrentDocumentAbsent,
+      "completed_forget_native_document_present",
+    );
   const afterForgetBundle = await service.bundle(
     {
       actor,
@@ -205,7 +213,9 @@ try {
       recalled: true,
       foreignUserDenied: true,
       forget: forgotten.state,
-      nativeCurrentDocumentAbsent: true,
+      nativeCurrentDocumentAbsent,
+      pendingNativeContentFenced:
+        forgotten.state === "cleanup_pending" && !nativeCurrentDocumentAbsent,
       recallExcludedAfterForget: true,
       productPhysicalForgetClaimed: false,
     }),

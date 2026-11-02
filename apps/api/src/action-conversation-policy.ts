@@ -237,7 +237,7 @@ export async function admitConversationDispatch(
 }
 export type ConversationCapturedPolicy = {
   readonly policy: ConversationPolicy;
-  /** The same capture cannot buy child work while its parent grant has cleanup debt. */
+  /** The same capture cannot buy child work with parent cleanup debt or an unsettled request outcome. */
   readonly inferenceCleanupPending?: () => boolean;
   readonly checkSelection: (
     transaction: Prisma.TransactionClient,
@@ -676,7 +676,13 @@ function createSelectedAccountPolicy(
             }),
           ),
         async onObserved(value) {
-          inferenceCleanupPending = value.cleanup === "pending";
+          const cleanupPending = value.cleanup === "pending";
+          // A logical close does not settle an interrupted dispatch or its physical transport.
+          inferenceCleanupPending =
+            cleanupPending ||
+            !["completed", "not_dispatched", "rejected_before_dispatch"].includes(
+              value.effect,
+            );
           await input.prisma.conversationProcessing.updateMany({
             where: {
               id: processingId,
@@ -686,9 +692,7 @@ function createSelectedAccountPolicy(
             data: {
               observedModel: value.model,
               ...(value.usage ? { observedUsage: value.usage } : {}),
-              requestEffect: inferenceCleanupPending
-                ? "cleanup_pending"
-                : value.effect,
+              requestEffect: cleanupPending ? "cleanup_pending" : value.effect,
             },
           });
         },

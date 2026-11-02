@@ -796,8 +796,18 @@ describe.skipIf(!databaseUrl)(
       };
       const text = task.input[0]!.content[0]!.text;
       const projection = JSON.parse(text);
-      expect(projection.selectedSource).toEqual(source.source);
-      expect(projection.checkedDiscussion).toBe(renderConversation(snapshot));
+      expect(projection.selectedSource).toEqual({
+        ...source.source,
+        actor: snapshot.sourceActor,
+        authority: "verified_repository_maintainer",
+      });
+      expect(projection.checkedDiscussion).toEqual(
+        JSON.parse(renderConversation(snapshot)),
+      );
+      expect(projection.checkedDiscussion.messages).toEqual(snapshot.messages);
+      expect(projection.checkedDiscussion.selectedSourceId).toBe(
+        snapshot.sourceId,
+      );
       expect(projection.memorySettings).toEqual(account.memorySettings);
       expect(projection.contextEvidence.messages).toEqual(
         snapshot.messages.map(({ id, updatedAt, bodyDigest, replyTo }) => ({

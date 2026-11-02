@@ -433,6 +433,16 @@ export function createConversationMemoryPort(input: {
         intent.kind === "create"
           ? null
           : await input.runtime.store.findEntry(ref, input.runtime.generation);
+      if (
+        intent.kind !== "create" &&
+        (!target || target.revision !== intent.expectedRevision)
+      )
+        return {
+          notice:
+            "I have not applied this memory change. Please use an available entry and its current revision.",
+          effectIds: [],
+          status: "needs_input",
+        };
       const bound = managed(
         snapshot,
         intent.kind === "create"

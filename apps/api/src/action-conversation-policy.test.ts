@@ -975,9 +975,18 @@ it("candidate paid admission and observations address its disposable row, not th
   );
 });
 
-it.each(["closed", "pending"] as const)(
-  "parent cleanup %s fences child authority for the same capture",
-  async (cleanup) => {
+it.each([
+  { cleanup: "closed", effect: "not_dispatched", settled: true },
+  { cleanup: "closed", effect: "rejected_before_dispatch", settled: true },
+  { cleanup: "closed", effect: "completed", settled: true },
+  { cleanup: "closed", effect: "effect_unknown", settled: false },
+  { cleanup: "closed", effect: "dispatch_started", settled: false },
+  { cleanup: "closed", effect: "response_started", settled: false },
+  { cleanup: "pending", effect: "not_dispatched", settled: false },
+  { cleanup: "pending", effect: "completed", settled: false },
+] as const)(
+  "parent cleanup $cleanup and outcome $effect fence child authority unless settled",
+  async ({ cleanup, effect, settled }) => {
     let transport:
       | Parameters<
           typeof conversationInference.createConversationGatewayInference
@@ -1002,19 +1011,18 @@ it.each(["closed", "pending"] as const)(
     await transport!.onObserved!({
       model: null,
       usage: null,
-      effect: "not_dispatched",
+      effect,
       cleanup,
     });
-    expect(await policy.isCurrent(controls)).toBe(cleanup === "closed");
-    expect(await f.checkSelection()).toBe(cleanup === "closed");
+    expect(await policy.isCurrent(controls)).toBe(settled);
+    expect(await f.checkSelection()).toBe(settled);
     expect(
       f.transaction.conversationProcessing.updateMany,
     ).toHaveBeenLastCalledWith(
       expect.objectContaining({
         data: {
           observedModel: null,
-          requestEffect:
-            cleanup === "pending" ? "cleanup_pending" : "not_dispatched",
+          requestEffect: cleanup === "pending" ? "cleanup_pending" : effect,
         },
       }),
     );
