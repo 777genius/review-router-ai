@@ -281,6 +281,8 @@ if (args.includes("--validate")) {
           thread,
         ]);
       const scenarios: Record<string, unknown>[] = [];
+      const variantResult = { variant, status: "UNAVAILABLE", scenarios };
+      report.variants.push(variantResult);
       let gatewayCleanupUnsettled = false;
       for (const [scenario, scenarioThreads] of grouped) {
         phase = "fixture_creation";
@@ -308,6 +310,15 @@ if (args.includes("--validate")) {
         phase = "cold_start";
         const coldStart = await fixture.coldStart();
         const observations: unknown[] = [];
+        scenarios.push({
+          scenario,
+          namespace: fixture.namespace,
+          scope: fixture.scope,
+          scopes: fixture.scopes,
+          processingScope: fixture.processingScope,
+          coldStart,
+          observations,
+        });
         for (const thread of scenarioThreads) {
           for (const event of thread.events) {
             phase = "event_execution";
@@ -331,6 +342,11 @@ if (args.includes("--validate")) {
           if (thread.afterMutation && variant === "full-product") {
             phase = "mutation";
             const mutation = await fixture.mutate(thread.afterMutation.kind);
+            const mutationObservation: {
+              mutation: typeof mutation;
+              followup?: unknown;
+            } = { mutation };
+            observations.push(mutationObservation);
             const repeated = structuredClone(thread);
             const id = `${thread.id}-after-mutation-${runId}`;
             const time = new Date().toISOString();
@@ -354,29 +370,19 @@ if (args.includes("--validate")) {
               forbiddenEffects: [],
               criticalSlices: [],
             });
+            mutationObservation.followup = followup;
             if (
               followup.deliveredBodyDigests.some((hash) =>
                 mutation.revokedBodyDigests.includes(hash),
               )
             )
               throw new Error("eval_revoked_memory_delivered_after_mutation");
-            observations.push({ mutation, followup });
             if (!gatewayCandidateCleanupSettled(followup)) {
               gatewayCleanupUnsettled = true;
               break;
             }
           }
         }
-        phase = "result_assembly";
-        scenarios.push({
-          scenario,
-          namespace: fixture.namespace,
-          scope: fixture.scope,
-          scopes: fixture.scopes,
-          processingScope: fixture.processingScope,
-          coldStart,
-          observations,
-        });
         // Preserve the actual witness and stop; a new paid attempt cannot settle cleanup debt.
         if (gatewayCleanupUnsettled) break;
       }
@@ -407,11 +413,9 @@ if (args.includes("--validate")) {
             },
           ),
         );
-      report.variants.push({
-        variant,
-        status: incomplete ? "UNAVAILABLE" : "AWAITING_HUMAN_RUBRIC",
-        scenarios,
-      });
+      variantResult.status = incomplete
+        ? "UNAVAILABLE"
+        : "AWAITING_HUMAN_RUBRIC";
     }
     report.status = report.variants.some(
       (result) => result.status === "UNAVAILABLE",

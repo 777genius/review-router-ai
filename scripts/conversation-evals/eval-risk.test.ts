@@ -172,6 +172,180 @@ test("evaluation runner records a safe configuration failure without claiming ze
   }
 });
 
+test("runner persists reached witnesses on later failures and scorer refuses partial reports", async () => {
+  const { mkdir, mkdtemp, readFile, writeFile, rm } =
+    await import("node:fs/promises");
+  const { spawnSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  await mkdir(resolve("tmp"), { recursive: true });
+  const scratch = await mkdtemp(resolve("tmp/eval-partial-test-"));
+  try {
+    for (const mode of [
+      "event",
+      "mutation",
+      "followup",
+      "revoked",
+      "first-cold",
+      "later-cold",
+    ]) {
+      const fixtureSource = `
+        let fixtures = 0, events = 0;
+        const mode = ${JSON.stringify(mode)};
+        export async function createEvaluationFixture() {
+          const fixtureNumber = ++fixtures;
+          return {
+            namespace: "synthetic-control-flow", scope: {kind:"repository", workspaceId:"synthetic", repositoryId:"synthetic"},
+            async coldStart() {
+              if (mode === "first-cold" || (mode === "later-cold" && fixtureNumber === 2)) throw new Error("eval_cold_start_failed");
+              return { productEntries:3, processingRecords:2, nativeDocuments:4, durableCommands:5 };
+            },
+            async run(thread, event) {
+              const followup = event.messageId.includes("after-mutation");
+              if ((mode === "event" && events === 1) || (mode === "followup" && followup)) throw new Error("eval_actual_target_unavailable");
+              events++;
+              return { eventId:thread.id + ":" + event.messageId, status:"silent", previewCalls:1,
+                modelCalls:1, inputBytes:71, usage:{syntheticTokens:17}, observedModel:"synthetic-test-only",
+                inventory:[{id:"synthetic-retained-" + events}], gatewayPreviewReceipt:{gatewayCleanup:"closed"},
+                deliveredBodyDigests:mode === "revoked" && followup ? ["synthetic-revoked"] : [] };
+            },
+            async mutate(kind) {
+              if (mode === "mutation") throw new Error("eval_mutation_target_unavailable");
+              return {kind, revokedBodyDigests:["synthetic-revoked"], syntheticMutationReceipt:"returned"};
+            }
+          };
+        }`;
+      const bootstrap = resolve(scratch, "bootstrap.mjs");
+      // Intercept only dependencies of the real runner. No real fixture, DB or provider can load.
+      await writeFile(
+        bootstrap,
+        `import {registerHooks} from "node:module";
+        const modules = ${JSON.stringify({
+          "@prisma/client":
+            "export class PrismaClient { async $disconnect() {} }",
+          "@prisma/adapter-pg": "export class PrismaPg {}",
+          "./fixture.js": fixtureSource,
+        })};
+        registerHooks({resolve(specifier, context, next) {
+          if (context.parentURL?.endsWith("/scripts/conversation-evals/run.ts") && Object.hasOwn(modules, specifier))
+            return {url:"data:text/javascript," + encodeURIComponent(modules[specifier]), shortCircuit:true};
+          return next(specifier, context);
+        }});`,
+      );
+      const output = resolve(scratch, "report.json");
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--import",
+          bootstrap,
+          "scripts/conversation-evals/run.ts",
+          "--split",
+          "holdout",
+          "--out",
+          output,
+        ],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            PATH: process.env.PATH,
+            ...Object.fromEntries(
+              evaluationMissingKeys("full-product", {}).map((key) => [
+                key,
+                "synthetic",
+              ]),
+            ),
+            CONVERSATION_EVAL_LIVE: "1",
+            CONVERSATION_EVAL_DISPOSABLE: "1",
+            CONVERSATION_EVAL_DATABASE_URL:
+              "postgres://synthetic@127.0.0.1/synthetic_test",
+            CONVERSATION_EVAL_MODEL_BOUNDS_JSON: "[{}]",
+            CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID:
+              "synthetic-control-flow-only",
+            REVIEW_ROUTER_MEMORY_NAMESPACE: "eval_synthetic",
+            REVIEW_ROUTER_MEMORY_GENERATION: "eval_synthetic",
+          },
+        },
+      );
+      assert.equal(result.status, 2, result.stderr);
+      const report = JSON.parse(await readFile(output, "utf8"));
+      assert.equal(report.status, "UNAVAILABLE");
+      const variant = report.variants.find(
+        (v: { variant?: string }) => v.variant === "full-product",
+      );
+      assert.equal(variant.status, "UNAVAILABLE");
+      const failure = report.variants.at(-1);
+      assert.equal(failure.status, "UNAVAILABLE");
+      assert.equal(
+        failure.diagnostic.phase,
+        mode.endsWith("cold")
+          ? "cold_start"
+          : mode === "event"
+            ? "event_execution"
+            : mode === "mutation"
+              ? "mutation"
+              : "mutation_followup",
+      );
+      if (mode === "first-cold") assert.deepEqual(variant.scenarios, []);
+      else {
+        assert.equal(variant.scenarios.length, 1);
+        const scenario = variant.scenarios[0];
+        assert.deepEqual(scenario.coldStart, {
+          productEntries: 3,
+          processingRecords: 2,
+          nativeDocuments: 4,
+          durableCommands: 5,
+        });
+        const first = scenario.observations[0];
+        assert.equal(first.modelCalls, 1);
+        assert.deepEqual(first.usage, { syntheticTokens: 17 });
+        assert.equal(first.inventory[0].id, "synthetic-retained-1");
+        assert.equal(
+          scenario.observations.length,
+          mode === "event" ? 1 : mode === "mutation" ? 6 : 7,
+        );
+        if (["followup", "revoked"].includes(mode)) {
+          const last = scenario.observations.at(-1);
+          assert.equal(last.mutation.syntheticMutationReceipt, "returned");
+          assert.equal("followup" in last, mode === "revoked");
+          if (mode === "revoked")
+            assert.deepEqual(last.followup.deliveredBodyDigests, [
+              "synthetic-revoked",
+            ]);
+        }
+      }
+      const rubric = resolve(scratch, "rubric.json");
+      await writeFile(
+        rubric,
+        JSON.stringify({
+          runId: report.runId,
+          corpusRevision: report.corpusRevision,
+          reviewer: "synthetic-test-only",
+          reviewedAt: new Date().toISOString(),
+          entries: [],
+          answers: [],
+        }),
+      );
+      const score = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "scripts/conversation-evals/score.ts",
+          output,
+          rubric,
+        ],
+        { encoding: "utf8", timeout: 30_000 },
+      );
+      assert.notEqual(score.status, 0);
+      assert.match(score.stderr, /eval_rubric_not_bound_to_observed_run/);
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
 // Synthetic scorer/capture regressions only. No model quality or product/native bank is fabricated.
 function sample() {
   const namespace = "fixture";
