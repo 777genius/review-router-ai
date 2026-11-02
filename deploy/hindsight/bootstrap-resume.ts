@@ -243,8 +243,8 @@ export async function resumeNativeDeployment(
         "Saved standalone runtime differs",
       );
       assert.deepEqual(
-        record.Config.Entrypoint,
-        base.Config.Entrypoint,
+        record.Config.Entrypoint ?? [],
+        base.Config.Entrypoint ?? [],
         "Saved entrypoint differs",
       );
       assert.equal(

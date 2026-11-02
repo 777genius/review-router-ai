@@ -240,19 +240,43 @@ test("planning binds exact native evidence without creating deployment state or 
   }
 });
 
-test("completed resume refuses cleanup debt, wrong bindings and unknown volume users before any Docker start", async (t) => {
+test("completed resume preserves exact entrypoints and refuses debt, wrong bindings and foreign volume users before any Docker start", async (t) => {
   const { createServer } = await import("node:http");
   const { randomUUID, createHash } = await import("node:crypto");
   const { resumeNativeDeployment } = await import("./bootstrap-resume.ts");
   const { memoryNativeStartupBindingDigest } =
     await import("../../packages/features/memory/src/application/memory-native-startup.ts");
-  for (const failure of ["debt", "binding", "volume-user"] as const)
+  for (const failure of [
+    "debt",
+    "binding",
+    "volume-user",
+    "null-container-entrypoint",
+    "absent-container-entrypoint",
+    "changed-nonempty-entrypoint",
+  ] as const)
     await t.test(failure, async () => {
       const directory = await mkdtemp(
         join(tmpdir(), "rr-native-resume-refusal-"),
       );
       const oldPath = process.env.PATH;
       const config = configuration(directory);
+      const nullishEntrypoint =
+        failure === "null-container-entrypoint" ||
+        failure === "absent-container-entrypoint";
+      const nativeEntrypoint =
+        failure === "null-container-entrypoint"
+          ? null
+          : failure === "absent-container-entrypoint"
+            ? undefined
+            : failure === "changed-nonempty-entrypoint"
+              ? ["entry", "--changed"]
+              : ["entry"];
+      const imageEntrypoint =
+        failure === "null-container-entrypoint"
+          ? undefined
+          : failure === "absent-container-entrypoint"
+            ? null
+            : ["entry"];
       const api = "1".repeat(64),
         worker = "2".repeat(64),
         postgres = "3".repeat(64);
@@ -286,7 +310,7 @@ test("completed resume refuses cleanup debt, wrong bindings and unknown volume u
             epoch: "0",
             paused: false,
             owner: null,
-            cleanupDebt: failure === "debt",
+            cleanupDebt: failure === "debt" || nullishEntrypoint,
           }),
         );
       });
@@ -340,7 +364,7 @@ test("completed resume refuses cleanup debt, wrong bindings and unknown volume u
             Config: {
               Env: settings(apiEnv).trim().split("\n"),
               Cmd: ["hindsight-api"],
-              Entrypoint: ["entry"],
+              Entrypoint: nativeEntrypoint,
               User: "1000",
               Labels: {
                 "io.reviewrouter.hindsight.deployment": config.deployment,
@@ -362,7 +386,7 @@ test("completed resume refuses cleanup debt, wrong bindings and unknown volume u
                 "--http-port",
                 "8889",
               ],
-              Entrypoint: ["entry"],
+              Entrypoint: nativeEntrypoint,
               User: "1000",
               Labels: {
                 "io.reviewrouter.hindsight.deployment": config.deployment,
@@ -430,7 +454,7 @@ test("completed resume refuses cleanup debt, wrong bindings and unknown volume u
           images: {
             [imageId]: {
               Id: imageId,
-              Config: { Env: [], Entrypoint: ["entry"], User: "1000" },
+              Config: { Env: [], Entrypoint: imageEntrypoint, User: "1000" },
             },
             [postgresImage]: {
               Id: pgId,
@@ -497,7 +521,12 @@ test("completed resume refuses cleanup debt, wrong bindings and unknown volume u
             !calls.includes(password) &&
             !calls.includes(token),
         );
-        assert.equal(requests, failure === "volume-user" ? 0 : 1);
+        assert.equal(
+          requests,
+          ["volume-user", "changed-nonempty-entrypoint"].includes(failure)
+            ? 0
+            : 1,
+        );
         await assert.rejects(readFile(join(directory, "resume-attempt.json")), {
           code: "ENOENT",
         });
