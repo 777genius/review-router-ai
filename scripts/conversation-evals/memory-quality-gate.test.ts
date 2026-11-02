@@ -81,6 +81,9 @@ test("live tuning preflight enforces approved main, three independent isolation 
   reject({ REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE: "" }, /eval_live_tuning_only/);
   reject({ CONVERSATION_EVAL_DATABASE_URL: "postgresql://fixture@production.internal/real" }, /eval_isolated_endpoint_required/);
   reject({ CONVERSATION_EVAL_DATABASE_URL: "postgresql://fixture@127.0.0.1:5432/production" }, /eval_isolated_endpoint_required/);
+  reject({ CONVERSATION_EVAL_DATABASE_URL: "postgresql://fixture@127.0.0.1:5432/cache_test?host=production.internal&port=6543" }, /eval_isolated_endpoint_required/);
+  reject({ CONVERSATION_EVAL_DATABASE_URL: "postgresql://fixture@127.0.0.1:5432/cache_test?host=%2Fvar%2Frun%2Fpostgresql" }, /eval_isolated_endpoint_required/);
+  reject({ CONVERSATION_EVAL_DATABASE_URL: "postgresql://fixture@127.0.0.1:5432/cache_test#hidden" }, /eval_isolated_endpoint_required/);
   reject({ REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: "https://hindsight.production.internal" }, /eval_isolated_endpoint_required/);
   reject({ REVIEW_ROUTER_MEMORY_NAMESPACE: "production_memory" }, /eval_requires_dedicated_native_namespace_and_generation/);
   reject({ REVIEW_ROUTER_MEMORY_GENERATION: "production" }, /eval_requires_dedicated_native_namespace_and_generation/);
