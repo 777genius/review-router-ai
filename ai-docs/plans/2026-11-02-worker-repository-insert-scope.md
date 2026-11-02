@@ -67,7 +67,10 @@ rejected as an unrecognized object on the next release. The existing
 receipt-bound catalog verifier now accepts precisely two staged inventories:
 before the post-ACL worker guard exists, or with the **complete pinned**
 operator-owned guard (binding, function-body SHA-256, owner, search path,
-definer bit, trigger state and owner-only EXECUTE). Partial, disabled,
+definer bit, trigger state and owner-only EXECUTE). Capture includes the known
+guard function by exact name even when its trigger has been removed, so an
+orphaned function is not misclassified as a historical pre-grant database.
+Partial, disabled,
 repointed or tampered versions remain fail-closed. No activation routine/trust
 root hash or canonical read-only ACL acceptance is changed. Capture during the
 canonical-ACL verification phase still expects runtime roles read-only; the

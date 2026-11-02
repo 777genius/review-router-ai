@@ -268,6 +268,29 @@ describe("observation-backed Codex rotating rollout verifier", () => {
     ).toBe(workerInsertGuard.bodySha256);
   });
 
+  it("captures an orphaned worker guard function even after its trigger was removed", () => {
+    const captureSource = readFileSync(
+      join(process.cwd(), "scripts/capture-codex-rotating-production-writer.mjs"),
+      "utf8",
+    );
+    expect(
+      captureSource.match(
+        /OR p\.proname = '\$\{codexRotatingPostAclWorkerInsertGuard\.function\}'/gu,
+      )?.length,
+    ).toBe(3);
+    const catalog = observedFixture().artifacts.database.catalog;
+    addPostAclWorkerGuard(catalog);
+    catalog.triggers = catalog.triggers.filter(
+      (entry: any) => entry.name !== workerInsertGuard.trigger,
+    );
+    catalog.inventory.triggers = catalog.inventory.triggers.filter(
+      (name: string) => name !== workerInsertGuard.trigger,
+    );
+    expect(verifyCodexRotatingDatabaseCatalog(catalog).failures).toContain(
+      "database rotating OAuth catalog inventory is not exact",
+    );
+  });
+
   it("attests the exact existing owner-operated INSERT guard without hiding new catalog objects", () => {
     const fixture = observedFixture();
     const catalog = fixture.artifacts.database.catalog;
