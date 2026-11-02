@@ -207,8 +207,10 @@ try {
   for (const { path, required } of discoveryResources) {
     const response = await fetch(`${baseUrl}${path}`, {
       headers: { accept: "text/plain" },
+      redirect: "manual",
     });
-    if (!response.ok) await fail(`${path} returned HTTP ${response.status}`);
+    if (response.status !== 200)
+      await fail(`${path} returned HTTP ${response.status}`);
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.startsWith("text/") || contentType.includes("html")) {
       await fail(`${path} must return plain text/Markdown, got ${contentType}`);
