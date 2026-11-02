@@ -1,0 +1,145 @@
+name: Memory quality evaluation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/memory-quality-evals.yml
+      - scripts/conversation-evals/**
+      - packages/features/conversations/**
+      - packages/features/memory/**
+      - packages/context-memory/**
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Contracts only or explicitly approved isolated live tuning
+        required: true
+        type: choice
+        default: contracts
+        options: [contracts, live-tuning]
+      corpus:
+        description: Immutable evaluation corpus (no protected split in this workflow)
+        required: true
+        type: choice
+        default: full-thread-v2
+        options: [legacy-v1, full-thread-v2, multilingual-v1]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memory-quality-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  contracts:
+    name: Corpus, scorer and fail-closed memory E2E contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pinned dependencies
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Verify fixed legacy, full-thread and multilingual corpus inventories
+        run: |
+          node --import tsx scripts/conversation-evals/run.ts --validate
+          node --import tsx scripts/conversation-evals/run.ts --validate --corpus full-thread-v2
+          node --import tsx scripts/conversation-evals/run.ts --validate --corpus multilingual-v1
+      - name: Focused scorer regressions and privileged-run gate
+        run: |
+          node --import tsx --test scripts/conversation-evals/eval-risk.test.ts scripts/conversation-evals/memory-quality-gate.test.ts
+      - name: No-live result must fail closed, never manufacture semantic PASS
+        env:
+          CONVERSATION_EVAL_LIVE: "0"
+          CONVERSATION_EVAL_DISPOSABLE: "0"
+        run: |
+          mkdir -p tmp/memory-quality-evals
+          set +e
+          node --import tsx scripts/conversation-evals/run.ts --corpus multilingual-v1 --split tuning --variant full-product --out tmp/memory-quality-evals/no-live.json
+          outcome=$?
+          set -e
+          if [ "$outcome" -ne 2 ]; then
+            echo "::error::Unqualified model evaluation did not return UNAVAILABLE (exit 2)"
+            exit 1
+          fi
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const result = JSON.parse(readFileSync("tmp/memory-quality-evals/no-live.json","utf8"));
+            if (result.status !== "UNAVAILABLE" || result.variants.some(v => v.status !== "UNAVAILABLE"))
+              process.exit(1);
+          '
+      - name: Strict evaluation source typecheck
+        run: node scripts/local-checks/compiler-cli.ts --native --strict --noEmit -p scripts/conversation-evals/tsconfig.json
+
+  live-tuning:
+    name: Authorized real Gateway Hindsight tuning (3 isolated runs)
+    # A privileged manual request on reviewed main only. PRs never receive secrets.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'live-tuning' && github.ref == 'refs/heads/main' }}
+    needs: [contracts]
+    environment: memory-quality-eval
+    runs-on: ${{ vars.MEMORY_QUALITY_EVAL_RUNNER }}
+    timeout-minutes: 120
+    env:
+      CONVERSATION_EVAL_LIVE: "1"
+      CONVERSATION_EVAL_DISPOSABLE: "1"
+      CONVERSATION_EVAL_OPERATOR_ACK: ${{ secrets.MEMORY_EVAL_OPERATOR_ACK }}
+      CONVERSATION_EVAL_DATABASE_URL: ${{ secrets.MEMORY_EVAL_DISPOSABLE_DATABASE_URL }}
+      CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID: ${{ vars.MEMORY_EVAL_TEMPLATE_WORKSPACE_ID }}
+      CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID: ${{ vars.MEMORY_EVAL_TEMPLATE_REPOSITORY_ID }}
+      CONVERSATION_EVAL_MODEL_BOUNDS_JSON: ${{ vars.MEMORY_EVAL_MODEL_BOUNDS_JSON }}
+      REVIEW_ROUTER_MEMORY_PROVIDER: hindsight
+      REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE: hindsight-v1.1.0-chunks-v1
+      REVIEW_ROUTER_MEMORY_NAMESPACE: ${{ vars.MEMORY_EVAL_NAMESPACE }}
+      REVIEW_ROUTER_MEMORY_GENERATION: ${{ vars.MEMORY_EVAL_GENERATION }}
+      REVIEW_ROUTER_MEMORY_HINDSIGHT_URL: ${{ secrets.MEMORY_EVAL_HINDSIGHT_URL }}
+      REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY: ${{ secrets.MEMORY_EVAL_HINDSIGHT_API_KEY }}
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN: ${{ secrets.MEMORY_EVAL_GATEWAY_ORIGIN }}
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER: ${{ secrets.MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER }}
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_POLICY }}
+      REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: ${{ secrets.MEMORY_EVAL_GATEWAY_RELAY_POLICY }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pinned dependencies and generate existing Prisma client
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          pnpm --filter @reviewrouter/platform-db db:generate
+      - name: Assert private operator authorization, isolated DB/native and tuning-only
+        run: node --import tsx scripts/conversation-evals/memory-quality-gate.ts preflight "${{ inputs.corpus }}"
+      - name: Three real full-product tuning observations (fail on first unqualified result)
+        shell: bash
+        run: |
+          mkdir -p tmp/memory-quality-evals
+          for attempt in 1 2 3; do
+            output="tmp/memory-quality-evals/tuning-${attempt}.json"
+            set +e
+            node --import tsx scripts/conversation-evals/run.ts --corpus "${{ inputs.corpus }}" --split tuning --variant full-product --out "$output"
+            outcome=$?
+            set -e
+            if [ "$outcome" -ne 3 ]; then
+              echo "::error::Real evaluation unavailable or failed; do not retry or consume protected holdout"
+              exit 1
+            fi
+            node --import tsx scripts/conversation-evals/memory-quality-gate.ts inspect "${{ inputs.corpus }}" "$output"
+          done
+          echo "All three real observations require independent human rubrics; none is a semantic quality PASS."
+      - name: Preserve bounded synthetic observations for independent rubric review
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: memory-quality-tuning-${{ inputs.corpus }}-${{ github.run_id }}
+          path: tmp/memory-quality-evals/tuning-*.json
+          retention-days: 3
+          if-no-files-found: warn
