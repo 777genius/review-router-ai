@@ -157,12 +157,31 @@ try {
         await fail("home missing llms.txt v2 describedby link");
       }
     }
-    if (
-      path === "/" &&
-      (!html.includes("free-ci-control-plane") ||
-        !html.includes('"price":"0"'))
-    ) {
-      await fail("home missing the current free CI control-plane structured offer");
+    if (path === "/") {
+      // Verify the price on the actual free WebApplication, not an unrelated
+      // JSON-LD object or an arbitrary HTML substring.
+      const schemaNodes = [...html.matchAll(
+        /<script\\b[^>]*\\btype=["']application\\/ld\\+json["'][^>]*>([\\s\\S]*?)<\\/script>/gi,
+      )].flatMap(([, json]) => {
+        const schema = JSON.parse(json);
+        return Array.isArray(schema?.["@graph"]) ? schema["@graph"] : [schema];
+      });
+      const freeControlPlanes = schemaNodes.filter(
+        (node) =>
+          node &&
+          typeof node === "object" &&
+          node["@type"] === "WebApplication" &&
+          typeof node["@id"] === "string" &&
+          node["@id"].endsWith("/#free-ci-control-plane"),
+      );
+      if (
+        freeControlPlanes.length !== 1 ||
+        freeControlPlanes[0].offers?.["@type"] !== "Offer" ||
+        freeControlPlanes[0].offers?.price !== "0" ||
+        freeControlPlanes[0].offers?.priceCurrency !== "USD"
+      ) {
+        await fail("home missing the current free CI control-plane structured offer");
+      }
     }
     if (
       path === "/getting-started" &&
