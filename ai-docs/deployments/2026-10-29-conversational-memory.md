@@ -234,12 +234,12 @@ truthful per-environment deployment status.
 
 2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
 
-## Full-thread tuning acceptance, 2026-11-02
+## Historical Codex tuning acceptance, 2026-11-02
 
 Implementation [#774](https://github.com/777genius/review-router-ai/pull/774)
 merged as `792afdc2031677e498d128af4c0594a857555726`. This does not establish
-installation or automatic-learning activation. The four production quality-bound
-source files are unchanged from execution source
+installation or automatic-learning activation. For that historical result, the four quality-bound
+source files matched execution source
 `5da70100c4c6452211ea95958aa83dc3f88370d7`.
 
 The complete `full-thread-v2` tuning run
@@ -269,12 +269,10 @@ checks, including the old-code negative control, and 45 risk checks passed;
 strict TypeScript, lint and formatting passed. No model execution, source report,
 corpus or semantic label was changed to obtain this score.
 
-The next steps remain one protected checkpoint, the paired protected-main
-release gates, normal production image adoption, actual disposable installed-App
-learning/recall/Forget acceptance, then genuine strict-v2 qualification artifact
-publication and clean self-hosted installation acceptance. The static protected
-set contains six threads and 18 events; its conflict slice does not independently
-prove two distinct human maintainers, which is covered by the tuning case.
+The protected checkpoint below subsequently failed. This historical tuning PASS
+cannot qualify the changed successor source or the final FREE model. Its original
+static protected set contained six threads and 18 events; the distinct-maintainer
+conflict was covered in tuning.
 
 ## Protected checkpoint regression and successor, 2026-11-02
 
@@ -324,3 +322,67 @@ roles, then real save/read/recall/authorization and post-Forget exclusion. Nine
 focused lifecycle tests and strict types/lint passed. Complete native and Compose
 execution still requires the normal CI job; neither local source checks nor a
 native current-document absence claim signed physical Forget completion.
+
+## Current FREE qualification and repair batch, 2026-11-02
+
+Production remains Core `57cc1513` / image `3550f3c7` with Action `v1.0.225`;
+approved Memory reviewer delivery and signed physical Forget remain verified.
+Public Action `v1.0.226` is published, but the paired SaaS release, producer
+adoption and automatic-learning activation have not been verified. No new
+production image or qualification is implied by the following candidate runs.
+
+Full FREE tuning at source `17dfc0e562e96d57c64ff620de75fc1c4cddf61a`,
+run `76fd5fd8-b803-43f7-bdea-7ee3bbfd3d3f`, is **UNAVAILABLE**: 50 events in
+10 scenario groups, with five unavailable parent outputs. All recorded parent
+observations used actual Nemotron with usage; extraction children were closed
+and no parent cleanup was pending. Delegated Codex agent review also found real
+quality failures: missed contextual facts and linked recall, durable writes for
+rejected quotations/unadopted proposals, an old confirmation misattributed as a
+new explicit write, corrupted canonical action kind, and a false Forget-success
+claim. Availability repair alone cannot turn this report into qualification.
+The unchanged report SHA256 is
+`8e5e515c1e50dd2ab2f9e2efb70881c03cd385880e3c8161dc5139764aa12b8d`.
+The private 50-event review and partial rubric explicitly leave unavailable
+answers ungraded; they do not claim human annotation or a scoring PASS.
+
+The subsequent `exact-metadata` diagnostic at source `46048fa09`, run
+`8fe35c8c-bf44-43e9-b292-df77e0522c62`, is also **UNAVAILABLE**, deliberately
+ineligible for qualification. Its first output was unavailable; the second
+became stale with parent cleanup pending and no observed model/usage. Preserve
+that parent as **UNKNOWN**; absent usage is not proof of no external execution.
+Do not replay it or infer that canonical-action fixes settled its transport.
+Report SHA256:
+`55d0abc860e2cabd2c45c8402de1886824f241b2f9c720267540342d035b72d0`.
+
+Exact-source [CI run 41459190932](https://github.com/777genius/review-router-ai/actions/runs/41459190932)
+for `17dfc0e56` had two genuine failing jobs. Quality Checks collected two
+Node-test files as Vitest suites and failed with `No test suite found`.
+Self-hosted E2E passed real first installation/reuse, stock Compose provider
+configuration and save/read/recall/owner checks, then failed an overstrict
+current-native-document absence assertion while Forget was `cleanup_pending`.
+Neither is a complete self-hosted acceptance. The pending fix batch keeps product
+read and post-Forget bundle exclusion mandatory, records actual native presence,
+and permits no claim of signed physical completion from fencing alone. It also
+repairs canonical-source decisions and FREE output/selection handling. These are
+source changes awaiting remote PostgreSQL/CI and model validation, not deployed
+fixes. No further heavy local checks are authorized; use existing hosted test
+infrastructure or CI.
+
+The replacement `2026-11-02-full-thread-r2` protected set remains **unconsumed**.
+The failed r1 holdout stays frozen as tuning regression. Required remaining work:
+
+1. Complete remote exact-source PostgreSQL/CI checks for the coherent repair batch;
+   reconcile the UNKNOWN diagnostic without a fresh attempt of its identity.
+2. Freeze actual source/model inputs, run fresh complete FREE tuning, review and
+   score its real outputs, then use one explicit r2 protected checkpoint only
+   after tuning passes. Preserve semantic gates and delegated-agent attribution.
+3. Complete the normal paired `226` protected-main release/OCI/protocol and
+   producer-adoption gates, then coherently install the initially unqualified
+   implementation. Do not relabel the current Core57 image or mint a capability.
+4. Prove actual installed-App learning, linked recall, source changes,
+   confirmation/replies-off, authorization and Forget in the existing disposable
+   repository; preserve unrelated FREE defaults and policy/MCP settings.
+5. Publish only a genuine source/model-bound qualification artifact and complete
+   clean stock self-hosted installation/update acceptance. Cold-boot/resume is
+   still unresolved under the native `restart=no` cleanup contract; no daemon,
+   restart-policy change or fictional no-cleanup-debt authority is an accepted fix.
