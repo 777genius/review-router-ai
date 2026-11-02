@@ -29,6 +29,7 @@ Sources: [provider catalog](../packages/features/review-providers/src/domain/pro
 | Feature           | Availability and limits                                                                                                      | Rollout              |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- |
 | Memory            | Full-thread replies and learning, scoped knowledge, optional confirmation; live model/App rollout still needs qualification. | [status][memory]     |
+| PR conversations  | Authorized full-thread replies and contextual learning; requires qualified interaction Action, Gateway and account.          | [status][memory]     |
 | Skills            | Versioned text instructions, sharing, assignments and checked imports; production text-only E2E verified.                    | [status][skills]     |
 | MCP context tools | Approved remote HTTPS tools for compatible OCR/Gateway; two-reviewer canary verified.                                        | [status][mcp]        |
 | Statistics        | PRs, reviews, issues and trends; completeness requires verified capture and reconciliation.                                  | [status][statistics] |
