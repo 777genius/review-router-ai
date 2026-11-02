@@ -122,7 +122,7 @@ import {
   type GitHubUserRepositoryAccessStatus,
 } from "../../src/server/github-user-repository-access";
 import { getPrisma } from "../../src/server/prisma";
-import { loadOrganizationSecretPolicy } from "../../src/server/dashboard-organization-secret-policy";
+import { loadOrganizationSecretPolicy } from "../../src/server/dashboard-organization-secret-policy-github";
 import { loadProviderListView } from "../../src/server/provider-list-view";
 import type { ProviderListView } from "../../src/features/provider-setup/provider-list-model";
 import {

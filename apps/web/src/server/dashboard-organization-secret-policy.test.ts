@@ -21,7 +21,10 @@ describe("dashboard organization plan metadata boundary", () => {
   it("coalesces concurrent requests and normalizes plan names", async () => {
     let finish!: (value: unknown) => void;
     const readPlan = vi.fn().mockImplementation(
-      () => new Promise<unknown>((resolve) => { finish = resolve; }),
+      () =>
+        new Promise<unknown>((resolve) => {
+          finish = resolve;
+        }),
     );
     const load = createOrganizationSecretPolicyLoader({ readPlan });
     const first = load(organization);
@@ -85,8 +88,12 @@ describe("dashboard organization plan metadata boundary", () => {
 
   it("retries malformed, unknown and non-permission failures after five seconds", async () => {
     let time = 0;
-    const readPlan = vi.fn().mockResolvedValueOnce({ name: " " })
-      .mockRejectedValueOnce(Object.assign(new Error("unavailable"), { status: 500 }))
+    const readPlan = vi
+      .fn()
+      .mockResolvedValueOnce({ name: " " })
+      .mockRejectedValueOnce(
+        Object.assign(new Error("unavailable"), { status: 500 }),
+      )
       .mockResolvedValue({ name: "enterprise" });
     const load = createOrganizationSecretPolicyLoader({
       readPlan,
@@ -103,7 +110,10 @@ describe("dashboard organization plan metadata boundary", () => {
   it("evicts the least recently used entry within the configured capacity", async () => {
     const readPlan = vi.fn().mockResolvedValue({ name: "team" });
     const load = createOrganizationSecretPolicyLoader({ readPlan, capacity: 2 });
-    const forId = (id: bigint) => ({ ...organization, githubInstallationId: id });
+    const forId = (id: bigint) => ({
+      ...organization,
+      githubInstallationId: id,
+    });
     await load(forId(1n));
     await load(forId(2n));
     await load(forId(1n));
@@ -116,10 +126,15 @@ describe("dashboard organization plan metadata boundary", () => {
     let finish!: (value: unknown) => void;
     const readPlan = vi.fn().mockImplementation(({ githubInstallationId }) =>
       githubInstallationId === 1n
-        ? new Promise((resolve) => { finish = resolve; })
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
         : Promise.resolve({ name: "free" }),
     );
-    const load = createOrganizationSecretPolicyLoader({ readPlan, capacity: 1 });
+    const load = createOrganizationSecretPolicyLoader({
+      readPlan,
+      capacity: 1,
+    });
     const pending = load({ ...organization, githubInstallationId: 1n });
     await Promise.resolve();
     await load({ ...organization, githubInstallationId: 2n });

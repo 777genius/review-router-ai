@@ -1,5 +1,3 @@
-import { createGitHubAppInstallationOctokit } from "./dashboard-mutations";
-
 export type DashboardOrganizationSecretPolicy = Readonly<{
   planName: string | null;
   privateRepositoriesAvailable: boolean | null;
@@ -13,7 +11,10 @@ export type OrganizationSecretPolicyInput = Readonly<{
 }>;
 
 export type OrganizationPlanReader = (
-  input: Pick<OrganizationSecretPolicyInput, "accountLogin" | "githubInstallationId">,
+  input: Pick<
+    OrganizationSecretPolicyInput,
+    "accountLogin" | "githubInstallationId"
+  >,
 ) => Promise<unknown>;
 
 type CacheEntry =
@@ -39,7 +40,9 @@ export function createOrganizationSecretPolicyLoader(input: {
   readonly readPlan: OrganizationPlanReader;
   readonly now?: () => number;
   readonly capacity?: number;
-}): (organization: OrganizationSecretPolicyInput) => Promise<DashboardOrganizationSecretPolicy | null> {
+}): (
+  organization: OrganizationSecretPolicyInput,
+) => Promise<DashboardOrganizationSecretPolicy | null> {
   const now = input.now ?? Date.now;
   const capacity = input.capacity ?? maxCacheEntries;
   if (!Number.isSafeInteger(capacity) || capacity < 1) {
@@ -124,14 +127,4 @@ function githubApiStatus(error: unknown): number | null {
     : null;
 }
 
-export const loadOrganizationSecretPolicy = createOrganizationSecretPolicyLoader({
-  readPlan: async ({ accountLogin, githubInstallationId }) => {
-    const octokit = await createGitHubAppInstallationOctokit(
-      githubInstallationId.toString(),
-    );
-    const response = await octokit.request("GET /orgs/{org}", {
-      org: accountLogin,
-    });
-    return (response.data as { readonly plan?: unknown }).plan;
-  },
-});
+export const loadOrganizationSecretPolicy = createOrganizationSecretPolicyLoa
