@@ -90,15 +90,8 @@ AS $worker_insert_body$
 DECLARE
   installation_workspace text;
 BEGIN
-  -- Only the worker LOGIN may create new repository connections. An
-  -- administrative owner may continue doing controlled schema/data repair.
-  IF session_user IN (
-    'reviewrouter_api', 'reviewrouter_web',
-    'reviewrouter_codex_effect_authority'
-  ) THEN
-    RAISE EXCEPTION 'worker_repository_insert_runtime_role_forbidden'
-      USING ERRCODE = '42501';
-  END IF;
+  -- Restrict only the LOGIN that receives this grant. Other actors retain
+  -- their already-established canonical ACL and sanctioned writer paths.
   IF session_user <> 'reviewrouter_worker' THEN
     RETURN NEW;
   END IF;
@@ -146,7 +139,7 @@ $create_worker_insert_guard$;
       AND pg_catalog.encode(
         pg_catalog.sha256(pg_catalog.convert_to(guard.prosrc, 'UTF8')),
         'hex'
-      ) = 'c3fe6186891abbdf8b990ab70f255ebb762414fc87e09952590f74bad5cb4669'
+      ) = '2106daba0e9be131214e76b77f6d93771b76b904b1732f1910a6a6b25223ca63'
   ) THEN
     RAISE EXCEPTION 'worker repository insert function integrity failed';
   END IF;
