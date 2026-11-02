@@ -2,16 +2,19 @@
 
 [Back to README](../README.md)
 
-This describes the code on `main` reviewed on 2026-09-14. Merged implementation
-is not proof that a capability is enabled in every hosted deployment.
+This page distinguishes **implemented features** from **verified rollout**.
+Availability depends on the installed version, provider, configuration and
+recorded data coverage. See the [deployment registry](../ai-docs/deployments/README.md)
+for current environment-specific status.
 
 ## Review and configuration
 
 - GitHub App installation, repository sync, setup PRs, review publication,
   repository health and audit views are implemented.
-- The provider catalog offers Codex subscription auth, Claude Code OAuth and
-  OpenRouter API keys. OpenAI API-key contracts remain in the code, but are not
-  offered as a current Codex onboarding mode.
+- The provider catalog offers Codex subscription auth, Claude Code OAuth,
+  OpenRouter, Kimi Code and MiMo Token Plan. Supported authentication and model
+  options depend on the selected provider; OpenAI API-key contracts are not a
+  current Codex onboarding mode.
 - Reviews support multiple providers, configurable parallelism and an agreement
   threshold for inline comments. Model, effort, language, comment and severity
   settings can inherit workspace defaults or be overridden per repository.
@@ -20,6 +23,26 @@ is not proof that a capability is enabled in every hosted deployment.
 Sources: [provider catalog](../packages/features/review-providers/src/domain/provider-catalog.ts),
 [configuration schema](../packages/features/review-config/src/domain/review-configuration.ts),
 [Review v2 contract](./operations/review-action-v2-cutover.md).
+
+## Feature availability
+
+| Feature           | Availability and limits                                                                                                      | Rollout              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| Memory            | Full-thread replies and learning, scoped knowledge, optional confirmation; live model/App rollout still needs qualification. | [status][memory]     |
+| Skills            | Versioned text instructions, sharing, assignments and checked imports; production text-only E2E verified.                    | [status][skills]     |
+| MCP context tools | Approved remote HTTPS tools for compatible OCR/Gateway; two-reviewer canary verified.                                        | [status][mcp]        |
+| Statistics        | PRs, reviews, issues and trends; completeness requires verified capture and reconciliation.                                  | [status][statistics] |
+| Review history    | GitHub v2 review runs, filters and reruns; production capture since activation, no historical backfill.                      | [status][history]    |
+| Usage             | Provider/model/run attempts, known tokens and costs; coverage-aware, rollout verification ongoing.                           | [status][usage]      |
+
+[memory]: ../ai-docs/deployments/2026-10-29-conversational-memory.md
+[skills]: ../ai-docs/deployments/2026-10-28-skills-catalog.md
+[mcp]: ../ai-docs/deployments/2026-11-01-reviewer-v4-mcp.md
+[statistics]: ../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md
+[history]: ../ai-docs/deployments/2026-10-28-review-history.md
+[usage]: ../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md
+
+Features in source are not necessarily active in every hosted workspace.
 
 ## Hosting and data
 
