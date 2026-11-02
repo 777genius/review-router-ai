@@ -215,29 +215,32 @@ export type Corpus = {
 const corpusProfiles = {
   "legacy-v1": {
     file: "./corpus.json",
+    revision: "2026-10-28-r2",
+    facts: 81,
     threads: 48,
     tuning: 32,
     holdout: 16,
     events: 149,
-    minFacts: 80,
     linkedPairs: 8,
   },
   "full-thread-v2": {
     file: "./corpus.full-thread-v2.json",
+    revision: "2026-10-30-full-thread-r1",
+    facts: 21,
     threads: 16,
     tuning: 10,
     holdout: 6,
     events: 50,
-    minFacts: 1,
     linkedPairs: 4,
   },
   "multilingual-v1": {
     file: "./corpus.multilingual-v1.json",
+    revision: "2026-11-02-multilingual-r1",
+    facts: 7,
     threads: 10,
     tuning: 4,
     holdout: 6,
     events: 14,
-    minFacts: 7,
     linkedPairs: 3,
   },
 } as const;
@@ -270,8 +273,8 @@ export async function loadCorpus(
   const factIds = new Set(corpus.facts.map((fact) => fact.id));
   if (
     factIds.size !== corpus.facts.length ||
-    factIds.size < profile.minFacts ||
-    factIds.size > 120
+    factIds.size !== profile.facts ||
+    corpus.revision !== profile.revision
   )
     throw new Error("corpus_fact_inventory_invalid");
   const scenarios = new Map<string, CorpusThread[]>();
