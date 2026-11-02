@@ -161,7 +161,7 @@ try {
       // Verify the price on the actual free WebApplication, not an unrelated
       // JSON-LD object or an arbitrary HTML substring.
       const schemaNodes = [...html.matchAll(
-        /<script\\b[^>]*\\btype=["']application\\/ld\\+json["'][^>]*>([\\s\\S]*?)<\\/script>/gi,
+        /<script\b[^>]*\btype=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
       )].flatMap(([, json]) => {
         const schema = JSON.parse(json);
         return Array.isArray(schema?.["@graph"]) ? schema["@graph"] : [schema];
