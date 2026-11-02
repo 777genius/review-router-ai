@@ -137,6 +137,15 @@ test("the focused workflow never gives PR jobs live credentials or runs protecte
   assert.match(workflow, /Verify operator-owned private evidence storage before paid inference/);
   assert.match(workflow, /install -m 0600/);
   assert.doesNotMatch(workflow, /actions\/upload-artifact@/);
+  const liveJob = workflow.split("\n  live-tuning:\n")[1]!;
+  const jobSettings = liveJob.split("\n    steps:\n")[0]!;
+  const installStep = liveJob
+    .split("      - name: Install pinned dependencies and generate existing Prisma client")[1]!
+    .split("      - name: Assert private operator authorization")[0]!;
+  assert.doesNotMatch(jobSettings, /secrets\.[A-Z]/);
+  assert.doesNotMatch(installStep, /secrets\.[A-Z]/);
+  assert.match(liveJob, /CONVERSATION_EVAL_OPERATOR_ACK:.*secrets\.MEMORY_EVAL_OPERATOR_ACK/);
+  assert.match(liveJob, /REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY:.*secrets\.MEMORY_EVAL_HINDSIGHT_API_KEY/);
 });
 
 test("three independent human-scored runs expose variation without fabricated semantic reliability", () => {
