@@ -167,6 +167,21 @@ claiming success from generated prose.
 
 ## Activation evidence
 
+### Mechanism applicability successor, 2026-11-02
+
+The owner's self-hosted startup requirement separates reusable source/model
+qualification from live repository and selected-account permission. The strict
+version-2 deployment capability specified in ADR-034 may cover normal current
+product admissions without a per-repository operator allowlist. Version 1 retains
+its exact finite workspace/repository bindings; omission never expands its scope.
+This successor changes evidence applicability only. Installed App source checks,
+session/repository identity epochs, primary-account ownership/epochs, confirmation,
+deletion, publication and paid one-shot admission remain authoritative.
+
+The existing activation declaration below describes version 1. Version 2 requires
+qualified release evidence for the exact full-thread Gateway source/model mechanism;
+neither parsing a declaration nor native bootstrap generates that evidence.
+
 `REVIEW_ROUTER_CONVERSATION_QUALIFICATION` contains trusted deployment proof ID,
 exact runtime SHA, supported workspace/repository bindings and qualified model
 context bounds. It is not an account selector or a parallel user policy store.

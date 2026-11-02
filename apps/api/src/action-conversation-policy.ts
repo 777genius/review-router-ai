@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import {
-  conversationScopeQualified,
+  conversationCapabilityAppliesToScope,
   type ConversationQualification,
 } from "@reviewrouter/platform-config";
 export {
   readConversationQualification,
-  conversationScopeQualified,
+  conversationCapabilityAppliesToScope,
   type ConversationQualification,
 } from "@reviewrouter/platform-config";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -74,7 +74,10 @@ export function createConversationPublicationAuthority(input: {
     try {
       if (
         !record.boundManifest ||
-        !conversationScopeQualified(input.qualification, record.identity)
+        !conversationCapabilityAppliesToScope(
+          input.qualification,
+          record.identity,
+        )
       )
         return false;
       const manifest = JSON.parse(record.boundManifest) as {
@@ -87,6 +90,13 @@ export function createConversationPublicationAuthority(input: {
         manifest.publication?.enabled !== true ||
         !captured ||
         typeof captured.bindingId !== "string"
+      )
+        return false;
+      if (
+        input.qualification.profileVersion === 2
+          ? captured.qualificationCapabilityDigest !==
+            conversationDigest(input.qualification)
+          : captured.qualificationCapabilityDigest !== undefined
       )
         return false;
       const policy = await input.runtime.policy.getPolicy(record.identity);
@@ -376,7 +386,10 @@ function createSelectedAccountPolicy(
           : processingIdentity;
       if (
         (mode.kind === "qualified" &&
-          !conversationScopeQualified(mode.qualification, identity)) ||
+          !conversationCapabilityAppliesToScope(
+            mode.qualification,
+            identity,
+          )) ||
         !origin ||
         !bearer ||
         !relay ||
@@ -581,7 +594,16 @@ function createSelectedAccountPolicy(
         model: selected.provider.model,
         configurationDigest: selected.configurationDigest,
         ...(mode.kind === "qualified"
-          ? { qualificationProofId: mode.qualification.proofId }
+          ? {
+              qualificationProofId: mode.qualification.proofId,
+              ...(mode.qualification.profileVersion === 2
+                ? {
+                    qualificationCapabilityDigest: conversationDigest(
+                      mode.qualification,
+                    ),
+                  }
+                : {}),
+            }
           : { candidateEvaluationRunId: mode.candidateRunId }),
         memorySettings: {
           requireConfirmation: selected.policy.requireConfirmation,

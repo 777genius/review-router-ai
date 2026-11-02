@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { conversationCapabilityAppliesToScope } from "@reviewrouter/platform-config";
 import type { MemoryAutomaticSourceCurrentPort } from "../application/ports/memory-automatic-source-port";
 import type { MemoryPolicyConfigPort } from "../application/ports/memory-policy-config-port";
 import {
@@ -24,11 +25,7 @@ export function createPrismaAutomaticMemorySourceCurrent(input: {
       if (
         !qualification ||
         selectedScope.kind !== "repository" ||
-        !qualification.repositories.some(
-          (scope) =>
-            scope.workspaceId === selectedScope.workspaceId &&
-            scope.repositoryId === selectedScope.repositoryId,
-        )
+        !conversationCapabilityAppliesToScope(qualification, selectedScope)
       )
         return false;
       const repository = await input.prisma.repositoryConnection.findFirst({
@@ -64,11 +61,7 @@ export function createPrismaAutomaticMemorySourceCurrent(input: {
             String(repository.installation!.githubInstallationId),
           ),
         sourceProcessingAllowed: async () =>
-          qualification.repositories.some(
-            (scope) =>
-              scope.workspaceId === sourceScope.workspaceId &&
-              scope.repositoryId === sourceScope.repositoryId,
-          ),
+          conversationCapabilityAppliesToScope(qualification, sourceScope),
         standingPolicyRevision: async () => {
           const policy = await input.policy.getPolicy({
             workspaceId: sourceScope.workspaceId,

@@ -51,6 +51,51 @@ cleanup profile, with a separate PG17 database and no Compose reconciler.
 
 ## Evidence boundary
 
+### Reusable mechanism capability, 2026-11-02
+
+Accepted for implementation within the owner's requirement that new self-hosted
+users/repositories use their selected review accounts without per-repository
+operator qualification. Source implementation is not production activation.
+
+The existing `REVIEW_ROUTER_CONVERSATION_QUALIFICATION` key accepts two strict
+versions. Version 1 keeps its required finite `repositories` list and all historical
+mechanism meanings. Version 2 requires `coverage: normal-current-product-admission`,
+the exact `transient-checked-inline-gateway-full-thread-v1` mechanism, proof ID,
+immutable interaction runtime SHA, qualified profile/model bounds and a strict
+`sourceProfile` containing the common prompt, Gateway preview, account-policy and
+Gateway SDK provenance SHA-256 digests. Version 2 has no repository/account selector;
+mixed versions, historical mechanisms, absent coverage/digests and wildcard lists
+are rejected. The coverage literal is an immutable deployment contract, not a flag.
+The frozen account manifest binds the exact version-2 declaration by digest, so
+replay/child admission cannot silently substitute different mechanism evidence.
+
+This capability says that a mechanism/model combination is qualified. It confers
+no repository, maintainer, credential or publication authority. Normal authorized
+setup may install its exact interaction caller in a newly connected repository.
+The existing independent authorities remain mandatory: selected GitHub repository
+and installation, canonical App caller, session identity epoch, verified maintainer,
+and primary review account/profile/model, owner, binding and remote authorization
+epoch. Current-source readback retains its selected-repository and checked-source
+verification. Transactional confirmation/revision and deletion fences remain
+unchanged. Synthetic evaluation constructors are never used for product admission.
+Different authorized accounts/repositories may reuse the same qualified mechanism
+and model; an unsupported profile/model remains unavailable without fallback.
+
+Changing proof identity changes the standing policy revision of automatic sources.
+Release activation must retain the genuine evidence identity or explicitly reconcile
+existing automatic observations; it must not silently relabel historical evidence.
+Changing the mechanism/source/model requires matching reviewed qualification.
+
+The parser validates a trusted deployment declaration's shape; it does not create
+or verify a successful model-quality result. No version-2 qualified release artifact
+has been supplied by this implementation. Native self-hosted setup continues to
+configure only approved memory with `LLM_PROVIDER=none`; it does not mint a
+conversation capability. Consuming a real source-bound qualified release artifact,
+validating its exact installed source/runtime and approved caller pin, then privately
+merging the existing qualification/runtime keys while preserving operator configuration
+and opt-outs remains separate release/setup work. No placeholder artifact, automatic
+checkpoint, new flag or default qualification claim is introduced.
+
 The deployment record separates source tests, deterministic native protocol
 qualification, actual local model lifecycle, selected-account model quality,
 installed-App behavior and production activation. None substitutes for another.

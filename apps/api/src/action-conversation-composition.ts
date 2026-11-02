@@ -43,7 +43,7 @@ import {
 import {
   createConversationPolicy,
   createConversationPublicationAuthority,
-  conversationScopeQualified,
+  conversationCapabilityAppliesToScope,
   readConversationQualification,
 } from "./action-conversation-policy.js";
 import {
@@ -620,7 +620,7 @@ export function createActionConversationComposition(input: {
     async task(claims, repository) {
       if (
         !qualification ||
-        !conversationScopeQualified(qualification, claims) ||
+        !conversationCapabilityAppliesToScope(qualification, claims) ||
         !input.env.GITHUB_APP_SLUG
       )
         throw new ConversationError("unavailable");
@@ -655,7 +655,8 @@ export function createActionConversationComposition(input: {
         createClient,
         appSlug: input.env.GITHUB_APP_SLUG,
         sourceProcessingAllowed: async () => {
-          if (!conversationScopeQualified(qualification, claims)) return false;
+          if (!conversationCapabilityAppliesToScope(qualification, claims))
+            return false;
           try {
             const client = await createClient(),
               [owner, repo] = claims.repository.split("/");
