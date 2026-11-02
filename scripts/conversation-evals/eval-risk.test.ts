@@ -806,6 +806,203 @@ test("raw event snapshots edit/delete learned sources and preserve unchanged-tri
   );
 });
 
+test("scorer binds candidate synthetic processing to each disposable repository, retaining legacy and source guards", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { spawnSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  const corpus = await loadCorpus("full-thread-v2");
+  const runId = "SYNTHETIC_PROCESSING_SCOPE_GUARD_ONLY";
+  const profile = {
+    extractionMechanism: gatewayCandidateMechanism,
+    commonPromptSourceDigest: "a".repeat(64),
+    gatewayPreviewSourceDigest: "b".repeat(64),
+    accountPolicySourceDigest: "c".repeat(64),
+    gatewaySdkProvenanceDigest: "d".repeat(64),
+  };
+  const scenarios = [
+    ...new Set(
+      corpus.threads.filter((t) => t.split === "tuning").map((t) => t.scenario),
+    ),
+  ].map((scenario) => {
+    const threads = corpus.threads.filter(
+      (t) => t.scenario === scenario && t.split === "tuning",
+    );
+    const keys = [...new Set(threads.map((t) => t.repositoryKey ?? "main"))];
+    const namespace = `eval_${createHash("sha256").update(`${runId}:full-product:${scenario}`).digest("hex").slice(0, 40)}`;
+    const scopes = keys.map((key) => ({
+      kind: "repository",
+      workspaceId: `${namespace}_workspace`,
+      repositoryId: keys.length === 1 ? namespace : `${namespace}_${key}`,
+    }));
+    const scope = scopes[0]!;
+    return {
+      scenario,
+      namespace,
+      scope,
+      scopes,
+      processingScope: {
+        workspaceId: scope.workspaceId,
+        repositoryId: scope.repositoryId,
+        repositoryStableId: `synthetic:${scope.repositoryId}`,
+        repositoryFullName: `disposable/${scope.repositoryId}`,
+      },
+      coldStart: {
+        productEntries: 0,
+        processingRecords: 0,
+        nativeDocuments: 0,
+        durableCommands: 0,
+      },
+      observations: threads.flatMap((thread) =>
+        thread.events.map((event) => {
+          const expected =
+            scopes[keys.indexOf(thread.repositoryKey ?? "main")]!;
+          return {
+            eventId: corpusEventId(thread, event),
+            processingScope: {
+              workspaceId: expected.workspaceId,
+              repositoryId: expected.repositoryId,
+            },
+            scope: expected,
+            sourceIdentity: "github-node-v1",
+            previewCalls: 0,
+            modelCalls: 0,
+            inputBytes: 0,
+            deliveredBodyDigests: [],
+            deliveredQualifiedBodyDigests: [],
+            gatewayParentCleanupPending: false,
+          };
+        }),
+      ),
+    };
+  });
+  const paired = scenarios.find((s) => s.scopes.length > 1)!;
+  assert.ok(
+    paired,
+    "the real successor corpus must include isolated repositories",
+  );
+  const beta = paired.observations.find(
+    (o) => o.processingScope.repositoryId === paired.scopes[1]!.repositoryId,
+  )!;
+  assert.ok(beta);
+  // Exercise the real second-repository FK before a deliberate unrelated policy
+  // sentinel. No semantic rubric or full scorer success is manufactured here.
+  paired.observations = [
+    beta,
+    ...paired.observations.filter((o) => o !== beta),
+  ];
+  const report = {
+    runId,
+    corpusName: "full-thread-v2",
+    corpusRevision: corpus.revision,
+    split: "tuning",
+    status: "AWAITING_HUMAN_RUBRIC",
+    profile,
+    variants: [
+      {
+        variant: "full-product",
+        status: "AWAITING_HUMAN_RUBRIC",
+        scenarios: [paired, ...scenarios.filter((s) => s !== paired)],
+      },
+    ],
+  };
+  const rubric = {
+    runId,
+    corpusRevision: corpus.revision,
+    reviewer: "synthetic-guard-regression-only",
+    reviewedAt: "2026-11-02T00:00:00Z",
+    candidateSourceProfile: profile,
+    entries: [],
+    answers: scenarios.flatMap((s) =>
+      s.observations.map((o) => ({
+        variant: "full-product",
+        eventId: o.eventId,
+        supported: false,
+        requiredFactsUsed: [],
+        clarificationUnnecessary: false,
+        replyUnnecessary: false,
+        effectTruthful: false,
+        forbiddenEffect: false,
+      })),
+    ),
+  };
+  const directory = await mkdtemp(resolve("tmp/scorer-processing-guard-"));
+  try {
+    const reportPath = resolve(directory, "report.json"),
+      rubricPath = resolve(directory, "rubric.json");
+    const check = async (input: typeof report) => {
+      await writeFile(reportPath, JSON.stringify(input));
+      await writeFile(rubricPath, JSON.stringify(rubric));
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "scripts/conversation-evals/score.ts",
+          reportPath,
+          rubricPath,
+        ],
+        { encoding: "utf8", timeout: 30000 },
+      );
+      assert.ifError(result.error);
+      assert.notEqual(
+        result.status,
+        0,
+        "the independent missing-policy sentinel must still reject",
+      );
+      return result.stderr;
+    };
+    assert.match(
+      await check(report),
+      /eval_successor_policy_and_scope_required/,
+    );
+    const wrongStable = structuredClone(report);
+    wrongStable.variants[0]!.scenarios[0]!.processingScope.repositoryStableId = `synthetic:${paired.scopes[1]!.repositoryId}`;
+    assert.match(
+      await check(wrongStable),
+      /eval_processing_scope_witness_invalid/,
+    );
+    const wrongRepository = structuredClone(report);
+    wrongRepository.variants[0]!.scenarios[0]!.observations[0]!.processingScope.repositoryId =
+      paired.scope.repositoryId;
+    assert.match(
+      await check(wrongRepository),
+      /eval_processing_scope_witness_invalid/,
+    );
+    const crossNamespace = structuredClone(report);
+    crossNamespace.variants[0]!.scenarios[0]!.namespace = `eval_${"f".repeat(40)}`;
+    assert.match(
+      await check(crossNamespace),
+      /eval_repository_scope_inventory_invalid/,
+    );
+    const wrongProfile = structuredClone(report);
+    wrongProfile.profile.accountPolicySourceDigest = "f".repeat(64);
+    assert.match(
+      await check(wrongProfile),
+      /eval_rubric_source_profile_mismatch/,
+    );
+    const numeric = structuredClone(report);
+    numeric.profile.extractionMechanism = "ordinary-legacy";
+    numeric.variants[0]!.scenarios[0]!.processingScope.repositoryStableId =
+      "1234";
+    numeric.variants[0]!.scenarios[0]!.observations[0]!.processingScope = {
+      workspaceId: paired.scope.workspaceId,
+      repositoryId: paired.scope.repositoryId,
+    };
+    assert.match(
+      await check(numeric),
+      /eval_successor_policy_and_scope_required/,
+    );
+    const ordinarySynthetic = structuredClone(numeric);
+    ordinarySynthetic.variants[0]!.scenarios[0]!.processingScope.repositoryStableId = `synthetic:${paired.scope.repositoryId}`;
+    assert.match(
+      await check(ordinarySynthetic),
+      /eval_processing_scope_witness_invalid/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
   const { mkdir, mkdtemp, writeFile, rm } = await import("node:fs/promises");
   const { spawnSync } = await import("node:child_process");
@@ -1904,6 +2101,238 @@ test("actual explicit command fingerprint permits qualified manual readback with
   assert.equal(versions.length, 1);
   assert.equal(versions[0]!.qualifiedReadback, true);
   assert.equal(input.explicitProofs.size, 1);
+});
+
+function pendingExplicitRevocation(
+  kind: "retire" | "forget",
+  automaticPrior = false,
+) {
+  const input = explicitSample();
+  const previousProof = structuredClone(
+    input.witness.effects[0]!.explicitAction!,
+  );
+  if (automaticPrior) {
+    input.sources.get(input.triggerSourceId)!.automaticLearningEligible = true;
+    const entry = input.witness.inventory[0]!;
+    entry.approvalAuthorityRevision = "automatic:scorer-prior";
+    entry.explicitCommandId = null;
+    entry.automaticCohortId = "prior-automatic-cohort";
+    entry.automaticCohortEpoch = "1";
+    entry.activeCohortEligible = true;
+    input.witness.effects[0] = {
+      ...input.witness.effects[0]!,
+      approvalAuthorityRevision: entry.approvalAuthorityRevision,
+    };
+    delete input.witness.effects[0]!.explicitAction;
+  }
+  inspectInventory(input); // Validate the original content and its owning Save first.
+  const prior = structuredClone(input.witness.inventory[0]!);
+  const processingId = `EXPLICIT_${kind.toUpperCase()}_SCORER_NO_MODEL`;
+  const digest = conversationDigest([
+    "conversation-explicit-command",
+    processingId,
+  ]);
+  const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+  const previousEffect = input.witness.effects[0]!;
+  const sourceId = `fixture:${kind}`;
+  const body = `${kind} ${prior.id}@${prior.revision}`;
+  const source = {
+    ...input.sources.get(input.triggerSourceId)!,
+    body,
+    revision: sourceRevision("2026-10-30T00:01:00.000Z", body),
+    messageId: kind,
+    requireConfirmation: false,
+  };
+  input.sources.set(sourceId, source);
+  input.sourceHistory.set(`${sourceId}\u0000${source.revision}`, source);
+  input.triggerSourceId = sourceId;
+  const action = { kind, entryId: prior.id, expectedRevision: prior.revision };
+  const proofSource = {
+    ...previousProof.source,
+    sourceId,
+    revision: source.revision,
+    claimedBodyDigest: createHash("sha256").update(body).digest("hex"),
+  };
+  const approval = `github-command:v2:${action.expectedRevision}:${memoryKnowledgeDigest({ wire: action, ref: { type: "entry", scope: input.scope, entryId: prior.id }, source: proofSource, actor: { kind: previousProof.actor.kind, id: previousProof.actor.id, githubUserId: previousProof.actor.githubUserId } })}`;
+  const effect: Witness["effects"][number] = {
+    ...previousEffect,
+    id,
+    kind,
+    state: kind === "forget" ? "cleanup_pending" : "queued",
+    sourceId,
+    sourceRevision: source.revision,
+    approvalAuthorityRevision: approval,
+    explicitAction: {
+      ...previousProof,
+      action,
+      source: proofSource,
+      requireConfirmation: false,
+    },
+  };
+  const tombstone: InventoryEntry = {
+    ...prior,
+    revision: "2",
+    explicitCommandId: id,
+    lifecycle: kind === "forget" ? "forget_pending" : "retired",
+    body: null,
+    unavailableReason: "unsettled",
+    activeCohortEligible: false,
+  };
+  input.witness = {
+    ...input.witness,
+    processingId,
+    effects: [effect],
+    effectIds: [id],
+    commandInventoryIds: [...input.witness.commandInventoryIds, id],
+    inventory: [tombstone],
+    retained: [],
+    deliveredBodyDigests: [],
+    deliveredQualifiedBodyDigests: [],
+  };
+  return input;
+}
+
+test("exact pending destructive proof preserves prior content provenance without claiming new retention", () => {
+  for (const kind of ["retire", "forget"] as const) {
+    const input = pendingExplicitRevocation(kind);
+    const prior = structuredClone(input.seenEntries.values().next().value!);
+    assert.equal(inspectInventory(input).length, 0);
+    const accepted = input.seenEntries.get(prior.id)!;
+    assert.equal(
+      accepted.approvalAuthorityRevision,
+      prior.approvalAuthorityRevision,
+    );
+    assert.equal(accepted.bodyDigest, prior.bodyDigest);
+    assert.equal(accepted.body, null);
+    assert.equal(
+      accepted.lifecycle,
+      kind === "forget" ? "forget_pending" : "retired",
+    );
+    // A repeated unchanged bodyless snapshot does not need a second content label.
+    assert.equal(inspectInventory(input).length, 0);
+    assert.deepEqual(input.witness.retained, []);
+  }
+});
+
+test("pending destructive metadata cannot forge content provenance, body, target revision or command ownership", () => {
+  const edits: ((
+    input: ReturnType<typeof pendingExplicitRevocation>,
+  ) => void)[] = [
+    (input) => {
+      input.witness.inventory[0]!.approvalAuthorityRevision = "invented";
+    },
+    (input) => {
+      input.witness.inventory[0]!.approvalAuthorityRevision =
+        input.witness.effects[0]!.approvalAuthorityRevision;
+    },
+    (input) => {
+      input.witness.inventory[0]!.body = "A new unapproved body";
+    },
+    (input) => {
+      input.witness.inventory[0]!.bodyDigest = "f".repeat(64);
+    },
+    (input) => {
+      input.witness.inventory[0]!.sourceId = input.triggerSourceId;
+    },
+    (input) => {
+      input.witness.inventory[0]!.sourceRevision = "forged";
+    },
+    (input) => {
+      input.witness.inventory[0]!.sourceActor = "github-user:foreign";
+    },
+    (input) => {
+      input.witness.inventory[0]!.kind = "rule";
+    },
+    (input) => {
+      input.witness.inventory[0]!.automaticCohortId = "forged";
+    },
+    (input) => {
+      input.witness.inventory[0]!.automaticCohortEpoch = "7";
+    },
+    (input) => {
+      input.witness.inventory[0]!.observedCommit = "f".repeat(40);
+    },
+    (input) => {
+      input.witness.inventory[0]!.revision = "3";
+    },
+    (input) => {
+      input.witness.inventory[0]!.lifecycle = "active";
+    },
+    (input) => {
+      input.witness.inventory[0]!.scope = {
+        ...input.scope,
+        repositoryId: "sibling",
+      };
+    },
+    (input) => {
+      input.witness.effects[0]!.actorId = "github-user:foreign";
+    },
+    (input) => {
+      const proof = input.witness.effects[0]!.explicitAction!;
+      proof.source = { ...proof.source, claimedBodyDigest: "f".repeat(64) };
+    },
+    (input) => {
+      input.witness.effects[0]!.entryId = "neighbor";
+    },
+    (input) => {
+      const effect = input.witness.effects[0]!,
+        proof = effect.explicitAction!;
+      assert.ok(
+        proof.action.kind === "forget" || proof.action.kind === "retire",
+      );
+      proof.action = { ...proof.action, expectedRevision: "9" };
+      effect.approvalAuthorityRevision = `github-command:v2:9:${memoryKnowledgeDigest({ wire: proof.action, ref: { type: "entry", scope: effect.scope, entryId: effect.entryId }, source: proof.source, actor: { kind: proof.actor.kind, id: proof.actor.id, githubUserId: proof.actor.githubUserId } })}`;
+    },
+  ];
+  for (const edit of edits) {
+    const input = pendingExplicitRevocation("forget");
+    edit(input);
+    assert.throws(
+      () => inspectInventory(input),
+      /eval_(observed_entry_authority_invalid|explicit_command_authority_invalid|explicit_command_inventory_invalid|readback_qualification_required)/,
+    );
+  }
+});
+
+test("automatic content cannot hide an exact destructive proof behind a missing or foreign tombstone command pin", () => {
+  const legitimate = pendingExplicitRevocation("forget", true);
+  assert.equal(inspectInventory(legitimate).length, 0);
+  for (const pin of [null, "unknown-command"] as const) {
+    for (const repeated of [false, true]) {
+      const input = pendingExplicitRevocation("forget", true);
+      if (repeated) assert.equal(inspectInventory(input).length, 0);
+      const entry = input.witness.inventory[0]!;
+      entry.explicitCommandId = pin;
+      // Even an otherwise matching synthetic bodyless annotation cannot authorize
+      // losing the destructive command binding and falling back to content authority.
+      input.entries.push({
+        ...input.entries[0]!,
+        entryRevision: entry.revision,
+        supportedFactIds: [],
+      });
+      assert.throws(
+        () => inspectInventory(input),
+        /eval_observed_entry_authority_invalid/,
+      );
+    }
+  }
+  const inventedBody = pendingExplicitRevocation("forget", true);
+  inspectInventory(inventedBody);
+  const entry = inventedBody.witness.inventory[0]!;
+  entry.explicitCommandId = null;
+  entry.body = "New content cannot inherit the revoked automatic authority";
+  entry.bodyDigest = createHash("sha256").update(entry.body).digest("hex");
+  entry.unavailableReason = null;
+  inventedBody.entries.push({
+    ...inventedBody.entries[0]!,
+    entryRevision: entry.revision,
+    bodyDigest: entry.bodyDigest,
+    supportedFactIds: [],
+  });
+  assert.throws(
+    () => inspectInventory(inventedBody),
+    /eval_observed_entry_authority_invalid/,
+  );
 });
 
 test("explicit authority checks exact source decision, scope, mode and command proof independently of rubric", () => {

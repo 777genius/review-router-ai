@@ -323,6 +323,16 @@ for (const variant of report.variants) {
       ),
     ];
     const scopes = successor ? scenario.scopes : [scenario.scope];
+    const firstScope = scopes?.[0];
+    const firstRepositoryId =
+      firstScope?.kind === "repository" ? firstScope.repositoryId : undefined;
+    const syntheticCandidate =
+      successor &&
+      report.profile?.extractionMechanism === gatewayCandidateMechanism;
+    const candidateNamespace = `eval_${createHash("sha256")
+      .update(`${report.runId}:full-product:${scenario.scenario}`)
+      .digest("hex")
+      .slice(0, 40)}`;
     if (
       !scopes ||
       scopes.length !== repositoryKeys.length ||
@@ -332,7 +342,20 @@ for (const variant of report.variants) {
           scope.workspaceId !== scenario.scope.workspaceId,
       ) ||
       new Set(scopes.map((scope) => JSON.stringify(scope))).size !==
-        scopes.length
+        scopes.length ||
+      (syntheticCandidate &&
+        (scenario.namespace !== candidateNamespace ||
+          scenario.scope.kind !== "repository" ||
+          scenario.scope.workspaceId !== `${candidateNamespace}_workspace` ||
+          scenario.scope.repositoryId !== firstRepositoryId ||
+          scopes.some(
+            (scope, index) =>
+              scope.kind !== "repository" ||
+              scope.repositoryId !==
+                (repositoryKeys.length === 1
+                  ? candidateNamespace
+                  : `${candidateNamespace}_${repositoryKeys[index]}`),
+          )))
     )
       throw new Error("eval_repository_scope_inventory_invalid");
     for (const observation of scenario.observations) {
@@ -381,14 +404,28 @@ for (const variant of report.variants) {
           ]!;
         if (successor) {
           const processing = scenario.processingScope;
+          // The candidate header describes the first disposable repository;
+          // each event's processing FK belongs to its own corpus repository.
+          // Qualified/legacy processing retains its numeric template identity.
+          const expectedProcessing =
+            syntheticCandidate && expectedScope.kind === "repository"
+              ? expectedScope
+              : processing;
           if (
             !processing ||
-            !/^[1-9]\d{0,19}$/u.test(processing.repositoryStableId) ||
+            (syntheticCandidate
+              ? processing.workspaceId !== scopes[0]!.workspaceId ||
+                processing.repositoryId !== firstRepositoryId ||
+                processing.repositoryStableId !==
+                  `synthetic:${firstRepositoryId}` ||
+                processing.repositoryFullName !==
+                  `disposable/${firstRepositoryId}`
+              : !/^[1-9]\d{0,19}$/u.test(processing.repositoryStableId)) ||
             (expectedEvent.action !== "deleted" &&
               (witness.processingScope?.workspaceId !==
-                processing.workspaceId ||
-                witness.processingScope.repositoryId !==
-                  processing.repositoryId))
+                expectedProcessing?.workspaceId ||
+                witness.processingScope?.repositoryId !==
+                  expectedProcessing?.repositoryId))
           )
             throw new Error("eval_processing_scope_witness_invalid");
           if (

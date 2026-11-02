@@ -18,14 +18,14 @@
   reconcile [Review History](2026-10-28-review-history.md) and
   [dispatch/schema work](2026-10-28-dispatch-cleanup-ci.md) when included in the
   selected installed-to-target release range.
-- Last updated: `2026-10-30`.
+- Last updated: `2026-11-02`.
 
 ## Environment status
 
-| Environment | Status        | Actual version / image        | Last verified (UTC) | Remaining work                                                                                                                                                                                  |
-| ----------- | ------------- | ----------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                  | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication.                                                                                                                      |
-| production  | `in_progress` | `533c040d` / image `e1578f75` | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
+| Environment | Status        | Actual version / image        | Last verified (UTC) | Remaining work                                                                                                                                                 |
+| ----------- | ------------- | ----------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                  | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication.                                                                                     |
+| production  | `in_progress` | `57cc1513` / image `3550f3c7` | 2026-11-02          | Approved Memory delivery and physical Forget verified; automatic learning qualification, installed-App acceptance and self-hosted distribution remain pending. |
 
 No environment rollout was executed in this source-integration step. `pending`
 means completion has not been verified, not that deployment was observed absent.
@@ -233,3 +233,45 @@ truthful per-environment deployment status.
 ## Evidence log
 
 2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
+
+## Full-thread tuning acceptance, 2026-11-02
+
+Implementation [#774](https://github.com/777genius/review-router-ai/pull/774)
+merged as `792afdc2031677e498d128af4c0594a857555726`. This does not establish
+installation or automatic-learning activation. The four production quality-bound
+source files are unchanged from execution source
+`5da70100c4c6452211ea95958aa83dc3f88370d7`.
+
+The complete `full-thread-v2` tuning run
+`36cd1e3b-40d2-4aab-8f50-7927d6de269c` covered 32 events in seven scenarios,
+with 16 completed and closed extraction receipts and no pending parent request.
+At the owner's explicit request on November 2, Codex reviewed the actual outputs
+and static protected labels autonomously. This is **agent review**, not human
+review; the runner's historical `AWAITING_HUMAN_RUBRIC` label is not a claim that
+a human performed it. The unchanged rubric records one unnecessary contributor
+reply rather than marking every output acceptable.
+
+The actual corrected scorer returned PASS: precision, recall and attribution
+13/13, supported answers 8/8, harmful answers 0/16, unauthorized effects 0,
+missing effects 0, bounds violations 0, linked recall 3/3, unnecessary replies
+1/32. Its output SHA256 is
+`419d58948437c64a07d9eb9c0622e26e38d2176d162db5bbf90e57d3a00dab5e`.
+This score does not issue qualification or prove physical cleanup.
+
+Two evaluator contract corrections were needed: bind candidate event processing
+to its actual disposable repository (including the second repository), and
+validate destructive command authority separately from preserved content
+provenance. A pending Forget must remain bodyless, preserve its prior content
+metadata, and match the validated command's target, scope and revision. Clearing
+or replacing its command pin cannot recover the old automatic authority. The
+ordinary numeric repository identity guard remains enforced. Focused regression
+checks, including the old-code negative control, and 45 risk checks passed;
+strict TypeScript, lint and formatting passed. No model execution, source report,
+corpus or semantic label was changed to obtain this score.
+
+The next steps remain one protected checkpoint, the paired protected-main
+release gates, normal production image adoption, actual disposable installed-App
+learning/recall/Forget acceptance, then genuine strict-v2 qualification artifact
+publication and clean self-hosted installation acceptance. The static protected
+set contains six threads and 18 events; its conflict slice does not independently
+prove two distinct human maintainers, which is covered by the tuning case.

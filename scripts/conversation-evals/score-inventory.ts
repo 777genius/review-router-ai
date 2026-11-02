@@ -405,11 +405,79 @@ export function inspectInventory(input: {
             `${explicit.sourceId}\u0000${explicit.sourceRevision}`,
           )
         : undefined;
+    const destructive =
+      explicit?.kind === "retire" || explicit?.kind === "forget";
+    const action = explicit?.explicitAction?.action;
+    // The normal store changes revocation state/revision but preserves the
+    // previous content's approval, source and applicability metadata. The new
+    // destructive authority is proved by its exact command, not by relabelling
+    // the old content as if authored by the Forget/Retire source.
+    const preservedRevocation = Boolean(
+      destructive &&
+      explicit &&
+      explicitSource?.maintainer &&
+      prior &&
+      action &&
+      (action.kind === "retire" || action.kind === "forget") &&
+      action.kind === explicit.kind &&
+      action.entryId === entry.id &&
+      explicit.entryId === entry.id &&
+      entry.explicitCommandId === explicit.id &&
+      knownScopeKeys.has(scopeKey(entry.scope)) &&
+      scopeKey(explicit.scope) === scopeKey(entry.scope) &&
+      scopeKey(prior.scope) === scopeKey(entry.scope) &&
+      entry.body === null &&
+      entry.bodyDigest !== null &&
+      entry.unavailableReason === "unsettled" &&
+      !entry.activeCohortEligible &&
+      entry.lifecycle ===
+        (explicit.kind === "forget" ? "forget_pending" : "retired") &&
+      (
+        [
+          "bodyDigest",
+          "sourceId",
+          "sourceRevision",
+          "sourceActor",
+          "kind",
+          "approvalAuthorityRevision",
+          "automaticCohortId",
+          "automaticCohortEpoch",
+          "observedCommit",
+        ] as const
+      ).every((key) => entry[key] === prior[key]) &&
+      ((action.expectedRevision === prior.revision &&
+        /^[1-9]\d{0,19}$/.test(prior.revision) &&
+        entry.revision === String(BigInt(prior.revision) + 1n)) ||
+        (prior.explicitCommandId === entry.explicitCommandId &&
+          prior.body === null &&
+          prior.revision === entry.revision &&
+          prior.lifecycle === entry.lifecycle)),
+    );
+    // The command pin itself is untrusted metadata. A validated destructive
+    // target cannot escape this check by clearing/changing that pin and using
+    // the old content's automatic authority instead.
+    const boundRevocation =
+      prior &&
+      [...explicitProofs.values()].some((proof) => {
+        const owned = proof.explicitAction?.action;
+        return (
+          (proof.kind === "retire" || proof.kind === "forget") &&
+          owned &&
+          (owned.kind === "retire" || owned.kind === "forget") &&
+          owned.kind === proof.kind &&
+          owned.entryId === entry.id &&
+          proof.entryId === entry.id &&
+          scopeKey(proof.scope) === scopeKey(prior.scope) &&
+          (owned.expectedRevision === prior.revision ||
+            (prior.explicitCommandId === proof.id && prior.body === null))
+        );
+      });
     const explicitValid =
       explicit &&
       explicitSource &&
       explicit.entryId === entry.id &&
-      explicit.approvalAuthorityRevision === entry.approvalAuthorityRevision &&
+      (explicit.approvalAuthorityRevision === entry.approvalAuthorityRevision ||
+        preservedRevocation) &&
       knownScopeKeys.has(scopeKey(entry.scope)) &&
       scopeKey(explicit.scope) === scopeKey(entry.scope) &&
       entry.kind ===
@@ -424,6 +492,16 @@ export function inspectInventory(input: {
         prior.explicitCommandId === entry.explicitCommandId ||
         (explicit.explicitAction?.action.kind !== "create" &&
           explicit.explicitAction?.action.expectedRevision === prior.revision));
+    if (
+      (destructive || boundRevocation) &&
+      !preservedRevocation &&
+      !(
+        explicit?.kind === "save" &&
+        explicitValid &&
+        entry.explicitCommandId !== prior?.explicitCommandId
+      )
+    )
+      throw new Error("eval_observed_entry_authority_invalid");
     if (
       !explicitValid &&
       ((prior &&
