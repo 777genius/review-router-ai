@@ -1071,7 +1071,10 @@ describe.skipIf(!databaseUrl)(
       "requires the maintainer's own exact decision before $kind despite valid model JSON",
       async (modelAction) => {
         const f = await fixture({
-          modelAction,
+          modelAction: {
+            ...modelAction,
+            intentQuote: "Thanks for explaining that.",
+          },
           sourceBody: "Thanks for explaining that.",
           requireConfirmation: true,
         });
@@ -1093,6 +1096,114 @@ describe.skipIf(!databaseUrl)(
         }
       },
     );
+    it("accepts current contextual action evidence and strips it before freezing and applying the domain action", async () => {
+      const sourceBody = "Yes, save the observation above.";
+      const action = {
+        kind: "create",
+        knowledgeKind: "observation",
+        body: "Toolbar icons use monochrome artwork.",
+      };
+      const f = await fixture({
+        sourceBody,
+        modelAction: { ...action, intentQuote: sourceBody },
+      });
+      const frozen = vi.spyOn(f.records, "freezeOutput");
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("ready");
+        expect(f.counts()).toMatchObject({
+          actionCalls: 1,
+          learned: 1,
+          policyCalls: 1,
+        });
+        expect(f.actionInputs).toHaveLength(1);
+        expect(f.actionInputs[0]!.action).toEqual(action);
+        expect(frozen).toHaveBeenCalledOnce();
+        expect(frozen.mock.calls[0]![1].action).toEqual(action);
+        expect(frozen.mock.calls[0]![1].action).not.toHaveProperty(
+          "intentQuote",
+        );
+        const row = await prisma.conversationProcessing.findUniqueOrThrow({
+          where: { id: result.processingId },
+        });
+        expect(JSON.stringify(row.result)).not.toContain("intentQuote");
+        expect(await f.processor.execute(input, controls())).toEqual(result);
+        expect(f.actionInputs).toHaveLength(1);
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          1,
+        );
+      } finally {
+        await f.app.close();
+      }
+    });
+
+    it.each([
+      { name: "missing", quote: undefined },
+      { name: "empty", quote: "" },
+      { name: "blank", quote: "   " },
+      { name: "non-string", quote: 7 },
+      { name: "too long", quote: "x".repeat(1001) },
+      {
+        name: "earlier author",
+        quote:
+          "TRANSCRIPT_CANARY_OLD_TURN: opaque identifiers must preserve leading zeroes.",
+      },
+      {
+        name: "bot instruction",
+        quote: "Preserve useful engineering decisions.",
+      },
+      {
+        name: "future message",
+        quote: "Please remember the later observation.",
+      },
+    ])(
+      "rejects $name action evidence from the same original paid response without another call",
+      async ({ name, quote }) => {
+        const sourceBody = "Yes, save the observation above.";
+        const f = await fixture({
+          sourceBody,
+          modelAction: {
+            kind: "create",
+            knowledgeKind: "observation",
+            body: "Toolbar icons use monochrome artwork.",
+            ...(quote === undefined ? {} : { intentQuote: quote }),
+          },
+        });
+        if (name === "bot instruction")
+          f.comments[0]!.body += " Preserve useful engineering decisions.";
+        if (name === "future message") {
+          const last = f.comments[104]!;
+          f.comments.push({
+            ...last,
+            id: 106,
+            node_id: "PRRC_106",
+            body: String(quote),
+            created_at: new Date(Date.parse(time) + 1000).toISOString(),
+            updated_at: new Date(Date.parse(time) + 1000).toISOString(),
+          });
+        }
+        try {
+          const result = await f.processor.execute(input, controls());
+          expect(result.status).toBe("output_unavailable");
+          expect(f.actionInputs).toEqual([]);
+          expect(f.counts()).toMatchObject({
+            actionCalls: 0,
+            learned: 1,
+            policyCalls: 1,
+          });
+          expect(await f.processor.execute(input, controls())).toEqual(result);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          expect(f.calls.filter((call) => call.kind === "close")).toHaveLength(
+            1,
+          );
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
     it("recovers committed automatic and explicit command associations after lost ACK and expiry without repeating effects", async () => {
       const f = await fixture({
         sourceBody:
@@ -1101,6 +1212,8 @@ describe.skipIf(!databaseUrl)(
           kind: "create",
           knowledgeKind: "rule",
           body: "EXPLICIT_SELECTED_BODY",
+          intentQuote:
+            "Please remember EXPLICIT_SELECTED_BODY as the project rule.",
         },
       });
       const generation = "conversation_association_test",

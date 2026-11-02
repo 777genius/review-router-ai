@@ -234,7 +234,19 @@ describe.skipIf(!databaseUrl)(
       seedSource = true,
       reasoningEffort: "medium" | null = "medium",
       modelText?: string,
+      context: ConversationSnapshot = snapshot,
     ) {
+      const frozenSnapshot = context;
+      const projection = {
+        ...source,
+        source: {
+          ...source.source,
+          body: frozenSnapshot.messages.find(
+            (message) => message.id === frozenSnapshot.sourceId,
+          )!.body,
+        },
+        readOnlyContext: renderConversation(frozenSnapshot),
+      };
       const selectedAccount = {
         ...account,
         ...(reasoningEffort ? { reasoningEffort } : {}),
@@ -248,18 +260,18 @@ describe.skipIf(!databaseUrl)(
             scope: memoryScope,
             source: {
               type: "github_comment",
-              sourceId: snapshot.sourceId,
-              revision: snapshot.sourceRevision,
-              updatedAt: snapshot.sourceUpdatedAt,
-              statementAt: snapshot.sourceUpdatedAt,
-              repositoryId: snapshot.repositoryId,
-              pullRequestNumber: snapshot.pullRequestNumber,
+              sourceId: frozenSnapshot.sourceId,
+              revision: frozenSnapshot.sourceRevision,
+              updatedAt: frozenSnapshot.sourceUpdatedAt,
+              statementAt: frozenSnapshot.sourceUpdatedAt,
+              repositoryId: frozenSnapshot.repositoryId,
+              pullRequestNumber: frozenSnapshot.pullRequestNumber,
               url: null,
               visibility: "private",
               claimedBodyDigest: createHash("sha256")
-                .update(source.source.body)
+                .update(projection.source.body)
                 .digest("hex"),
-              observedCommitSha: snapshot.headSha,
+              observedCommitSha: frozenSnapshot.headSha,
             },
             sourceActor: {
               kind: "github_user",
@@ -268,10 +280,10 @@ describe.skipIf(!databaseUrl)(
               login: "maintainer",
             },
             policyRevision: "1:1:qualification",
-            threadId: snapshot.threadId,
-            threadDigest: snapshot.threadDigest,
-            headSha: snapshot.headSha,
-            selectableBody: source.source.body,
+            threadId: frozenSnapshot.threadId,
+            threadDigest: frozenSnapshot.threadDigest,
+            headSha: frozenSnapshot.headSha,
+            selectableBody: projection.source.body,
           },
           generation: "test_generation",
           expectedPriorEpoch: null,
@@ -311,16 +323,16 @@ describe.skipIf(!databaseUrl)(
       await prisma.conversationProcessing.create({
         data: {
           id: parentId,
-          workspaceId: snapshot.workspaceId,
-          repositoryId: snapshot.repositoryId,
-          repositoryStableId: snapshot.repositoryStableId,
-          repositoryFullName: snapshot.repositoryFullName,
+          workspaceId: frozenSnapshot.workspaceId,
+          repositoryId: frozenSnapshot.repositoryId,
+          repositoryStableId: frozenSnapshot.repositoryStableId,
+          repositoryFullName: frozenSnapshot.repositoryFullName,
           pullRequestNumber: 1,
-          threadId: snapshot.threadId,
-          sourceId: snapshot.sourceId,
-          sourceCommentId: snapshot.sourceCommentId,
-          sourceRevision: snapshot.sourceRevision,
-          sourceUpdatedAt: new Date(snapshot.sourceUpdatedAt),
+          threadId: frozenSnapshot.threadId,
+          sourceId: frozenSnapshot.sourceId,
+          sourceCommentId: frozenSnapshot.sourceCommentId,
+          sourceRevision: frozenSnapshot.sourceRevision,
+          sourceUpdatedAt: new Date(frozenSnapshot.sourceUpdatedAt),
           sourceActorId: "author",
           sourceActorLogin: "maintainer",
           sourceActorKind: "human",
@@ -328,12 +340,12 @@ describe.skipIf(!databaseUrl)(
           modelDispatched: true,
           boundManifest: JSON.stringify({
             account: selectedAccount,
-            threadDigest: snapshot.threadDigest,
-            headSha: snapshot.headSha,
-            baseSha: snapshot.baseSha,
-            sourceRevision: snapshot.sourceRevision,
+            threadDigest: frozenSnapshot.threadDigest,
+            headSha: frozenSnapshot.headSha,
+            baseSha: frozenSnapshot.baseSha,
+            sourceRevision: frozenSnapshot.sourceRevision,
             policyRevision: captured.policy.revision,
-            vector: snapshot.messages.map(
+            vector: frozenSnapshot.messages.map(
               ({ id, updatedAt, bodyDigest, replyTo }) => [
                 id,
                 updatedAt,
@@ -342,9 +354,9 @@ describe.skipIf(!databaseUrl)(
               ],
             ),
             sourceAuthority: {
-              actorId: snapshot.sourceActor.id,
-              maintainer: snapshot.sourceMaintainer,
-              visibility: snapshot.visibility,
+              actorId: frozenSnapshot.sourceActor.id,
+              maintainer: frozenSnapshot.sourceMaintainer,
+              visibility: frozenSnapshot.visibility,
             },
           }),
           result: {
@@ -412,6 +424,7 @@ describe.skipIf(!databaseUrl)(
                           statements: [
                             {
                               body: "Opaque identifiers preserve leading zeroes.",
+                              sourceQuote: projection.source.body,
                             },
                           ],
                         }),
@@ -450,7 +463,7 @@ describe.skipIf(!databaseUrl)(
         createConversationMemoryPreview({
           prisma,
           parentId,
-          snapshot,
+          snapshot: frozenSnapshot,
           captured,
           control,
           connectExecution,
@@ -462,9 +475,9 @@ describe.skipIf(!databaseUrl)(
             )[0]!.source,
         });
       const preview = (
-        projection = source,
+        sourceProjection = projection,
         deadlineAt = new Date(Date.now() + 30_000),
-      ) => create().preview(projection, { deadlineAt });
+      ) => create().preview(sourceProjection, { deadlineAt });
       return {
         preview,
         prepares,
@@ -818,7 +831,14 @@ describe.skipIf(!databaseUrl)(
         properties: {
           statements: {
             maxItems: 4,
-            items: { additionalProperties: false },
+            items: {
+              additionalProperties: false,
+              required: ["body", "sourceQuote"],
+              properties: {
+                body: { type: "string", minLength: 1, maxLength: 1000 },
+                sourceQuote: { type: "string", minLength: 1, maxLength: 1000 },
+              },
+            },
           },
         },
       });
@@ -893,17 +913,134 @@ describe.skipIf(!databaseUrl)(
         expect(f.requests).toHaveLength(0);
       },
     );
+    it("rejects a quote from an earlier message after the real SDK response without replay", async () => {
+      const f = await fixture(
+        undefined,
+        false,
+        true,
+        "medium",
+        JSON.stringify({
+          statements: [
+            {
+              body: "Opaque identifiers preserve leading zeroes.",
+              sourceQuote: snapshot.messages[0]!.body,
+            },
+          ],
+        }),
+      );
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+      expect(f.requests).toHaveLength(1);
+      expect(f.closes()).toBe(1);
+      const row = await prisma.conversationProcessing.findUniqueOrThrow({
+        where: { id: conversationMemoryPreviewId(f.parentId) },
+      });
+      expect(row.status).toBe("output_unavailable");
+      expect(
+        (row.result as { gatewayFailureCode?: string }).gatewayFailureCode,
+      ).toBe("output_invalid");
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+    });
+    it("accepts a literal current endorsement with a full-thread referent and strips sourceQuote from the domain result", async () => {
+      const body = "Yes, that is how cache keys behave.";
+      const context = {
+        ...snapshot,
+        messages: [
+          {
+            ...snapshot.messages[0]!,
+            body: "Cache keys are case-sensitive.",
+            bodyDigest: createHash("sha256")
+              .update("Cache keys are case-sensitive.")
+              .digest("hex"),
+          },
+          {
+            ...snapshot.messages[1]!,
+            body,
+            bodyDigest: createHash("sha256").update(body).digest("hex"),
+          },
+        ],
+      };
+      const f = await fixture(
+        undefined,
+        false,
+        true,
+        "medium",
+        JSON.stringify({
+          statements: [
+            {
+              body: "Cache keys are case-sensitive.",
+              sourceQuote: "that is how cache keys behave",
+            },
+          ],
+        }),
+        context,
+      );
+      expect(await f.preview()).toEqual({
+        status: "complete",
+        source: { id: snapshot.sourceId, revision: snapshot.sourceRevision },
+        statements: [{ body: "Cache keys are case-sensitive." }],
+      });
+      expect(f.prepares).toHaveLength(1);
+      expect(f.requests).toHaveLength(1);
+      expect(f.closes()).toBe(1);
+    });
+    it.each([1, 1000, 1001])(
+      "enforces the literal quote length bound independently of substring matching (%i characters)",
+      async (length) => {
+        const body = "x".repeat(1001);
+        const context = {
+          ...snapshot,
+          messages: [
+            snapshot.messages[0]!,
+            {
+              ...snapshot.messages[1]!,
+              body,
+              bodyDigest: createHash("sha256").update(body).digest("hex"),
+            },
+          ],
+        };
+        const f = await fixture(
+          undefined,
+          false,
+          true,
+          "medium",
+          JSON.stringify({
+            statements: [
+              { body: "A concrete fact.", sourceQuote: body.slice(0, length) },
+            ],
+          }),
+          context,
+        );
+        expect((await f.preview()).status).toBe(
+          length <= 1000 ? "complete" : "incomplete",
+        );
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+        expect(f.closes()).toBe(1);
+      },
+    );
     it.each([
       "invalid JSON",
       '```json\n{"statements":[]}\n```',
       '{"statements":[],"extra":true}',
-      '{"statements":[{"body":"A concrete fact.","extra":true}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":"Opaque identifiers","extra":true}]}',
+      '{"statements":[{"body":"A concrete fact."}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":""}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":" "}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":42}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":"opaque identifiers"}]}',
       JSON.stringify({
         statements: Array.from({ length: 5 }, () => ({
           body: "A concrete fact.",
+          sourceQuote: "Opaque identifiers",
         })),
       }),
-      JSON.stringify({ statements: [{ body: "x".repeat(1001) }] }),
+      JSON.stringify({
+        statements: [
+          { body: "x".repeat(1001), sourceQuote: "Opaque identifiers" },
+        ],
+      }),
     ])(
       "invalid text JSON extraction %s produces no statements or retry",
       async (modelText) => {

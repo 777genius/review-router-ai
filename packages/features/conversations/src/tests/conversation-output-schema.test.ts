@@ -56,3 +56,23 @@ it("declares primitive string types on every structured-output discriminator wit
     type: "null",
   });
 });
+
+it("requires bounded current-source evidence only inside non-null model actions", () => {
+  const variants = conversationOutputSchema.schema.properties.action.anyOf;
+  expect(variants[0]).toEqual({ type: "null" });
+  for (const action of variants.slice(1)) {
+    expect(action).toHaveProperty(
+      "properties.intentQuote",
+      expect.objectContaining({
+        type: "string",
+        minLength: 1,
+        maxLength: 1000,
+      }),
+    );
+    expect(action).toHaveProperty(
+      "required",
+      expect.arrayContaining(["intentQuote"]),
+    );
+    expect(action).toHaveProperty("additionalProperties", false);
+  }
+});

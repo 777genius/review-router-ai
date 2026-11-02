@@ -10,7 +10,7 @@ qualify a real GitHub App installation or replace the disposable App-first E2E.
 ## Full-thread successor slice
 
 `--corpus full-thread-v2` selects the separately versioned
-`corpus.full-thread-v2.json`, revision `2026-11-02-full-thread-r2`: **22 whole
+`corpus.full-thread-v2.json`, revision `2026-11-03-full-thread-r3`: **22 whole
 threads, 16 tuning / 6 protected, 69 events and 29 fact labels in 13 scenario
 groups**. Six groups have positive same-repository A→B recall. Three other paired
 groups use different repositories in one workspace to test shared settings and
@@ -55,17 +55,26 @@ and its linked recall. Its six original protected threads and eight fact labels
 remain unchanged as tuning regression; only their split changes. Original r1
 reports retain their r1 identity and are not retagged as r2 evidence.
 
-The new protected set contains six unexecuted threads, 19 events and eight new
-facts: transactional inbox acknowledgement under unrelated hostile quoted data;
-distinct maintainers' export-completion disagreement with exact update/stale/Forget
-and an unaffected catalog neighbor; and Cedar/Maple audit conventions with shared
-confirmation settings, settled replay and strict repository isolation. The audit
-pair is an isolation test, not positive cross-repository recall. These scenarios
-were authored from the behavioral contract, not generated from model outputs.
-Static label review is owner-delegated agent review, not external or human
-independence. Review the new labels before one planned protected checkpoint;
-no r2 protected result or successful qualification exists. Existing deterministic
-native/PG suites do not supply semantic scores.
+Revision r2 was not model-executed, but two protected snippets were accidentally
+displayed during tuning diagnosis. It cannot be described as fully unseen. Its
+original bytes remain in source history and retained private evidence; no report
+is relabelled as a result for another revision, and no product fix is based on
+protected model output.
+
+Revision r3 replaces only that protected set: six unexecuted threads in three
+scenario groups, 19 events and eight new fact labels. All 16 tuning threads, their
+50 events and 21 fact labels retain their exact object bytes, and numeric targets
+are unchanged. Two protected groups test positive same-repository A-to-B recall;
+the third tests shared workspace confirmation policy with repository isolation.
+The protected coverage retains contextual endorsement, foreign quoted authority,
+maintainer disagreement and negation, exact update/stale/Forget, unaffected
+knowledge, both confirmation modes, actual proposal confirmation and settled
+replay. Independent delegated author and peer review verified nonweakening
+coverage and source-supported labels before registration. Root receives only
+counts, digests and coverage metadata; protected case text and event/fact labels
+were withheld. This is agent review, not external or human independence. No r3
+protected result or successful qualification exists. Deterministic native/PG and
+corpus-risk checks do not supply semantic scores.
 
 ## Fixed corpus and gates
 

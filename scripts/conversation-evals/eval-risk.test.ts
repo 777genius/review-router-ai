@@ -1922,7 +1922,7 @@ test("versioned full-thread supplement preserves legacy targets and binds only o
   const current = await loadCorpus("full-thread-v2");
   assert.equal(legacy.threads.length, 48);
   assert.deepEqual(current.targets, legacy.targets);
-  assert.equal(current.revision, "2026-11-02-full-thread-r2");
+  assert.equal(current.revision, "2026-11-03-full-thread-r3");
   assert.equal(current.threads.length, 22);
   assert.equal(
     current.threads.filter((thread) => thread.split === "tuning").length,
