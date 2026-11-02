@@ -140,7 +140,23 @@ if apply_grant; then fail "missing INSERT trigger unexpectedly accepted"; fi
   || fail "INSERT privilege restored despite missing trigger"
 owner -c 'DROP FUNCTION public.reviewrouter_worker_repository_insert_guard()' > /dev/null
 apply_grant || fail "owner failed to reinitialize fully removed guard"
-echo "ok - disabled/missing INSERT guard blocks privilege reissue"
+
+owner -c 'REVOKE INSERT ("id") ON public."RepositoryConnection" FROM reviewrouter_worker' > /dev/null
+owner > "$WORK/insert-guard-tamper.log" 2>&1 <<'SQL'
+CREATE OR REPLACE FUNCTION public.reviewrouter_worker_repository_insert_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $tampered$ BEGIN RETURN NEW; END $tampered$;
+SQL
+if apply_grant; then fail "tampered INSERT function unexpectedly accepted"; fi
+[ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','id','INSERT')")" = f ] \
+  || fail "INSERT restored despite tampered function body"
+owner -c 'DROP TRIGGER "RepositoryConnection_worker_insert_scope_guard" ON public."RepositoryConnection"' > /dev/null
+owner -c 'DROP FUNCTION public.reviewrouter_worker_repository_insert_guard()' > /dev/null
+apply_grant || fail "owner failed to recover from tampered function after explicit reset"
+[ "$(owner -qAt -c "SELECT count(*) FROM public.\"RepositoryConnection\" WHERE \"id\" LIKE 'forbidden-%'")" = 0 ] \
+  || fail "a denied cross-tenant INSERT persisted"
+echo "ok - disabled/missing/tampered INSERT guard blocks privilege reissue"
 
 # session_user must be the real LOGIN worker, never a privileged SET ROLE.
 if ! worker > "$WORK/first-bind.log" 2>&1 <<'SQL'
