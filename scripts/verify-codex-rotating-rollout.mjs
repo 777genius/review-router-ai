@@ -830,13 +830,13 @@ function verifyDatabase(db, descriptor, need, options) {
 function isWorkerInsertGuardObserved(catalog) {
   return Boolean(
     catalog?.inventory?.triggers?.includes(workerInsertGuard.trigger) ||
-      catalog?.inventory?.functions?.includes(workerInsertGuard.function) ||
-      catalog?.triggers?.some(
-        (entry) => entry?.name === workerInsertGuard.trigger,
-      ) ||
-      catalog?.functions?.some(
-        (entry) => entry?.name === workerInsertGuard.function,
-      ),
+    catalog?.inventory?.functions?.includes(workerInsertGuard.function) ||
+    catalog?.triggers?.some(
+      (entry) => entry?.name === workerInsertGuard.trigger,
+    ) ||
+    catalog?.functions?.some(
+      (entry) => entry?.name === workerInsertGuard.function,
+    ),
   );
 }
 

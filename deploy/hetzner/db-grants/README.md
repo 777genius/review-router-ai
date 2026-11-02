@@ -62,6 +62,6 @@ using the real worker LOGIN, plus existing first-bind UPDATE and advisory locks.
 This fixes the immediate cross-workspace INSERT hole but **does not** reconcile
 the canonical ACL: that ACL still revokes worker write privileges on each
 release. The existing release script must still apply this guarded grant
-*after* the canonical ACL, then qualify with the worker privilege checker.
+_after_ the canonical ACL, then qualify with the worker privilege checker.
 The broader trust-root/canonical-ACL decision is still tracked in issue #761.
 Do not treat merge or a passing disposable PG17 test as a production rollout.

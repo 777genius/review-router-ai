@@ -255,7 +255,10 @@ describe("observation-backed Codex rotating rollout verifier", () => {
 
   it("pins the post-ACL worker guard to the actual grant SQL body", () => {
     const grant = readFileSync(
-      join(process.cwd(), "deploy/hetzner/db-grants/worker-repository-sync.sql"),
+      join(
+        process.cwd(),
+        "deploy/hetzner/db-grants/worker-repository-sync.sql",
+      ),
       "utf8",
     );
     const body =
@@ -270,7 +273,10 @@ describe("observation-backed Codex rotating rollout verifier", () => {
 
   it("captures an orphaned worker guard function even after its trigger was removed", () => {
     const captureSource = readFileSync(
-      join(process.cwd(), "scripts/capture-codex-rotating-production-writer.mjs"),
+      join(
+        process.cwd(),
+        "scripts/capture-codex-rotating-production-writer.mjs",
+      ),
       "utf8",
     );
     expect(
@@ -294,8 +300,7 @@ describe("observation-backed Codex rotating rollout verifier", () => {
   it("preserves the existing PG17 rehearsal baseline but rejects an altered worker guard function", () => {
     const catalog = observedFixture().artifacts.database.catalog;
     const legacy = catalog.functions.find(
-      (entry: any) =>
-        entry.name === "codex_oauth_authorize_runtime_completion",
+      (entry: any) => entry.name === "codex_oauth_authorize_runtime_completion",
     );
     expect(legacy).toBeDefined();
     legacy.bodySha256 = digest(Buffer.from("legacy rehearsal definition"));
@@ -409,14 +414,14 @@ describe("observation-backed Codex rotating rollout verifier", () => {
       "database owned function privileges are not exact",
     ],
   ])("rejects post-ACL worker guard drift: %s", (_case, mutate, reason) => {
-      const catalog = observedFixture().artifacts.database.catalog;
-      addPostAclWorkerGuard(catalog);
-      mutate(catalog);
-      expect(
-        verifyCodexRotatingDatabaseCatalog(catalog).failures.some(
-          (failure: string) => failure.startsWith(reason),
-        ),
-      ).toBe(true);
+    const catalog = observedFixture().artifacts.database.catalog;
+    addPostAclWorkerGuard(catalog);
+    mutate(catalog);
+    expect(
+      verifyCodexRotatingDatabaseCatalog(catalog).failures.some(
+        (failure: string) => failure.startsWith(reason),
+      ),
+    ).toBe(true);
   });
 
   it("reuses the exact production catalog verifier for PostgreSQL rehearsal", () => {
@@ -1439,7 +1444,8 @@ function addPostAclWorkerGuard(catalog: any): void {
     initiallyDeferred: false,
   });
   const original = catalog.functions.find(
-    (entry: any) => entry.name === "codex_oauth_runtime_referential_action_guard",
+    (entry: any) =>
+      entry.name === "codex_oauth_runtime_referential_action_guard",
   );
   if (!original) {
     throw new Error("missing baseline SECURITY DEFINER trigger function");
