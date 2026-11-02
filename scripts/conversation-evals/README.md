@@ -21,7 +21,13 @@ isolation and actual A→B recall. All original corpora are unchanged.
 An operator can select **Run workflow → live-tuning** on reviewed `main`,
 with a protected `memory-quality-eval` environment and an isolated runner
 (`MEMORY_QUALITY_EVAL_RUNNER`). Required environment secrets/variables are named
-in the workflow. The operator must separately qualify the selected Account
+in the workflow. Set `MEMORY_EVAL_PRIVATE_RESULTS_DIR` to an existing
+operator-owned mode-0700 directory under `/srv/reviewrouter-memory-quality/`
+on that runner. Before *any* paid inference, the workflow verifies its real
+path and access, then creates a run-ID subdirectory with restrictive permissions.
+Each raw result is written there with mode 0600 and must be reviewed/retired
+under the operator's existing private evidence policy. No raw model responses
+or private account metadata are uploaded as public GitHub Actions artifacts. The operator must separately qualify the selected Account
 Gateway account/model, native Hindsight generation and a migrated disposable
 loopback PostgreSQL database ending `_test`. The preflight refuses PR/head
 runs, absent authorization, production database/native endpoints, reused
