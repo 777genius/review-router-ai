@@ -47,6 +47,22 @@ const structuredData = {
       },
     },
     {
+      "@type": "WebApplication",
+      "@id": `${reviewRouterWebUrl}/#free-ci-control-plane`,
+      name: "ReviewRouter CI control plane",
+      url: reviewRouterWebUrl,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Web",
+      description: "Free review setup, policy and status control plane; review execution remains in customer-authorized CI.",
+      isAccessibleForFree: true,
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+        description: "Current CI control-plane access. Provider and CI costs are separate; proposed hosted API plans are not for sale.",
+      },
+    },
+    {
       "@type": "WebPage",
       "@id": `${reviewRouterWebUrl}/#webpage`,
       name: defaultSeoTitle,
