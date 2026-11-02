@@ -47,7 +47,6 @@ export function createConversationGatewayInference(input: {
         Math.min(
           outerControls.deadlineAt.getTime(),
           Date.parse(prepare.deadline),
-          Date.now() + 60_000,
         ),
       );
       const remaining = deadlineAt.getTime() - Date.now();

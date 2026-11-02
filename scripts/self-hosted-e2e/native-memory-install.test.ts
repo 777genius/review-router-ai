@@ -5,6 +5,8 @@ import {
   assertComposeMemoryEnvironment,
   assertStoppedSelfHostedMemory,
   assertSelfHostedResumeOrigin,
+  disposeSelfHostedMemory,
+  selfHostedCleanupDiagnostic,
 } from "./native-memory-install.ts";
 import { validateConfig } from "../../deploy/hindsight/bootstrap.ts";
 
@@ -199,4 +201,48 @@ test("explicit resume origin must match the fresh sandbox API binding", () => {
   assert.throws(() =>
     assertSelfHostedResumeOrigin("", "http://127.0.0.1:14000"),
   );
+});
+
+test("cleanup ownership refusal exposes only its closed phase and code before any effects", async () => {
+  const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const directory = await mkdtemp(
+    join(tmpdir(), "reviewrouter-self-hosted-e2e-"),
+  );
+  const sentinel = "foreign-private-credential-material";
+  let composeStops = 0;
+  try {
+    await mkdir(join(directory, "memory-operator"), { mode: 0o700 });
+    await writeFile(
+      join(directory, "memory-operator/setup-binding.json"),
+      sentinel,
+      { mode: 0o600 },
+    );
+    await assert.rejects(
+      disposeSelfHostedMemory(directory, () => {
+        composeStops++;
+      }),
+      (error: unknown) => {
+        assert.deepEqual(selfHostedCleanupDiagnostic(error), {
+          phase: "authority",
+          code: "guard_refused",
+        });
+        assert(!JSON.stringify(error).includes(sentinel));
+        assert(error instanceof Error && !error.message.includes(sentinel));
+        return true;
+      },
+    );
+    assert.equal(composeStops, 0);
+    const hostile = Object.assign(new Error(sentinel), {
+      name: sentinel,
+      code: sentinel,
+    });
+    assert.deepEqual(selfHostedCleanupDiagnostic(hostile), {
+      phase: "unclassified",
+      code: "operation_failed",
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

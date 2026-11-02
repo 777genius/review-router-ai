@@ -414,3 +414,33 @@ classified a factual engineering imperative as a maintained-memory request;
 generic instructions now distinguish those comments from explicit memory
 operations. These changed sources require fresh remote QA and tuning. No r2
 protected checkpoint has been consumed, and no qualification PASS is claimed.
+
+## Bounded follow-up after the ddf candidate
+
+Tuning run `06c120b0-281c-4fd1-9e85-998ae9b1215a` remains **UNAVAILABLE**
+with 18 of 50 events reached; report SHA256
+`1266d282e0496dc92e2824fc3eab11fc131873511c148e030c625f2cf0cea111`.
+The actual contextual milliseconds fact was delivered and correctly answered in
+the next thread. Exact update also published the requested observation revision.
+Remaining observed failures were a vague question with empty semantic retrieval,
+a missed comparison request and an explicitly requested observation classified
+as a maintained rule. Generic intent instructions and bounded conversation-only
+retrieval address those cases; they require fresh model validation.
+
+The run stopped at the parent inference adapter's independent sixty-second
+deadline, inside the existing ninety-second conversation budget. Physical closure
+was acknowledged with zero occupied transport, but the provider outcome remains
+unknown and is not replayed. Both inference stages now retain the original
+admitted conversation deadline rather than acquiring unrelated shorter or new
+time budgets. Request, token, source-current and one-shot limits remain intact.
+
+The earlier exact-source CI210 run had genuine formatting and sandbox-cleanup
+failures before a later push cancelled its remaining jobs. Formatting was
+reconciled, including the quality-bound policy file; old source-profile results
+are not relabelled with its new hash. The functional self-hosted flow reached
+its final checks, then decommission refused before Compose teardown. The old
+job did not retain enough inspect evidence to establish that guard's cause.
+Closed phase/code diagnostics now preserve refusal evidence without raw errors
+or credentials and without relaxing any cleanup predicate. Actual stock
+self-hosted installation, resume and decommission still need a complete pass.
+No protected r2 checkpoint or automatic-production qualification is claimed.

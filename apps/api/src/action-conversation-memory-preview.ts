@@ -236,12 +236,9 @@ export function createConversationMemoryPreview(input: {
           templateRevision?: string;
         };
       };
-      // Slow selected models still share the original bounded conversation deadline.
-      // Do not cancel an in-flight extraction at an unrelated 25-second sublimit.
-      const remaining = Math.min(
-        60_000,
-        controls.deadlineAt.getTime() - Date.now(),
-      );
+      // Extraction shares the original bounded conversation deadline; it cannot
+      // acquire another time budget after parent inference has consumed it.
+      const remaining = controls.deadlineAt.getTime() - Date.now();
       if (
         remaining <= 0 ||
         controls.signal?.aborted ||

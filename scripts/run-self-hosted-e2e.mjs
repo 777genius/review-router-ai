@@ -11,6 +11,7 @@ import {
   resumeSelfHostedMemory,
   disposeSelfHostedMemory,
   assertComposeMemoryEnvironment,
+  selfHostedCleanupDiagnostic,
 } from "./self-hosted-e2e/native-memory-install.ts";
 import {
   disposableBefore87HandoffSql,
@@ -297,7 +298,20 @@ try {
           "utf8",
         ).trim(),
       );
-    } catch {
+    } catch (error) {
+      const diagnostic = selfHostedCleanupDiagnostic(error);
+      console.error(
+        `self_hosted_native_cleanup_refused:${JSON.stringify(diagnostic)}`,
+      );
+      try {
+        writeFileSync(
+          join(tempDirectory, "memory-decommission-refusal.json"),
+          JSON.stringify(diagnostic) + "\n",
+          { mode: 0o600, flag: "wx" },
+        );
+      } catch {
+        /* Preserve any existing private refusal evidence. */
+      }
       cleanupFailures.push("native_sandbox_decommission");
     }
   }

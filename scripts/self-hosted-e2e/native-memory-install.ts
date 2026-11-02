@@ -353,6 +353,49 @@ export async function resumeSelfHostedMemory(
   return receipt;
 }
 
+type CleanupPhase =
+  | "authority"
+  | "census"
+  | "mounts"
+  | "inventory_initial"
+  | "volumes"
+  | "compose_stop"
+  | "native_stop"
+  | "inventory_stopped"
+  | "postgres_stop"
+  | "remove"
+  | "absence"
+  | "receipt";
+type CleanupCode = "guard_refused" | "artifact_missing" | "operation_failed";
+class NativeSandboxCleanupError extends Error {
+  readonly phase: CleanupPhase;
+  readonly code: CleanupCode;
+  constructor(phase: CleanupPhase, error: unknown) {
+    super("selfhost_native_cleanup_refused");
+    this.phase = phase;
+    this.code =
+      error instanceof assert.AssertionError
+        ? "guard_refused"
+        : "operation_failed";
+    try {
+      if (
+        error instanceof Error &&
+        (error as NodeJS.ErrnoException).code === "ENOENT"
+      )
+        this.code = "artifact_missing";
+    } catch {
+      /* Diagnostic getters never replace the original refusal. */
+    }
+  }
+}
+
+/** Closed metadata only; never serialize an assertion, Docker stderr or env value. */
+export function selfHostedCleanupDiagnostic(error: unknown) {
+  return error instanceof NativeSandboxCleanupError
+    ? { phase: error.phase, code: error.code }
+    : { phase: "unclassified" as const, code: "operation_failed" as const };
+}
+
 type SandboxAuthority = {
   operator: string;
   config: ReturnType<typeof validateConfig>;
@@ -367,6 +410,7 @@ type SandboxAuthority = {
 async function withSandboxAuthority<T>(
   directory: string,
   operation: (authority: SandboxAuthority) => Promise<T>,
+  observeCensus?: (phase: "census" | "mounts") => void,
 ): Promise<T> {
   assert(basename(directory).startsWith("reviewrouter-self-hosted-e2e-"));
   const operator = join(directory, "memory-operator");
@@ -425,6 +469,7 @@ async function withSandboxAuthority<T>(
       },
     });
     const census = async () => {
+      observeCensus?.("census");
       await lock.assertHeld();
       const all = (
         await dockerCommand(["ps", "--all", "--no-trunc", "--quiet"])
@@ -443,6 +488,7 @@ async function withSandboxAuthority<T>(
             JSON.parse(await dockerCommand(["inspect", id])) as Inspection[]
           )[0]!,
         );
+      observeCensus?.("mounts");
       assertSandboxMounts(records, config, state);
       return records;
     };
@@ -466,10 +512,14 @@ export async function disposeSelfHostedMemory(
   directory: string,
   disposeCompose: () => void | Promise<void>,
 ): Promise<void> {
+  let phase: CleanupPhase = "authority";
   await withSandboxAuthority(
     directory,
     async ({ config, state, ids, lock, inventory, census }) => {
-      inventory.inspect(await census(), "initial");
+      const initial = await census();
+      phase = "inventory_initial";
+      inventory.inspect(initial, "initial");
+      phase = "volumes";
       const volumes = [
         `${config.deployment}-pg17-data`,
         `${config.deployment}-model-cache`,
@@ -507,7 +557,9 @@ export async function disposeSelfHostedMemory(
       }
       // Preserve the application DB too if any native ownership check failed.
       // Qualified native writers remain fenced while the app producer is removed.
+      phase = "compose_stop";
       await disposeCompose();
+      phase = "native_stop";
       await lock.assertHeld();
       await dockerCommand([
         "stop",
@@ -516,11 +568,16 @@ export async function disposeSelfHostedMemory(
         state.containers.worker,
         state.containers.api,
       ]);
-      inventory.inspect(await census(), "stopped");
+      const stopped = await census();
+      phase = "inventory_stopped";
+      inventory.inspect(stopped, "stopped");
+      phase = "postgres_stop";
       await lock.assertHeld();
       await dockerCommand(["stop", "--time", "10", state.containers.postgres]);
+      phase = "remove";
       await dockerCommand(["rm", ...ids]);
       await dockerCommand(["volume", "rm", ...volumes]);
+      phase = "absence";
       assert(
         !(
           await dockerCommand([
@@ -544,6 +601,7 @@ export async function disposeSelfHostedMemory(
             ])
           ).trim(),
         );
+      phase = "receipt";
       await writeFile(
         join(directory, "memory-decommission-result.json"),
         JSON.stringify({
@@ -555,5 +613,10 @@ export async function disposeSelfHostedMemory(
         { mode: 0o600, flag: "wx" },
       );
     },
-  );
+    (current) => {
+      phase = current;
+    },
+  ).catch((error: unknown) => {
+    throw new NativeSandboxCleanupError(phase, error);
+  });
 }

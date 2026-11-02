@@ -680,9 +680,11 @@ function createSelectedAccountPolicy(
           // A logical close does not settle an interrupted dispatch or its physical transport.
           inferenceCleanupPending =
             cleanupPending ||
-            !["completed", "not_dispatched", "rejected_before_dispatch"].includes(
-              value.effect,
-            );
+            ![
+              "completed",
+              "not_dispatched",
+              "rejected_before_dispatch",
+            ].includes(value.effect);
           await input.prisma.conversationProcessing.updateMany({
             where: {
               id: processingId,

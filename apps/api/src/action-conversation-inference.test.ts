@@ -32,13 +32,15 @@ function fixture(
     epoch?: number;
     maxRequestBytes?: number;
     controls?: { deadlineAt: Date; signal?: AbortSignal };
+    preparedDeadlineAt?: Date;
   } = {},
 ) {
   const order: string[] = [];
   let authority = true,
     sourceCurrent = true,
     admission = true;
-  const deadlineAt = new Date(Date.now() + 20_000);
+  const deadlineAt =
+    options.preparedDeadlineAt ?? new Date(Date.now() + 20_000);
   const checkAuthority = vi.fn(async () => {
     order.push("authority");
     return authority;
@@ -190,7 +192,11 @@ function fixture(
 }
 
 it("uses actual SDK reduction and exact selected account/model policy with one acknowledged close", async () => {
-  const f = fixture();
+  const preparedDeadlineAt = new Date(Date.now() + 80_000);
+  const f = fixture({
+    preparedDeadlineAt,
+    controls: { deadlineAt: new Date(Date.now() + 90_000) },
+  });
   expect(await f.generate()).toEqual({
     text,
     actualModel: model,
@@ -208,6 +214,7 @@ it("uses actual SDK reduction and exact selected account/model policy with one a
   ]);
   expect(f.control.runAccess).toHaveBeenCalledOnce();
   const intent = vi.mocked(f.control.runAccess).mock.calls[0]![0];
+  expect(intent.deadline).toBe(preparedDeadlineAt.toISOString());
   expect(intent).toMatchObject({
     operationId: "rr-conversation-original-a1-p",
     invocationRef: "rr-conversation-original",
