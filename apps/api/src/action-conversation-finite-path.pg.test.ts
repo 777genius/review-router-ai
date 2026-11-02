@@ -27,6 +27,7 @@ import {
   ProcessConversation,
   PrismaConversationProcessingStore,
   conversationDigest,
+  conversationOutputSchema,
   type ConversationIdentity,
   type ConversationMemoryPort,
   type ConversationPolicyPort,
@@ -186,6 +187,9 @@ describe.skipIf(!databaseUrl)(
         modelText?: string;
         requireConfirmation?: boolean;
         sourceBody?: string;
+        outputTokens?: number;
+        policyOutputTokens?: number;
+        contextWindowTokens?: number;
         revokeBeforeDispatch?: "account" | "memory";
         driftDuringPrepare?: "edit" | "delete";
       } = {},
@@ -424,7 +428,7 @@ describe.skipIf(!databaseUrl)(
             concurrency: 1,
             requestBytes: 131072,
             outputBytes: 262144,
-            tokens: 2048,
+            tokens: options.outputTokens ?? 2048,
           };
           const bindingManifest = {
             selectedAccount: "selected-account",
@@ -444,7 +448,10 @@ describe.skipIf(!databaseUrl)(
             automaticLearning: true,
             requireConfirmation: options.requireConfirmation ?? false,
             discussionReplies: options.replies ?? true,
-            contextWindowTokens: 250000,
+            contextWindowTokens: options.contextWindowTokens ?? 250000,
+            ...(options.policyOutputTokens === undefined
+              ? {}
+              : { maxOutputTokens: options.policyOutputTokens }),
             tokensPerByteUpperBound: 1,
             maxInputBytes: limits.requestBytes,
             bindingManifest,
@@ -570,6 +577,79 @@ describe.skipIf(!databaseUrl)(
         counts: () => ({ learned, actionCalls, policyCalls }),
       };
     }
+
+    it("reserves the frozen combined token budget before dispatch instead of assuming 2048", async () => {
+      const sourceBody =
+        "Which identifier convention is recorded for this source?";
+      const first = await fixture({
+        sourceBody,
+        outputTokens: 8192,
+        policyOutputTokens: 8192,
+      });
+      try {
+        expect((await first.processor.execute(input, controls())).status).toBe(
+          "ready",
+        );
+        const wire = first.calls.find((call) => call.kind === "request")!
+          .body as {
+          instructions: string;
+          input: { role: "user" | "assistant"; content: { text: string }[] }[];
+        };
+        const inputBytes =
+          4096 +
+          Buffer.byteLength(
+            JSON.stringify({
+              instructions: wire.instructions,
+              messages: wire.input.map((message) => ({
+                role: message.role,
+                content: message.content[0]!.text,
+              })),
+              outputSchema: conversationOutputSchema,
+            }),
+          );
+        // A distinct source revision fits a legacy 2048 reserve but cannot fit the frozen 8192 reserve.
+        const bounded = await fixture({
+          sourceBody: sourceBody + " Again.",
+          outputTokens: 8192,
+          policyOutputTokens: 8192,
+          contextWindowTokens: inputBytes + 4096,
+        });
+        try {
+          expect(
+            (await bounded.processor.execute(input, controls())).status,
+          ).toBe("context_incomplete");
+          expect(
+            bounded.calls.filter(
+              (call) => call.kind === "prepare" || call.kind === "request",
+            ),
+          ).toEqual([]);
+          expect(bounded.counts().learned).toBe(0);
+        } finally {
+          await bounded.app.close();
+        }
+      } finally {
+        await first.app.close();
+      }
+    });
+
+    it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+      "rejects invalid optional output reserve %s before any paid admission",
+      async (policyOutputTokens) => {
+        const f = await fixture({ policyOutputTokens });
+        try {
+          expect((await f.processor.execute(input, controls())).status).toBe(
+            "unavailable",
+          );
+          expect(
+            f.calls.filter(
+              (call) => call.kind === "prepare" || call.kind === "request",
+            ),
+          ).toEqual([]);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
 
     it("reads every page and actor, uses the selected account once, verifies App publication and purges settled output before replay", async () => {
       const f = await fixture();

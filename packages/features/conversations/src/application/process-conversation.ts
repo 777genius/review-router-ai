@@ -40,7 +40,7 @@ Default action to null. An engineering instruction about how the project works i
 For a factual comment without a question, prefer kind=silent, answer="", action=null. Do not acknowledge it by promising to record or save it. A question about project behavior calls for an answer from supplied evidence, not a memory action. An imperative request for an explanation or comparison is also a question, even without a question mark; answer such a request. Silence applies to factual statements and acknowledgements that do not request information.
 Use exact supplied entry handles/revisions. Put only the entry ID (without @revision) in entryId and the decimal revision string in expectedRevision. Preserve the explicitly requested knowledge kind and exact body. If no kind is requested, choose knowledgeKind=observation; choose rule only when the current author specifically requests a maintained rule. A fact describing an engineering rule is still an observation when the author asks to save an observation. Ambiguous intent/target requires clarification and action=null.
 Do not claim a write succeeded. A request to update or forget is not proof it happened. Use the supplied current memory state for questions about earlier changes; never infer success from historical requests, proposed changes or confirmations. The product renders action status from the actual operation.
-Answer from the supplied facts and memory. Do not invent a project convention from the code anchor or from a generic statement that a convention exists.
+Answer from the supplied facts and memory. Do not invent a project convention from the code anchor or from a generic statement that a convention exists. When asked about saved project knowledge, answer that question from the supplied memory rather than reviewing the anchored line. An unrelated or generic code anchor does not invalidate the supplied knowledge. Do not append unsupported applicability claims or ask for clarification when the evidence already answers the request.
 No tools, continuations, external fetches or additional inference are available.`;
 const actionSchema = {
   anyOf: [
@@ -51,7 +51,12 @@ const actionSchema = {
       properties: {
         kind: { type: "string", const: "create" },
         body: { type: "string", minLength: 1, maxLength: 1000 },
-        knowledgeKind: { type: "string", enum: ["observation", "rule"] },
+        knowledgeKind: {
+          type: "string",
+          enum: ["observation", "rule"],
+          description:
+            "Preserve the current author's requested storage kind. Default to observation. Choose rule only for an explicit request to save a maintained rule; describing an engineering convention does not promote an observation to a rule.",
+        },
       },
       required: ["kind", "body", "knowledgeKind"],
     },
@@ -107,8 +112,15 @@ export const conversationOutputSchema = {
       kind: {
         type: "string",
         enum: ["answer", "clarify", "effect_notice", "silent"],
+        description:
+          "Answer information requests, explanations and comparisons even without a question mark. Use silent only for facts or acknowledgements without an information request. Clarify only when the supplied discussion and memory cannot answer.",
       },
-      answer: { type: "string", maxLength: 12000 },
+      answer: {
+        type: "string",
+        maxLength: 12000,
+        description:
+          "A concise answer to the current request from supplied evidence, without unrelated claims about the anchored line. Empty for silent. Never claim a memory operation succeeded without its actual result.",
+      },
       action: actionSchema,
     },
     required: ["kind", "answer", "action"],
@@ -240,6 +252,10 @@ export class ProcessConversation {
         id,
         budget,
       );
+      const maxOutputTokens =
+        policy.maxOutputTokens === undefined ? 2048 : policy.maxOutputTokens;
+      if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1)
+        throw new ConversationError("unavailable");
       let snapshot: ConversationSnapshot | undefined;
       let context: ConversationMemoryContext | undefined;
       let prompt = "";
@@ -277,7 +293,7 @@ export class ProcessConversation {
           );
         if (
           bytes > Math.min(131_072, policy.maxInputBytes) ||
-          Math.ceil(bytes * policy.tokensPerByteUpperBound) + 2048 >
+          Math.ceil(bytes * policy.tokensPerByteUpperBound) + maxOutputTokens >
             policy.contextWindowTokens
         )
           throw new ConversationError("oversized");

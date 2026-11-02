@@ -592,7 +592,7 @@ function createSelectedAccountPolicy(
           relay.ingressBytes,
         ),
         outputBytes: Math.min(262_144, original.outputBytes),
-        tokens: Math.min(2048, original.tokens, profile[0]!.outputTokens),
+        tokens: Math.min(8192, original.tokens, profile[0]!.outputTokens),
       });
       const bindingManifest = {
         ...selected.binding,
@@ -712,6 +712,7 @@ function createSelectedAccountPolicy(
         contextWindowTokens: modelQualification[0]!.contextWindowTokens,
         tokensPerByteUpperBound: modelQualification[0]!.tokensPerByteUpperBound,
         maxInputBytes: limits.requestBytes,
+        maxOutputTokens: limits.tokens,
         inference,
         bindingManifest,
         isCurrent: remoteCurrent,

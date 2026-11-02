@@ -31,6 +31,7 @@ function fixture(
     lostOutput?: boolean;
     epoch?: number;
     maxRequestBytes?: number;
+    outputTokens?: number;
     controls?: { deadlineAt: Date; signal?: AbortSignal };
     preparedDeadlineAt?: Date;
   } = {},
@@ -148,7 +149,7 @@ function fixture(
         concurrency: 1,
         requestBytes: options.maxRequestBytes ?? 131_072,
         outputBytes: 262_144,
-        tokens: 2048,
+        tokens: options.outputTokens ?? 2048,
       },
       deadline: deadlineAt.toISOString(),
     },
@@ -401,3 +402,21 @@ it("does not acquire a grant after the caller's original deadline", async () => 
   expect(f.control.runAccess).not.toHaveBeenCalled();
   expect(f.request).not.toHaveBeenCalled();
 });
+
+it.each([8192, 1024])(
+  "sends the exact frozen %i combined token budget once without reclamping",
+  async (outputTokens) => {
+    const f = fixture({ outputTokens });
+    expect((await f.generate()).effect).toBe("completed");
+    const intent = vi.mocked(f.control.runAccess).mock.calls[0]![0];
+    const body = JSON.parse(
+      new TextDecoder().decode(f.request.mock.calls[0]![1].body),
+    );
+    expect(intent.limits.tokens).toBe(outputTokens);
+    expect(body.max_output_tokens).toBe(outputTokens);
+    expect(f.request).toHaveBeenCalledOnce();
+    expect(f.close).toHaveBeenCalledOnce();
+    await expect(f.generate()).rejects.toMatchObject({ code: "conflict" });
+    expect(f.request).toHaveBeenCalledOnce();
+  },
+);

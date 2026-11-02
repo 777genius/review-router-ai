@@ -68,6 +68,8 @@ export type ConversationPolicy = {
   /** Qualified conservative upper bound; byte size alone never proves token fit. */
   readonly tokensPerByteUpperBound: number;
   readonly maxInputBytes: number;
+  /** Frozen combined reasoning/answer reserve; older plain inference ports default to 2048. */
+  readonly maxOutputTokens?: number;
   readonly inference: TextInferencePort;
   readonly bindingManifest: Readonly<Record<string, unknown>>;
   isCurrent(controls: RequestControls): Promise<boolean>;

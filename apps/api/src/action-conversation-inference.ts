@@ -81,7 +81,7 @@ export function createConversationGatewayInference(input: {
         output: request.outputSchema
           ? { mode: "json_schema", schema: request.outputSchema.schema }
           : { mode: "text" },
-        maxOutputTokens: Math.min(2048, prepare.limits.tokens),
+        maxOutputTokens: prepare.limits.tokens,
         deadline: deadlineAt,
         limits: { outputBytes: Math.min(262_144, prepare.limits.outputBytes) },
       };

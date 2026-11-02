@@ -321,7 +321,7 @@ export function createConversationMemoryPreview(input: {
         instructions,
         input: JSON.stringify(projection),
         output: { mode: "json_schema", schema: outputSchema },
-        maxOutputTokens: Math.min(2048, account.limits.tokens),
+        maxOutputTokens: account.limits.tokens,
         deadline: deadlineAt,
         limits: { outputBytes: Math.min(262_144, account.limits.outputBytes) },
         decode,

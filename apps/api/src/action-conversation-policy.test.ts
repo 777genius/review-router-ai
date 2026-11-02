@@ -328,6 +328,8 @@ function dynamicModelFixture(
     qualifiedProfile?: string;
     qualifiedModel?: string;
     staleSource?: boolean;
+    configuredTokens?: number;
+    profileOutputTokens?: number;
     sourceProcessingProfile?:
       | "transient-checked-inline-v1"
       | "transient-checked-inline-gateway-v1"
@@ -522,7 +524,7 @@ function dynamicModelFixture(
     concurrency: 1,
     requestBytes: 131_072,
     outputBytes: 262_144,
-    tokens: 2048,
+    tokens: options.configuredTokens ?? 2048,
   };
   let memorySettings = { requireConfirmation: false, settingsRevision: "0" };
   let captured: ConversationCapturedPolicy | undefined;
@@ -594,7 +596,7 @@ function dynamicModelFixture(
               modelIds: ["openai/gpt-5.4-mini"],
               authKinds: ["api_key"],
             },
-            outputTokens: 2048,
+            outputTokens: options.profileOutputTokens ?? 2048,
           },
         ],
         ingressBytes: 131_072,
@@ -1026,5 +1028,19 @@ it.each([
         },
       }),
     );
+  },
+);
+
+it.each([
+  { configuredTokens: 32768, profileOutputTokens: 32768, expected: 8192 },
+  { configuredTokens: 1024, profileOutputTokens: 32768, expected: 1024 },
+  { configuredTokens: 32768, profileOutputTokens: 1536, expected: 1536 },
+])(
+  "freezes one combined output budget within both configured ceilings: %j",
+  async ({ expected, ...ceilings }) => {
+    const f = dynamicModelFixture(ceilings);
+    const policy = await f.capture();
+    expect(policy.maxOutputTokens).toBe(expected);
+    expect(policy.bindingManifest.limits).toMatchObject({ tokens: expected });
   },
 );

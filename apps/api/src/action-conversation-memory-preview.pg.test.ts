@@ -47,7 +47,7 @@ const account = {
   policyRevision: 2,
   bindingRevision: 3,
   expectedAuthorizationEpoch: 7,
-  limits: { requestBytes: 131_072, outputBytes: 262_144, tokens: 2048 },
+  limits: { requestBytes: 131_072, outputBytes: 262_144, tokens: 8192 },
   memorySettings: { requireConfirmation: false, revision: "0" },
 };
 const snapshot = {
@@ -786,6 +786,7 @@ describe.skipIf(!databaseUrl)(
         policyRevision: 2,
         bindingRevision: 3,
         profileId: account.profileRef,
+        limits: expect.objectContaining({ tokens: account.limits.tokens }),
         // An admitted extraction receives the remaining original budget, not a
         // shorter subdeadline that can interrupt an otherwise valid response.
         deadline: deadlineAt.toISOString(),
@@ -795,6 +796,7 @@ describe.skipIf(!databaseUrl)(
         model: account.model,
         store: false,
         service_tier: "default",
+        max_output_tokens: account.limits.tokens,
       });
       const task = f.requests[0] as {
         instructions: string;
