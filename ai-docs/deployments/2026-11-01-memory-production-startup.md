@@ -227,3 +227,62 @@ Bootstrap [PR #773](https://github.com/777genius/review-router-ai/pull/773) merg
 preserving the `555ddc759` cleanup-repair ancestry. This is source delivery.
 Self-hosted environment installation/acceptance and automatic conversational
 learning qualification remain pending.
+
+## Verified Gateway cutover, 2026-11-02 09:47 UTC
+
+This supersedes the historical not-installed Gateway observation above. The
+application fleet remains Core `57cc15137e62068ccf12b98eb4206b2dbbf43fef` with
+Action `v1.0.225`; the actual reviewer delivery and signed physical Forget are
+recorded in [the authorization record](2026-11-01-memory-review-authorization.md).
+Automatic full-thread learning and self-hosted release acceptance remain pending.
+
+The deployed Gateway is now protected-main
+`a717bfe50e46d01092eb380582c83d82c261b58c` from PR95, paired with native Sub2API
+`f2deab244b62469cebfa1492e70d80a4f766dc1f`. The native executable SHA256 is
+`09a7ab6fabb829cdd4c86b9c2ce6d9425ab73a9b67f02aa15b1d2d23319e6f9d`.
+The immutable release directory is
+`/srv/platform/artifacts/review-router/account-gateway/releases/coherent-a717-f2de-node26-20261102/release`.
+Actual systemd readback verified the private Node26.11.1 executable and native
+child hash, canonical `ready` line, active/running state and zero restarts.
+
+The old execution-bearer registry accumulated issued capabilities with a fixed
+128-entry bound. Preparation committed before capability generation, so exhaustion
+could leave an applied prepare with no acknowledged grant. Live registry occupancy
+was not exposed and its exact count was not measured. The new source issues
+stateless HMAC execution locators; the existing protected signing key is retained.
+The remaining128-entry guard applies to configured bearers, not issued locators.
+
+Normal shutdown completed with MainPID0, no remaining cgroup writers and physical
+transport occupancy0. Verified custom-format backups of both databases and private
+configuration/authority snapshots preceded schema changes. Native canonical
+ApplyMigrations added only247/248/249 (314 to317 exact checksums). Canonical kernel
+009 through012 completed; whole-row comparison preserved all6565 historical
+requests, all3 open executions and their6 linked requests. No historical execution
+was closed, fenced, replayed or deleted. Credentials, authority and bootstrap bytes
+were retained. Do not start old writers against these newer schemas or restore a
+snapshot over subsequently accepted effects; recovery must preserve that history.
+
+Durable private receipts are under
+`/srv/platform/projects/review-router/account-gateway/upgrade-a717-f2de-20261102/`:
+`backup-ack.json`, `evidence/native/native-migration-result.json`,
+`evidence/kernel/kernel-apply-result.json` and `activation-result.json`.
+The initial backup verification failed because a buffered header read left the
+inherited file descriptor at4096; fresh unbuffered readback verified the same
+existing dump without repeating shutdown or its creation. Native backup used the
+existing container database administrator after the application role lacked read
+permission on one table; application privileges were not expanded.
+
+Fresh metadata task `rr-metadata-guard-probe-20261102-selected-2` completed normal
+selected-account grant admission and acknowledged close exactly once. Its
+unconditional transport guard prevented inference: access1, connector1, guard1,
+close1, closeAcknowledged1, cleanup closed, usage null. This is grant/lifecycle
+proof, not model-quality evidence. Historical unknown tasks were not repeated.
+
+One subsequent full tuning run `804d8189-23e4-46c9-8f42-0eca5e58dcb4`
+recorded24 observations with completed/closed extraction receipts, then stopped
+with `eval_native_readback_deadline` during a settled event replay. The actual
+three commands in that scenario were already published; the harness was polling
+`deliver` on a terminal command, whose normal contract returns null. Preserve this
+run as UNAVAILABLE. Fixing that harness boundary does not qualify the mechanism,
+issue a capability, consume a protected checkpoint or authorize replay of an
+unknown model request.
