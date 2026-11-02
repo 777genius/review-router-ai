@@ -47,8 +47,8 @@ the matching GitHub repository ID and canonical source, and have no GitLab
 installation or pre-bound SCM identity. The installation is row-locked during
 validation to prevent a tenant-transfer race. Missing, disabled, altered or
 untrusted trigger/function metadata fails closed before regranting INSERT.
-The guard also denies new repository INSERTs from other restricted runtime
-LOGINs. A disposable PG17 contract checks legitimate and adversarial INSERTs
+Other roles retain their existing canonical ACL and sanctioned writer paths.
+A disposable PG17 contract checks legitimate and adversarial INSERTs
 using the real worker LOGIN, plus existing first-bind UPDATE and advisory locks.
 
 This fixes the immediate cross-workspace INSERT hole but **does not** reconcile
