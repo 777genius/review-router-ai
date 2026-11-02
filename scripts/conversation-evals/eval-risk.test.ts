@@ -38,6 +38,139 @@ import {
   gatewayCandidateCleanupSettled,
   requireGatewayCandidateReceipt,
 } from "./gateway-receipt.js";
+import { evaluationBoundaryDiagnostic } from "./boundary-diagnostic.js";
+
+test("evaluation boundary emits only allowlisted Prisma codes and owning source coordinates", () => {
+  const diagnostic = evaluationBoundaryDiagnostic("fixture_creation", {
+    name: "PrismaClientKnownRequestError",
+    code: "P2010",
+    meta: { code: "42501", message: "SECRET database details" },
+    message: "SECRET postgres://credentials@host/database",
+    stack: [
+      "SECRET postgres://credentials@host/database",
+      "    at external (/app/node_modules/driver/index.js:1:2)",
+      "    at createEvaluationFixture (file:///private/SECRET/scripts/conversation-evals/fixture.ts:270:11)",
+    ].join("\n"),
+  });
+  assert.deepEqual(diagnostic, {
+    phase: "fixture_creation",
+    errorType: "PrismaClientKnownRequestError",
+    code: "P2010",
+    databaseCode: "42501",
+    sourceFrame: {
+      file: "scripts/conversation-evals/fixture.ts",
+      line: 270,
+      column: 11,
+    },
+  });
+  assert.ok(!JSON.stringify(diagnostic).includes("SECRET"));
+});
+
+test("evaluation boundary rejects hostile error fields and unsafe stack coordinates", () => {
+  for (const frame of [
+    "/app/scripts/conversation-evals/fixture.ts?SECRET:1:2",
+    "/app/scripts/conversation-evals/../SECRET.ts:1:2",
+    "/app/scripts/conversation-evals/SECRET.ts:1:2",
+    "scripts/conversation-evals/fixture.ts:1:2",
+    "/app/scripts/conversation-evals/fixture.ts:0:2",
+    "/app/scripts/conversation-evals/fixture.ts:999999999:2",
+    "/app/scripts/conversation-evals/fixture.ts:1:2 SECRET",
+  ]) {
+    assert.deepEqual(
+      evaluationBoundaryDiagnostic("event_execution", {
+        name: "SECRET",
+        code: "P2010_SECRET",
+        meta: { code: "42501_SECRET" },
+        message: "SECRET",
+        stack: `SECRET\n    at hidden (${frame})`,
+      }),
+      { phase: "event_execution", errorType: "unknown" },
+    );
+  }
+});
+
+test("evaluation boundary handles primitives, hostile getters and unbounded stacks", () => {
+  const hostile = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("SECRET");
+      },
+    },
+  );
+  for (const value of [null, undefined, "SECRET", hostile]) {
+    assert.deepEqual(evaluationBoundaryDiagnostic("cold_start", value), {
+      phase: "cold_start",
+      errorType: "unknown",
+    });
+  }
+  assert.deepEqual(
+    evaluationBoundaryDiagnostic("runtime_import", {
+      name: "Error",
+      code: "ERR_MODULE_NOT_FOUND",
+      stack:
+        "SECRET".repeat(4000) +
+        "\n    at /app/scripts/conversation-evals/run.ts:1:2",
+    }),
+    {
+      phase: "runtime_import",
+      errorType: "Error",
+      code: "ERR_MODULE_NOT_FOUND",
+    },
+  );
+});
+
+test("evaluation runner records a safe configuration failure without claiming zero paid calls", async () => {
+  const { mkdir, mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { spawnSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  const directory = resolve("tmp");
+  await mkdir(directory, { recursive: true });
+  const scratch = await mkdtemp(resolve(directory, "eval-boundary-test-"));
+  try {
+    const output = resolve(scratch, "report.json");
+    // Deliberately invalid URL fails before imports, DB connection or fixture/model calls.
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "scripts/conversation-evals/run.ts", "--out", output],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        timeout: 30_000,
+        env: {
+          PATH: process.env.PATH,
+          CONVERSATION_EVAL_LIVE: "1",
+          CONVERSATION_EVAL_DISPOSABLE: "1",
+          CONVERSATION_EVAL_DATABASE_URL: "SECRET-invalid-url",
+          ...Object.fromEntries(
+            evaluationMissingKeys("full-product", {}).map((key) => [
+              key,
+              "synthetic",
+            ]),
+          ),
+        },
+      },
+    );
+    assert.equal(result.status, 2);
+    const report = JSON.parse(await readFile(output, "utf8"));
+    assert.equal(report.status, "UNAVAILABLE");
+    assert.equal(report.variants.length, 1);
+    const failure = report.variants[0];
+    assert.equal(failure.reason, "evaluation_boundary_failed");
+    assert.equal(failure.diagnostic.phase, "configuration");
+    assert.equal(failure.diagnostic.errorType, "TypeError");
+    assert.equal(failure.diagnostic.code, "ERR_INVALID_URL");
+    assert.equal(
+      failure.diagnostic.sourceFrame.file,
+      "scripts/conversation-evals/run.ts",
+    );
+    assert.ok(!JSON.stringify(report).includes("SECRET"));
+    assert.ok(!("scenarios" in failure));
+    assert.ok(!("modelCalls" in failure));
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
 
 // Synthetic scorer/capture regressions only. No model quality or product/native bank is fabricated.
 function sample() {

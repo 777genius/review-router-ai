@@ -18,6 +18,10 @@ import {
 } from "./configuration.js";
 
 import { gatewayCandidateCleanupSettled } from "./gateway-receipt.js";
+import {
+  evaluationBoundaryDiagnostic,
+  type EvaluationPhase,
+} from "./boundary-diagnostic.js";
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string) => {
@@ -182,11 +186,13 @@ if (args.includes("--validate")) {
     )
     .digest("hex");
   let prisma: PrismaClient | undefined;
+  let phase: EvaluationPhase = "configuration";
   try {
     if (split === "holdout" && !report.holdoutCheckpoint)
       throw new Error("eval_holdout_checkpoint_required");
     const threads = corpus.threads.filter((thread) => thread.split === split);
     for (const variant of variants) {
+      phase = "configuration";
       if (variant === "parser-baseline") {
         if (!process.env.REVIEW_ROUTER_ACTION_SOURCE_DIR) {
           report.variants.push({
@@ -196,6 +202,7 @@ if (args.includes("--validate")) {
           });
           continue;
         }
+        phase = "parser_import";
         const { parseMemoryInteraction } = (await import(
           pathToFileURL(
             resolve(
@@ -208,6 +215,7 @@ if (args.includes("--validate")) {
             instructions: { type: string; candidateBody?: string }[];
           };
         };
+        phase = "parser_execution";
         const observations = threads.flatMap((thread) =>
           thread.events.map((event) => ({
             eventId: corpusEventId(thread, event),
@@ -258,9 +266,11 @@ if (args.includes("--validate")) {
         variant === "full-product"
           ? readCandidateModels(process.env.CONVERSATION_EVAL_MODEL_BOUNDS_JSON)
           : undefined;
+      phase = "runtime_import";
       const { PrismaClient } = await import("@prisma/client");
       const { PrismaPg } = await import("@prisma/adapter-pg");
       const { createEvaluationFixture } = await import("./fixture.js");
+      phase = "database_client";
       prisma ??= new PrismaClient({
         adapter: new PrismaPg({ connectionString: database, max: 4 }),
       });
@@ -273,6 +283,7 @@ if (args.includes("--validate")) {
       const scenarios: Record<string, unknown>[] = [];
       let gatewayCleanupUnsettled = false;
       for (const [scenario, scenarioThreads] of grouped) {
+        phase = "fixture_creation";
         const fixture = await createEvaluationFixture({
           prisma,
           env: process.env,
@@ -294,10 +305,12 @@ if (args.includes("--validate")) {
               : "full-product",
           ...(candidateModels ? { candidateModels } : {}),
         });
+        phase = "cold_start";
         const coldStart = await fixture.coldStart();
         const observations: unknown[] = [];
         for (const thread of scenarioThreads) {
           for (const event of thread.events) {
+            phase = "event_execution";
             if (variant === "native-selection-only")
               observations.push({
                 eventId: corpusEventId(thread, event),
@@ -316,6 +329,7 @@ if (args.includes("--validate")) {
           }
           if (gatewayCleanupUnsettled) break;
           if (thread.afterMutation && variant === "full-product") {
+            phase = "mutation";
             const mutation = await fixture.mutate(thread.afterMutation.kind);
             const repeated = structuredClone(thread);
             const id = `${thread.id}-after-mutation-${runId}`;
@@ -330,6 +344,7 @@ if (args.includes("--validate")) {
               updatedAt: time,
               replyTo: repeated.messages[0]!.id,
             });
+            phase = "mutation_followup";
             const followup = await fixture.run(repeated, {
               messageId: id,
               action: "created",
@@ -352,6 +367,7 @@ if (args.includes("--validate")) {
             }
           }
         }
+        phase = "result_assembly";
         scenarios.push({
           scenario,
           namespace: fixture.namespace,
@@ -364,6 +380,7 @@ if (args.includes("--validate")) {
         // Preserve the actual witness and stop; a new paid attempt cannot settle cleanup debt.
         if (gatewayCleanupUnsettled) break;
       }
+      phase = "result_assembly";
       const incomplete =
         gatewayCleanupUnsettled ||
         scenarios.some((scenario) =>
@@ -409,6 +426,7 @@ if (args.includes("--validate")) {
         error instanceof Error && /^[a-zA-Z0-9_:-]{1,160}$/.test(error.message)
           ? error.message
           : "evaluation_boundary_failed",
+      diagnostic: evaluationBoundaryDiagnostic(phase, error),
     });
   } finally {
     await prisma?.$disconnect();
