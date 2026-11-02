@@ -475,13 +475,26 @@ answers failed, for the archive query and surviving neighbor, despite correctly
 admitted memory delivery. This partial review supplies neither an official
 quality score nor protected-holdout evidence.
 
-Candidate `91147c6f2` adds optional frozen `medium` effort only where the existing
-selected-model catalog supports it; unsupported or null effort remains omitted.
-The prompt prioritizes the current request. The candidate remains **UNQUALIFIED**
-pending fresh affected QA, complete tuning and the unconsumed protected
-checkpoint. Existing budgets and current-account authority remain binding. No
-qualification artifact or installed-App activation is established by this source
-change.
+The `91147c6f2` tuning run `6f8a53b9-eda8-48c7-8c1c-13daee93f039`
+completed all **50/50** events. Immutable report SHA256:
+`d6b74c8dbdfe278554ca0d91232bb6abc5fbda54fd07ea517894829d5f94bb05`.
+Owner-delegated agent review covered all 50 observations and 22 body versions.
+The official score is **FAIL**: three unauthorized effects, one missing required
+effect, zero bound violations and two mandatory linked-recall failures. Score
+SHA256: `61c8c2e5e06190f495c6587ff265ae7f806a316dccfe7df57fa5cb3a18363e71`
+(`tmp/memory-production/score-911-actual/official-score.json`). Complete execution
+is not qualification; no protected holdout or capability artifact followed.
+
+Experiment `0b2c889a43bd081578d573e0937038adc4ac1d8d` uses supported SDK
+text tasks with explicit JSON-schema instructions, SDK-owned parent JSON syntax
+gating and strict closed child validation. Authority, limits, original deadlines
+and no-replay semantics are unchanged. Source review and remote QA passed
+**159/159 with zero skips**, strict API/evaluation types, scoped lint/format,
+source-stamp and generated-verifier parity. These are source checks, not model
+qualification. A separate seven-event exact-metadata diagnostic has been
+launched; this record claims no result from it. The experiment remains
+**UNQUALIFIED** pending complete fresh tuning, protected holdout, installed-App
+acceptance and normal distribution. No qualification artifact is issued.
 
 The separate [explicit-resume record](2026-11-02-memory-explicit-resume.md#evidence)
 now records real self-hosted first installation/reuse, healthy stock Compose,
