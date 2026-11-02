@@ -256,7 +256,7 @@ describeWithDatabase("runtime PostgreSQL dead-letter privilege probe", () => {
     await prisma?.$disconnect();
   });
 
-  it("executes the release query against current, legacy and expired persisted events", async () => {
+  it("matches current and legacy persisted dead letters", async () => {
     const now = new Date();
     const expired = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1_000);
     const fixtures = [
