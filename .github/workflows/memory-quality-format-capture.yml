@@ -1,0 +1,62 @@
+# Temporary read-only capture for the repository's exact Prettier 3.8.3 output.
+# The job is removed once the resulting source is committed.
+name: Memory quality exact format capture
+on:
+  push:
+    branches: [test/memory-gateway-hindsight-evals-20261102]
+    paths:
+      - .github/workflows/memory-quality-format-capture.yml
+permissions:
+  contents: read
+jobs:
+  exact-format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.11.1
+      - name: Install pinned public formatter without scripts
+        run: npm install --global --ignore-scripts --no-audit --no-fund prettier@3.8.3
+      - name: Format the nine changed sources without writing to GitHub
+        run: |
+          prettier --write \
+            scripts/conversation-evals/corpus.multilingual-v1.json \
+            scripts/conversation-evals/corpus.ts \
+            scripts/conversation-evals/fixture.ts \
+            scripts/conversation-evals/memory-quality-gate.test.ts \
+            scripts/conversation-evals/memory-quality-gate.ts \
+            scripts/conversation-evals/memory-quality-reliability.ts \
+            scripts/conversation-evals/README.md \
+            scripts/conversation-evals/score.ts \
+            vitest.config.ts
+          prettier --check \
+            scripts/conversation-evals/corpus.multilingual-v1.json \
+            scripts/conversation-evals/corpus.ts \
+            scripts/conversation-evals/fixture.ts \
+            scripts/conversation-evals/memory-quality-gate.test.ts \
+            scripts/conversation-evals/memory-quality-gate.ts \
+            scripts/conversation-evals/memory-quality-reliability.ts \
+            scripts/conversation-evals/README.md \
+            scripts/conversation-evals/score.ts \
+            vitest.config.ts
+      - name: Emit canonical public-source bytes for safe PR patching
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const paths = ["scripts/conversation-evals/corpus.multilingual-v1.json","scripts/conversation-evals/corpus.ts","scripts/conversation-evals/fixture.ts","scripts/conversation-evals/memory-quality-gate.test.ts","scripts/conversation-evals/memory-quality-gate.ts","scripts/conversation-evals/memory-quality-reliability.ts","scripts/conversation-evals/README.md","scripts/conversation-evals/score.ts","vitest.config.ts"];
+          for(const path of paths) {
+            const bytes=readFileSync(path);
+            const data=bytes.toString('base64');
+            const digest=createHash('sha256').update(bytes).digest('hex');
+            const count=Math.ceil(data.length/4096);
+            console.log('RR_FMT_START|'+path+'|'+digest+'|'+bytes.length+'|'+count);
+            for(let i=0;i<count;i++) console.log('RR_FMT_CHUNK|'+path+'|'+i+'|'+data.slice(i*4096,(i+1)*4096));
+            console.log('RR_FMT_END|'+path);
+          }
+          NODE
