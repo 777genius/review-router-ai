@@ -1,0 +1,38 @@
+# ReviewRouter
+
+> Free, privacy-first AI code review control plane for GitHub repositories. The current service configures and monitors reviews executed in customer-authorized GitHub Actions. Optional hosted API reviews and paid tiers are proposed, not yet purchasable.
+
+## Public product documentation
+
+- Homepage: https://reviewrouter.org/
+- Getting started: https://reviewrouter.org/getting-started
+- Dashboard (requires user authentication): https://reviewrouter.org/dashboard
+- Sign in: https://reviewrouter.org/auth/signin
+- Current pricing and proposed future plans: https://reviewrouter.org/pricing
+- Security boundaries: https://reviewrouter.org/security
+- Privacy: https://reviewrouter.org/privacy
+- Fair-use limits: https://reviewrouter.org/fair-use
+- Support: https://reviewrouter.org/support
+- Disconnect: https://reviewrouter.org/disconnect
+- Authentication instructions for AI agents: https://reviewrouter.org/auth.md
+- Agent onboarding and safety: https://reviewrouter.org/agents.md
+- Sitemap: https://reviewrouter.org/sitemap.xml
+
+## Public API demonstration (not a general agent action API)
+
+- Browser documentation: https://api.reviewrouter.org/docs
+- Readable Markdown demo: https://api.reviewrouter.org/demo.md
+- **Demo** OpenAPI schema: https://api.reviewrouter.org/openapi.json
+- JSON demo: https://api.reviewrouter.org/demo
+
+These routes describe the published beta **demo** surface, not authenticated access to every internal ReviewRouter endpoint. Do not infer a public mutation SDK, MCP server, agent authorization API or permission to manage repositories.
+
+## User-authorized workflow
+
+1. User signs in with GitHub or (where available) GitLab in the browser.
+2. User authorizes the desired source account / GitHub App installation for selected repositories.
+3. The dashboard creates a repository setup pull request; user reviews and merges it.
+4. User selects a supported model/provider and configures credentials through the supported local/GitHub Actions secret flow.
+5. Reviews execute in authorized repository CI. Agents may assist with instructions, but must not grant themselves access, run secret commands or merge PRs without user approval.
+
+Pricing: the current CI control plane is free, subject to fair-use limits; provider billing and CI runner charges may still apply. Proposed hosted API tiers are not offered for purchase.
