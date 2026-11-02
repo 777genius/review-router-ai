@@ -6,10 +6,10 @@
 - Prerequisites: exact shipping source revision, signed/verified release and selected immutable Web image digest through the [release source of truth](../operations/07-environments-and-release-management.md). Reconcile unfinished release tasks before shipping.
 - No database migration, new env secret, feature flag, Action pin change, OAuth change, public API endpoint, worker activation or new entitlement required.
 
-| Environment | Status    | Actual revision / image | Evidence                                                                        |
-| ----------- | --------- | ----------------------- | ------------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified            | Verified staging rollout/image identity and HTTP smoke evidence not recorded    |
-| production  | `pending` | Not verified            | Verified production rollout/image identity and HTTP smoke evidence not recorded |
+Deployment status (no immutable release/image identity has been verified):
+
+- **Staging:** `pending`; image/revision not verified; rollout, image identity and HTTP smoke evidence not recorded.
+- **Production:** `pending`; image/revision not verified; rollout, image identity and HTTP smoke evidence not recorded.
 
 ## Pre-deploy and release
 
