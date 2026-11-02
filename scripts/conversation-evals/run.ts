@@ -30,6 +30,26 @@ const option = (name: string, fallback: string) => {
 };
 const corpusName = option("--corpus", "legacy-v1") as CorpusName;
 const corpus = await loadCorpus(corpusName);
+const scenarioIndex = args.indexOf("--scenario");
+const diagnosticScenario =
+  scenarioIndex < 0 ? undefined : args[scenarioIndex + 1];
+if (scenarioIndex >= 0) {
+  if (
+    args.filter((argument) => argument === "--scenario").length !== 1 ||
+    !diagnosticScenario ||
+    diagnosticScenario.startsWith("--")
+  )
+    throw new Error("eval_scenario_required");
+  if (args.includes("--validate") || option("--split", "tuning") !== "tuning")
+    throw new Error("eval_scenario_tuning_only");
+  if (
+    !corpus.threads.some(
+      (thread) =>
+        thread.split === "tuning" && thread.scenario === diagnosticScenario,
+    )
+  )
+    throw new Error("eval_scenario_unknown");
+}
 if (args.includes("--validate")) {
   console.log(
     JSON.stringify(
@@ -84,6 +104,9 @@ if (args.includes("--validate")) {
     split: string;
     holdoutCheckpoint: string | null;
     status: string;
+    diagnosticScenario?: string;
+    qualificationEligible?: false;
+    reason?: "diagnostic_subset_not_qualification";
     profile: Record<string, unknown>;
     variants: Record<string, unknown>[];
   } = {
@@ -95,6 +118,13 @@ if (args.includes("--validate")) {
     holdoutCheckpoint:
       process.env.CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID ?? null,
     status: "UNAVAILABLE",
+    ...(diagnosticScenario
+      ? {
+          diagnosticScenario,
+          qualificationEligible: false as const,
+          reason: "diagnostic_subset_not_qualification" as const,
+        }
+      : {}),
     profile: {
       nativeQualificationDigest: process.env
         .REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_QUALIFICATION
@@ -190,7 +220,11 @@ if (args.includes("--validate")) {
   try {
     if (split === "holdout" && !report.holdoutCheckpoint)
       throw new Error("eval_holdout_checkpoint_required");
-    const threads = corpus.threads.filter((thread) => thread.split === split);
+    const threads = corpus.threads.filter(
+      (thread) =>
+        thread.split === split &&
+        (!diagnosticScenario || thread.scenario === diagnosticScenario),
+    );
     for (const variant of variants) {
       phase = "configuration";
       if (variant === "parser-baseline") {
@@ -417,11 +451,11 @@ if (args.includes("--validate")) {
         ? "UNAVAILABLE"
         : "AWAITING_HUMAN_RUBRIC";
     }
-    report.status = report.variants.some(
-      (result) => result.status === "UNAVAILABLE",
-    )
-      ? "UNAVAILABLE"
-      : "AWAITING_HUMAN_RUBRIC";
+    report.status =
+      diagnosticScenario !== undefined ||
+      report.variants.some((result) => result.status === "UNAVAILABLE")
+        ? "UNAVAILABLE"
+        : "AWAITING_HUMAN_RUBRIC";
   } catch (error) {
     report.status = "UNAVAILABLE";
     report.variants.push({
@@ -441,6 +475,13 @@ if (args.includes("--validate")) {
     JSON.stringify(
       {
         status: report.status,
+        ...(diagnosticScenario
+          ? {
+              diagnosticScenario,
+              qualificationEligible: false,
+              reason: "diagnostic_subset_not_qualification",
+            }
+          : {}),
         runId,
         output,
         variants: report.variants.map((result) => ({

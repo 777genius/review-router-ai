@@ -135,6 +135,21 @@ Add `--corpus full-thread-v2` to the existing live command to select the success
 The results record both selector and revision; `score.ts` loads that exact corpus.
 Use a new explicit hold-out checkpoint only after tuning and protected-label review.
 
+For a bounded integration diagnostic, add `--scenario contextual-units` to the
+full-thread tuning command. The name must already exist in that corpus's tuning
+split; all threads/events belonging to that scenario remain intact. This does
+not accept custom messages, labels or settings. `--scenario` is rejected with
+hold-out or `--validate`, and unknown names are rejected before runtime imports,
+database clients or fixtures. Use the source graph through `node --import tsx`
+as above, without `--conditions=production`.
+
+Filtered runs retain actual witnesses and cleanup semantics, but always report
+`UNAVAILABLE`, exit 2, and record `diagnosticScenario`,
+`qualificationEligible: false` and `diagnostic_subset_not_qualification`, even
+when every observation completes. The scorer refuses these diagnostic reports.
+Omitting `--scenario` runs the entire selected split with the existing qualification
+gates; a diagnostic subset cannot replace that run or consume a protected checkpoint.
+
 The live database must be a migrated disposable loopback database whose name
 ends in `_test`. The runner creates fresh named workspace/repository rows and
 product scopes and native banks for each build, variant and scenario, then reads actual

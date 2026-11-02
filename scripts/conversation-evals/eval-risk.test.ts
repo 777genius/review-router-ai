@@ -172,6 +172,177 @@ test("evaluation runner records a safe configuration failure without claiming ze
   }
 });
 
+test("real runner limits tuning diagnostics to one existing scenario and cannot qualify them", async () => {
+  const { mkdir, mkdtemp, readFile, writeFile, rm, access } =
+    await import("node:fs/promises");
+  const { spawnSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  await mkdir(resolve("tmp"), { recursive: true });
+  const scratch = await mkdtemp(resolve("tmp/eval-scenario-test-"));
+  try {
+    const corpus = await loadCorpus("full-thread-v2");
+    const expected = [
+      ...new Set(
+        corpus.threads
+          .filter((thread) => thread.split === "tuning")
+          .map((thread) => thread.scenario),
+      ),
+    ];
+    const chosen = expected[0]!;
+    assert.ok(expected.length > 1);
+    const marker = resolve(scratch, "imports.txt");
+    const bootstrap = resolve(scratch, "bootstrap.mjs");
+    await writeFile(
+      bootstrap,
+      `import {registerHooks} from "node:module";
+      import {appendFileSync} from "node:fs";
+      const modules = ${JSON.stringify({
+        "@prisma/client":
+          "export class PrismaClient { async $disconnect() {} }",
+        "@prisma/adapter-pg": "export class PrismaPg {}",
+        "./fixture.js": `export async function createEvaluationFixture(input) {
+          return {
+            namespace:"synthetic-control-flow", scope:{kind:"repository",workspaceId:"synthetic",repositoryId:"synthetic"},
+            async coldStart() { return {productEntries:0,processingRecords:0,nativeDocuments:0,durableCommands:0}; },
+            async run(thread,event) { return {eventId:thread.id+":"+event.messageId,status:"silent",modelCalls:1,previewCalls:1,
+              gatewayPreviewReceipt:{gatewayCleanup:"closed"},deliveredBodyDigests:[],syntheticScenario:input.scenario}; },
+            async mutate(kind) { return {kind,revokedBodyDigests:[]}; }
+          };
+        }`,
+      })};
+      registerHooks({resolve(specifier, context, next) {
+        if (context.parentURL?.endsWith("/scripts/conversation-evals/run.ts") && Object.hasOwn(modules,specifier)) {
+          appendFileSync(${JSON.stringify(marker)},specifier+"\\n");
+          return {url:"data:text/javascript,"+encodeURIComponent(modules[specifier]),shortCircuit:true};
+        }
+        return next(specifier,context);
+      }});`,
+    );
+    const env = {
+      PATH: process.env.PATH,
+      ...Object.fromEntries(
+        evaluationMissingKeys("full-product", {}).map((key) => [
+          key,
+          "synthetic",
+        ]),
+      ),
+      CONVERSATION_EVAL_LIVE: "1",
+      CONVERSATION_EVAL_DISPOSABLE: "1",
+      CONVERSATION_EVAL_DATABASE_URL:
+        "postgres://synthetic@127.0.0.1/synthetic_test",
+      CONVERSATION_EVAL_MODEL_BOUNDS_JSON: JSON.stringify([
+        {
+          profileId: "synthetic-profile",
+          model: "synthetic-model",
+          contextWindowTokens: 32768,
+          tokensPerByteUpperBound: 4,
+        },
+      ]),
+      CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID: "synthetic-test-only",
+      REVIEW_ROUTER_MEMORY_NAMESPACE: "eval_synthetic",
+      REVIEW_ROUTER_MEMORY_GENERATION: "eval_synthetic",
+    };
+    const run = (output: string, extra: string[]) =>
+      spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--import",
+          bootstrap,
+          "scripts/conversation-evals/run.ts",
+          "--corpus",
+          "full-thread-v2",
+          "--out",
+          output,
+          ...extra,
+        ],
+        { encoding: "utf8", timeout: 30_000, env },
+      );
+    const output = resolve(scratch, "filtered.json");
+    const filtered = run(output, ["--scenario", chosen]);
+    assert.equal(filtered.status, 2, filtered.stderr);
+    const report = JSON.parse(await readFile(output, "utf8"));
+    assert.equal(report.status, "UNAVAILABLE");
+    assert.equal(report.reason, "diagnostic_subset_not_qualification");
+    assert.equal(report.diagnosticScenario, chosen);
+    assert.equal(report.qualificationEligible, false);
+    const variant = report.variants[0];
+    assert.equal(variant.status, "AWAITING_HUMAN_RUBRIC");
+    assert.deepEqual(
+      variant.scenarios.map(
+        (scenario: { scenario: string }) => scenario.scenario,
+      ),
+      [chosen],
+    );
+    const observations = variant.scenarios[0].observations;
+    assert.ok(observations.length > 0);
+    for (const observation of observations) {
+      const witness = observation.followup ?? observation;
+      assert.equal(witness.syntheticScenario, chosen);
+      assert.equal(witness.modelCalls, 1);
+    }
+    const rubric = resolve(scratch, "rubric.json");
+    await writeFile(
+      rubric,
+      JSON.stringify({
+        runId: report.runId,
+        corpusRevision: report.corpusRevision,
+        reviewer: "synthetic-test-only",
+        reviewedAt: new Date().toISOString(),
+        entries: [],
+        answers: [],
+      }),
+    );
+    const score = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "scripts/conversation-evals/score.ts",
+        output,
+        rubric,
+      ],
+      { encoding: "utf8", timeout: 30_000 },
+    );
+    assert.notEqual(score.status, 0);
+    assert.match(score.stderr, /eval_rubric_not_bound_to_observed_run/);
+
+    const completeOutput = resolve(scratch, "complete.json");
+    const complete = run(completeOutput, []);
+    assert.equal(complete.status, 3, complete.stderr);
+    const full = JSON.parse(await readFile(completeOutput, "utf8"));
+    assert.equal(full.status, "AWAITING_HUMAN_RUBRIC");
+    assert.ok(!("diagnosticScenario" in full));
+    assert.ok(!("qualificationEligible" in full));
+    assert.deepEqual(
+      full.variants[0].scenarios.map(
+        (scenario: { scenario: string }) => scenario.scenario,
+      ),
+      expected,
+    );
+    for (const [extra, reason] of [
+      [
+        ["--split", "holdout", "--scenario", chosen],
+        "eval_scenario_tuning_only",
+      ],
+      [["--scenario", "unknown-synthetic-scenario"], "eval_scenario_unknown"],
+      [["--scenario"], "eval_scenario_required"],
+      [["--validate", "--scenario", chosen], "eval_scenario_tuning_only"],
+    ] as const) {
+      await rm(marker, { force: true });
+      const deniedOutput = resolve(scratch, "denied.json");
+      const denied = run(deniedOutput, [...extra]);
+      assert.notEqual(denied.status, 0);
+      assert.ok(denied.stderr.includes(reason));
+      await assert.rejects(access(marker), { code: "ENOENT" });
+      await assert.rejects(access(deniedOutput), { code: "ENOENT" });
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
 test("runner persists reached witnesses on later failures and scorer refuses partial reports", async () => {
   const { mkdir, mkdtemp, readFile, writeFile, rm } =
     await import("node:fs/promises");
