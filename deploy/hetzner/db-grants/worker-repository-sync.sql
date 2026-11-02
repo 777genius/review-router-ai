@@ -68,6 +68,124 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Install a separate tenant/installation INSERT fence before granting worker
+-- INSERT. The canonical 000133 referential action trigger covers only UPDATE
+-- and DELETE, so neither that guard nor independent FKs prevent a cross-tenant
+-- insertion. Keep this transaction under the existing activation exclusion.
+DO $install_repository_insert_guard$
+DECLARE
+  newly_created boolean := false;
+BEGIN
+  IF pg_catalog.to_regprocedure(
+    'public.reviewrouter_worker_repository_insert_guard()'
+  ) IS NULL THEN
+    EXECUTE $create_worker_insert_guard$
+CREATE FUNCTION public.reviewrouter_worker_repository_insert_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $worker_insert_body$
+DECLARE
+  installation_workspace text;
+BEGIN
+  -- Only the worker LOGIN may create new repository connections. An
+  -- administrative owner may continue doing controlled schema/data repair.
+  IF session_user IN (
+    'reviewrouter_api', 'reviewrouter_web',
+    'reviewrouter_codex_effect_authority'
+  ) THEN
+    RAISE EXCEPTION 'worker_repository_insert_runtime_role_forbidden'
+      USING ERRCODE = '42501';
+  END IF;
+  IF session_user <> 'reviewrouter_worker' THEN
+    RETURN NEW;
+  END IF;
+  IF NEW."provider"::text IS DISTINCT FROM 'github'
+     OR NEW."sourceBaseUrl" IS DISTINCT FROM 'https://github.com'
+     OR NEW."installationId" IS NULL
+     OR NEW."gitlabInstallationId" IS NOT NULL
+     OR NEW."scmRepositoryIdentityId" IS NOT NULL
+     OR NEW."githubRepositoryId" IS NULL
+     OR NEW."githubRepositoryId" <= 0
+     OR NEW."externalRepositoryId" IS DISTINCT FROM
+        NEW."githubRepositoryId"::text
+  THEN
+    RAISE EXCEPTION 'worker_repository_insert_identity_forbidden'
+      USING ERRCODE = '42501';
+  END IF;
+  -- The two existing foreign keys check parent existence independently, not
+  -- their shared tenant. Lock the installation to serialize a parent move
+  -- against the new row until commit.
+  SELECT "workspaceId" INTO installation_workspace
+    FROM public."GitHubInstallation"
+    WHERE "id" = NEW."installationId"
+    FOR SHARE;
+  IF NOT FOUND
+     OR installation_workspace IS DISTINCT FROM NEW."workspaceId"
+  THEN
+    RAISE EXCEPTION 'worker_repository_insert_workspace_forbidden'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END
+$worker_insert_body$;
+$create_worker_insert_guard$;
+    newly_created := true;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc guard
+    WHERE guard.oid =
+      'public.reviewrouter_worker_repository_insert_guard()'::regprocedure
+      AND guard.proowner = 'reviewrouter'::regrole
+      AND guard.prosecdef
+      AND guard.proconfig = ARRAY['search_path=pg_catalog, public']
+      AND guard.prolang =
+        (SELECT oid FROM pg_catalog.pg_language WHERE lanname = 'plpgsql')
+      AND pg_catalog.encode(
+        pg_catalog.sha256(pg_catalog.convert_to(guard.prosrc, 'UTF8')),
+        'hex'
+      ) = 'c3fe6186891abbdf8b990ab70f255ebb762414fc87e09952590f74bad5cb4669'
+  ) THEN
+    RAISE EXCEPTION 'worker repository insert function integrity failed';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_trigger trigger_record
+    WHERE trigger_record.tgrelid =
+      'public."RepositoryConnection"'::regclass
+      AND trigger_record.tgname =
+        'RepositoryConnection_worker_insert_scope_guard'
+  ) THEN
+    IF NOT newly_created THEN
+      RAISE EXCEPTION 'worker repository insert trigger missing';
+    END IF;
+    EXECUTE 'CREATE TRIGGER "RepositoryConnection_worker_insert_scope_guard"
+      BEFORE INSERT ON public."RepositoryConnection"
+      FOR EACH ROW EXECUTE FUNCTION
+        public.reviewrouter_worker_repository_insert_guard()';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_trigger trigger_record
+    WHERE trigger_record.tgrelid =
+      'public."RepositoryConnection"'::regclass
+      AND trigger_record.tgname =
+        'RepositoryConnection_worker_insert_scope_guard'
+      AND NOT trigger_record.tgisinternal
+      AND trigger_record.tgenabled IN ('O', 'A')
+      AND trigger_record.tgtype = 7 -- BEFORE INSERT FOR EACH ROW
+      AND trigger_record.tgqual IS NULL
+      AND trigger_record.tgnargs = 0
+      AND trigger_record.tgfoid =
+        'public.reviewrouter_worker_repository_insert_guard()'::regprocedure
+  ) THEN
+    RAISE EXCEPTION 'qualified worker repository insert trigger is required';
+  END IF;
+END
+$install_repository_insert_guard$;
+REVOKE ALL ON FUNCTION
+  public.reviewrouter_worker_repository_insert_guard()
+  FROM PUBLIC, reviewrouter_worker;
 REVOKE INSERT, UPDATE ON TABLE public."RepositoryConnection" FROM reviewrouter_worker;
 GRANT INSERT ("id","workspaceId","provider","sourceBaseUrl","externalRepositoryId","installationId","githubRepositoryId","owner","name","fullName","defaultBranch","visibility","selected","archived","stargazersCount","setupStatus","inventoryGeneration","lifecycleResolutionMode","lifecycleResolutionActivationVersion","lastSyncedAt","createdAt","updatedAt")
   ON TABLE public."RepositoryConnection" TO reviewrouter_worker;
