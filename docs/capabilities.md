@@ -19,6 +19,10 @@ for current environment-specific status.
   threshold for inline comments. Model, effort, language, comment and severity
   settings can inherit workspace defaults or be overridden per repository.
 - Exact-revision authorization and publication checks guard against stale runs.
+- Organization-wide GitHub required workflows are supported for selected or all
+  repositories when organization rulesets, account plan and admin permissions
+  are available. GitHub Free organizations are not eligible.
+  See the [ruleset implementation](../packages/features/org-ruleset-provisioning/src/application/use-cases/request-org-ruleset-provisioning.ts).
 
 Sources: [provider catalog](../packages/features/review-providers/src/domain/provider-catalog.ts),
 [configuration schema](../packages/features/review-config/src/domain/review-configuration.ts),
@@ -83,6 +87,11 @@ See the [setup implementation](../apps/web/app/setup/gitlab/gitlab-connect-wizar
 and [GitLab runtime reference](../deploy/gitlab/README.md).
 
 ## Gated and unfinished work
+
+Optional GitHub live-progress comments require explicit capture, publisher
+and repository-cohort configuration. The defaults are off; failed progress
+publication must not block a final review. See the
+[progress rollout guide](./operations/live-review-progress-rollout.md).
 
 Advanced investigations, independent critics and selective cross-revision replay
 are implemented behind rollout controls that default to off. Reuse requires
