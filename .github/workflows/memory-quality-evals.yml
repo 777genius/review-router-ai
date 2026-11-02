@@ -134,15 +134,17 @@ jobs:
           esac
           test -d "$root" && test -w "$root" && test "$(stat -c %a "$root")" = "700"
           umask 077
-          private_dir="$root/$GITHUB_RUN_ID"
+          private_dir="$root/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           mkdir -m 700 "$private_dir"
           echo "MEMORY_EVAL_PRIVATE_OUTPUT_DIR=$private_dir" >> "$GITHUB_ENV"
       - name: Three real full-product tuning observations (fail on first unqualified result)
         shell: bash
         run: |
-          mkdir -p tmp/memory-quality-evals
+          umask 077
+          scratch="$(mktemp -d "$RUNNER_TEMP/memory-quality-XXXXXX")"
+          trap 'rm -f "$scratch"/tuning-*.json; rmdir "$scratch" 2>/dev/null || true' EXIT
           for attempt in 1 2 3; do
-            output="tmp/memory-quality-evals/tuning-${attempt}.json"
+            output="$scratch/tuning-${attempt}.json"
             set +e
             node --import tsx scripts/conversation-evals/run.ts --corpus "${{ inputs.corpus }}" --split tuning --variant full-product --out "$output"
             outcome=$?
