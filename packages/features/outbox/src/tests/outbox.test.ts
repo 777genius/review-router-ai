@@ -166,6 +166,7 @@ describe("outbox", () => {
     expect(outbox.events.get("unknown-version")).toMatchObject({
       status: "dead_letter",
       lastErrorCode: "unsupported_event_version",
+      safeLastErrorSummary: "outbox_handler_not_registered",
     });
     expect(outbox.events.get("known-disabled")).toMatchObject({
       status: "pending",

@@ -7,7 +7,8 @@
 // production, as an event that fails again and again until it is dead lettered.
 // Two checks:
 //   1. privileges the runtime is known to need, per role name;
-//   2. outbox dead letters from the last 7 days that mention "permission denied".
+//   2. outbox dead letters from the last 7 days with a stable DB grant error code
+//      (plus legacy free-text diagnostics from before the privacy migration).
 import pg from "pg";
 
 /** Known worker requirements also apply to the shared self-hosted user. */
@@ -33,6 +34,18 @@ export const requiredPrivileges = Object.freeze({
   reviewrouter_worker: workerPrivileges,
   reviewrouter: workerPrivileges,
 });
+
+// A fixed diagnostic code is written by safeOutboxErrorSummary. Keep the
+// legacy text predicates for dead letters recorded before that privacy fix.
+export const permissionDeadLetterQuery = `select type, count(*)::int as count, max("deadLetteredAt")::text as latest
+           from "OutboxEvent"
+          where status = 'dead_letter'
+            and "deadLetteredAt" > now() - interval '7 days'
+            and ("lastErrorCode" = 'db_permission_denied'
+              or "safeLastErrorSummary" ilike '%permission denied%'
+              or "safeLastErrorSummary" ilike '%42501%')
+          group by type
+          order by type`;
 
 /** Pure: turns probe results into the list of problems to print. */
 export function describeProblems({ role, missing, permissionDeadLetters }) {
@@ -87,16 +100,7 @@ async function main() {
       if (!result.rows[0].ok) missing.push(item);
     }
     const dead = await client
-      .query(
-        `select type, count(*)::int as count, max("deadLetteredAt")::text as latest
-           from "OutboxEvent"
-          where status = 'dead_letter'
-            and "deadLetteredAt" > now() - interval '7 days'
-            and ("safeLastErrorSummary" ilike '%permission denied%'
-              or "safeLastErrorSummary" ilike '%42501%')
-          group by type
-          order by type`,
-      )
+      .query(permissionDeadLetterQuery)
       .then((r) => r.rows);
     const problems = describeProblems({
       role,
