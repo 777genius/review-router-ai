@@ -7,6 +7,60 @@ second extractor, semantic judge, memory store, inference service or product
 logging endpoint. The synthetic source authority is a fixture; this run does not
 qualify a real GitHub App installation or replace the disposable App-first E2E.
 
+## Isolated Gateway/Hindsight quality E2E
+
+The focused [Memory quality evaluation](../../.github/workflows/memory-quality-evals.yml)
+workflow verifies all three immutable corpora plus scorer regressions on PRs,
+without obtaining model credentials or making paid requests. The new
+`--corpus multilingual-v1` is independently versioned as
+`2026-11-02-multilingual-r1`: **10 threads, 14 events, 7 fact labels**;
+4 tuning / 6 protected. The successor explicitly includes RU and mixed RU/EN
+contexts, prompt injection, quote/negation, source edit, cross-repository
+isolation and actual A→B recall. All original corpora are unchanged.
+
+An operator can select **Run workflow → live-tuning** on reviewed `main`,
+with a protected `memory-quality-eval` environment and an isolated runner
+(`MEMORY_QUALITY_EVAL_RUNNER`). Required environment secrets/variables are named
+in the workflow. The operator must separately qualify the selected Account
+Gateway account/model, native Hindsight generation and a migrated disposable
+loopback PostgreSQL database ending `_test`. The preflight refuses PR/head
+runs, absent authorization, production database/native endpoints, reused
+production generation, a protected checkpoint and missing selected-model
+bounds. It runs **three fresh full-product tuning observations** using the
+existing runner; failures stop the loop rather than buying replacement
+inference. This is not a release action or production activation.
+
+A successful tuning workflow reports **AWAITING_HUMAN_RUBRIC**, never
+automatically claims semantic accuracy. The result JSON is bounded synthetic
+observation evidence and must be reviewed under the existing human rubric
+contract. The scorer requires actual source/current authority, delivered
+body digests and a closed selected-account Gateway receipt. Use the exact
+returned `runId`, `corpusRevision` and observed source digests in each rubric:
+
+```sh
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-1.json private/tuning-1.rubric.json
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-2.json private/tuning-2.rubric.json
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-3.json private/tuning-3.rubric.json
+node --import tsx scripts/conversation-evals/memory-quality-reliability.ts \
+  private/tuning-1.json.score.json \
+  private/tuning-2.json.score.json \
+  private/tuning-3.json.score.json
+```
+
+The independent reliability summary compares three human-reviewed run IDs,
+one actual model and identical source/configuration digests; it preserves each
+run's numerator/denominator and reports min/max/range, failures and causal
+linked-recall witnesses without pooling correlated examples. Missing rubrics,
+model identity, authorization evidence, or a valid denominator never become
+a PASS. This tiny engineering benchmark does **not** establish population
+reliability. Protected holdout is not dispatched by this workflow; run one
+new checkpoint only after tuning is complete and the existing protected
+review/approval process is followed. Keep live artifacts strictly synthetic
+and protected from public release when they contain operator metadata.
+
 ## Full-thread successor slice
 
 `--corpus full-thread-v2` selects the separately versioned
