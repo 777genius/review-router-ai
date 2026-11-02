@@ -182,7 +182,7 @@ test("three independent human-scored runs expose variation without fabricated se
   changed[1]!.results[0]!.metrics.eligibleFactRecall = metric(7, 10);
   const worse = summarizeQualityRuns(changed);
   assert.equal(worse.status, "FAIL");
-  assert.equal((worse.metrics as Record<string, { range: number }>).eligibleFactRecall.range, 0.1);
+  assert(Math.abs((worse.metrics as Record<string, { range: number }>).eligibleFactRecall.range - 0.1) < 1e-9);
   assert.throws(() => summarizeQualityRuns(runs.slice(0, 2)), /eval_reliability_three_runs_required/);
   const duplicated = structuredClone(runs);
   duplicated[2]!.runId = "observed-1";
