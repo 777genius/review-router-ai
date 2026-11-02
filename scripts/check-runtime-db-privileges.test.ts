@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  createPrismaClient,
+  type PrismaClient,
+} from "@reviewrouter/platform-db";
 import {
   OutboxHandlerError,
   safeOutboxErrorSummary,
@@ -230,5 +235,94 @@ await import(process.env.RR_CHECKER_URL);`,
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("fixture_outbox_unreadable");
     expect(result.stdout).toContain('{"probes":7,"outbox":1,"closed":true}');
+  });
+});
+
+const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
+const describeWithDatabase = databaseUrl ? describe : describe.skip;
+
+describeWithDatabase("runtime PostgreSQL dead-letter privilege probe", () => {
+  let prisma: PrismaClient;
+  const prefix = `privilege-probe-${randomUUID()}`;
+
+  beforeAll(() => {
+    prisma = createPrismaClient({ databaseUrl: databaseUrl!, poolMax: 3 });
+  });
+
+  afterAll(async () => {
+    await prisma?.outboxEvent.deleteMany({
+      where: { idempotencyKey: { startsWith: prefix } },
+    });
+    await prisma?.$disconnect();
+  });
+
+  it("executes the release query against current, legacy and expired persisted events", async () => {
+    const now = new Date();
+    const expired = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1_000);
+    const fixtures = [
+      {
+        kind: "current",
+        code: "db_permission_denied",
+        summary: "outbox_database_permission_denied",
+        at: now,
+      },
+      {
+        kind: "legacy-text",
+        code: "handler_error",
+        summary: "permission denied for relation legacy_table",
+        at: now,
+      },
+      {
+        kind: "legacy-sqlstate",
+        code: "handler_error",
+        summary: "PostgreSQL error 42501",
+        at: now,
+      },
+      {
+        kind: "expired",
+        code: "db_permission_denied",
+        summary: "outbox_database_permission_denied",
+        at: expired,
+      },
+      {
+        kind: "unrelated",
+        code: "handler_error",
+        summary: "outbox_handler_failure",
+        at: now,
+      },
+    ];
+    for (const fixture of fixtures) {
+      await prisma.outboxEvent.create({
+        data: {
+          type: `${prefix}.${fixture.kind}`,
+          version: 1,
+          idempotencyKey: `${prefix}.${fixture.kind}`,
+          payload: {},
+          status: "dead_letter",
+          occurredAt: now,
+          deadLetteredAt: fixture.at,
+          lastErrorCode: fixture.code,
+          safeLastErrorSummary: fixture.summary,
+        },
+      });
+    }
+
+    // The production release query itself must match rows in real PostgreSQL.
+    // The SQL is an exported, fixed literal; no user input is interpolated.
+    const rows = await prisma.$queryRawUnsafe<
+      { type: string; count: number; latest: string }[]
+    >(permissionDeadLetterQuery);
+    const matches = new Map(
+      rows
+        .filter((row) => row.type.startsWith(`${prefix}.`))
+        .map((row) => [row.type, row.count]),
+    );
+    expect(matches).toEqual(
+      new Map([
+        [`${prefix}.current`, 1],
+        [`${prefix}.legacy-text`, 1],
+        [`${prefix}.legacy-sqlstate`, 1],
+      ]),
+    );
   });
 });
