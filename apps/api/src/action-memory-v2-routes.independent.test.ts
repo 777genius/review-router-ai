@@ -3,7 +3,10 @@ import {
   ReviewMemoryRuntimeGateway,
   registerReviewMemoryRuntimeRoutes,
 } from "./review-memory-runtime";
-import type { ReviewRunAuthorization } from "@reviewrouter/features-review-run-control";
+import {
+  canonicalJson,
+  type ReviewRunAuthorization,
+} from "@reviewrouter/features-review-run-control";
 import { createActionMemoryHttpPeer } from "./test-support/action-memory-http-peer";
 const apps: Awaited<ReturnType<typeof createActionMemoryHttpPeer>>["app"][] =
   [];
@@ -221,12 +224,40 @@ describe("independent real Fastify Action memory command contracts", () => {
       headSha: peer.source.headSha,
       reviewRevisionHash: "d".repeat(64),
     };
+    const maximum = new Date(Date.now() + 600_000);
     const authorization = {
       ...binding,
       workspaceId: "workspace_1",
       trustDomain: "trusted_managed",
       mutationEpoch: 1n,
-      runtimeSnapshotCanonicalJson: "{}",
+      expiresAt: new Date(Date.now() + 300_000),
+      maxExpiresAt: maximum,
+      runtimeSnapshotCanonicalJson: canonicalJson({
+        snapshotVersion: 3,
+        configurationSource: "workspace",
+        configurationVersion: 1,
+        workspaceConfigurationVersion: 1,
+        repositoryConfigurationVersion: null,
+        effectivePolicyDigest: `sha256:${"b".repeat(64)}`,
+        agent: {
+          profileRef: "codex-default",
+          agentKind: "codex",
+          binarySha256: "a".repeat(64),
+          packageVersion: "0.159.2",
+          modelTransports: ["account_gateway"],
+          contextGateway: true,
+          cancellation: true,
+        },
+        agentProfileDigest: "d".repeat(64),
+        producer: {
+          producerReleaseId: "release-1",
+          actionCommitSha: "a".repeat(40),
+          runtimeCommitSha: "a".repeat(40),
+        },
+        configurationCanonicalJson: canonicalJson({ schemaVersion: 3 }),
+        deadline: maximum.toISOString(),
+        gateway: null,
+      }),
     } as ReviewRunAuthorization;
     await registerReviewMemoryRuntimeRoutes(
       peer.app,

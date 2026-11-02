@@ -48,6 +48,7 @@ import {
 import { PrismaMemoryUsageEventRepository } from "@reviewrouter/features-memory/infrastructure";
 import { MemoryKnowledgeError } from "@reviewrouter/features-memory";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
 import {
   PrismaRateLimitStore,
   pruneExpiredRateLimitBuckets,
@@ -131,6 +132,11 @@ async function main(): Promise<void> {
     const memoryRuntime = await createMemoryKnowledgeRuntime({
       prisma,
       env: process.env,
+      workspaceSettings: (workspaceId, transaction) =>
+        new PrismaWorkspaceMemorySettings(prisma).read(
+          workspaceId,
+          transaction,
+        ),
     });
     const memoryWorker = createMemoryKnowledgeWorker({
       generation: memoryRuntime.generation,

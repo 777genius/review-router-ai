@@ -1,9 +1,14 @@
 import type { PrismaClient } from "@prisma/client";
+import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import { executionConnector } from "@agent-teams/account-gateway/llm";
+import { createConversationMemoryPreview } from "./action-conversation-memory-preview.js";
+import type { ConversationCapturedPolicy } from "./action-conversation-policy.js";
 import {
   ConversationError,
   ProcessConversation,
   PrismaConversationProcessingStore,
   conversationDigest,
+  renderConversation,
   sourceAuthorizesConversationAction,
   type ConversationMemoryPort,
   type ConversationSnapshot,
@@ -23,7 +28,6 @@ import {
 } from "@reviewrouter/features-memory/infrastructure";
 import {
   createPrismaAutomaticMemorySourceCurrent,
-  createConfiguredMemorySourcePreview,
   type MemoryKnowledgeRuntime,
 } from "@reviewrouter/features-memory/composition";
 import { readAccountGatewayInteractionCallerSource } from "@reviewrouter/features-workflow-provisioning";
@@ -39,7 +43,7 @@ import {
 import {
   createConversationPolicy,
   createConversationPublicationAuthority,
-  conversationScopeQualified,
+  conversationCapabilityAppliesToScope,
   readConversationQualification,
 } from "./action-conversation-policy.js";
 import {
@@ -275,9 +279,12 @@ export function createConversationMemoryPort(input: {
   readonly scope: Extract<MemoryKnowledgeScope, { kind: "repository" }>;
   readonly sources: import("@reviewrouter/features-conversations").ConversationSourcePort &
     MemoryAutomaticSourceCurrentPort;
-  readonly preview: Parameters<
-    MemoryKnowledgeRuntime["forAutomaticLearning"]
-  >[2];
+  readonly preview:
+    | Parameters<MemoryKnowledgeRuntime["forAutomaticLearning"]>[2]
+    | ((
+        snapshot: ConversationSnapshot,
+        processingId: string,
+      ) => Parameters<MemoryKnowledgeRuntime["forAutomaticLearning"]>[2]);
   readonly managed: (
     snapshot: ConversationSnapshot,
     observed?: boolean,
@@ -347,6 +354,7 @@ export function createConversationMemoryPort(input: {
       );
       if (!selected || !snapshot.sourceMaintainer)
         return { status: "unavailable", effectIds: [] };
+      const policy = await input.runtime.policy.getPolicy(scope);
       const bound = managed(snapshot);
       const checkedSource: MemoryAutomaticSourceCurrentPort = {
         current: async (value, budget) =>
@@ -356,7 +364,9 @@ export function createConversationMemoryPort(input: {
       const learning = input.runtime.forAutomaticLearning(
         bound.access,
         checkedSource,
-        preview,
+        typeof preview === "function"
+          ? preview(snapshot, processingId)
+          : preview,
       );
       const effect = await learning.learn(
         {
@@ -369,6 +379,18 @@ export function createConversationMemoryPort(input: {
           threadDigest: snapshot.threadDigest,
           headSha: snapshot.headSha,
           selectableBody: selected.body,
+          readOnlyContext: renderConversation(snapshot),
+          contextEvidence: {
+            threadId: snapshot.threadId,
+            messages: snapshot.messages.map((message) => ({
+              id: message.id,
+              updatedAt: message.updatedAt,
+              bodyDigest: message.bodyDigest,
+              replyTo: message.replyTo,
+            })),
+          },
+          requireConfirmation: policy.requireConfirmation,
+          settingsRevision: policy.settingsRevision,
         },
         controls,
       );
@@ -378,14 +400,26 @@ export function createConversationMemoryPort(input: {
             ? "complete_empty"
             : effect.state,
         effectIds: effect.operations.map((operation) => operation.id),
+        ...(effect.proposals ? { proposals: effect.proposals } : {}),
       };
     },
     async action(snapshot, processingId, intent, controls) {
+      const policy = await input.runtime.policy.getPolicy(scope);
       if (
-        !sourceAuthorizesConversationAction(snapshot, intent) ||
+        !sourceAuthorizesConversationAction(
+          snapshot,
+          intent,
+          policy.requireConfirmation,
+        ) ||
         !(await sources.isCurrent(snapshot, controls))
       )
         throw new ConversationError("forbidden");
+      const automaticSettingsRevision = sourceAuthorizesConversationAction(
+        snapshot,
+        intent,
+      )
+        ? undefined
+        : policy.settingsRevision;
       const id = commandId(processingId);
       const ref = {
         type: "entry" as const,
@@ -429,6 +463,9 @@ export function createConversationMemoryPort(input: {
             actor: actor(snapshot),
             ref,
             expectedRevision: intent.expectedRevision,
+            ...(automaticSettingsRevision !== undefined
+              ? { automaticSettingsRevision }
+              : {}),
           },
           controls,
         );
@@ -460,7 +497,12 @@ export function createConversationMemoryPort(input: {
           expectedRevision,
           generation: input.runtime.generation,
           providerProfileVersion: input.runtime.providerProfileVersion,
-          approval: prepared.approval,
+          approval: {
+            ...prepared.approval,
+            ...(automaticSettingsRevision !== undefined
+              ? { automaticSettingsRevision }
+              : {}),
+          },
         };
         if (intent.kind === "retire")
           operation = await service.retire(
@@ -564,7 +606,6 @@ export function createActionConversationComposition(input: {
   const qualification = readConversationQualification(
     input.env.REVIEW_ROUTER_CONVERSATION_QUALIFICATION,
   );
-  const preview = createConfiguredMemorySourcePreview(input.env);
   return {
     repositories: input.action.repositories,
     sessions: input.action.sessions,
@@ -579,7 +620,7 @@ export function createActionConversationComposition(input: {
     async task(claims, repository) {
       if (
         !qualification ||
-        !conversationScopeQualified(qualification, claims) ||
+        !conversationCapabilityAppliesToScope(qualification, claims) ||
         !input.env.GITHUB_APP_SLUG
       )
         throw new ConversationError("unavailable");
@@ -614,7 +655,8 @@ export function createActionConversationComposition(input: {
         createClient,
         appSlug: input.env.GITHUB_APP_SLUG,
         sourceProcessingAllowed: async () => {
-          if (!conversationScopeQualified(qualification, claims)) return false;
+          if (!conversationCapabilityAppliesToScope(qualification, claims))
+            return false;
           try {
             const client = await createClient(),
               [owner, repo] = claims.repository.split("/");
@@ -694,11 +736,41 @@ export function createActionConversationComposition(input: {
             readonly snapshot: ConversationSnapshot;
           }
         | undefined;
+      let capturedPolicy: ConversationCapturedPolicy | undefined;
       const memory = createConversationMemoryPort({
         runtime: input.runtime,
         scope,
         sources,
-        preview,
+        preview: (snapshot, processingId) => {
+          const captured = capturedPolicy;
+          const origin = input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN;
+          const token =
+            input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER;
+          if (!captured || !origin || !token)
+            return {
+              preview: async () => ({
+                status: "unsupported",
+                reason: "gateway_unavailable",
+              }),
+            };
+          return createConversationMemoryPreview({
+            prisma: input.prisma,
+            parentId: processingId,
+            snapshot,
+            captured,
+            control: createConsumerControlClient({
+              role: "consumer-control",
+              origin:
+                input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN ??
+                origin,
+              token,
+              timeoutMs: 10_000,
+            }),
+            connectExecution: executionConnector({ origin }),
+            isSourceCurrent: (controls) =>
+              sources.isCurrent(snapshot, controls),
+          });
+        },
         managed,
         clock: input.action.clock,
         contextAccess: (snapshot, runtimeActor, scopes) =>
@@ -765,6 +837,9 @@ export function createActionConversationComposition(input: {
             runtime: input.runtime,
             env: input.env,
             qualification,
+            onCaptured: (value) => {
+              capturedPolicy = value;
+            },
             admitMemory: async (transaction, now) =>
               frozenContext
                 ? frozenContext.receipt.scopes.every(

@@ -35,6 +35,8 @@ export interface SourcePreviewPort {
       readonly scope: MemoryScope;
       readonly source: SourceRevision;
       readonly maxStatements: number;
+      /** Complete transient context supplied by the host; it grants no mutation authority. */
+      readonly readOnlyContext?: string;
     },
     controls: RequestControls,
   ): Promise<SourcePreviewResult>;

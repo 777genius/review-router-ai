@@ -8,6 +8,8 @@ import Fastify from "fastify";
 import pg from "pg";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import { executionConnector } from "@agent-teams/account-gateway/llm";
 import {
   afterAll,
   beforeAll,
@@ -178,6 +180,7 @@ describe.skipIf(!databaseUrl)(
         loseOutput?: boolean;
         driftAfterLearning?: boolean;
         modelAction?: unknown;
+        requireConfirmation?: boolean;
         sourceBody?: string;
         revokeBeforeDispatch?: "account" | "memory";
         driftDuringPrepare?: "edit" | "delete";
@@ -347,7 +350,7 @@ describe.skipIf(!databaseUrl)(
             },
           ];
           response.write(
-            `data: ${JSON.stringify({ type: "response.output_item.done", item: output[0] })}\r\n\r\n`,
+            `data: ${JSON.stringify({ type: "response.output_text.done", text: output[0]!.content[0]!.text })}\r\n\r\n`,
           );
           return response.end(
             `data: ${JSON.stringify({ type: "response.completed", response: { id: "response-1", status: "completed", model, output: [], usage: { input_tokens: 1200, output_tokens: 40 } } })}\r\n\r\n`,
@@ -422,6 +425,7 @@ describe.skipIf(!databaseUrl)(
           return {
             revision: "1:1:qualified-proof",
             automaticLearning: true,
+            requireConfirmation: options.requireConfirmation ?? false,
             discussionReplies: options.replies ?? true,
             contextWindowTokens: 250000,
             tokensPerByteUpperBound: 1,
@@ -429,11 +433,15 @@ describe.skipIf(!databaseUrl)(
             bindingManifest,
             isCurrent: async () => true,
             inference: createConversationGatewayInference({
-              runAccess: {
+              control: createConsumerControlClient({
+                role: "consumer-control",
                 origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-                runControlBearer: "disposable-control-token",
+                token: "disposable-control-token",
                 timeoutMs: 5000,
-              },
+              }),
+              connectExecution: executionConnector({
+                origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+              }),
               prepare: {
                 operationId: `conversation-${processingId}`,
                 invocationRef: `conversation-${processingId}`,
@@ -446,7 +454,6 @@ describe.skipIf(!databaseUrl)(
                 limits,
                 deadline: budget.deadlineAt.toISOString(),
               },
-              requestId: `conversation-${processingId}-request`,
               model,
               expectedAuthorizationEpoch: 12,
               checkAuthority: () => selectionCurrent(prisma),
@@ -564,15 +571,16 @@ describe.skipIf(!databaseUrl)(
           accountRefs: ["selected-account"],
           limits: { requests: 1, concurrency: 1 },
         });
-        expect(
-          f.calls.find((call) => call.kind === "request")!.body,
-        ).toMatchObject({
+        const requestBody = f.calls.find(
+          (call) => call.kind === "request",
+        )!.body;
+        expect(requestBody).toMatchObject({
           model,
-          tools: [],
-          tool_choice: "none",
           stream: true,
           store: false,
         });
+        expect(requestBody).not.toHaveProperty("tools");
+        expect(requestBody).not.toHaveProperty("tool_choice");
         const row = await prisma.conversationProcessing.findUniqueOrThrow({
           where: { id: result.processingId },
         });
@@ -680,6 +688,42 @@ describe.skipIf(!databaseUrl)(
         await drift.app.close();
       }
     });
+    it("publishes exact observation proposals in confirmation mode and replays without admitting effects", async () => {
+      const f = await fixture({
+        requireConfirmation: true,
+        sourceBody: "Yes, the identifier rule above is correct.",
+      });
+      const learn = vi.fn(async () => ({
+        status: "confirmation_required",
+        effectIds: [],
+        proposals: ["Identifiers must preserve leading zeroes."],
+      }));
+      f.memory.learn = learn;
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("ready");
+        expect(result.learning).toEqual({
+          status: "confirmation_required",
+          effectIds: [],
+        });
+        expect(result.reply?.body).toContain(
+          "These observations have not been saved.",
+        );
+        expect(result.reply?.body).toContain(
+          "Remember observation: Identifiers must preserve leading zeroes.",
+        );
+        expect(await prisma.memoryKnowledgeCommand.count()).toBe(0);
+        expect(await prisma.outboxEvent.count()).toBe(0);
+        expect(f.counts().actionCalls).toBe(0);
+        expect(await f.processor.execute(input, controls())).toEqual(result);
+        expect(learn).toHaveBeenCalledOnce();
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          1,
+        );
+      } finally {
+        await f.app.close();
+      }
+    });
     it.each(["edit", "delete"] as const)(
       "rejects %s of older context during SDK Prepare before any native paid request",
       async (drift) => {
@@ -737,6 +781,7 @@ describe.skipIf(!databaseUrl)(
         const f = await fixture({
           modelAction,
           sourceBody: "Thanks for explaining that.",
+          requireConfirmation: true,
         });
         try {
           const result = await f.processor.execute(input, controls());
@@ -758,7 +803,8 @@ describe.skipIf(!databaseUrl)(
     );
     it("recovers committed automatic and explicit command associations after lost ACK and expiry without repeating effects", async () => {
       const f = await fixture({
-        sourceBody: "Remember rule: EXPLICIT_SELECTED_BODY",
+        sourceBody:
+          "Please remember EXPLICIT_SELECTED_BODY as the project rule.",
         modelAction: {
           kind: "create",
           knowledgeKind: "rule",
@@ -791,7 +837,11 @@ describe.skipIf(!databaseUrl)(
       });
       const automaticSources = new PrismaMemoryAutomaticSourceStore(prisma);
       const current = { current: async () => true };
-      const policy = { getPolicy: async () => createMemoryPolicyConfig() };
+      let requireConfirmation = true;
+      const policy = {
+        getPolicy: async () =>
+          createMemoryPolicyConfig({ requireConfirmation }),
+      };
       const knowledge = new MemoryKnowledgeService({
         generation,
         providerProfileVersion: profile,
@@ -873,8 +923,7 @@ describe.skipIf(!databaseUrl)(
         manifest: { memoryGeneration: generation },
         admit: async () => true,
       });
-      // The real mutation adapter rejects an unrequested body even when a caller
-      // bypasses ProcessConversation and supplies a verified maintainer snapshot.
+      // Confirmation mode rejects an unauthored body at the actual adapter boundary.
       const identity = await f.sources.identify(input, controls());
       const checked = await f.sources.read(identity, controls());
       await expect(
@@ -891,6 +940,7 @@ describe.skipIf(!databaseUrl)(
       ).rejects.toThrow("conversation_forbidden");
       expect(await prisma.memoryKnowledgeCommand.count()).toBe(0);
       expect(await prisma.outboxEvent.count()).toBe(0);
+      requireConfirmation = false;
       f.memory.learn = productMemory.learn;
       f.memory.action = productMemory.action;
       const originalBatch = store.admitAutomaticSelection.bind(store);

@@ -30,7 +30,18 @@ bounded exact reply may remain only as an unresolved publication envelope. A
 verified App publication or terminal publication resolution purges its body;
 settled replay returns IDs, hashes and status, without historical output bytes.
 
-## Security refinement, 2026-10-29
+## Current owner refinement, 2026-10-30
+
+The [full-thread/settings successor](../plans/2026-10-30-full-thread-memory-settings.md)
+replaces the two interaction choices in the historical refinement below. Native
+selection uses the checked full thread to interpret the eligible maintainer's
+message. One workspace-wide setting controls confirmation for AI writes and
+defaults to automatic. Existing exact authored confirmations remain available in
+confirmation mode. Context revision vectors, final transactional settings checks,
+authority, audience, replay and cleanup remain product-owned. New semantic quality
+needs actual-model evaluation; prior source-only evidence is not reused as that proof.
+
+## Historical security refinement, 2026-10-29
 
 The [source-authority refinement](../plans/2026-10-29-memory-source-authority.md)
 supersedes this unactivated profile's mixed-author preview context and free-form
@@ -155,6 +166,21 @@ notices describe actual queued/published/revoked/unknown/cleanup state rather th
 claiming success from generated prose.
 
 ## Activation evidence
+
+### Mechanism applicability successor, 2026-11-02
+
+The owner's self-hosted startup requirement separates reusable source/model
+qualification from live repository and selected-account permission. The strict
+version-2 deployment capability specified in ADR-034 may cover normal current
+product admissions without a per-repository operator allowlist. Version 1 retains
+its exact finite workspace/repository bindings; omission never expands its scope.
+This successor changes evidence applicability only. Installed App source checks,
+session/repository identity epochs, primary-account ownership/epochs, confirmation,
+deletion, publication and paid one-shot admission remain authoritative.
+
+The existing activation declaration below describes version 1. Version 2 requires
+qualified release evidence for the exact full-thread Gateway source/model mechanism;
+neither parsing a declaration nor native bootstrap generates that evidence.
 
 `REVIEW_ROUTER_CONVERSATION_QUALIFICATION` contains trusted deployment proof ID,
 exact runtime SHA, supported workspace/repository bindings and qualified model

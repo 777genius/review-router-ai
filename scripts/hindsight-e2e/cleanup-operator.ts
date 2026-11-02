@@ -27,13 +27,18 @@ import {
   type NativeSql,
 } from "./native-provenance.ts";
 import { acquireDeploymentLock } from "./deployment-lock.ts";
-import { assertExecutorPhase, nativeSqlArguments } from "./operator-host.ts";
+import { nativeSqlArguments } from "./operator-host.ts";
+import {
+  CleanupHostInventory,
+  CLEANUP_HOST_CONTAINER_LIMIT,
+  type CleanupHostInspection,
+  type CleanupPostgresInfrastructure,
+} from "./cleanup-host-inventory.ts";
 import {
   inspectedCleanupEnvironment,
   inspectedCleanupMountArguments,
   inspectedExecutorHealthBase,
   writeCleanupEnvironmentFile,
-  type CleanupExecutorInspection,
 } from "./cleanup-runtime-profile.ts";
 import {
   assertCleanupOperationSources,
@@ -63,8 +68,10 @@ interface OperatorPlan {
   readonly routerPauseCheckUrl: string;
   readonly deploymentLockPath: string;
   readonly sourceInventoryPath: string;
+  /** Optional exact bootstrap PG binding. Omission preserves the legacy strict census. */
+  readonly postgresInfrastructure?: CleanupPostgresInfrastructure;
 }
-type Inspection = CleanupExecutorInspection;
+type Inspection = CleanupHostInspection;
 type Operation = CleanupOperation;
 type Fact = { id: string; source_memory_ids?: string[] };
 type List<T> = { items: T[]; total: number };
@@ -210,6 +217,10 @@ async function runLockedCleanup(
     JSON.parse(
       await docker(["inspect", "--format", "{{json .}}", container]),
     ) as Inspection;
+  const hostInventory = new CleanupHostInventory({
+    ...plan,
+    imageDigest: plan.binding.imageDigest,
+  });
   const inspectAll = async (
     phase: "initial" | "stopped" | "restarted",
     cleanupContainerId?: string,
@@ -230,61 +241,12 @@ async function runLockedCleanup(
       .split("\n")
       .filter(Boolean);
     assert(
-      containers.length <= 512,
+      containers.length <= CLEANUP_HOST_CONTAINER_LIMIT,
       "Standalone host inventory exceeds the bounded inspection profile",
     );
     const records: Inspection[] = [];
     for (const container of containers) records.push(await inspect(container));
-    const apiRecord = records.find(
-      (record) => record.Id === plan.apiContainerId,
-    );
-    assert(apiRecord);
-    const databaseIdentity = (record: Inspection) => {
-      const setting = record.Config.Env?.find((value) =>
-        value.startsWith("HINDSIGHT_API_DATABASE_URL="),
-      );
-      if (!setting) return undefined;
-      const url = new URL(setting.slice("HINDSIGHT_API_DATABASE_URL=".length));
-      return `${url.hostname}:${url.port || 5432}${url.pathname}`;
-    };
-    const expectedDatabase = databaseIdentity(apiRecord);
-    assert(expectedDatabase);
-    const native: Inspection[] = [];
-    const [labelKey, labelValue] = plan.deploymentLabel.split("=");
-    for (const record of records) {
-      if (record.Id === cleanupContainerId) {
-        assert(
-          record.Image === plan.binding.imageDigest &&
-            record.Config.Cmd?.[0] === "hindsight-api",
-          "Private cleanup observer identity drift",
-        );
-        continue;
-      }
-      const role = record.Config.Labels?.["io.reviewrouter.hindsight.role"];
-      if (
-        record.Config.Labels?.[labelKey!] === labelValue ||
-        record.Image === plan.binding.imageDigest ||
-        databaseIdentity(record) === expectedDatabase
-      ) {
-        assert(
-          record.Config.Labels?.[labelKey!] === labelValue,
-          "An executor sharing this image/database is outside the authoritative deployment label",
-        );
-        assert(role === "api" || role === "worker");
-        native.push(record);
-      }
-    }
-    assert.deepEqual(
-      native.map((record) => record.Id).sort(),
-      [...plan.executorContainerIds].sort(),
-      "Executor inventory drift; no receipt can be issued",
-    );
-    assert(
-      native.every((record) => record.Image === plan.binding.imageDigest),
-      "An unqualified old executor image remains",
-    );
-    assertExecutorPhase(native, plan.restartContainerIds, phase);
-    return native;
+    return hostInventory.inspect(records, phase, cleanupContainerId);
   };
   async function checkPause() {
     const response = await fetch(pauseUrl, {

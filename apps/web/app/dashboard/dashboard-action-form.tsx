@@ -115,6 +115,12 @@ function dashboardActionToast(
   }
 
   switch (params.notice) {
+    case "workspace_memory_settings_saved":
+      return {
+        tone: "success",
+        title: "Memory settings saved",
+        body: "Memory confirmation settings were updated for every repository in this workspace.",
+      };
     case "workspace_review_settings_saved":
       return {
         tone: "success",

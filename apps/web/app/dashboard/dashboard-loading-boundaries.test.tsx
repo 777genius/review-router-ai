@@ -28,6 +28,12 @@ vi.mock("next/navigation", async (importOriginal) => {
 
 const memoryKnowledge = vi.hoisted(() => ({
   load: vi.fn(async () => ({ workspaceId: "workspace-a", repositoryId: null })),
+  settings: vi.fn(async () => ({
+    requireConfirmation: false,
+    version: null,
+    canEdit: false,
+    mutationsEnabled: false,
+  })),
 }));
 const identity = vi.hoisted(() => ({
   scope: vi.fn(
@@ -40,6 +46,9 @@ const identity = vi.hoisted(() => ({
 }));
 vi.mock("../../src/server/dashboard-memory-knowledge", () => ({
   loadDashboardMemoryKnowledge: memoryKnowledge.load,
+}));
+vi.mock("../../src/server/dashboard-memory-settings", () => ({
+  loadDashboardMemorySettings: memoryKnowledge.settings,
 }));
 vi.mock(
   "../../src/features/memory/interface/components/memory-knowledge-workspace",
@@ -319,7 +328,10 @@ vi.mock("@reviewrouter/features-hosted-account-pool", () => ({
   PrismaHostedPoolQuery: fixtures.EmptyStore,
 }));
 vi.mock("@reviewrouter/features-provider-setup", () => ({}));
-vi.mock("@reviewrouter/features-memory", () => ({
+vi.mock("@reviewrouter/features-memory", async (importOriginal) => ({
+  MemoryKnowledgeError: (
+    await importOriginal<typeof import("@reviewrouter/features-memory")>()
+  ).MemoryKnowledgeError,
   simulateMemoryPolicyDecision: fixtures.spies.memorySimulation,
   listMemoryItemsForDashboard: fixtures.spies.memoryItems,
   listMemorySuggestionsForDashboard: fixtures.spies.memorySuggestions,
@@ -1236,9 +1248,30 @@ describe("dashboard server loading boundaries", () => {
     },
   );
 
-  it.each(["knowledge", "suggestions", "table"])(
+  it.each([
+    "knowledge",
+    "suggestions",
+    "table",
+    "unavailable-settings",
+    "unavailable-knowledge",
+  ])(
     "loads authorized memory through its new facade without reactivating legacy mode %s",
     async (memoryMode) => {
+      if (memoryMode === "unavailable-settings")
+        memoryKnowledge.settings.mockRejectedValueOnce(
+          new Error("review_policy_resave_required"),
+        );
+      if (memoryMode === "unavailable-knowledge") {
+        memoryKnowledge.load.mockRejectedValueOnce(
+          new Error("native_provider_unavailable_private_detail"),
+        );
+        memoryKnowledge.settings.mockResolvedValueOnce({
+          requireConfirmation: false,
+          version: null,
+          canEdit: true,
+          mutationsEnabled: true,
+        });
+      }
       const content = await DashboardSectionContent({
         context: {
           mutationStatus: {
@@ -1269,8 +1302,18 @@ describe("dashboard server loading boundaries", () => {
         workspaceKey: "acme",
       });
       const html = renderToStaticMarkup(content);
-      expect(html).toContain("Approved memory");
+      if (memoryMode === "unavailable-knowledge") {
+        expect(html).toContain("Memory is temporarily unavailable.");
+        expect(html).toContain("Require confirmation for memory changes");
+        expect(html).toContain("Save memory settings");
+        expect(html).toContain('name="workspaceId" value="workspace-a"');
+        expect(html).not.toContain(
+          "native_provider_unavailable_private_detail",
+        );
+      } else expect(html).toContain("Approved memory");
       expect(html).not.toContain("previous-item");
+      if (memoryMode === "unavailable-settings")
+        expect(html).toContain("Memory settings are temporarily unavailable.");
       expect(memoryKnowledge.load).toHaveBeenCalledExactlyOnceWith({
         workspaceId: "workspace-a",
         repositoryId: null,

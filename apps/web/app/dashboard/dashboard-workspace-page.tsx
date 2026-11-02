@@ -215,6 +215,8 @@ import {
 import { RepositorySetupStatusRefresher } from "./repository-setup-status-refresher";
 import { MemoryKnowledgeWorkspace } from "../../src/features/memory/interface/components/memory-knowledge-workspace";
 import { loadDashboardMemoryKnowledge } from "../../src/server/dashboard-memory-knowledge";
+import { loadDashboardMemorySettings } from "../../src/server/dashboard-memory-settings";
+import { MemorySettings } from "./memory-settings";
 import { memoryDashboardPublicError } from "../../src/features/memory/adapters/memory-dashboard-controller";
 import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
@@ -1309,6 +1311,26 @@ export async function DashboardSectionContent({
       />
     );
   if (selectedSection === "memory") {
+    const settings = await loadDashboardMemorySettings(
+      selectedWorkspace.workspace.id,
+    ).catch(() => null);
+    const settingsSection = settings ? (
+      <MemorySettings
+        workspaceId={selectedWorkspace.workspace.id}
+        {...settings}
+      />
+    ) : (
+      <section
+        aria-label="Memory settings"
+        className="mx-auto w-full max-w-5xl border-t border-white/10 py-6"
+      >
+        <h2 className="text-lg font-semibold text-slate-100">Settings</h2>
+        <p role="status" className="mt-3 text-sm text-slate-400">
+          Memory settings are temporarily unavailable. Refresh this page to try
+          again.
+        </p>
+      </section>
+    );
     try {
       const page = await loadDashboardMemoryKnowledge({
         workspaceId: selectedWorkspace.workspace.id,
@@ -1321,23 +1343,34 @@ export async function DashboardSectionContent({
         topicId:
           typeof params.memoryTopic === "string" ? params.memoryTopic : null,
       });
-      return <MemoryKnowledgeWorkspace initialData={page} />;
+      return (
+        <>
+          <MemoryKnowledgeWorkspace initialData={page} />
+          {settingsSection}
+        </>
+      );
     } catch (error) {
       const safe = memoryDashboardPublicError(error);
       return (
-        <section
-          aria-labelledby="memory-unavailable-title"
-          className="max-w-3xl py-8"
-        >
-          <h1 id="memory-unavailable-title" className="text-3xl font-semibold">
-            Memory
-          </h1>
-          <p role="status" className="mt-4 text-sm leading-6 text-slate-400">
-            {safe.status === 403
-              ? "You do not have permission to view memory in this workspace."
-              : "Memory is temporarily unavailable. Please refresh this page to try again."}
-          </p>
-        </section>
+        <>
+          <section
+            aria-labelledby="memory-unavailable-title"
+            className="max-w-3xl py-8"
+          >
+            <h1
+              id="memory-unavailable-title"
+              className="text-3xl font-semibold"
+            >
+              Memory
+            </h1>
+            <p role="status" className="mt-4 text-sm leading-6 text-slate-400">
+              {safe.status === 403
+                ? "You do not have permission to view memory in this workspace."
+                : "Memory is temporarily unavailable. Please refresh this page to try again."}
+            </p>
+          </section>
+          {settingsSection}
+        </>
       );
     }
   }

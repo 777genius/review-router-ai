@@ -33,8 +33,9 @@ The default Compose stack connects as one database user, so every query is
 allowed. If you give the app, worker and web separate database roles, a missing
 grant does not show up in tests or at startup. It shows up later as events that
 fail with `permission denied` until they are dead lettered, for example
-repository sync or statistics. After each deploy run this with the DATABASE_URL
-of each runtime role:
+repository sync or statistics. After each deploy run this with the worker DATABASE_URL
+(the supported policies are the dedicated `reviewrouter_worker` role and the
+default shared Compose role `reviewrouter`):
 
 ```bash
 DATABASE_URL=... node scripts/check-runtime-db-privileges.mjs
@@ -71,7 +72,9 @@ backend, downloads pinned multilingual local models, starts its database/API/
 worker and configures the shared env automatically. The native services run
 separately from Compose, preserving the existing physical-Forget cleanup profile.
 Ordinary approved memory uses local embeddings and reranking with no generative
-account. Automatic conversational learning has a separate activation path.
+account. Normal setup also consumes a qualified conversation capability when the
+release includes the source-owned artifact described below. It never creates that
+qualification from installed models or configuration.
 See the [memory startup reference](../hindsight/BOOTSTRAP.md) for recovery.
 
 The Compose stack starts:
@@ -417,6 +420,28 @@ second argument. An optional third argument separates heavy build/download
 scratch work from durable models, evidence and runtime state. Completed phases
 are reused; a partial native qualification or
 installation is preserved for reconciliation rather than repeated blindly.
+
+If a genuinely qualified release includes
+`deploy/self-hosted/conversation-capability.json`, the same setup command validates
+its strict v2 declaration against all four actual implementation/provenance files
+in this checkout and the installed source stamp. It atomically installs the existing
+qualification and matching immutable interaction-runtime pin together with the
+provider settings. The generated standalone verifier uses the authoritative parser
+and needs no host `node_modules`, extra package installation or provider credentials.
+Normal repository setup and live source/account authority still apply; eligible new
+repositories use their current selected primary review account and supported model,
+without a per-repository operator qualification.
+
+No genuine conversation capability artifact is supplied by this implementation.
+Missing, invalid or mismatched release evidence leaves approved/manual memory
+available and reports an explicit unqualified conversation status. Existing
+qualification/pin assignments, including v1, partial or empty operator input, are
+preserved for reconciliation. Provider opt-outs and service pauses suppress new
+capability installation. A preserved v2 declaration with stale source hashes cannot
+authorize automatic processing after an upgrade; the runtime checks its current
+source stamp without overwriting the operator's env or disabling manual storage.
+Do not create a placeholder artifact or infer qualification from a successful parser,
+source-stamp check, native installation or synthetic fixture.
 
 Then use the normal stack startup:
 

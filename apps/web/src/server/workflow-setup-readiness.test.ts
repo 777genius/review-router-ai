@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { qualifiedGatewayInteractionRuntimeSha } from "@reviewrouter/platform-config";
+import { conversationCapabilityFixture } from "../../../../packages/platform/config/src/tests/conversation-qualification-fixture.js";
 import {
   OctokitRepositoryWorkflowProbe,
   type RepositoryWorkflowCheck,
@@ -18,6 +20,7 @@ import {
   renderCodexRotatingInteractionWorkflow,
   renderCodexRotatingAdvisoryWorkflow,
   renderAccountGatewayWorkflow,
+  renderAccountGatewayInteractionWorkflow,
   renderProviderApiWorkflow,
   renderClaudeSubscriptionWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
@@ -1181,5 +1184,145 @@ it.each([
       },
     );
     expect(current).toBe(scenario === "current");
+  },
+);
+
+it.each(["current", "missing", "stale"])(
+  "Gateway readiness requires its qualified interaction caller: %s",
+  async (scenario) => {
+    const apiUrl = "https://app.reviewrouter.dev";
+    const runtimeSha = "a".repeat(40);
+    const review = renderAccountGatewayWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl,
+      githubRepositoryId: readinessInput.githubRepositoryId,
+    });
+    const interaction = renderAccountGatewayInteractionWorkflow({
+      runtimeSha: scenario === "stale" ? "b".repeat(40) : runtimeSha,
+      apiUrl,
+    });
+    const files = new Map<string, string>([[review.path, review.content]]);
+    if (scenario !== "missing")
+      files.set(interaction.path, interaction.content);
+    const probe = new OctokitRepositoryWorkflowProbe({
+      createRequester: async () => ({
+        request: async (_route, parameters) => {
+          const source = files.get(String(parameters?.path));
+          if (!source)
+            throw Object.assign(new Error("missing"), { status: 404 });
+          return {
+            data: {
+              type: "file",
+              encoding: "base64",
+              content: Buffer.from(source).toString("base64"),
+            },
+          };
+        },
+      }),
+    });
+    expect(
+      await isWorkflowSetupAlreadyCurrent(
+        {
+          ...readinessInput,
+          actionRef: versionedActionRef,
+          codexSessionMode: "account-gateway",
+          gatewayInteractionRuntimeSha: runtimeSha,
+          discussionMode: "suggest",
+        },
+        { workflowProbe: probe, resolvePublicApiUrl: () => apiUrl },
+      ),
+    ).toBe(scenario === "current");
+  },
+);
+it("Gateway suggest readiness stays closed without qualified interaction runtime", async () => {
+  const probe = new CapturingWorkflowProbe({ status: "missing" });
+  expect(
+    await isWorkflowSetupAlreadyCurrent(
+      {
+        ...readinessInput,
+        codexSessionMode: "account-gateway",
+        discussionMode: "suggest",
+      },
+      { workflowProbe: probe },
+    ),
+  ).toBe(false);
+  expect(probe.inputs).toHaveLength(0);
+});
+
+it.each(["current", "missing", "stale", "source-stamp"] as const)(
+  "v2 mechanism coverage still requires the normal exact interaction caller: %s",
+  async (scenario) => {
+    const apiUrl = "https://app.reviewrouter.dev";
+    const capability = conversationCapabilityFixture();
+    if (scenario === "source-stamp")
+      capability.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
+    const runtimeSha = qualifiedGatewayInteractionRuntimeSha(
+      {
+        REVIEW_ROUTER_CONVERSATION_QUALIFICATION: JSON.stringify(capability),
+        REVIEW_ROUTER_GATEWAY_INTERACTION_RUNTIME_SHA: capability.runtimeSha,
+      },
+      { workspaceId: "new-workspace", repositoryId: "new-repository" },
+    );
+    if (scenario === "source-stamp") {
+      expect(runtimeSha).toBeUndefined();
+      const probe = new CapturingWorkflowProbe({ status: "missing" });
+      expect(
+        await isWorkflowSetupAlreadyCurrent(
+          {
+            ...readinessInput,
+            actionRef: versionedActionRef,
+            codexSessionMode: "account-gateway",
+            discussionMode: "suggest",
+          },
+          { workflowProbe: probe },
+        ),
+      ).toBe(false);
+      expect(probe.inputs).toHaveLength(0);
+      return;
+    }
+    expect(runtimeSha).toBe(capability.runtimeSha);
+    if (!runtimeSha) throw new Error("synthetic_capability_did_not_apply");
+    const review = renderAccountGatewayWorkflow({
+      actionRef: versionedActionRef,
+      apiUrl,
+      githubRepositoryId: readinessInput.githubRepositoryId,
+    });
+    const interaction = renderAccountGatewayInteractionWorkflow({
+      runtimeSha: scenario === "stale" ? "b".repeat(40) : runtimeSha,
+      apiUrl,
+    });
+    const probe = new OctokitRepositoryWorkflowProbe({
+      createRequester: async () => ({
+        request: async (_route, parameters) => {
+          const source =
+            parameters?.path === review.path
+              ? review.content
+              : parameters?.path === interaction.path && scenario !== "missing"
+                ? interaction.content
+                : null;
+          if (!source)
+            throw Object.assign(new Error("missing"), { status: 404 });
+          return {
+            data: {
+              type: "file",
+              encoding: "base64",
+              content: Buffer.from(source).toString("base64"),
+            },
+          };
+        },
+      }),
+    });
+    expect(
+      await isWorkflowSetupAlreadyCurrent(
+        {
+          ...readinessInput,
+          actionRef: versionedActionRef,
+          codexSessionMode: "account-gateway",
+          gatewayInteractionRuntimeSha: runtimeSha,
+          discussionMode: "suggest",
+        },
+        { workflowProbe: probe, resolvePublicApiUrl: () => apiUrl },
+      ),
+    ).toBe(scenario === "current");
   },
 );

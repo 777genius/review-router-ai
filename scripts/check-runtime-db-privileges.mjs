@@ -1,6 +1,5 @@
-// Post-deploy check for deployments that give the runtime separate database
-// roles. Run it with the DATABASE_URL of the role you want to check, for
-// example the worker:
+// Post-deploy check for a dedicated worker role or the default shared
+// self-hosted role. Run it with the worker's DATABASE_URL:
 //
 //   DATABASE_URL=... node scripts/check-runtime-db-privileges.mjs
 //
@@ -11,19 +10,28 @@
 //   2. outbox dead letters from the last 7 days that mention "permission denied".
 import pg from "pg";
 
-/** Privileges known to be needed by the code that runs under each role. */
+/** Known worker requirements also apply to the shared self-hosted user. */
+const workerPrivileges = [
+  // installation.sync_requested upserts repositories.
+  { table: "RepositoryConnection", privilege: "INSERT" },
+  { table: "RepositoryConnection", privilege: "UPDATE" },
+  // A first-time repository identity binding writes this guarded column.
+  {
+    table: "RepositoryConnection",
+    column: "scmRepositoryIdentityId",
+    privilege: "UPDATE",
+  },
+  { sequence: "RepositoryInventoryGeneration", privilege: "USAGE" },
+  // The outbox handlers claim, settle and dead-letter events.
+  { table: "OutboxEvent", privilege: "UPDATE" },
+  // Statistics and history projections.
+  { table: "ReviewStatisticsReviewFact", privilege: "INSERT" },
+  { table: "ReviewStatisticsIssueFact", privilege: "INSERT" },
+];
+
 export const requiredPrivileges = Object.freeze({
-  reviewrouter_worker: [
-    // installation.sync_requested upserts repositories.
-    { table: "RepositoryConnection", privilege: "INSERT" },
-    { table: "RepositoryConnection", privilege: "UPDATE" },
-    { sequence: "RepositoryInventoryGeneration", privilege: "USAGE" },
-    // The outbox handlers claim, settle and dead-letter events.
-    { table: "OutboxEvent", privilege: "UPDATE" },
-    // Statistics and history projections.
-    { table: "ReviewStatisticsReviewFact", privilege: "INSERT" },
-    { table: "ReviewStatisticsIssueFact", privilege: "INSERT" },
-  ],
+  reviewrouter_worker: workerPrivileges,
+  reviewrouter: workerPrivileges,
 });
 
 /** Pure: turns probe results into the list of problems to print. */
@@ -31,7 +39,7 @@ export function describeProblems({ role, missing, permissionDeadLetters }) {
   const problems = [];
   for (const item of missing)
     problems.push(
-      `${role} lacks ${item.privilege} on ${item.table ?? item.sequence}`,
+      `${role} lacks ${item.privilege} on ${item.table ?? item.sequence}${item.column ? `.${item.column}` : ""}`,
     );
   for (const row of permissionDeadLetters)
     problems.push(
@@ -51,20 +59,31 @@ async function main() {
   try {
     const { rows } = await client.query("select current_user as role");
     const role = rows[0].role;
-    const required = requiredPrivileges[role] ?? [];
+    const expectedRole = process.env.REVIEW_ROUTER_EXPECT_DB_ROLE;
+    if (expectedRole && role !== expectedRole) {
+      throw new Error(`expected database role ${expectedRole}, got ${role}`);
+    }
+    const required = requiredPrivileges[role];
+    if (!required)
+      throw new Error(`no privilege requirements for role ${role}`);
     const missing = [];
     for (const item of required) {
-      const result = item.table
+      const result = item.column
         ? await client.query(
-            // True for a table-level grant and for a column-level one, which is how the
-            // worker gets INSERT and UPDATE on RepositoryConnection.
-            "select has_any_column_privilege(current_user, $1, $2) as ok",
-            [`public."${item.table}"`, item.privilege],
+            "select has_column_privilege(current_user, $1, $2, $3) as ok",
+            [`public."${item.table}"`, item.column, item.privilege],
           )
-        : await client.query(
-            "select has_sequence_privilege(current_user, $1, $2) as ok",
-            [`public."${item.sequence}"`, item.privilege],
-          );
+        : item.table
+          ? await client.query(
+              // True for a table-level grant and for a column-level one, which is how the
+              // worker gets INSERT and UPDATE on RepositoryConnection.
+              "select has_any_column_privilege(current_user, $1, $2) as ok",
+              [`public."${item.table}"`, item.privilege],
+            )
+          : await client.query(
+              "select has_sequence_privilege(current_user, $1, $2) as ok",
+              [`public."${item.sequence}"`, item.privilege],
+            );
       if (!result.rows[0].ok) missing.push(item);
     }
     const dead = await client
@@ -78,12 +97,7 @@ async function main() {
           group by type
           order by type`,
       )
-      .then((r) => r.rows)
-      .catch((error) => {
-        // The role may not read the outbox at all; say so instead of passing.
-        console.warn(`dead letter scan skipped: ${error.message}`);
-        return [];
-      });
+      .then((r) => r.rows);
     const problems = describeProblems({
       role,
       missing,
@@ -97,10 +111,15 @@ async function main() {
       }`,
     );
     for (const problem of problems) console.error(`PROBLEM: ${problem}`);
-    process.exit(problems.length === 0 ? 0 : 1);
+    process.exitCode = problems.length === 0 ? 0 : 1;
   } finally {
     await client.end();
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+if (
+  process.argv[1] === "-" ||
+  import.meta.url === `file://${process.argv[1]}`
+) {
+  await main();
+}

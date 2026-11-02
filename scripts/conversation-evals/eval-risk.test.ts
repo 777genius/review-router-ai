@@ -1,18 +1,530 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { corpusEventId, corpusEventMessages, loadCorpus } from "./corpus.js";
+import {
+  corpusEventId,
+  corpusEventMessages,
+  loadCorpus,
+  resolveCorpusMessages,
+  evaluationProcessingIdentity,
+  projectEvaluationSnapshot,
+  corpusSourceId,
+} from "./corpus.js";
 import {
   inspectInventory,
   inspectCommandInventory,
+  inspectExplicitEffect,
+  inspectExpectedEffects,
   sourceRevision,
   type EntryReview,
   type SourceWitness,
 } from "./score-inventory.js";
 import type { Witness, InventoryEntry } from "./fixture.js";
 import { readDurableCommands } from "./command-inventory.js";
-import { automaticMemoryChildCommandId } from "../../packages/features/memory/src/index.js";
+import {
+  automaticMemoryChildCommandId,
+  memoryKnowledgeDigest,
+} from "../../packages/features/memory/src/index.js";
+import { conversationDigest } from "../../packages/features/conversations/src/index.js";
 import type { PrismaClient } from "@prisma/client";
+
+import {
+  assertEvaluationNativeScope,
+  gatewayCandidateMechanism,
+  evaluationMissingKeys,
+  readCandidateModels,
+} from "./configuration.js";
+import {
+  gatewayCandidateCleanupSettled,
+  requireGatewayCandidateReceipt,
+} from "./gateway-receipt.js";
+import { evaluationBoundaryDiagnostic } from "./boundary-diagnostic.js";
+
+test("evaluation boundary emits only allowlisted Prisma codes and owning source coordinates", () => {
+  const diagnostic = evaluationBoundaryDiagnostic("fixture_creation", {
+    name: "PrismaClientKnownRequestError",
+    code: "P2010",
+    meta: { code: "42501", message: "SECRET database details" },
+    message: "SECRET postgres://credentials@host/database",
+    stack: [
+      "SECRET postgres://credentials@host/database",
+      "    at external (/app/node_modules/driver/index.js:1:2)",
+      "    at createEvaluationFixture (file:///private/SECRET/scripts/conversation-evals/fixture.ts:270:11)",
+    ].join("\n"),
+  });
+  assert.deepEqual(diagnostic, {
+    phase: "fixture_creation",
+    errorType: "PrismaClientKnownRequestError",
+    code: "P2010",
+    databaseCode: "42501",
+    sourceFrame: {
+      file: "scripts/conversation-evals/fixture.ts",
+      line: 270,
+      column: 11,
+    },
+  });
+  assert.ok(!JSON.stringify(diagnostic).includes("SECRET"));
+});
+
+test("evaluation boundary rejects hostile error fields and unsafe stack coordinates", () => {
+  for (const frame of [
+    "/app/scripts/conversation-evals/fixture.ts?SECRET:1:2",
+    "/app/scripts/conversation-evals/../SECRET.ts:1:2",
+    "/app/scripts/conversation-evals/SECRET.ts:1:2",
+    "scripts/conversation-evals/fixture.ts:1:2",
+    "/app/scripts/conversation-evals/fixture.ts:0:2",
+    "/app/scripts/conversation-evals/fixture.ts:999999999:2",
+    "/app/scripts/conversation-evals/fixture.ts:1:2 SECRET",
+  ]) {
+    assert.deepEqual(
+      evaluationBoundaryDiagnostic("event_execution", {
+        name: "SECRET",
+        code: "P2010_SECRET",
+        meta: { code: "42501_SECRET" },
+        message: "SECRET",
+        stack: `SECRET\n    at hidden (${frame})`,
+      }),
+      { phase: "event_execution", errorType: "unknown" },
+    );
+  }
+});
+
+test("evaluation boundary handles primitives, hostile getters and unbounded stacks", () => {
+  const hostile = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("SECRET");
+      },
+    },
+  );
+  for (const value of [null, undefined, "SECRET", hostile]) {
+    assert.deepEqual(evaluationBoundaryDiagnostic("cold_start", value), {
+      phase: "cold_start",
+      errorType: "unknown",
+    });
+  }
+  assert.deepEqual(
+    evaluationBoundaryDiagnostic("runtime_import", {
+      name: "Error",
+      code: "ERR_MODULE_NOT_FOUND",
+      stack:
+        "SECRET".repeat(4000) +
+        "\n    at /app/scripts/conversation-evals/run.ts:1:2",
+    }),
+    {
+      phase: "runtime_import",
+      errorType: "Error",
+      code: "ERR_MODULE_NOT_FOUND",
+    },
+  );
+});
+
+test("evaluation runner records a safe configuration failure without claiming zero paid calls", async () => {
+  const { mkdir, mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { spawnSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  const directory = resolve("tmp");
+  await mkdir(directory, { recursive: true });
+  const scratch = await mkdtemp(resolve(directory, "eval-boundary-test-"));
+  try {
+    const output = resolve(scratch, "report.json");
+    // Deliberately invalid URL fails before imports, DB connection or fixture/model calls.
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "scripts/conversation-evals/run.ts", "--out", output],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        timeout: 30_000,
+        env: {
+          PATH: process.env.PATH,
+          CONVERSATION_EVAL_LIVE: "1",
+          CONVERSATION_EVAL_DISPOSABLE: "1",
+          CONVERSATION_EVAL_DATABASE_URL: "SECRET-invalid-url",
+          ...Object.fromEntries(
+            evaluationMissingKeys("full-product", {}).map((key) => [
+              key,
+              "synthetic",
+            ]),
+          ),
+        },
+      },
+    );
+    assert.equal(result.status, 2);
+    const report = JSON.parse(await readFile(output, "utf8"));
+    assert.equal(report.status, "UNAVAILABLE");
+    assert.equal(report.variants.length, 1);
+    const failure = report.variants[0];
+    assert.equal(failure.reason, "evaluation_boundary_failed");
+    assert.equal(failure.diagnostic.phase, "configuration");
+    assert.equal(failure.diagnostic.errorType, "TypeError");
+    assert.equal(failure.diagnostic.code, "ERR_INVALID_URL");
+    assert.equal(
+      failure.diagnostic.sourceFrame.file,
+      "scripts/conversation-evals/run.ts",
+    );
+    assert.ok(!JSON.stringify(report).includes("SECRET"));
+    assert.ok(!("scenarios" in failure));
+    assert.ok(!("modelCalls" in failure));
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+test("real runner limits tuning diagnostics to one existing scenario and cannot qualify them", async () => {
+  const { mkdir, mkdtemp, readFile, writeFile, rm, access } =
+    await import("node:fs/promises");
+  const { spawnSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  await mkdir(resolve("tmp"), { recursive: true });
+  const scratch = await mkdtemp(resolve("tmp/eval-scenario-test-"));
+  try {
+    const corpus = await loadCorpus("full-thread-v2");
+    const expected = [
+      ...new Set(
+        corpus.threads
+          .filter((thread) => thread.split === "tuning")
+          .map((thread) => thread.scenario),
+      ),
+    ];
+    const chosen = expected[0]!;
+    assert.ok(expected.length > 1);
+    const marker = resolve(scratch, "imports.txt");
+    const bootstrap = resolve(scratch, "bootstrap.mjs");
+    await writeFile(
+      bootstrap,
+      `import {registerHooks} from "node:module";
+      import {appendFileSync} from "node:fs";
+      const modules = ${JSON.stringify({
+        "@prisma/client":
+          "export class PrismaClient { async $disconnect() {} }",
+        "@prisma/adapter-pg": "export class PrismaPg {}",
+        "./fixture.js": `export async function createEvaluationFixture(input) {
+          return {
+            namespace:"synthetic-control-flow", scope:{kind:"repository",workspaceId:"synthetic",repositoryId:"synthetic"},
+            async coldStart() { return {productEntries:0,processingRecords:0,nativeDocuments:0,durableCommands:0}; },
+            async run(thread,event) { return {eventId:thread.id+":"+event.messageId,status:"silent",modelCalls:1,previewCalls:1,
+              gatewayPreviewReceipt:{gatewayCleanup:"closed"},deliveredBodyDigests:[],syntheticScenario:input.scenario}; },
+            async mutate(kind) { return {kind,revokedBodyDigests:[]}; }
+          };
+        }`,
+      })};
+      registerHooks({resolve(specifier, context, next) {
+        if (context.parentURL?.endsWith("/scripts/conversation-evals/run.ts") && Object.hasOwn(modules,specifier)) {
+          appendFileSync(${JSON.stringify(marker)},specifier+"\\n");
+          return {url:"data:text/javascript,"+encodeURIComponent(modules[specifier]),shortCircuit:true};
+        }
+        return next(specifier,context);
+      }});`,
+    );
+    const env = {
+      PATH: process.env.PATH,
+      ...Object.fromEntries(
+        evaluationMissingKeys("full-product", {}).map((key) => [
+          key,
+          "synthetic",
+        ]),
+      ),
+      CONVERSATION_EVAL_LIVE: "1",
+      CONVERSATION_EVAL_DISPOSABLE: "1",
+      CONVERSATION_EVAL_DATABASE_URL:
+        "postgres://synthetic@127.0.0.1/synthetic_test",
+      CONVERSATION_EVAL_MODEL_BOUNDS_JSON: JSON.stringify([
+        {
+          profileId: "synthetic-profile",
+          model: "synthetic-model",
+          contextWindowTokens: 32768,
+          tokensPerByteUpperBound: 4,
+        },
+      ]),
+      CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID: "synthetic-test-only",
+      REVIEW_ROUTER_MEMORY_NAMESPACE: "eval_synthetic",
+      REVIEW_ROUTER_MEMORY_GENERATION: "eval_synthetic",
+    };
+    const run = (output: string, extra: string[]) =>
+      spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--import",
+          bootstrap,
+          "scripts/conversation-evals/run.ts",
+          "--corpus",
+          "full-thread-v2",
+          "--out",
+          output,
+          ...extra,
+        ],
+        { encoding: "utf8", timeout: 30_000, env },
+      );
+    const output = resolve(scratch, "filtered.json");
+    const filtered = run(output, ["--scenario", chosen]);
+    assert.equal(filtered.status, 2, filtered.stderr);
+    const report = JSON.parse(await readFile(output, "utf8"));
+    assert.equal(report.status, "UNAVAILABLE");
+    assert.equal(report.reason, "diagnostic_subset_not_qualification");
+    assert.equal(report.diagnosticScenario, chosen);
+    assert.equal(report.qualificationEligible, false);
+    const variant = report.variants[0];
+    assert.equal(variant.status, "AWAITING_HUMAN_RUBRIC");
+    assert.deepEqual(
+      variant.scenarios.map(
+        (scenario: { scenario: string }) => scenario.scenario,
+      ),
+      [chosen],
+    );
+    const observations = variant.scenarios[0].observations;
+    assert.ok(observations.length > 0);
+    for (const observation of observations) {
+      const witness = observation.followup ?? observation;
+      assert.equal(witness.syntheticScenario, chosen);
+      assert.equal(witness.modelCalls, 1);
+    }
+    const rubric = resolve(scratch, "rubric.json");
+    await writeFile(
+      rubric,
+      JSON.stringify({
+        runId: report.runId,
+        corpusRevision: report.corpusRevision,
+        reviewer: "synthetic-test-only",
+        reviewedAt: new Date().toISOString(),
+        entries: [],
+        answers: [],
+      }),
+    );
+    const score = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "scripts/conversation-evals/score.ts",
+        output,
+        rubric,
+      ],
+      { encoding: "utf8", timeout: 30_000 },
+    );
+    assert.notEqual(score.status, 0);
+    assert.match(score.stderr, /eval_rubric_not_bound_to_observed_run/);
+
+    const completeOutput = resolve(scratch, "complete.json");
+    const complete = run(completeOutput, []);
+    assert.equal(complete.status, 3, complete.stderr);
+    const full = JSON.parse(await readFile(completeOutput, "utf8"));
+    assert.equal(full.status, "AWAITING_HUMAN_RUBRIC");
+    assert.ok(!("diagnosticScenario" in full));
+    assert.ok(!("qualificationEligible" in full));
+    assert.deepEqual(
+      full.variants[0].scenarios.map(
+        (scenario: { scenario: string }) => scenario.scenario,
+      ),
+      expected,
+    );
+    for (const [extra, reason] of [
+      [
+        ["--split", "holdout", "--scenario", chosen],
+        "eval_scenario_tuning_only",
+      ],
+      [["--scenario", "unknown-synthetic-scenario"], "eval_scenario_unknown"],
+      [["--scenario"], "eval_scenario_required"],
+      [["--validate", "--scenario", chosen], "eval_scenario_tuning_only"],
+    ] as const) {
+      await rm(marker, { force: true });
+      const deniedOutput = resolve(scratch, "denied.json");
+      const denied = run(deniedOutput, [...extra]);
+      assert.notEqual(denied.status, 0);
+      assert.ok(denied.stderr.includes(reason));
+      await assert.rejects(access(marker), { code: "ENOENT" });
+      await assert.rejects(access(deniedOutput), { code: "ENOENT" });
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+test("runner persists reached witnesses on later failures and scorer refuses partial reports", async () => {
+  const { mkdir, mkdtemp, readFile, writeFile, rm } =
+    await import("node:fs/promises");
+  const { spawnSync } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  await mkdir(resolve("tmp"), { recursive: true });
+  const scratch = await mkdtemp(resolve("tmp/eval-partial-test-"));
+  try {
+    for (const mode of [
+      "event",
+      "mutation",
+      "followup",
+      "revoked",
+      "first-cold",
+      "later-cold",
+      "parent-pending",
+    ]) {
+      const fixtureSource = `
+        let fixtures = 0, events = 0;
+        const mode = ${JSON.stringify(mode)};
+        export async function createEvaluationFixture() {
+          const fixtureNumber = ++fixtures;
+          return {
+            namespace: "synthetic-control-flow", scope: {kind:"repository", workspaceId:"synthetic", repositoryId:"synthetic"},
+            async coldStart() {
+              if (mode === "first-cold" || (mode === "later-cold" && fixtureNumber === 2)) throw new Error("eval_cold_start_failed");
+              return { productEntries:3, processingRecords:2, nativeDocuments:4, durableCommands:5 };
+            },
+            async run(thread, event) {
+              const followup = event.messageId.includes("after-mutation");
+              if ((mode === "event" && events === 1) || (mode === "followup" && followup)) throw new Error("eval_actual_target_unavailable");
+              if (mode === "parent-pending" && events > 0) throw new Error("synthetic_paid_continuation_forbidden");
+              events++;
+              return { eventId:thread.id + ":" + event.messageId, status:"silent", previewCalls:mode === "parent-pending" ? 0 : 1,
+                gatewayParentCleanupPending:mode === "parent-pending",
+                modelCalls:1, inputBytes:71, usage:{syntheticTokens:17}, observedModel:"synthetic-test-only",
+                inventory:[{id:"synthetic-retained-" + events}], gatewayPreviewReceipt:{gatewayCleanup:"closed"},
+                deliveredBodyDigests:mode === "revoked" && followup ? ["synthetic-revoked"] : [] };
+            },
+            async mutate(kind) {
+              if (mode === "mutation") throw new Error("eval_mutation_target_unavailable");
+              return {kind, revokedBodyDigests:["synthetic-revoked"], syntheticMutationReceipt:"returned"};
+            }
+          };
+        }`;
+      const bootstrap = resolve(scratch, "bootstrap.mjs");
+      // Intercept only dependencies of the real runner. No real fixture, DB or provider can load.
+      await writeFile(
+        bootstrap,
+        `import {registerHooks} from "node:module";
+        const modules = ${JSON.stringify({
+          "@prisma/client":
+            "export class PrismaClient { async $disconnect() {} }",
+          "@prisma/adapter-pg": "export class PrismaPg {}",
+          "./fixture.js": fixtureSource,
+        })};
+        registerHooks({resolve(specifier, context, next) {
+          if (context.parentURL?.endsWith("/scripts/conversation-evals/run.ts") && Object.hasOwn(modules, specifier))
+            return {url:"data:text/javascript," + encodeURIComponent(modules[specifier]), shortCircuit:true};
+          return next(specifier, context);
+        }});`,
+      );
+      const output = resolve(scratch, "report.json");
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--import",
+          bootstrap,
+          "scripts/conversation-evals/run.ts",
+          "--split",
+          "holdout",
+          "--out",
+          output,
+        ],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            PATH: process.env.PATH,
+            ...Object.fromEntries(
+              evaluationMissingKeys("full-product", {}).map((key) => [
+                key,
+                "synthetic",
+              ]),
+            ),
+            CONVERSATION_EVAL_LIVE: "1",
+            CONVERSATION_EVAL_DISPOSABLE: "1",
+            CONVERSATION_EVAL_DATABASE_URL:
+              "postgres://synthetic@127.0.0.1/synthetic_test",
+            CONVERSATION_EVAL_MODEL_BOUNDS_JSON: "[{}]",
+            CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID:
+              "synthetic-control-flow-only",
+            REVIEW_ROUTER_MEMORY_NAMESPACE: "eval_synthetic",
+            REVIEW_ROUTER_MEMORY_GENERATION: "eval_synthetic",
+          },
+        },
+      );
+      assert.equal(result.status, 2, result.stderr);
+      const report = JSON.parse(await readFile(output, "utf8"));
+      assert.equal(report.status, "UNAVAILABLE");
+      const variant = report.variants.find(
+        (v: { variant?: string }) => v.variant === "full-product",
+      );
+      assert.equal(variant.status, "UNAVAILABLE");
+      const failure = report.variants.at(-1);
+      assert.equal(failure.status, "UNAVAILABLE");
+      if (mode === "parent-pending") assert.equal(report.variants.length, 1);
+      else
+        assert.equal(
+          failure.diagnostic.phase,
+          mode.endsWith("cold")
+            ? "cold_start"
+            : mode === "event"
+              ? "event_execution"
+              : mode === "mutation"
+                ? "mutation"
+                : "mutation_followup",
+        );
+      if (mode === "first-cold") assert.deepEqual(variant.scenarios, []);
+      else {
+        assert.equal(variant.scenarios.length, 1);
+        const scenario = variant.scenarios[0];
+        assert.deepEqual(scenario.coldStart, {
+          productEntries: 3,
+          processingRecords: 2,
+          nativeDocuments: 4,
+          durableCommands: 5,
+        });
+        const first = scenario.observations[0];
+        assert.equal(first.modelCalls, 1);
+        assert.deepEqual(first.usage, { syntheticTokens: 17 });
+        assert.equal(first.inventory[0].id, "synthetic-retained-1");
+        assert.equal(
+          scenario.observations.length,
+          ["event", "parent-pending"].includes(mode)
+            ? 1
+            : mode === "mutation"
+              ? 6
+              : 7,
+        );
+        if (["followup", "revoked"].includes(mode)) {
+          const last = scenario.observations.at(-1);
+          assert.equal(last.mutation.syntheticMutationReceipt, "returned");
+          assert.equal("followup" in last, mode === "revoked");
+          if (mode === "revoked")
+            assert.deepEqual(last.followup.deliveredBodyDigests, [
+              "synthetic-revoked",
+            ]);
+        }
+      }
+      const rubric = resolve(scratch, "rubric.json");
+      await writeFile(
+        rubric,
+        JSON.stringify({
+          runId: report.runId,
+          corpusRevision: report.corpusRevision,
+          reviewer: "synthetic-test-only",
+          reviewedAt: new Date().toISOString(),
+          entries: [],
+          answers: [],
+        }),
+      );
+      const score = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "scripts/conversation-evals/score.ts",
+          output,
+          rubric,
+        ],
+        { encoding: "utf8", timeout: 30_000 },
+      );
+      assert.notEqual(score.status, 0);
+      assert.match(score.stderr, /eval_rubric_not_bound_to_observed_run/);
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
 
 // Synthetic scorer/capture regressions only. No model quality or product/native bank is fabricated.
 function sample() {
@@ -66,6 +578,7 @@ function sample() {
     modelCalls: 0,
     inputBytes: 0,
     deliveredBodyDigests: [],
+    deliveredQualifiedBodyDigests: [],
     memoryManifest: null,
     observedModel: null,
     usage: null,
@@ -368,6 +881,9 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
           });
         }
         const rows = structuredClone([...inventory.values()]);
+        const deliveredBodyDigests = rows
+          .filter((row) => row.body !== null)
+          .map((row) => row.bodyDigest!);
         for (const row of rows) {
           const key = `${row.id}:${row.revision}:${row.bodyDigest}`;
           if (annotatedVersions.has(key)) continue;
@@ -395,9 +911,8 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
           previewCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
           modelCalls: event.expectedReply === "replay_no_new_effects" ? 0 : 1,
           inputBytes: 100,
-          deliveredBodyDigests: rows
-            .filter((r) => r.body !== null)
-            .map((r) => r.bodyDigest!),
+          deliveredBodyDigests,
+          deliveredQualifiedBodyDigests: [...deliveredBodyDigests],
           memoryManifest: {},
           observedModel: "SCORER_TEST_NO_MODEL",
           usage: null,
@@ -470,6 +985,7 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
       followup.commandInventoryIds = [...prior.commandInventoryIds, ...ids];
       followup.effects = [];
       followup.deliveredBodyDigests = [];
+      followup.deliveredQualifiedBodyDigests = [];
       followup.retained = [];
       followup.inventory = followup.inventory.map((entry) => ({
         ...entry,
@@ -534,8 +1050,9 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
     const reportPath = resolve(directory, "report.json"),
       rubricPath = resolve(directory, "rubric.json");
     await writeFile(rubricPath, JSON.stringify(rubric));
-    const score = async (input: unknown) => {
+    const score = async (input: unknown, reviewInput: unknown = rubric) => {
       await writeFile(reportPath, JSON.stringify(input));
+      await writeFile(rubricPath, JSON.stringify(reviewInput));
       const result = spawnSync(
         process.execPath,
         [
@@ -552,6 +1069,49 @@ async function scorerRiskTest(t: TestContext, split: "tuning" | "holdout") {
     };
     const positive = await score(report);
     assert.equal(positive.status, 0, positive.stderr);
+    if (split === "tuning") {
+      const candidateWithoutReceipt = {
+        ...structuredClone(report),
+        profile: {
+          extractionMechanism: gatewayCandidateMechanism,
+        },
+      };
+      const missingSources = await score(candidateWithoutReceipt);
+      assert.notEqual(missingSources.status, 0);
+      assert.match(
+        missingSources.stderr,
+        /eval_candidate_source_profile_missing/,
+      );
+      // Synthetic identities exercise only scorer binding, never qualification evidence.
+      const candidateSourceProfile = {
+        commonPromptSourceDigest: "a".repeat(64),
+        gatewayPreviewSourceDigest: "b".repeat(64),
+        accountPolicySourceDigest: "c".repeat(64),
+        gatewaySdkProvenanceDigest: "d".repeat(64),
+      };
+      const sourcedCandidate = {
+        ...candidateWithoutReceipt,
+        profile: {
+          ...candidateWithoutReceipt.profile,
+          ...candidateSourceProfile,
+        },
+      };
+      const mismatched = await score(sourcedCandidate, {
+        ...rubric,
+        candidateSourceProfile: {
+          ...candidateSourceProfile,
+          gatewaySdkProvenanceDigest: "e".repeat(64),
+        },
+      });
+      assert.notEqual(mismatched.status, 0);
+      assert.match(mismatched.stderr, /eval_rubric_source_profile_mismatch/);
+      const rejected = await score(sourcedCandidate, {
+        ...rubric,
+        candidateSourceProfile,
+      });
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, /eval_gateway_candidate_receipt_missing/);
+    }
     if (split === "holdout") {
       const contributor = structuredClone(report);
       const scenario = contributor.variants[0]!.scenarios.find(
@@ -965,9 +1525,18 @@ test("durable capture queries fresh workspace/source/entry identities independen
   });
   assert.deepEqual(requested.where.OR[4], {
     id: {
-      in: [0, 1, 2, 3, "entry"].map((child) =>
-        automaticMemoryChildCommandId("processing", child),
-      ),
+      in: [
+        (() => {
+          const digest = conversationDigest([
+            "conversation-explicit-command",
+            "processing",
+          ]);
+          return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+        })(),
+        ...[0, 1, 2, 3, "entry"].map((child) =>
+          automaticMemoryChildCommandId("processing", child),
+        ),
+      ],
     },
   });
   assert.throws(
@@ -1037,5 +1606,501 @@ test("current source eligibility independently gates an automatic save proof", (
   assert.throws(
     () => inspectInventory(input),
     /eval_observed_effect_authority_invalid/,
+  );
+});
+
+test("Gateway candidate preflight needs no historical native or production activation proof", () => {
+  const env = Object.fromEntries(
+    [
+      "REVIEW_ROUTER_MEMORY_HINDSIGHT_URL",
+      "REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY",
+      "CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID",
+      "CONVERSATION_EVAL_TEMPLATE_REPOSITORY_ID",
+      "REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN",
+      "REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER",
+      "REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY",
+      "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY",
+      "CONVERSATION_EVAL_MODEL_BOUNDS_JSON",
+    ].map((key) => [key, "configured"]),
+  );
+  assert.deepEqual(evaluationMissingKeys("full-product", env), []);
+  assert.deepEqual(evaluationMissingKeys("native-selection-only", env), [
+    "REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_QUALIFICATION",
+    "REVIEW_ROUTER_MEMORY_SOURCE_PREVIEW_MISSION",
+  ]);
+  assert.throws(() => readCandidateModels(undefined), /bounds_missing/);
+  assert.throws(() => readCandidateModels("{}"), /bounds_invalid/);
+});
+test("unchanged production native configuration is refused before evaluation effects", () => {
+  assert.throws(
+    () =>
+      assertEvaluationNativeScope({
+        REVIEW_ROUTER_MEMORY_NAMESPACE: "reviewrouter",
+        REVIEW_ROUTER_MEMORY_GENERATION: "memory-v1",
+      }),
+    /dedicated_native/,
+  );
+  assert.doesNotThrow(() =>
+    assertEvaluationNativeScope({
+      REVIEW_ROUTER_MEMORY_NAMESPACE: "eval_candidate",
+      REVIEW_ROUTER_MEMORY_GENERATION: "eval_generation",
+    }),
+  );
+});
+test("native evidence or another attempt cannot stand in for the current Gateway receipt", () => {
+  const processingId = "candidate-parent";
+  const receipt = {
+    processingId: `rr-memory-${createHash("sha256").update(processingId).digest("hex")}`,
+    observedModel: "selected-model",
+    usage: null,
+    requestEffect: "completed",
+    gatewayCleanup: "closed",
+    selectedAccountDigest: "a".repeat(64),
+    candidateRunId: "candidate-run:full-product:scenario",
+  };
+  const witness = {
+    processingId,
+    previewCalls: 1,
+    gatewayPreviewReceipt: receipt,
+  } as Witness;
+  assert.doesNotThrow(() =>
+    requireGatewayCandidateReceipt(witness, receipt.candidateRunId),
+  );
+  for (const gatewayCleanup of ["pending", "not_needed", null]) {
+    const unsettled = {
+      ...witness,
+      gatewayPreviewReceipt: { ...receipt, gatewayCleanup },
+    };
+    assert.equal(gatewayCandidateCleanupSettled(unsettled), false);
+    assert.throws(
+      () => requireGatewayCandidateReceipt(unsettled, receipt.candidateRunId),
+      /cleanup_unsettled/,
+    );
+  }
+  assert.equal(gatewayCandidateCleanupSettled(witness), true);
+  const pendingParent = {
+    ...witness,
+    previewCalls: 0,
+    gatewayParentCleanupPending: true,
+  };
+  assert.equal(gatewayCandidateCleanupSettled(pendingParent), false);
+  assert.throws(
+    () => requireGatewayCandidateReceipt(pendingParent, receipt.candidateRunId),
+    /cleanup_unsettled/,
+  );
+  assert.throws(
+    () =>
+      requireGatewayCandidateReceipt(
+        { ...witness, gatewayPreviewReceipt: null },
+        receipt.candidateRunId,
+      ),
+    /receipt_missing/,
+  );
+  assert.throws(
+    () =>
+      requireGatewayCandidateReceipt(
+        {
+          ...witness,
+          gatewayPreviewReceipt: {
+            ...receipt,
+            requestEffect: "dispatch_allowed",
+          },
+        },
+        receipt.candidateRunId,
+      ),
+    /receipt_missing/,
+  );
+  assert.throws(
+    () =>
+      requireGatewayCandidateReceipt(
+        witness,
+        "another-run:full-product:scenario",
+      ),
+    /receipt_missing/,
+  );
+});
+test("versioned full-thread supplement preserves legacy targets and binds only observed targets/proposals", async () => {
+  const legacy = await loadCorpus();
+  const current = await loadCorpus("full-thread-v2");
+  assert.equal(legacy.threads.length, 48);
+  assert.deepEqual(current.targets, legacy.targets);
+  assert.equal(current.threads.length, 16);
+  assert.equal(
+    current.threads.filter((thread) => thread.split === "holdout").length,
+    6,
+  );
+  assert.equal(
+    current.threads.reduce((count, thread) => count + thread.events.length, 0),
+    50,
+  );
+  assert.equal(current.facts.length, 21);
+  const confirmation = current.threads.find(
+    (thread) => thread.id === "workspace-modes-A",
+  )!;
+  const event = confirmation.events.find((row) => row.confirmProposal)!;
+  const observed =
+    "A deliberately incorrect native proposal, for scorer inspection.";
+  const rendered = resolveCorpusMessages(
+    confirmation,
+    event,
+    {
+      targets: {},
+      confirmation: { ...event.confirmProposal!, body: observed },
+    },
+    new Map(),
+  );
+  assert.equal(
+    rendered.find((message) => message.id === event.messageId)!.body,
+    `Remember observation: ${observed}`,
+  );
+  assert.ok(
+    !rendered
+      .find((message) => message.id === event.messageId)!
+      .body.includes(
+        current.facts.find((fact) => fact.sourceMessageId === event.messageId)!
+          .text,
+      ),
+  );
+  assert.throws(
+    () =>
+      resolveCorpusMessages(confirmation, event, { targets: {} }, new Map()),
+    /eval_observed_proposal_missing/,
+  );
+  const mutation = current.threads.find(
+    (thread) => thread.id === "exact-metadata-B",
+  )!;
+  const update = mutation.events.find((row) => row.bindTargets)!;
+  assert.throws(
+    () => resolveCorpusMessages(mutation, update, { targets: {} }, new Map()),
+    /eval_target_binding_missing/,
+  );
+  const actual = resolveCorpusMessages(
+    mutation,
+    update,
+    {
+      targets: {
+        target: {
+          entryId: "actual-returned-id",
+          revision: "7",
+          sourceMessageId: update.bindTargets![0]!.sourceMessageId,
+          index: 0,
+        },
+      },
+    },
+    new Map(),
+  );
+  assert.ok(
+    actual
+      .find((message) => message.id === update.messageId)!
+      .body.startsWith("Update actual-returned-id@7:"),
+  );
+  assert.match(
+    corpusSourceId("namespace", "message"),
+    /^github-node:namespace_[a-f0-9]{64}$/,
+  );
+  await assert.rejects(
+    loadCorpus("arbitrary-file" as "full-thread-v2"),
+    /eval_corpus_unknown/,
+  );
+});
+
+function explicitSample(
+  body = "Remember observation: Actual native statement.",
+) {
+  const input = sample();
+  const source = input.sources.get(input.triggerSourceId)!;
+  const processingId = "EXPLICIT_SCORER_FIXTURE_NO_MODEL";
+  const digest = conversationDigest([
+    "conversation-explicit-command",
+    processingId,
+  ]);
+  const commandId = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+  const action = {
+    kind: "create" as const,
+    knowledgeKind: "observation" as const,
+    body: "Actual native statement.",
+  };
+  source.body = body;
+  source.revision = sourceRevision("2026-10-30T00:00:00.000Z", body);
+  source.automaticLearningEligible = false;
+  source.maintainer = true;
+  source.requireConfirmation = true;
+  source.settingsRevision = "1";
+  source.scope = input.scope;
+  const actor = {
+    kind: "github_user" as const,
+    id: source.actorId,
+    githubUserId: "eval-maintainer",
+    login: "maintainer",
+  };
+  const proofSource = {
+    type: "github_comment" as const,
+    sourceId: input.triggerSourceId,
+    revision: source.revision,
+    repositoryId: input.scope.repositoryId,
+    pullRequestNumber: 1,
+    updatedAt: "2026-10-30T00:00:00.000Z",
+    statementAt: "2026-10-30T00:00:00.000Z",
+    visibility: "public" as const,
+    claimedBodyDigest: createHash("sha256").update(body).digest("hex"),
+    observedCommitSha: source.headSha,
+    url: "https://example.invalid/synthetic/1",
+  };
+  const entry = input.witness.inventory[0]!;
+  entry.id = `mem_${commandId.replaceAll("-", "")}`;
+  entry.revision = "1";
+  entry.body = action.body;
+  entry.bodyDigest = createHash("sha256").update(action.body).digest("hex");
+  entry.sourceRevision = source.revision;
+  entry.automaticCohortId = null;
+  entry.automaticCohortEpoch = null;
+  entry.activeCohortEligible = false;
+  entry.explicitCommandId = commandId;
+  entry.approvalAuthorityRevision = `github-command:v2:new:${memoryKnowledgeDigest({ wire: action, ref: { type: "entry", scope: input.scope, entryId: entry.id }, source: proofSource, actor: { kind: actor.kind, id: actor.id, githubUserId: actor.githubUserId } })}`;
+  input.sourceHistory = new Map([
+    [`${input.triggerSourceId}\u0000${source.revision}`, source],
+  ]);
+  input.entries = [
+    {
+      ...input.entries[0]!,
+      entryId: entry.id,
+      entryRevision: "1",
+      bodyDigest: entry.bodyDigest,
+    },
+  ];
+  input.witness.processingId = processingId;
+  input.witness.effectIds = [commandId];
+  input.witness.commandInventoryIds = [commandId];
+  const effect: Witness["effects"][number] = {
+    id: commandId,
+    entryId: entry.id,
+    kind: "save",
+    state: "published",
+    actorId: actor.id,
+    approvalAuthorityRevision: entry.approvalAuthorityRevision,
+    scope: input.scope,
+    sourceId: input.triggerSourceId,
+    sourceRevision: source.revision,
+    automaticRetirement: null,
+    explicitAction: {
+      action,
+      actor,
+      source: proofSource,
+      requireConfirmation: true,
+      settingsRevision: "1",
+    },
+  };
+  input.witness.effects = [effect];
+  return {
+    ...input,
+    allowExplicit: true,
+    explicitProofs: new Map<string, Witness["effects"][number]>(),
+  };
+}
+
+test("actual explicit command fingerprint permits qualified manual readback without an automatic cohort", () => {
+  const input = explicitSample();
+  const versions = inspectInventory(input);
+  assert.equal(versions.length, 1);
+  assert.equal(versions[0]!.qualifiedReadback, true);
+  assert.equal(input.explicitProofs.size, 1);
+});
+
+test("explicit authority checks exact source decision, scope, mode and command proof independently of rubric", () => {
+  for (const body of [
+    "> Remember observation: Actual native statement.",
+    "Do not Remember observation: Actual native statement.",
+  ]) {
+    const input = explicitSample(body);
+    assert.throws(
+      () => inspectInventory(input),
+      /eval_explicit_command_authority_invalid/,
+    );
+  }
+  for (const change of [
+    (effect: Witness["effects"][number]) => {
+      effect.explicitAction!.requireConfirmation = false;
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.explicitAction!.settingsRevision = "stale";
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.actorId = "github-user:foreign";
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.scope = {
+        kind: "repository",
+        workspaceId: "workspace",
+        repositoryId: "sibling",
+      };
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.explicitAction!.source = {
+        ...effect.explicitAction!.source,
+        claimedBodyDigest: "0".repeat(64),
+      };
+    },
+    (effect: Witness["effects"][number]) => {
+      effect.entryId = "neighboring-entry";
+    },
+  ]) {
+    const input = explicitSample();
+    change(input.witness.effects[0]!);
+    assert.throws(
+      () =>
+        inspectExplicitEffect(
+          input.witness.effects[0]!,
+          input.sources.get(input.triggerSourceId),
+          input.witness.processingId,
+        ),
+      /eval_explicit_command_authority_invalid/,
+    );
+  }
+});
+
+test("omitted explicit commands and invented manual metadata cannot gain authority from supportive labels", () => {
+  const omitted = explicitSample();
+  omitted.witness.effects = [];
+  assert.throws(
+    () => inspectInventory(omitted),
+    /eval_effect_inventory_invalid/,
+  );
+  const invented = explicitSample();
+  invented.witness.effects = [];
+  invented.witness.effectIds = [];
+  invented.witness.commandInventoryIds = [];
+  assert.throws(
+    () => inspectInventory(invented),
+    /eval_observed_entry_authority_invalid/,
+  );
+});
+
+test("pending explicit metadata earns no retained fact credit", () => {
+  const input = explicitSample();
+  const entry = input.witness.inventory[0]!;
+  entry.body = null;
+  entry.lifecycle = "pending";
+  entry.unavailableReason = "unsettled";
+  input.witness.retained = [];
+  assert.equal(inspectInventory(input)[0]!.qualifiedReadback, false);
+});
+
+test("factual endorsement cannot earn maintained CRUD authority merely by containing the right fact", () => {
+  const input = explicitSample();
+  inspectInventory(input);
+  assert.deepEqual(inspectExpectedEffects(input.witness, [], {}), {
+    unexpected: 1,
+    missing: 0,
+  });
+  assert.deepEqual(
+    inspectExpectedEffects(input.witness, [{ kind: "save" }], {}),
+    { unexpected: 0, missing: 0 },
+  );
+  const target = {
+    entryId: "different-observed-entry",
+    revision: "1",
+    sourceMessageId: "earlier",
+    index: 0,
+  };
+  assert.deepEqual(
+    inspectExpectedEffects(
+      input.witness,
+      [{ kind: "save", targetAlias: "target" }],
+      { target },
+    ),
+    { unexpected: 1, missing: 1 },
+  );
+  input.witness.inventory[0]!.body = null;
+  assert.equal(
+    inspectExpectedEffects(input.witness, [{ kind: "save" }], {}).missing,
+    1,
+  );
+});
+
+test("qualified processing and grant identity agree while memory projection preserves checked source evidence", async () => {
+  const template = {
+    workspaceId: "qualified-workspace",
+    repositoryId: "qualified-repository",
+    githubRepositoryId: "1234567",
+    fullName: "qualified/disposable",
+  };
+  const processing = evaluationProcessingIdentity(template);
+  assert.equal(BigInt(processing.repositoryStableId), 1234567n);
+  assert.deepEqual(
+    {
+      workspaceId: processing.workspaceId,
+      repositoryId: processing.repositoryId,
+    },
+    { workspaceId: template.workspaceId, repositoryId: template.repositoryId },
+  );
+  assert.throws(
+    () =>
+      evaluationProcessingIdentity({
+        ...template,
+        githubRepositoryId: "synthetic:namespace",
+      }),
+    /eval_qualified_processing_identity_invalid/,
+  );
+  const thread = (await loadCorpus("full-thread-v2")).threads[0]!;
+  const messages = corpusEventMessages(thread, thread.events[0]!).map(
+    (message, index) => ({
+      id: corpusSourceId("fixture", message.id),
+      commentId: String(index + 1),
+      actor: {
+        id: `github-user:${message.actor}`,
+        login: message.actor,
+        kind: message.actorKind,
+      },
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      replyTo: index === 0 ? null : "1",
+      body: message.body,
+      bodyDigest: createHash("sha256").update(message.body).digest("hex"),
+    }),
+  );
+  const selected = messages.at(-1)!;
+  const checked = {
+    ...processing,
+    pullRequestNumber: 1,
+    threadId: "github-review-thread:1",
+    sourceId: selected.id,
+    sourceCommentId: selected.commentId,
+    sourceRevision: sourceRevision(selected.updatedAt, selected.body),
+    sourceUpdatedAt: selected.updatedAt,
+    sourceActor: selected.actor,
+    messages,
+    visibility: "public" as const,
+    headSha: thread.headSha,
+    baseSha: "b".repeat(40),
+    anchor: {
+      ...thread.anchor,
+      originalLine: 7,
+      commitSha: thread.headSha,
+      originalCommitSha: thread.headSha,
+      diffHunk: thread.anchor.code,
+    },
+    threadDigest: conversationDigest(messages),
+    parentCommentId: "1",
+    sourceMaintainer: true,
+    repliesInThread: 0,
+    repliesInPullRequest: 0,
+    replyComments: [],
+  };
+  const memory = projectEvaluationSnapshot(checked, {
+    workspaceId: "fresh-workspace",
+    repositoryId: "fresh-repository",
+  });
+  assert.equal(memory.workspaceId, "fresh-workspace");
+  assert.equal(memory.repositoryId, "fresh-repository");
+  assert.equal(memory.messages, checked.messages);
+  assert.equal(memory.sourceId, checked.sourceId);
+  assert.equal(memory.threadDigest, checked.threadDigest);
+  assert.deepEqual(
+    {
+      ...memory,
+      workspaceId: processing.workspaceId,
+      repositoryId: processing.repositoryId,
+    },
+    checked,
   );
 });

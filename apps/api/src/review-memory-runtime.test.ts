@@ -11,7 +11,10 @@ import {
   type MemoryKnowledgeEntryMetadata,
 } from "@reviewrouter/features-memory";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
-import type { ReviewRunAuthorization } from "@reviewrouter/features-review-run-control";
+import {
+  canonicalJson,
+  type ReviewRunAuthorization,
+} from "@reviewrouter/features-review-run-control";
 import {
   captureAuthorizedMemoryContext,
   ReviewMemoryRuntimeGateway,
@@ -22,6 +25,10 @@ import {
   reviewMemoryBinding,
   reviewMemorySnapshotHash,
 } from "./review-memory-wire";
+import type {
+  MemoryAdmissionDiagnostic,
+  MemoryAdmissionObserver,
+} from "./review-memory-admission";
 
 const now = new Date();
 const binding = {
@@ -33,12 +40,40 @@ const binding = {
   reviewRevisionHash: "c".repeat(64),
 };
 const request = { protocolVersion: 2, ...binding };
+const runtimeSnapshot = {
+  snapshotVersion: 3,
+  configurationSource: "workspace",
+  configurationVersion: 1,
+  workspaceConfigurationVersion: 1,
+  repositoryConfigurationVersion: null,
+  effectivePolicyDigest: `sha256:${"b".repeat(64)}`,
+  agent: {
+    profileRef: "codex-default",
+    agentKind: "codex",
+    binarySha256: "a".repeat(64),
+    packageVersion: "0.159.2",
+    modelTransports: ["account_gateway"],
+    contextGateway: true,
+    cancellation: true,
+  },
+  agentProfileDigest: "d".repeat(64),
+  producer: {
+    producerReleaseId: "release-1",
+    actionCommitSha: "a".repeat(40),
+    runtimeCommitSha: "a".repeat(40),
+  },
+  configurationCanonicalJson: canonicalJson({ schemaVersion: 3 }),
+  deadline: new Date(now.getTime() + 600_000).toISOString(),
+  gateway: null,
+};
 const authorization = {
   ...binding,
   workspaceId: "workspace-1",
   trustDomain: "trusted_managed",
   mutationEpoch: 1n,
-  runtimeSnapshotCanonicalJson: "{}",
+  expiresAt: new Date(now.getTime() + 300_000),
+  maxExpiresAt: new Date(now.getTime() + 600_000),
+  runtimeSnapshotCanonicalJson: canonicalJson(runtimeSnapshot),
 } as ReviewRunAuthorization;
 const source = {
   type: "manual" as const,
@@ -145,11 +180,15 @@ describe("review memory runtime HTTP boundary", () => {
     vi.useRealTimers();
     await Promise.all(apps.splice(0).map((app) => app.close()));
   });
-  async function fixture(enabled = true) {
+  async function fixture(
+    enabled = true,
+    clock: () => Date = () => new Date(),
+    observer?: MemoryAdmissionObserver,
+  ) {
     const access = {
-      authorize: vi.fn(
-        async () => authorization as ReviewRunAuthorization | null,
-      ),
+      authorize: vi.fn<
+        (token: string) => Promise<ReviewRunAuthorization | null>
+      >(async () => authorization as ReviewRunAuthorization | null),
     };
     const policy = {
       getPolicy: vi.fn(async () =>
@@ -157,8 +196,10 @@ describe("review memory runtime HTTP boundary", () => {
       ),
     };
     const service = {
-      bundle: vi.fn(async () => bundle),
-      createBundleReceipt: vi.fn(() => receipt),
+      bundle: vi.fn<MemoryKnowledgeService["bundle"]>(async () => bundle),
+      createBundleReceipt: vi.fn<MemoryKnowledgeService["createBundleReceipt"]>(
+        () => receipt,
+      ),
       admitReceipt: vi.fn(async () => true),
     };
     const runtime = {
@@ -187,13 +228,212 @@ describe("review memory runtime HTTP boundary", () => {
       prisma: prisma as unknown as PrismaClient,
       runtime,
       access,
+      now: clock,
     });
     const app = Fastify({ logger: false });
     apps.push(app);
-    await registerReviewMemoryRuntimeRoutes(app, gateway);
+    await registerReviewMemoryRuntimeRoutes(app, gateway, observer);
     await app.ready();
     return { app, gateway, service, access, policy, prisma, rows };
   }
+
+  it("reports preflight outcomes and safe errors while ignoring throwing diagnostic sinks", async () => {
+    const events: MemoryAdmissionDiagnostic[] = [];
+    const { app, gateway } = await fixture(
+      true,
+      () => now,
+      (event) => {
+        events.push(event);
+        throw new Error("private diagnostic sink failure");
+      },
+    );
+    const admit = vi.spyOn(gateway, "admit");
+    const payload = {
+      ...request,
+      bundleId: "bundle-1",
+      eligibilityEpoch: "1",
+      policyVersion: "1",
+      providerGeneration: "generation-1",
+    };
+    const send = () =>
+      app.inject({
+        method: "POST",
+        url: "/api/action/v2/memory/admit",
+        headers,
+        payload,
+      });
+    for (const eligible of [true, false]) {
+      admit.mockResolvedValueOnce(eligible);
+      const response = await send();
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ protocolVersion: 2, eligible });
+    }
+    admit.mockRejectedValueOnce(new Error("do-not-log-token-or-body"));
+    const failed = await send();
+    expect(failed.statusCode).toBe(503);
+    expect(failed.json()).toEqual({ code: "memory_unavailable" });
+    expect(events).toEqual([
+      {
+        boundary: "preflight",
+        phase: "complete",
+        outcome: "eligible",
+        authorizationId: binding.authorizationId,
+        elapsedMs: expect.any(Number),
+      },
+      {
+        boundary: "preflight",
+        phase: "complete",
+        outcome: "denied",
+        authorizationId: binding.authorizationId,
+        elapsedMs: expect.any(Number),
+      },
+      {
+        boundary: "preflight",
+        phase: "complete",
+        outcome: "error",
+        errorCode: "unavailable",
+        elapsedMs: expect.any(Number),
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("do-not-log");
+    expect(JSON.stringify(events)).not.toContain("private diagnostic");
+  });
+
+  it.each([
+    { expiry: 120_000, maximum: 240_000, deadline: 300_000, expected: 240_000 },
+    { expiry: 240_000, maximum: 120_000, deadline: 300_000, expected: 120_000 },
+    { expiry: 240_000, maximum: 300_000, deadline: 120_000, expected: 120_000 },
+  ])(
+    "freezes the initial trusted run bounds before hashing and persisting the receipt: %j",
+    async ({ expiry, maximum, deadline, expected }) => {
+      const { app, access, service, rows } = await fixture();
+      const initial = {
+        ...authorization,
+        expiresAt: new Date(now.getTime() + expiry),
+        maxExpiresAt: new Date(now.getTime() + maximum),
+        runtimeSnapshotCanonicalJson: canonicalJson({
+          ...runtimeSnapshot,
+          deadline: new Date(now.getTime() + deadline).toISOString(),
+        }),
+      };
+      access.authorize.mockResolvedValueOnce(initial).mockResolvedValue({
+        ...initial,
+        expiresAt: new Date(now.getTime() + 600_000),
+      });
+      service.bundle.mockImplementation(async (input) => {
+        const bounded = {
+          generation: bundle.generation,
+          scopes: bundle.scopes,
+          degraded: bundle.degraded,
+          expiresAt: input.snapshotNotAfter!.toISOString(),
+        };
+        return { ...bounded, hash: memoryKnowledgeDigest(bounded) };
+      });
+      service.createBundleReceipt.mockImplementation(
+        MemoryKnowledgeService.prototype.createBundleReceipt,
+      );
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/action/v2/memory/bundle",
+        headers,
+        payload: request,
+      });
+      expect(response.statusCode).toBe(200);
+      const wire = response.json();
+      const expectedExpiry = new Date(now.getTime() + expected);
+      expect(service.bundle.mock.calls[0]?.[0].snapshotNotAfter).toEqual(
+        expectedExpiry,
+      );
+      expect(wire.expiresAt).toBe(expectedExpiry.toISOString());
+      const row = rows.get(wire.bundleId)!;
+      expect(row.expiresAt).toEqual(expectedExpiry);
+      expect(row.receipt).toMatchObject({
+        expiresAt: expectedExpiry.toISOString(),
+      });
+      expect(row.snapshotHash).toBe(reviewMemorySnapshotHash(wire));
+      expect(service.bundle).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("does not accept a caller-supplied snapshot lifetime", async () => {
+    const { app, access, service } = await fixture();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/memory/bundle",
+      headers,
+      payload: { ...request, snapshotNotAfter: "2126-01-01T00:00:00.000Z" },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(access.authorize).not.toHaveBeenCalled();
+    expect(service.bundle).not.toHaveBeenCalled();
+  });
+
+  it("requires current live authorization for a future receipt and preserves the snapshot across legitimate token renewal", async () => {
+    let currentTime = now;
+    const { app, access, service } = await fixture(true, () => currentTime);
+    const initial = {
+      ...authorization,
+      expiresAt: new Date(now.getTime() + 60_000),
+      maxExpiresAt: new Date(now.getTime() + 300_000),
+      runtimeSnapshotCanonicalJson: canonicalJson({
+        ...runtimeSnapshot,
+        deadline: new Date(now.getTime() + 300_000).toISOString(),
+      }),
+    };
+    // The authority peer represents a renewal completed before the old token
+    // expired. Only the new token can authorize subsequent receipt admissions.
+    const renewed = {
+      ...initial,
+      expiresAt: new Date(now.getTime() + 180_000),
+    };
+    access.authorize.mockImplementation(async (token) => {
+      const current = token === "renewed-token" ? renewed : initial;
+      return currentTime.getTime() < current.expiresAt.getTime()
+        ? current
+        : null;
+    });
+    const longerBundle = {
+      ...bundle,
+      expiresAt: initial.maxExpiresAt.toISOString(),
+    };
+    service.bundle.mockResolvedValue(longerBundle);
+    service.createBundleReceipt.mockReturnValue({
+      ...receipt,
+      expiresAt: longerBundle.expiresAt,
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/memory/bundle",
+      headers,
+      payload: request,
+    });
+    expect(response.statusCode).toBe(200);
+    const wire = response.json();
+    currentTime = new Date(now.getTime() + 61_000);
+    expect(Date.parse(wire.expiresAt)).toBeGreaterThan(currentTime.getTime());
+    const admit = {
+      method: "POST" as const,
+      url: "/api/action/v2/memory/admit",
+      headers,
+      payload: {
+        ...request,
+        bundleId: wire.bundleId,
+        eligibilityEpoch: wire.eligibilityEpoch,
+        policyVersion: wire.policyVersion,
+        providerGeneration: wire.providerGeneration,
+      },
+    };
+    expect((await app.inject(admit)).statusCode).toBe(403);
+    expect(service.admitReceipt).not.toHaveBeenCalled();
+    const eligible = await app.inject({
+      ...admit,
+      headers: { authorization: "Bearer renewed-token" },
+    });
+    expect(eligible.statusCode).toBe(200);
+    expect(eligible.json()).toEqual({ protocolVersion: 2, eligible: true });
+    expect(service.bundle).toHaveBeenCalledOnce();
+    expect(wire.expiresAt).toBe(initial.maxExpiresAt.toISOString());
+  });
 
   it("preserves a private workspace fact for internal tasks and excludes its exact bytes before public description inference", async () => {
     const workspaceScope = {

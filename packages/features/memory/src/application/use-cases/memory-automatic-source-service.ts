@@ -10,6 +10,7 @@ import {
   automaticMemoryCohortId,
   memoryKnowledgeDigest,
   memoryKnowledgeScopeKey,
+  normalizeMemoryAutomaticContextEvidence,
   type MemoryKnowledgeCommand,
   type MemoryEntryRef,
 } from "../../domain/memory-knowledge";
@@ -55,6 +56,8 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       operations,
     });
     memoryKnowledgeScopeKey(input.scope);
+    if (input.contextEvidence)
+      normalizeMemoryAutomaticContextEvidence(input.contextEvidence);
     if (
       input.source.type !== "github_comment" ||
       input.source.repositoryId !== input.scope.repositoryId ||
@@ -63,6 +66,10 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       !input.processingId ||
       !input.threadDigest ||
       !input.selectableBody ||
+      (input.readOnlyContext !== undefined &&
+        (typeof input.readOnlyContext !== "string" ||
+          !input.contextEvidence ||
+          input.contextEvidence.threadId !== input.threadId)) ||
       input.source.observedCommitSha !== input.headSha ||
       !/^[0-9a-f]{40,64}$/i.test(input.headSha) ||
       createHash("sha256")
@@ -107,6 +114,9 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
             policyRevision: input.policyRevision,
             sourceActorId: input.sourceActor.id,
             observedCommitSha: input.headSha,
+            ...(input.contextEvidence
+              ? { contextEvidence: input.contextEvidence }
+              : {}),
           },
         },
         controls,
@@ -146,6 +156,9 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
           body: input.selectableBody,
         },
         maxStatements: 4,
+        ...(input.readOnlyContext !== undefined
+          ? { readOnlyContext: input.readOnlyContext }
+          : {}),
       },
       controls,
     );
@@ -166,6 +179,15 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
     )
       return outcome("needs_refresh");
     if (!(await current())) return outcome("needs_refresh");
+    // Confirmation previews are read-only: no new cohort, command, outbox or AI retirement.
+    // The user may author one of these exact statements as an ordinary confirmed command.
+    if (input.requireConfirmation)
+      return {
+        ...outcome(
+          selected.statements.length ? "confirmation_required" : "active",
+        ),
+        proposals: selected.statements.map((statement) => statement.body),
+      };
     const ids = selected.statements.map(
       (_, i) =>
         `auto_${memoryKnowledgeDigest([input.processingId, i]).slice(0, 48)}`,
@@ -174,6 +196,7 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       actor: input.sourceActor,
       approvedAt: this.now().toISOString(),
       authorityRevision: `automatic:${input.policyRevision}`,
+      automaticSettingsRevision: input.settingsRevision ?? "0",
     };
     const retirements = [];
     // Withdrawn old children use the existing CAS/retire owner. Ownership transfer wins a race.

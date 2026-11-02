@@ -5,7 +5,15 @@
 `worker-repository-sync.sql` gives `reviewrouter_worker` column-level INSERT and UPDATE
 on `RepositoryConnection`, limited to the columns the sync writes, and USAGE on the
 inventory sequence. There is no table-level write privilege, and the worker cannot
-update `id`, `githubRepositoryId`, `scmRepositoryIdentityId` or `gitlabInstallationId`.
+update `id`, `githubRepositoryId` or `gitlabInstallationId`.
+
+The identity column has one guarded UPDATE permission: the worker may complete
+a first-time `scmRepositoryIdentityId` binding only when the identity already
+declares the same connection and workspace. The existing migration 000133 guard
+rejects retargeting, clearing and parent moves. The grant first verifies its exact
+qualified body, trusted owner, search path and enabled complete trigger; it fails
+before granting if these prerequisites drift. It does not replace a function,
+alter activation trust roots or permit INSERT into the identity column.
 
 Why it is a separate step: the release migration runner re-applies a canonical
 runtime ACL after the schema migrations, and that ACL (and the verification that
@@ -28,8 +36,9 @@ sudo -u reviewrouter_pg psql -h /var/lib/review-router-postgres/socket -p 5434 \
 ```
 
 Then confirm with `node scripts/check-runtime-db-privileges.mjs` under the worker
-role. It fails if the privilege is missing or if recent events died with a
-permission error.
+role. Its seven checks include the specific identity UPDATE column, which an
+any-column UPDATE probe cannot establish. It fails if a privilege is missing or
+if recent events died with a permission error.
 
 Known gap: the referential guard trigger fires on UPDATE of the parent-FK columns
 and on DELETE, but not on INSERT. A compromised worker could therefore insert a
