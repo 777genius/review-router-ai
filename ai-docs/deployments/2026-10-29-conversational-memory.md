@@ -459,12 +459,29 @@ execution, or a reason to replay the prior identity. The delegated-agent partial
 rubric remains unscoreable, including its recorded semantic failures; increased
 availability alone cannot establish quality.
 
-The successor `19b81f090` reserves a bounded reasoning-and-answer output budget
-inside the existing model, context and owner ceilings. It is **UNQUALIFIED**:
-source changes do not reuse the old report as a new PASS. Fresh affected checks,
-complete tuning and the unconsumed protected checkpoint remain required before
-any genuine source/model-bound capability or installed-App activation claim.
-No qualification artifact is manufactured by this budget repair.
+The subsequent `b8f6c85f` tuning run
+`7260593a-e5ba-4864-9cc3-aa72876e667e` remains **UNAVAILABLE**, with 34 of
+50 events reached; report SHA256
+`377b54fe568e8500ec7ef24ac1dff89b24822ccd24b914d84bee101de5cc0841`.
+Its final child used the approximately 81 seconds remaining in the original
+90-second deadline. Read-only reconciliation confirmed that child fenced,
+transport unoccupied, namespace bound, physical closure acknowledged and cleanup
+done. Its outcome remains **unknown**, with partial/null usage; closure does not
+settle provider output and does not authorize replay. The parent completed and
+closed. The private diagnostic is `tmp/diag-b8f-7260593a/summary.json`.
+
+Delegated-agent review covered all 34 observations and 13 body versions. Two
+answers failed, for the archive query and surviving neighbor, despite correctly
+admitted memory delivery. This partial review supplies neither an official
+quality score nor protected-holdout evidence.
+
+Candidate `91147c6f2` adds optional frozen `medium` effort only where the existing
+selected-model catalog supports it; unsupported or null effort remains omitted.
+The prompt prioritizes the current request. The candidate remains **UNQUALIFIED**
+pending fresh affected QA, complete tuning and the unconsumed protected
+checkpoint. Existing budgets and current-account authority remain binding. No
+qualification artifact or installed-App activation is established by this source
+change.
 
 The separate [explicit-resume record](2026-11-02-memory-explicit-resume.md#evidence)
 now records real self-hosted first installation/reuse, healthy stock Compose,
