@@ -51,7 +51,7 @@ export async function executeClaimedOutboxEvent(
       ...claim,
       deadLetteredAt: dependencies.clock.now(),
       errorCode: "unsupported_event_version",
-      safeErrorSummary: `No handler registered for ${event.type}@v${event.version}`,
+      safeErrorSummary: "outbox_handler_not_registered",
     });
     return result.status === "applied" ? "dead_lettered" : "stale_claim";
   }
