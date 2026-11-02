@@ -1021,9 +1021,33 @@ export function createReviewRunGatewayRelay(input: {
     const bytes = new Uint8Array(raw); // Capture caller-owned bytes before any await.
     const finish = reserve();
     try {
-      const auth = await resolve(token, "full", reviewerId);
+      if (controller.signal.aborted)
+        throw new RelayFailure("authorization_denied", 401);
+      let aborted!: () => void;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        aborted = () => reject(new RelayFailure("authorization_denied", 401));
+        controller.signal.addEventListener("abort", aborted, { once: true });
+        if (controller.signal.aborted) aborted();
+      });
+      let auth: ReviewRunAuthorization;
+      try {
+        // This phase reads authority only. A caller cancellation releases the
+        // incoming reservation; a late read must never continue into session
+        // creation, capability preparation or inference. Do not race effectful
+        // prepare/close work or discard a retained native capability here.
+        auth = await Promise.race([
+          resolve(token, "full", reviewerId),
+          cancelled,
+        ]);
+      } finally {
+        controller.signal.removeEventListener("abort", aborted);
+      }
+      if (controller.signal.aborted)
+        throw new RelayFailure("authorization_denied", 401);
       const lane = selected(auth, reviewerId);
       const session = await sessionFor(auth, reviewerId);
+      if (controller.signal.aborted)
+        throw new RelayFailure("authorization_denied", 401);
       const { snapshot, gateway } = lane;
       if (
         companion &&
@@ -1209,6 +1233,10 @@ export function createReviewRunGatewayRelay(input: {
       session.aborts.set(controller, reviewerId);
       const fresh = () => check(token, auth, session, "full", reviewerId);
       try {
+        if (signal.aborted)
+          return await refuseBeforeForward(
+            new RelayFailure("authorization_denied", 401),
+          );
         if (!session.preparation.hasSession()) {
           if (session.preparation.needsRecovery())
             return await refuseBeforeForward(
