@@ -212,16 +212,45 @@ export type Corpus = {
   facts: CorpusFact[];
   targets: Record<string, number>;
 };
-export type CorpusName = "legacy-v1" | "full-thread-v2";
+const corpusProfiles = {
+  "legacy-v1": {
+    file: "./corpus.json",
+    threads: 48,
+    tuning: 32,
+    holdout: 16,
+    events: 149,
+    minFacts: 80,
+    linkedPairs: 8,
+  },
+  "full-thread-v2": {
+    file: "./corpus.full-thread-v2.json",
+    threads: 16,
+    tuning: 10,
+    holdout: 6,
+    events: 50,
+    minFacts: 1,
+    linkedPairs: 4,
+  },
+  "multilingual-v1": {
+    file: "./corpus.multilingual-v1.json",
+    threads: 10,
+    tuning: 4,
+    holdout: 6,
+    events: 14,
+    minFacts: 7,
+    linkedPairs: 3,
+  },
+} as const;
+export type CorpusName = keyof typeof corpusProfiles;
 export async function loadCorpus(
   name: CorpusName = "legacy-v1",
 ): Promise<Corpus> {
-  if (!["legacy-v1", "full-thread-v2"].includes(name))
-    throw new Error("eval_corpus_unknown");
+  const profile = corpusProfiles[name];
+  if (!profile) throw new Error("eval_corpus_unknown");
   const corpus = JSON.parse(
     await readFile(
       new URL(
-        name === "legacy-v1" ? "./corpus.json" : "./corpus.full-thread-v2.json",
+        profile.file,
         import.meta.url,
       ),
       "utf8",
@@ -229,17 +258,19 @@ export async function loadCorpus(
   ) as Corpus;
   const ids = new Set(corpus.threads.map((thread) => thread.id));
   if (
-    ids.size !== (name === "legacy-v1" ? 48 : 16) ||
+    ids.size !== profile.threads ||
     corpus.threads.filter((t) => t.split === "tuning").length !==
-      (name === "legacy-v1" ? 32 : 10) ||
+      profile.tuning ||
     corpus.threads.filter((t) => t.split === "holdout").length !==
-      (name === "legacy-v1" ? 16 : 6)
+      profile.holdout ||
+    corpus.threads.reduce((count, thread) => count + thread.events.length, 0) !==
+      profile.events
   )
     throw new Error("corpus_whole_thread_split_invalid");
   const factIds = new Set(corpus.facts.map((fact) => fact.id));
   if (
     factIds.size !== corpus.facts.length ||
-    factIds.size < (name === "legacy-v1" ? 80 : 1) ||
+    factIds.size < profile.minFacts ||
     factIds.size > 120
   )
     throw new Error("corpus_fact_inventory_invalid");
@@ -291,7 +322,7 @@ export async function loadCorpus(
           throw new Error("corpus_recall_answer_leaked_into_B");
     }
   }
-  if (pairs !== (name === "legacy-v1" ? 8 : 4))
+  if (pairs !== profile.linkedPairs)
     throw new Error("corpus_linked_inventory_invalid");
   return corpus;
 }
