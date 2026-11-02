@@ -9,9 +9,6 @@ repository health from one dashboard.
 
 [Self-host](./docs/operations/review-router-self-hosted-end-to-end.md) · [Documentation](./docs/README.md)
 
-<img width="1145" height="737" alt="image" src="https://github.com/user-attachments/assets/c32ea23f-3d34-4e5c-917f-d72d981b88c5" />
-<img width="916" height="622" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/fc11accd-dbd4-457b-ad6a-a43cccd075d1" />
-
 ## Features
 
 ### Memory, Skills and context
@@ -81,6 +78,11 @@ repository health from one dashboard.
 
 Features requiring specific providers, workflows or rollout configuration may
 not be active in every deployment. See [capabilities and limits](./docs/capabilities.md).
+
+## Dashboard preview
+
+<img width="1145" height="737" alt="ReviewRouter overview" src="https://github.com/user-attachments/assets/c32ea23f-3d34-4e5c-917f-d72d981b88c5" />
+<img width="916" height="622" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/fc11accd-dbd4-457b-ad6a-a43cccd075d1" />
 
 ## Start with GitHub
 
