@@ -4,7 +4,12 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactElement } from "react";
 import { Button, Checkbox } from "@reviewrouter/ui";
 import { ActionToast } from "../action-toast";
-import { dashboardErrorText, dashboardNoticeText } from "./dashboard-copy";
+import {
+  dashboardErrorText,
+  dashboardNoticeText,
+  repositoryAccessErrorPresentation,
+  repositoryWorkflowUpdateCopy,
+} from "./dashboard-copy";
 import {
   confirmSetupPullRequestMergedClientAction,
   createSetupPullRequestClientAction,
@@ -152,10 +157,10 @@ export function RepositorySetupActionButton({
             <span>
               {setupStatus === "setup_pr_open"
                 ? "Updating setup PR..."
-                : workflowRefresh
-                  ? "Updating setup PR..."
-                  : setupStatus === "needs_attention"
-                    ? "Recreating setup PR..."
+                : setupStatus === "needs_attention"
+                  ? "Recreating setup PR..."
+                  : workflowRefresh
+                    ? repositoryWorkflowUpdateCopy.pendingLabel
                     : "Creating setup PR..."}
             </span>
           </span>
@@ -164,8 +169,10 @@ export function RepositorySetupActionButton({
         ) : (
           <>
             <SetupPrIcon />
-            {workflowRefresh
-              ? "Update setup PR"
+            {workflowRefresh &&
+            setupStatus !== "setup_pr_open" &&
+            setupStatus !== "needs_attention"
+              ? repositoryWorkflowUpdateCopy.actionLabel
               : setupPrButtonLabel(setupStatus)}
           </>
         )}
@@ -317,10 +324,14 @@ function setupActionToast(
   params: Record<string, string>,
 ): Omit<SetupActionToast, "key"> {
   if (params.error) {
+    const access = repositoryAccessErrorPresentation(params.error);
     return {
       tone: "danger",
-      title: "Action needs attention",
+      title: access?.title ?? "Action needs attention",
       body: setupActionErrorText(params.error),
+      ...(access?.actionUrl
+        ? { actionUrl: access.actionUrl, actionLabel: access.actionLabel }
+        : {}),
     };
   }
 
@@ -331,7 +342,7 @@ function setupActionToast(
     case "runtime_migration_recovery_required":
       return {
         tone: "warning",
-        title: "Runtime update",
+        title: "Workflow update",
         body: dashboardNoticeText(params.notice, params.repository ?? ""),
         ...(params.pr
           ? { actionUrl: params.pr, actionLabel: "Open first update PR" }

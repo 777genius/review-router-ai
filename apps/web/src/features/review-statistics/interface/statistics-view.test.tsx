@@ -159,6 +159,63 @@ describe("Statistics", () => {
     expect(screen.getByText(/daily PR counts do not add up/)).toBeTruthy();
     expect(screen.getByText("Oct 23, 2026 · in progress")).toBeTruthy();
   });
+  it("persists the chart metric without changing server filters or cached totals", async () => {
+    vi.mocked(fetchStatisticsReport).mockImplementation(
+      async (_workspace, filter) => ({ ...statisticsFixture(), filter }),
+    );
+    setup();
+    const selector = screen.getByLabelText("Chart metric");
+    expect(selector).toHaveProperty("value", "pullRequestsReviewed");
+    fireEvent.change(selector, { target: { value: "reviews" } });
+    expect(selector).toHaveProperty("value", "reviews");
+    expect(window.location.search).toContain("statisticsMetric=reviews");
+    expect(fetchStatisticsReport).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Period"), {
+      target: { value: "7" },
+    });
+    expect(window.location.search).toContain("statisticsDays=7");
+    expect(window.location.search).toContain("statisticsMetric=reviews");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Chart metric")).toHaveProperty(
+        "value",
+        "reviews",
+      ),
+    );
+    window.history.pushState(
+      null,
+      "",
+      "/dashboard?section=statistics&workspace=workspace-a&statisticsDays=7",
+    );
+    fireEvent.popState(window);
+    expect(screen.getByLabelText("Chart metric")).toHaveProperty(
+      "value",
+      "pullRequestsReviewed",
+    );
+    expect(screen.getByLabelText("Period")).toHaveProperty("value", "7");
+  });
+  it("normalizes malformed metric URL after a filter change", () => {
+    vi.mocked(fetchStatisticsReport).mockImplementation(
+      async (_workspace, filter) => ({ ...statisticsFixture(), filter }),
+    );
+    setup();
+    fireEvent.change(screen.getByLabelText("Chart metric"), {
+      target: { value: "reviews" },
+    });
+    window.history.pushState(
+      null,
+      "",
+      "/dashboard?section=statistics&workspace=workspace-a&statisticsMetric=bad&statisticsMetric=reviews",
+    );
+    fireEvent.popState(window);
+    expect(screen.getByText(/Choose a valid statistics period/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Period"), {
+      target: { value: "7" },
+    });
+    const params = new URLSearchParams(window.location.search);
+    expect(params.getAll("statisticsMetric")).toEqual(["reviews"]);
+    expect(params.get("statisticsDays")).toBe("7");
+    expect(screen.queryByText(/Choose a valid statistics period/)).toBeNull();
+  });
   it("filters issues consistently, keeps all-severity KPIs and the full daily table, and resets pagination", async () => {
     const original = statisticsFixture();
     vi.mocked(fetchStatisticsIssues)

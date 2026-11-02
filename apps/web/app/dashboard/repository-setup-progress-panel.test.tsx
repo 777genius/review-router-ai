@@ -20,6 +20,7 @@ import {
   createSetupPullRequestClientAction,
 } from "./actions";
 import { RepositorySetupProgressPanel } from "./repository-setup-progress-panel";
+import { DashboardActionForm } from "./dashboard-action-form";
 import {
   RepositorySetupActionButton,
   RepositorySetupMergedButton,
@@ -60,6 +61,79 @@ afterEach(() => {
 });
 
 describe("RepositorySetupProgressPanel", () => {
+  it("opens the existing update PR and verifies it without creating another PR", async () => {
+    vi.mocked(confirmSetupPullRequestMergedClientAction).mockResolvedValueOnce({
+      params: { error: "dashboard_auth_misconfigured" },
+    });
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="acme/repo"
+        selected
+        archived={false}
+        initialSetupStatus="setup_pr_open"
+        initialSetupPullRequestUrl="https://github.com/acme/repo/pull/2"
+        workflowCurrent={false}
+        runtimeCompatibility="update_required"
+        mutationsEnabled
+        initialStep="merge_setup_pr"
+      />,
+    );
+    expect(
+      screen.getByRole("link", { name: /Open update PR/ }).getAttribute("href"),
+    ).toBe("https://github.com/acme/repo/pull/2");
+    expect(
+      screen.queryByRole("button", { name: "Create update PR" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Verify setup" }));
+    await waitFor(() =>
+      expect(confirmSetupPullRequestMergedClientAction).toHaveBeenCalledOnce(),
+    );
+    expect(createSetupPullRequestClientAction).not.toHaveBeenCalled();
+    await waitFor(() => expect(toast.custom).toHaveBeenCalled());
+    const renderer = vi.mocked(toast.custom).mock.calls.at(-1)![0];
+    const notification = render(<>{renderer("update-pr-error-toast")}</>);
+    expect(
+      notification
+        .getByRole("link", { name: "Contact support" })
+        .getAttribute("href"),
+    ).toBe("/support");
+    expect(screen.queryByText("4 of 4 - complete")).toBeNull();
+  });
+
+  it("offers support from the actual refresh error toast without suggesting a futile reconnect", async () => {
+    const action = vi.fn(async () => ({
+      params: { error: "dashboard_auth_misconfigured" },
+    }));
+    render(
+      <DashboardActionForm
+        action={action}
+        fallbackParams={{ error: "dashboard_action_failed" }}
+      >
+        <button type="submit">Refresh access</button>
+      </DashboardActionForm>,
+    );
+    await act(async () => {
+      screen
+        .getByRole("button", { name: "Refresh access" })
+        .closest("form")!
+        .requestSubmit();
+    });
+    await waitFor(() => expect(toast.custom).toHaveBeenCalled());
+    const renderer = vi.mocked(toast.custom).mock.calls.at(-1)![0];
+    const notification = render(<>{renderer("repository-access-toast")}</>);
+    expect(
+      notification
+        .getByRole("link", { name: "Contact support" })
+        .getAttribute("href"),
+    ).toBe("/support");
+    expect(
+      notification.queryByText(/reconnect|encryption|oauth|REVIEW_ROUTER/i),
+    ).toBeNull();
+    expect(action).toHaveBeenCalledOnce();
+  });
+
   it("explains both credential-preserving update PRs without requesting a new login", async () => {
     vi.mocked(createSetupPullRequestClientAction).mockResolvedValueOnce({
       params: { notice: "runtime_migration_running" },
@@ -90,7 +164,7 @@ describe("RepositorySetupProgressPanel", () => {
     ).toBeNull();
     expect(screen.queryByRole("checkbox")).toBeNull();
     screen
-      .getByRole("button", { name: "Update setup PR" })
+      .getByRole("button", { name: "Create update PR" })
       .closest("form")!
       .requestSubmit();
     await waitFor(() =>
@@ -98,11 +172,11 @@ describe("RepositorySetupProgressPanel", () => {
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Update setup PR" }),
+        screen.getByRole("button", { name: "Create update PR" }),
       ).toBeTruthy(),
     );
     expect(screen.queryByText("4 of 4 - complete")).toBeNull();
-    expect(screen.getByText("1 of 4 - setup PR needed")).toBeTruthy();
+    expect(screen.getByText("1 of 4 - workflow update needed")).toBeTruthy();
   });
   it.each(["create", "verify"] as const)(
     "keeps the %s action disabled while its server request is pending",
@@ -138,7 +212,8 @@ describe("RepositorySetupProgressPanel", () => {
           <RepositorySetupMergedButton {...common} label="Verify setup" />
         ),
       );
-      const label = operation === "create" ? "Update setup PR" : "Verify setup";
+      const label =
+        operation === "create" ? "Create update PR" : "Verify setup";
       const button = screen.getByRole("button", {
         name: label,
       }) as HTMLButtonElement;
@@ -149,7 +224,7 @@ describe("RepositorySetupProgressPanel", () => {
       expect(button.disabled).toBe(true);
       expect(button.getAttribute("aria-busy")).toBe("true");
       expect(button.textContent).toContain(
-        operation === "create" ? "Updating setup PR..." : "Checking...",
+        operation === "create" ? "Creating update PR..." : "Checking...",
       );
       await act(async () => {
         finish({ params: { notice: "runtime_migration_running" } });
@@ -161,7 +236,7 @@ describe("RepositorySetupProgressPanel", () => {
   );
   it.each([
     ["unknown", "Verify setup"],
-    ["update_required", "Update setup PR"],
+    ["update_required", "Create update PR"],
   ] as const)(
     "uses the existing %s setup action without allowing an optimistic Ready state",
     (runtimeCompatibility, label) => {
@@ -185,9 +260,14 @@ describe("RepositorySetupProgressPanel", () => {
       if (runtimeCompatibility === "unknown") {
         expect(screen.getByText("1 of 4 - verification needed")).toBeTruthy();
         expect(
-          screen.getByText("Check the installed workflow and runtime."),
+          screen.getByText("Check the review workflow installed on GitHub."),
         ).toBeTruthy();
         expect(screen.queryByText("Create setup PR")).toBeNull();
+      } else {
+        expect(screen.getByText("Update review workflow")).toBeTruthy();
+        expect(
+          screen.getByText("1 of 4 - workflow update needed"),
+        ).toBeTruthy();
       }
       fireEvent(
         window,
@@ -588,7 +668,7 @@ describe("RepositorySetupProgressPanel", () => {
     );
 
     const updateForm = screen
-      .getByRole("button", { name: "Update setup PR" })
+      .getByRole("button", { name: "Create update PR" })
       .closest("form");
     expect(updateForm).toBeTruthy();
     updateForm!.requestSubmit();

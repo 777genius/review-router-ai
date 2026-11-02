@@ -38,10 +38,11 @@ export function conversationActionConfirmation(
   }
 }
 
-/** Other messages may inform a reply but cannot supply or extend mutation authority. */
+/** Verifies the current human actor and, when requested, their exact authored command. */
 export function sourceAuthorizesConversationAction(
   snapshot: ConversationSnapshot,
   action: ConversationAction,
+  requireConfirmation = true,
 ): boolean {
   const selected = snapshot.messages.filter(
     (message) => message.id === snapshot.sourceId,
@@ -58,6 +59,9 @@ export function sourceAuthorizesConversationAction(
     conversationDigest(source.body) !== source.bodyDigest
   )
     return false;
+  // Automatic mode delegates intent recognition to the checked conversation model.
+  // Server-verified author/source identity above remains mandatory in both modes.
+  if (!requireConfirmation) return true;
   // EOL/outer-space normalization does not rewrite text, target, revision or kind.
   const normalize = (value: string) => value.replaceAll("\r\n", "\n").trim();
   return (["en", "ru"] as const).some(
@@ -78,4 +82,23 @@ export function unconfirmedConversationActionNotice(
   );
   const fence = "`".repeat(Math.max(3, longest + 1));
   return `I have not applied this memory change. A repository maintainer can confirm the exact text, kind and target by posting this as a standalone reply in this thread:\n\n${fence}text\n${instruction}\n${fence}\n\nOther messages cannot authorize a change on your behalf.`;
+}
+
+export function unconfirmedConversationObservationsNotice(
+  statements: readonly string[],
+): string {
+  const confirmations = statements.map((body) => {
+    const instruction = conversationActionConfirmation({
+      kind: "create",
+      knowledgeKind: "observation",
+      body,
+    });
+    const longest = Math.max(
+      0,
+      ...(instruction.match(/`+/g) ?? []).map((run) => run.length),
+    );
+    const fence = "`".repeat(Math.max(3, longest + 1));
+    return `${fence}text\n${instruction}\n${fence}`;
+  });
+  return `These observations have not been saved. A repository maintainer can save an observation by posting its exact confirmation as a separate reply in this thread:\n\n${confirmations.join("\n\n")}`;
 }

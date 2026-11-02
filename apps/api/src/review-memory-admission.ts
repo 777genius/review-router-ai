@@ -116,7 +116,7 @@ export function createReviewMemoryInputAdmission(
         await transaction.$queryRaw(
           Prisma.sql`SELECT "authorizationId" FROM "ReviewRunAuthorization" WHERE "authorizationId"=${execution.authorizationId} FOR SHARE`,
         );
-        await lockSourceRepositories(transaction, [
+        await lockSourceRepositories(transaction, execution.workspaceId, [
           execution.repositoryConnectionId,
         ]);
         trace.phase = "receipt_binding";
@@ -619,7 +619,7 @@ async function currentSourceRepositories(
   ids: readonly string[],
 ): Promise<ReadonlySet<string>> {
   if (ids.length === 0) return new Set();
-  await lockSourceRepositories(transaction, ids);
+  await lockSourceRepositories(transaction, workspaceId, ids);
   const repositories = await transaction.repositoryConnection.findMany({
     where: {
       id: { in: [...ids] },
@@ -646,10 +646,13 @@ function preparedMemoryHash(canonical: string | undefined | null): unknown {
 
 async function lockSourceRepositories(
   transaction: Prisma.TransactionClient,
+  workspaceId: string,
   ids: readonly string[],
 ): Promise<void> {
-  if (!ids.length) return;
-  await transaction.$queryRaw(
-    Prisma.sql`SELECT "id" FROM "RepositoryConnection" WHERE "id" IN (${Prisma.join([...new Set(ids)].sort())}) ORDER BY "id" FOR SHARE`,
-  );
+  // Runtime principals have SELECT only. Reuse the canonical lock-only definer
+  // while retaining deterministic ordering and workspace-scoped row authority.
+  for (const id of [...new Set(ids)].sort())
+    await transaction.$queryRaw(
+      Prisma.sql`SELECT id FROM public.rr_review_run_checkout_repository_lock(${workspaceId}, ${id})`,
+    );
 }

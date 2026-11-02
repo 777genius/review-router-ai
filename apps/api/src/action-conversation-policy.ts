@@ -243,6 +243,24 @@ type ConversationPolicyConstruction = {
 };
 export type ConversationOperationalModelBounds =
   ConversationQualification["models"][number];
+type CandidateMemoryPolicy = Awaited<
+  ReturnType<MemoryKnowledgeRuntime["policy"]["getPolicy"]>
+>;
+
+/** Disposable scopes may tighten, never relax, their selected template's policy. */
+export function conversationCandidateMemoryPolicy(
+  template: CandidateMemoryPolicy,
+  disposable: CandidateMemoryPolicy,
+): CandidateMemoryPolicy {
+  return {
+    ...disposable,
+    memoryEnabled: template.memoryEnabled && disposable.memoryEnabled,
+    automaticLearning:
+      template.automaticLearning && disposable.automaticLearning,
+    requireConfirmation:
+      template.requireConfirmation || disposable.requireConfirmation,
+  };
+}
 type ConversationCaptureMode =
   | {
       readonly kind: "qualified";
@@ -341,9 +359,11 @@ function createSelectedAccountPolicy(
     async capture(processingIdentity, processingId, controls) {
       if (
         mode.kind === "candidate" &&
-        (!/^eval_[a-f0-9]{40}$/.test(processingIdentity.repositoryId) ||
+        (!/^eval_[a-f0-9]{40}(?:_[A-Za-z0-9_-]{1,64})?$/.test(
+          processingIdentity.repositoryId,
+        ) ||
           processingIdentity.workspaceId !==
-            `${processingIdentity.repositoryId}_workspace` ||
+            `${processingIdentity.repositoryId.slice(0, 45)}_workspace` ||
           processingIdentity.repositoryStableId !==
             `synthetic:${processingIdentity.repositoryId}` ||
           processingIdentity.repositoryFullName !==
@@ -376,6 +396,21 @@ function createSelectedAccountPolicy(
             repositoryId: identity.repositoryId,
             mode: "shared",
           },
+          ...(mode.kind === "candidate"
+            ? [
+                {
+                  scope: "workspace" as const,
+                  workspaceId: processingIdentity.workspaceId,
+                  mode: "shared" as const,
+                },
+                {
+                  scope: "repository" as const,
+                  workspaceId: processingIdentity.workspaceId,
+                  repositoryId: processingIdentity.repositoryId,
+                  mode: "shared" as const,
+                },
+              ]
+            : []),
         ]);
         const before = await repositories.findRuntimeReviewConfiguration(
           identity,
@@ -409,7 +444,15 @@ function createSelectedAccountPolicy(
           selection,
           env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
         );
-        const policy = await input.runtime.policy.getPolicy(identity);
+        const templatePolicy = await input.runtime.policy.getPolicy(identity);
+        const memoryPolicy =
+          mode.kind === "candidate"
+            ? await input.runtime.policy.getPolicy(processingIdentity)
+            : templatePolicy;
+        const policy =
+          mode.kind === "candidate"
+            ? conversationCandidateMemoryPolicy(templatePolicy, memoryPolicy)
+            : templatePolicy;
         if (
           !binding.profileRef ||
           binding.profileRef !== provider.gatewayProfileRef
@@ -420,6 +463,7 @@ function createSelectedAccountPolicy(
           binding: { ...binding, profileRef: provider.gatewayProfileRef },
           selection,
           policy,
+          ...(mode.kind === "candidate" ? { templatePolicy } : {}),
           configurationDigest: conversationDigest(current),
         };
       };
@@ -539,6 +583,13 @@ function createSelectedAccountPolicy(
         ...(mode.kind === "qualified"
           ? { qualificationProofId: mode.qualification.proofId }
           : { candidateEvaluationRunId: mode.candidateRunId }),
+        memorySettings: {
+          requireConfirmation: selected.policy.requireConfirmation,
+          revision: selected.policy.settingsRevision,
+          ...(selected.templatePolicy
+            ? { templateRevision: selected.templatePolicy.settingsRevision }
+            : {}),
+        },
         limits,
         deadline: controls.deadlineAt.toISOString(),
       };
@@ -626,9 +677,10 @@ function createSelectedAccountPolicy(
         automaticLearning:
           (mode.kind === "candidate" ||
             mode.qualification.sourceProcessingProfile ===
-              "transient-checked-inline-gateway-v1") &&
+              "transient-checked-inline-gateway-full-thread-v1") &&
           selected.policy.memoryEnabled &&
           selected.policy.automaticLearning,
+        requireConfirmation: selected.policy.requireConfirmation,
         discussionReplies: true,
         contextWindowTokens: modelQualification[0]!.contextWindowTokens,
         tokensPerByteUpperBound: modelQualification[0]!.tokensPerByteUpperBound,

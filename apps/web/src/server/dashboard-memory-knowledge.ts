@@ -20,6 +20,7 @@ import type {
   MemoryDashboardMutation,
   MemoryScopeSelection,
 } from "../features/memory/application/memory-knowledge-view";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
 import {
   createGitHubAppInstallationOctokit,
   getDashboardSignedInActor,
@@ -48,6 +49,8 @@ async function productionMemoryDashboard(workspaceId: string) {
   const runtime = await createMemoryKnowledgeRuntime({
     prisma,
     env: process.env,
+    workspaceSettings: (workspaceId, transaction) =>
+      new PrismaWorkspaceMemorySettings(prisma).read(workspaceId, transaction),
   });
   const permissions = new PrismaMemoryPermission(prisma, {
     repositoryMaintainers: createPrismaMemoryRepositoryMaintainers({

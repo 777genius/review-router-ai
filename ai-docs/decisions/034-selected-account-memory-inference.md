@@ -20,8 +20,10 @@ Conversational observation selection implements the existing product-owned
 entry is not a new OpenAI-compatible Hindsight endpoint. The API reuses the
 parent conversation's captured primary review account, model and policy tuple;
 it cannot substitute an operator account or choose another user's account.
-The current source-only input boundary is unchanged. Full-thread learning and
-confirmation settings in other work remain outside this change.
+The full-thread successor carries the complete host-checked discussion and its
+bodyless revision evidence to interpret the selected maintainer source. Source
+authority stays with that source; other authors, code and bot output remain
+evidence. The input digest also binds the effective workspace confirmation setting.
 
 A separate `ConversationProcessing` purpose, `memory-preview-v1`, reserves one
 stable extraction attempt for the original source revision before Gateway grant
@@ -33,9 +35,9 @@ Only bounded decoded statements reach the existing memory admission flow.
 Raw input/output bodies remain transient; durable records contain identities,
 digests, status and usage rather than source transcripts or provider streams.
 
-The exact `transient-checked-inline-gateway-v1` capability distinguishes newly
+The exact `transient-checked-inline-gateway-full-thread-v1` capability distinguishes newly
 qualified Gateway extraction from historical native preview evidence. An old
-`transient-checked-inline-v1` proof may still authorize its existing reply path,
+`transient-checked-inline-v1` or source-only Gateway proof may still authorize its existing reply path,
 but cannot authorize the new learning mechanism. This is an immutable mechanism
 version, not a user feature toggle. Actual selected-model and App-first checks
 are still required before assigning the new capability to a production scope.

@@ -1,3 +1,4 @@
+import { timeAnalyticsRead } from "./analytics-read-timing";
 import {
   StatisticsAccessError,
   StatisticsValidationError,
@@ -58,7 +59,9 @@ export async function loadStatisticsReport(
   const { actorId, reader } = await context();
   return {
     actorId,
-    report: await reader.readReport({ actorId, workspaceId, filter }),
+    report: await timeAnalyticsRead("statistics.report", () =>
+      reader.readReport({ actorId, workspaceId, filter }),
+    ),
   };
 }
 export async function loadStatisticsIssues(

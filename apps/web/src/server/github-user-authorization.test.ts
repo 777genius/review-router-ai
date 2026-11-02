@@ -112,7 +112,7 @@ describe("GitHub user authorization", () => {
     );
   });
 
-  it("marks authorization revoked when refresh fails", async () => {
+  it("marks authorization revoked when GitHub rejects the refresh token", async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const deleteMany = vi.fn().mockResolvedValue({ count: 2 });
     const prisma = {
@@ -130,7 +130,7 @@ describe("GitHub user authorization", () => {
       repositoryPermissionCache: { deleteMany },
     } as unknown as PrismaClient;
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ error: "bad_verification_code" }), {
+      new Response(JSON.stringify({ error: "bad_refresh_token" }), {
         status: 400,
       }),
     );
@@ -144,18 +144,65 @@ describe("GitHub user authorization", () => {
         fetch: fetchMock,
       }),
     ).resolves.toMatchObject({
-      status: "refresh_failed",
-      errorCode: "github_user_token_refresh_bad_verification_code",
+      status: "revoked",
+      errorCode: "github_user_token_refresh_bad_refresh_token",
     });
     expect(updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           revokedAt: expect.any(Date),
-          lastErrorCode: "github_user_token_refresh_bad_verification_code",
+          lastErrorCode: "github_user_token_refresh_bad_refresh_token",
         }),
       }),
     );
     expect(deleteMany).toHaveBeenCalledWith({ where: { userId: "user_1" } });
+  });
+
+  it("keeps temporary GitHub refresh failures retryable", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const deleteMany = vi.fn();
+    const prisma = {
+      gitHubUserAuthorization: {
+        findUnique: vi.fn().mockResolvedValue({
+          encryptedAccessToken: encryptServerToken("ghu_old", env),
+          encryptedRefreshToken: encryptServerToken("ghr_old", env),
+          accessTokenExpiresAt: new Date("2026-05-12T10:01:00Z"),
+          refreshTokenExpiresAt: new Date("2026-06-12T10:00:00Z"),
+          revokedAt: null,
+          lastErrorCode: null,
+        }),
+        updateMany,
+      },
+      repositoryPermissionCache: { deleteMany },
+    } as unknown as PrismaClient;
+    for (const [status, body, errorCode] of [
+      [503, "Temporary failure", "github_user_token_refresh_failed"],
+      [
+        401,
+        JSON.stringify({ error: "incorrect_client_credentials" }),
+        "github_user_token_refresh_incorrect_client_credentials",
+      ],
+    ] as const) {
+      updateMany.mockClear();
+      await expect(
+        getValidGitHubUserAccessToken({
+          prisma,
+          env,
+          userId: "user_1",
+          now: new Date("2026-05-12T10:00:00Z"),
+          fetch: vi.fn().mockResolvedValue(new Response(body, { status })),
+        }),
+      ).resolves.toMatchObject({ status: "refresh_failed", errorCode });
+      expect(updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { lastErrorCode: errorCode },
+        }),
+      );
+      expect(updateMany.mock.calls[0]?.[0].data).not.toHaveProperty(
+        "revokedAt",
+      );
+    }
+    expect(deleteMany).not.toHaveBeenCalled();
   });
 
   it("marks authorization revoked and clears cache when refresh token expired", async () => {

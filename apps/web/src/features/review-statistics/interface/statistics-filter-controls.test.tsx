@@ -66,7 +66,7 @@ describe("Statistics initial-read filter recovery", () => {
     window.history.replaceState(
       null,
       "",
-      "/dashboard?section=statistics&workspace=team&statisticsDays=7&statisticsDays=30&statisticsSeverity=major&keep=a#scope",
+      "/dashboard?section=statistics&workspace=team&statisticsDays=7&statisticsDays=30&statisticsSeverity=major&statisticsMetric=bad&statisticsMetric=reviews&keep=a#scope",
     );
     const container = document.createElement("div");
     container.innerHTML = renderToString(<StatisticsInvalidFilters />);

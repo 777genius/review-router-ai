@@ -12,10 +12,10 @@ The local guard, lifetime and diagnostic checkpoints are
 Check the current PR head's complete mandatory CI; historical checkpoint checks
 alone do not qualify a later head.
 
-| Environment | Status        | Actual version                             | Remaining work                                                                 |
-| ----------- | ------------- | ------------------------------------------ | ------------------------------------------------------------------------------ |
-| production  | `in_progress` | `e7f2e600acc896448b91ea0a9985c6e766a3c95b` | Retrieval receipts passed; actual reviewer memory context remains unconfirmed. |
-| self-hosted | `pending`     | Current main before this fix               | Include fixed API in the next application installation/update.                 |
+| Environment | Status        | Actual version                             | Remaining work                                                                          |
+| ----------- | ------------- | ------------------------------------------ | --------------------------------------------------------------------------------------- |
+| production  | `in_progress` | `06934abf5024f556b2ed0b8662a250fcaffa96c5` | Preserve the newer shared baseline; actual reviewer memory context remains unconfirmed. |
+| self-hosted | `pending`     | Current main before this fix               | Include fixed API in the next application installation/update.                          |
 
 The private native backend is active and manual memory save/edit/readback works.
 The real installed-App review of disposable `777genius/rr-codex-rotating-e2e#134`
@@ -29,6 +29,17 @@ authority and protected authorization confirmation. It makes no remote SCM read.
 Canonical current-revision checks stay with execution and paid dispatch; Context
 Tools retain their reviewer requirement and full SCM check. No schema, Action
 wire or automatic-learning activation changes are included.
+
+A later production privilege probe identified a separate admission failure:
+`reviewrouter_api` intentionally has SELECT-only repository access, whereas raw
+`FOR SHARE` requires UPDATE privilege. Memory admission now uses the existing
+workspace-scoped `rr_review_run_checkout_repository_lock` SECURITY DEFINER helper
+from migration135 for both the reviewed repository and linked source repositories.
+No grants or migrations change. Thirteen PostgreSQL17 regressions include the
+restricted caller succeeding through that actual helper while direct row locks
+and repository writes remain denied, and concurrent archive writes remaining
+blocked until the memory admission transaction ends. This follow-up is not yet
+installed; the production delivery boundary below remains open.
 
 Before delivery, require the exact source's relevant local checks, technical
 review and mandatory CI. Use the normal Hetzner application release, preserving
@@ -72,7 +83,7 @@ activated. The current shared source and remaining acceptance boundary are recor
 
 The later shared application source
 `e7f2e600acc896448b91ea0a9985c6e766a3c95b` (parent `14bead9640d0b4e6c6741aa5645c2a6c160fdd2f`)
-is now installed, image
+was installed, image
 `sha256:7cee23648d3fb708fdf63f99fa0578e8d5726a512b06a5bbc992cdcf4cb6ec8a`.
 It keeps receipt preflight local to run authorization. Custody:
 `/srv/platform/projects/review-router/releases/fleet-overlay-e7f2e600-QWzrdEu2`.
@@ -92,3 +103,14 @@ The [shared memory record](2026-11-01-memory-production-startup.md) contains the
 separate ENOSPC/recovery evidence and restored acceptance-fixture baseline; the
 [companion diagnostics record](2026-11-01-companion-gateway-refusal-diagnostics.md)
 tracks the same deployed application without asserting memory acceptance.
+
+Pre-deploy reconciliation on November 1 found that the shared fleet had advanced
+to `06934abf5024f556b2ed0b8662a250fcaffa96c5`, image
+`sha256:5878cb6700a654dc766e194a46f71dbc313ed242b7b2d9f3ceca0d21fb1bdbc0`.
+All four actual containers were running with zero restarts and had started at
+21:16 UTC. This workstream performed no deployment. The earlier target
+`d6fa6700edc8990ac152de530fd682be8cd605d6` passed complete CI, Memory UI/PostgreSQL
+and native cleanup qualification, but was withheld because it would omit the
+newly installed model-claim diagnostics and worker role checks. Preserve the new
+production source as a merge parent, integrate current main's full-thread
+settings, qualify the combined source, and then run the two-reviewer acceptance.

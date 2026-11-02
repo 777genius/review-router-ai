@@ -37,6 +37,25 @@ test.describe("review runtime readiness", () => {
         "true",
         { timeout: 60_000 },
       );
+      await expect(
+        page.getByRole("region", {
+          name: "GitHub repository access",
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await expect(repository(page, "foreign")).toHaveCount(0);
+      await expect(
+        page.getByText(FIXTURES.workspaceNames.personalForeign, {
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      const foreignSearch = await context.request.get(
+        `/api/dashboard/repositories/search?workspace=${FIXTURES.workspaces.personalForeign}`,
+      );
+      expect(foreignSearch.status()).toBe(404);
+      expect(await foreignSearch.json()).toMatchObject({
+        error: "workspace_not_found",
+      });
 
       await expect(
         repository(page, "current").locator("label.setup-toggle"),
@@ -51,11 +70,14 @@ test.describe("review runtime readiness", () => {
 
       const update = repository(page, "update");
       await update.locator("label.setup-toggle").click();
-      await expect(update.getByRole("status")).toHaveText(
-        "Update setup to use the current review runtime.",
+      await expect(update.getByRole("status")).toContainText(
+        "installed review workflow needs an update",
+      );
+      await expect(update.getByRole("status")).toContainText(
+        "merge it on GitHub",
       );
       await expect(
-        update.getByRole("button", { name: "Update setup PR", exact: true }),
+        update.getByRole("button", { name: "Create update PR", exact: true }),
       ).toBeVisible();
       await expect(
         update.getByRole("button", { name: "Verify setup", exact: true }),
@@ -63,14 +85,14 @@ test.describe("review runtime readiness", () => {
 
       const unknown = repository(page, "unknown");
       await unknown.locator("label.setup-toggle").click();
-      await expect(unknown.getByRole("status")).toHaveText(
-        "Review runtime support is not confirmed yet. Verify setup before the next review.",
+      await expect(unknown.getByRole("status")).toContainText(
+        "has not verified this repository",
       );
       await expect(
         unknown.getByRole("button", { name: "Verify setup", exact: true }),
       ).toBeVisible();
       await expect(
-        unknown.getByRole("button", { name: "Update setup PR", exact: true }),
+        unknown.getByRole("button", { name: "Create update PR", exact: true }),
       ).toHaveCount(0);
 
       // Existing optimistic events must not turn an unverified caller into Ready.
@@ -103,6 +125,11 @@ test.describe("review runtime readiness", () => {
       expect((await response.json()).repositoryIds).toEqual([
         "rr-e2e-runtime-current",
       ]);
+      const deniedRepositorySearch = await context.request.get(
+        `/api/dashboard/repositories/search?workspace=${FIXTURES.workspaces.personalViewer}&q=${FIXTURES.identities.foreign.login}/runtime-foreign`,
+      );
+      expect(deniedRepositorySearch.ok()).toBe(true);
+      expect((await deniedRepositorySearch.json()).repositoryIds).toEqual([]);
 
       await expectNoHorizontalOverflow(page);
       // Provider confirmations can refresh the document. The layout read above
@@ -137,6 +164,16 @@ test.describe("review runtime readiness", () => {
         path: info.outputPath(`review-runtime-${viewport.name}-light.png`),
         fullPage: true,
       });
+      if (viewport.name === "desktop") {
+        await page.setViewportSize({ width: 820, height: 1100 });
+        await expandRuntimeDetails();
+        await expectNoHorizontalOverflow(page);
+        await page.screenshot({
+          path: info.outputPath("review-runtime-intermediate-light.png"),
+          fullPage: true,
+        });
+        await page.setViewportSize(viewport);
+      }
       await page
         .getByRole("searchbox", { name: "Find repository", exact: true })
         .fill("fixture-no-matching-repository");

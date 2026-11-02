@@ -1,7 +1,7 @@
 import type { ConversationOperationalModelBounds } from "../../apps/api/src/action-conversation-policy.js";
 
 export const gatewayCandidateMechanism =
-  "selected-account-gateway-candidate-v1";
+  "selected-account-gateway-full-thread-candidate-v1";
 export function assertEvaluationNativeScope(env: NodeJS.ProcessEnv): void {
   if (
     !/^eval_[A-Za-z0-9_-]{1,94}$/.test(

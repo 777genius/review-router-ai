@@ -345,6 +345,8 @@ export function applicationEnvironment(input: {
     REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID: FIXTURES.gateway.profileId,
     ...(process.argv.includes("--review-runtime-fixture")
       ? {
+          REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY:
+            randomBytes(32).toString("base64url"),
           REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: `777genius/review-router@${RUNTIME_READY_SHA}`,
           REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
             RUNTIME_UI_ATTESTATIONS,

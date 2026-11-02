@@ -72,6 +72,7 @@ import { prepareHostedProductionRoute } from "./support/hosted-production-route.
 import { createPairedResolutionWriterFixture } from "./support/resolution-writer-fixture.js";
 import type { FakeGitHubTransport } from "../review-action-v2-production-e2e/support/fake-github.js";
 import { publishedReviewCommentTimestamps } from "./support/review-comment-fixture.js";
+import { committedLifecycleProducerRelease } from "./support/committed-producer-release.js";
 
 const enabled =
   process.env.REVIEW_ROUTER_REVIEW_INVESTIGATION_PAIRED_E2E === "1";
@@ -206,6 +207,10 @@ lifecycleCase.each([
         ? "openrouter-openai-responses-apikey-v1"
         : "paired-responses-v1";
     const ocrBinary = production ? requiredPairedOcrBinary() : undefined;
+    const committedRelease =
+      production && gateway
+        ? committedLifecycleProducerRelease(actionSourceDir!)
+        : undefined;
     let realCheckout:
       | ReturnType<typeof createRealLifecycleCheckout>
       | undefined;
@@ -227,8 +232,10 @@ lifecycleCase.each([
           ? { subscriptionAuthMode: "claude-oauth" as const }
           : {}),
         repositoryProviderSelection: "none",
-        lifecycleVerificationProfile: true,
-        ...(unified
+        ...(committedRelease
+          ? { releaseCandidate: committedRelease }
+          : { lifecycleVerificationProfile: true }),
+        ...(unified && !committedRelease
           ? {
               modelDispatchProfile:
                 scenario === "budget_exhausted"
@@ -337,6 +344,28 @@ lifecycleCase.each([
         },
       });
       const owned = fixture;
+      if (committedRelease) {
+        const registered = await owned.prisma.producerRelease.findUniqueOrThrow(
+          {
+            where: { producerReleaseId: owned.producerReleaseId },
+          },
+        );
+        expect(registered.actionCommitSha).toBe(
+          committedRelease.actionCommitSha,
+        );
+        expect(registered.modelDispatchProfile).toEqual(
+          committedRelease.modelDispatchProfile,
+        );
+        expect(registered.reviewerPlanProfile).toEqual(
+          committedRelease.reviewerPlanProfile,
+        );
+        expect(JSON.parse(registered.agentProfilesJson!)).toEqual(
+          committedRelease.agentProfiles,
+        );
+        expect(registered.modelDispatchProfile).toMatchObject({
+          defaultAgentProfileRefs: { account_gateway: "ocr-managed-v5" },
+        });
+      }
       await upstream.bindResolutionWriterDatabase(owned.prisma);
       let callerFetch: typeof owned.fakeGitHub.fetch | undefined;
       if (gateway)
@@ -1529,6 +1558,21 @@ lifecycleCase.each([
             native.facts.headSha,
           );
           const runtimeEnv = capability.runtimeConfig.runtimeEnv;
+          if (committedRelease) {
+            const captured = parseReviewRunRuntimeSnapshot(
+              (
+                await owned.prisma.reviewRunAuthorization.findUniqueOrThrow({
+                  where: { authorizationId: authorization.authorizationId },
+                })
+              ).runtimeSnapshotCanonicalJson,
+            );
+            expect(captured).not.toBeNull();
+            expect(captured!.agent).toMatchObject({
+              profileRef: "ocr-managed-v5",
+              packageVersion: "1.13.1-rr.6",
+              binarySha256: pairedOcrBinarySha256,
+            });
+          }
           const dispatchCapability = JSON.parse(
             runtimeEnv[reviewModelDispatchContract.capabilityRuntimeEnvKey],
           );

@@ -307,6 +307,7 @@ export async function saveWorkspaceReviewSettings(
     parseWorkspaceReviewPolicy({
       ...input.settings,
       schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
+      ...(current?.memory === undefined ? {} : { memory: current.memory }),
     }),
     current?.providers ?? null,
   );

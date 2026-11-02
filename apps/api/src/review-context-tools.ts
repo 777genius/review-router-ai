@@ -73,7 +73,10 @@ async function capture(
   );
   const agent =
     snapshot?.snapshotVersion === 4
-      ? reviewerId === undefined
+      ? reviewerId === undefined ||
+        !snapshot.reviewers.some(
+          (reviewer) => reviewer.reviewerId === reviewerId,
+        )
         ? null
         : getReviewRunReviewer(snapshot, reviewerId)?.agentProfile
       : reviewerId === undefined

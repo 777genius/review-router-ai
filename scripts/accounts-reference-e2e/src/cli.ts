@@ -2,7 +2,6 @@ import { realpathSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
-  BASELINE_REVISION,
   LOOPBACK_HOSTNAMES,
   TEST_DATABASE_NAME,
   type CliOptions,
@@ -28,6 +27,23 @@ export function parseCliOptions(
   env: NodeJS.ProcessEnv = process.env,
 ): CliOptions {
   const args = argv.slice(2);
+  const hasExpectedRevision = args.some(
+    (value) =>
+      value === "--expected-revision" ||
+      value.startsWith("--expected-revision="),
+  );
+  const expectedRevision = hasExpectedRevision
+    ? argumentValue(args, "--expected-revision")
+    : null;
+  if (
+    hasExpectedRevision &&
+    (typeof expectedRevision !== "string" ||
+      !/^[a-f0-9]{40}$/u.test(expectedRevision))
+  ) {
+    throw new Error(
+      "accounts_reference_e2e_expected_revision_must_be_lowercase_full_commit_sha",
+    );
+  }
   const repoRoot = realpathSync(
     resolve(argumentValue(args, "--repo-root") ?? findRepoRoot(process.cwd())),
   );
@@ -80,8 +96,7 @@ export function parseCliOptions(
     isolatedPglite,
     keepFixtures: hasFlag(args, "--keep-fixtures"),
     runBrowserTests: !hasFlag(args, "--bootstrap-only"),
-    expectedRevision:
-      argumentValue(args, "--expected-revision") ?? BASELINE_REVISION,
+    expectedRevision: expectedRevision ?? null,
     browserExecutable: argumentValue(args, "--browser-executable") ?? null,
   };
 }

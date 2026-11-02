@@ -9,9 +9,10 @@ import {
   YAxis,
 } from "recharts";
 import { Button, SelectField } from "@reviewrouter/ui";
-import type {
-  StatisticsFilter,
-  StatisticsReport,
+import {
+  statisticsMetricCatalog,
+  type StatisticsFilter,
+  type StatisticsReport,
 } from "@reviewrouter/features-review-statistics";
 import {
   chartRows,
@@ -24,7 +25,7 @@ import {
 } from "../application/statistics-presentation";
 import { StatisticsRanking } from "./statistics-ranking";
 import styles from "./statistics.module.css";
-type ReviewMetric = "pullRequestsReviewed" | "reviews";
+import type { StatisticsActivityMetric } from "../application/statistics-url";
 type Row = ReturnType<typeof chartRows>[number];
 function DailyTooltip({
   active,
@@ -35,12 +36,15 @@ function DailyTooltip({
 }: {
   active?: boolean;
   payload?: readonly { payload?: Row }[];
-  metric?: ReviewMetric;
+  metric?: StatisticsActivityMetric;
   severity: StatisticsFilter["severity"];
   today: string;
 }) {
   const row = payload?.[0]?.payload;
   if (!active || !row) return null;
+  const metricDefinition = metric
+    ? statisticsMetricCatalog.find((item) => item.valueKey === metric)
+    : undefined;
   return (
     <div className={styles.tooltip}>
       <strong>{fullDayLabel(row.day)} · UTC</strong>
@@ -51,8 +55,7 @@ function DailyTooltip({
         <>
           {metric ? (
             <div>
-              {metric === "reviews" ? "Reviews" : "PRs reviewed"}:{" "}
-              {count(row[metric] ?? 0)}
+              {metricDefinition?.label}: {count(row[metric] ?? 0)}
             </div>
           ) : (
             (severity === "all" ? severities : [severity]).map((value) => (
@@ -74,7 +77,7 @@ function DailyChart({
   metric,
 }: {
   report: StatisticsReport;
-  metric?: ReviewMetric;
+  metric?: StatisticsActivityMetric;
 }) {
   const severity = report.filter.severity;
   return (
@@ -160,12 +163,15 @@ export function StatisticsCharts({
   onViewIssues,
 }: {
   report: StatisticsReport;
-  metric: ReviewMetric;
-  onMetricChange: (metric: ReviewMetric) => void;
+  metric: StatisticsActivityMetric;
+  onMetricChange: (metric: StatisticsActivityMetric) => void;
   onViewIssues: (
     repository?: StatisticsReport["topRepositoriesByIssues"][number],
   ) => void;
 }) {
+  const metricDefinition = statisticsMetricCatalog.find(
+    (item) => item.valueKey === metric,
+  );
   return (
     <div className={styles.chartGrid}>
       <section className={styles.chartSection} aria-label="Review activity">
@@ -175,17 +181,26 @@ export function StatisticsCharts({
             name="statistics-metric"
             label="Chart metric"
             value={metric}
-            options={[
-              { value: "pullRequestsReviewed", label: "PRs reviewed" },
-              { value: "reviews", label: "Total reviews" },
-            ]}
-            onValueChange={(value) => onMetricChange(value as ReviewMetric)}
+            options={statisticsMetricCatalog
+              .filter((item) => item.valueKey !== "issuesCaught")
+              .map((item) => ({
+                value: item.valueKey,
+                label:
+                  item.valueKey === "pullRequestsReviewed"
+                    ? "PRs reviewed"
+                    : item.label,
+              }))}
+            onValueChange={(value) =>
+              onMetricChange(value as StatisticsActivityMetric)
+            }
             className={styles.chartSelector ?? ""}
           />
         </div>
         <div className={styles.chartBody}>
           <DailyChart report={report} metric={metric} />
-          <p className={styles.legend}>Daily UTC counts · today in progress</p>
+          <p className={styles.legend}>
+            {metricDefinition?.description} · Daily UTC · today in progress
+          </p>
         </div>
         <StatisticsRanking
           title="Top repositories by reviews"

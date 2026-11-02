@@ -11,10 +11,12 @@ import {
   type ConversationRecord,
 } from "@reviewrouter/features-conversations";
 import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
+import { createMemoryPolicyConfig } from "@reviewrouter/features-memory";
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
   createConversationPolicy,
   createConversationCandidatePolicy,
+  conversationCandidateMemoryPolicy,
   createConversationPublicationAuthority,
   type ConversationCapturedPolicy,
 } from "./action-conversation-policy.js";
@@ -24,6 +26,55 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+it.each([
+  {
+    templateConfirmation: false,
+    disposableConfirmation: false,
+    expected: false,
+  },
+  { templateConfirmation: true, disposableConfirmation: false, expected: true },
+  { templateConfirmation: false, disposableConfirmation: true, expected: true },
+  { templateConfirmation: true, disposableConfirmation: true, expected: true },
+])(
+  "keeps the same effective candidate confirmation policy for capture and writes: %j",
+  ({ templateConfirmation, disposableConfirmation, expected }) => {
+    const template = createMemoryPolicyConfig({
+      memoryEnabled: true,
+      automaticLearning: true,
+      requireConfirmation: templateConfirmation,
+      settingsRevision: "7",
+    });
+    const disposable = createMemoryPolicyConfig({
+      memoryEnabled: true,
+      automaticLearning: true,
+      requireConfirmation: disposableConfirmation,
+      settingsRevision: "3",
+    });
+    expect(
+      conversationCandidateMemoryPolicy(template, disposable),
+    ).toMatchObject({
+      memoryEnabled: true,
+      automaticLearning: true,
+      requireConfirmation: expected,
+      settingsRevision: "3",
+    });
+    for (const restricted of [template, disposable]) {
+      expect(
+        conversationCandidateMemoryPolicy(
+          { ...template, memoryEnabled: restricted !== template },
+          { ...disposable, memoryEnabled: restricted !== disposable },
+        ).memoryEnabled,
+      ).toBe(false);
+      expect(
+        conversationCandidateMemoryPolicy(
+          { ...template, automaticLearning: restricted !== template },
+          { ...disposable, automaticLearning: restricted !== disposable },
+        ).automaticLearning,
+      ).toBe(false);
+    }
+  },
+);
 
 it.each([
   { change: "unchanged", multiple: false },
@@ -206,7 +257,8 @@ function dynamicModelFixture(
     automaticLearning?: boolean;
     sourceProcessingProfile?:
       | "transient-checked-inline-v1"
-      | "transient-checked-inline-gateway-v1";
+      | "transient-checked-inline-gateway-v1"
+      | "transient-checked-inline-gateway-full-thread-v1";
   } = {},
 ) {
   const profileId = "openrouter-openai-responses-apikey-v1";
@@ -378,6 +430,7 @@ function dynamicModelFixture(
     outputBytes: 262_144,
     tokens: 2048,
   };
+  let memorySettings = { requireConfirmation: false, settingsRevision: "0" };
   let captured: ConversationCapturedPolicy | undefined;
   const construction: Parameters<typeof createConversationPolicy>[0] = {
     prisma: {
@@ -387,12 +440,11 @@ function dynamicModelFixture(
     } as never,
     runtime: {
       policy: {
-        getPolicy: async () => ({
-          policyVersion: 1,
-          safetyPolicyVersion: 1,
-          memoryEnabled: true,
-          automaticLearning: options.automaticLearning ?? true,
-        }),
+        getPolicy: async () =>
+          createMemoryPolicyConfig({
+            ...memorySettings,
+            automaticLearning: options.automaticLearning ?? true,
+          }),
       },
     } as never,
     qualification: {
@@ -470,6 +522,12 @@ function dynamicModelFixture(
     processingIdentity,
     transaction,
     checkSelection: () => captured!.checkSelection(transaction as never),
+    setMemoryConfirmation: (required: boolean) => {
+      memorySettings = {
+        requireConfirmation: required,
+        settingsRevision: String(Number(memorySettings.settingsRevision) + 1),
+      };
+    },
     reorder: () => {
       config = parseReviewConfigurationStrict({
         ...config,
@@ -495,6 +553,27 @@ it("admits the exact qualified dynamic model without a catalog rollout gate", as
       String(target).endsWith("/v1/account-models/read"),
     ),
   ).toHaveLength(2);
+});
+
+it("defaults to automatic and rejects a captured request after workspace confirmation changes", async () => {
+  const f = dynamicModelFixture();
+  const initial = await f.capture();
+  expect(initial.requireConfirmation).toBe(false);
+  expect(initial.bindingManifest.memorySettings).toEqual({
+    requireConfirmation: false,
+    revision: "0",
+  });
+  f.setMemoryConfirmation(true);
+  expect(
+    await initial.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(false);
+  const changed = await f.capture();
+  expect(changed.requireConfirmation).toBe(true);
+  expect(changed.revision).toBe(initial.revision);
+  expect(changed.bindingManifest.memorySettings).toEqual({
+    requireConfirmation: true,
+    revision: "1",
+  });
 });
 
 it.each([
@@ -551,7 +630,8 @@ it("does not silently spend a secondary account when the primary reviewer is una
 // A native Hindsight semantic-preview proof cannot authorize a new Gateway paid extractor.
 it.each([
   ["transient-checked-inline-v1", false],
-  ["transient-checked-inline-gateway-v1", true],
+  ["transient-checked-inline-gateway-v1", false],
+  ["transient-checked-inline-gateway-full-thread-v1", true],
 ] as const)(
   "requires the Gateway source-processing capability for learning: %s",
   async (sourceProcessingProfile, automaticLearning) => {
@@ -581,6 +661,40 @@ it("candidate measurement retains the selected template account without manufact
       }),
     }),
   );
+});
+
+it("candidate repository-isolation suffixes retain the same primary account and fresh settings authority", async () => {
+  const f = dynamicModelFixture({ candidate: true });
+  const id = `${f.processingIdentity.repositoryId}_service-a`;
+  const policy = await f.capture({
+    ...f.processingIdentity,
+    repositoryId: id,
+    repositoryStableId: `synthetic:${id}`,
+    repositoryFullName: `disposable/${id}`,
+  });
+  expect(policy.bindingManifest).toMatchObject({
+    gatewayAccountRef: "account_probe",
+    model: f.model,
+    candidateEvaluationRunId: "measurement:full-product:scenario",
+    memorySettings: {
+      requireConfirmation: false,
+      revision: "0",
+      templateRevision: "0",
+    },
+  });
+  f.setMemoryConfirmation(true);
+  expect(
+    await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(false);
+  expect(await f.checkSelection()).toBe(false);
+  await expect(
+    f.capture({
+      ...f.processingIdentity,
+      repositoryId: "repository_probe",
+      repositoryStableId: "synthetic:repository_probe",
+      repositoryFullName: "disposable/repository_probe",
+    }),
+  ).rejects.toThrow();
 });
 
 it("candidate measurement preserves the template's disabled standing learning policy", async () => {

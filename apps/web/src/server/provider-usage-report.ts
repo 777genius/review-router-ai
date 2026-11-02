@@ -1,3 +1,4 @@
+import { timeAnalyticsRead } from "./analytics-read-timing";
 import { PrismaWorkspaceAccessRepository } from "@reviewrouter/features-auth";
 import { PrismaUsageReportReader } from "@reviewrouter/features-provider-usage/composition";
 import {
@@ -103,7 +104,9 @@ export async function loadProviderUsage(
     effectiveAccess,
     filters,
   );
-  const report = await new PrismaUsageReportReader(prisma).report(query);
+  const report = await timeAnalyticsRead("usage.report", () =>
+    new PrismaUsageReportReader(prisma).report(query),
+  );
   return {
     scope: { actorId: actor.userId, workspaceId, effectiveAccess },
     report: buildUsageReport(report),

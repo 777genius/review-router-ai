@@ -6,6 +6,7 @@ const qualificationSchema = z.strictObject({
   sourceProcessingProfile: z.enum([
     "transient-checked-inline-v1",
     "transient-checked-inline-gateway-v1",
+    "transient-checked-inline-gateway-full-thread-v1",
   ]),
   runtimeSha: z.string().regex(/^[a-f0-9]{40}$/),
   repositories: z

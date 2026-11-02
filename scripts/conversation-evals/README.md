@@ -1,11 +1,57 @@
 # Conversation quality qualification
 
-This owner contains one synthetic corpus and a thin runner around the **actual**
+This owner contains versioned synthetic corpora and a thin runner around the **actual**
 conversation application, PostgreSQL processing/memory stores, selected-account
 Gateway extraction/replies and native delivery/readback. It creates no
 second extractor, semantic judge, memory store, inference service or product
 logging endpoint. The synthetic source authority is a fixture; this run does not
 qualify a real GitHub App installation or replace the disposable App-first E2E.
+
+## Full-thread successor slice
+
+`--corpus full-thread-v2` selects the separately versioned
+`corpus.full-thread-v2.json`, revision `2026-10-30-full-thread-r1`: **16 whole
+threads, 10 tuning / 6 protected, 50 events and 21 fact labels in 10 scenario
+groups**. Four groups have positive same-repository A→B recall. Two other paired
+groups use different repositories in one workspace to test shared settings and
+repository memory isolation; they are not counted as positive cross-thread recall.
+The original `corpus.json`, its split, labels and numeric targets are unchanged.
+`legacy-v1` remains the default selector.
+
+The successor covers contextual maintainer endorsement, hostile contributor/bot
+instructions, quotation and negation, unresolved maintainer disagreement,
+exact-target update/forget, stale target revisions, the default automatic mode,
+confirmation, workspace mode changes and settled-event replay. Per-event
+`automaticLearning: false` is a restrictive source-learning policy; it is not a
+claim that a complete provider shutdown or publication path was exercised.
+
+Fixtures save workspace confirmation settings through the existing policy owner
+and read the actual versioned workspace setting. Repository memory banks remain
+separate. Target templates bind only returned entry IDs/revisions by source and
+index, never expected fact content. An explicit `confirmProposal` event may copy
+one **actually observed native** statement into a new standalone authored command.
+This choice exists only on declared successor events; ordinary events and v1
+never receive hidden confirmation. Wrong native text is retained as wrong text
+for the independent human rubric, not replaced with a label. Successor mutations
+run through `ProcessConversation`; they do not use the legacy direct owner-mutation
+helper. Forget proves immediate read exclusion and reports the actual queued or
+cleanup state; physical erasure remains the existing operator's responsibility.
+
+The scorer checks each explicit command's actual owner fingerprint, source actor,
+body revision, scope, effective mode and exact target. Complete independent command
+inventory still includes omitted commands, and pending/bodyless metadata earns no
+retention credit. Each declared successful mutation must have the matching actual
+command; an unsupported human annotation cannot grant authority.
+Maintained statements use the existing approved-provenance reader and a valid
+template-repository GitHub URL. Later thread edits do not revoke maintained
+ownership; native automatic facts retain their checked-context currency fences.
+
+Structural validation and scorer controls are measured mechanism evidence only.
+**Live native/product precision, recall and answer quality remain UNAVAILABLE until
+a qualified live run and bound human rubric exist.** No protected live checkpoint
+has been consumed for this successor. Its new protected labels must be reviewed
+before the first qualification claim. Existing deterministic native/PG suites do
+not supply semantic scores.
 
 ## Fixed corpus and gates
 
@@ -13,8 +59,9 @@ qualify a real GitHub App installation or replace the disposable App-first E2E.
 linked A→B threads, five in tuning and three in hold-out. B has no copy of A's fact
 in its source or code; protected pairs cover ordinary, replies-off and capped
 learning, then an explicit retirement/forget and a fresh B source revision.
-Different variants and splits never share accepted records, source IDs, product
-scopes or native banks. Labels are loaded only by the scoring/inspection side;
+Different variants and splits never share accepted records, source IDs, fresh memory
+scopes or native banks. Model processing deliberately uses the qualified template
+repository, with namespace-specific processing cold checks and record identities. Labels are loaded only by the scoring/inspection side;
 fixture input is constructed from raw messages, anchors and explicit owner policy.
 Per-event snapshots carry only concrete source body/revision changes. Repeated
 source events have distinct event IDs while retaining the same stable comment
@@ -63,7 +110,7 @@ Its manifest contains `candidateEvaluationRunId`, never `qualificationProofId`.
 No production capability or successful proof is needed or manufactured to measure
 a candidate. A model bounds declaration is an operational limit, not quality
 evidence. Neither the runner nor scorer activates production or issues a
-`transient-checked-inline-gateway-v1` capability.
+`transient-checked-inline-gateway-full-thread-v1` capability. Historical source-only Gateway proof remains parseable but cannot activate this extractor.
 
 ## Run
 
@@ -71,6 +118,7 @@ Run from the control-plane checkout with its exact installed lockfile/toolchain:
 
 ```sh
 node --import tsx scripts/conversation-evals/run.ts --validate
+node --import tsx scripts/conversation-evals/run.ts --validate --corpus full-thread-v2
 REVIEW_ROUTER_ACTION_SOURCE_DIR=/absolute/pinned/action-checkout \
   node --import tsx scripts/conversation-evals/run.ts \
   --split tuning --variant parser-baseline --out tmp/parser-results.json
@@ -82,6 +130,10 @@ CONVERSATION_EVAL_MODEL_BOUNDS_JSON='[{"profileId":"ACTUAL_SELECTED_PROFILE","mo
   node --import tsx scripts/conversation-evals/run.ts \
   --split tuning --variant full-product --out tmp/conversation-results.json
 ```
+
+Add `--corpus full-thread-v2` to the existing live command to select the successor.
+The results record both selector and revision; `score.ts` loads that exact corpus.
+Use a new explicit hold-out checkpoint only after tuning and protected-label review.
 
 The live database must be a migrated disposable loopback database whose name
 ends in `_test`. The runner creates fresh named workspace/repository rows and
@@ -102,12 +154,18 @@ installed ledger or invent a new generation. Models may mount read-only from
 the already pinned model inputs. Retain native cleanup debt and evidence until
 the owned deployment is safely drained/disposed or verified by its operator.
 
-The template workspace/repository must have an actual selected review
-account and repository configuration. Copy only the exact allowlisted template
-metadata into the disposable Router database; no customer history or OAuth
-credentials are needed. Keep original IDs, current revisions, owner/epoch,
-membership and policy rather than synthesizing an account or resetting revisions.
-The shared selected-account policy
+The template workspace/repository must have an actual selected review account,
+a real numeric GitHub identity and repository configuration. The explicit
+candidate constructor captures that exact primary account/model and all live
+owner/binding/epoch authority; it never creates a production qualification.
+Processing rows and memory stay in the same fresh synthetic repository scopes,
+including the separately bounded repository-isolation suffixes in full-thread-v2.
+The real template and fresh workspace policy are both checked: a disabled template
+cannot be widened, and either confirmation requirement remains restrictive.
+The configured native namespace/generation and provenance ledger are unchanged.
+Cold checks cover every synthetic scope and processing row, with no seeded facts.
+Full checked context, bodyless revision evidence and effective settings are bound
+into the one-shot extraction input digest. The selected-account policy
 captures that binding; the fixture applies restrictive off/cap policy and uses
 fresh synthetic source scopes. Replace the example model/profile strings with
 the actual selected pair. The example 32768 context and four tokens/byte are
@@ -223,19 +281,28 @@ current-schema CLI pending/no-readback negative, independent omitted-command
 capture and known-owner internal retirement checks. They
 never create a product bank or imply model-quality qualification.
 
-## Source-authority security refinement
+## Source authority and measurement boundaries
 
-The current preview path receives only the selectable source. Full-thread replies
-still use the checked complete snapshot. Explicit model-proposed mutations require
-a standalone source-authored confirmation binding every action field; an arbitrary
-natural-language proposal is not automatically an approved write. Qualify both the
-proposal/no-effect turn and a separate author confirmation in a disposable installed
-conversation, including stale revision, mixed authors and replies-off behavior.
+The earlier source-only refinement and mandatory exact-command behavior remain
+historical implementation evidence. The new authorized contract supplies the
+complete checked thread to selected-account Gateway selection while preserving the selected human
+maintainer as the write authority. Automatic mode is the workspace default;
+confirmation mode performs selection read-only and exposes exact authored
+commands through the existing conversation notice. Neither context nor a model's
+JSON grants another participant permission or bypasses target/revision checks.
 
-The 48-thread corpus and protected labels have **not** been rewritten to make this
-restriction pass. Source-only extraction can reduce recall for context-dependent
-statements, and explicit mutation cases without a confirmation may correctly stop
-at clarification. Report those observations honestly against the existing labels;
-do not remove a hold-out witness, auto-confirm a proposal in the fixture, or claim
-that corpus structure validation is measured semantic quality. Any successor corpus
-must be separately versioned and reviewed before a new protected checkpoint.
+The 48-thread corpus and protected labels have **not** been rewritten to match a
+new implementation. Report behavior honestly against their original expectations;
+do not remove a hold-out witness or treat structural validation as quality. The
+successor is separately selected and versioned, and its explicit confirmation
+events are visible inputs, not a repair silently applied to the old corpus.
+
+The selected template account and fresh synthetic product scopes resolve through
+the existing binding and dispatch owners. Candidate processing and memory use the
+same per-repository synthetic tenant, while the immutable account manifest binds
+the exact real template account/model and current owner/epoch. This is the explicit
+operator-only candidate constructor, not a production qualification or an Action
+request capability. Full-thread repository isolation does not widen the original
+synthetic identity guard. Missing or incompatible fixture setup remains UNAVAILABLE;
+never repair it with a Prisma proxy, grant bypass, copied credentials or a mocked
+quality PASS.

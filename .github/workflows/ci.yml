@@ -63,7 +63,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: 925df40c6c5806fe2b6673c5f807fdc6abf2fe40
+  REVIEW_ROUTER_PAIRED_ACTION_REF: ffae2adb0f1b40ff5010a783f6be2e229e1a33c5
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -132,6 +132,31 @@ jobs:
         run: docker pull "$REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE"
       - name: Run dedicated authority contract
         run: bash packages/platform/release-authority-db/test-contract.sh
+      - name: Verify worker repository sync least-privilege contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id=""
+          cleanup() {
+            local status=$?
+            if [ -n "$container_id" ]; then docker rm -f "$container_id" >/dev/null 2>&1 || true; fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          container_id=$(docker run --rm -d --network none \
+            -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=postgres \
+            "$REVIEW_ROUTER_PG17_ADVERSARIAL_IMAGE")
+          ready=false
+          for ((attempt=0; attempt<60; attempt++)); do
+            if docker exec "$container_id" pg_isready -h 127.0.0.1 -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" = true ] || { docker logs "$container_id"; exit 1; }
+          bash deploy/hetzner/db-grants/worker-repository-sync.test.sh \
+            docker exec -i "$container_id" psql -h 127.0.0.1 -U postgres
       - name: Run digest-pinned activation adversarial proof
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -467,6 +492,9 @@ jobs:
 
       - name: Format check
         run: pnpm format:check
+
+      - name: Hetzner release verification contract
+        run: bash deploy/hetzner/release.test.sh
 
       - name: Typecheck
         env:
@@ -828,6 +856,7 @@ jobs:
             packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts \
             apps/api/src/sdk-growth-verifier-custody.pg.test.ts \
             apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts \
+            packages/features/review-config/src/tests/workspace-memory-settings-real.test.ts \
             scripts/sdk-growth-application-schema-checkpoint.test.ts \
             --reporter=json --outputFile="$results"; then
             RESULTS_PATH="$results" node --input-type=module <<'NODE'
@@ -869,6 +898,7 @@ jobs:
             "packages/features/outbox/src/tests/prisma-outbox-event-repository-real.test.ts",
             "apps/api/src/sdk-growth-verifier-custody.pg.test.ts",
             "apps/api/src/sdk-growth-verifier-producer-identity.pg.test.ts",
+            "packages/features/review-config/src/tests/workspace-memory-settings-real.test.ts",
             "scripts/sdk-growth-application-schema-checkpoint.test.ts",
           ];
           const suites = report.testResults.map((suite) =>
@@ -890,7 +920,7 @@ jobs:
           }
           console.log(JSON.stringify({
             head: process.env.EXPECTED_HEAD,
-            command: "pnpm exec vitest run <seven required PostgreSQL suites> --reporter=json",
+            command: "pnpm exec vitest run <required PostgreSQL suites> --reporter=json",
             executed: report.numTotalTests,
             passed: report.numPassedTests,
             skipped: report.numPendingTests + report.numTodoTests,
@@ -1035,7 +1065,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          persist-credentials: false
+          # The release bridge verifies the historical canonical S2 handoff.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -1059,6 +1091,11 @@ jobs:
         env:
           REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
         run: node scripts/generate-prisma-offline.mjs
+
+      - name: Build shared release-contract parsing helpers
+        run: |
+          pnpm --filter @reviewrouter/shared build
+          node scripts/rewrite-dist-esm-imports.mjs
 
       - name: Review Action v2 protocol drift check
         run: pnpm protocol:check

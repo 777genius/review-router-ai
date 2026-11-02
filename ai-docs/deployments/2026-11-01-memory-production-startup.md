@@ -158,6 +158,11 @@ Qualification custody on production is
 `/srv/platform/projects/review-router/memory-inputs-20261101/qualification/evidence.json`;
 bootstrap custody is
 `/srv/platform/projects/review-router/memory-operator-v1/bootstrap-state.json`.
+The bootstrap source's [native qualification CI](https://github.com/777genius/review-router-ai/actions/runs/41306352203)
+passed for `555ddc759e8cca95be30e32cbbe93a730f9120d4`; its completed run was
+updated at `2026-11-01T13:48:04Z`. The installed image's actual qualification
+binding remains in the protected production evidence above; this is not an
+automatic-learning or conversational-quality result.
 Secret-free retained evidence archives are under the task worktree's
 `tmp/native-qualification-20261101/`; their hashes remain recorded by the operator.
 

@@ -30,7 +30,18 @@ bounded exact reply may remain only as an unresolved publication envelope. A
 verified App publication or terminal publication resolution purges its body;
 settled replay returns IDs, hashes and status, without historical output bytes.
 
-## Security refinement, 2026-10-29
+## Current owner refinement, 2026-10-30
+
+The [full-thread/settings successor](../plans/2026-10-30-full-thread-memory-settings.md)
+replaces the two interaction choices in the historical refinement below. Native
+selection uses the checked full thread to interpret the eligible maintainer's
+message. One workspace-wide setting controls confirmation for AI writes and
+defaults to automatic. Existing exact authored confirmations remain available in
+confirmation mode. Context revision vectors, final transactional settings checks,
+authority, audience, replay and cleanup remain product-owned. New semantic quality
+needs actual-model evaluation; prior source-only evidence is not reused as that proof.
+
+## Historical security refinement, 2026-10-29
 
 The [source-authority refinement](../plans/2026-10-29-memory-source-authority.md)
 supersedes this unactivated profile's mixed-author preview context and free-form

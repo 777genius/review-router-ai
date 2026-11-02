@@ -122,7 +122,7 @@ export type CliOptions = {
   readonly isolatedPglite: boolean;
   readonly keepFixtures: boolean;
   readonly runBrowserTests: boolean;
-  readonly expectedRevision: string;
+  readonly expectedRevision: string | null;
   readonly browserExecutable: string | null;
 };
 
@@ -143,7 +143,7 @@ export type RuntimeDescriptor = {
   readonly workDir: string;
   readonly repoRoot: string;
   readonly revision: string;
-  readonly baselineExpected: string;
+  readonly baselineExpected: string | null;
   readonly secretsGenerated: true;
   readonly externalNetworkAllowed: false;
   readonly fixtureBoundary:

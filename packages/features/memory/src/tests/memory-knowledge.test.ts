@@ -95,7 +95,10 @@ const entry: MemoryProviderEntry = {
 };
 const controls = { deadlineAt: new Date(now.getTime() + 10_000) };
 
-function fixture(clock: () => Date = () => now) {
+function fixture(
+  clock: () => Date = () => now,
+  settings: { requireConfirmation?: boolean; settingsRevision?: string } = {},
+) {
   const store = {
     maintenanceState: vi.fn(async () => ({
       generation: "generation",
@@ -139,6 +142,7 @@ function fixture(clock: () => Date = () => now) {
     getPolicy: vi.fn(async () => ({
       memoryEnabled: true,
       allowedScopes: { workspace: true, repository: true, user_prefs: true },
+      ...settings,
     })),
   };
   const service = new MemoryKnowledgeService({
@@ -162,6 +166,82 @@ function fixture(clock: () => Date = () => now) {
 }
 
 describe("complete provider memory policy", () => {
+  it.each([
+    {
+      requireConfirmation: true,
+      settingsRevision: "1",
+      automaticSettingsRevision: "1",
+      error: "input_required",
+    },
+    {
+      requireConfirmation: false,
+      settingsRevision: "2",
+      automaticSettingsRevision: "1",
+      error: "conflict",
+    },
+  ])(
+    "rejects every new AI mutation before durable admission under fresh settings %j",
+    async ({ automaticSettingsRevision, error, ...settings }) => {
+      const f = fixture(undefined, settings);
+      const approval = { ...command.approval, automaticSettingsRevision };
+      const base = {
+        commandId: command.commandId,
+        ref: command.ref,
+        expectedRevision: "1",
+        generation: command.generation,
+        providerProfileVersion: command.providerProfileVersion,
+        approval,
+      };
+      await expect(
+        f.service.save({ ...command, approval }, controls),
+      ).rejects.toThrow(error);
+      await expect(
+        f.service.retire({ ...base, kind: "retire" }, controls),
+      ).rejects.toThrow(error);
+      await expect(
+        f.service.forget({ ...base, kind: "forget" }, controls),
+      ).rejects.toThrow(error);
+      await expect(
+        f.service.setTopics(
+          { ...base, kind: "topics", topicIds: [] },
+          controls,
+        ),
+      ).rejects.toThrow(error);
+      expect(f.store.admit).not.toHaveBeenCalled();
+      expect(f.access.verifySource).not.toHaveBeenCalled();
+    },
+  );
+
+  it("permits current automatic policy and keeps authored mutations independent of AI confirmation", async () => {
+    const automatic = fixture(undefined, {
+      requireConfirmation: false,
+      settingsRevision: "1",
+    });
+    await automatic.service.save(
+      {
+        ...command,
+        approval: { ...command.approval, automaticSettingsRevision: "1" },
+      },
+      controls,
+    );
+    expect(automatic.store.admit).toHaveBeenCalledOnce();
+    const authored = fixture(undefined, {
+      requireConfirmation: true,
+      settingsRevision: "2",
+    });
+    await authored.service.save(command, controls);
+    expect(authored.store.admit).toHaveBeenCalledOnce();
+    expect(() =>
+      normalizeMemoryKnowledgeCommand({
+        ...command,
+        approval: {
+          ...command.approval,
+          automaticSettingsRevision: "1".repeat(100),
+        },
+      }),
+    ).toThrow("invalid_input");
+  });
+
   it("filters across current scoped provider topic pages while preserving the continuation cursor", async () => {
     const { service, store, reader } = fixture();
     reader.list.mockResolvedValue({ entries: [entry], nextCursor: "60" });

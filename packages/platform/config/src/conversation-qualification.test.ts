@@ -67,4 +67,13 @@ it("retains the exact qualified extraction mechanism rather than upgrading histo
       }),
     )?.sourceProcessingProfile,
   ).toBe("transient-checked-inline-gateway-v1");
+  expect(
+    readConversationQualification(
+      JSON.stringify({
+        ...proof,
+        sourceProcessingProfile:
+          "transient-checked-inline-gateway-full-thread-v1",
+      }),
+    )?.sourceProcessingProfile,
+  ).toBe("transient-checked-inline-gateway-full-thread-v1");
 });
