@@ -157,10 +157,12 @@ not model-quality PASS assertions. A completed observation has exit code `3`
 and status `AWAITING_HUMAN_RUBRIC`; `2`/`UNAVAILABLE` is a real
 qualification blocker and stops further calls. Incomplete or ambiguous
 Gateway effects require investigation of the original attempt and cleanup,
-**not an automatic charged retry**. The bounded synthetic observations are
-retained as private workflow artifacts for three days; they are not customer
-data, a real App qualification or production activation. Dispose of the
-namespaces through the qualified native cleanup operator, never direct deletion.
+**not an automatic charged retry**. The bounded synthetic observations remain only in the operator-controlled
+private runner directory. **This workflow does not implement a three-day TTL
+or upload any GitHub artifact.** The operator must enforce an explicit private
+evidence retention/deletion policy and retire namespaces through the qualified
+native cleanup operator, never direct deletion. These observations are not
+customer data, a real App qualification or production activation.
 
 Bind **each** observed report to an independent human rubric using the existing
 [scorer](score.ts) and its exact run ID/source digests:
