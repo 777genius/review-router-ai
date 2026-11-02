@@ -651,12 +651,22 @@ export async function createEvaluationFixture(input: {
   const metadataHistory = new Map<string, MemoryKnowledgeEntryMetadata>();
   const readInventory = async (): Promise<InventoryEntry[]> => {
     const pages = await Promise.all(
-      scopes.map((requested) =>
-        service.list(
-          { actor: memoryActor, scope: requested, limit: 100 },
-          controls(),
-        ),
-      ),
+      scopes.map(async (requested) => {
+        const input = { actor: memoryActor, scope: requested, limit: 100 };
+        const budget = controls();
+        try {
+          return await service.list(input, budget);
+        } catch (error) {
+          if (
+            !(error instanceof MemoryKnowledgeError) ||
+            error.code !== "conflict" ||
+            !error.retryable
+          )
+            throw error;
+          // Revocation may advance the epoch during listing. Discard that page and read afresh once.
+          return service.list(input, budget);
+        }
+      }),
     );
     const page = {
       entries: pages.flatMap((row) => row.entries),

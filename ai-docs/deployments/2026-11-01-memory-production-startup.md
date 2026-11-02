@@ -286,3 +286,12 @@ three commands in that scenario were already published; the harness was polling
 run as UNAVAILABLE. Fixing that harness boundary does not qualify the mechanism,
 issue a capability, consume a protected checkpoint or authorize replay of an
 unknown model request.
+
+The coordinated post-cutover FREE canary
+[run41425170166](https://github.com/agent-teams-ai/sub2api/actions/runs/41425170166)
+completed successfully against the activated pair: required coverage1/1 and one
+accepted evidence item. The main request has a COMPLETED closure proof; the
+optional PR-description request retains its EFFECT_UNKNOWN proof. Both SaaS leases
+were released, authorization revoked and the canary's own native execution fenced
+with occupancy0. This validates the ordinary review path after the upgrade, not
+automatic-memory quality. The three historical open executions were preserved.
