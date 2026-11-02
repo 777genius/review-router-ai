@@ -162,7 +162,8 @@ try {
       // JSON-LD object or an arbitrary HTML substring.
       const jsonLdPattern =
         /<script\b[^>]*\btype=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-      const schemaNodes = [...html.matchAll(jsonLdPattern)].flatMap(([, json]) => {
+      const matches = [...html.matchAll(jsonLdPattern)];
+      const schemaNodes = matches.flatMap(([, json]) => {
         const schema = JSON.parse(json);
         return Array.isArray(schema?.["@graph"]) ? schema["@graph"] : [schema];
       });
