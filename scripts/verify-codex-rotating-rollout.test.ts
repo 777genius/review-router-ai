@@ -408,9 +408,7 @@ describe("observation-backed Codex rotating rollout verifier", () => {
       },
       "database owned function privileges are not exact",
     ],
-  ])(
-    "rejects post-ACL worker guard drift: %s",
-    (_case, mutate, reason) => {
+  ])("rejects post-ACL worker guard drift: %s", (_case, mutate, reason) => {
       const catalog = observedFixture().artifacts.database.catalog;
       addPostAclWorkerGuard(catalog);
       mutate(catalog);
@@ -419,8 +417,7 @@ describe("observation-backed Codex rotating rollout verifier", () => {
           (failure: string) => failure.startsWith(reason),
         ),
       ).toBe(true);
-    },
-  );
+  });
 
   it("reuses the exact production catalog verifier for PostgreSQL rehearsal", () => {
     const fixture = observedFixture();
