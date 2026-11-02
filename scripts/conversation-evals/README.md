@@ -335,3 +335,10 @@ request capability. Full-thread repository isolation does not widen the original
 synthetic identity guard. Missing or incompatible fixture setup remains UNAVAILABLE;
 never repair it with a Prisma proxy, grant bypass, copied credentials or a mocked
 quality PASS.
+
+For OpenRouter `:free` candidates the runner spaces event starts by at least
+seven seconds: one event can issue at most one extraction and one reply call,
+keeping this runner below the documented [20 requests/minute limit](https://openrouter.ai/collections/free-models).
+This wait precedes product deadlines and latency measurements. It is pacing,
+not a retry; unavailable or unsettled attempts retain the normal stop behavior.
+Provider daily quotas and other consumers still apply.

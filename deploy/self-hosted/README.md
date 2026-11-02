@@ -387,6 +387,15 @@ Run the complete disposable local E2E gate before a self-hosted release:
 pnpm self-hosted:e2e
 ```
 
+The E2E first runs the real native Memory installer against its private fresh
+env, verifies completed-install reuse, and checks the installed provider settings
+in Web, API and worker. It then exercises real save, read, recall, permission
+denial and post-Forget exclusion. A pending physical cleanup remains pending;
+full sandbox teardown is not an individual signed physical-Forget receipt.
+The gate downloads the pinned native inputs and model weights, so allow the
+same Linux x64 Docker prerequisites and disk space as first installation below.
+Failed native state is retained for diagnosis and reconciliation.
+
 The E2E command generates an isolated complete T0 env, builds and boots a fresh
 Compose project on free localhost ports, verifies both migration layers and
 exact health responses, runs the Review v2 and action OIDC harnesses inside the

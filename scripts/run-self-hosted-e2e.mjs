@@ -7,6 +7,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  installSelfHostedMemory,
+  disposeSelfHostedMemory,
+  assertComposeMemoryEnvironment,
+} from "./self-hosted-e2e/native-memory-install.ts";
+import {
   disposableBefore87HandoffSql,
   disposableFreshDatabasePreflightSql,
   disposableFullChainVerificationSql,
@@ -32,6 +37,7 @@ let ports;
 let secrets;
 let testEnv;
 let controlPlaneCommit;
+let memoryInstallStarted = false;
 
 try {
   investigationReleaseFixture = JSON.parse(
@@ -58,12 +64,26 @@ try {
     testEnv,
   );
 
+  run(process.execPath, [
+    "--test",
+    "scripts/self-hosted-e2e/native-memory-install.test.ts",
+    "scripts/self-hosted-e2e/settle-memory-command.test.ts",
+  ]);
+
+  memoryInstallStarted = true;
+  const installedMemory = await installSelfHostedMemory(envFile, tempDirectory);
+  secrets.nativeService =
+    installedMemory.values.REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY;
+  secrets.nativeOperator =
+    installedMemory.values.REVIEW_ROUTER_MEMORY_OPERATOR_TOKEN;
+  console.log(JSON.stringify(installedMemory.receipt));
+
   composeTouched = true;
   runCompose(["up", "-d", "--wait", "--wait-timeout", "120", "postgres"]);
   provisionEffectAuthorityRole();
   runCompose(["build", "api"]);
   runCompose(["up", "-d", "--wait", "--wait-timeout", "300"]);
-  assertComposeState();
+  assertComposeState(installedMemory.values);
   await assertHealthEndpoint(
     `http://127.0.0.1:${ports.web}/api/health`,
     "review-router-web",
@@ -72,6 +92,27 @@ try {
     `http://127.0.0.1:${ports.api}/health`,
     "review-router-api",
   );
+
+  runComposeWithSanitizedOutput([
+    "exec",
+    "-T",
+    "worker",
+    "node",
+    "scripts/local-checks/compiler-cli.ts",
+    "--native",
+    "--noEmit",
+    "-p",
+    "scripts/self-hosted-e2e/tsconfig.memory.json",
+  ]);
+  runComposeWithSanitizedOutput([
+    "exec",
+    "-T",
+    "worker",
+    "node",
+    "--import",
+    "tsx",
+    "scripts/self-hosted-e2e/native-memory-storage.ts",
+  ]);
 
   runComposeWithSanitizedOutput(["run", "--rm", "migrate"]);
   setGlobalReviewV2EmergencyStop(false);
@@ -146,54 +187,87 @@ try {
   throw error;
 } finally {
   const cleanupFailures = [];
-  if (testDatabaseCreationAttempted) {
-    try {
-      const dropped = runCompose(
-        [
-          "exec",
-          "-T",
-          "postgres",
-          "dropdb",
-          "--if-exists",
-          "--force",
-          "-U",
-          testEnv.POSTGRES_USER,
-          testDatabase,
-        ],
-        { allowFailure: true },
-      );
-      if (dropped.status !== 0) cleanupFailures.push("database_drop");
-      else {
-        try {
-          assertDisposableTestDatabaseAbsent();
-        } catch {
-          cleanupFailures.push("database_absence");
+  const preserveFailedMemory = failedBeforeCleanup && memoryInstallStarted;
+  if (preserveFailedMemory)
+    console.error(`self_hosted_failed_state_retained:${tempDirectory}`);
+  const disposeCompose = () => {
+    if (testDatabaseCreationAttempted) {
+      try {
+        const dropped = runCompose(
+          [
+            "exec",
+            "-T",
+            "postgres",
+            "dropdb",
+            "--if-exists",
+            "--force",
+            "-U",
+            testEnv.POSTGRES_USER,
+            testDatabase,
+          ],
+          { allowFailure: true },
+        );
+        if (dropped.status !== 0) cleanupFailures.push("database_drop");
+        else {
+          try {
+            assertDisposableTestDatabaseAbsent();
+          } catch {
+            cleanupFailures.push("database_absence");
+          }
         }
+      } catch {
+        cleanupFailures.push("database_drop_exception");
       }
-    } catch {
-      cleanupFailures.push("database_drop_exception");
     }
-  }
-  if (composeTouched) {
+    if (composeTouched) {
+      try {
+        const down = runCompose(["down", "--volumes", "--remove-orphans"], {
+          allowFailure: true,
+        });
+        if (down.status !== 0) cleanupFailures.push("compose_down");
+      } catch {
+        cleanupFailures.push("compose_down_exception");
+      }
+      try {
+        assertDisposableComposeResourcesAbsent();
+      } catch {
+        cleanupFailures.push("compose_absence");
+      }
+    }
+    if (cleanupFailures.length) throw new Error("compose_cleanup_unproved");
+  };
+  if (
+    !preserveFailedMemory &&
+    memoryInstallStarted &&
+    !cleanupFailures.length
+  ) {
     try {
-      const down = runCompose(["down", "--volumes", "--remove-orphans"], {
-        allowFailure: true,
-      });
-      if (down.status !== 0) cleanupFailures.push("compose_down");
+      await disposeSelfHostedMemory(tempDirectory, disposeCompose);
+      console.log(
+        readFileSync(
+          join(tempDirectory, "memory-decommission-result.json"),
+          "utf8",
+        ).trim(),
+      );
     } catch {
-      cleanupFailures.push("compose_down_exception");
+      cleanupFailures.push("native_sandbox_decommission");
     }
+  }
+  if (!preserveFailedMemory && !memoryInstallStarted) {
     try {
-      assertDisposableComposeResourcesAbsent();
+      disposeCompose();
     } catch {
-      cleanupFailures.push("compose_absence");
+      cleanupFailures.push("compose_cleanup");
     }
   }
-  try {
-    rmSync(tempDirectory, { force: true, recursive: true });
-  } catch {
-    cleanupFailures.push("temporary_directory_removal");
-  }
+  if (!preserveFailedMemory && !cleanupFailures.length) {
+    try {
+      rmSync(tempDirectory, { force: true, recursive: true });
+    } catch {
+      cleanupFailures.push("temporary_directory_removal");
+    }
+  } else
+    console.error(`self_hosted_private_evidence_retained:${tempDirectory}`);
   if (cleanupFailures.length) {
     const diagnostic = `disposable_cleanup_unproved:${cleanupFailures.join(",")}`;
     if (failedBeforeCleanup) console.error(diagnostic);
@@ -207,7 +281,7 @@ console.log("Self-hosted E2E passed.");
 console.log(`control-plane-commit=${controlPlaneCommit}`);
 console.log(`action-ref=${testEnv.REVIEW_ROUTER_ACTION_REF}`);
 console.log(
-  "compose=healthy migrations=idempotent review-v2=passed investigation-same-release=passed action-oidc=passed logs=clean",
+  "compose=healthy migrations=idempotent review-v2=passed investigation-same-release=passed action-oidc=passed memory=real-install-save-read-recall-forget-exclusion sandbox=removed logs=clean",
 );
 
 function createTestSecrets() {
@@ -245,6 +319,9 @@ function createTestEnvironment() {
   const env = {
     ...process.env,
     NODE_ENV: "production",
+    REVIEW_ROUTER_MEMORY_PROVIDER: "",
+    REVIEW_ROUTER_MEMORY_NAMESPACE: `selfhost_${createHash("sha256").update(envFile).digest("hex").slice(0, 16)}`,
+    REVIEW_ROUTER_MEMORY_GENERATION: "selfhost-e2e",
     REVIEW_ROUTER_AGENT_PROFILE: "codex-default",
     AUTH_TRUST_HOST: "true",
     POSTGRES_DB: "review_router",
@@ -418,6 +495,9 @@ function createTestEnvironment() {
 function writeEnvFile(env) {
   const names = [
     "NODE_ENV",
+    "REVIEW_ROUTER_MEMORY_PROVIDER",
+    "REVIEW_ROUTER_MEMORY_NAMESPACE",
+    "REVIEW_ROUTER_MEMORY_GENERATION",
     "REVIEW_ROUTER_AGENT_PROFILE",
     "AUTH_TRUST_HOST",
     "POSTGRES_DB",
@@ -722,7 +802,7 @@ function capture(command, args, env = process.env, options = {}) {
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 }
 
-function assertComposeState() {
+function assertComposeState(memoryValues) {
   const records = parseComposeRecords(
     captureCompose(["ps", "-a", "--format", "json"]),
   );
@@ -738,6 +818,19 @@ function assertComposeState() {
       throw new Error(`self_hosted_service_not_healthy:${service}`);
     }
   }
+  const ids = captureCompose(["ps", "--quiet", "web", "api", "worker"])
+    .trim()
+    .split(/\s+/);
+  if (ids.length !== 3 || new Set(ids).size !== 3)
+    throw new Error("self_hosted_memory_consumer_inventory");
+  console.log(
+    JSON.stringify(
+      assertComposeMemoryEnvironment(
+        JSON.parse(capture("docker", ["inspect", ...ids])),
+        memoryValues,
+      ),
+    ),
+  );
   const migrate = byService.get("migrate");
   if (
     !migrate ||

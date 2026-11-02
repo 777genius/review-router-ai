@@ -307,3 +307,20 @@ was published by [run 41438607878](https://github.com/777genius/review-router/ac
 at exact commit `fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8`. The successor CI
 pairs that immutable commit. Private protected-main gates, release, production
 installation and App-first automatic-learning acceptance remain outstanding.
+
+The actual configured default is now FREE Nemotron
+`nvidia/nemotron-3-ultra-550b-a55b:free`, Gateway profile
+`openrouter-openai-responses-apikey-v1`. It uses the existing Responses SDK path;
+no provider adapter or credential transfer is needed. The new qualification
+must measure that actual model, rather than carrying forward the old Codex-only
+score. The disposable repository was temporarily selected to another existing
+Codex account during quota diagnosis, then normally cleared to inherit FREE
+(configuration 89, workspace 21). The original provider override must not be
+restored after this batch; unrelated policy and MCP settings remain preserved.
+
+The stock self-hosted E2E now runs real native first installation, checks
+completed-install reuse and the actual provider tuple on all three application
+roles, then real save/read/recall/authorization and post-Forget exclusion. Nine
+focused lifecycle tests and strict types/lint passed. Complete native and Compose
+execution still requires the normal CI job; neither local source checks nor a
+native current-document absence claim signed physical Forget completion.
