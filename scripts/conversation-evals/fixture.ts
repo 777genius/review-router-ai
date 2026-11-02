@@ -1,3 +1,4 @@
+import { observeEvaluationModelDecision } from "./decision-trace.js";
 import { randomUUID, createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "../../packages/platform/db/src/index.js";
@@ -157,6 +158,11 @@ export type Witness = {
   /** Qualified at the exact time of model delivery, before later mutations. */
   deliveredQualifiedBodyDigests: string[];
   memoryManifest: Readonly<Record<string, unknown>> | null;
+  modelDecisionTrace?: {
+    text: string;
+    bytes: number;
+    truncated: boolean;
+  } | null;
   observedModel: string | null;
   usage: unknown;
   productLatencyMs: number;
@@ -547,6 +553,7 @@ export async function createEvaluationFixture(input: {
     nativeLatencyMs = 0,
     gatewayPreviewLatencyMs = 0,
     gatewayPreviewReceipt: Witness["gatewayPreviewReceipt"] = null,
+    modelDecisionTrace: Witness["modelDecisionTrace"] = null,
     observedModel: string | null = null,
     usage: unknown = null,
     deliveredBodyDigests: string[] = [],
@@ -883,7 +890,12 @@ export async function createEvaluationFixture(input: {
             activeThread?.policy.automaticLearning ??
             false),
       };
-      const inference = base.inference;
+      const inference = observeEvaluationModelDecision(
+        base.inference,
+        (trace) => {
+          modelDecisionTrace = trace;
+        },
+      );
       return {
         ...base,
         automaticLearning: currentPolicy.automaticLearning,
@@ -1334,6 +1346,7 @@ export async function createEvaluationFixture(input: {
       nativeLatencyMs = 0;
       gatewayPreviewLatencyMs = 0;
       gatewayPreviewReceipt = null;
+      modelDecisionTrace = null;
       observedModel = null;
       usage = null;
       deliveredBodyDigests = [];
@@ -1394,6 +1407,7 @@ export async function createEvaluationFixture(input: {
         deliveredBodyDigests,
         deliveredQualifiedBodyDigests,
         memoryManifest,
+        modelDecisionTrace,
         observedModel,
         usage,
         productLatencyMs,

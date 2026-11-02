@@ -31,14 +31,18 @@ function fixture(
     lostOutput?: boolean;
     epoch?: number;
     maxRequestBytes?: number;
+    outputTokens?: number;
+    reasoningEffort?: "medium";
     controls?: { deadlineAt: Date; signal?: AbortSignal };
+    preparedDeadlineAt?: Date;
   } = {},
 ) {
   const order: string[] = [];
   let authority = true,
     sourceCurrent = true,
     admission = true;
-  const deadlineAt = new Date(Date.now() + 20_000);
+  const deadlineAt =
+    options.preparedDeadlineAt ?? new Date(Date.now() + 20_000);
   const checkAuthority = vi.fn(async () => {
     order.push("authority");
     return authority;
@@ -146,11 +150,14 @@ function fixture(
         concurrency: 1,
         requestBytes: options.maxRequestBytes ?? 131_072,
         outputBytes: 262_144,
-        tokens: 2048,
+        tokens: options.outputTokens ?? 2048,
       },
       deadline: deadlineAt.toISOString(),
     },
     model,
+    ...(options.reasoningEffort
+      ? { reasoningEffort: options.reasoningEffort }
+      : {}),
     expectedAuthorizationEpoch: 7,
     checkAuthority,
     admitDispatch,
@@ -190,7 +197,12 @@ function fixture(
 }
 
 it("uses actual SDK reduction and exact selected account/model policy with one acknowledged close", async () => {
-  const f = fixture();
+  const preparedDeadlineAt = new Date(Date.now() + 80_000);
+  const f = fixture({
+    preparedDeadlineAt,
+    reasoningEffort: "medium",
+    controls: { deadlineAt: new Date(Date.now() + 90_000) },
+  });
   expect(await f.generate()).toEqual({
     text,
     actualModel: model,
@@ -208,6 +220,7 @@ it("uses actual SDK reduction and exact selected account/model policy with one a
   ]);
   expect(f.control.runAccess).toHaveBeenCalledOnce();
   const intent = vi.mocked(f.control.runAccess).mock.calls[0]![0];
+  expect(intent.deadline).toBe(preparedDeadlineAt.toISOString());
   expect(intent).toMatchObject({
     operationId: "rr-conversation-original-a1-p",
     invocationRef: "rr-conversation-original",
@@ -227,14 +240,12 @@ it("uses actual SDK reduction and exact selected account/model policy with one a
     stream: true,
     store: false,
     max_output_tokens: 2048,
-    text: {
-      format: {
-        type: "json_schema",
-        strict: true,
-        schema: conversationOutputSchema.schema,
-      },
-    },
+    reasoning: { effort: "medium" },
   });
+  expect(body).not.toHaveProperty("text");
+  expect(body.instructions).toBe(
+    `Synthetic test instructions.\nReturn exactly one JSON object matching this schema. No Markdown fences or surrounding text.\nJSON Schema: ${JSON.stringify(conversationOutputSchema.schema)}`,
+  );
   expect(dispatched.requestId).toBe("rr-conversation-original-a1-r");
   expect(f.close.mock.calls[0]![1].operationId).toBe(
     "rr-conversation-original-a1-c",
@@ -394,3 +405,38 @@ it("does not acquire a grant after the caller's original deadline", async () => 
   expect(f.control.runAccess).not.toHaveBeenCalled();
   expect(f.request).not.toHaveBeenCalled();
 });
+
+it.each([8192, 1024])(
+  "sends the exact frozen %i combined token budget once without reclamping",
+  async (outputTokens) => {
+    const f = fixture({ outputTokens, reasoningEffort: "medium" });
+    expect((await f.generate()).effect).toBe("completed");
+    const intent = vi.mocked(f.control.runAccess).mock.calls[0]![0];
+    const body = JSON.parse(
+      new TextDecoder().decode(f.request.mock.calls[0]![1].body),
+    );
+    expect(intent.limits.tokens).toBe(outputTokens);
+    expect(body.max_output_tokens).toBe(outputTokens);
+    expect(body.reasoning).toEqual({ effort: "medium" });
+    expect(f.request).toHaveBeenCalledOnce();
+    expect(f.close).toHaveBeenCalledOnce();
+    await expect(f.generate()).rejects.toMatchObject({ code: "conflict" });
+    expect(f.request).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([undefined, "medium"] as const)(
+  "encodes only frozen reasoning effort %s with one original request",
+  async (reasoningEffort) => {
+    const f = fixture(reasoningEffort ? { reasoningEffort } : {});
+    await f.generate();
+    const body = JSON.parse(
+      new TextDecoder().decode(f.request.mock.calls[0]![1].body),
+    );
+    if (reasoningEffort) expect(body.reasoning).toEqual({ effort: "medium" });
+    else expect(body).not.toHaveProperty("reasoning");
+    expect(f.control.runAccess).toHaveBeenCalledOnce();
+    expect(f.request).toHaveBeenCalledOnce();
+    expect(f.close).toHaveBeenCalledOnce();
+  },
+);

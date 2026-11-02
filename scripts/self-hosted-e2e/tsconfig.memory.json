@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "allowImportingTsExtensions": true },
+  "include": [
+    "native-memory-install.ts",
+    "native-memory-install.test.ts",
+    "native-memory-storage.ts",
+    "settle-memory-command.ts",
+    "settle-memory-command.test.ts"
+  ]
+}

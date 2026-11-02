@@ -27,6 +27,7 @@ import {
   ProcessConversation,
   PrismaConversationProcessingStore,
   conversationDigest,
+  conversationOutputSchema,
   type ConversationIdentity,
   type ConversationMemoryPort,
   type ConversationPolicyPort,
@@ -35,7 +36,10 @@ import {
   GitHubConversationSource,
   type ConversationGitHubClient,
 } from "./action-conversation-source.js";
-import { createConversationGatewayInference } from "./action-conversation-inference.js";
+import {
+  createConversationGatewayInference,
+  type ConversationGatewayObservation,
+} from "./action-conversation-inference.js";
 import { registerActionConversationRoutes } from "./action-conversation-routes.js";
 import { admitConversationDispatch } from "./action-conversation-policy.js";
 import {
@@ -180,8 +184,12 @@ describe.skipIf(!databaseUrl)(
         loseOutput?: boolean;
         driftAfterLearning?: boolean;
         modelAction?: unknown;
+        modelText?: string;
         requireConfirmation?: boolean;
         sourceBody?: string;
+        outputTokens?: number;
+        policyOutputTokens?: number;
+        contextWindowTokens?: number;
         revokeBeforeDispatch?: "account" | "memory";
         driftDuringPrepare?: "edit" | "delete";
       } = {},
@@ -339,12 +347,14 @@ describe.skipIf(!databaseUrl)(
               content: [
                 {
                   type: "output_text",
-                  text: JSON.stringify({
-                    kind: "answer",
-                    answer:
-                      "Opaque identifiers preserve leading zeroes; the earlier explanation supplies that context.",
-                    action: options.modelAction ?? null,
-                  }),
+                  text:
+                    options.modelText ??
+                    JSON.stringify({
+                      kind: "answer",
+                      answer:
+                        "Opaque identifiers preserve leading zeroes; the earlier explanation supplies that context.",
+                      action: options.modelAction ?? null,
+                    }),
                 },
               ],
             },
@@ -374,6 +384,12 @@ describe.skipIf(!databaseUrl)(
       let learned = 0,
         actionCalls = 0,
         policyCalls = 0;
+      const actionInputs: {
+        sourceId: string;
+        sourceRevision: string;
+        action: Parameters<ConversationMemoryPort["action"]>[2];
+      }[] = [];
+      const observed: ConversationGatewayObservation[] = [];
       const memory: ConversationMemoryPort = {
         context: async () => ({
           text: "Public repository convention mem_example revision 1: identifiers are opaque.",
@@ -390,8 +406,13 @@ describe.skipIf(!databaseUrl)(
             comments[1]!.body += " edited during preview";
           return { status: "queued", effectIds: ["memory-effect-1"] };
         },
-        async action() {
+        async action(snapshot, _processingId, intent) {
           actionCalls++;
+          actionInputs.push({
+            sourceId: snapshot.sourceId,
+            sourceRevision: snapshot.sourceRevision,
+            action: structuredClone(intent),
+          });
           return {
             notice:
               "The memory operation is queued; publication is not confirmed yet.",
@@ -407,7 +428,7 @@ describe.skipIf(!databaseUrl)(
             concurrency: 1,
             requestBytes: 131072,
             outputBytes: 262144,
-            tokens: 2048,
+            tokens: options.outputTokens ?? 2048,
           };
           const bindingManifest = {
             selectedAccount: "selected-account",
@@ -427,7 +448,10 @@ describe.skipIf(!databaseUrl)(
             automaticLearning: true,
             requireConfirmation: options.requireConfirmation ?? false,
             discussionReplies: options.replies ?? true,
-            contextWindowTokens: 250000,
+            contextWindowTokens: options.contextWindowTokens ?? 250000,
+            ...(options.policyOutputTokens === undefined
+              ? {}
+              : { maxOutputTokens: options.policyOutputTokens }),
             tokensPerByteUpperBound: 1,
             maxInputBytes: limits.requestBytes,
             bindingManifest,
@@ -456,6 +480,9 @@ describe.skipIf(!databaseUrl)(
               },
               model,
               expectedAuthorizationEpoch: 12,
+              onObserved: async (value) => {
+                observed.push(value);
+              },
               checkAuthority: () => selectionCurrent(prisma),
               admitDispatch: () =>
                 prisma.$transaction(async (transaction) => {
@@ -545,9 +572,84 @@ describe.skipIf(!databaseUrl)(
         processor,
         policies,
         memory,
+        actionInputs,
+        observed,
         counts: () => ({ learned, actionCalls, policyCalls }),
       };
     }
+
+    it("reserves the frozen combined token budget before dispatch instead of assuming 2048", async () => {
+      const sourceBody =
+        "Which identifier convention is recorded for this source?";
+      const first = await fixture({
+        sourceBody,
+        outputTokens: 8192,
+        policyOutputTokens: 8192,
+      });
+      try {
+        expect((await first.processor.execute(input, controls())).status).toBe(
+          "ready",
+        );
+        const wire = first.calls.find((call) => call.kind === "request")!
+          .body as {
+          instructions: string;
+          input: { role: "user" | "assistant"; content: { text: string }[] }[];
+        };
+        const inputBytes =
+          4096 +
+          Buffer.byteLength(
+            JSON.stringify({
+              instructions: wire.instructions,
+              messages: wire.input.map((message) => ({
+                role: message.role,
+                content: message.content[0]!.text,
+              })),
+              outputSchema: conversationOutputSchema,
+            }),
+          );
+        // A distinct source revision fits a legacy 2048 reserve but cannot fit the frozen 8192 reserve.
+        const bounded = await fixture({
+          sourceBody: sourceBody + " Again.",
+          outputTokens: 8192,
+          policyOutputTokens: 8192,
+          contextWindowTokens: inputBytes + 4096,
+        });
+        try {
+          expect(
+            (await bounded.processor.execute(input, controls())).status,
+          ).toBe("context_incomplete");
+          expect(
+            bounded.calls.filter(
+              (call) => call.kind === "prepare" || call.kind === "request",
+            ),
+          ).toEqual([]);
+          expect(bounded.counts().learned).toBe(0);
+        } finally {
+          await bounded.app.close();
+        }
+      } finally {
+        await first.app.close();
+      }
+    });
+
+    it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+      "rejects invalid optional output reserve %s before any paid admission",
+      async (policyOutputTokens) => {
+        const f = await fixture({ policyOutputTokens });
+        try {
+          expect((await f.processor.execute(input, controls())).status).toBe(
+            "unavailable",
+          );
+          expect(
+            f.calls.filter(
+              (call) => call.kind === "prepare" || call.kind === "request",
+            ),
+          ).toEqual([]);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
 
     it("reads every page and actor, uses the selected account once, verifies App publication and purges settled output before replay", async () => {
       const f = await fixture();
@@ -647,19 +749,209 @@ describe.skipIf(!databaseUrl)(
         await f.app.close();
       }
     });
-    it("does not replay paid output from SDK status when terminal output is lost", async () => {
-      const f = await fixture({ loseOutput: true });
+    it.each([
+      { name: "lost ordinary reply", replyOff: false, loseOutput: true },
+      {
+        name: "lost canonical reply-off output",
+        replyOff: true,
+        loseOutput: true,
+      },
+      {
+        name: "SDK-invalid JSON for a canonical reply-off command",
+        replyOff: true,
+        loseOutput: false,
+      },
+    ])(
+      "does not execute or replay an SDK failure: $name",
+      async ({ replyOff, loseOutput }) => {
+        const f = await fixture({
+          loseOutput,
+          ...(!loseOutput ? { modelText: "this is not JSON" } : {}),
+          ...(replyOff
+            ? {
+                sourceBody:
+                  "Remember observation: IDs preserve leading zeroes.",
+              }
+            : {}),
+        });
+        const request = replyOff
+          ? { ...input, replyMode: "off" as const }
+          : input;
+        try {
+          const first = await f.processor.execute(request, controls());
+          expect(first.status).toBe("output_unavailable");
+          expect(first.reply).toBeUndefined();
+          expect(await f.processor.execute(request, controls())).toEqual(first);
+          expect(f.counts()).toMatchObject({
+            learned: 1,
+            actionCalls: 0,
+            policyCalls: 1,
+          });
+          expect(f.actionInputs).toEqual([]);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          if (loseOutput)
+            expect(
+              f.calls.filter((call) => call.kind === "status"),
+            ).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+    it.each([
+      {
+        name: "observation cannot become the model's mutated rule",
+        sourceBody: "Remember observation: IDs preserve leading zeroes.",
+        modelAction: {
+          kind: "create",
+          knowledgeKind: "rule",
+          body: "MODEL_MUTATED_RULE_CANARY",
+        },
+        expected: {
+          kind: "create",
+          knowledgeKind: "observation",
+          body: "IDs preserve leading zeroes.",
+        },
+        requireConfirmation: false,
+      },
+      {
+        name: "Update keeps its exact entry, revision and body despite an invalid product decision",
+        sourceBody: "Update mem_Exact-ID@7: Keep punctuation: 001.",
+        modelText: JSON.stringify({
+          kind: "effect_notice",
+          answer: "",
+          action: {
+            kind: "update",
+            entryId: "mem_mutated@99",
+            expectedRevision: "1",
+            body: "MODEL_MUTATED_BODY",
+          },
+        }),
+        expected: {
+          kind: "update",
+          entryId: "mem_Exact-ID",
+          expectedRevision: "7",
+          body: "Keep punctuation: 001.",
+        },
+        requireConfirmation: true,
+      },
+      {
+        name: "Russian Forget keeps its exact automatic entry and revision despite an invalid product decision",
+        sourceBody: "Забудь auto_Expired-ID@42",
+        modelText: JSON.stringify({
+          kind: "unrecognized",
+          answer: "",
+          action: null,
+        }),
+        expected: {
+          kind: "forget",
+          entryId: "auto_Expired-ID",
+          expectedRevision: "42",
+        },
+        requireConfirmation: true,
+      },
+    ])(
+      "honors only the closed SDK result's current canonical source: $name",
+      async ({ expected, ...options }) => {
+        const f = await fixture(options);
+        try {
+          const first = await f.processor.execute(input, controls());
+          expect(first.status).toBe("ready");
+          expect(f.counts()).toEqual({
+            learned: 1,
+            actionCalls: 1,
+            policyCalls: 1,
+          });
+          const row = await prisma.conversationProcessing.findUniqueOrThrow({
+            where: { id: first.processingId },
+          });
+          expect(row).toMatchObject({
+            modelDispatched: true,
+            requestEffect: "completed",
+            sourceId: `github-node:${f.comments[104]!.node_id}`,
+          });
+          expect(f.actionInputs).toEqual([
+            {
+              sourceId: row.sourceId,
+              sourceRevision: row.sourceRevision,
+              action: expected,
+            },
+          ]);
+          expect(f.observed).toMatchObject([
+            { model, effect: "completed", cleanup: "closed" },
+          ]);
+          expect(
+            f.calls.filter((call) => call.kind === "prepare"),
+          ).toHaveLength(1);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          expect(f.calls.filter((call) => call.kind === "close")).toHaveLength(
+            1,
+          );
+          expect(await f.processor.execute(input, controls())).toEqual(first);
+          expect(f.actionInputs).toHaveLength(1);
+          expect(f.counts()).toEqual({
+            learned: 1,
+            actionCalls: 1,
+            policyCalls: 1,
+          });
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          expect(await prisma.conversationProcessing.count()).toBe(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+    it("keeps an SDK-valid but product-invalid reply silent only after closed output and successful reply-off learning", async () => {
+      const f = await fixture({
+        replies: false,
+        modelText: JSON.stringify({
+          kind: "unrecognized",
+          answer: "",
+          action: null,
+        }),
+      });
+      const request = { ...input, replyMode: "off" as const };
       try {
-        const first = await f.processor.execute(input, controls());
-        expect(first.status).toBe("output_unavailable");
+        const first = await f.processor.execute(request, controls());
+        expect(first).toMatchObject({
+          status: "silent",
+          learning: { status: "queued", effectIds: ["memory-effect-1"] },
+        });
         expect(first.reply).toBeUndefined();
-        expect(await f.processor.execute(input, controls())).toEqual(first);
+        expect(f.observed).toMatchObject([
+          { model, effect: "completed", cleanup: "closed" },
+        ]);
+        expect(f.counts()).toEqual({
+          learned: 1,
+          actionCalls: 0,
+          policyCalls: 1,
+        });
+        expect(f.actionInputs).toEqual([]);
         expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
           1,
         );
-        expect(f.calls.filter((call) => call.kind === "status")).toHaveLength(
+        expect(f.calls.filter((call) => call.kind === "close")).toHaveLength(1);
+        const row = await prisma.conversationProcessing.findUniqueOrThrow({
+          where: { id: first.processingId },
+        });
+        expect(row.status).toBe("silent");
+        expect(row.modelDispatched).toBe(true);
+        expect(await f.processor.execute(request, controls())).toEqual(first);
+        expect(f.counts()).toEqual({
+          learned: 1,
+          actionCalls: 0,
+          policyCalls: 1,
+        });
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
           1,
         );
+        expect(await prisma.conversationProcessing.count()).toBe(1);
       } finally {
         await f.app.close();
       }
@@ -842,6 +1134,7 @@ describe.skipIf(!databaseUrl)(
         getPolicy: async () =>
           createMemoryPolicyConfig({ requireConfirmation }),
       };
+      const recalledQueries: string[] = [];
       const knowledge = new MemoryKnowledgeService({
         generation,
         providerProfileVersion: profile,
@@ -850,7 +1143,10 @@ describe.skipIf(!databaseUrl)(
         policy,
         reader: {
           read: async () => null,
-          recall: async () => [],
+          recall: async (request) => {
+            recalledQueries.push(request.query);
+            return [];
+          },
           list: async () => ({ entries: [], nextCursor: null }),
         },
         writer: {} as never,
@@ -926,6 +1222,30 @@ describe.skipIf(!databaseUrl)(
       // Confirmation mode rejects an unauthored body at the actual adapter boundary.
       const identity = await f.sources.identify(input, controls());
       const checked = await f.sources.read(identity, controls());
+      const retrievalBody =
+        "Which project convention applies here? " + "x".repeat(1100);
+      await productMemory.context(
+        {
+          ...checked,
+          messages: checked.messages.map((message) => ({
+            ...message,
+            body:
+              message.id === checked.sourceId
+                ? retrievalBody
+                : "NON_SELECTED_PRIVATE_THREAD_TEXT",
+          })),
+        },
+        controls(),
+      );
+      expect(recalledQueries.length).toBeGreaterThan(0);
+      expect(
+        recalledQueries.every(
+          (query) => query === retrievalBody.slice(0, 1000),
+        ),
+      ).toBe(true);
+      expect(recalledQueries.join(" ")).not.toContain(
+        "NON_SELECTED_PRIVATE_THREAD_TEXT",
+      );
       await expect(
         productMemory.action(
           checked,

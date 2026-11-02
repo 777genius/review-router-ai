@@ -1048,11 +1048,12 @@ export class MemoryKnowledgeService {
           scope,
           this.dependencies.generation,
         );
+        const limit = Math.min(20, Math.max(1, input.limitPerScope ?? 8));
         const recalled = await this.dependencies.reader.recall(
           {
             scope,
             query: input.query,
-            limit: Math.min(20, Math.max(1, input.limitPerScope ?? 8)),
+            limit,
             includeHistoricalObservations: true,
           },
           budget,
@@ -1067,6 +1068,31 @@ export class MemoryKnowledgeService {
           );
           if (admitted && this.audienceEligible(admitted, input.contextPolicy))
             items.push(admitted);
+        }
+        if (
+          items.length === 0 &&
+          input.contextPolicy?.allowedTasks.includes("conversation")
+        ) {
+          // A vague conversation question may have no semantic matches. Inspect only
+          // one bounded page, under the same budget and all ordinary admission fences.
+          this.check(budget);
+          const page = await this.dependencies.reader.list(
+            { scope, limit },
+            budget,
+          );
+          for (const entry of page.entries.slice(0, limit)) {
+            const admitted = await this.admittedRecall(
+              { type: "entry", entry },
+              scope,
+              input.actor,
+              budget,
+            );
+            if (
+              admitted &&
+              this.audienceEligible(admitted, input.contextPolicy)
+            )
+              items.push(admitted);
+          }
         }
         scopes.push({ scope, epoch, items });
       }

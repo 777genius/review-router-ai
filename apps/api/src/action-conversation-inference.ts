@@ -28,6 +28,7 @@ export function createConversationGatewayInference(input: {
   readonly connectExecution: ExecutionConnector;
   readonly prepare: c.Prepare;
   readonly model: string;
+  readonly reasoningEffort?: "medium";
   readonly expectedAuthorizationEpoch?: number;
   readonly checkAuthority: (controls: RequestControls) => Promise<boolean>;
   readonly admitDispatch?: (controls: RequestControls) => Promise<boolean>;
@@ -47,7 +48,6 @@ export function createConversationGatewayInference(input: {
         Math.min(
           outerControls.deadlineAt.getTime(),
           Date.parse(prepare.deadline),
-          Date.now() + 60_000,
         ),
       );
       const remaining = deadlineAt.getTime() - Date.now();
@@ -74,15 +74,24 @@ export function createConversationGatewayInference(input: {
           policyRevision: prepare.policyRevision,
           bindingRevision: prepare.bindingRevision,
         },
-        instructions: request.instructions,
+        instructions: request.outputSchema
+          ? `${request.instructions}\nReturn exactly one JSON object matching this schema. No Markdown fences or surrounding text.\nJSON Schema: ${JSON.stringify(request.outputSchema.schema)}`
+          : request.instructions,
         input: request.messages.map((message) => ({
           role: message.role,
           text: message.content,
         })),
-        output: request.outputSchema
-          ? { mode: "json_schema", schema: request.outputSchema.schema }
-          : { mode: "text" },
-        maxOutputTokens: Math.min(2048, prepare.limits.tokens),
+        output: { mode: "text" },
+        ...(request.outputSchema
+          ? {
+              decode: (value: unknown) => {
+                if (typeof value !== "string") throw new Error();
+                return JSON.parse(value) as unknown;
+              },
+            }
+          : {}),
+        ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
+        maxOutputTokens: prepare.limits.tokens,
         deadline: deadlineAt,
         limits: { outputBytes: Math.min(262_144, prepare.limits.outputBytes) },
       };

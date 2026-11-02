@@ -11,6 +11,7 @@ import {
 } from "../../scripts/hindsight-e2e/native-runtime.ts";
 import { installNativeProvenance } from "../../scripts/hindsight-e2e/native-provenance.ts";
 import { nativeSqlArguments } from "../../scripts/hindsight-e2e/operator-host.ts";
+import { resumeNativeDeployment } from "./bootstrap-resume.ts";
 import { nativeRevision } from "../../scripts/hindsight-e2e/prepare-hardening.ts";
 
 export interface BootstrapConfig {
@@ -29,7 +30,7 @@ export interface BootstrapConfig {
   startupTimeoutMs?: number;
   modelDirectory?: string;
 }
-interface State {
+export interface BootstrapState {
   schema: "reviewrouter-hindsight-bootstrap/v1";
   configurationDigest: string;
   imageId: string;
@@ -189,7 +190,7 @@ export function parseInferenceEnv(text: string): Record<string, string> {
   }
   return values;
 }
-async function privateFile(path: string): Promise<string> {
+export async function privateFile(path: string): Promise<string> {
   const metadata = await lstat(path);
   assert(
     metadata.isFile() &&
@@ -257,11 +258,12 @@ async function assertPortAvailable(host: string, port: number): Promise<void> {
 export async function bootstrap(
   action: string,
   config: BootstrapConfig,
+  routerOrigin?: string,
 ): Promise<object> {
   validateConfig(config);
   assert(
-    ["validate", "plan", "apply", "status"].includes(action),
-    "Use validate, plan, apply, or status",
+    ["validate", "plan", "apply", "status", "resume"].includes(action),
+    "Use validate, plan, apply, status, or resume",
   );
   const inferenceText = await privateFile(config.inferenceEnvFile);
   const inference = parseInferenceEnv(inferenceText);
@@ -324,7 +326,7 @@ export async function bootstrap(
   );
   assert(info.LocalNodeState === "inactive", "Swarm must be inactive");
   if (action === "status") {
-    const state = JSON.parse(await privateFile(files.state)) as State;
+    const state = JSON.parse(await privateFile(files.state)) as BootstrapState;
     assert(
       state.configurationDigest === configurationDigest,
       "Configuration changed; use the reviewed recovery/cutover procedure",
@@ -397,9 +399,9 @@ export async function bootstrap(
       pgEnv.includes("PG_MAJOR=17"),
       "Native database image must be PostgreSQL17",
     );
-    let previous: State | undefined;
+    let previous: BootstrapState | undefined;
     try {
-      previous = JSON.parse(await privateFile(files.state)) as State;
+      previous = JSON.parse(await privateFile(files.state)) as BootstrapState;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -418,6 +420,16 @@ export async function bootstrap(
           digest(await privateFile(files.router)),
         "Generated router environment changed; reconcile before activation",
       );
+      if (action === "resume") {
+        assert(routerOrigin, "Resume requires the actual Router API origin");
+        return await resumeNativeDeployment(
+          config,
+          previous,
+          routerOrigin,
+          lock,
+          () => verifyRunning(config, previous!),
+        );
+      }
       await verifyRunning(config, previous);
       return {
         phase: "running",
@@ -425,6 +437,10 @@ export async function bootstrap(
         routerEnvironmentFile: files.router,
       };
     }
+    assert(
+      action !== "resume",
+      "Resume requires an existing completed deployment",
+    );
     const containerNames = names(config);
     const volume = `${config.deployment}-pg17-data`;
     const cacheVolume = `${config.deployment}-model-cache`;
@@ -480,7 +496,7 @@ export async function bootstrap(
     await assertPortAvailable(config.apiBindHost, config.apiPort);
     await assertPortAvailable("127.0.0.1", config.postgresPort);
     await assertPortAvailable("127.0.0.1", config.workerPort);
-    const state: State = {
+    const state: BootstrapState = {
       schema: "reviewrouter-hindsight-bootstrap/v1",
       configurationDigest,
       imageId,
@@ -760,7 +776,7 @@ export async function bootstrap(
 
 async function verifyRunning(
   config: BootstrapConfig,
-  state: State,
+  state: BootstrapState,
 ): Promise<void> {
   for (const role of ["postgres", "api", "worker"] as const) {
     const inspected = JSON.parse(
@@ -810,13 +826,15 @@ if (
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   try {
-    const [action, path] = process.argv.slice(2);
+    const [action, path, routerOrigin] = process.argv.slice(2);
     assert(
       action && path,
-      "Usage: node deploy/hindsight/bootstrap.ts validate|plan|apply|status /absolute/config.json",
+      "Usage: node deploy/hindsight/bootstrap.ts validate|plan|apply|status|resume /absolute/config.json [actual-router-origin]",
     );
     const config = validateConfig(JSON.parse(await privateFile(resolve(path))));
-    console.log(JSON.stringify(await bootstrap(action, config), null, 2));
+    console.log(
+      JSON.stringify(await bootstrap(action, config, routerOrigin), null, 2),
+    );
   } catch (error) {
     // Native stdout, SQL, env values and provider diagnostics must never escape.
     console.error(

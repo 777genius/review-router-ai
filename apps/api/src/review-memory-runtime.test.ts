@@ -8,6 +8,7 @@ import {
   createMemoryBodyHash,
   memoryKnowledgeDigest,
   type MemoryKnowledgeBundle,
+  type MemoryContextPolicy,
   type MemoryKnowledgeEntryMetadata,
 } from "@reviewrouter/features-memory";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
@@ -22,6 +23,8 @@ import {
   reviewMemoryRuntimeScopes,
 } from "./review-memory-runtime";
 import {
+  renderConversationMemoryPrompt,
+  renderReviewMemoryPrompt,
   reviewMemoryBinding,
   reviewMemorySnapshotHash,
 } from "./review-memory-wire";
@@ -435,6 +438,83 @@ describe("review memory runtime HTTP boundary", () => {
     expect(wire.expiresAt).toBe(initial.maxExpiresAt.toISOString());
   });
 
+  it.each(
+    [
+      ["conversation"],
+      ["review"],
+      ["investigation"],
+      ["pr_description"],
+      ["conversation", "review"],
+      ["conversation", "conversation"],
+      [],
+    ].map((allowedTasks) => ({
+      allowedTasks: allowedTasks as MemoryContextPolicy["allowedTasks"],
+    })),
+  )(
+    "renders only exact conversation purpose without changing receipt admission: %j",
+    async ({ allowedTasks }) => {
+      const { service } = await fixture();
+      const contextPolicy: MemoryContextPolicy = {
+        audience: "repository",
+        repositoryId: scope.repositoryId,
+        allowedTasks,
+      };
+      const controls = { deadlineAt: new Date(now.getTime() + 5000) };
+      const context = await captureAuthorizedMemoryContext(
+        {
+          service: service as unknown as MemoryKnowledgeService,
+          actor,
+          scopes: [scope],
+          contextPolicy,
+        },
+        controls,
+      );
+      const expected = {
+        items: [
+          {
+            id: metadata.ref.entryId,
+            scope: "repository" as const,
+            kind: "rule" as const,
+            body: "Use UTC for persisted event timestamps.",
+            revision: metadata.revision,
+            sourceIds: [metadata.ref.entryId],
+            statementAt: metadata.originalStatementAt!,
+            lastVerifiedAt: metadata.lastVerifiedAt!,
+          },
+        ],
+      };
+      expect(context.text).toBe(
+        (allowedTasks.length === 1 && allowedTasks[0] === "conversation"
+          ? renderConversationMemoryPrompt
+          : renderReviewMemoryPrompt)(expected),
+      );
+      expect(context.bundle).toBe(bundle);
+      expect(context.receipt).toBe(receipt);
+      expect(context.manifest).toEqual({
+        memoryBundleHash: bundle.hash,
+        memoryGeneration: bundle.generation,
+        memoryContextPolicy: contextPolicy,
+      });
+      expect(service.bundle).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor,
+          scopes: [scope],
+          contextPolicy,
+          limitPerScope: 6,
+        }),
+        controls,
+      );
+      for (const eligible of [true, false]) {
+        service.admitReceipt.mockResolvedValueOnce(eligible);
+        expect(await context.admit(controls)).toBe(eligible);
+      }
+      expect(service.admitReceipt).toHaveBeenLastCalledWith(
+        { actor, receipt },
+        controls,
+      );
+    },
+  );
+
   it("preserves a private workspace fact for internal tasks and excludes its exact bytes before public description inference", async () => {
     const workspaceScope = {
       kind: "workspace" as const,
@@ -488,7 +568,7 @@ describe("review memory runtime HTTP boundary", () => {
     });
     const capture = (
       audience: "internal" | "public",
-      allowedTasks: ("review" | "investigation" | "pr_description")[],
+      allowedTasks: MemoryContextPolicy["allowedTasks"],
     ) =>
       captureAuthorizedMemoryContext(
         {
@@ -505,8 +585,13 @@ describe("review memory runtime HTTP boundary", () => {
       );
     const internal = await capture("internal", ["review", "investigation"]);
     const description = await capture("public", ["pr_description"]);
+    const conversation = await capture("internal", ["conversation"]);
+    const publicConversation = await capture("public", ["conversation"]);
     expect(internal.text).toContain(body);
     expect(description.text).not.toContain(body);
+    expect(conversation.text).toContain(body);
+    expect(conversation.text).not.toContain("assess whether this change");
+    expect(publicConversation.text).not.toContain(body);
     expect(
       description.bundle.scopes.flatMap((section) => section.items),
     ).toEqual([]);

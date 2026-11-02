@@ -47,7 +47,7 @@ const account = {
   policyRevision: 2,
   bindingRevision: 3,
   expectedAuthorizationEpoch: 7,
-  limits: { requestBytes: 131_072, outputBytes: 262_144, tokens: 2048 },
+  limits: { requestBytes: 131_072, outputBytes: 262_144, tokens: 8192 },
   memorySettings: { requireConfirmation: false, revision: "0" },
 };
 const snapshot = {
@@ -232,7 +232,13 @@ describe.skipIf(!databaseUrl)(
       afterPrepare?: () => Promise<void>,
       ambiguous = false,
       seedSource = true,
+      reasoningEffort: "medium" | null = "medium",
+      modelText?: string,
     ) {
+      const selectedAccount = {
+        ...account,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+      };
       const deadlineAt = new Date(Date.now() + 60_000);
       const parentId = randomUUID();
       if (seedSource)
@@ -282,7 +288,7 @@ describe.skipIf(!databaseUrl)(
           contextWindowTokens: 131_072,
           tokensPerByteUpperBound: 4,
           maxInputBytes: 131_072,
-          bindingManifest: account,
+          bindingManifest: selectedAccount,
           inference: {
             generate: async () => {
               throw new Error("conversation inference untouched");
@@ -321,7 +327,7 @@ describe.skipIf(!databaseUrl)(
           deadlineAt,
           modelDispatched: true,
           boundManifest: JSON.stringify({
-            account,
+            account: selectedAccount,
             threadDigest: snapshot.threadDigest,
             headSha: snapshot.headSha,
             baseSha: snapshot.baseSha,
@@ -400,13 +406,15 @@ describe.skipIf(!databaseUrl)(
                   content: [
                     {
                       type: "output_text",
-                      text: JSON.stringify({
-                        statements: [
-                          {
-                            body: "Opaque identifiers preserve leading zeroes.",
-                          },
-                        ],
-                      }),
+                      text:
+                        modelText ??
+                        JSON.stringify({
+                          statements: [
+                            {
+                              body: "Opaque identifiers preserve leading zeroes.",
+                            },
+                          ],
+                        }),
                     },
                   ],
                 },
@@ -453,10 +461,10 @@ describe.skipIf(!databaseUrl)(
               >`SELECT "source" FROM "PreviewAuthority" WHERE "id"=1`
             )[0]!.source,
         });
-      const preview = (projection = source) =>
-        create().preview(projection, {
-          deadlineAt: new Date(Date.now() + 30_000),
-        });
+      const preview = (
+        projection = source,
+        deadlineAt = new Date(Date.now() + 30_000),
+      ) => create().preview(projection, { deadlineAt });
       return {
         preview,
         prepares,
@@ -773,7 +781,11 @@ describe.skipIf(!databaseUrl)(
 
     it("routes the selected user account and policy, and concurrent/restarted replay buys no second call", async () => {
       const f = await fixture();
-      const results = await Promise.all([f.preview(), f.preview()]);
+      const deadlineAt = new Date(Date.now() + 30_000);
+      const results = await Promise.all([
+        f.preview(source, deadlineAt),
+        f.preview(source, deadlineAt),
+      ]);
       expect(results.filter((r) => r.status === "complete")).toHaveLength(1);
       expect(f.prepares).toHaveLength(1);
       expect(f.prepares[0]).toMatchObject({
@@ -782,22 +794,48 @@ describe.skipIf(!databaseUrl)(
         policyRevision: 2,
         bindingRevision: 3,
         profileId: account.profileRef,
+        limits: expect.objectContaining({ tokens: account.limits.tokens }),
+        // An admitted extraction receives the remaining original budget, not a
+        // shorter subdeadline that can interrupt an otherwise valid response.
+        deadline: deadlineAt.toISOString(),
       });
       expect(f.requests).toHaveLength(1);
       expect(f.requests[0]).toMatchObject({
         model: account.model,
         store: false,
         service_tier: "default",
+        max_output_tokens: account.limits.tokens,
+        reasoning: { effort: "medium" },
       });
       const task = f.requests[0] as {
         instructions: string;
         input: { content: { text: string }[] }[];
-        text: { format: { schema: unknown } };
       };
+      expect(task).not.toHaveProperty("text");
+      const schema = JSON.parse(task.instructions.split("\nJSON Schema: ")[1]!);
+      expect(schema).toMatchObject({
+        additionalProperties: false,
+        properties: {
+          statements: {
+            maxItems: 4,
+            items: { additionalProperties: false },
+          },
+        },
+      });
       const text = task.input[0]!.content[0]!.text;
       const projection = JSON.parse(text);
-      expect(projection.selectedSource).toEqual(source.source);
-      expect(projection.checkedDiscussion).toBe(renderConversation(snapshot));
+      expect(projection.selectedSource).toEqual({
+        ...source.source,
+        actor: snapshot.sourceActor,
+        authority: "verified_repository_maintainer",
+      });
+      expect(projection.checkedDiscussion).toEqual(
+        JSON.parse(renderConversation(snapshot)),
+      );
+      expect(projection.checkedDiscussion.messages).toEqual(snapshot.messages);
+      expect(projection.checkedDiscussion.selectedSourceId).toBe(
+        snapshot.sourceId,
+      );
       expect(projection.memorySettings).toEqual(account.memorySettings);
       expect(projection.contextEvidence.messages).toEqual(
         snapshot.messages.map(({ id, updatedAt, bodyDigest, replyTo }) => ({
@@ -817,7 +855,7 @@ describe.skipIf(!databaseUrl)(
         conversationDigest({
           instructions: task.instructions,
           input: text,
-          outputSchema: task.text.format.schema,
+          outputSchema: schema,
         }),
       );
       expect(JSON.stringify(f.requests[0])).not.toContain(
@@ -855,6 +893,70 @@ describe.skipIf(!databaseUrl)(
         expect(f.requests).toHaveLength(0);
       },
     );
+    it.each([
+      "invalid JSON",
+      '```json\n{"statements":[]}\n```',
+      '{"statements":[],"extra":true}',
+      '{"statements":[{"body":"A concrete fact.","extra":true}]}',
+      JSON.stringify({
+        statements: Array.from({ length: 5 }, () => ({
+          body: "A concrete fact.",
+        })),
+      }),
+      JSON.stringify({ statements: [{ body: "x".repeat(1001) }] }),
+    ])(
+      "invalid text JSON extraction %s produces no statements or retry",
+      async (modelText) => {
+        const f = await fixture(undefined, false, true, "medium", modelText);
+        expect((await f.preview()).status).toBe("incomplete");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+        expect(f.closes()).toBe(1);
+        const row = await prisma.conversationProcessing.findUniqueOrThrow({
+          where: { id: conversationMemoryPreviewId(f.parentId) },
+        });
+        expect(row.status).toBe("output_unavailable");
+        expect(row.requestEffect).toBe("completed");
+        expect(
+          (row.result as { gatewayFailureCode?: string }).gatewayFailureCode,
+        ).toBe("output_invalid");
+        expect((await f.preview()).status).toBe("incomplete");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+      },
+    );
+    it.each([null, "medium"] as const)(
+      "preview encodes only frozen supported reasoning effort %s",
+      async (reasoningEffort) => {
+        const f = await fixture(undefined, false, true, reasoningEffort);
+        expect((await f.preview()).status).toBe("complete");
+        if (reasoningEffort)
+          expect(f.requests[0]).toMatchObject({
+            reasoning: { effort: "medium" },
+          });
+        else expect(f.requests[0]).not.toHaveProperty("reasoning");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+        expect(f.closes()).toBe(1);
+      },
+    );
+    it("revoked frozen reasoning authority while preview grant waits prevents dispatch without fallback", async () => {
+      let supported = true;
+      const f = await fixture(async () => {
+        supported = false;
+      });
+      const current = f.captured.policy.isCurrent;
+      Object.assign(f.captured.policy, {
+        isCurrent: async (controls: Parameters<typeof current>[0]) =>
+          supported && current(controls),
+      });
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+      expect(f.requests).toHaveLength(0);
+      expect(f.closes()).toBe(1);
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+    });
     it("confirmation settings changing while runAccess waits prevent paid dispatch", async () => {
       const f = await fixture(async () => {
         await prisma.$executeRaw`UPDATE "PreviewAuthority" SET "settings"=false WHERE "id"=1`;

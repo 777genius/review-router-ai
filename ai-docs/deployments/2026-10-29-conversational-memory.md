@@ -18,14 +18,14 @@
   reconcile [Review History](2026-10-28-review-history.md) and
   [dispatch/schema work](2026-10-28-dispatch-cleanup-ci.md) when included in the
   selected installed-to-target release range.
-- Last updated: `2026-10-30`.
+- Last updated: `2026-11-02`.
 
 ## Environment status
 
-| Environment | Status        | Actual version / image        | Last verified (UTC) | Remaining work                                                                                                                                                                                  |
-| ----------- | ------------- | ----------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                  | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication.                                                                                                                      |
-| production  | `in_progress` | `533c040d` / image `e1578f75` | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
+| Environment | Status        | Actual version / image        | Last verified (UTC) | Remaining work                                                                                                                                                 |
+| ----------- | ------------- | ----------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                  | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication.                                                                                     |
+| production  | `in_progress` | `57cc1513` / image `3550f3c7` | 2026-11-02          | Approved Memory delivery and physical Forget verified; automatic learning qualification, installed-App acceptance and self-hosted distribution remain pending. |
 
 No environment rollout was executed in this source-integration step. `pending`
 means completion has not been verified, not that deployment was observed absent.
@@ -233,3 +233,295 @@ truthful per-environment deployment status.
 ## Evidence log
 
 2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
+
+## Historical Codex tuning acceptance, 2026-11-02
+
+Implementation [#774](https://github.com/777genius/review-router-ai/pull/774)
+merged as `792afdc2031677e498d128af4c0594a857555726`. This does not establish
+installation or automatic-learning activation. For that historical result, the four quality-bound
+source files matched execution source
+`5da70100c4c6452211ea95958aa83dc3f88370d7`.
+
+The complete `full-thread-v2` tuning run
+`36cd1e3b-40d2-4aab-8f50-7927d6de269c` covered 32 events in seven scenarios,
+with 16 completed and closed extraction receipts and no pending parent request.
+At the owner's explicit request on November 2, Codex reviewed the actual outputs
+and static protected labels autonomously. This is **agent review**, not human
+review; the runner's historical `AWAITING_HUMAN_RUBRIC` label is not a claim that
+a human performed it. The unchanged rubric records one unnecessary contributor
+reply rather than marking every output acceptable.
+
+The actual corrected scorer returned PASS: precision, recall and attribution
+13/13, supported answers 8/8, harmful answers 0/16, unauthorized effects 0,
+missing effects 0, bounds violations 0, linked recall 3/3, unnecessary replies
+1/32. Its output SHA256 is
+`419d58948437c64a07d9eb9c0622e26e38d2176d162db5bbf90e57d3a00dab5e`.
+This score does not issue qualification or prove physical cleanup.
+
+Two evaluator contract corrections were needed: bind candidate event processing
+to its actual disposable repository (including the second repository), and
+validate destructive command authority separately from preserved content
+provenance. A pending Forget must remain bodyless, preserve its prior content
+metadata, and match the validated command's target, scope and revision. Clearing
+or replacing its command pin cannot recover the old automatic authority. The
+ordinary numeric repository identity guard remains enforced. Focused regression
+checks, including the old-code negative control, and 45 risk checks passed;
+strict TypeScript, lint and formatting passed. No model execution, source report,
+corpus or semantic label was changed to obtain this score.
+
+The protected checkpoint below subsequently failed. This historical tuning PASS
+cannot qualify the changed successor source or the final FREE model. Its original
+static protected set contained six threads and 18 events; the distinct-maintainer
+conflict was covered in tuning.
+
+## Protected checkpoint regression and successor, 2026-11-02
+
+The planned protected checkpoint `rr-full-thread-v2-holdout-20261102-5da70100c-1`
+ran once as `43ec0ef0-ec1d-4981-9da0-de8725cc8e9e` and ended UNAVAILABLE after
+11 events. The original report SHA256 is
+`e982fe8c79ae80045019290b2dabc962cbbe0ec741e29eff36164b769faea78c`.
+The completed, closed contextual endorsement extraction missed a legitimate
+maintainer-approved fact and therefore failed required linked recall. Correct
+exact-target revision handling does not compensate for that failure. Later
+unavailable outputs prove neither stale-revision nor Forget acceptance.
+
+The last extraction's durable SDK result is `busy`, `not_dispatched`, execution
+unknown false, cleanup `not_needed`. A read-only cached Account Gateway quota
+snapshot observed on the selected account reports 100 percent weekly usage,
+resetting November 8 at 09:27:12 UTC. No replacement model request was made for
+those unavailable outputs. The partial checkpoint cannot issue qualification.
+
+The successor clarifies that a selected maintainer's unambiguous factual
+endorsement supplies authority even when another author proposed the fact;
+unrelated hostile quotations do not invalidate it. Ambiguous references,
+untrusted directives and host authority checks remain excluded. This changes
+the preview source digest, so the old tuning PASS cannot qualify the successor.
+Corpus revision `2026-11-02-full-thread-r2` preserves the consumed set unchanged
+as tuning regression and introduces a new six-thread protected set. Fresh
+successor tuning and one protected checkpoint remain required.
+
+Public [Action v1.0.226](https://github.com/777genius/review-router/releases/tag/v1.0.226)
+was published by [run 41438607878](https://github.com/777genius/review-router/actions/runs/41438607878)
+at exact commit `fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8`. The successor CI
+pairs that immutable commit. Private protected-main gates, release, production
+installation and App-first automatic-learning acceptance remain outstanding.
+
+The actual configured default is now FREE Nemotron
+`nvidia/nemotron-3-ultra-550b-a55b:free`, Gateway profile
+`openrouter-openai-responses-apikey-v1`. It uses the existing Responses SDK path;
+no provider adapter or credential transfer is needed. The new qualification
+must measure that actual model, rather than carrying forward the old Codex-only
+score. The disposable repository was temporarily selected to another existing
+Codex account during quota diagnosis, then normally cleared to inherit FREE
+(configuration 89, workspace 21). The original provider override must not be
+restored after this batch; unrelated policy and MCP settings remain preserved.
+
+The stock self-hosted E2E now runs real native first installation, checks
+completed-install reuse and the actual provider tuple on all three application
+roles, then real save/read/recall/authorization and post-Forget exclusion. Nine
+focused lifecycle tests and strict types/lint passed. Complete native and Compose
+execution still requires the normal CI job; neither local source checks nor a
+native current-document absence claim signed physical Forget completion.
+
+## Current FREE qualification and repair batch, 2026-11-02
+
+Production remains Core `57cc1513` / image `3550f3c7` with Action `v1.0.225`;
+approved Memory reviewer delivery and signed physical Forget remain verified.
+Public Action `v1.0.226` is published, but the paired SaaS release, producer
+adoption and automatic-learning activation have not been verified. No new
+production image or qualification is implied by the following candidate runs.
+
+Full FREE tuning at source `17dfc0e562e96d57c64ff620de75fc1c4cddf61a`,
+run `76fd5fd8-b803-43f7-bdea-7ee3bbfd3d3f`, is **UNAVAILABLE**: 50 events in
+10 scenario groups, with five unavailable parent outputs. All recorded parent
+observations used actual Nemotron with usage; extraction children were closed
+and no parent cleanup was pending. Delegated Codex agent review also found real
+quality failures: missed contextual facts and linked recall, durable writes for
+rejected quotations/unadopted proposals, an old confirmation misattributed as a
+new explicit write, corrupted canonical action kind, and a false Forget-success
+claim. Availability repair alone cannot turn this report into qualification.
+The unchanged report SHA256 is
+`8e5e515c1e50dd2ab2f9e2efb70881c03cd385880e3c8161dc5139764aa12b8d`.
+The private 50-event review and partial rubric explicitly leave unavailable
+answers ungraded; they do not claim human annotation or a scoring PASS.
+
+The subsequent `exact-metadata` diagnostic at source `46048fa09`, run
+`8fe35c8c-bf44-43e9-b292-df77e0522c62`, is also **UNAVAILABLE**, deliberately
+ineligible for qualification. Its first output was unavailable; the second
+became stale with parent cleanup pending and no observed model/usage. Preserve
+that parent as **UNKNOWN**; absent usage is not proof of no external execution.
+Do not replay it or infer that canonical-action fixes settled its transport.
+Report SHA256:
+`55d0abc860e2cabd2c45c8402de1886824f241b2f9c720267540342d035b72d0`.
+
+Exact-source [CI run 41459190932](https://github.com/777genius/review-router-ai/actions/runs/41459190932)
+for `17dfc0e56` had two genuine failing jobs. Quality Checks collected two
+Node-test files as Vitest suites and failed with `No test suite found`.
+Self-hosted E2E passed real first installation/reuse, stock Compose provider
+configuration and save/read/recall/owner checks, then failed an overstrict
+current-native-document absence assertion while Forget was `cleanup_pending`.
+Neither is a complete self-hosted acceptance. The pending fix batch keeps product
+read and post-Forget bundle exclusion mandatory, records actual native presence,
+and permits no claim of signed physical completion from fencing alone. It also
+repairs canonical-source decisions and FREE output/selection handling. These are
+source changes awaiting remote PostgreSQL/CI and model validation, not deployed
+fixes. No further heavy local checks are authorized; use existing hosted test
+infrastructure or CI.
+
+The replacement `2026-11-02-full-thread-r2` protected set remains **unconsumed**.
+The failed r1 holdout stays frozen as tuning regression. Required remaining work:
+
+1. Complete remote exact-source PostgreSQL/CI checks for the coherent repair batch;
+   reconcile the UNKNOWN diagnostic without a fresh attempt of its identity.
+2. Freeze actual source/model inputs, run fresh complete FREE tuning, review and
+   score its real outputs, then use one explicit r2 protected checkpoint only
+   after tuning passes. Preserve semantic gates and delegated-agent attribution.
+3. Complete the normal paired `226` protected-main release/OCI/protocol and
+   producer-adoption gates, then coherently install the initially unqualified
+   implementation. Do not relabel the current Core57 image or mint a capability.
+4. Prove actual installed-App learning, linked recall, source changes,
+   confirmation/replies-off, authorization and Forget in the existing disposable
+   repository; preserve unrelated FREE defaults and policy/MCP settings.
+5. Publish only a genuine source/model-bound qualification artifact and complete
+   clean stock self-hosted installation/update acceptance. The
+   [explicit resume successor](2026-11-02-memory-explicit-resume.md) has passed the
+   bounded retained-sandbox acceptance recorded below; normal distribution and
+   production rollout remain pending. Unattended recovery remains unimplemented.
+   No daemon, restart-policy change or fictional no-cleanup-debt authority is an
+   accepted fix.
+
+## Follow-up candidate and concrete retrieval defects
+
+Remote source QA for checkpoint `aa99ad70d` and paired Action `fa3e87a71`
+passed 158 tests with zero skips, strict API/evaluation/helper types, scoped
+lint, source-stamp and generated-verifier parity. This qualifies those source
+boundaries, not production activation or model quality.
+
+The single subsequent tuning run `dd890971-1d14-42ea-8444-bbfc70aec217`
+remains **UNAVAILABLE**, with eight of fifty events reached. Report SHA256:
+`280cf89f9abb9b468de3745f0a0d6dd82c8f01a096d77a460925ffdf1b24bb20`.
+Contextual endorsement now retained the concrete milliseconds fact, but linked
+recall failed. Scoped read-only investigation found valid/current metadata and
+native content: the generic review-conventions query returned zero results,
+while the actual next-thread question returned the correct fact. The repair
+passes only bounded current-source text to the existing authorized retrieval
+helper, preserving its filters and admission boundaries.
+
+The last extraction hit its exact 25-second child deadline. Normal readback and
+kernel metadata confirmed physical closure with occupancy zero, but its request
+remains `effect_unknown`; no text, usage or cause is invented and it is not
+replayed. The repair allows up to sixty seconds inside the original bounded
+ninety-second conversation deadline. A separate observed semantic error still
+classified a factual engineering imperative as a maintained-memory request;
+generic instructions now distinguish those comments from explicit memory
+operations. These changed sources require fresh remote QA and tuning. No r2
+protected checkpoint has been consumed, and no qualification PASS is claimed.
+
+## Bounded follow-up after the ddf candidate
+
+Tuning run `06c120b0-281c-4fd1-9e85-998ae9b1215a` remains **UNAVAILABLE**
+with 18 of 50 events reached; report SHA256
+`1266d282e0496dc92e2824fc3eab11fc131873511c148e030c625f2cf0cea111`.
+The actual contextual milliseconds fact was delivered and correctly answered in
+the next thread. Exact update also published the requested observation revision.
+Remaining observed failures were a vague question with empty semantic retrieval,
+a missed comparison request and an explicitly requested observation classified
+as a maintained rule. Generic intent instructions and bounded conversation-only
+retrieval address those cases; they require fresh model validation.
+
+The run stopped at the parent inference adapter's independent sixty-second
+deadline, inside the existing ninety-second conversation budget. Physical closure
+was acknowledged with zero occupied transport, but the provider outcome remains
+unknown and is not replayed. Both inference stages now retain the original
+admitted conversation deadline rather than acquiring unrelated shorter or new
+time budgets. Request, token, source-current and one-shot limits remain intact.
+
+The earlier exact-source CI210 run had genuine formatting and sandbox-cleanup
+failures before a later push cancelled its remaining jobs. Formatting was
+reconciled, including the quality-bound policy file; old source-profile results
+are not relabelled with its new hash. The functional self-hosted flow reached
+its final checks, then decommission refused before Compose teardown. The old
+job did not retain enough inspect evidence to establish that guard's cause.
+Closed phase/code diagnostics now preserve refusal evidence without raw errors
+or credentials and without relaxing any cleanup predicate. Actual stock
+self-hosted installation, resume and decommission still need a complete pass.
+No protected r2 checkpoint or automatic-production qualification is claimed.
+
+## Latest tuning and self-hosted acceptance
+
+The actual `657f80b6a` tuning run
+`833183c3-d5bd-4d3b-ba69-a6eabd37238c` remains **UNAVAILABLE**, with 18 of
+50 planned events observed. Immutable report SHA256:
+`61a934f7b27e1baa3705f6ef986660f4a6d3cf5158448518602a9f0dde67572d`.
+The measured exhausted response budget contained **2,048 reasoning tokens and
+zero visible output tokens**. This is not a successful answer, proof of zero paid
+execution, or a reason to replay the prior identity. The delegated-agent partial
+rubric remains unscoreable, including its recorded semantic failures; increased
+availability alone cannot establish quality.
+
+The subsequent `b8f6c85f` tuning run
+`7260593a-e5ba-4864-9cc3-aa72876e667e` remains **UNAVAILABLE**, with 34 of
+50 events reached; report SHA256
+`377b54fe568e8500ec7ef24ac1dff89b24822ccd24b914d84bee101de5cc0841`.
+Its final child used the approximately 81 seconds remaining in the original
+90-second deadline. Read-only reconciliation confirmed that child fenced,
+transport unoccupied, namespace bound, physical closure acknowledged and cleanup
+done. Its outcome remains **unknown**, with partial/null usage; closure does not
+settle provider output and does not authorize replay. The parent completed and
+closed. The private diagnostic is `tmp/diag-b8f-7260593a/summary.json`.
+
+Delegated-agent review covered all 34 observations and 13 body versions. Two
+answers failed, for the archive query and surviving neighbor, despite correctly
+admitted memory delivery. This partial review supplies neither an official
+quality score nor protected-holdout evidence.
+
+The `91147c6f2` tuning run `6f8a53b9-eda8-48c7-8c1c-13daee93f039`
+completed all **50/50** events. Immutable report SHA256:
+`d6b74c8dbdfe278554ca0d91232bb6abc5fbda54fd07ea517894829d5f94bb05`.
+Owner-delegated agent review covered all 50 observations and 22 body versions.
+The official score is **FAIL**: three unauthorized effects, one missing required
+effect, zero bound violations and two mandatory linked-recall failures. Score
+SHA256: `61c8c2e5e06190f495c6587ff265ae7f806a316dccfe7df57fa5cb3a18363e71`
+(`tmp/memory-production/score-911-actual/official-score.json`). Complete execution
+is not qualification; no protected holdout or capability artifact followed.
+
+Experiment `0b2c889a43bd081578d573e0937038adc4ac1d8d` uses supported SDK
+text tasks with explicit JSON-schema instructions, SDK-owned parent JSON syntax
+gating and strict closed child validation. Authority, limits, original deadlines
+and no-replay semantics are unchanged. Source review and remote QA passed
+**159/159 with zero skips**, strict API/evaluation types, scoped lint/format,
+source-stamp and generated-verifier parity. These are source checks, not model
+qualification. The filtered diagnostics remain ineligible for qualification. Full tuning
+`0b2c889a4` reached 29 retained events before an indeterminate native Save.
+That operation remains **UNKNOWN** and is not replayed. Subsequent prompt changes
+addressed proposal-status extraction and unsupported scope comparisons.
+
+Full tuning `534adf0d6465a586b3fed0a74f7d9a0f133c48c1`, run
+`b6087b6f-c6c5-4713-b4f7-1df25d02772a`, completed **50/50** events.
+Report SHA256: `e73ece44f2a169828262fe8ecf4ebd4e4e06f3babf779fe8280c8a6ad5d0e7bf`.
+Owner-delegated agent review covered every event and 21 body versions. The
+official score remains **FAIL**: zero unauthorized effects, missing effects,
+bound violations or harmful memories; precision, recall and attribution each
+21/21, supported answers 11/12. The mandatory exact-metadata linked answer added
+an unsupported caveat about applicability to the code anchor. Score SHA256:
+`24dc2c8fa1d3a92d3c689c7f70b04776c66dfadc1b9cb41ed698014f4d6573b2`.
+
+The successor separates conversation memory guidance from review-only guidance.
+Exact conversation-only contexts receive the recorded project knowledge framing;
+review rendering, its golden hash, record serialization, audience checks and
+receipt admission remain unchanged. This source requires fresh tuning. The
+experiment remains **UNQUALIFIED** pending complete fresh tuning, protected
+holdout, installed-App acceptance and normal distribution. No r2 protected
+checkpoint has been consumed and no qualification artifact is issued.
+
+The separate [explicit-resume record](2026-11-02-memory-explicit-resume.md#evidence)
+now records real self-hosted first installation/reuse, healthy stock Compose,
+normal low-level stopped-state resume at epoch 2, real Save/read/recall and
+foreign-user denial, logical Forget exclusion while cleanup remained pending,
+and complete owned sandbox decommission. Its application source was `657f80b6a`
+and committed host helper `b53b79d4c`. The original stock run failed and is not
+relabeled; configured-URL derivation in high-level resume and signed product
+physical Forget were not established by that continuation. Exact private receipt
+SHA256: `6597201c1a240b34a94064702860a5e446f7b60b9246a299830bac94a6101e25`.
+Normal distribution/CI, automatic-learning quality and installed-App acceptance
+remain separate unfinished delivery steps.
