@@ -20,6 +20,7 @@ import {
   type SourceWitness,
 } from "./score-inventory.js";
 import type { Witness, InventoryEntry } from "./fixture.js";
+import { observeEvaluationModelDecision } from "./decision-trace.js";
 import { readDurableCommands } from "./command-inventory.js";
 import {
   automaticMemoryChildCommandId,
@@ -2571,5 +2572,63 @@ test("qualified processing and grant identity agree while memory projection pres
       repositoryId: processing.repositoryId,
     },
     checked,
+  );
+});
+
+test("synthetic model decision observation preserves one dispatch, callback authority and original invalid-decision output", async () => {
+  const request = { instructions: "synthetic", messages: [] };
+  const controls = { deadlineAt: new Date(Date.now() + 10000) };
+  let calls = 0,
+    checks = 0;
+  const beforeDispatch = async (budget: typeof controls) => {
+    assert.equal(budget, controls);
+    checks++;
+    return true;
+  };
+  const output = {
+    text: "x".repeat(16383) + "😀invalid-json",
+    actualModel: "synthetic",
+    usage: null,
+    effect: "completed" as const,
+  };
+  let trace: { text: string; bytes: number; truncated: boolean } | undefined;
+  const observed = observeEvaluationModelDecision(
+    {
+      async generate(actualRequest, actualControls, check) {
+        calls++;
+        assert.equal(actualRequest, request);
+        assert.equal(actualControls, controls);
+        assert.equal(check, beforeDispatch);
+        assert.equal(await check!(actualControls), true);
+        return output;
+      },
+    },
+    (value) => {
+      trace = value;
+    },
+  );
+  assert.equal(
+    await observed.generate(request, controls, beforeDispatch),
+    output,
+  );
+  assert.equal(calls, 1);
+  assert.equal(checks, 1);
+  assert.deepEqual(trace, {
+    text: "x".repeat(16383),
+    bytes: 16383,
+    truncated: true,
+  });
+  assert.throws(() => JSON.parse(output.text));
+  const unavailable = new Error("synthetic failure");
+  await assert.rejects(
+    observeEvaluationModelDecision(
+      {
+        async generate() {
+          throw unavailable;
+        },
+      },
+      () => assert.fail("failed SDK result must not produce a trace"),
+    ).generate(request, controls),
+    (error) => error === unavailable,
   );
 });
