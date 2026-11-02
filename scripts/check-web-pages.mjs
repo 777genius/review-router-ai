@@ -146,6 +146,43 @@ try {
     }
 
     const html = await response.text();
+    if (path === "/") {
+      const discoveryLinks = html.match(/<link\b[^>]*>/gi) ?? [];
+      const hasCoveringFile = discoveryLinks.some((tag) => {
+        const coversSite = /\brel="describedby"/.test(tag);
+        const pointsToLlmsTxt = /\bhref="\/llms\.txt"/.test(tag);
+        return coversSite && pointsToLlmsTxt;
+      });
+      if (!hasCoveringFile) {
+        await fail("home missing llms.txt v2 describedby link");
+      }
+    }
+    if (path === "/") {
+      // Verify the price on the actual free WebApplication, not an unrelated
+      // JSON-LD object or an arbitrary HTML substring.
+      const schemaNodes = [...html.matchAll(
+        /<script\b[^>]*\btype=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+      )].flatMap(([, json]) => {
+        const schema = JSON.parse(json);
+        return Array.isArray(schema?.["@graph"]) ? schema["@graph"] : [schema];
+      });
+      const freeControlPlanes = schemaNodes.filter(
+        (node) =>
+          node &&
+          typeof node === "object" &&
+          node["@type"] === "WebApplication" &&
+          typeof node["@id"] === "string" &&
+          node["@id"].endsWith("/#free-ci-control-plane"),
+      );
+      if (
+        freeControlPlanes.length !== 1 ||
+        freeControlPlanes[0].offers?.["@type"] !== "Offer" ||
+        freeControlPlanes[0].offers?.price !== "0" ||
+        freeControlPlanes[0].offers?.priceCurrency !== "USD"
+      ) {
+        await fail("home missing the current free CI control-plane structured offer");
+      }
+    }
     if (
       path === "/getting-started" &&
       (html.includes("curl -fsSL ") || html.includes("curl -q -fsSL "))
@@ -168,6 +205,53 @@ try {
           : html.includes(expectedText);
       if (!found) {
         await fail(`${path} did not include expected text: ${expectedText}`);
+      }
+    }
+  }
+
+  // Assert the published static discovery routes are actually served as text.
+  const discoveryResources = [
+    {
+      path: "/llms.txt",
+      required: [
+        "# ReviewRouter",
+        "openapi.json",
+        "auth.md",
+        "not a general agent action API",
+      ],
+    },
+    {
+      path: "/auth.md",
+      required: [
+        "# ReviewRouter authentication",
+        "GitHub",
+        "OAuth",
+        "no public general-purpose agent OAuth",
+      ],
+    },
+    {
+      path: "/agents.md",
+      required: ["# How AI assistants", "setup PR", "not available for purchase"],
+    },
+  ];
+  for (const { path, required } of discoveryResources) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      headers: { accept: "text/plain" },
+      redirect: "manual",
+    });
+    if (response.status !== 200)
+      await fail(`${path} returned HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.startsWith("text/") || contentType.includes("html")) {
+      await fail(`${path} must return plain text/Markdown, got ${contentType}`);
+    }
+    const content = await response.text();
+    if (content.toLowerCase().includes("<!doctype html")) {
+      await fail(`${path} returned HTML`);
+    }
+    for (const expected of required) {
+      if (!content.includes(expected)) {
+        await fail(`${path} missing required guidance: ${expected}`);
       }
     }
   }

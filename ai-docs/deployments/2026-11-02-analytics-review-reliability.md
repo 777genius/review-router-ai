@@ -3,7 +3,8 @@
 - Task ID: `2026-11-02-analytics-review-reliability`.
 - Goal: attribute Gateway usage to the configured provider, recover Usage pagination after page errors, and settle partial reviews without retrying forever.
 - Affected services: Web, API, worker; PostgreSQL read path only.
-- Implementation reference: branch `fix/analytics-review-e2e-20261102`, based on `15314c6d2`; not yet released.
+- Implementation PR: [#787](https://github.com/777genius/review-router-ai/pull/787).
+- Implementation reference: `44b06c141d056fa2779bc2bb29e18dbd9c84ea06`; not yet released.
 - Related work: [Statistics and Usage](2026-10-29-statistics-history-followthrough.md), [Analytics extensibility](2026-10-31-analytics-extensibility.md).
 - Last updated: `2026-11-02`.
 
@@ -47,7 +48,7 @@ Preserve all receipts, immutable Usage facts and native observations. Historical
 - Existing real PostgreSQL 17 Usage suite: 16 tests passed; the opt-in211k-volume qualification was not enabled. An isolated fresh UTF8 cluster ran the normal cold migration path. Earlier attempts exposed local fixture encoding/global-role contamination and are retained; no migration guard was relaxed.
 - Review completion/capture: 35 focused tests passed. A partial process awaiting its snapshot now rechecks terminal publication facts; missing or uncertain facts never cause a new publication or a full snapshot.
 - Read-only production SQL qualification mapped all1,420 eligible historical FREE calls to their frozen OpenRouter configuration under a five-second statement budget. Five stored-unknown calls remain unknown. This was a source query qualification, not deployment of the new reader.
-- The initial local browser qualification stopped before browser startup: ordinary cold migrations and seeding passed, but Next exited during authenticated boot. Zero browser tests ran; it is not a pass. At the owner’s explicit request all local heavy processes and three owned temporary PostgreSQL clusters were stopped with data preserved. The four Usage scenarios now run in the existing Linux CI acceptance job, including both503/error and Previous-recovery screenshots. Remote outcome and screenshot inspection remain pending.
+- The initial local browser qualification stopped before browser startup: ordinary cold migrations and seeding passed, but Next exited during authenticated boot. Zero browser tests ran; it is not a pass. At the owner’s explicit request all local heavy processes and three owned temporary PostgreSQL clusters were stopped with data preserved. The four Usage scenarios now run in the existing Linux CI acceptance job, including both503/error and Previous-recovery screenshots. Exact-head Linux run [41489941032](https://github.com/777genius/review-router-ai/actions/runs/41489941032) passed all8 browser cases, including all4 Usage scenarios. Four error/recovery PNGs from artifact13164273757 were verified and inspected. This is isolated CI acceptance, not staging or production deployment; the remaining mandatory CI and actual application rollout are separate.
 - Exact OpenRouter free-request quota is not exposed by the installed Gateway cached `account-limits/v1` SDK: both configured OpenRouter accounts return `unsupported`. No provider credential was extracted, request quota invented, or credit purchase performed.
 
 - Shared rollout coordination: Memory owner will include this batch in the single paired private release226 after PR #785 and this implementation merge; no separate deployment is started here. Selective server build-cache GC reclaimed4,466,106,368bytes; exact image/container/volume inventories were unchanged. Receipt: `/srv/workers/rr-selective-buildcache-gc-20261102-153044/receipt.json`.
