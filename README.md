@@ -16,10 +16,9 @@ repository health from one dashboard.
 
 ### Memory, Skills and context
 
-- **Thread-aware memory.** Learn observations from verified inline review
-  discussions using the full thread as context. Reuse workspace rules and
-  repository knowledge in later reviews; recheck edited or deleted source
-  comments.
+- **Thread-aware memory.** Use the full verified inline review thread
+  to answer in context and learn useful observations. Reuse scoped knowledge
+  in later reviews; recheck facts when source comments change or disappear.
 - **Memory controls.** Browse rules, observations and exceptions; add rules,
   retire outdated entries or request permanent forgetting. Learning can be
   automatic or require maintainer confirmation, set by workspace admins.
