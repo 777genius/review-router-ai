@@ -21,7 +21,7 @@ and review rules in one dashboard.
   observations and exceptions in later reviews when a memory backend is configured.
 - **PR conversations.** On qualified interaction workflows, respond to inline
   review threads using the verified discussion. Authorized maintainer replies can
-  also teach memory.
+  also propose memory changes.
 - **Memory controls.** Browse and add knowledge, retire outdated entries or
   request permanent forgetting. Workspace admins can require confirmation
   before AI memory changes.
@@ -40,8 +40,9 @@ and review rules in one dashboard.
   attached to the exact PR commit.
 - **Multiple reviewers.** Choose models and accounts, run reviewers in parallel
   and require agreement before publishing inline findings.
-- **AI providers.** Codex, Claude Code, OpenRouter, MiMo Token Plan and Kimi Code
-  via supported subscriptions, OAuth or API keys; model catalogs vary by provider.
+- **AI providers and accounts.** Connect Codex, Claude Code, OpenRouter,
+  MiMo Token Plan or Kimi Code via supported subscriptions, OAuth or API keys.
+  Manage accounts and choose models from the available provider catalogs.
 - **Review settings.** Workspace defaults and per-repository overrides for models,
   reasoning effort, language, severity, comment limits and parallelism. Workspace
   admins also control automatic reviews of draft PRs.
@@ -58,8 +59,8 @@ and review rules in one dashboard.
   severity, daily trends, top repositories and 7/30/90-day comparisons.
 - **Usage.** Provider attempts, known tokens and costs by provider, model
   and run, with filters and explicit coverage when data is missing.
-- **Operations.** Repository health, queue failures, audit events, safe
-  diagnostics and workspace/repository access management.
+- **Operations.** Repository health, queue failures, audit events,
+  metadata-only diagnostics and workspace/repository access management.
 
 ### Setup and hosting
 
