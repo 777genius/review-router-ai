@@ -15,6 +15,18 @@
 | staging | `pending` | Not verified | No rollout |
 | production | `pending` | Not verified | No rollout |
 
+## Release attestation ordering
+
+The rotating-writer catalog captures all `RepositoryConnection` triggers.
+It now explicitly recognizes the installed worker INSERT guard only with its
+exact operator-owned function/trigger/ACL signature, and still rejects unknown
+objects and drift. An environment without this separately installed grant can
+be attested in its canonical-ACL phase; this is **not** proof the post-ACL
+worker INSERT is live. The release attestation's canonical read-only runtime
+ACL and its pinned activation trust roots remain unchanged. Do not run the
+canonical rotating catalog verifier against post-ACL worker-granted runtime
+roles and mistake the intended read-only failure for a guard failure.
+
 ## Ordered qualification and rollout
 
 1. Before changing a target database, verify the selected app revision/image,

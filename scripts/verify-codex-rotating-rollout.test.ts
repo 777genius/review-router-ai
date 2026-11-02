@@ -18,6 +18,7 @@ import {
   codexRotatingCatalogIndexNames,
   codexRotatingCatalogTables,
   codexRotatingFunctionBodyDigests,
+  codexRotatingPostAclWorkerInsertGuard as workerInsertGuard,
   codexRotatingFunctionIdentityArguments,
   codexRotatingIndexDefinitions,
   codexRotatingPartialIndexPredicates,
@@ -250,6 +251,56 @@ describe("observation-backed Codex rotating rollout verifier", () => {
     ).toContain(
       "000087_codex_oauth_v4_v5_workflow_reattestation checked-in forward migration digest mismatched",
     );
+  });
+
+  it("pins the post-ACL worker guard to the actual grant SQL body", () => {
+    const grant = readFileSync(
+      join(process.cwd(), "deploy/hetzner/db-grants/worker-repository-sync.sql"),
+      "utf8",
+    );
+    const body = /AS \\$worker_insert_body\\$([\\s\\S]*?)\\$worker_insert_body\\$;/u.exec(grant)?.[1];
+    expect(body).toBeDefined();
+    expect(digest(Buffer.from(body!.replace(/\\r\\n?/gu, "\\n").trim(), "utf8")))
+      .toBe(workerInsertGuard.bodySha256);
+  });
+
+  it("attests the exact existing owner-operated INSERT guard without hiding new catalog objects", () => {
+    const fixture = observedFixture();
+    const catalog = fixture.artifacts.database.catalog;
+    addPostAclWorkerGuard(catalog);
+    expect(verifyCodexRotatingDatabaseCatalog(catalog))
+      .toEqual({ ok: true, failures: [] });
+  });
+
+  it.each([
+    ["missing guard function inventory", (c: any) =>
+      c.inventory.functions.splice(c.inventory.functions.indexOf(workerInsertGuard.function), 1),
+      "database rotating OAuth catalog inventory is not exact"],
+    ["missing guard trigger", (c: any) =>
+      c.triggers.splice(c.triggers.findIndex((t: any) => t.name === workerInsertGuard.trigger), 1),
+      "database trigger catalog is not exact"],
+    ["disabled guard", (c: any) =>
+      c.triggers.find((t: any) => t.name === workerInsertGuard.trigger).enabled = "D",
+      "database trigger bindings are not exact"],
+    ["wrong INSERT trigger function", (c: any) =>
+      c.triggers.find((t: any) => t.name === workerInsertGuard.trigger).function = "untrusted_guard",
+      "database trigger bindings are not exact"],
+    ["weakened body", (c: any) =>
+      c.functions.find((f: any) => f.name === workerInsertGuard.function).bodySha256 = digest(Buffer.from("BEGIN RETURN NEW; END")),
+      "database trigger function definitions are not exact"],
+    ["wrong owner", (c: any) =>
+      c.functions.find((f: any) => f.name === workerInsertGuard.function).owner = "reviewrouter_worker",
+      "database trigger function definitions are not exact"],
+    ["PUBLIC execute", (c: any) => c.privileges.functions.push({
+      name: workerInsertGuard.function, identityArguments: "", grantee: "PUBLIC",
+      grantor: workerInsertGuard.owner, privilege: "EXECUTE", grantable: false,
+    }), "database owned function privileges are not exact"],
+  ])("fails closed for post-ACL worker guard drift: %s", (_case, mutate, reason) => {
+    const catalog = observedFixture().artifacts.database.catalog;
+    addPostAclWorkerGuard(catalog);
+    mutate(catalog);
+    expect(verifyCodexRotatingDatabaseCatalog(catalog).failures
+      .some((failure: string) => failure.startsWith(reason))).toBe(true);
   });
 
   it("reuses the exact production catalog verifier for PostgreSQL rehearsal", () => {
@@ -1253,6 +1304,47 @@ describe("observation-backed Codex rotating rollout verifier", () => {
     ).toBe(true);
   });
 });
+
+function addPostAclWorkerGuard(catalog: any): void {
+  catalog.inventory.triggers.push(workerInsertGuard.trigger);
+  catalog.inventory.functions.push(workerInsertGuard.function);
+  catalog.triggers.push({
+    name: workerInsertGuard.trigger,
+    table: "RepositoryConnection",
+    function: workerInsertGuard.function,
+    type: 7,
+    enabled: "O",
+    definition: `CREATE TRIGGER "${workerInsertGuard.trigger}" BEFORE INSERT ON public."RepositoryConnection" FOR EACH ROW EXECUTE FUNCTION public.reviewrouter_worker_repository_insert_guard()`,
+    updateColumns: [],
+    whenExpression: null,
+    arguments: "",
+    constraint: false,
+    deferrable: false,
+    initiallyDeferred: false,
+  });
+  const original = catalog.functions.find(
+    (entry: any) => entry.name === "codex_oauth_runtime_referential_action_guard",
+  );
+  if (!original) throw new Error("missing baseline SECURITY DEFINER trigger function");
+  catalog.functions.push({
+    ...original,
+    name: workerInsertGuard.function,
+    bodySha256: workerInsertGuard.bodySha256,
+    owner: workerInsertGuard.owner,
+    identityArguments: "",
+    arguments: "",
+    securityDefiner: true,
+    config: ["search_path=pg_catalog, public"],
+  });
+  catalog.privileges.functions.push({
+    name: workerInsertGuard.function,
+    identityArguments: "",
+    grantee: workerInsertGuard.owner,
+    grantor: workerInsertGuard.owner,
+    privilege: "EXECUTE",
+    grantable: false,
+  });
+}
 
 function observedFixture(): any {
   const commit = "a".repeat(40);

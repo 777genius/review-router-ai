@@ -54,6 +54,20 @@ a disabled or altered trigger must not be silently accepted. Restrict the
 function's search path and PUBLIC EXECUTE. Include negative idempotent
 re-application and tampering tests.
 
+## Subsequent release-attestation compatibility
+
+The rotating production writer capture enumerates all triggers on
+`RepositoryConnection` and their functions. The new guard would otherwise be
+rejected as an unrecognized object on the next release. The existing
+receipt-bound catalog verifier now accepts precisely two staged inventories:
+before the post-ACL worker guard exists, or with the **complete pinned**
+operator-owned guard (binding, function-body SHA-256, owner, search path,
+definer bit, trigger state and owner-only EXECUTE). Partial, disabled,
+repointed or tampered versions remain fail-closed. No activation routine/trust
+root hash or canonical read-only ACL acceptance is changed. Capture during the
+canonical-ACL verification phase still expects runtime roles read-only; the
+later post-ACL guarded worker grant is verified by its separate PG17 contract.
+
 ## Qualification and release boundary
 
 1. Run the existing PG17 real-role worker repository-sync contract in CI.
