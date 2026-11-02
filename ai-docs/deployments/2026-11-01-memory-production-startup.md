@@ -166,9 +166,9 @@ automatic-learning or conversational-quality result.
 Secret-free retained evidence archives are under the task worktree's
 `tmp/native-qualification-20261101/`; their hashes remain recorded by the operator.
 
-## Current shared application and acceptance
+## Historical shared application and acceptance, November 1
 
-The current shared application source is
+At the November 1 cutover, the shared application source was
 `e7f2e600acc896448b91ea0a9985c6e766a3c95b`, whose parent is the coordinated
 `14bead9640d0b4e6c6741aa5645c2a6c160fdd2f` release above. Its image is
 `sha256:7cee23648d3fb708fdf63f99fa0578e8d5726a512b06a5bbc992cdcf4cb6ec8a`.
@@ -176,7 +176,9 @@ Cutover was recorded at `2026-11-01T13:38:30Z`; all four roles reported the exac
 source, running with zero restarts, worker privileges passed all six checks and
 API readiness returned 200. Protected custody:
 `/srv/platform/projects/review-router/releases/fleet-overlay-e7f2e600-QWzrdEu2`.
-The earlier application revisions are historical, not the current baseline.
+This section is historical. The current Core57 / Action225 fleet and Gateway
+cutover are recorded in the verified November 2 section below. Actual memory
+delivery and signed Forget are tracked in the memory authorization record.
 See the companion [Gateway diagnostics record](2026-11-01-companion-gateway-refusal-diagnostics.md).
 
 [Shared acceptance run 41318061244](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41318061244)

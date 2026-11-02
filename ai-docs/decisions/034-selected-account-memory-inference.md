@@ -90,11 +90,11 @@ The parser validates a trusted deployment declaration's shape; it does not creat
 or verify a successful model-quality result. No version-2 qualified release artifact
 has been supplied by this implementation. Native self-hosted setup continues to
 configure only approved memory with `LLM_PROVIDER=none`; it does not mint a
-conversation capability. Consuming a real source-bound qualified release artifact,
-validating its exact installed source/runtime and approved caller pin, then privately
-merging the existing qualification/runtime keys while preserving operator configuration
-and opt-outs remains separate release/setup work. No placeholder artifact, automatic
-checkpoint, new flag or default qualification claim is introduced.
+conversation capability. When a genuine source-bound qualified release artifact is
+supplied, setup validates its installed source/runtime and approved caller pin, then
+privately merges the existing qualification/runtime keys while preserving operator
+configuration and opt-outs. No such artifact is supplied here. No placeholder
+artifact, automatic checkpoint, new flag or default qualification claim is introduced.
 
 The deployment record separates source tests, deterministic native protocol
 qualification, actual local model lifecycle, selected-account model quality,
