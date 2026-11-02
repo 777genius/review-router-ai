@@ -83,7 +83,7 @@ describe("tenant usage API and SQL scope", () => {
     await db.exec(`
       CREATE TABLE "Workspace" ("id" text PRIMARY KEY,"deletionState" text,"personalOwnerUserId" text);
       CREATE TABLE "WorkspaceMember" ("workspaceId" text,"userId" text,"role" text);
-      CREATE TABLE "UsageCall" ("callId" text,"workspaceId" text,"actorId" text,"occurredAt" timestamptz,"provider" text,"route" text,"purpose" text,"bindingId" text,"runId" text,"projection" jsonb);
+      CREATE TABLE "ReviewRunAuthorization" ("authorizationId" text PRIMARY KEY,"workspaceId" text,"sourceRunId" text,"sourceRunAttempt" text,"runtimeSnapshotCanonicalJson" text); CREATE TABLE "UsageCall" ("callId" text,"workspaceId" text,"actorId" text,"occurredAt" timestamptz,"provider" text,"route" text,"purpose" text,"bindingId" text,"runId" text,"projection" jsonb);
       CREATE TABLE "UsageUnattributedObservation" ("workspaceId" text,"observedAt" timestamptz,"resolvedAt" timestamptz);
       CREATE TABLE "UsageSourceCheckpoint" ("workspaceId" text,"disabledAt" timestamptz,"sourceInstance" text,"coveredFrom" timestamptz,"asOf" timestamptz,"failureCount" int,"nextAttemptAt" timestamptz,"deadLetteredAt" timestamptz,"lastErrorCode" text);
       CREATE TABLE "ProviderUsageGrant" ("workspaceId" text,"actorId" text,"issuedAt" timestamptz,"expiresAt" timestamptz,"purpose" text,"runId" text,"bindingId" text,"invocationId" text,"producerCoverage" jsonb);
