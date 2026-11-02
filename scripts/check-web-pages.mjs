@@ -172,6 +172,24 @@ try {
     }
   }
 
+  // Assert the published static discovery routes are actually served as text.
+  const discoveryResources = [
+    ["/llms.txt", ["# ReviewRouter", "openapi.json", "auth.md", "not a general agent action API"]],
+    ["/auth.md", ["# ReviewRouter authentication", "GitHub", "OAuth", "no public general-purpose agent OAuth"]],
+    ["/agents.md", ["# How AI assistants", "setup PR", "not available for purchase"]],
+  ];
+  for (const [path, required] of discoveryResources) {
+    const response = await fetch(`${baseUrl}${path}`, { headers: { accept: "text/plain" } });
+    if (!response.ok) await fail(`${path} returned HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.startsWith("text/") || contentType.includes("html"))
+      await fail(`${path} must return plain text/Markdown, got ${contentType}`);
+    const content = await response.text();
+    if (content.toLowerCase().includes("<!doctype html")) await fail(`${path} returned HTML`);
+    for (const expected of required)
+      if (!content.includes(expected)) await fail(`${path} missing required guidance: ${expected}`);
+  }
+
   const dashboardPostInstallResponse = await fetch(
     `${baseUrl}/dashboard?installation_id=123&setup_action=install`,
     { redirect: "manual" },
