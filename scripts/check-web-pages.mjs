@@ -146,6 +146,9 @@ try {
     }
 
     const html = await response.text();
+    if (path === "/" && (!html.includes("free-ci-control-plane") || !html.includes("\\"price\\":\\"0\\""))) {
+      await fail("home missing the current free CI control-plane structured offer");
+    }
     if (
       path === "/getting-started" &&
       (html.includes("curl -fsSL ") || html.includes("curl -q -fsSL "))
