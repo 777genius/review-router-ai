@@ -33,7 +33,8 @@ and review rules in one dashboard.
   reviewed text without installing third-party scripts.
 - **MCP tools.** Connect remote HTTPS MCP servers, discover and approve tools,
   and select them for compatible reviews. Test Dashboard credentials in the UI;
-  GitHub Secrets are tested in CI. Built-in tools cover GitHub issues and docs.
+  verify GitHub Secrets in the repository workflow. Built-in tools cover
+  GitHub issues and docs.
 
 ### AI reviews
 
