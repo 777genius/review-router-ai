@@ -383,10 +383,12 @@ The failed r1 holdout stays frozen as tuning regression. Required remaining work
    confirmation/replies-off, authorization and Forget in the existing disposable
    repository; preserve unrelated FREE defaults and policy/MCP settings.
 5. Publish only a genuine source/model-bound qualification artifact and complete
-   clean stock self-hosted installation/update acceptance. The [explicit resume successor](2026-11-02-memory-explicit-resume.md) is source-only,
-   awaiting coherent delivery and real stop/start acceptance under `restart=no`;
-   unattended recovery remains unresolved. No daemon, restart-policy change or
-   fictional no-cleanup-debt authority is an accepted fix.
+   clean stock self-hosted installation/update acceptance. The
+   [explicit resume successor](2026-11-02-memory-explicit-resume.md) has passed the
+   bounded retained-sandbox acceptance recorded below; normal distribution and
+   production rollout remain pending. Unattended recovery remains unimplemented.
+   No daemon, restart-policy change or fictional no-cleanup-debt authority is an
+   accepted fix.
 
 ## Follow-up candidate and concrete retrieval defects
 
@@ -444,3 +446,34 @@ Closed phase/code diagnostics now preserve refusal evidence without raw errors
 or credentials and without relaxing any cleanup predicate. Actual stock
 self-hosted installation, resume and decommission still need a complete pass.
 No protected r2 checkpoint or automatic-production qualification is claimed.
+
+## Latest tuning and self-hosted acceptance
+
+The actual `657f80b6a` tuning run
+`833183c3-d5bd-4d3b-ba69-a6eabd37238c` remains **UNAVAILABLE**, with 18 of
+50 planned events observed. Immutable report SHA256:
+`61a934f7b27e1baa3705f6ef986660f4a6d3cf5158448518602a9f0dde67572d`.
+The measured exhausted response budget contained **2,048 reasoning tokens and
+zero visible output tokens**. This is not a successful answer, proof of zero paid
+execution, or a reason to replay the prior identity. The delegated-agent partial
+rubric remains unscoreable, including its recorded semantic failures; increased
+availability alone cannot establish quality.
+
+The successor `19b81f090` reserves a bounded reasoning-and-answer output budget
+inside the existing model, context and owner ceilings. It is **UNQUALIFIED**:
+source changes do not reuse the old report as a new PASS. Fresh affected checks,
+complete tuning and the unconsumed protected checkpoint remain required before
+any genuine source/model-bound capability or installed-App activation claim.
+No qualification artifact is manufactured by this budget repair.
+
+The separate [explicit-resume record](2026-11-02-memory-explicit-resume.md#evidence)
+now records real self-hosted first installation/reuse, healthy stock Compose,
+normal low-level stopped-state resume at epoch 2, real Save/read/recall and
+foreign-user denial, logical Forget exclusion while cleanup remained pending,
+and complete owned sandbox decommission. Its application source was `657f80b6a`
+and committed host helper `b53b79d4c`. The original stock run failed and is not
+relabeled; configured-URL derivation in high-level resume and signed product
+physical Forget were not established by that continuation. Exact private receipt
+SHA256: `6597201c1a240b34a94064702860a5e446f7b60b9246a299830bac94a6101e25`.
+Normal distribution/CI, automatic-learning quality and installed-App acceptance
+remain separate unfinished delivery steps.

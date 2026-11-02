@@ -343,6 +343,7 @@ boundaries:
       - "packages/features/memory/src/application"
     entrypoints:
       - "packages/features/memory/src/application/memory-cleanup-policy.ts"
+      - "packages/features/memory/src/application/memory-native-startup.ts"
       - "packages/features/memory/src/application/ports/memory-automatic-source-port.ts"
       - "packages/features/memory/src/application/ports/memory-source-preview-port.ts"
       - "packages/features/memory/src/application/ports/memory-cleanup-proof-port.ts"

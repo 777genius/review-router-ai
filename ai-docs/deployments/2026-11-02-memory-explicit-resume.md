@@ -4,16 +4,19 @@
   stop or reboot without recreating native state or weakening physical Forget.
 - Affected targets: Memory operator API/store, all Router command writers,
   standalone native bootstrap/setup and stock self-hosted lifecycle acceptance.
-- Source: uncommitted successor batch after `aa99`; no release/image assigned.
+- Source: resume implementation through `657f80b6a`; Docker entrypoint
+  compatibility fix `b53b79d4ce518beb1ad2e40553ec2ca9d9116ecf` in
+  [PR #785](https://github.com/777genius/review-router-ai/pull/785).
+  No production release/image assigned to this successor.
 - Dependencies: [Memory startup](2026-11-01-memory-production-startup.md),
   [cleanup inventory](2026-11-01-memory-bootstrap-cleanup.md),
   [conversation delivery](2026-10-29-conversational-memory.md) and the existing
   [release process](../operations/07-environments-and-release-management.md).
 
-| Environment | Status    | Actual version                                                     | Remaining work                                                                                                |
-| ----------- | --------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| production  | `pending` | Core `57cc1513` / image `3550f3c7` unchanged; resume not activated | Exact-source remote checks, coherent normal release and applicable operator acceptance.                       |
-| self-hosted | `pending` | Source implementation only                                         | Remote PostgreSQL/operator checks, real stock installation/stop/start acceptance, normal distribution/update. |
+| Environment | Status    | Actual version                                                                                | Remaining work                                                                                   |
+| ----------- | --------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| production  | `pending` | Core `57cc1513` / image `3550f3c7` unchanged; resume not activated                            | Coherent normal release and applicable operator acceptance.                                      |
+| self-hosted | `pending` | Retained test sandbox: application `657f80b6a`, host helper `b53b79d4c`; fully decommissioned | Continuous stock CI and normal distribution/update remain; bounded real acceptance below passed. |
 
 ## Contract and compatibility
 
@@ -87,8 +90,65 @@ reconcile/handoff its pause before any normal code rollback.
 
 ## Evidence
 
-Independent source review of the first coherent implementation passed; identified
-binding, lock-order, debt, lost-finish and foreign-volume-user gaps were addressed.
-Remote formatting/types/contracts and real PostgreSQL/native lifecycle execution
-are pending. There has been no deployment, reboot, native lifecycle effect, model
-call or activation from this preparation. No acceptance PASS is claimed.
+Independent source review addressed binding, lock-order, debt, lost-finish and
+foreign-volume-user gaps. Remote PostgreSQL/operator and source checks passed;
+these do not establish production deployment or automatic-learning quality.
+
+On `2026-11-02`, the real stock self-hosted run at `657f80b6a` completed native
+first installation and idempotent reuse, built the normal application image and
+started healthy stock Compose services. Actual web/API/worker Memory settings
+matched the installed tuple. It then failed `startup-preflight`: the host INPUT
+policy blocked the owned Compose bridge from the private native endpoint. This
+stock run remains **FAILED**, not a continuous acceptance PASS.
+
+A reviewed, exact three-rule temporary private ingress cycle made health checks
+from all three roles and the real zero-entry/zero-command preflight pass. The
+first resume continuation cleanly stopped the three owned native containers,
+then refused before creating a resume journal. Actual Docker metadata used
+`null` for each native container's absent entrypoint and omitted that field from
+the image; the strict comparison rejected these equivalent representations.
+That failed attempt and its evidence were retained, and the temporary rules were
+removed with live kernel readback. No Save or Forget had been attempted.
+
+Commit `b53b79d4c` normalizes only nullish entrypoints, retaining exact comparison
+of nonempty arguments. Remote bootstrap tests passed **11/11 with zero skips**,
+including both null/absent representations and refusal of a changed nonempty
+entrypoint. Strict self-hosted/helper types, scoped lint and formatting passed.
+The real recovery then used the normal low-level
+`bootstrap('resume', savedConfig, ownedLoopbackApi)` from the known stopped state.
+It completed at maintenance epoch **2** while the real Compose API retained its
+original lifetime. Native IDs, images, saved bindings and existing state were
+preserved; neither installation nor the application image build was repeated.
+
+After positive finish, a fresh reviewed cycle of the same three private rules
+allowed the real storage proof: Save published, read and recall succeeded, and a
+foreign user was denied. Forget returned **`cleanup_pending`**. The native current
+document was still present, while product read and subsequent recall excluded it,
+proving logical fencing of pending native content. This is **not signed physical
+Forget completion**. The exact temporary rules were then removed once, and the
+normal ownership-checked sandbox decommission removed the three native
+containers, both native volumes and every owned Compose container, volume and
+network. Fresh read-only verification confirmed their absence, zero owned rules
+and zero live rule matches; the other ten IPv4 rules and IPv6 rules were
+preserved, with no reload or default-policy change.
+
+This is a **retained-sandbox continuation PASS**, with application source
+`657f80b6a69b8adf58dfddfd9002b1d24839867a`, application image
+`sha256:cfb60317d806e71a188529dc4c39e6bc7dbc323c241ba763d44cffd898aa5ccf`
+and committed host helper `b53b79d4ce518beb1ad2e40553ec2ca9d9116ecf`.
+It does not relabel the failed stock run or verify production recovery. The
+high-level `resumeMemory` configured-URL derivation was **not runtime exercised**;
+the fixture used the supported explicit owned-loopback API interface. Sandbox
+volume disposal is separate from a signed product entry-erasure receipt.
+Conversation qualification remained absent; no paid model call or automatic
+production activation was part of this acceptance.
+
+Private receipt:
+`tmp/memory-production/stock-selfhost-657f80/recovery-b53-receipt.json`, SHA256
+`6597201c1a240b34a94064702860a5e446f7b60b9246a299830bac94a6101e25`.
+Its exact evidence archive and the original failures remain retained. Managed
+jobs: bootstrap regression `5e5611e418910df0fa8ac7332bd75d0b`, normal stopped
+resume `ff50bc2e49f89e261b5f833f3e853c81`, fresh ingress
+`dde4e911b0043496432e40e18e1f8ed2`, and storage/rollback/decommission
+`c8a32ae095e03e07bf82a41fb412e034`. Normal protected release/CI and self-hosted
+distribution still require their own exact-source completion.
