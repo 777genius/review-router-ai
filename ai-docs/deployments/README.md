@@ -13,8 +13,6 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-Installed Gateway onboarding: [scoped operator path](2026-11-02-installed-gateway-operator-onboarding.md) — staging/production `pending`; qualify and deliver the genuine browser-free command before payments-sdk activation.
-
 Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging/production `pending`; preserve immutable usage facts and coordinate one Web/API/worker rollout.
 
 | Task                                                                                   | Implementation                                                                                                                                           | Staging   | Production    | Remaining work                                                                                                                                                        |
@@ -52,6 +50,8 @@ Current reliability batch: [Analytics and review completion](2026-11-02-analytic
 The task file is authoritative; keep this summary in sync in the same commit.
 Missing entries do not prove that older changes are deployed: inspect the installed-to-target change range and
 the release runbook for additional required work before each rollout.
+
+Installed Gateway onboarding: [scoped operator path](2026-11-02-installed-gateway-operator-onboarding.md) — staging/production `pending`; qualify and deliver the genuine browser-free command before payments-sdk activation.
 
 ## Status contract
 

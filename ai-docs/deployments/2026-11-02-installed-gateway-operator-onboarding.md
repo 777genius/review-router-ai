@@ -3,18 +3,17 @@
 - Task ID: `2026-11-02-installed-gateway-operator-onboarding`.
 - Goal: finish an already installed compatible Gateway workflow without a browser login, using genuine operator authorization scoped to its owner, workspace and repository.
 - Affected services: API and shared Web provisioning composition; ordinary application rollout.
-- Implementation issue: [#790](https://github.com/777genius/review-router-ai/issues/790).
+- Implementation: [PR #792](https://github.com/777genius/review-router-ai/pull/792), [issue #790](https://github.com/777genius/review-router-ai/issues/790).
 - Implementation reference: branch `fix/operator-installed-gateway-setup-20261102`, stacked on [#787](https://github.com/777genius/review-router-ai/pull/787); not released.
 - Dependencies: [Analytics/review reliability](2026-11-02-analytics-review-reliability.md); the installed workflow, current owner entitlement and approved producer must pass normal provisioning guards.
 - Last updated: `2026-11-02`.
 
 ## Environment status
 
-| Environment / target          | Status        | Actual deployed version / image       | Evidence / next step                                                                                                                     |
-| ----------------------------- | ------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Isolated server qualification | `in_progress` | Frozen source snapshot; no deployment | API/feature/Web strict typechecks and all86 focused tests including compiled CLI passed; cold PostgreSQL API-role qualification pending. |
-| staging                       | `pending`     | Not verified                          | Ordinary release qualification; no new migration required.                                                                               |
-| production / Hetzner          | `pending`     | Baseline `57cc15137`                  | Coordinate with the single shared release owner; never start a competing deployment.                                                     |
+| Environment / target | Status    | Actual deployed version / image | Evidence / next step                                                                 |
+| -------------------- | --------- | ------------------------------- | ------------------------------------------------------------------------------------ |
+| staging              | `pending` | Not verified                    | Ordinary release qualification; no new migration required.                           |
+| production / Hetzner | `pending` | Baseline `57cc15137`            | Coordinate with the single shared release owner; never start a competing deployment. |
 
 ## Applicability and authorization
 
@@ -36,4 +35,4 @@ Before any retry, inspect the original operation audit and canonical authority/c
 
 ## Execution log
 
-- 2026-11-02: protected existing operator identity qualified without exposing its secret. First immutable 17-file snapshot passed strict API/feature checks and 74 focused cases; one compiled CLI case explicitly skipped pending build. Final 19-file snapshot plus the exact protocol-fixture metadata entry passed API/feature/Web strict checks, all86 focused tests with zero skipped (including the real compiled CLI), architecture boundaries and diff checks. The PostgreSQL runner stopped before invoking the fixture because of Docker metadata handling; its stopped owned container/data and original failure receipt are retained. Only the unexecuted PostgreSQL phase will resume after correcting that runner. No production mutation, deployment or model call performed by this slice.
+- 2026-11-02: protected existing operator identity qualified without exposing its secret. First immutable 17-file snapshot passed strict API/feature checks and 74 focused cases; one compiled CLI case explicitly skipped pending build. Final 19-file snapshot plus the exact protocol-fixture metadata entry passed API/feature/Web strict checks, all86 focused tests with zero skipped (including the real compiled CLI), architecture boundaries and diff checks. The PostgreSQL runner stopped before invoking the fixture because of Docker metadata handling; its stopped owned container/data and original failure receipt are retained. Subsequent cold runs exposed two fixture errors: nested policy version creation and an ignored version-zero CAS conflict against the migration-seeded version-one global emergency stop. Only fixture preparation and finite failure diagnostics changed; production guards were preserved. Final corrected fixture SHA-256 `dfd416c85d4177c7b54d3172389a0a4d9a6cb5e9b477e589dc25690fda970cc0` passed the real PostgreSQL17.11 API-role test: ordinary nonowner/nonsuperuser/non-bypass login created and restored authority/core5/setup through normal commands and retained audit. The final PG-only job `98c7dccc96221e80f274e8b03bb225b2` passed1/1 with zero skipped. Receipts: `/srv/workers/rr-operator790-20261102-165027/qualification-pg17-safety1/receipt.json`. All owned temporary clusters are stopped with data and prior failure evidence preserved. Successful unrelated checks were not rerun. No production mutation, deployment or model call performed by this slice.

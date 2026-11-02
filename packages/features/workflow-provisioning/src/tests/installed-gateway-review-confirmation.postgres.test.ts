@@ -294,16 +294,18 @@ describe.skipIf(!adminUrl)(
           id: "operator-config",
           workspaceId: command.workspaceId,
           targetKey: "workspace:default",
-          versions: {
-            create: {
-              workspaceId: command.workspaceId,
-              version: 1,
-              schemaVersion: policy.schemaVersion,
-              policyJson: JSON.stringify(policy),
-              gatewayBindingId: "operator-binding",
-              gatewayProfileRef: profileRef,
-            },
-          },
+        },
+      });
+      // Match the canonical policy writer's top-level scoped version create.
+      // The profile selected by policyJson owns the binding; schema 5 does not
+      // use the legacy version-level gateway pointer columns.
+      await admin.reviewConfigurationVersion.create({
+        data: {
+          configurationId: "operator-config",
+          workspaceId: command.workspaceId,
+          version: 1,
+          schemaVersion: policy.schemaVersion,
+          policyJson: JSON.stringify(policy),
         },
       });
       // Existing global safety baseline is a prerequisite; create it through the
@@ -315,21 +317,42 @@ describe.skipIf(!adminUrl)(
         policyCommands: repositories.safetyControls,
         emergencyCommands: repositories.safetyControls,
       });
-      for (const capability of gatewayReviewV2SafetyCapabilities)
-        await safety.updateReviewSafetyPolicy({
-          expectedVersion: 0,
-          scope: { scope: ReviewSafetyPolicyScope.Global },
+      const globalScope = { scope: ReviewSafetyPolicyScope.Global } as const;
+      for (const capability of gatewayReviewV2SafetyCapabilities) {
+        const current =
+          await repositories.safetyControls.findReviewSafetyPolicy({
+            scope: globalScope,
+            capability,
+          });
+        const result = await safety.updateReviewSafetyPolicy({
+          expectedVersion: current?.version ?? 0,
+          scope: globalScope,
           capability,
           rolloutMode: ReviewSafetyRolloutMode.Allowlisted,
           updatedBy: "fixture-bootstrap",
         });
-      await safety.setReviewSafetyEmergencyStop({
-        expectedVersion: 0,
-        scope: { scope: ReviewSafetyPolicyScope.Global },
+        expect(result.status, JSON.stringify(result)).not.toBe("conflict");
+        expect(result).toMatchObject({
+          policy: { rolloutMode: ReviewSafetyRolloutMode.Allowlisted },
+        });
+      }
+      // Cold migration 000029 deliberately seeds a stopped global version 1.
+      // Use the normal CAS command with that actual version; never ignore a
+      // rejected baseline write and misdiagnose the production safety guard.
+      const currentStop =
+        await repositories.safetyControls.findReviewSafetyEmergencyControl(
+          globalScope,
+        );
+      expect(currentStop).toMatchObject({ version: 1, stopped: true });
+      const opened = await safety.setReviewSafetyEmergencyStop({
+        expectedVersion: currentStop!.version,
+        scope: globalScope,
         stopped: false,
         reason: "isolated-test-baseline",
         updatedBy: "fixture-bootstrap",
       });
+      expect(opened.status, JSON.stringify(opened)).toBe("updated");
+      expect(opened).toMatchObject({ control: { stopped: false, version: 2 } });
       const runtimeUrl = new URL(databaseUrl);
       runtimeUrl.username = "reviewrouter_api";
       runtimeUrl.password = "";
@@ -423,7 +446,9 @@ describe.skipIf(!adminUrl)(
           if (!member) throw new Error("forbidden");
         },
       });
-      expect(await service.confirm(command)).toMatchObject({
+      const created = await service.confirm(command);
+      expect(created.status, JSON.stringify(created)).toBe("ready");
+      expect(created).toMatchObject({
         status: "ready",
         outcome: "created",
         sourceCommitSha: head,
@@ -450,7 +475,9 @@ describe.skipIf(!adminUrl)(
         status: "configured",
         installedWorkflowRequirement: "gateway",
       });
-      expect(await service.confirm(command)).toMatchObject({
+      const restored = await service.confirm(command);
+      expect(restored.status, JSON.stringify(restored)).toBe("ready");
+      expect(restored).toMatchObject({
         status: "ready",
         outcome: "restored",
       });
