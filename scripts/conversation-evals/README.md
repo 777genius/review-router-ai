@@ -10,9 +10,9 @@ qualify a real GitHub App installation or replace the disposable App-first E2E.
 ## Full-thread successor slice
 
 `--corpus full-thread-v2` selects the separately versioned
-`corpus.full-thread-v2.json`, revision `2026-10-30-full-thread-r1`: **16 whole
-threads, 10 tuning / 6 protected, 50 events and 21 fact labels in 10 scenario
-groups**. Four groups have positive same-repository A→B recall. Two other paired
+`corpus.full-thread-v2.json`, revision `2026-11-02-full-thread-r2`: **22 whole
+threads, 16 tuning / 6 protected, 69 events and 29 fact labels in 13 scenario
+groups**. Six groups have positive same-repository A→B recall. Three other paired
 groups use different repositories in one workspace to test shared settings and
 repository memory isolation; they are not counted as positive cross-thread recall.
 The original `corpus.json`, its split, labels and numeric targets are unchanged.
@@ -47,11 +47,25 @@ template-repository GitHub URL. Later thread edits do not revoke maintained
 ownership; native automatic facts retain their checked-context currency fences.
 
 Structural validation and scorer controls are measured mechanism evidence only.
-**Live native/product precision, recall and answer quality remain UNAVAILABLE until
-a qualified live run and bound human rubric exist.** No protected live checkpoint
-has been consumed for this successor. Its new protected labels must be reviewed
-before the first qualification claim. Existing deterministic native/PG suites do
-not supply semantic scores.
+**A tuning PASS is not a successful protected qualification.** Revision r1's
+checkpoint `rr-full-thread-v2-holdout-20261102-5da70100c-1`, run
+`43ec0ef0-ec1d-4981-9da0-de8725cc8e9e`, was consumed and ended `UNAVAILABLE`.
+Before the unavailable steps it also missed a completed contextual endorsement
+and its linked recall. Its six original protected threads and eight fact labels
+remain unchanged as tuning regression; only their split changes. Original r1
+reports retain their r1 identity and are not retagged as r2 evidence.
+
+The new protected set contains six unexecuted threads, 19 events and eight new
+facts: transactional inbox acknowledgement under unrelated hostile quoted data;
+distinct maintainers' export-completion disagreement with exact update/stale/Forget
+and an unaffected catalog neighbor; and Cedar/Maple audit conventions with shared
+confirmation settings, settled replay and strict repository isolation. The audit
+pair is an isolation test, not positive cross-repository recall. These scenarios
+were authored from the behavioral contract, not generated from model outputs.
+Static label review is owner-delegated agent review, not external or human
+independence. Review the new labels before one planned protected checkpoint;
+no r2 protected result or successful qualification exists. Existing deterministic
+native/PG suites do not supply semantic scores.
 
 ## Fixed corpus and gates
 

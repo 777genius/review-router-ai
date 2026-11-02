@@ -229,9 +229,9 @@ export async function loadCorpus(
   ) as Corpus;
   const ids = new Set(corpus.threads.map((thread) => thread.id));
   if (
-    ids.size !== (name === "legacy-v1" ? 48 : 16) ||
+    ids.size !== (name === "legacy-v1" ? 48 : 22) ||
     corpus.threads.filter((t) => t.split === "tuning").length !==
-      (name === "legacy-v1" ? 32 : 10) ||
+      (name === "legacy-v1" ? 32 : 16) ||
     corpus.threads.filter((t) => t.split === "holdout").length !==
       (name === "legacy-v1" ? 16 : 6)
   )
@@ -291,7 +291,7 @@ export async function loadCorpus(
           throw new Error("corpus_recall_answer_leaked_into_B");
     }
   }
-  if (pairs !== (name === "legacy-v1" ? 8 : 4))
+  if (pairs !== (name === "legacy-v1" ? 8 : 6))
     throw new Error("corpus_linked_inventory_invalid");
   return corpus;
 }

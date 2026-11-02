@@ -1921,16 +1921,56 @@ test("versioned full-thread supplement preserves legacy targets and binds only o
   const current = await loadCorpus("full-thread-v2");
   assert.equal(legacy.threads.length, 48);
   assert.deepEqual(current.targets, legacy.targets);
-  assert.equal(current.threads.length, 16);
+  assert.equal(current.revision, "2026-11-02-full-thread-r2");
+  assert.equal(current.threads.length, 22);
+  assert.equal(
+    current.threads.filter((thread) => thread.split === "tuning").length,
+    16,
+  );
   assert.equal(
     current.threads.filter((thread) => thread.split === "holdout").length,
     6,
   );
   assert.equal(
     current.threads.reduce((count, thread) => count + thread.events.length, 0),
-    50,
+    69,
   );
-  assert.equal(current.facts.length, 21);
+  assert.equal(current.facts.length, 29);
+  // The consumed checkpoint becomes tuning regression; only its split may change.
+  const consumedThreads = {
+    "protected-context-A":
+      "5e6012f0decf5d3a2bfc7b6060ac7db63e6b44dd080677532f570ceeb89926cc",
+    "protected-context-B":
+      "585437dd5c43133f1b804d005a4cd3936e4956bc471213a9f78c3519bfd4184a",
+    "protected-revision-A":
+      "8e7ef15416fa72c9a4091c1da5eaab5fcb95399f445700e157645fae720b58dd",
+    "protected-revision-B":
+      "e18ba9a482467975061c8d78daa895e64673669c95d1280ec367468bde60a05e",
+    "protected-workspace-A":
+      "da4839ce98de6d21c34c334d26806c1b1e182b93faecabacfec3e6e1600e9827",
+    "protected-workspace-B":
+      "2e3a04db383fb876f08f679e8eae3b899fce4420d004079ea7206e9472a71e60",
+  };
+  for (const [id, digest] of Object.entries(consumedThreads)) {
+    const thread = current.threads.find((row) => row.id === id)!;
+    assert.equal(thread.split, "tuning");
+    assert.equal(
+      createHash("sha256")
+        .update(JSON.stringify({ ...thread, split: "holdout" }))
+        .digest("hex"),
+      digest,
+    );
+  }
+  assert.equal(
+    createHash("sha256")
+      .update(
+        JSON.stringify(
+          current.facts.filter((fact) => fact.threadId in consumedThreads),
+        ),
+      )
+      .digest("hex"),
+    "f278198f9e17a22be6f6844b1475a3ef411bf51c4d69d32ac9f46a2c80b4012f",
+  );
   const confirmation = current.threads.find(
     (thread) => thread.id === "workspace-modes-A",
   )!;

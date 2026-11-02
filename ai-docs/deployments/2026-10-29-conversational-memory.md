@@ -275,3 +275,35 @@ learning/recall/Forget acceptance, then genuine strict-v2 qualification artifact
 publication and clean self-hosted installation acceptance. The static protected
 set contains six threads and 18 events; its conflict slice does not independently
 prove two distinct human maintainers, which is covered by the tuning case.
+
+## Protected checkpoint regression and successor, 2026-11-02
+
+The planned protected checkpoint `rr-full-thread-v2-holdout-20261102-5da70100c-1`
+ran once as `43ec0ef0-ec1d-4981-9da0-de8725cc8e9e` and ended UNAVAILABLE after
+11 events. The original report SHA256 is
+`e982fe8c79ae80045019290b2dabc962cbbe0ec741e29eff36164b769faea78c`.
+The completed, closed contextual endorsement extraction missed a legitimate
+maintainer-approved fact and therefore failed required linked recall. Correct
+exact-target revision handling does not compensate for that failure. Later
+unavailable outputs prove neither stale-revision nor Forget acceptance.
+
+The last extraction's durable SDK result is `busy`, `not_dispatched`, execution
+unknown false, cleanup `not_needed`. A read-only cached Account Gateway quota
+snapshot observed on the selected account reports 100 percent weekly usage,
+resetting November 8 at 09:27:12 UTC. No replacement model request was made for
+those unavailable outputs. The partial checkpoint cannot issue qualification.
+
+The successor clarifies that a selected maintainer's unambiguous factual
+endorsement supplies authority even when another author proposed the fact;
+unrelated hostile quotations do not invalidate it. Ambiguous references,
+untrusted directives and host authority checks remain excluded. This changes
+the preview source digest, so the old tuning PASS cannot qualify the successor.
+Corpus revision `2026-11-02-full-thread-r2` preserves the consumed set unchanged
+as tuning regression and introduces a new six-thread protected set. Fresh
+successor tuning and one protected checkpoint remain required.
+
+Public [Action v1.0.226](https://github.com/777genius/review-router/releases/tag/v1.0.226)
+was published by [run 41438607878](https://github.com/777genius/review-router/actions/runs/41438607878)
+at exact commit `fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8`. The successor CI
+pairs that immutable commit. Private protected-main gates, release, production
+installation and App-first automatic-learning acceptance remain outstanding.
