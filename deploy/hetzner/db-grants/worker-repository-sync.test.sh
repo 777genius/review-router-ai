@@ -32,6 +32,68 @@ apply_grant() { database < "$GRANT_SQL" > "$WORK/grant.log" 2>&1; }
 column_absent() {
   [ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','scmRepositoryIdentityId','UPDATE')")" = f ] || fail "SCM UPDATE was granted after refusal"
 }
+# Reproduce an actual stale-grant state *before* every refused guard check.
+# Both table-level and independent column grants must exist; a rollback-only
+# revoke would otherwise pass a test that begins from an already-clean ACL.
+reintroduce_worker_write_drift() {
+  owner -c 'GRANT INSERT, UPDATE, DELETE, TRUNCATE ON public."RepositoryConnection", public."GitHubInstallation" TO reviewrouter_worker' > /dev/null
+  owner -c 'GRANT INSERT ("id","workspaceId","fullName","installationId"), UPDATE ("id","fullName","installationId","scmRepositoryIdentityId") ON public."RepositoryConnection" TO reviewrouter_worker' > /dev/null
+  owner -c 'GRANT INSERT ("id","workspaceId"), UPDATE ("id","workspaceId") ON public."GitHubInstallation" TO reviewrouter_worker' > /dev/null
+  local before
+  before="$(owner -qAt -c "SELECT
+    has_table_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','INSERT'),
+    has_table_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','DELETE'),
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) acl
+      WHERE a.attrelid='public.\"RepositoryConnection\"'::regclass
+        AND a.attname='fullName'
+        AND acl.grantee='reviewrouter_worker'::regrole
+        AND acl.privilege_type='INSERT'
+    ),
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) acl
+      WHERE a.attrelid='public.\"GitHubInstallation\"'::regclass
+        AND a.attname='workspaceId'
+        AND acl.grantee='reviewrouter_worker'::regrole
+        AND acl.privilege_type='UPDATE'
+    )")"
+  [ "$before" = 't|t|t|t' ] ||
+    fail "pre-refusal worker table/independent column writes were not actually present ($before)"
+}
+worker_write_absent() {
+  local label="$1"
+  local result
+  # Dynamically examine every current column, not only a small sample of
+  # allowed columns, so adding an untested writable column cannot pass.
+  result="$(owner -qAt -c "SELECT
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_class c
+      WHERE c.oid IN (
+        'public.\"RepositoryConnection\"'::regclass,
+        'public.\"GitHubInstallation\"'::regclass
+      ) AND (
+        has_table_privilege('reviewrouter_worker',c.oid,'INSERT')
+        OR has_table_privilege('reviewrouter_worker',c.oid,'UPDATE')
+        OR has_table_privilege('reviewrouter_worker',c.oid,'DELETE')
+        OR has_table_privilege('reviewrouter_worker',c.oid,'TRUNCATE')
+      )
+    ),
+    EXISTS (
+      SELECT 1 FROM pg_catalog.pg_attribute a
+      WHERE a.attrelid IN (
+        'public.\"RepositoryConnection\"'::regclass,
+        'public.\"GitHubInstallation\"'::regclass
+      ) AND a.attnum > 0 AND NOT a.attisdropped AND (
+        has_column_privilege('reviewrouter_worker',a.attrelid,a.attnum,'INSERT')
+        OR has_column_privilege('reviewrouter_worker',a.attrelid,a.attnum,'UPDATE')
+      )
+    )")"
+  [ "$result" = 'f|f' ] ||
+    fail "$label left any worker table or column writes after refused guard verification ($result)"
+  deny_worker "$label-no-write" "$(insert_repo_sql "forbidden-$label" 'workspace-2' 'installation-1' '1088' 1088)"
+}
 deny_worker() {
   local label="$1" sql="$2"
   if worker -c "$sql" > "$WORK/$label.log" 2>&1; then fail "$label unexpectedly succeeded"; fi
@@ -61,6 +123,14 @@ CREATE TABLE public."ScmRepositoryIdentity" (
   "currentRepositoryConnectionId" text,
   "currentWorkspaceId" text
 );
+-- Owner-provided installation fixture; worker has no SELECT grant here.
+-- The insert trigger must read the parent under SECURITY DEFINER.
+CREATE TABLE public."GitHubInstallation" (
+  "id" text PRIMARY KEY, "workspaceId" text NOT NULL
+);
+INSERT INTO public."GitHubInstallation" VALUES
+  ('installation-1','workspace-1'),
+  ('installation-foreign','workspace-2');
 CREATE TABLE public."RepositoryConnection" (
   "id" text PRIMARY KEY, "workspaceId" text NOT NULL,
   "provider" text, "sourceBaseUrl" text, "externalRepositoryId" text,
@@ -79,6 +149,12 @@ INSERT INTO public."ScmRepositoryIdentity" VALUES
   ('identity-a',NULL,NULL),
   ('identity-b','another-repository','workspace-1'),
   ('identity-c','repo-unbound','another-workspace');
+-- Canonical ACL initially gives broad worker DML on the installation anchor.
+-- Explicit column grants must also be stripped, not just table privileges.
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE
+  ON public."GitHubInstallation" TO reviewrouter_worker;
+GRANT INSERT ("id","workspaceId"), UPDATE ("id","workspaceId")
+  ON public."GitHubInstallation" TO reviewrouter_worker;
 GRANT SELECT ON public."RepositoryConnection", public."ScmRepositoryIdentity" TO reviewrouter_worker;
 GRANT UPDATE ("currentRepositoryConnectionId","currentWorkspaceId")
   ON public."ScmRepositoryIdentity" TO reviewrouter_worker;
@@ -92,6 +168,89 @@ test -s "$WORK/trigger.sql" || fail "migration trigger was not extracted"
 owner < "$WORK/trigger.sql" > "$WORK/trigger.log" 2>&1
 apply_grant || { cat "$WORK/grant.log" >&2; fail "first grant application failed"; }
 apply_grant || fail "idempotent grant application failed"
+
+insert_repo_sql() {
+  local id="$1" workspace="$2" installation="$3" external="$4"
+  local repository_id="$5" provider="${6:-github}" source="${7:-https://github.com}"
+  printf 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","installationId","provider","sourceBaseUrl","externalRepositoryId","githubRepositoryId","owner","name","fullName","defaultBranch","visibility") VALUES ('"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"',%s,'"'"'owner'"'"','"'"'repo'"'"','"'"'owner/repo'"'"','"'"'main'"'"','"'"'private'"'"');' \
+    "$id" "$workspace" "$installation" "$provider" "$source" "$external" "$repository_id"
+}
+# Exercise the actual LOGIN-backed worker; SET ROLE from an owner would bypass
+# session_user and therefore would not prove the tenant boundary.
+worker -c "$(insert_repo_sql 'repo-created' 'workspace-1' 'installation-1' '1001' 1001)" \
+  > "$WORK/worker-insert-success.log" 2>&1 || fail "legitimate worker INSERT failed"
+[ "$(owner -qAt -c "SELECT count(*) FROM public.\"RepositoryConnection\" WHERE \"id\"='repo-created'")" = 1 ] \
+  || fail "legitimate worker INSERT not committed"
+deny_worker foreign_tenant_insert "$(insert_repo_sql 'forbidden-ws' 'workspace-2' 'installation-1' '1002' 1002)"
+deny_worker foreign_installation_insert "$(insert_repo_sql 'forbidden-install' 'workspace-1' 'installation-foreign' '1003' 1003)"
+deny_worker missing_installation_insert "$(insert_repo_sql 'forbidden-missing' 'workspace-1' 'missing-installation' '1004' 1004)"
+deny_worker mismatched_repository_id "$(insert_repo_sql 'forbidden-id' 'workspace-1' 'installation-1' 'different-id' 1005)"
+deny_worker invalid_provider_insert "$(insert_repo_sql 'forbidden-provider' 'workspace-1' 'installation-1' '1006' 1006 gitlab)"
+deny_worker invalid_source_insert "$(insert_repo_sql 'forbidden-source' 'workspace-1' 'installation-1' '1007' 1007 github 'https://attacker.invalid')"
+deny_worker zero_repository_id "$(insert_repo_sql 'forbidden-zero' 'workspace-1' 'installation-1' '0' 0)"
+deny_worker null_installation_insert 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","provider","sourceBaseUrl","externalRepositoryId","githubRepositoryId") VALUES ('"'"'forbidden-null'"'"','"'"'workspace-1'"'"','"'"'github'"'"','"'"'https://github.com'"'"','"'"'1008'"'"',1008)'
+# The ordinary grant omits this column, so merely asserting SQLSTATE 42501
+# would only test the ACL. Temporarily grant it in the disposable PG17 fixture
+# and prove the actual guard message rejects an otherwise valid GitHub row.
+owner -c 'GRANT INSERT ("scmRepositoryIdentityId") ON public."RepositoryConnection" TO reviewrouter_worker' > /dev/null
+if worker -c 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","installationId","provider","sourceBaseUrl","externalRepositoryId","githubRepositoryId","scmRepositoryIdentityId") VALUES ('"'"'forbidden-identity'"'"','"'"'workspace-1'"'"','"'"'installation-1'"'"','"'"'github'"'"','"'"'https://github.com'"'"','"'"'1011'"'"',1011,'"'"'identity-a'"'"')' > "$WORK/insert_scm_identity.log" 2>&1; then
+  fail "pre-bound SCM identity unexpectedly inserted"
+fi
+grep -Eq 'ERROR:[[:space:]]+42501: worker_repository_insert_identity_forbidden' "$WORK/insert_scm_identity.log" ||
+  fail "SCM identity was not rejected by the BEFORE INSERT guard: $(cat "$WORK/insert_scm_identity.log")"
+owner -c 'REVOKE INSERT ("scmRepositoryIdentityId") ON public."RepositoryConnection" FROM reviewrouter_worker' > /dev/null
+[ "$(owner -qAt -c "SELECT has_column_privilege('reviewrouter_worker','public.\"RepositoryConnection\"','scmRepositoryIdentityId','INSERT')")" = f ] ||
+  fail "temporary SCM INSERT privilege survived the guard assertion"
+echo "ok - insert_scm_identity rejected by the actual BEFORE INSERT guard"
+# The guarded LOGIN cannot move or forge the installation tenant anchor.
+deny_worker forged_installation 'INSERT INTO public."GitHubInstallation" ("id","workspaceId") VALUES ('"'"'forged-anchor'"'"','"'"'workspace-2'"'"')'
+deny_worker moved_installation 'UPDATE public."GitHubInstallation" SET "workspaceId"='"'"'workspace-2'"'"' WHERE "id"='"'"'installation-1'"'"''
+deny_worker deleted_installation 'DELETE FROM public."GitHubInstallation" WHERE "id"='"'"'installation-1'"'"''
+[ "$(owner -qAt -c "SELECT has_table_privilege('reviewrouter_worker','public.\"GitHubInstallation\"','SELECT')")" = t ] ||
+  fail "worker lost sanctioned read access to GitHubInstallation"
+echo "ok - valid LOGIN insert and cross-tenant/identity/provider INSERT denials; immutable tenant anchor"
+
+# Independent column-grant drift on the parent must also be stripped by the
+# post-ACL owner grant, while API-owned installation writers stay untouched.
+owner -c 'GRANT INSERT ("id"), UPDATE ("workspaceId") ON public."GitHubInstallation" TO reviewrouter_worker' > /dev/null
+apply_grant || fail "reapplication did not revoke parent column-grant drift"
+deny_worker anchor_drift_forgery 'INSERT INTO public."GitHubInstallation" ("id","workspaceId") VALUES ('"'"'anchor-after-drift'"'"','"'"'workspace-2'"'"')'
+deny_worker anchor_drift_move 'UPDATE public."GitHubInstallation" SET "workspaceId"='"'"'workspace-2'"'"' WHERE "id"='"'"'installation-1'"'"''
+
+# Re-apply after a previously successful worker grant without pre-revoking
+# even one column. A refused re-verification MUST commit denial before return.
+# Real LOGIN INSERT must fail 42501 while any guard is absent or corrupted.
+owner -c 'ALTER TABLE public."RepositoryConnection" DISABLE TRIGGER "RepositoryConnection_worker_insert_scope_guard"' > /dev/null
+reintroduce_worker_write_drift
+if apply_grant; then fail "disabled INSERT trigger unexpectedly accepted"; fi
+worker_write_absent disabled-guard
+owner -c 'ALTER TABLE public."RepositoryConnection" ENABLE TRIGGER "RepositoryConnection_worker_insert_scope_guard"' > /dev/null
+apply_grant || fail "guard did not recover after explicit reenable"
+worker -c "$(insert_repo_sql 'repo-after-reenable' 'workspace-1' 'installation-1' '1009' 1009)" > /dev/null ||
+  fail "legitimate worker INSERT not restored after explicit reenable"
+owner -c 'DROP TRIGGER "RepositoryConnection_worker_insert_scope_guard" ON public."RepositoryConnection"' > /dev/null
+reintroduce_worker_write_drift
+if apply_grant; then fail "missing INSERT trigger unexpectedly accepted"; fi
+worker_write_absent missing-guard
+owner -c 'DROP FUNCTION public.reviewrouter_worker_repository_insert_guard()' > /dev/null
+apply_grant || fail "owner failed to reinitialize fully removed guard"
+owner > "$WORK/insert-guard-tamper.log" 2>&1 <<'SQL'
+CREATE OR REPLACE FUNCTION public.reviewrouter_worker_repository_insert_guard()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $tampered$ BEGIN RETURN NEW; END $tampered$;
+SQL
+reintroduce_worker_write_drift
+if apply_grant; then fail "tampered INSERT function unexpectedly accepted"; fi
+worker_write_absent tampered-guard
+owner -c 'DROP TRIGGER "RepositoryConnection_worker_insert_scope_guard" ON public."RepositoryConnection"' > /dev/null
+owner -c 'DROP FUNCTION public.reviewrouter_worker_repository_insert_guard()' > /dev/null
+apply_grant || fail "owner failed to recover from tampered function after explicit reset"
+worker -c "$(insert_repo_sql 'repo-after-tamper-repair' 'workspace-1' 'installation-1' '1010' 1010)" > /dev/null ||
+  fail "legitimate worker INSERT not restored after explicit tamper repair"
+[ "$(owner -qAt -c "SELECT count(*) FROM public.\"RepositoryConnection\" WHERE \"id\" LIKE 'forbidden-%'")" = 0 ] \
+  || fail "a denied cross-tenant INSERT persisted"
+echo "ok - disabled/missing/tampered INSERT guard blocks privilege reissue"
 
 # session_user must be the real LOGIN worker, never a privileged SET ROLE.
 if ! worker > "$WORK/first-bind.log" 2>&1 <<'SQL'

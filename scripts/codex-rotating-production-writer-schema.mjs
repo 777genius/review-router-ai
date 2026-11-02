@@ -1452,6 +1452,18 @@ export const codexRotatingTriggers = Object.freeze([
   "RepositoryConnection_runtime_referential_action_guard",
 ]);
 
+// The owner-operated worker INSERT fence is installed *after* the canonical ACL,
+// not by a rotating-OAuth migration. Historical/pre-grant databases may lack it.
+// When present on RepositoryConnection, rotating catalog evidence MUST bind all
+// of its exact metadata; never silently exclude the trigger from capture.
+export const codexRotatingPostAclWorkerInsertGuard = Object.freeze({
+  trigger: "RepositoryConnection_worker_insert_scope_guard",
+  function: "reviewrouter_worker_repository_insert_guard",
+  owner: "reviewrouter",
+  bodySha256:
+    "afb7fbfad86dc730876fcc74f4a112fd3cd55703b8892469f0f817df9791a282",
+});
+
 export const codexRotatingPublicExecuteDeniedFunctions = codexRotatingFunctions;
 
 export function catalogColumnKey(column) {
