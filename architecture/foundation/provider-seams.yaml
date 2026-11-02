@@ -457,6 +457,7 @@ boundaries:
         - "@get-modular/assembly"
         - "@prisma/client"
         - "@reviewrouter/features-entitlements"
+        - "@reviewrouter/platform-config"
       builtins: []
       runtimeReferences: []
   - id: memory.public

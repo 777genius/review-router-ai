@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 import { createGitHubAutomaticMemorySourceCurrent } from "../infrastructure/github/github-automatic-memory-source-current";
 import type { MemoryAutomaticSourceCurrentPort } from "../application/ports/memory-automatic-source-port";
 import { createPrismaAutomaticMemorySourceCurrent } from "../composition/automatic-memory-source-current";
 import { StaticMemoryPolicyConfig } from "../application/ports/memory-policy-config-port";
-import { conversationCapabilityFixture } from "../../../../platform/config/src/tests/conversation-qualification-fixture.js";
 
 const digest = (body: string) =>
   createHash("sha256").update(body).digest("hex");
@@ -217,7 +217,42 @@ function composedFixture(version: 1 | 2 = 2, staleSource = false) {
     request: f.request,
     graphql: f.graphql,
   }));
-  const capability = conversationCapabilityFixture({ proofId: "qualified" });
+  // Read the canonical source stamp as test data, without importing another
+  // package's private test implementation. This is synthetic admission input.
+  const sourceStamp = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../../platform/config/src/conversation-source-stamp.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as {
+    kind: string;
+    sourceProfile: {
+      commonPromptSourceDigest: string;
+      gatewayPreviewSourceDigest: string;
+      accountPolicySourceDigest: string;
+      gatewaySdkProvenanceDigest: string;
+    };
+  };
+  expect(sourceStamp.kind).toBe("reviewrouter-conversation-source-stamp/v1");
+  const capability = {
+    profileVersion: 2,
+    proofId: "qualified",
+    sourceProcessingProfile: "transient-checked-inline-gateway-full-thread-v1",
+    runtimeSha: "a".repeat(40),
+    coverage: "normal-current-product-admission",
+    sourceProfile: { ...sourceStamp.sourceProfile },
+    models: [
+      {
+        profileId: "openai-codex-oauth-responses-v1",
+        model: "gpt-6.1-sol",
+        contextWindowTokens: 128000,
+        tokensPerByteUpperBound: 4,
+      },
+    ],
+  };
   if (staleSource)
     capability.sourceProfile.accountPolicySourceDigest = "0".repeat(64);
   const {
