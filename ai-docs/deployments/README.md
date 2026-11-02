@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Gateway saturation follow-up: [terminal-run cleanup](2026-11-02-gateway-terminal-run-cleanup.md) — staging/production `pending`; qualify exact terminal-run cleanup and verify real review after the coordinated rollout.
+
 Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging/production `pending`; preserve immutable usage facts and coordinate one Web/API/worker rollout.
 
 | Task                                                                                   | Implementation                                                                                                                                           | Staging   | Production    | Remaining work                                                                                                                                                        |
