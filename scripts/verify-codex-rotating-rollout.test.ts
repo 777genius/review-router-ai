@@ -291,6 +291,40 @@ describe("observation-backed Codex rotating rollout verifier", () => {
     );
   });
 
+  it("preserves the existing PG17 rehearsal baseline but rejects an altered worker guard function", () => {
+    const catalog = observedFixture().artifacts.database.catalog;
+    const legacy = catalog.functions.find(
+      (entry: any) =>
+        entry.name === "codex_oauth_authorize_runtime_completion",
+    );
+    expect(legacy).toBeDefined();
+    legacy.bodySha256 = digest(Buffer.from("legacy rehearsal definition"));
+    expect(
+      verifyCodexRotatingDatabaseCatalog(catalog, {
+        verifyPrivileges: false,
+      }),
+    ).toEqual({ ok: true, failures: [] });
+
+    addPostAclWorkerGuard(catalog);
+    expect(
+      verifyCodexRotatingDatabaseCatalog(catalog, {
+        verifyPrivileges: false,
+      }),
+    ).toEqual({ ok: true, failures: [] });
+
+    const guard = catalog.functions.find(
+      (entry: any) => entry.name === workerInsertGuard.function,
+    );
+    guard.bodySha256 = digest(Buffer.from("BEGIN RETURN NEW; END"));
+    expect(
+      verifyCodexRotatingDatabaseCatalog(catalog, {
+        verifyPrivileges: false,
+      }).failures,
+    ).toContain(
+      `database trigger function definitions are not exact: ${workerInsertGuard.function}`,
+    );
+  });
+
   it("attests the exact existing owner-operated INSERT guard without hiding new catalog objects", () => {
     const fixture = observedFixture();
     const catalog = fixture.artifacts.database.catalog;

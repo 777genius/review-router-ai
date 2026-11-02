@@ -1042,14 +1042,25 @@ export function verifyCodexRotatingDatabaseCatalog(
     { catalog },
     {},
     (condition, message) => {
-      if (
-        !condition &&
-        (catalogMessages.has(message) ||
-          message.startsWith("database trigger function definitions are not exact: "))
-      ) failures.push(message);
+      if (!condition && catalogMessages.has(message)) failures.push(message);
     },
     {},
   );
+  // The standalone PG17 rehearsal accepts the established legacy routine
+  // inventory. Pin only the newly observed post-ACL guard here; the complete
+  // rollout verifier separately enforces all canonical function definitions.
+  if (
+    isWorkerInsertGuardObserved(catalog) &&
+    !catalog?.functions?.some(
+      (entry) =>
+        entry?.name === workerInsertGuard.function &&
+        exactFunctionDefinition(entry),
+    )
+  ) {
+    failures.push(
+      `database trigger function definitions are not exact: ${workerInsertGuard.function}`,
+    );
+  }
   if (!verifyPrivileges) {
     const structuralFailures = failures.filter(
       (failure) =>
