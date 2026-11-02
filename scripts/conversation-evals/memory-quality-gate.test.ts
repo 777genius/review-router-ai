@@ -157,7 +157,7 @@ test("three independent human-scored runs expose variation without fabricated se
     split: "tuning",
     reviewer: "synthetic-human-rubric-reference",
     extractionMechanism: gatewayCandidateMechanism,
-    candidateSourceProfile: provenance,
+    candidateSourceProfile: { ...provenance },
     candidateModelBoundsDigest: "b".repeat(64),
     observedModels: ["actual-model-id"],
     productionActivated: false,
