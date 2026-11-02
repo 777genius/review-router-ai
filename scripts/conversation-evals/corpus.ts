@@ -251,13 +251,7 @@ export async function loadCorpus(
   const profile = corpusProfiles[name];
   if (!profile) throw new Error("eval_corpus_unknown");
   const corpus = JSON.parse(
-    await readFile(
-      new URL(
-        profile.file,
-        import.meta.url,
-      ),
-      "utf8",
-    ),
+    await readFile(new URL(profile.file, import.meta.url), "utf8"),
   ) as Corpus;
   const ids = new Set(corpus.threads.map((thread) => thread.id));
   if (
@@ -266,8 +260,10 @@ export async function loadCorpus(
       profile.tuning ||
     corpus.threads.filter((t) => t.split === "holdout").length !==
       profile.holdout ||
-    corpus.threads.reduce((count, thread) => count + thread.events.length, 0) !==
-      profile.events
+    corpus.threads.reduce(
+      (count, thread) => count + thread.events.length,
+      0,
+    ) !== profile.events
   )
     throw new Error("corpus_whole_thread_split_invalid");
   const factIds = new Set(corpus.facts.map((fact) => fact.id));

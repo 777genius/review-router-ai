@@ -64,12 +64,17 @@ const validRatio = (value: Ratio | undefined): boolean =>
       Math.abs(value.value - value.numerator / value.denominator) < 1e-9);
 
 /** Compare independently human-scored real runs; never score raw model text itself. */
-export function summarizeQualityRuns(values: unknown[]): Record<string, unknown> {
-  if (values.length !== 3) throw new Error("eval_reliability_three_runs_required");
+export function summarizeQualityRuns(
+  values: unknown[],
+): Record<string, unknown> {
+  if (values.length !== 3)
+    throw new Error("eval_reliability_three_runs_required");
   const runs = values as ScoredRun[];
   const baseline = runs[0]!;
   const baselineProfile = JSON.stringify(
-    candidateSourceDigestKeys.map((key) => baseline.candidateSourceProfile?.[key]),
+    candidateSourceDigestKeys.map(
+      (key) => baseline.candidateSourceProfile?.[key],
+    ),
   );
   const baselineModels = JSON.stringify(baseline.observedModels);
   if (
@@ -92,7 +97,11 @@ export function summarizeQualityRuns(values: unknown[]): Record<string, unknown>
       run.corpusName !== baseline.corpusName ||
       run.corpusRevision !== baseline.corpusRevision ||
       run.candidateModelBoundsDigest !== baseline.candidateModelBoundsDigest ||
-      JSON.stringify(candidateSourceDigestKeys.map((key) => run.candidateSourceProfile?.[key])) !== baselineProfile ||
+      JSON.stringify(
+        candidateSourceDigestKeys.map(
+          (key) => run.candidateSourceProfile?.[key],
+        ),
+      ) !== baselineProfile ||
       JSON.stringify(run.observedModels) !== baselineModels ||
       !run.runId ||
       !run.reviewer ||
@@ -118,15 +127,15 @@ export function summarizeQualityRuns(values: unknown[]): Record<string, unknown>
       (result.missingRequiredEffects ?? 0) < 0 ||
       !Array.isArray(result.linkedWitnesses) ||
       !result.linkedWitnesses.length ||
-      !result.linkedWitnesses.every((witness) => typeof witness.passed === "boolean")
+      !result.linkedWitnesses.every(
+        (witness) => typeof witness.passed === "boolean",
+      )
     )
       throw new Error("eval_reliability_score_invalid");
     const meetsMinimum = (key: MetricName, limit: number) =>
-      result.metrics[key].value !== null &&
-      result.metrics[key].value! >= limit;
+      result.metrics[key].value !== null && result.metrics[key].value! >= limit;
     const meetsMaximum = (key: MetricName, limit: number) =>
-      result.metrics[key].value === null ||
-      result.metrics[key].value! <= limit;
+      result.metrics[key].value === null || result.metrics[key].value! <= limit;
     const passesGates =
       meetsMinimum("retainedFactPrecision", 0.95) &&
       meetsMinimum("eligibleFactRecall", 0.8) &&
@@ -156,7 +165,9 @@ export function summarizeQualityRuns(values: unknown[]): Record<string, unknown>
           observedRuns: values.length,
           min: values.length ? Math.min(...values) : null,
           max: values.length ? Math.max(...values) : null,
-          range: values.length ? Math.max(...values) - Math.min(...values) : null,
+          range: values.length
+            ? Math.max(...values) - Math.min(...values)
+            : null,
           // Keep each run's actual numerator/denominator: do not pool correlated samples.
           runs: runs.map((run) => run.results[0]!.metrics[name]),
         },
@@ -191,14 +202,17 @@ export function summarizeQualityRuns(values: unknown[]): Record<string, unknown>
       unauthorizedEffects: run.results[0]!.unauthorizedEffects,
       boundViolations: run.results[0]!.boundViolations,
       missingRequiredEffects: run.results[0]!.missingRequiredEffects ?? 0,
-      linkedPassed: run.results[0]!.linkedWitnesses.filter((x) => x.passed).length,
+      linkedPassed: run.results[0]!.linkedWitnesses.filter((x) => x.passed)
+        .length,
       linkedTotal: run.results[0]!.linkedWitnesses.length,
     })),
     metrics,
     productionActivated: false,
     qualificationIssued: false,
-    qualificationScope: "three independently human-scored tuning observations only",
-    caveat: "Engineering benchmark, not population reliability or protected holdout qualification",
+    qualificationScope:
+      "three independently human-scored tuning observations only",
+    caveat:
+      "Engineering benchmark, not population reliability or protected holdout qualification",
   };
 }
 
@@ -206,7 +220,9 @@ async function main(): Promise<void> {
   if (process.argv.length !== 5)
     throw new Error("usage_memory_quality_reliability_three_scored_json_files");
   const results = await Promise.all(
-    process.argv.slice(2).map(async (path) => JSON.parse(await readFile(path, "utf8")) as unknown),
+    process.argv
+      .slice(2)
+      .map(async (path) => JSON.parse(await readFile(path, "utf8")) as unknown),
   );
   const summary = summarizeQualityRuns(results);
   process.stdout.write(JSON.stringify(summary, null, 2) + "\n");

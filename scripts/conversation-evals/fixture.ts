@@ -245,7 +245,8 @@ export async function createEvaluationFixture(input: {
   const namespace = `eval_${rawHash(`${input.runId}:${input.scenario}`).slice(0, 40)}`;
   const pullRequestNumber =
     Number.parseInt(rawHash(namespace).slice(0, 7), 16) + 1;
-  const successor = input.corpusName !== undefined && input.corpusName !== "legacy-v1";
+  const successor =
+    input.corpusName !== undefined && input.corpusName !== "legacy-v1";
   const repositoryKeys = input.repositoryKeys ?? ["main"];
   const scopes = repositoryKeys.map((key) => ({
     kind: "repository" as const,

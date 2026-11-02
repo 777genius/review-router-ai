@@ -23,7 +23,7 @@ with a protected `memory-quality-eval` environment and an isolated runner
 (`MEMORY_QUALITY_EVAL_RUNNER`). Required environment secrets/variables are named
 in the workflow. Set `MEMORY_EVAL_PRIVATE_RESULTS_DIR` to an existing
 operator-owned mode-0700 directory under `/srv/reviewrouter-memory-quality/`
-on that runner. Before *any* paid inference, the workflow verifies its real
+on that runner. Before _any_ paid inference, the workflow verifies its real
 path and access, then creates a run-ID subdirectory with restrictive permissions.
 Each raw result is written there with mode 0600 and must be reviewed/retired
 under the operator's existing private evidence policy. No raw model responses
@@ -124,7 +124,7 @@ earn positive recall. The original two corpora, labels and thresholds are
 untouched. The held-out messages/labels are not tuning prompts.
 
 [`memory-quality-evals.yml`](../../.github/workflows/memory-quality-evals.yml)
-runs *only* fixed corpus/scorer contracts on pull requests. It also supports
+runs _only_ fixed corpus/scorer contracts on pull requests. It also supports
 a manual `live-tuning` dispatch **from reviewed `main`**, never a PR,
 using the protected `memory-quality-eval` GitHub Environment and dedicated
 `MEMORY_QUALITY_EVAL_RUNNER` variable. This runner must have a previously
@@ -139,16 +139,16 @@ production image or performs a deployment.
 
 The environment must provide, without exposing values in logs:
 
-| Setting | Source |
-| --- | --- |
-| `MEMORY_QUALITY_EVAL_RUNNER`, `MEMORY_EVAL_NAMESPACE`, `MEMORY_EVAL_GENERATION` | Protected environment/repository variables; both IDs begin `eval_` |
-| `MEMORY_EVAL_TEMPLATE_WORKSPACE_ID`, `MEMORY_EVAL_TEMPLATE_REPOSITORY_ID` | Minimal selected-account template fixture identifiers |
-| `MEMORY_EVAL_MODEL_BOUNDS_JSON` | Actual selected model/profile operational bounds, not an invented quality proof |
-| `MEMORY_EVAL_OPERATOR_ACK` | Protected secret, exact `APPROVED_ISOLATED_QUALITY_EVAL` |
-| `MEMORY_EVAL_DISPOSABLE_DATABASE_URL` | Protected secret, local PostgreSQL `*_test` only |
-| `MEMORY_EVAL_HINDSIGHT_URL`, `MEMORY_EVAL_HINDSIGHT_API_KEY` | Protected secrets, **dedicated loopback native**, never production |
-| `MEMORY_EVAL_GATEWAY_ORIGIN`, `MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER` | Authorized Gateway endpoint and scoped run-control secret |
-| `MEMORY_EVAL_GATEWAY_POLICY`, `MEMORY_EVAL_GATEWAY_RELAY_POLICY` | Existing selected-account Gateway authorization and relay policies |
+| Setting                                                                         | Source                                                                          |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `MEMORY_QUALITY_EVAL_RUNNER`, `MEMORY_EVAL_NAMESPACE`, `MEMORY_EVAL_GENERATION` | Protected environment/repository variables; both IDs begin `eval_`              |
+| `MEMORY_EVAL_TEMPLATE_WORKSPACE_ID`, `MEMORY_EVAL_TEMPLATE_REPOSITORY_ID`       | Minimal selected-account template fixture identifiers                           |
+| `MEMORY_EVAL_MODEL_BOUNDS_JSON`                                                 | Actual selected model/profile operational bounds, not an invented quality proof |
+| `MEMORY_EVAL_OPERATOR_ACK`                                                      | Protected secret, exact `APPROVED_ISOLATED_QUALITY_EVAL`                        |
+| `MEMORY_EVAL_DISPOSABLE_DATABASE_URL`                                           | Protected secret, local PostgreSQL `*_test` only                                |
+| `MEMORY_EVAL_HINDSIGHT_URL`, `MEMORY_EVAL_HINDSIGHT_API_KEY`                    | Protected secrets, **dedicated loopback native**, never production              |
+| `MEMORY_EVAL_GATEWAY_ORIGIN`, `MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER`          | Authorized Gateway endpoint and scoped run-control secret                       |
+| `MEMORY_EVAL_GATEWAY_POLICY`, `MEMORY_EVAL_GATEWAY_RELAY_POLICY`                | Existing selected-account Gateway authorization and relay policies              |
 
 If a requirement is absent or the operator has not approved the run, preflight
 fails before paid inference. No such environment is created automatically.
@@ -182,7 +182,7 @@ correlated examples into fake statistical confidence. `PASS` means **all three
 independently human-scored tuning runs** met existing engineering gates, not
 population reliability, an unconsumed protected holdout, or live product
 activation. Use the existing separately authorized one-time holdout process
-*only after* evaluating tuning and reviewing protected labels. Do not add a
+_only after_ evaluating tuning and reviewing protected labels. Do not add a
 holdout option to the CI workflow or repeat a consumed holdout as new evidence.
 
 ## Fixed corpus and gates

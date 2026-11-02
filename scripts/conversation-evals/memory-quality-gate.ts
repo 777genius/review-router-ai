@@ -51,8 +51,7 @@ export function assertLiveTuningPreflight(
     env.CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID ||
     env.CONVERSATION_EVAL_PRODUCTION_ACTIVATION ||
     env.REVIEW_ROUTER_MEMORY_PROVIDER !== "hindsight" ||
-    env.REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE !==
-      "hindsight-v1.1.0-chunks-v1"
+    env.REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE !== "hindsight-v1.1.0-chunks-v1"
   )
     throw new Error("eval_live_tuning_only");
   const database = env.CONVERSATION_EVAL_DATABASE_URL;
@@ -91,7 +90,9 @@ export function assertObservedTuningReport(
     !profile ||
     profile.extractionMechanism !== gatewayCandidateMechanism ||
     !candidateSourceDigestKeys.every(
-      (key) => typeof profile[key] === "string" && /^[a-f0-9]{64}$/.test(profile[key] as string),
+      (key) =>
+        typeof profile[key] === "string" &&
+        /^[a-f0-9]{64}$/.test(profile[key] as string),
     ) ||
     !Array.isArray(variants) ||
     variants.length !== 1 ||
@@ -108,7 +109,9 @@ async function main(): Promise<void> {
   const [operation, corpus, path] = process.argv.slice(2);
   if (operation === "preflight") {
     assertLiveTuningPreflight(process.env, corpus ?? "");
-    process.stdout.write("memory-quality live tuning: preflight accepted, no inference performed\n");
+    process.stdout.write(
+      "memory-quality live tuning: preflight accepted, no inference performed\n",
+    );
     return;
   }
   if (operation === "inspect" && path) {

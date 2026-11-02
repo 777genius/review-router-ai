@@ -104,7 +104,8 @@ if (!path || !reviewPath)
 const report = JSON.parse(await readFile(path, "utf8")) as Report;
 const review = JSON.parse(await readFile(reviewPath, "utf8")) as Review;
 const corpus = await loadCorpus(report.corpusName ?? "legacy-v1");
-const successor = report.corpusName !== undefined && report.corpusName !== "legacy-v1";
+const successor =
+  report.corpusName !== undefined && report.corpusName !== "legacy-v1";
 if (
   report.status === "UNAVAILABLE" ||
   review.runId !== report.runId ||
@@ -761,7 +762,10 @@ const observedModels = [
     fullProduct[0]!.scenarios!.flatMap((scenario) =>
       scenario.observations
         .map((row) => ("followup" in row ? row.followup : row).observedModel)
-        .filter((model): model is string => typeof model === "string" && model.length > 0),
+        .filter(
+          (model): model is string =>
+            typeof model === "string" && model.length > 0,
+        ),
     ),
   ),
 ].sort();
