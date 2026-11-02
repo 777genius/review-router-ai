@@ -7,9 +7,7 @@
   release/image and application rollout.
 - Public implementation: `v1.0.226`, exact commit
   `fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8`.
-- Private implementation: branch `fix/paired-action-226-ci-pin-20261102`, based on
-  protected main `220b73c0e82d6c684dcaeb6f37a3641831391c16`. Exact implementation
-  commit and Draft PR are pending Root delivery; record both before final Ready.
+- Private implementation: `e9a5c032941ebeacd632ab006aa30f162b9a1774` (the exact CI pin change), [Draft PR #795](https://github.com/777genius/review-router-ai/pull/795). Integration base: protected main `220b73c0e82d6c684dcaeb6f37a3641831391c16`; final Ready follows the integrated review batch.
 - Dependencies: the [release source of truth](../operations/07-environments-and-release-management.md#release-order)
   and the final integrated private source containing the review batch.
 - Release owner: the shared Root release workstream, chat prefix `01a196a4`.
@@ -62,7 +60,7 @@ Read-only GitHub verification on November2 established:
    CI does not qualify a later integration head.
 3. Merge through the normal PR process. Require the trusted CI on the resulting
    exact protected main, including successful, non-skipped `Dedicated Release
-   Authority PG17 contract` and `Full private PG16 to PG17 rehearsal` jobs and
+Authority PG17 contract` and `Full private PG16 to PG17 rehearsal` jobs and
    their exact-SHA evidence. Its `paired-action-release-gate` artifact must bind
    the published Action SHA above. Do not relabel a PR run or old-head artifact.
 4. The shared release owner alone continues the normal private226 release/image,
@@ -86,8 +84,8 @@ registrations and Memory data.
 
 ## Execution log
 
-| Environment / target | Result                                                  | Next action                                                           |
-| -------------------- | ------------------------------------------------------- | --------------------------------------------------------------------- |
-| public evidence      | Exact tag, successful CI and release verified read-only | Retain public immutable identities.                                   |
-| private source       | Pin prepared; commit/PR pending Root delivery           | Fill exact private commit/PR, then integrate final main before Ready. |
-| staging / production | No release, deploy or configuration change performed    | Shared release owner completes only authorized remaining phases.      |
+| Environment / target | Result                                                  | Next action                                                      |
+| -------------------- | ------------------------------------------------------- | ---------------------------------------------------------------- |
+| public evidence      | Exact tag, successful CI and release verified read-only | Retain public immutable identities.                              |
+| private source       | Pin committed; Draft PR #795 created                    | Integrate final main before Ready.                               |
+| staging / production | No release, deploy or configuration change performed    | Shared release owner completes only authorized remaining phases. |
