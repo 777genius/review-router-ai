@@ -367,7 +367,7 @@ export async function createEvaluationFixture(input: {
           kind: "human",
         },
       },
-      `${namespace}:preflight`,
+      conversationDigest(`${namespace}:preflight`),
       controls(),
     );
     if (!preflight.automaticLearning)
