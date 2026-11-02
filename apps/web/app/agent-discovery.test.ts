@@ -23,6 +23,9 @@ describe("public AI-agent discovery", () => {
     expect(llms).toContain("https://reviewrouter.org/pricing");
     expect(llms).toContain("https://reviewrouter.org/agents.md");
     expect(llms).toContain("https://reviewrouter.org/auth.md");
+    for (const line of llms.split("\\n").filter((value) => value.startsWith("- "))) {
+      expect(line).toMatch(/^- \\[[^\\]]+\\]\\(https:\\/\\/[^)]+\\)$/);
+    }
   });
 
   it("keeps permission and proposed-billing boundaries explicit", () => {
