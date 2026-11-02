@@ -1236,6 +1236,7 @@ async function fixture(
     snapshots,
     bindings,
   });
+  const terminalRuns = new Set<string>();
   const relayInput: Parameters<typeof createReviewRunGatewayRelay>[0] = {
     policy: {
       profiles: [
@@ -1259,6 +1260,7 @@ async function fixture(
       maxInFlight: 2,
     },
     runAccess,
+    isSourceRunTerminal: async (auth) => terminalRuns.has(auth.authorizationId),
     readPreparationOperation: async (operationId) => {
       operationReads.push(operationId);
       return operations.get(operationId);
@@ -1329,6 +1331,7 @@ async function fixture(
   return {
     preparation,
     relay,
+    terminalRuns,
     authorizations: relayInput.authorizations,
     usage: relayInput.usage,
     restartRelay: (maxSessions = relayInput.policy.maxSessions) =>
@@ -1469,6 +1472,31 @@ it("rejects unsupported captured output before run-access or inference", async (
     });
     expect(f.intents).toHaveLength(0);
     expect(f.admissions).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("reclaims an active authorization only after its exact source run is terminal and native close applies", async () => {
+  const f = await fixture(MiB, 0, 1);
+  try {
+    await streamRun(f, "authorization-1");
+    f.terminalRuns.add("authorization-1");
+    // Failed Actions can outlive both renewable and maximum authority TTLs.
+    // Native work is still active: terminal SCM alone cannot discard custody.
+    f.setCloseState("unknown");
+    await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+      code: "relay_saturated",
+    });
+    expect(f.authorization("authorization-1").state).toBe("revoked");
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.nativeCloseReasons).toEqual(["cancelled"]);
+    f.setCloseState("applied");
+    await expect(streamRun(f, "authorization-2")).resolves.toBe("stream");
+    expect(f.nativeExecutions.get(f.nativeCloses[0]!)).toBe("closed");
+    expect(f.intents).toHaveLength(2);
+    expect(f.nativeCloseReasons).toEqual(["cancelled", "cancelled"]);
   } finally {
     await f.relay.shutdown();
   }
