@@ -204,4 +204,22 @@ test("three independent human-scored runs expose variation without fabricated se
     numerator: 19, denominator: 20, value: 1,
   };
   assert.throws(() => summarizeQualityRuns(hiddenFailure), /eval_reliability_score_invalid/);
+  const falsePass = structuredClone(runs);
+  falsePass[1]!.results[0]!.metrics.eligibleFactRecall = metric(1, 10);
+  assert.throws(
+    () => summarizeQualityRuns(falsePass),
+    /eval_reliability_claim_inconsistent/,
+  );
+  const negativeEffects = structuredClone(runs);
+  negativeEffects[1]!.results[0]!.unauthorizedEffects = -1;
+  assert.throws(
+    () => summarizeQualityRuns(negativeEffects),
+    /eval_reliability_score_invalid/,
+  );
+  const missingCausalWitness = structuredClone(runs);
+  missingCausalWitness[1]!.results[0]!.linkedWitnesses = [];
+  assert.throws(
+    () => summarizeQualityRuns(missingCausalWitness),
+    /eval_reliability_score_invalid/,
+  );
 });
