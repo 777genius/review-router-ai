@@ -28,6 +28,7 @@ export function createConversationGatewayInference(input: {
   readonly connectExecution: ExecutionConnector;
   readonly prepare: c.Prepare;
   readonly model: string;
+  readonly reasoningEffort?: "medium";
   readonly expectedAuthorizationEpoch?: number;
   readonly checkAuthority: (controls: RequestControls) => Promise<boolean>;
   readonly admitDispatch?: (controls: RequestControls) => Promise<boolean>;
@@ -81,6 +82,7 @@ export function createConversationGatewayInference(input: {
         output: request.outputSchema
           ? { mode: "json_schema", schema: request.outputSchema.schema }
           : { mode: "text" },
+        ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
         maxOutputTokens: prepare.limits.tokens,
         deadline: deadlineAt,
         limits: { outputBytes: Math.min(262_144, prepare.limits.outputBytes) },

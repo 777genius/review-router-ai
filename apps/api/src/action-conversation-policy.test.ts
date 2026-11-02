@@ -328,6 +328,9 @@ function dynamicModelFixture(
     qualifiedProfile?: string;
     qualifiedModel?: string;
     staleSource?: boolean;
+    staticModel?: boolean;
+    reasoningAllowed?: readonly ("low" | "medium" | "high")[] | null;
+    catalogUnavailable?: boolean;
     configuredTokens?: number;
     profileOutputTokens?: number;
     sourceProcessingProfile?:
@@ -462,9 +465,13 @@ function dynamicModelFixture(
     .digest("hex")}`;
   let remote = { ownerRef, profileId, authorizationEpoch: 7 };
   const source = options.source ?? "openrouter";
+  let reasoningAllowed = options.reasoningAllowed ?? null;
+  let catalogUnavailable = options.catalogUnavailable ?? false;
   const capability = (modelId: string) => ({
     modelId,
-    reasoning: null,
+    reasoning: reasoningAllowed
+      ? { allowed: reasoningAllowed, default: reasoningAllowed[0] }
+      : null,
     fast:
       source === "codex"
         ? { allowed: ["balanced"], default: "balanced" }
@@ -511,7 +518,20 @@ function dynamicModelFixture(
           expectedAuthorizationEpoch: 7,
         });
         return new Response(
-          catalogJson + (options.oversized ? " ".repeat(2 * 1024 * 1024) : ""),
+          (catalogUnavailable
+            ? JSON.stringify({ status: "unavailable" })
+            : JSON.stringify({
+                ...catalog,
+                models: catalog.models.map((row) => ({
+                  ...row,
+                  reasoning: reasoningAllowed
+                    ? {
+                        allowed: reasoningAllowed,
+                        default: reasoningAllowed[0],
+                      }
+                    : null,
+                })),
+              })) + (options.oversized ? " ".repeat(2 * 1024 * 1024) : ""),
           { headers: { "content-type": "application/json" } },
         );
       }
@@ -593,7 +613,7 @@ function dynamicModelFixture(
             profile: {
               profileId,
               protocol: "openai-responses",
-              modelIds: ["openai/gpt-5.4-mini"],
+              modelIds: options.staticModel ? [model] : ["openai/gpt-5.4-mini"],
               authKinds: ["api_key"],
             },
             outputTokens: options.profileOutputTokens ?? 2048,
@@ -642,6 +662,12 @@ function dynamicModelFixture(
     transaction,
     unselectRepository: () => {
       repositorySelected = false;
+    },
+    setReasoning: (allowed: typeof reasoningAllowed) => {
+      reasoningAllowed = allowed;
+    },
+    setCatalogUnavailable: () => {
+      catalogUnavailable = true;
     },
     changeRemote: (change: Partial<typeof remote>) => {
       remote = { ...remote, ...change };
@@ -1044,3 +1070,73 @@ it.each([
     expect(policy.bindingManifest.limits).toMatchObject({ tokens: expected });
   },
 );
+
+// The normal selected-account catalog, not a profile/model name, authorizes effort.
+it.each([
+  { staticModel: false, reasoningAllowed: null, expected: undefined },
+  {
+    staticModel: false,
+    reasoningAllowed: ["high"] as const,
+    expected: undefined,
+  },
+  {
+    staticModel: false,
+    reasoningAllowed: ["high", "medium"] as const,
+    expected: "medium",
+  },
+  { staticModel: true, reasoningAllowed: null, expected: undefined },
+  {
+    staticModel: true,
+    reasoningAllowed: ["medium"] as const,
+    expected: "medium",
+  },
+  { staticModel: true, catalogUnavailable: true, expected: undefined },
+])(
+  "freezes only advertised selected-model medium reasoning: %j",
+  async ({ expected, ...options }) => {
+    const f = dynamicModelFixture(options);
+    const policy = await f.capture();
+    expect(policy.bindingManifest.reasoningEffort).toBe(expected);
+    if (expected === undefined)
+      expect(policy.bindingManifest).not.toHaveProperty("reasoningEffort");
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(true);
+  },
+);
+
+it.each([false, true])(
+  "revoked medium capability fences captured authority (static=%s) without fallback",
+  async (staticModel) => {
+    const f = dynamicModelFixture({
+      staticModel,
+      reasoningAllowed: ["medium"],
+    });
+    const policy = await f.capture();
+    expect(policy.bindingManifest.reasoningEffort).toBe("medium");
+    f.setReasoning(null);
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(false);
+    expect(policy.bindingManifest.reasoningEffort).toBe("medium");
+  },
+);
+
+it("a static model captured without reasoning keeps its default when optional catalog disappears", async () => {
+  const f = dynamicModelFixture({ staticModel: true });
+  const policy = await f.capture();
+  const readsBefore = f.fetch.mock.calls.length;
+  f.setCatalogUnavailable();
+  expect(
+    await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(true);
+  expect(
+    f.fetch.mock.calls
+      .slice(readsBefore)
+      .some(
+        ([target]) =>
+          new URL(String(target)).pathname === "/v1/account-models/read",
+      ),
+  ).toBe(false);
+  expect(policy.bindingManifest).not.toHaveProperty("reasoningEffort");
+});

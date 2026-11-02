@@ -232,7 +232,12 @@ describe.skipIf(!databaseUrl)(
       afterPrepare?: () => Promise<void>,
       ambiguous = false,
       seedSource = true,
+      reasoningEffort: "medium" | null = "medium",
     ) {
+      const selectedAccount = {
+        ...account,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+      };
       const deadlineAt = new Date(Date.now() + 60_000);
       const parentId = randomUUID();
       if (seedSource)
@@ -282,7 +287,7 @@ describe.skipIf(!databaseUrl)(
           contextWindowTokens: 131_072,
           tokensPerByteUpperBound: 4,
           maxInputBytes: 131_072,
-          bindingManifest: account,
+          bindingManifest: selectedAccount,
           inference: {
             generate: async () => {
               throw new Error("conversation inference untouched");
@@ -321,7 +326,7 @@ describe.skipIf(!databaseUrl)(
           deadlineAt,
           modelDispatched: true,
           boundManifest: JSON.stringify({
-            account,
+            account: selectedAccount,
             threadDigest: snapshot.threadDigest,
             headSha: snapshot.headSha,
             baseSha: snapshot.baseSha,
@@ -797,6 +802,7 @@ describe.skipIf(!databaseUrl)(
         store: false,
         service_tier: "default",
         max_output_tokens: account.limits.tokens,
+        reasoning: { effort: "medium" },
       });
       const task = f.requests[0] as {
         instructions: string;
@@ -874,6 +880,38 @@ describe.skipIf(!databaseUrl)(
         expect(f.requests).toHaveLength(0);
       },
     );
+    it.each([null, "medium"] as const)(
+      "preview encodes only frozen supported reasoning effort %s",
+      async (reasoningEffort) => {
+        const f = await fixture(undefined, false, true, reasoningEffort);
+        expect((await f.preview()).status).toBe("complete");
+        if (reasoningEffort)
+          expect(f.requests[0]).toMatchObject({
+            reasoning: { effort: "medium" },
+          });
+        else expect(f.requests[0]).not.toHaveProperty("reasoning");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+        expect(f.closes()).toBe(1);
+      },
+    );
+    it("revoked frozen reasoning authority while preview grant waits prevents dispatch without fallback", async () => {
+      let supported = true;
+      const f = await fixture(async () => {
+        supported = false;
+      });
+      const current = f.captured.policy.isCurrent;
+      Object.assign(f.captured.policy, {
+        isCurrent: async (controls: Parameters<typeof current>[0]) =>
+          supported && current(controls),
+      });
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+      expect(f.requests).toHaveLength(0);
+      expect(f.closes()).toBe(1);
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+    });
     it("confirmation settings changing while runAccess waits prevent paid dispatch", async () => {
       const f = await fixture(async () => {
         await prisma.$executeRaw`UPDATE "PreviewAuthority" SET "settings"=false WHERE "id"=1`;

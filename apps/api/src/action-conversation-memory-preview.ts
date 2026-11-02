@@ -225,6 +225,7 @@ export function createConversationMemoryPreview(input: {
         gatewayAccountRef: string;
         profileRef: string;
         model: string;
+        reasoningEffort?: "medium";
         policySubject: string;
         policyRevision: number;
         bindingRevision: number;
@@ -321,6 +322,7 @@ export function createConversationMemoryPreview(input: {
         instructions,
         input: JSON.stringify(projection),
         output: { mode: "json_schema", schema: outputSchema },
+        ...(account.reasoningEffort ? { effort: account.reasoningEffort } : {}),
         maxOutputTokens: account.limits.tokens,
         deadline: deadlineAt,
         limits: { outputBytes: Math.min(262_144, account.limits.outputBytes) },

@@ -511,7 +511,11 @@ function createSelectedAccountPolicy(
         responseBytes: accountModelCatalogResponseBytes,
       });
       let inferenceCleanupPending = false;
-      const remoteCurrent = async (budget: RequestControls) => {
+      const readCurrent = async (
+        budget: RequestControls,
+        requiredReasoningEffort?: "medium",
+        discoverReasoning = false,
+      ): Promise<{ readonly reasoningEffort?: "medium" } | null> => {
         try {
           if (
             inferenceCleanupPending ||
@@ -519,7 +523,7 @@ function createSelectedAccountPolicy(
             Date.now() >= budget.deadlineAt.getTime() ||
             conversationDigest(await capture()) !== conversationDigest(selected)
           )
-            return false;
+            return null;
           const owner = selected.selection!.connection.owner;
           const ownerRef = `${owner.kind === "user" ? "rru" : "rrw"}_${createHash(
             "sha256",
@@ -543,43 +547,66 @@ function createSelectedAccountPolicy(
               account.authorizationEpoch !==
                 selected.binding.expectedAuthorizationEpoch)
           )
-            return false;
-          if (!profile[0]!.profile.modelIds.includes(selected.provider.model)) {
-            const discoverySource = profile[0]!.profile.authKinds
-              .map((authKind) =>
-                c.accountModelDiscoverySource({
-                  profileId: profile[0]!.profile.profileId,
-                  protocol: profile[0]!.profile.protocol,
-                  authKind,
-                }),
-              )
-              .find((source) => source !== undefined);
-            if (!discoverySource) return false;
-            const models = await control.readAccountModels(
-              {
-                ownerRef,
-                accountRef: selected.binding.gatewayAccountRef,
-                profileId: selected.binding.profileRef,
-                expectedAuthorizationEpoch: account.authorizationEpoch,
-              },
-              budget.signal ? { signal: budget.signal } : {},
-            );
-            if (
-              models.status !== "snapshot" ||
-              models.source !== discoverySource ||
-              Date.parse(models.fetchedAt) > Date.now() ||
-              Date.parse(models.expiresAt) <= Date.now() ||
-              !models.models.some(
-                (model) => model.modelId === selected.provider.model,
-              )
-            )
-              return false;
-          }
-          return (
-            conversationDigest(await capture()) === conversationDigest(selected)
+            return null;
+          const dynamicModel = !profile[0]!.profile.modelIds.includes(
+            selected.provider.model,
           );
+          const discoverySource = profile[0]!.profile.authKinds
+            .map((authKind) =>
+              c.accountModelDiscoverySource({
+                profileId: profile[0]!.profile.profileId,
+                protocol: profile[0]!.profile.protocol,
+                authKind,
+              }),
+            )
+            .find((source) => source !== undefined);
+          let selectedModel: c.AccountModelCapability | undefined;
+          if (
+            discoverySource &&
+            (dynamicModel || requiredReasoningEffort || discoverReasoning)
+          ) {
+            try {
+              const models = await control.readAccountModels(
+                {
+                  ownerRef,
+                  accountRef: selected.binding.gatewayAccountRef,
+                  profileId: selected.binding.profileRef,
+                  expectedAuthorizationEpoch: account.authorizationEpoch,
+                },
+                budget.signal ? { signal: budget.signal } : {},
+              );
+              if (
+                models.status === "snapshot" &&
+                models.source === discoverySource &&
+                Date.parse(models.fetchedAt) <= Date.now() &&
+                Date.parse(models.expiresAt) > Date.now()
+              )
+                selectedModel = models.models.find(
+                  (model) => model.modelId === selected.provider.model,
+                );
+            } catch {
+              // A pinned static model retains its existing default when optional
+              // reasoning metadata is unavailable. Dynamic membership stays required.
+            }
+          }
+          if (dynamicModel && !selectedModel) return null;
+          const reasoningEffort = selectedModel?.reasoning?.allowed.includes(
+            "medium",
+          )
+            ? ("medium" as const)
+            : undefined;
+          if (
+            requiredReasoningEffort &&
+            reasoningEffort !== requiredReasoningEffort
+          )
+            return null;
+          if (
+            conversationDigest(await capture()) !== conversationDigest(selected)
+          )
+            return null;
+          return reasoningEffort ? { reasoningEffort } : {};
         } catch {
-          return false;
+          return null;
         }
       };
       const original = configuredLimits[0]!.limits;
@@ -594,9 +621,17 @@ function createSelectedAccountPolicy(
         outputBytes: Math.min(262_144, original.outputBytes),
         tokens: Math.min(8192, original.tokens, profile[0]!.outputTokens),
       });
+      const capability = await readCurrent(controls, undefined, true);
+      if (!capability) throw new ConversationError("unavailable");
+      const reasoningEffort = capability.reasoningEffort;
+      // The first authoritative catalog capture fixes this request's intent;
+      // later checks may revoke medium support, but never upgrade omitted effort.
+      const remoteCurrent = async (budget: RequestControls) =>
+        (await readCurrent(budget, reasoningEffort)) !== null;
       const bindingManifest = {
         ...selected.binding,
         model: selected.provider.model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         configurationDigest: selected.configurationDigest,
         ...(mode.kind === "qualified"
           ? {
@@ -620,8 +655,6 @@ function createSelectedAccountPolicy(
         limits,
         deadline: controls.deadlineAt.toISOString(),
       };
-      if (!(await remoteCurrent(controls)))
-        throw new ConversationError("unavailable");
       const inference = createConversationGatewayInference({
         control,
         connectExecution: executionConnector({ origin }),
@@ -638,6 +671,7 @@ function createSelectedAccountPolicy(
           deadline: controls.deadlineAt.toISOString(),
         },
         model: selected.provider.model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(selected.binding.expectedAuthorizationEpoch !== undefined
           ? {
               expectedAuthorizationEpoch:
