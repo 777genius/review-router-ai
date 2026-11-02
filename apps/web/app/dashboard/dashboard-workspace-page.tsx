@@ -109,19 +109,19 @@ import {
 } from "@reviewrouter/features-support-diagnostics";
 import {
   canDashboardActorAdminWorkspace,
-  canDashboardActorConfigureRepository,
-  canDashboardActorMutateRepository,
-  asDashboardGitHubActor,
   getDashboardMutationStatus,
   getDashboardSignedInActor,
   getDashboardWorkspaceScope,
   type DashboardMutationActor,
 } from "../../src/server/dashboard-mutations";
-import {
-  listGitHubUserRepositoryAccess,
-  type GitHubUserRepositoryAccessStatus,
-} from "../../src/server/github-user-repository-access";
 import { getPrisma } from "../../src/server/prisma";
+import {
+  listDashboardRepositoryAccess,
+  dashboardRepositoryVisibilityChanged,
+  normalizeRequestedRepositoryFullName,
+  type DashboardRepositoryAccessScope,
+} from "../../src/server/dashboard-repository-access";
+export { listDashboardRepositoryAccess } from "../../src/server/dashboard-repository-access";
 import { loadOrganizationSecretPolicy } from "../../src/server/dashboard-organization-secret-policy-github";
 import { loadProviderListView } from "../../src/server/provider-list-view";
 import type { ProviderListView } from "../../src/features/provider-setup/provider-list-model";
@@ -821,173 +821,11 @@ function workspaceSortScore(data: SortableDashboardWorkspace): number {
   );
 }
 
-type DashboardRepositoryAccessScope = {
-  readonly status: GitHubUserRepositoryAccessStatus;
-  readonly workspaceIds: readonly string[];
-  readonly repositoryIds: ReadonlySet<string>;
-  readonly directConfigRepositoryIds: ReadonlySet<string>;
-  readonly checkedAt: Date | null;
-  readonly errorCode?: string;
-};
-
-export async function listDashboardRepositoryAccess(input: {
-  readonly actor: DashboardMutationActor | null;
-  readonly workspaceScope: Awaited<
-    ReturnType<typeof getDashboardWorkspaceScope>
-  >;
-  readonly requestedRepositoryFullName: string;
-  readonly baseAccess?: DashboardRepositoryAccessScope;
-}): Promise<DashboardRepositoryAccessScope> {
-  const actor = input.actor;
-  if (!actor || input.workspaceScope.kind === "all") {
-    return emptyDashboardRepositoryAccess();
-  }
-  const githubActor = asDashboardGitHubActor(actor);
-  if (!githubActor) {
-    return emptyDashboardRepositoryAccess();
-  }
-
-  const fullAccessWorkspaceIds =
-    input.workspaceScope.kind === "workspace_ids"
-      ? input.workspaceScope.workspaceIds
-      : [];
-  const prisma = getPrisma();
-  const discovered =
-    input.baseAccess ??
-    (await listGitHubUserRepositoryAccess({
-      prisma,
-      actor: githubActor,
-      excludedWorkspaceIds: fullAccessWorkspaceIds,
-    }));
-  const requestedRepositoryFullName = normalizeRequestedRepositoryFullName(
-    input.requestedRepositoryFullName,
-  );
-  if (discovered.status !== "ready" || !requestedRepositoryFullName) {
-    return discovered;
-  }
-
-  const candidateWhere = {
-    provider: "github" as const,
-    selected: true,
-    archived: false,
-    installation: { status: "active" },
-    githubRepositoryId: { not: null },
-    ...(fullAccessWorkspaceIds.length > 0
-      ? { workspaceId: { notIn: [...fullAccessWorkspaceIds] } }
-      : {}),
-  } as const;
-  const requestedCandidates = requestedRepositoryFullName
-    ? await prisma.repositoryConnection.findMany({
-        where: {
-          ...candidateWhere,
-          fullName: requestedRepositoryFullName,
-        },
-        select: {
-          id: true,
-          workspaceId: true,
-          githubRepositoryId: true,
-          owner: true,
-          name: true,
-          installation: { select: { githubInstallationId: true } },
-        },
-      })
-    : [];
-  const candidates = dedupeRepositoryAccessCandidates(
-    requestedCandidates,
-  ).flatMap((repository) =>
-    repository.githubRepositoryId && repository.installation
-      ? [
-          {
-            ...repository,
-            githubRepositoryId: repository.githubRepositoryId,
-            installation: repository.installation,
-          },
-        ]
-      : [],
-  );
-  const allowed = await Promise.all(
-    candidates.map(async (repository) => {
-      const allowed = await canDashboardActorMutateRepository({
-        actor,
-        repository,
-      });
-      const canConfigure = allowed
-        ? await canDashboardActorConfigureRepository({
-            actor,
-            repository,
-          })
-        : false;
-
-      return { repository, allowed, canConfigure };
-    }),
-  );
-  const repositoryIds = new Set<string>(
-    discovered.status === "ready" ? [...discovered.repositoryIds] : [],
-  );
-  const directConfigRepositoryIds = new Set<string>(
-    discovered.status === "ready"
-      ? [...discovered.directConfigRepositoryIds]
-      : [],
-  );
-  const workspaceIds = new Set<string>(
-    discovered.status === "ready" ? discovered.workspaceIds : [],
-  );
-
-  for (const item of allowed) {
-    if (!item.allowed) continue;
-    repositoryIds.add(item.repository.id);
-    workspaceIds.add(item.repository.workspaceId);
-    if (item.canConfigure) {
-      directConfigRepositoryIds.add(item.repository.id);
-    }
-  }
-
-  return {
-    status: discovered.status,
-    workspaceIds: [...workspaceIds],
-    repositoryIds,
-    directConfigRepositoryIds,
-    checkedAt: discovered.checkedAt,
-    ...(discovered.errorCode ? { errorCode: discovered.errorCode } : {}),
-  };
-}
-
-function dedupeRepositoryAccessCandidates<T extends { readonly id: string }>(
-  repositories: readonly T[],
-): T[] {
-  return [
-    ...new Map(
-      repositories.map((repository) => [repository.id, repository]),
-    ).values(),
-  ];
-}
-
-function emptyDashboardRepositoryAccess(
-  status: GitHubUserRepositoryAccessStatus = "ready",
-): DashboardRepositoryAccessScope {
-  return {
-    status,
-    workspaceIds: [],
-    repositoryIds: new Set<string>(),
-    directConfigRepositoryIds: new Set<string>(),
-    checkedAt: null,
-  };
-}
-
 function mergeWorkspaceIds(
   left: readonly string[],
   right: readonly string[],
 ): string[] {
   return [...new Set([...left, ...right])];
-}
-
-function normalizeRequestedRepositoryFullName(value: string): string | null {
-  const trimmed = value.trim();
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed)) {
-    return null;
-  }
-
-  return trimmed;
 }
 
 const MAX_RENDERED_REPOSITORY_ROWS = 24;
@@ -1047,22 +885,6 @@ const loadDashboardShellData = cache(
     return { ...base, repositoryAccess, workspaces };
   },
 );
-
-function dashboardRepositoryVisibilityChanged(
-  previous: DashboardRepositoryAccessScope,
-  next: DashboardRepositoryAccessScope,
-): boolean {
-  return (
-    previous.workspaceIds.length !== next.workspaceIds.length ||
-    previous.repositoryIds.size !== next.repositoryIds.size ||
-    previous.workspaceIds.some(
-      (workspaceId) => !next.workspaceIds.includes(workspaceId),
-    ) ||
-    [...previous.repositoryIds].some(
-      (repositoryId) => !next.repositoryIds.has(repositoryId),
-    )
-  );
-}
 
 export async function DashboardWorkspaceLayout({
   children,
