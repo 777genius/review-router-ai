@@ -800,7 +800,10 @@ function verifyDatabase(db, descriptor, need, options) {
     "database evidence primary keys are not exact",
   );
   need(
-    exactFunctionCatalogAcl(db?.catalog?.privileges?.functions, workerGuardObserved),
+    exactFunctionCatalogAcl(
+      db?.catalog?.privileges?.functions,
+      workerGuardObserved,
+    ),
     "database owned function privileges are not exact",
   );
   need(
@@ -825,12 +828,16 @@ function verifyDatabase(db, descriptor, need, options) {
 }
 
 function isWorkerInsertGuardObserved(catalog) {
-  return (
+  return Boolean(
     catalog?.inventory?.triggers?.includes(workerInsertGuard.trigger) ||
-    catalog?.inventory?.functions?.includes(workerInsertGuard.function) ||
-    catalog?.triggers?.some((entry) => entry?.name === workerInsertGuard.trigger) ||
-    catalog?.functions?.some((entry) => entry?.name === workerInsertGuard.function)
-  ) === true;
+      catalog?.inventory?.functions?.includes(workerInsertGuard.function) ||
+      catalog?.triggers?.some(
+        (entry) => entry?.name === workerInsertGuard.trigger,
+      ) ||
+      catalog?.functions?.some(
+        (entry) => entry?.name === workerInsertGuard.function,
+      ),
+  );
 }
 
 function exactCatalogAcl(entries, objects, grantees, fixedPrivileges) {
@@ -1524,9 +1531,10 @@ function exactTriggerBinding(entry) {
   );
 }
 function exactFunctionDefinition(entry) {
-  const bodySha256 = entry?.name === workerInsertGuard.function
-    ? workerInsertGuard.bodySha256
-    : exactFunctionBodyDigestByName.get(entry?.name);
+  const bodySha256 =
+    entry?.name === workerInsertGuard.function
+      ? workerInsertGuard.bodySha256
+      : exactFunctionBodyDigestByName.get(entry?.name);
   const expectedArguments =
     {
       codex_oauth_authorize_runtime_completion:
@@ -1619,9 +1627,10 @@ function exactFunctionDefinition(entry) {
     ]) &&
     entry?.securityDefiner === securityDefinerFunction &&
     entry.identityArguments === expectedFunctionIdentityArguments(entry.name) &&
-    entry.owner === (entry.name === workerInsertGuard.function
-      ? workerInsertGuard.owner
-      : releaseSchemaOwnerRole) &&
+    entry.owner ===
+      (entry.name === workerInsertGuard.function
+        ? workerInsertGuard.owner
+        : releaseSchemaOwnerRole) &&
     entry.prokind === "f" &&
     entry.proretset === false &&
     entry.prosupport === null &&

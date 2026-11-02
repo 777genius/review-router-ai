@@ -1460,7 +1460,8 @@ export const codexRotatingPostAclWorkerInsertGuard = Object.freeze({
   trigger: "RepositoryConnection_worker_insert_scope_guard",
   function: "reviewrouter_worker_repository_insert_guard",
   owner: "reviewrouter",
-  bodySha256: "afb7fbfad86dc730876fcc74f4a112fd3cd55703b8892469f0f817df9791a282",
+  bodySha256:
+    "afb7fbfad86dc730876fcc74f4a112fd3cd55703b8892469f0f817df9791a282",
 });
 
 export const codexRotatingPublicExecuteDeniedFunctions = codexRotatingFunctions;

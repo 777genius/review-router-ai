@@ -10,10 +10,10 @@
   The canonical ACL continues to revoke the worker's grants. Do not skip the
   ordered post-ACL grant step or treat this as a canonical ACL trust-root repair.
 
-| Environment | Status | Actual version | Evidence |
-| ----------- | ------ | -------------- | -------- |
-| staging | `pending` | Not verified | No rollout |
-| production | `pending` | Not verified | No rollout |
+| Environment | Status    | Actual version | Evidence   |
+| ----------- | --------- | -------------- | ---------- |
+| staging     | `pending` | Not verified   | No rollout |
+| production  | `pending` | Not verified   | No rollout |
 
 ## Release attestation ordering
 

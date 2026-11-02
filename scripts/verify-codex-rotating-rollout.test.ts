@@ -295,40 +295,98 @@ describe("observation-backed Codex rotating rollout verifier", () => {
     const fixture = observedFixture();
     const catalog = fixture.artifacts.database.catalog;
     addPostAclWorkerGuard(catalog);
-    expect(verifyCodexRotatingDatabaseCatalog(catalog))
-      .toEqual({ ok: true, failures: [] });
+    expect(verifyCodexRotatingDatabaseCatalog(catalog)).toEqual({
+      ok: true,
+      failures: [],
+    });
   });
 
   it.each([
-    ["missing guard function inventory", (c: any) =>
-      c.inventory.functions.splice(c.inventory.functions.indexOf(workerInsertGuard.function), 1),
-      "database rotating OAuth catalog inventory is not exact"],
-    ["missing guard trigger", (c: any) =>
-      c.triggers.splice(c.triggers.findIndex((t: any) => t.name === workerInsertGuard.trigger), 1),
-      "database trigger catalog is not exact"],
-    ["disabled guard", (c: any) =>
-      c.triggers.find((t: any) => t.name === workerInsertGuard.trigger).enabled = "D",
-      "database trigger bindings are not exact"],
-    ["wrong INSERT trigger function", (c: any) =>
-      c.triggers.find((t: any) => t.name === workerInsertGuard.trigger).function = "untrusted_guard",
-      "database trigger bindings are not exact"],
-    ["weakened body", (c: any) =>
-      c.functions.find((f: any) => f.name === workerInsertGuard.function).bodySha256 = digest(Buffer.from("BEGIN RETURN NEW; END")),
-      "database trigger function definitions are not exact"],
-    ["wrong owner", (c: any) =>
-      c.functions.find((f: any) => f.name === workerInsertGuard.function).owner = "reviewrouter_worker",
-      "database trigger function definitions are not exact"],
-    ["PUBLIC execute", (c: any) => c.privileges.functions.push({
-      name: workerInsertGuard.function, identityArguments: "", grantee: "PUBLIC",
-      grantor: workerInsertGuard.owner, privilege: "EXECUTE", grantable: false,
-    }), "database owned function privileges are not exact"],
-  ])("fails closed for post-ACL worker guard drift: %s", (_case, mutate, reason) => {
-    const catalog = observedFixture().artifacts.database.catalog;
-    addPostAclWorkerGuard(catalog);
-    mutate(catalog);
-    expect(verifyCodexRotatingDatabaseCatalog(catalog).failures
-      .some((failure: string) => failure.startsWith(reason))).toBe(true);
-  });
+    [
+      "missing guard function inventory",
+      (c: any) => {
+        const items = c.inventory.functions;
+        items.splice(items.indexOf(workerInsertGuard.function), 1);
+      },
+      "database rotating OAuth catalog inventory is not exact",
+    ],
+    [
+      "missing guard trigger",
+      (c: any) => {
+        const index = c.triggers.findIndex(
+          (t: any) => t.name === workerInsertGuard.trigger,
+        );
+        c.triggers.splice(index, 1);
+      },
+      "database trigger catalog is not exact",
+    ],
+    [
+      "disabled guard",
+      (c: any) => {
+        const trigger = c.triggers.find(
+          (t: any) => t.name === workerInsertGuard.trigger,
+        );
+        trigger.enabled = "D";
+      },
+      "database trigger bindings are not exact",
+    ],
+    [
+      "wrong INSERT trigger function",
+      (c: any) => {
+        const trigger = c.triggers.find(
+          (t: any) => t.name === workerInsertGuard.trigger,
+        );
+        trigger.function = "untrusted_guard";
+      },
+      "database trigger bindings are not exact",
+    ],
+    [
+      "weakened body",
+      (c: any) => {
+        const fn = c.functions.find(
+          (f: any) => f.name === workerInsertGuard.function,
+        );
+        fn.bodySha256 = digest(Buffer.from("BEGIN RETURN NEW; END"));
+      },
+      "database trigger function definitions are not exact",
+    ],
+    [
+      "wrong owner",
+      (c: any) => {
+        const fn = c.functions.find(
+          (f: any) => f.name === workerInsertGuard.function,
+        );
+        fn.owner = "reviewrouter_worker";
+      },
+      "database trigger function definitions are not exact",
+    ],
+    [
+      "PUBLIC execute",
+      (c: any) => {
+        c.privileges.functions.push({
+          name: workerInsertGuard.function,
+          identityArguments: "",
+          grantee: "PUBLIC",
+          grantor: workerInsertGuard.owner,
+          privilege: "EXECUTE",
+          grantable: false,
+        });
+      },
+      "database owned function privileges are not exact",
+    ],
+  ])(
+    "rejects post-ACL worker guard drift: %s",
+    (_case, mutate, reason) => {
+      const catalog = observedFixture().artifacts.database.catalog;
+      addPostAclWorkerGuard(catalog);
+      mutate(catalog);
+      expect(
+        verifyCodexRotatingDatabaseCatalog(catalog).failures.some(
+          (failure: string) => failure.startsWith(reason),
+        ),
+      ).toBe(true);
+    },
+  );
 
   it("reuses the exact production catalog verifier for PostgreSQL rehearsal", () => {
     const fixture = observedFixture();
