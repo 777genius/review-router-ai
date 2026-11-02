@@ -89,6 +89,7 @@ jobs:
     env:
       CONVERSATION_EVAL_LIVE: "1"
       CONVERSATION_EVAL_DISPOSABLE: "1"
+      MEMORY_EVAL_PRIVATE_RESULTS_DIR: ${{ vars.MEMORY_EVAL_PRIVATE_RESULTS_DIR }}
       CONVERSATION_EVAL_OPERATOR_ACK: ${{ secrets.MEMORY_EVAL_OPERATOR_ACK }}
       CONVERSATION_EVAL_DATABASE_URL: ${{ secrets.MEMORY_EVAL_DISPOSABLE_DATABASE_URL }}
       CONVERSATION_EVAL_TEMPLATE_WORKSPACE_ID: ${{ vars.MEMORY_EVAL_TEMPLATE_WORKSPACE_ID }}
@@ -118,6 +119,24 @@ jobs:
           pnpm --filter @reviewrouter/platform-db db:generate
       - name: Assert private operator authorization, isolated DB/native and tuning-only
         run: node --import tsx scripts/conversation-evals/memory-quality-gate.ts preflight "${{ inputs.corpus }}"
+      - name: Verify operator-owned private evidence storage before paid inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${MEMORY_EVAL_PRIVATE_RESULTS_DIR:-}" in
+            /srv/reviewrouter-memory-quality/*) ;;
+            *) echo "::error::Private evaluation evidence directory is not configured"; exit 1 ;;
+          esac
+          root="$(realpath "$MEMORY_EVAL_PRIVATE_RESULTS_DIR")"
+          case "$root" in
+            /srv/reviewrouter-memory-quality/*) ;;
+            *) echo "::error::Private evaluation evidence directory escaped its operator root"; exit 1 ;;
+          esac
+          test -d "$root" && test -w "$root" && test "$(stat -c %a "$root")" = "700"
+          umask 077
+          private_dir="$root/$GITHUB_RUN_ID"
+          mkdir -m 700 "$private_dir"
+          echo "MEMORY_EVAL_PRIVATE_OUTPUT_DIR=$private_dir" >> "$GITHUB_ENV"
       - name: Three real full-product tuning observations (fail on first unqualified result)
         shell: bash
         run: |
@@ -128,6 +147,11 @@ jobs:
             node --import tsx scripts/conversation-evals/run.ts --corpus "${{ inputs.corpus }}" --split tuning --variant full-product --out "$output"
             outcome=$?
             set -e
+            # Never publish raw synthetic-model output or private account metadata
+            # as an artifact of this public repository.
+            if [ -f "$output" ]; then
+              install -m 0600 "$output" "$MEMORY_EVAL_PRIVATE_OUTPUT_DIR/tuning-${attempt}.json"
+            fi
             if [ "$outcome" -ne 3 ]; then
               echo "::error::Real evaluation unavailable or failed; do not retry or consume protected holdout"
               exit 1
@@ -135,11 +159,5 @@ jobs:
             node --import tsx scripts/conversation-evals/memory-quality-gate.ts inspect "${{ inputs.corpus }}" "$output"
           done
           echo "All three real observations require independent human rubrics; none is a semantic quality PASS."
-      - name: Preserve bounded synthetic observations for independent rubric review
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: memory-quality-tuning-${{ inputs.corpus }}-${{ github.run_id }}
-          path: tmp/memory-quality-evals/tuning-*.json
-          retention-days: 3
-          if-no-files-found: warn
+      # Raw observations stay on the operator-controlled private runner for
+      # human rubric review. Public GitHub artifacts intentionally contain none.
