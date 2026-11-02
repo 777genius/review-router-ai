@@ -13,6 +13,10 @@ export type {
   UsageModelAggregate,
   UsageRequestedIdentity,
 } from "./usage-overview";
+/** Report-only correction of a configured label; the source identity stays intact. */
+export type UsageReportObservation = UsageProjection & {
+  readonly requestedProvider?: string;
+};
 export interface UsagePeriodReport {
   overview: UsageOverview;
   unattributedCount: number | null;
@@ -41,7 +45,7 @@ export interface UsagePeriodReport {
     day: string;
     totals: UsageTotals;
   }[];
-  rows: UsageProjection[];
+  rows: UsageReportObservation[];
   nextCursor: string | null;
   partialChildCount: number;
   unboundedSummaryCount: number;

@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging/production `pending`; preserve immutable usage facts and coordinate one Web/API/worker rollout.
+
 | Task                                                                                   | Implementation                                                                                                                                           | Staging   | Production    | Remaining work                                                                                                                                                        |
 | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Reviewer-v4 MCP qualification](2026-11-01-reviewer-v4-mcp.md)                         | Source/test `a09c68214`; [PR777](https://github.com/777genius/review-router-ai/pull/777)                                                                 | `pending` | `in_progress` | Live acceptance PASSED: run41318061244, required2/2 and six successful real MCP calls; GPT-6.1/settings restored. Defensive API patch awaits CI/ordinary rollout.     |

@@ -18,7 +18,11 @@ import type {
   UsageFilters,
 } from "./provider-usage-model";
 import { UsageCharts } from "./provider-usage-charts";
-import { ModelUsageTable, RunUsageTable } from "./provider-usage-tables";
+import {
+  ModelUsageTable,
+  RunUsageTable,
+  UsagePageNavigation,
+} from "./provider-usage-tables";
 import { UsageDetails } from "./provider-usage-details";
 import {
   valuationLabel,
@@ -67,9 +71,13 @@ function ProviderUsageContext({
   initialReport,
   initialFilters,
 }: Props) {
-  const [filters, setFilters] = useState(() =>
-    normalizeUsageFilters(initialFilters),
-  );
+  const [{ filters, cursorHistory }, setSelection] = useState(() => ({
+    filters: normalizeUsageFilters(initialFilters),
+    cursorHistory: {
+      after: [] as (string | undefined)[],
+      runAfter: [] as (string | undefined)[],
+    },
+  }));
   const [period, setPeriod] = useState<"7" | "30" | "90" | "custom">("30");
   const [draftFrom, setDraftFrom] = useState(initialReport.from.slice(0, 10));
   const [draftTo, setDraftTo] = useState(
@@ -145,14 +153,41 @@ function ProviderUsageContext({
       setCostSelection(costKey(bucket));
   }, [bucket, costSelection]);
   const applyFilters = (changes: Partial<UsageFilters>) =>
-    setFilters((current) =>
-      normalizeUsageFilters({
-        ...current,
+    setSelection((current) => ({
+      filters: normalizeUsageFilters({
+        ...current.filters,
         ...changes,
         after: undefined,
         runAfter: undefined,
       }),
-    );
+      cursorHistory: { after: [], runAfter: [] },
+    }));
+  const nextPage = (key: "after" | "runAfter", cursor: string | null) => {
+    if (!cursor || query.isFetching) return;
+    setSelection((current) => ({
+      filters: { ...current.filters, [key]: cursor },
+      cursorHistory: {
+        ...current.cursorHistory,
+        [key]: [...current.cursorHistory[key], current.filters[key]],
+      },
+    }));
+  };
+  const previousPage = (key: "after" | "runAfter") => {
+    setSelection((current) => {
+      const history = current.cursorHistory[key];
+      if (!history.length) return current;
+      return {
+        filters: normalizeUsageFilters({
+          ...current.filters,
+          [key]: history[history.length - 1],
+        }),
+        cursorHistory: {
+          ...current.cursorHistory,
+          [key]: history.slice(0, -1),
+        },
+      };
+    });
+  };
   const refresh = () => {
     if (unavailable) {
       router.refresh();
@@ -567,11 +602,14 @@ function ProviderUsageContext({
                   report={data}
                   selectedCurrency={currency}
                   onNext={() =>
-                    setFilters((current) => ({
-                      ...current,
-                      runAfter: data.overview.nextRunCursor ?? undefined,
-                    }))
+                    nextPage("runAfter", data.overview.nextRunCursor)
                   }
+                  onPrevious={
+                    cursorHistory.runAfter.length
+                      ? () => previousPage("runAfter")
+                      : undefined
+                  }
+                  busy={query.isFetching}
                 />
               )}
             </div>
@@ -605,12 +643,13 @@ function ProviderUsageContext({
                 report={data}
                 selectedCurrency={currency}
                 bucket={metric === "cost" ? bucket : undefined}
-                onNext={() =>
-                  setFilters((current) => ({
-                    ...current,
-                    after: data.nextCursor ?? undefined,
-                  }))
+                onNext={() => nextPage("after", data.nextCursor)}
+                onPrevious={
+                  cursorHistory.after.length
+                    ? () => previousPage("after")
+                    : undefined
                 }
+                busy={query.isFetching}
                 controls={
                   <div className="flex flex-wrap gap-3">
                     {(["bindingId", "runId"] as const).map((key) => (
@@ -642,6 +681,28 @@ function ProviderUsageContext({
           </details>
         </>
       )}
+      {!unavailable && !data ? (
+        <div className="flex flex-wrap gap-3">
+          <UsagePageNavigation
+            kind="run"
+            onPrevious={
+              cursorHistory.runAfter.length
+                ? () => previousPage("runAfter")
+                : undefined
+            }
+            busy={query.isFetching}
+          />
+          <UsagePageNavigation
+            kind="observation"
+            onPrevious={
+              cursorHistory.after.length
+                ? () => previousPage("after")
+                : undefined
+            }
+            busy={query.isFetching}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }

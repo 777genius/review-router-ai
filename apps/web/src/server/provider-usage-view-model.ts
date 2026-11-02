@@ -61,8 +61,9 @@ export function buildUsageReport(
 ): ProviderUsageReport {
   const rows = report.rows.map((p) => ({
     id: p.identity.callId,
-    provider: p.usage?.actualProvider ?? p.identity.provider,
-    requestedProvider: p.identity.provider,
+    provider:
+      p.usage?.actualProvider ?? p.requestedProvider ?? p.identity.provider,
+    requestedProvider: p.requestedProvider ?? p.identity.provider,
     actualProvider: p.usage?.actualProvider ?? null,
     requestedModel: p.identity.requestedModel,
     actualModel: p.usage?.actualModel ?? null,

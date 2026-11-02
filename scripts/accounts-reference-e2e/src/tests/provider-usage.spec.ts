@@ -582,6 +582,34 @@ test("provider usage overview keeps complete period totals, charts, models and r
     }
     await usage.getByRole("tab", { name: "Runs", exact: true }).click();
     await expectBreakdownCount(usage, "runs", 100);
+    const runRowsBeforeFailure = await usageBreakdown(
+      usage,
+      "runs",
+    ).textContent();
+    await page.route("**/api/dashboard/provider-usage?**", async (route) => {
+      if (new URL(route.request().url()).searchParams.has("runAfter"))
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: "{}",
+        });
+      else await route.fallback();
+    });
+    await usage
+      .getByRole("button", { name: "Next run page", exact: true })
+      .click();
+    await expect(usage.getByRole("alert")).toContainText(
+      "Usage report unavailable",
+    );
+    await usage
+      .getByRole("button", { name: "Previous run page", exact: true })
+      .click();
+    await expectBreakdownCount(usage, "runs", 100);
+    expect(await usageBreakdown(usage, "runs").textContent()).toBe(
+      runRowsBeforeFailure,
+    );
+    await expect(kpi("Known tokens")).toContainText("858");
+    await page.unroute("**/api/dashboard/provider-usage?**");
     await usage
       .getByRole("button", { name: "Next run page", exact: true })
       .click();
@@ -702,6 +730,39 @@ test("provider usage overview keeps complete period totals, charts, models and r
         .getByRole("table", { name: "Usage observations", exact: true })
         .getByRole("row"),
     ).toHaveCount(101);
+    const observationRowsBeforeFailure = await usage
+      .getByRole("table", { name: "Usage observations", exact: true })
+      .textContent();
+    await page.route("**/api/dashboard/provider-usage?**", async (route) => {
+      if (new URL(route.request().url()).searchParams.has("after"))
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: "{}",
+        });
+      else await route.fallback();
+    });
+    await usage
+      .getByRole("button", { name: "Next observation page", exact: true })
+      .click();
+    await expect(usage.getByRole("alert")).toContainText(
+      "Usage report unavailable",
+    );
+    await usage
+      .getByRole("button", { name: "Previous observation page", exact: true })
+      .click();
+    await expect(
+      usage
+        .getByRole("table", { name: "Usage observations", exact: true })
+        .getByRole("row"),
+    ).toHaveCount(101);
+    expect(
+      await usage
+        .getByRole("table", { name: "Usage observations", exact: true })
+        .textContent(),
+    ).toBe(observationRowsBeforeFailure);
+    await expect(kpi("Known tokens")).toContainText("858");
+    await page.unroute("**/api/dashboard/provider-usage?**");
     await usage
       .getByRole("button", { name: "Next observation page", exact: true })
       .click();
