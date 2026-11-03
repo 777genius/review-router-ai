@@ -1,5 +1,5 @@
 import type {
-  ReviewModelDispatchProfileV2,
+  ReviewModelDispatchProfile,
   ReviewModelOutputTokenLimit,
   ReviewModelTransport,
   ReviewModelWireProtocol,
@@ -79,7 +79,7 @@ export function reviewModelTransportForAuthMode(
 /** Shared by admission and readiness. The exact trusted producer provides an
  * explicit default for each route; retained profiles never compete by name. */
 export function selectReviewModelRoutePolicy(
-  profile: ReviewModelDispatchProfileV2,
+  profile: ReviewModelDispatchProfile,
   providers: readonly Readonly<{
     authMode: string;
     model: string;

@@ -10,12 +10,13 @@ import {
   type ReviewRunCompanionDispatchV1,
 } from "@prisma/client";
 import {
-  parseReviewModelDispatchCapabilityV2,
-  parseReviewModelDispatchProfileV2,
+  parseReviewModelDispatchCapability,
+  reviewModelDispatchCapacityPolicyMatches,
+  parseReviewModelDispatchProfile,
   parseReviewModelDispatchSettlementV2,
   reviewModelDispatchIdPreimage,
   reviewModelDispatchOutputUsageIsWithinLimit,
-  type ReviewModelDispatchCapabilityV2,
+  type ReviewModelDispatchCapability,
   type ReviewModelDispatchSettlementV2,
   type ReviewModelDispatchTerminalReceiptV2,
 } from "@reviewrouter/shared";
@@ -152,10 +153,11 @@ export class PrismaReviewRunCompanionDispatchRepository implements ReviewRunComp
       )
         fail("companion_authorization_denied");
       if (budget) {
-        const profile = parseReviewModelDispatchProfileV2(
+        const profile = parseReviewModelDispatchProfile(
           release.modelDispatchProfile,
         );
         if (
+          !reviewModelDispatchCapacityPolicyMatches(profile, budget) ||
           !profile.transports.includes(budget.transport) ||
           !profile.wireProtocols.includes(budget.wireProtocol) ||
           (budget.configuredModel !== undefined &&
@@ -680,7 +682,7 @@ function toDispatch(
 
 function modelBudget(
   snapshot: string | null | undefined,
-): ReviewModelDispatchCapabilityV2 | undefined {
+): ReviewModelDispatchCapability | undefined {
   if (!snapshot) return undefined;
   const raw: unknown = JSON.parse(snapshot);
   if (
@@ -689,13 +691,13 @@ function modelBudget(
     !Object.hasOwn(raw, "modelDispatchCapability")
   )
     return undefined;
-  return parseReviewModelDispatchCapabilityV2(
+  return parseReviewModelDispatchCapability(
     Reflect.get(raw, "modelDispatchCapability"),
   );
 }
 function validateModelClaim(
   input: ReviewRunCompanionDispatchClaim,
-  budget: ReviewModelDispatchCapabilityV2,
+  budget: ReviewModelDispatchCapability,
 ) {
   if (
     input.dispatchVersion !== 2 ||

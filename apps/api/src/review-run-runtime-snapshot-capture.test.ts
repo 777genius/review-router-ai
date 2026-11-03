@@ -5,6 +5,8 @@ import {
   reviewerPlanDescriptorDigest,
   reviewModelDispatchContract,
   reviewModelDispatchDescriptorDigest,
+  reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchCapacity128DescriptorDigest,
   reviewModelTransportForAuthMode,
   lifecycleVerificationDescriptorDigestV2,
   type ReviewModelDispatchProfileV2,
@@ -219,6 +221,7 @@ function fakeRuntimeReader(input: {
 function snapshotSource(
   outputBytes = 196608,
   agentProfileRef: string | null = "codex-default",
+  requests = 2,
 ) {
   return new ProductionReviewRunRuntimeSnapshot(
     {} as PrismaClient,
@@ -227,7 +230,7 @@ function snapshotSource(
         {
           profileRef: gatewayProfileRef,
           limits: {
-            requests: 2,
+            requests,
             concurrency: 1,
             requestBytes: 4096,
             outputBytes,
@@ -546,6 +549,114 @@ describe("one prepared route for discovery and verification", () => {
       reviewSkillsVersion: 1,
     },
   ]);
+  it.each([16, 640])(
+    "freezes explicit capacity128 identity and clamps to actual Gateway requests=%i",
+    async (requests) => {
+      const configuration = gatewayPolicyJson({
+        agentProfileRef: "ocr-unified",
+      });
+      const input = {
+        ...captureInput(),
+        producerRelease: {
+          ...captureInput().producerRelease,
+          agentProfiles: profiles,
+          modelDispatchProfile: {
+            ...profile,
+            descriptorDigest: reviewModelDispatchCapacity128DescriptorDigest,
+            policyVersion: reviewModelDispatchCapacity128Contract.policyVersion,
+            limits: { ...profile.limits, maxRequests: 128 },
+          },
+        },
+      };
+      const source = snapshotSource(196608, "codex-default", requests);
+      const captured = await source.capture(input, readerFor(configuration));
+      expect(captured).toMatchObject({
+        gateway: { limits: { requests } },
+        modelDispatchCapability: {
+          capacityPolicy: "model-dispatch-policy.capacity128.v1",
+          maxRequests: Math.min(128, requests),
+          maxConcurrentRequests: 1,
+          maxRequestBytes: 4096,
+          maxResponseBytes: 196608,
+          maxOutputTokens: 128,
+        },
+      });
+      if (
+        !captured ||
+        "captureDenied" in captured ||
+        captured.snapshotVersion !== 3
+      )
+        throw new Error("capture_missing");
+      expect(parseReviewRunRuntimeSnapshot(canonicalJson(captured))).toEqual(
+        captured,
+      );
+      const legacy = await source.capture(
+        {
+          ...input,
+          producerRelease: {
+            ...input.producerRelease,
+            modelDispatchProfile: profile,
+          },
+        },
+        readerFor(configuration),
+      );
+      if (!legacy || "captureDenied" in legacy || legacy.snapshotVersion !== 3)
+        throw new Error("legacy_capture_missing");
+      expect(legacy.modelDispatchCapability?.maxRequests).toBe(
+        Math.min(32, requests),
+      );
+      expect(legacy.modelDispatchCapability).not.toHaveProperty(
+        "capacityPolicy",
+      );
+      expect(captured.modelDispatchCapability?.routeIdentityHash).not.toBe(
+        legacy.modelDispatchCapability?.routeIdentityHash,
+      );
+      const cap = legacy.modelDispatchCapability!;
+      // Independent pre-evolution route preimage: a new capacity must never alter it.
+      expect(cap.routeIdentityHash).toBe(
+        createHash("sha256")
+          .update(
+            canonicalJson({
+              version: 2,
+              producer: legacy.producer,
+              effectivePolicyDigest: legacy.effectivePolicyDigest,
+              agentProfileDigest: legacy.agentProfileDigest,
+              transport: cap.transport,
+              wireProtocol: cap.wireProtocol,
+              outputTokenLimit: cap.outputTokenLimit,
+              providerIndex: cap.providerIndex,
+              model: cap.model,
+              gateway: legacy.gateway,
+            }),
+          )
+          .digest("hex"),
+      );
+      expect(() =>
+        parseReviewRunRuntimeSnapshot(
+          canonicalJson({
+            ...captured,
+            modelDispatchCapability: {
+              ...captured.modelDispatchCapability,
+              maxRequests: 129,
+            },
+          }),
+        ),
+      ).toThrow();
+      if (requests === 16)
+        expect(() =>
+          parseReviewRunRuntimeSnapshot(
+            canonicalJson({
+              ...captured,
+              modelDispatchCapability: {
+                ...captured.modelDispatchCapability,
+                maxRequests: 17,
+              },
+            }),
+          ),
+        ).toThrow();
+    },
+  );
+
   const providerRows = [
     ...providerApiAuthModes.map((mode) => ({
       mode,

@@ -1,4 +1,4 @@
-import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
+import { parseReviewModelDispatchProfile } from "@reviewrouter/shared";
 import type {
   ProducerRelease as PrismaProducerRelease,
   ReviewMutationAuthority as PrismaReviewMutationAuthority,
@@ -101,7 +101,7 @@ export function producerReleaseToDomain(
       ? {}
       : {
           modelDispatchProfile:
-            parseReviewModelDispatchProfileV2(modelDispatchProfile),
+            parseReviewModelDispatchProfile(modelDispatchProfile),
         }),
     ...(prDescriptionProfile == null
       ? {}

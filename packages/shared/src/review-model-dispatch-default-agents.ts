@@ -1,12 +1,12 @@
 import type { ReviewAgentProfile } from "./review-agent-profile.js";
 import {
   reviewModelWireProtocolMatchesTransport,
-  type ReviewModelDispatchProfileV2,
+  type ReviewModelDispatchProfile,
 } from "./review-model-dispatch-contract.js";
 
 /** Validate immutable OCR defaults without modifying the published protocol. */
 export function assertReviewModelDispatchDefaultAgents(
-  profile: ReviewModelDispatchProfileV2,
+  profile: ReviewModelDispatchProfile,
   catalog: readonly ReviewAgentProfile[],
 ): void {
   for (const transport of profile.transports) {
