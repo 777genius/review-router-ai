@@ -30,6 +30,7 @@ import {
   conversationOutputSchema,
   type ConversationIdentity,
   type ConversationMemoryPort,
+  type ConversationLearningPreparation,
   type ConversationPolicyPort,
 } from "@reviewrouter/features-conversations";
 import {
@@ -680,6 +681,95 @@ describe.skipIf(!databaseUrl)(
             learned: prepared ? 0 : 1,
             actionCalls: canonical ? 1 : 0,
           });
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
+    it.each([false, true])(
+      "binds transient human evidence in the one parent input with the original size budget: oversized=%s",
+      async (oversized) => {
+        const f = await fixture();
+        if (oversized) f.comments[1]!.body = "e".repeat(60000);
+        let evidence: ConversationLearningPreparation["observationEvidence"];
+        let consumed = 0;
+        f.memory.prepareLearning = async (snapshot) => {
+          evidence = {
+            selectedSourceId: snapshot.sourceId,
+            candidates: snapshot.messages
+              .filter((message) => message.actor.kind === "human")
+              .map(({ id, actor, body, createdAt, updatedAt, replyTo }) => ({
+                id,
+                actor,
+                body,
+                createdAt,
+                updatedAt,
+                replyTo,
+              })),
+          };
+          return {
+            instructions:
+              "Select independent observations from the human candidates.",
+            observationsSchema: { type: "array" },
+            observationEvidence: evidence,
+            manifest: {
+              kind: "one-turn-test",
+              evidenceDigest: conversationDigest(evidence),
+            },
+            isCurrent: async () => true,
+            complete: async () => {
+              consumed++;
+              return { status: "complete_empty", effectIds: [] };
+            },
+          };
+        };
+        try {
+          const first = await f.processor.execute(input, controls());
+          expect(first.status).toBe(oversized ? "context_incomplete" : "ready");
+          expect(f.counts().learned).toBe(0);
+          expect(consumed).toBe(oversized ? 0 : 1);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(oversized ? 0 : 1);
+          if (oversized) {
+            expect(
+              f.calls.filter((call) => call.kind === "prepare"),
+            ).toHaveLength(0);
+          } else {
+            const wire = f.calls.find((call) => call.kind === "request")!
+              .body as { input: { content: { text: string }[] }[] };
+            const prompt = JSON.parse(wire.input[0]!.content[0]!.text);
+            expect(prompt.observationEvidence).toEqual(evidence);
+            expect(prompt.conversation.messages).toHaveLength(105);
+            expect(prompt.conversation.messages[0].actor.kind).toBe("bot");
+            expect(
+              prompt.observationEvidence.candidates.every(
+                (message: { actor: { kind: string } }) =>
+                  message.actor.kind === "human",
+              ),
+            ).toBe(true);
+            expect(
+              Object.keys(prompt).indexOf("observationEvidence"),
+            ).toBeLessThan(Object.keys(prompt).indexOf("conversation"));
+            const row = await prisma.conversationProcessing.findUniqueOrThrow({
+              where: { id: first.processingId },
+            });
+            expect(JSON.parse(row.boundManifest!).automaticSelection).toEqual({
+              kind: "one-turn-test",
+              evidenceDigest: conversationDigest(evidence),
+            });
+            expect(row.boundManifest).not.toContain(
+              "TRANSCRIPT_CANARY_OLD_TURN",
+            );
+            expect(
+              f.calls.filter((call) => call.kind === "close"),
+            ).toHaveLength(1);
+            expect(await f.processor.execute(input, controls())).toEqual(first);
+            expect(
+              f.calls.filter((call) => call.kind === "request"),
+            ).toHaveLength(1);
+          }
         } finally {
           await f.app.close();
         }

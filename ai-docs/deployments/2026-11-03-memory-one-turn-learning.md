@@ -92,3 +92,26 @@ and protected CI, then fresh semantic qualification before release activation.
 Production remains the separately installed227/dbc with prior settings and
 native state preserved; self-hosted genuine capability distribution and
 first-install/update acceptance remain pending.
+
+## Evidence-binding follow-up and isolated selection input
+
+The [evidence-binding source candidate in PR805](https://github.com/777genius/review-router-ai/pull/805)
+completed 40 of 50 planned events before an unknown request outcome. The
+[sanitized partial observation](evidence/2026-11-03-memory-evidence-binding-partial.json)
+records 37 completed and closed requests, two settled replays and one unknown
+outcome. Its execution was fenced and cleanup confirmed; it was not replayed.
+This report is unavailable for qualification, with no official quality score.
+
+The old bot referent was not saved, but the intended adopted fact was also
+missing, and discussion status still leaked into saved observations. The next
+source candidate supplies a separate transient view of checked human evidence
+for observation selection, while the reply still sees the full discussion. The
+existing decoder uses the same evidence candidates. The durable input manifest
+records only a digest, and the existing input limits count the extra text before
+dispatch. There is still one model request per inferred event.
+
+This source change does not prove adoption or semantic eligibility. Run a fresh
+isolated tuning observation before advancing the candidate to full source CI
+and release qualification. Keep prior failures, native closure and unconsumed
+protected data separate. Production and stock self-hosted activation remain
+pending.
