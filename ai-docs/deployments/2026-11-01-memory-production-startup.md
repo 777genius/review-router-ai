@@ -7,10 +7,10 @@
   `b28fc7b17042414386eb9b114046e50c`.
 - Incident application source: `d5f16400e610e6fe9151c23da39868825d332711`.
 
-| Environment | Status        | Actual version                                                                     | Remaining work                                                                                                                               |
-| ----------- | ------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| production  | `in_progress` | Shared `e7f2e600acc896448b91ea0a9985c6e766a3c95b`; qualified native backend active | UI save/edit/readback and retrieval passed; actual review-context delivery, physical cleanup and selected-account extraction remain pending. |
-| self-hosted | `pending`     | Bootstrap PR #773 merged; Linux startup verified                                   | Self-hosted installation/update and environment acceptance remain pending.                                                                   |
+| Environment | Status        | Actual version                                      | Remaining work                                                             |
+| ----------- | ------------- | --------------------------------------------------- | -------------------------------------------------------------------------- |
+| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below.                         |
+| self-hosted | `pending`     | Bootstrap PR #773 merged; Linux startup verified    | Self-hosted installation/update and environment acceptance remain pending. |
 
 ## Confirmed incident
 
@@ -297,3 +297,12 @@ optional PR-description request retains its EFFECT_UNKNOWN proof. Both SaaS leas
 were released, authorization revoked and the canary's own native execution fenced
 with occupancy0. This validates the ordinary review path after the upgrade, not
 automatic-memory quality. The three historical open executions were preserved.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+Ordinary/manual/reviewer Memory and its prior signed physical cleanup evidence are preserved. Native container IDs/images/start times, namespace/generation, credentials, explicit opt-outs and Gateway/native source remain unchanged. Conversational capability and interaction pin are unset; semantic qualification, installed-App automatic learning and genuine self-hosted artifact distribution remain unfinished.
+
+Staging remains unchanged and unverified by this production batch.

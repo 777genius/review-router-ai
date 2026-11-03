@@ -6,14 +6,14 @@
 - Implementation: [PR #792](https://github.com/777genius/review-router-ai/pull/792), [issue #790](https://github.com/777genius/review-router-ai/issues/790).
 - Implementation reference: `74553d37f0a0c833c08affbee725a1f5a72d3802` (production code), with fixture qualification at `2688f96079314ad795b988bcb86d61a129187a8b`; stacked on [#787](https://github.com/777genius/review-router-ai/pull/787), not released.
 - Dependencies: [Analytics/review reliability](2026-11-02-analytics-review-reliability.md); the installed workflow, current owner entitlement and approved producer must pass normal provisioning guards.
-- Last updated: `2026-11-02`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                                 |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------------------------ |
-| staging              | `pending` | Not verified                    | Not verified        | Ordinary release qualification; no new migration required.                           |
-| production / Hetzner | `pending` | Baseline `57cc15137`            | Not verified        | Coordinate with the single shared release owner; never start a competing deployment. |
+| Environment / target | Status        | Actual deployed version / image                     | Last verified (UTC) | Evidence / next step                                       |
+| -------------------- | ------------- | --------------------------------------------------- | ------------------- | ---------------------------------------------------------- |
+| staging              | `pending`     | Not verified                                        | Not verified        | Ordinary release qualification; no new migration required. |
+| production / Hetzner | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.         |
 
 ## Applicability and authorization
 
@@ -50,3 +50,19 @@ This checked-in summary records the isolated server results without exposing cre
 Supplemental private provenance for the PostgreSQL result: runner job `98c7dccc96221e80f274e8b03bb225b2`, receipt `/srv/workers/rr-operator790-20261102-165027/qualification-pg17-safety1/receipt.json`. The original private receipt is retained; no publicly downloadable receipt artifact is asserted.
 
 Known availability limitation: runtime-channel guards currently read the public runtime commit without an authenticated repository credential. A public API quota refusal blocks confirmation safely as `installed_gateway_upstream_unavailable`. Do not substitute an installation credential without proving access to the runtime repository, or cache away the tag-drift checks. CLI transport and unknown API failures retain the fixed generic confirmation diagnostic; finite endpoint-code diagnostics are a separate improvement.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+Only the documented payments repository operator permission was installed. Normal protected CLI reports READY/CREATED authority1/epoch1 with approved fa3 producer. Review B 41583013357 completed full coverage (1/1), snapshot_committed, genuine App summary 6596139524 and successful check 125743333142; its processed Statistics fact adds zero new issues. One A lineage/source/caughtAt remains unchanged; the prior issue is NOT VERIFIED, not resolved. Payments 41581736184 is PARTIAL 0/17 despite 32 complete requests and 508,896 tokens; source/CLI readiness does not substitute for full review acceptance. No wildcard permission or browser/session impersonation was used.
+
+Staging remains unchanged and unverified by this production batch.
+
+Payments API returned HTTP 400 `model_dispatch_request_invalid` at 05:20:45 UTC.
+The frozen Gateway allowance is 640 requests while installed dispatch allows 32.
+Ordinal 33 is a source/count explanation, not an observed request body. A
+versioned 128-request successor is source-only in the neighboring workstream;
+immutable 226 producer `fa3e87a71…` is unchanged. A fresh normal payments run
+after that successor is pending; the old run is not replayed or relabelled.

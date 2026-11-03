@@ -1,0 +1,524 @@
+{
+  "kind": "reviewrouter-memory-production-r1-226/v1",
+  "recordedDate": "2026-11-03",
+  "environment": "production",
+  "status": "ordinary_r1_deployed_semantic_memory_unqualified",
+  "application": {
+    "version": "v1.0.226",
+    "source": "6e6a0f07829c465202512f87fb6a3195412ca347",
+    "image": "sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4",
+    "releaseWorkflow": "https://github.com/777genius/review-router-ai/actions/runs/41567885045",
+    "protectedMainCI": "https://github.com/777genius/review-router-ai/actions/runs/41565674396",
+    "readyCI": "https://github.com/777genius/review-router-ai/actions/runs/41564025942",
+    "normalProvenanceVerifier": "PASS",
+    "roles": {
+      "api": {
+        "id": "789cce59c0cf775702ebf2cba955f0f5596c3847fa5590e383fcf56ca5441dbf",
+        "image": "sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4",
+        "revision": "6e6a0f07829c465202512f87fb6a3195412ca347",
+        "running": true,
+        "restartCount": 0,
+        "registryRows": 54,
+        "registryUnchangedFromStage1": true,
+        "rotatingRef": "777genius/review-router@fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+        "gatewayRef": "777genius/review-router@fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+        "installerVersion": "v1.0.226",
+        "installerTupleVerified": true,
+        "qualificationConfigured": false
+      },
+      "worker": {
+        "id": "9c2bd7837adbfe13a2272a44ccfb36e79d97bd05a921f24f74ae77831cbe6c6d",
+        "image": "sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4",
+        "revision": "6e6a0f07829c465202512f87fb6a3195412ca347",
+        "running": true,
+        "restartCount": 0,
+        "registryRows": 54,
+        "registryUnchangedFromStage1": true,
+        "rotatingRef": "777genius/review-router@fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+        "gatewayRef": null,
+        "installerVersion": "v1.0.226",
+        "installerTupleVerified": true,
+        "qualificationConfigured": false
+      },
+      "scan": {
+        "id": "2f185cfaff7f6f63d95e1f65e0210620468c461da10fa303160a58582b5fe9d9",
+        "image": "sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4",
+        "revision": "6e6a0f07829c465202512f87fb6a3195412ca347",
+        "running": true,
+        "restartCount": 0,
+        "registryRows": 54,
+        "registryUnchangedFromStage1": true,
+        "rotatingRef": "777genius/review-router@fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+        "gatewayRef": null,
+        "installerVersion": "v1.0.226",
+        "installerTupleVerified": true,
+        "qualificationConfigured": false
+      },
+      "web": {
+        "id": "074b66aa6f3f26f491e2522bdf6b39af0443a351a443f1140fe1d9633487740a",
+        "image": "sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4",
+        "revision": "6e6a0f07829c465202512f87fb6a3195412ca347",
+        "running": true,
+        "restartCount": 0,
+        "registryRows": 54,
+        "registryUnchangedFromStage1": true,
+        "rotatingRef": "777genius/review-router@fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+        "gatewayRef": "777genius/review-router@fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+        "installerVersion": "v1.0.226",
+        "installerTupleVerified": true,
+        "qualificationConfigured": false
+      }
+    },
+    "allOld57AndStage1StoppedRetained": true,
+    "readyHTTP": 200
+  },
+  "database": {
+    "backup": {
+      "label": "20261103-044537F",
+      "type": "full",
+      "error": false
+    },
+    "migrationReconciliation": {
+      "ledgerRows": 164,
+      "unfinished": 0,
+      "pending": false,
+      "newPrismaOrReleaseAuthorityMigrations": false
+    },
+    "canonicalRuntimeAclApplied": true,
+    "failedInitialGrantAttempt": "2026-11-03-worker-guard-installation-attempt.json",
+    "correctedGrant": {
+      "status": "corrected_guard_applied",
+      "exitCode": 0,
+      "operatorSource": "ced6c34b15dbfdb3bc2686828e0fad5787ceb812",
+      "sqlSha256": "b34490ba1d36cb5d59a380fcd57708448d8582ce7e2f84cabf4a9027a6acc974",
+      "migrationOrAclRepeated": false
+    },
+    "correctionPR": "https://github.com/777genius/review-router-ai/pull/799",
+    "correctionMergedSource": "ced6c34b15dbfdb3bc2686828e0fad5787ceb812",
+    "correctionTestedSource": "d9e4f1c4e5e0ce3f077053b61f12b8629392c321",
+    "testedAndMergedTreesEqual": true,
+    "correctionCI": "https://github.com/777genius/review-router-ai/actions/runs/41576953037",
+    "isolatedPG17Contract": {
+      "version": "17.11",
+      "checkpoints": 39,
+      "skipped": 0,
+      "result": "PASS"
+    },
+    "noMigrationAclBackupReplay": true,
+    "fullRotatingCatalogDiagnostic": {
+      "status": "FAIL_retained",
+      "scope": "legacy owner/check/ACL exact-contract differences; separate from ordinary unchanged-schema deployment and not repaired",
+      "formalRotatingActivationOrCanonicalPassClaimed": false,
+      "followupIssue": "https://github.com/777genius/review-router-ai/issues/761"
+    }
+  },
+  "workerLogin": {
+    "proof": {
+      "kind": "reviewrouter-worker-insert-proof/v1",
+      "status": "passed",
+      "inputSha256": "8cec1243bc726ca8bb794c0ff8c0f7b957c060719f30b3cb07ede5873e2e2422",
+      "sourceRevision": "6e6a0f07829c465202512f87fb6a3195412ca347",
+      "phase": "finished",
+      "positiveInserted": true,
+      "negative42501": [
+        "cross-workspace",
+        "foreign-installation",
+        "external-id-mismatch",
+        "forbidden-scm-column"
+      ],
+      "callbackRejected": true,
+      "freshRowsAbsent": true,
+      "transactionEntered": true,
+      "sqlContractComplete": true,
+      "rollbackAcknowledgementClaimed": false,
+      "proves": "rollback-only-worker-login-sql-scope",
+      "githubSyncProven": false,
+      "completedAt": "2026-11-03T04:59:20.636Z"
+    },
+    "runtimePrivilegeChecks": 7,
+    "runtimePrivilegeChecksPassed": true,
+    "permissionDeadLettersObserved": false,
+    "hostEvidence": "ssh://workers-fsn1-01-jump/srv/platform/projects/review-router/releases/worker-login-proof-6e-20261103",
+    "hostResultSha256": "9d4371957caacdd5b12a71562cc7add98859248ce95a11b3a325b1d7aed39f98"
+  },
+  "freshSignedRepositorySync": {
+    "status": "sync_processed",
+    "observedAt": "2026-11-03T05:13:59.354Z",
+    "baselineUtc": "2026-11-03T05:09:36.690Z",
+    "githubRepositoryId": "1443838524",
+    "scope": {
+      "fullName": "777genius/rr-memory-sync-e2e-20261103",
+      "workspaceId": "cmorhxrep000129nh3m13qn1c",
+      "installationId": "cmoy8q18q00032bld3j2ht96t",
+      "githubInstallationId": "130834037"
+    },
+    "readOnly": true,
+    "role": "reviewrouter_worker",
+    "superuser": false,
+    "bypassRls": false,
+    "repository": {
+      "id": "cmw08cgxx007z16qog8a46own",
+      "githubRepositoryId": "1443838524",
+      "fullName": "777genius/rr-memory-sync-e2e-20261103",
+      "provider": "github",
+      "sourceBaseUrl": "https://github.com",
+      "externalRepositoryId": "1443838524",
+      "workspaceId": "cmorhxrep000129nh3m13qn1c",
+      "installationId": "cmoy8q18q00032bld3j2ht96t",
+      "inventoryGeneration": "454",
+      "lastSyncedAt": "2026-11-03T05:10:59.198Z",
+      "createdAt": "2026-11-03T05:11:03.621Z"
+    },
+    "matches": [
+      {
+        "delivery": {
+          "deliveryId": "f1be3b00-d744-11f1-8090-a805330d9094",
+          "eventName": "installation_repositories",
+          "action": "added",
+          "installationId": "130834037",
+          "status": "processed",
+          "receivedAt": "2026-11-03T05:10:54.388Z",
+          "processedAt": "2026-11-03T05:10:54.404Z",
+          "payloadHash": "1c22d6b7ca1cf509993dba1b901796f5dc943d90cd3d89ce5596deb106cdc078"
+        },
+        "event": {
+          "id": "cmw08c9tt000q07qnm6ne7z2t",
+          "type": "installation.sync_requested",
+          "version": 1,
+          "aggregateId": "github-installation:130834037",
+          "status": "processed",
+          "attempts": 1,
+          "createdAt": "2026-11-03T05:10:54.401Z",
+          "processedAt": "2026-11-03T05:11:04.395Z"
+        }
+      }
+    ],
+    "iteration": 1,
+    "image": "sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4"
+  },
+  "fixtureResidue": {
+    "githubRepositoryId": "1443838524",
+    "fullName": "777genius/rr-memory-sync-e2e-20261103",
+    "empty": true,
+    "private": true,
+    "archived": true,
+    "deleted": false,
+    "deleteAttemptHttpStatus": 403,
+    "automaticDeleteRetry": false,
+    "preserveResidueAndAudit": true
+  },
+  "producer226": {
+    "normalInspectThenRegisterOnce": true,
+    "receipt": {
+      "schema": "reviewrouter-action226-registration-receipt.v1",
+      "actionCommitSha": "fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+      "producerReleaseId": "reviewrouter-action.fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+      "sourceRevision": "6e6a0f07829c465202512f87fb6a3195412ca347",
+      "imageDigest": "sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4",
+      "expectationSha256": "63e54a029d6d90f66697586871cf735459a11b72a14793505aa6adf5c43e216d",
+      "verifiedManifestSha256": "c52187f75fffdc4bff52caa0adeac9b3394a46afacfaa2ab55f89b4adcd29dc6",
+      "status": "registered",
+      "modelCalls": 0
+    },
+    "receiptSha256": "cbe0bfebae01ff8c611827a5c09b7820e61e408ff215b066612685cb9850c24a",
+    "approvedEnvironmentRegistry": {
+      "rows": 54,
+      "old53RowPrefixPreservedByteForByte": true,
+      "sameRegistryAcrossStages": true,
+      "sha256": "314c59d9427a237c3fe09b691f97aaf3db8a09ba2ff64558e7b9c7191aefd018",
+      "newProfileCopiedFrom225DefaultOcrManagedV5": true
+    },
+    "stageOrder": "54-row ENV overlap before stage1/API225; normal API materialized DB producer; same-image/same-registry stage2 full226 refs and installer tuple",
+    "installer": {
+      "version": "v1.0.226",
+      "url": "https://raw.githubusercontent.com/777genius/review-router/fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8/scripts/seed-codex-rotating-auth.sh",
+      "sha256": "b8e05bfb4fb1373856e8a787c201d784875abfe3cb6e6c519bce891f82a5d4b2"
+    },
+    "noProfilesCreated": true
+  },
+  "workflowChannel": {
+    "workflowRun": "https://github.com/777genius/review-router/actions/runs/41580925332",
+    "workflowSource": "8dd511ef596956fafbbd13dca4a772843ea1d32e",
+    "result": "SUCCESS",
+    "oldSha": "034d367f5a3a0358fe5a850f496362d504f3028a",
+    "newSha": "fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+    "abiAndPreviousShaCasVerified": true,
+    "promotionHelpersUnchanged": true,
+    "actualRefReadbackVerified": true,
+    "publicV1AndExact226": "fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+    "privateV1AndExact226": "6e6a0f07829c465202512f87fb6a3195412ca347"
+  },
+  "preserved": {
+    "native": {
+      "cfb5bf76bcf29851eb0c4aef143ee69935fd804afa01a1b54f3ab868dc4503b2": {
+        "image": "sha256:4e1778a36f989ab9e9b6fc8612298b5c1207da123dafc2bb0952da723a1fe3b9",
+        "running": true,
+        "restartCount": 0,
+        "startedAt": "2026-11-02T02:23:57.920199644Z"
+      },
+      "65d42870a9379abd90bc6e4fb634398f6faec87a41a2d181ba36dbbda9b5e7c3": {
+        "image": "sha256:4e1778a36f989ab9e9b6fc8612298b5c1207da123dafc2bb0952da723a1fe3b9",
+        "running": true,
+        "restartCount": 0,
+        "startedAt": "2026-11-02T02:23:57.738664273Z"
+      },
+      "6fd5ab3e07ed2a79461bc9853c3b5518c7a162d074599b6b2a7fa14a8adfd51d": {
+        "image": "sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8",
+        "running": true,
+        "restartCount": 0,
+        "startedAt": "2026-11-01T11:19:16.819031036Z"
+      }
+    },
+    "nativeIdsImagesStartedAtUnchanged": true,
+    "gatewaySource": "a717bfe50e46d01092eb380582c83d82c261b58c",
+    "nativeSource": "f2deab244b62469cebfa1492e70d80a4f766dc1f",
+    "conversationQualificationUnset": true,
+    "interactionRuntimePinUnset": true,
+    "explicitOptOutsAndOpaqueEnvironmentsRetained": true,
+    "fixtureConfiguration": 89,
+    "fixtureWorkspaceVersion": 21,
+    "fixtureSelection": "FREE inheritance",
+    "configuredMcpTools": 7,
+    "originalUnknownOutcomesNotReplayed": true,
+    "historicalCustody": {
+      "all1633ExecutionsClosedOrFenced": true,
+      "openExecutions": 0,
+      "unknownOperationsRetained": 11,
+      "pendingCleanupRetained": 7,
+      "requestDetailCensusIncomplete": true,
+      "globalNativePhysicalState": "UNKNOWN",
+      "summarySha256": "8613f2ac43ecb3738bc13219bdd2a32b3bf6b9686a4045acd3db27198ae0ee1d",
+      "scope": "Retained pre-rollout bounded census, not a global physical-state claim for later companion executions."
+    }
+  },
+  "companionAcceptance": {
+    "source": "Exact existing A/B terminal, Usage/Statistics and lineage receipts; owner-reported API/source diagnostic. No new runtime observation by this documentation owner.",
+    "paymentsNormalCli": {
+      "status": "READY_CREATED",
+      "authorityVersion": 1,
+      "mutationEpoch": 1,
+      "producer": "fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8"
+    },
+    "reviewA": {
+      "runId": 41581680152,
+      "pullRequest": 135,
+      "expectedCriticalFinding": true,
+      "genuineAppPublication": true,
+      "completeUsageAndStatistics": "PASS",
+      "workflowFailureDueToExpectedFindingNotTransport": true,
+      "status": "completed",
+      "requiredSatisfied": 1,
+      "requiredTotal": 1,
+      "fullCoverage": true,
+      "statisticsFactCount": 1,
+      "workflowRun": "https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41581680152"
+    },
+    "reviewB": {
+      "runId": 41583013357,
+      "pullRequest": 135,
+      "status": "completed",
+      "requiredSatisfied": 1,
+      "requiredTotal": 1,
+      "fullCoverage": true,
+      "completion": "snapshot_committed",
+      "appSummaryCommentId": "6596139524",
+      "managedCheckRunId": "125743333142",
+      "managedCheckConclusion": "success",
+      "statisticsFactCount": 1,
+      "statisticsEvent": "processed",
+      "eligibleNewIssues": 0,
+      "retainedLineageItems": 1,
+      "priorIssueLifecycle": "NOT_VERIFIED",
+      "priorIssueResolvedClaimed": false,
+      "receiptCapturedAt": "2026-11-03T05:24:14.706Z",
+      "workflowRun": "https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41583013357",
+      "appSummary": "https://github.com/777genius/rr-codex-rotating-e2e/pull/135#issuecomment-6596139524"
+    },
+    "paymentsReview": {
+      "runId": 41581736184,
+      "status": "PARTIAL",
+      "requiredSatisfied": 0,
+      "requiredTotal": 1,
+      "fullCoverage": false,
+      "completeModelRequests": 32,
+      "totalTokens": 508896,
+      "apiDiagnostic": {
+        "observedAtUtc": "2026-11-03T05:20:45Z",
+        "httpStatus": 400,
+        "closedCode": "model_dispatch_request_invalid",
+        "requestBodyObserved": false
+      },
+      "frozenGatewayRequestAllowance": 640,
+      "installedDispatchRequestLimit": 32,
+      "sourceExplanation": "Source limit plus completed count explains rejection at the next/33rd request; the actual ordinal/request body was not observed.",
+      "nativeClosure": {
+        "capturedAt": "2026-11-03T05:49:31.325669+00:00",
+        "exactTupleMatches": 1,
+        "scopedRequests": 32,
+        "completedRequests": 32,
+        "transportOccupied": false,
+        "allNamespaceBound": true,
+        "allClosureAcknowledged": true,
+        "executionState": "closed",
+        "executionClosedAt": "2026-11-03T05:21:23.24522+00:00",
+        "cleanupState": "done",
+        "cleanupDoneAt": "2026-11-03T05:21:25.459182+00:00",
+        "receiptSha256": "a7e067a7c5feb9c6700e58ab46fa8ffabe524db2f4fa47555f1bb802da36a1e9",
+        "globalClosureClaimed": false
+      },
+      "successor": {
+        "status": "neighbor_source_only_not_deployed",
+        "versionedDispatchRequestLimit": 128,
+        "oldImmutableProducerUnchanged": "fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8",
+        "freshNormalPaymentsAcceptance": "pending",
+        "oldRunReplayed": false
+      },
+      "workflowRun": "https://github.com/agent-teams-ai/payments-sdk/actions/runs/41581736184",
+      "requiredExhausted": 1,
+      "eligibleFiles": 17,
+      "coveredFiles": 0
+    },
+    "paymentsOperatorGrant": {
+      "operator": "reviewrouter-operator",
+      "permission": "confirm_installed_gateway_workflow",
+      "githubOwnerId": "13103045",
+      "workspaceId": "cmoss4xkf000228sbtcmpdjb5",
+      "repositoryConnectionId": "cmvfmd8z800ks16nxls6z3lkp",
+      "wildcard": false
+    },
+    "firstCaughtDedupe": {
+      "lineageId": "rrl_2bc2df36f5510610a9af40b7455286ef",
+      "durableKeyCount": 1,
+      "sourceExecutionId": "rr:execution:6507e1b585f3e33bb7c752d6f52524ec3c8df019",
+      "caughtAt": "2026-11-03T05:13:16.163",
+      "unchangedFromA": true,
+      "priorIssueResolvedClaimed": false
+    },
+    "usage": {
+      "A": {
+        "completeRows": 5,
+        "totalTokens": 22395,
+        "requestedProviders": ["openrouter"],
+        "requestedModels": ["nvidia/nemotron-3-ultra-550b-a55b:free"],
+        "observedProviderModel": "unknown",
+        "actualBilling": "unknown"
+      },
+      "B": {
+        "completeRows": 10,
+        "totalTokens": 57463,
+        "requestedProviders": ["openrouter"],
+        "requestedModels": ["nvidia/nemotron-3-ultra-550b-a55b:free"],
+        "observedProviderModel": "unknown",
+        "actualBilling": "unknown"
+      },
+      "payments": {
+        "completeRows": 32,
+        "totalTokens": 508896,
+        "requestedProviders": ["openrouter"],
+        "requestedModels": ["nvidia/nemotron-3-ultra-550b-a55b:free"],
+        "observedProviderModel": "unknown",
+        "actualBilling": "unknown"
+      }
+    },
+    "allThreeFullCoverage": false,
+    "allThreeAcceptancePassed": false,
+    "terminalEvidenceHashes": {
+      "canary-b-terminal-exact-receipt.json": "5a93719a5885938c80a7293c489a76b0d3402cae1c7b1af7907c5c049438e293",
+      "canary-b-terminal-reader-receipt.json": "c963db82359aac2cb6207899d65678d32841be6feeb7733dec481ca40e6849f1",
+      "acceptance-summary.json": "fea95d062281d719801f43d002e521afb0e3e214cc7efebc8f544703fdf4174a"
+    },
+    "allThreeApplicationExecutionsTerminal": true
+  },
+  "semanticAndDistribution": {
+    "ordinaryReviewedSourceThrough": "286804783dc75c24c1b999a1194ae3240ba6da5c",
+    "ordinaryCodeDeliveredIn226": true,
+    "qualification": "UNQUALIFIED",
+    "capabilityIssued": false,
+    "protectedH3Executed": false,
+    "futurePR": "https://github.com/777genius/review-router-ai/pull/800",
+    "futurePRState": "merged_not_deployed",
+    "futureFullCI": {
+      "workflowRun": "https://github.com/777genius/review-router-ai/actions/runs/41588766562",
+      "status": "success",
+      "testedHead": "eaef9e81e506f4de5e00a51fbf8c3f578e235c7a",
+      "testedAndMergedTreesEqual": true,
+      "treeSha": "577ebc27fcee71c0f8dac862cdd4e41f5da1013b"
+    },
+    "futureSource": "9a6b1a974eaf9e0851731a4864d257dc76eaa7ea",
+    "futurePreviewDigest": "7972021e88453c5a36bd0e719dcc1c37705f44abf845af43cd97f7f215c59d2d",
+    "futureSourceInstalled": false,
+    "genuineCapabilityArtifactIssued": false,
+    "configuredHttpsContinuousStockAcceptance": false,
+    "genuineArtifactFirstInstallAndUpdateAcceptance": false,
+    "historical657B53ContinuationNotRelabelled": true,
+    "signedPhysicalForgetFromSandboxTeardownClaimed": false,
+    "newSemanticModelCallsByThisRollout": 0,
+    "futureSourceObservations": {
+      "source": "9a6b1a974eaf9e0851731a4864d257dc76eaa7ea",
+      "diagnostic": {
+        "run": "337e04c1",
+        "observedEvents": 3,
+        "plannedSelectedEvents": 3,
+        "currentAdoptionAndLinkedRecall": "correct_in_observed_events",
+        "status": "UNAVAILABLE_forced_ineligible",
+        "qualifying": false,
+        "reportSha256": "051079524e58b1834510e94faebe0e2ec19d81f7672f3587725ce4d27a371d36"
+      },
+      "fullT1": {
+        "run": "03a6e14c-6b4c-470e-b370-b4a5f3c01183",
+        "status": "UNAVAILABLE",
+        "observedEvents": 2,
+        "plannedEvents": 50,
+        "cleanup": "done_at_2026-11-03T06:05:45.722374Z",
+        "closure": "exact_read_only_fenced_ACK_cleanup_done",
+        "phaseAtOriginalDeadline": "response_started",
+        "childState": "fenced",
+        "childFencedAt": "2026-11-03T06:05:44.484878Z",
+        "requestEffect": "effect_unknown",
+        "transportOccupied": false,
+        "closureAcknowledgedAt": "2026-11-03T06:05:44.537954Z",
+        "providerResult": "UNKNOWN",
+        "providerUsage": "UNKNOWN",
+        "outputRecovered": false,
+        "replayed": false,
+        "reconciliationSummarySha256": "56866c16d7fb86e34f5f0f134c9207049d8abe34b9ba3f3ad8d34497997a0ec8",
+        "originalProcessingBudgetSeconds": 90,
+        "childRemainingBudgetMs": 73572,
+        "childCreatedAt": "2026-11-03T06:04:30.899Z",
+        "parentProcessingDeadlineAt": "2026-11-03T06:05:44.471Z"
+      },
+      "T2Executed": false,
+      "T3Executed": false,
+      "H3Executed": false,
+      "qualityPass": false,
+      "capabilityGranted": false,
+      "installedR1SourceChanged": false
+    },
+    "futurePRHead": "eaef9e81e506f4de5e00a51fbf8c3f578e235c7a",
+    "futureHeadMergedBase": "ced6c34b15dbfdb3bc2686828e0fad5787ceb812",
+    "observedFeatureSourceFilesUnchanged": 104,
+    "featureDiffFilesUnchanged": 9,
+    "modelRerunForBaseMerge": false,
+    "futureMergedCommit": "3475220dc05b6b6918dab1b20abfffaf8fbb5f1a",
+    "futureMergedAt": "2026-11-03T06:34:05Z"
+  },
+  "sourceReceiptHashes": {
+    "action226-adoption-6e/stage2-readback.json": "40665b350f3b53233f6477c5ef7b7dd622730355591c6f8c7fc4cd86135cfe19",
+    "action226-adoption-6e/producer226-durable-registration-receipt.json": "cbe0bfebae01ff8c611827a5c09b7820e61e408ff215b066612685cb9850c24a",
+    "private-release226-6e-20261103/corrected-worker-grant-799-result.json": "661fe2c51e3805611b5e1862d239b62b380f9c2d088af67d3aa763f6dd33ca90",
+    "worker-insert-runtime-proof-20261103/actual-worker-proof-stdout.json": "9d4371957caacdd5b12a71562cc7add98859248ce95a11b3a325b1d7aed39f98",
+    "worker-insert-runtime-proof-20261103/actual-worker-proof-host-evidence.json": "2bc5f1d1fc3d5c913bdeea9138da5b4e2909f4e555e67830d7e5dba60f3f1d3c",
+    "action226-adoption-6e/actual-worker-runtime-privileges.log": "f7a20603042c96001c8b1b8f7cb3725fca86a60704868a0a4a0fae6305dabf3a",
+    "fresh-signed-repository-sync-20261103/actual-observe-result.json": "3635b37931074c7f585e4522df01e0121361feb50c44ed8df5a3629c36997f64",
+    "fresh-signed-repository-sync-20261103/github-archive-result.json": "26eb5db989bb674d8d1a5859b5087215e5f997a25933b7702f5686a8e62c1468",
+    "payments-dispatch32-20261103/native-readonly-result.json": "a7e067a7c5feb9c6700e58ab46fa8ffabe524db2f4fa47555f1bb802da36a1e9"
+  },
+  "limits": [
+    "Staging unchanged/unverified",
+    "A/B have full coverage; payments is PARTIAL0/17 and needs a future fresh normal run after the versioned fix",
+    "No new semantic or protected quality evidence",
+    "No independent global native physical-absence claim",
+    "Private archived disposable fixture remains after denied deletion",
+    "Historical initial grant failure and extra catalog FAIL retained"
+  ]
+}

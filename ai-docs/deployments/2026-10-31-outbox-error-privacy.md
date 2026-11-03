@@ -5,14 +5,14 @@
 - Affected targets: ordinary worker and Skills scanner worker sharing the outbox handler execution path.
 - Implementation: [PR #756](https://github.com/777genius/review-router-ai/pull/756); [plan](../plans/2026-10-31-outbox-error-privacy.md).
 - No migrations, secrets, flags or activation changes specific to this task.
-- Last updated: `2026-10-31`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment | Status    | Installed release / image | Actual verification |
-| ----------- | --------- | ------------------------- | ------------------- |
-| staging     | `pending` | Not verified              | Not executed        |
-| production  | `pending` | Not verified              | Not executed        |
+| Environment | Status        | Installed release / image                           | Actual verification                                |
+| ----------- | ------------- | --------------------------------------------------- | -------------------------------------------------- |
+| staging     | `pending`     | Not verified                                        | Not executed                                       |
+| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below. |
 
 `pending` means no verified deployment evidence is recorded, not observed absence.
 
@@ -36,3 +36,12 @@ change; retrospective cleanup needs separate authorization and privacy review.
 ## Execution log
 
 No rollout attempt or environment verification receipt is recorded.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+Both ordinary and Skills worker code is installed. The fresh signed repository sync completed once without a permission dead letter; this is not a fabricated failure-path privacy test or retrospective raw-error cleanup. Keep unobserved sanitized error slices pending without replaying old events.
+
+Staging remains unchanged and unverified by this production batch.

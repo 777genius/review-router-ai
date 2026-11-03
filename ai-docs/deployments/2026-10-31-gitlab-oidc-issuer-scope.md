@@ -6,14 +6,14 @@
 - Implementation: [PR #754](https://github.com/777genius/review-router-ai/pull/754); [plan](../plans/2026-10-31-gitlab-oidc-issuer-scope.md).
 - Implementation reference: `504f0bc63b4e2391594e10eaa2dca1839f10dbac` (security-reviewed implementation baseline; current PR head must pass its own CI; no deployment implied).
 - No schema migration, feature flag, manual activation or production secret changes are introduced.
-- Last updated: `2026-10-31`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment | Status    | Installed release / image | Actual verification |
-| ----------- | --------- | ------------------------- | ------------------- |
-| staging     | `pending` | Not verified              | Not executed        |
-| production  | `pending` | Not verified              | Not executed        |
+| Environment | Status    | Installed release / image                           | Actual verification                                |
+| ----------- | --------- | --------------------------------------------------- | -------------------------------------------------- |
+| staging     | `pending` | Not verified                                        | Not executed                                       |
+| production  | `pending` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below. |
 
 `pending` means no verified deployment evidence is recorded, not observed absence.
 This task does not authorize deployment.
@@ -36,3 +36,12 @@ rollback behavior against active sessions and the target fleet.
 ## Execution log
 
 No rollout attempt or environment verification receipt is recorded.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The inherited API issuer-scope code is installed. GitLab-specific signed issuer/sourceBaseUrl/duplicate-origin acceptance remains unverified for the out-of-scope GitLab cohort. No sourceBaseUrl rewrite or authority repair is implied.
+
+Staging remains unchanged and unverified by this production batch.
