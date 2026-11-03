@@ -107,7 +107,9 @@ function decode(
   if (!selected || selected.actor.kind !== "human") throw new Error();
   const statements = (value as { statements?: unknown }).statements;
   if (!Array.isArray(statements) || statements.length > 4) throw new Error();
-  return statements.map((statement: unknown) => {
+  const unresolvedStatus =
+    /\b(?:undecided|unresolved|not (?:yet )?(?:decided|adopted|approved)|(?:awaiting|pending) (?:a )?(?:decision|adoption|approval)|no decision (?:has been|was) made)\b/iu;
+  return statements.flatMap((statement: unknown) => {
     if (
       !statement ||
       typeof statement !== "object" ||
@@ -151,7 +153,11 @@ function decode(
       !support.body.includes(supportQuote)
     )
       throw new Error();
-    return { body };
+    // Exclude explicit decision status even when the evidence quotes are genuine.
+    // An earlier proposal can still supply technical support for a current adoption.
+    if (unresolvedStatus.test(body) || unresolvedStatus.test(sourceQuote))
+      return [];
+    return [{ body }];
   });
 }
 
