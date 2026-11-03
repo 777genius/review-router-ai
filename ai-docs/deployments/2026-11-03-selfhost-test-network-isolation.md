@@ -5,10 +5,10 @@
 - Scope: optional test-runner `networkSubnet`, not product Compose, a feature flag, a daemon setting or a production network change.
 - Related work: [explicit Memory resume](2026-11-02-memory-explicit-resume.md), [conversation qualification](2026-11-03-memory-current-source-evidence.md).
 
-| Target                       | Status     | Actual version / evidence                                       | Remaining work                                                                            |
-| ---------------------------- | ---------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| production services          | `n/a`      | Existing official226/source6e unchanged                         | No production activation belongs to this test-harness change.                             |
-| hosted disposable acceptance | `deployed` | Candidate b361 acceptance PASS; protected source543869f7a/PR803 | Test-only acceptance and source distribution complete; no product or semantic activation. |
+| Target                       | Status    | Actual version / evidence                              | Remaining work                                                                                   |
+| ---------------------------- | --------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| production services          | `n/a`     | Separate official227/source dbc                        | No production activation belongs to this test-harness change.                                    |
+| hosted disposable acceptance | `pending` | Candidate b361 acceptance PASS; source merged in PR803 | Protected merged-source target distribution is not evidenced; no product or semantic activation. |
 
 ## Retained failure
 
@@ -87,12 +87,15 @@ runner selection only, not the verified candidate runtime behavior.
 1. Normal PR803 protected source distribution completed as `543869f7a` after
    CI `41630251883` passed on `795eed831`. The merged and tested trees match;
    the six runtime harness files remain byte-identical to the hosted b361 proof.
-   The `deployed` status applies only to this disposable test target/source
-   distribution; production services remain `n/a`.
+   [PR803 CI](https://github.com/777genius/review-router-ai/actions/runs/41630251883)
+   proves protected source checks. It does not prove a new merged-source install
+   on the disposable target: that target remains `pending`. The retained b361
+   acceptance remains valid for its exact source; no extra install is run here.
+   Production services remain `n/a` for this harness task.
 2. Keep genuine capability-bound release first-install/update and automatic
    conversational learning qualification separate. This source-only candidate
    has no official OCI or semantic capability; installed production remains
-   source6e with qualification and interaction pin unset.
+   separate official227/dbc, without activation from this harness task.
 
 Rollback is omission of the optional test input or an ordinary source revert.
 This task adds no data migration, product setting, service restart, qualification

@@ -304,6 +304,7 @@ export class ProcessConversation {
       let context: ConversationMemoryContext | undefined;
       let prompt = "";
       let learningPreparation: ConversationLearningPreparation | null = null;
+      let learningPreparationFailed = false;
       let modelInstructions = instructions;
       let modelSchema: {
         readonly name: string;
@@ -319,14 +320,22 @@ export class ProcessConversation {
         if (
           policy.automaticLearning &&
           snapshot.sourceMaintainer &&
+          !learningPreparationFailed &&
           this.dependencies.memory.prepareLearning
         ) {
-          learningPreparation = await this.dependencies.memory.prepareLearning(
-            snapshot,
-            id,
-            policy.revision,
-            budget,
-          );
+          try {
+            learningPreparation =
+              await this.dependencies.memory.prepareLearning(
+                snapshot,
+                id,
+                policy.revision,
+                budget,
+              );
+          } catch {
+            // Memory preparation is optional for replies; never retry or buy a legacy child.
+            learningPreparationFailed = true;
+            learning = { status: "unknown", effectIds: [] };
+          }
           if (learningPreparation) {
             modelInstructions = `${instructions}\n${learningPreparation.instructions}`;
             modelSchema = {
@@ -459,9 +468,15 @@ export class ProcessConversation {
         );
         completed = true;
         let decisionText = generated.text;
-        const envelope: unknown = JSON.parse(generated.text);
+        let envelope: unknown;
+        if (learningPreparation) {
+          try {
+            envelope = JSON.parse(generated.text);
+          } catch {
+            // The decision decoder owns malformed replies; authored intent remains independent.
+          }
+        }
         if (
-          learningPreparation &&
           envelope &&
           typeof envelope === "object" &&
           !Array.isArray(envelope)
@@ -509,16 +524,18 @@ export class ProcessConversation {
         )
           throw new ConversationError("stale");
         try {
-          const learned = learningPreparation
-            ? completed
-              ? await learningPreparation.complete(observations, budget)
-              : { status: "unknown" as const, effectIds: [] }
-            : await this.dependencies.memory.learn(
-                snapshot,
-                id,
-                policy.revision,
-                budget,
-              );
+          const learned = learningPreparationFailed
+            ? { status: "unknown" as const, effectIds: [] }
+            : learningPreparation
+              ? completed
+                ? await learningPreparation.complete(observations, budget)
+                : { status: "unknown" as const, effectIds: [] }
+              : await this.dependencies.memory.learn(
+                  snapshot,
+                  id,
+                  policy.revision,
+                  budget,
+                );
           learning = { status: learned.status, effectIds: learned.effectIds };
           proposals = learned.proposals ?? [];
         } catch {

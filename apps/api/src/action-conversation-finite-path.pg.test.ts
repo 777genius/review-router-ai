@@ -578,6 +578,114 @@ describe.skipIf(!databaseUrl)(
       };
     }
 
+    it.each([false, true])(
+      "isolates failed learning preparation without a child and preserves dispatch authority: revoked=%s",
+      async (revoked) => {
+        const f = await fixture(
+          revoked ? { revokeBeforeDispatch: "account" } : {},
+        );
+        let preparations = 0;
+        f.memory.prepareLearning = async () => {
+          preparations++;
+          throw new Error("conversation_selection_stale");
+        };
+        try {
+          const first = await f.processor.execute(input, controls());
+          expect(first.status).toBe(revoked ? "output_unavailable" : "ready");
+          expect(first.learning).toEqual({ status: "unknown", effectIds: [] });
+          expect(await f.processor.execute(input, controls())).toEqual(first);
+          expect(preparations).toBe(1);
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(revoked ? 0 : 1);
+          expect(
+            f.calls.filter((call) => call.kind === "prepare"),
+          ).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
+    it.each([
+      { prepared: false, canonical: false },
+      { prepared: false, canonical: true },
+      { prepared: true, canonical: false },
+      { prepared: true, canonical: true },
+    ])(
+      "keeps completed-port malformed text independent from canonical intent and legacy learning: %j",
+      async ({ prepared, canonical }) => {
+        const f = await fixture({
+          replies: false,
+          ...(canonical
+            ? {
+                sourceBody:
+                  "Remember observation: IDs preserve leading zeroes.",
+              }
+            : {}),
+        });
+        // A legacy inference port may return malformed text after completing. The
+        // real SDK below must still complete/close; its syntax failures remain denied.
+        const capture = f.policies.capture.bind(f.policies);
+        f.policies.capture = async (...args) => {
+          const policy = await capture(...args);
+          return {
+            ...policy,
+            inference: {
+              generate: async (...generateArgs) => {
+                const generated = await policy.inference.generate(
+                  ...generateArgs,
+                );
+                return { ...generated, text: "not JSON" };
+              },
+            },
+          };
+        };
+        let consumed = 0;
+        if (prepared)
+          f.memory.prepareLearning = async () => ({
+            instructions: "Select observations.",
+            observationsSchema: { type: "array" },
+            manifest: { kind: "one-turn-test" },
+            isCurrent: async () => true,
+            complete: async (observations) => {
+              expect(observations).toBeUndefined();
+              consumed++;
+              return { status: "needs_refresh", effectIds: [] };
+            },
+          });
+        try {
+          const request = { ...input, replyMode: "off" as const };
+          const first = await f.processor.execute(request, controls());
+          expect(first.status).toBe(
+            prepared && !canonical ? "output_unavailable" : "silent",
+          );
+          expect(f.counts()).toMatchObject({
+            learned: prepared ? 0 : 1,
+            actionCalls: canonical ? 1 : 0,
+          });
+          expect(consumed).toBe(prepared ? 1 : 0);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          expect(f.calls.filter((call) => call.kind === "close")).toHaveLength(
+            1,
+          );
+          expect(f.observed).toMatchObject([
+            { model, effect: "completed", cleanup: "closed" },
+          ]);
+          expect(await f.processor.execute(request, controls())).toEqual(first);
+          expect(f.counts()).toMatchObject({
+            learned: prepared ? 0 : 1,
+            actionCalls: canonical ? 1 : 0,
+          });
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
     it.each(["wrong_kind", "missing_action"])(
       "one closed parent result learns independently of malformed decision: %s",
       async (failure) => {

@@ -6,14 +6,14 @@
 - Successor to [current-source evidence](2026-11-03-memory-current-source-evidence.md).
   The prior9a6 full tuning stopped UNAVAILABLE after2/50; no replacement quality
   claim, further tuning run or protected checkpoint is credited here.
-- Official private227 was published independently; the fleet remains226/source6e.
+- Official private227 was published and installed independently (source dbc).
   This new one-turn candidate is not in227, is unqualified and is not deployed.
   Deployment and model qualification remain a separate deferred delivery step.
 
 | Environment | Status  | Actual version               | Remaining work                                                                  |
 | ----------- | ------- | ---------------------------- | ------------------------------------------------------------------------------- |
 | staging     | pending | Not installed                | Genuine selected-model qualification and App acceptance.                        |
-| production  | pending | Existing226/6e unchanged     | Separate normal rollout after qualification; no activation from this source PR. |
+| production  | pending | Separate official227/dbc     | Separate normal rollout after qualification; no activation from this source PR. |
 | self-hosted | pending | No genuine capability issued | Normal qualified artifact/distribution and stock acceptance remain separate.    |
 
 ## Preserved boundaries
@@ -44,10 +44,15 @@ reliability runs cannot mix inference mechanisms. No eval run occurred in this t
 
 ## Delivery and rollback
 
-Remote source QA passed: all 158 affected PostgreSQL/SDK cases and 52 risk cases,
+Initial frozen [source QA receipt](evidence/2026-11-03-memory-one-turn-initial-source-qa.json)
+passed all 158 affected PostgreSQL/SDK cases and 52 risk cases,
 strict API/evaluation types, lint, formatting, source stamp and generated verifier.
 The initial QA environment failures and targeted failed-phase retries are retained.
-A separate agent reviewed the frozen implementation. These are source checks,
+A separate agent [reviewed that frozen implementation](evidence/2026-11-03-memory-one-turn-initial-source-peer.json).
+These receipts describe the initial source roster, not later review corrections.
+Implementation: [PR #804](https://github.com/777genius/review-router-ai/pull/804);
+[initial full CI](https://github.com/777genius/review-router-ai/actions/runs/41634121565)
+passed on 0c9bc38ae; later source revisions require their own final CI. These are source checks,
 not model-quality qualification, App acceptance or deployment evidence.
 
 The source-only change may follow normal protected CI and merge while unqualified.
@@ -57,6 +62,6 @@ activation, App and genuine-artifact delivery. Deployment remains deferred. Do n
 FREE defaults/MCP configuration, native generations or any retained UNKNOWN.
 
 There is no migration or automatic activation. Rollback follows the normal release
-runbook; withdrawing an unqualified candidate is not permission to replay inference,
+[runbook](../operations/07-environments-and-release-management.md); withdrawing an unqualified candidate is not permission to replay inference,
 relabel an old source proof or close unresolved operations. Record actual source QA
 and future delivery evidence before changing environment status.

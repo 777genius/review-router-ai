@@ -13,9 +13,9 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-Memory source candidate: [One-turn source-fenced learning](2026-11-03-memory-one-turn-learning.md) — staging/production `pending`; one parent request, no new quality/deployment claim. Private227 published independently; installed fleet remains226/6e and Memory deployment is deferred.
+Memory source candidate: [One-turn source-fenced learning](2026-11-03-memory-one-turn-learning.md) — staging/production `pending`; one parent request, no new quality/deployment claim. Private227 installed independently; Memory deployment is deferred.
 
-Hosted test infrastructure: [stock self-hosted network isolation](2026-11-03-selfhost-test-network-isolation.md) — test target `deployed`: continuous configured-HTTPS acceptance PASS on b361, protected source delivery complete in PR803/543869f7a. Product networks and production services are outside this test-harness change.
+Hosted test infrastructure: [stock self-hosted network isolation](2026-11-03-selfhost-test-network-isolation.md) — test target `pending`: continuous configured-HTTPS acceptance PASS on b361; source merged in PR803/543869f7a, without merged-source target installation evidence. Product networks and production services are outside this test-harness change.
 
 Gateway saturation follow-up: [terminal-run cleanup](2026-11-02-gateway-terminal-run-cleanup.md) — staging `pending`, production `in_progress`;226 API installed, A/B full coverage; payments PARTIAL 0/17, versioned dispatch fix/fresh acceptance pending.
 
