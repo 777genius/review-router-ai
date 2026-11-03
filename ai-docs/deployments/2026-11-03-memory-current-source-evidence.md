@@ -92,6 +92,25 @@ empty memory, so semantic qualification remains pending. This bounded run is
 explicitly ineligible for a full tuning score. Neither unavailable full run has
 an official score or protected-run credit.
 
+## Pending contextual-adoption clarification
+
+The source-only successor narrows the prohibition on treating proposals as
+established behavior to **unadopted** proposals. It explicitly separates a literal
+current adoption quote from its single concrete technical referent in the checked
+discussion. The existing ambiguity abstention, quote validator, source authority,
+schema, model, one-call bounds and original deadline remain unchanged. This is a
+behavioral hypothesis from the three-event run, not a demonstrated semantic fix.
+It has no fresh model evidence, successful qualification or activation claim.
+
+Future reliability reporting describes three separately rubric-scored tuning
+observations and retains the actual reviewer names. Owner-delegated agent review
+must identify itself as agent review, without claiming human or external
+independence. The legacy `AWAITING_HUMAN_RUBRIC` status and all scoring gates remain
+unchanged. After source checks, use one fresh bounded diagnostic before any three
+full tuning observations on the same frozen source/model/corpus; partial and
+filtered reports cannot substitute for complete scored runs. Protected r3 remains
+unconsumed until the required tuning evidence and review are ready.
+
 ## Ordered verification and delivery
 
 1. Review both boundaries and run affected real PostgreSQL/SDK contracts, schema,

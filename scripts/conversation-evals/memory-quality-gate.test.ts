@@ -255,7 +255,7 @@ const validObservedReport = () => ({
   ],
 });
 
-test("a model observation is NEVER a quality PASS without independent human rubric", () => {
+test("a model observation is NEVER a quality PASS without a bound semantic rubric", () => {
   const report = validObservedReport();
   assert.deepEqual(assertObservedTuningReport(report, "multilingual-v1"), {
     runId: "synthetic-run-1",
@@ -341,7 +341,7 @@ test("the focused workflow never gives PR jobs live credentials or runs protecte
   );
 });
 
-test("three independent human-scored runs expose variation without fabricated semantic reliability", () => {
+test("three separately rubric-scored runs expose variation without fabricated semantic reliability", () => {
   const metric = (a: number, b: number) => ({
     numerator: a,
     denominator: b,
@@ -367,7 +367,7 @@ test("three independent human-scored runs expose variation without fabricated se
     corpusRevision: "2026-11-02-multilingual-r1",
     corpusName: "multilingual-v1",
     split: "tuning",
-    reviewer: "synthetic-human-rubric-reference",
+    reviewer: "synthetic-rubric-reviewer",
     extractionMechanism: gatewayCandidateMechanism,
     candidateSourceProfile: { ...provenance },
     candidateModelBoundsDigest: "b".repeat(64),
@@ -394,6 +394,14 @@ test("three independent human-scored runs expose variation without fabricated se
   const summary = summarizeQualityRuns(runs);
   assert.equal(summary.status, "PASS");
   assert.equal(summary.runCount, 3);
+  assert.deepEqual(
+    summary.reviewers,
+    runs.map((run) => run.reviewer),
+  );
+  assert.equal(
+    summary.qualificationScope,
+    "three separately rubric-scored tuning observations only",
+  );
   const summaryMetrics = summary.metrics as Record<string, { min: number }>;
   assert.equal(summaryMetrics.eligibleFactRecall!.min, 0.8);
   const changed = structuredClone(runs);

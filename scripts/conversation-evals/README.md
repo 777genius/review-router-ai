@@ -38,7 +38,7 @@ inference. This is not a release action or production activation.
 
 A successful tuning workflow reports **AWAITING_HUMAN_RUBRIC**, never
 automatically claims semantic accuracy. The result JSON is bounded synthetic
-observation evidence and must be reviewed under the existing human rubric
+observation evidence and must be reviewed under the existing semantic rubric
 contract. The scorer requires actual source/current authority, delivered
 body digests and a closed selected-account Gateway receipt. Use the exact
 returned `runId`, `corpusRevision` and observed source digests in each rubric:
@@ -56,7 +56,7 @@ node --import tsx scripts/conversation-evals/memory-quality-reliability.ts \
   private/tuning-3.json.score.json
 ```
 
-The independent reliability summary compares three human-reviewed run IDs,
+The reliability summary compares three separately rubric-scored run IDs,
 one actual model and identical source/configuration digests; it preserves each
 run's numerator/denominator and reports min/max/range, failures and causal
 linked-recall witnesses without pooling correlated examples. Missing rubrics,
@@ -92,7 +92,7 @@ index, never expected fact content. An explicit `confirmProposal` event may copy
 one **actually observed native** statement into a new standalone authored command.
 This choice exists only on declared successor events; ordinary events and v1
 never receive hidden confirmation. Wrong native text is retained as wrong text
-for the independent human rubric, not replaced with a label. Successor mutations
+for the separate semantic rubric, not replaced with a label. Successor mutations
 run through `ProcessConversation`; they do not use the legacy direct owner-mutation
 helper. Forget proves immediate read exclusion and reports the actual queued or
 cleanup state; physical erasure remains the existing operator's responsibility.
@@ -101,7 +101,7 @@ The scorer checks each explicit command's actual owner fingerprint, source actor
 body revision, scope, effective mode and exact target. Complete independent command
 inventory still includes omitted commands, and pending/bodyless metadata earns no
 retention credit. Each declared successful mutation must have the matching actual
-command; an unsupported human annotation cannot grant authority.
+command; an unsupported reviewer annotation cannot grant authority.
 Maintained statements use the existing approved-provenance reader and a valid
 template-repository GitHub URL. Later thread edits do not revoke maintained
 ownership; native automatic facts retain their checked-context currency fences.
@@ -187,7 +187,7 @@ evidence retention/deletion policy and retire namespaces through the qualified
 native cleanup operator, never direct deletion. These observations are not
 customer data, a real App qualification or production activation.
 
-Bind **each** observed report to an independent human rubric using the existing
+Bind **each** observed report to a separately prepared semantic rubric using the existing
 [scorer](score.ts) and its exact run ID/source digests:
 
 ```sh
@@ -202,7 +202,7 @@ The comparison rejects duplicate run IDs, missing rubrics, inconsistent source
 digests, corpus revision, selected model/bounds or non-Gateway runs. It reports
 actual numerator/denominator for every run and min/max/range; it never pools
 correlated examples into fake statistical confidence. `PASS` means **all three
-independently human-scored tuning runs** met existing engineering gates, not
+separately rubric-scored tuning runs** met existing engineering gates, not
 population reliability, an unconsumed protected holdout, or live product
 activation. Use the existing separately authorized one-time holdout process
 _only after_ evaluating tuning and reviewing protected labels. Do not add a
@@ -253,7 +253,7 @@ qualification/mission requirements; it is unavailable on a non-generative backen
 and does not stand in for Gateway extraction. Missing
 configuration produces `UNAVAILABLE`, never a passing mocked quality score.
 Deterministic product transport/authority suites remain separate contract proof.
-Human review binds rubric decisions to the result run ID and source-event IDs;
+Semantic review binds rubric decisions to the result run ID and source-event IDs;
 there is no second LLM semantic verifier. Tune on the tuning split, then run one
 planned hold-out checkpoint. A failed hold-out becomes regression evidence; a
 new protected set is required before another independent qualification claim.
@@ -364,7 +364,7 @@ comments, code, raw Gateway streams or broad production dump belong in this seed
 
 A hold-out execution additionally requires a new explicit
 `CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID`. The runner exits 2 for unavailable
-configuration or transport and 3 when an observed run awaits human review. These
+configuration or transport and 3 when an observed run awaits rubric review. These
 codes never mean a quality pass. No raw Gateway stream, secret or credential is
 written to results. Actual terminal model and usage evidence, native service time
 and product time are recorded separately; absent usage is not estimated.
@@ -377,9 +377,19 @@ receipt, and requires cleanup `closed`. Before any calls, reports hash the actua
 shared account-policy and vendored SDK provenance file bytes. Carry those exact
 source files at their repository paths in the frozen execution bundle; no
 source identity is read from an environment-provided SHA.
-These receipts establish execution identity; human review still decides quality.
+These receipts establish execution identity; semantic review still decides quality.
 
-## Human rubric and scoring
+## Semantic rubric and scoring
+
+Record the actual review method in `reviewer`. When an owner delegates semantic
+review to an agent, identify it explicitly, for example
+`Codex agent review (owner-delegated; not human/external)`. Review each observed
+run separately and preserve unsupported facts, missing learning and unavailable
+outputs honestly. The same reviewer may assess multiple runs; distinct run IDs
+do not establish independent reviewers, blind review or human review. The existing
+`AWAITING_HUMAN_RUBRIC` status is a legacy protocol name, not evidence of a human
+reviewer. Rubric fields, scoring gates and the summary's actual `reviewers` array
+remain unchanged.
 
 Review only observed synthetic outputs, then create a JSON rubric with `runId`,
 `corpusRevision`, `reviewer`, `reviewedAt`, `entries` and `answers`:
@@ -400,7 +410,7 @@ Review only observed synthetic outputs, then create a JSON rubric with `runId`,
 
 ```sh
 node --import tsx scripts/conversation-evals/score.ts \
-  tmp/conversation-results.json tmp/human-rubric.json
+  tmp/conversation-results.json tmp/semantic-rubric.json
 ```
 
 Every observed metadata version is checked before source attribution. Full
@@ -408,14 +418,14 @@ inventory includes inactive and pending rows, with current visible bodies kept
 separately. Concrete human maintainer authority and the actual standing learning
 policy determine automatic source eligibility per source revision. Both automatic
 command proofs and observed automatic entries require that eligibility; semantic
-support and human forbidden-effect labels cannot grant it. Explicit owner
+support and reviewer forbidden-effect labels cannot grant it. Explicit owner
 retirement/forget retains its separate authority checks.
 Actual readback records the unavailable reason, checked source
 currency and the owning store's active-cohort eligibility. Only a visible active
 body with successful readback and both eligibility checks earns retention,
 precision or recall credit. A digest on pending or unavailable metadata earns no
 such credit. Earlier qualified publication remains credited after later
-retirement/forget; a never-visible pending version never does. Every new/revised statement version needs exactly one human rubric
+retirement/forget; a never-visible pending version never does. Every new/revised statement version needs exactly one semantic rubric
 row; the key includes the actual entry revision and digest, and authority changes
 with the same ID/body are checked again. A bounded independent PostgreSQL command
 inventory queries the fresh workspace, source namespace, known entry identities
