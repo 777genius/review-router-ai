@@ -6,14 +6,14 @@
 - Implementation PR: [#793](https://github.com/777genius/review-router-ai/pull/793).
 - Implementation reference: `07df054820d4421c8d21e5621316dae679f4626e`; its runtime implementation is unchanged by subsequent main integration. Dependency: [#787](https://github.com/777genius/review-router-ai/pull/787), source `44b06c141d056fa2779bc2bb29e18dbd9c84ea06`.
 - Incident: [PR786 incomplete review](https://github.com/777genius/review-router-ai/pull/786#issuecomment-6583396915), [run41486922185](https://github.com/777genius/review-router-ai/actions/runs/41486922185).
-- Last updated: `2026-11-02`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version | Last verified (UTC) | Evidence / next step                                                                          |
-| -------------------- | --------- | ----------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
-| staging              | `pending` | Not verified            | Not verified        | Remote strict API and focused regression qualification.                                       |
-| production / Hetzner | `pending` | `57cc15137` baseline    | Not verified        | Merge, include in one coordinated qualified application rollout, then real review acceptance. |
+| Environment / target | Status        | Actual deployed version                             | Last verified (UTC) | Evidence / next step                                    |
+| -------------------- | ------------- | --------------------------------------------------- | ------------------- | ------------------------------------------------------- |
+| staging              | `pending`     | Not verified                                        | Not verified        | Remote strict API and focused regression qualification. |
+| production / Hetzner | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.      |
 
 ## Observed failure
 
@@ -65,3 +65,19 @@ These checked-in, secret-free summaries retain the isolated qualification result
 | Authority-read bounds           | Strict API/review-run-control typing; 82/82 cases passed, zero skipped. Two relay cases and the cold-token case failed against their respective prior source. | `/srv/workers/rr-operator790-20261102-165027/authority-qualification/receipt.json` |
 
 The qualified runtime source is `07df054820d4421c8d21e5621316dae679f4626e`. Its [published CI record](https://github.com/777genius/review-router-ai/actions/runs/41503985520) has mixed results: the dedicated Release Authority PG17 contract and source/certification checks passed; the aggregate and several other jobs were cancelled. It does not replace the isolated server results above or establish final-batch CI completion. Private originals are retained; no publicly downloadable receipt artifact is asserted. Deployment and live native-custody reconciliation remain pending.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The relay cleanup, signal lifecycle and bounded pure authority-read code is installed. Original15/other unknown custody and incomplete native physical census retain their truthful states; stopping old code is not physical-absence proof. A/B passed full-coverage publication/accounting acceptance. Payments is PARTIAL 0/17 after 32 complete requests and 508,896 tokens. Its exact 32 native requests are completed, transport-unoccupied and closure-acknowledged; the execution is closed and scoped cleanup is done. This is not a global physical-absence claim.
+
+Staging remains unchanged and unverified by this production batch.
+
+Payments API returned HTTP 400 `model_dispatch_request_invalid` at 05:20:45 UTC.
+The frozen Gateway allowance is 640 requests while installed dispatch allows 32.
+Ordinal 33 is a source/count explanation, not an observed request body. A
+versioned 128-request successor is source-only in the neighboring workstream;
+immutable 226 producer `fa3e87a71…` is unchanged. A fresh normal payments run
+after that successor is pending; the old run is not replayed or relabelled.

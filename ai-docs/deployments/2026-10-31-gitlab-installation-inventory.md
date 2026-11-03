@@ -6,14 +6,14 @@
 - Implementation: [PR #753](https://github.com/777genius/review-router-ai/pull/753); [plan](../plans/2026-10-31-gitlab-installation-inventory.md).
 - Implementation reference: `dcd906400ecf4ed26c97a44f82621826a4eb952a` (reviewed baseline before remediation; the PR head is authoritative for later fixes, not proof of deployment).
 - No schema migration, feature flag, manual activation or production secret changes are introduced.
-- Last updated: `2026-10-31`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment | Status    | Installed release / image | Actual verification |
-| ----------- | --------- | ------------------------- | ------------------- |
-| staging     | `pending` | Not verified              | Not executed        |
-| production  | `pending` | Not verified              | Not executed        |
+| Environment | Status    | Installed release / image                           | Actual verification                                |
+| ----------- | --------- | --------------------------------------------------- | -------------------------------------------------- |
+| staging     | `pending` | Not verified                                        | Not executed                                       |
+| production  | `pending` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below. |
 
 `pending` means no verified deployment evidence is recorded, not observed absence.
 This task does not authorize deployment.
@@ -49,3 +49,12 @@ rollback behavior against active sessions and the target fleet.
 ## Execution log
 
 No rollout attempt or environment verification receipt is recorded.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The shared application code is installed. GitLab-specific external setup, ownership and live inventory acceptance remain outside this selected GitHub rollout; no GitLab provisioning or data repair was performed or credited.
+
+Staging remains unchanged and unverified by this production batch.

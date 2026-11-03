@@ -10,10 +10,10 @@
   The canonical ACL continues to revoke the worker's grants. Do not skip the
   ordered post-ACL grant step or treat this as a canonical ACL trust-root repair.
 
-| Environment | Status    | Actual version            | Evidence                                                                    |
-| ----------- | --------- | ------------------------- | --------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified              | No rollout                                                                  |
-| production  | `pending` | Fleet remains `57cc15137` | Official226 grant attempt stopped after durable denial; guard not installed |
+| Environment | Status     | Actual version                                      | Evidence                                           |
+| ----------- | ---------- | --------------------------------------------------- | -------------------------------------------------- |
+| staging     | `pending`  | Not verified                                        | No rollout                                         |
+| production  | `deployed` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below. |
 
 ## Release attestation ordering
 
@@ -50,7 +50,7 @@ roles and mistake the intended read-only failure for a guard failure.
    Initial creation uses the approved `reviewrouter_pg` session's existing
    superuser authority only while the fixed function is absent. The application
    object owner `reviewrouter` has no CREATE on `public`; no schema privilege or
-   owner change is authorized. The transaction-local installer restores
+   schema-owner change is authorized. The transaction-local installer restores
    `reviewrouter` before existing exact owner/body/trigger checks and grants.
    Conflicting existing objects remain fail-closed and require separate repair.
 4. Verify under the actual worker LOGIN: same-installation, same-workspace
@@ -80,13 +80,20 @@ rather than modifying accepted activation policy in this small patch.
 
 ## 2026-11-03 owner-installation compatibility failure
 
-At approximately 04:01 UTC, the ordinary official226 operation using source
+At approximately 04:00 UTC, the ordinary official226 operation using source
 `6e6a0f07829c465202512f87fb6a3195412ca347` completed migration reconciliation
 and canonical runtime ACL application. The guarded worker grant committed its
 first durable denial, then the second transaction rolled back at CREATE FUNCTION
 with permission denied on schema `public` under `SET LOCAL ROLE reviewrouter`.
-No INSERT guard was installed; worker writes remain revoked. The application
-fleet still runs source57, so the guarded post-ACL step is **not deployed**.
+At that failed attempt no INSERT guard was installed, worker writes remained
+revoked and the application fleet still ran source57. The later corrected
+installation and live verification are recorded below; this failure is retained.
+
+The [secret-free attempt receipt](evidence/2026-11-03-worker-guard-installation-attempt.json)
+binds the completed phases and retained private log hashes to the
+[official226 release](https://github.com/777genius/review-router-ai/actions/runs/41567885045).
+That attempt was followed only by the corrected guarded SQL step after [the installation correction](https://github.com/777genius/review-router-ai/pull/799)
+passed review and CI; completed migration and ACL phases were not replayed.
 
 The old disposable fixture made `reviewrouter` the effective public schema owner
 via database ownership, hiding its missing production CREATE privilege. The
@@ -98,7 +105,17 @@ root, migration or new privilege is introduced. A separate extra canonical
 catalog diagnostic reported legacy owner/check/ACL mismatch; that is not this
 CREATE failure's cause and adds no new rollout gate.
 
-The corrected source requires focused real PG17 qualification, normal PR/CI and
-merge, followed by the single release owner's separately approved corrected
-SQL step. Do not replay already-completed migration/ACL phases, bypass denied
-writes, or mark the grant deployed from source-only or disposable results.
+The correction passed 39 real PG17.11 checkpoints with zero skips and full
+[CI41576953037](https://github.com/777genius/review-router-ai/actions/runs/41576953037),
+then merged as `ced6c34b15dbfdb3bc2686828e0fad5787ceb812` with the tested tree unchanged.
+The release owner applied exact SQL `b34490ba…` successfully. Production completion
+below relies on actual worker LOGIN and signed-sync evidence, not source checks alone.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The corrected owner-controlled SQL from merged PR799/ced6 was applied once after the already-completed canonical ACL, without replaying migration/ACL/backup. Actual ordinary worker LOGIN passed positive insertion and four 42501 negatives with callback rejection and fresh absence; seven runtime privilege checks passed and no permission dead letter was observed. Fresh normal signed GitHub delivery/outbox/inventory completion also passed. The empty test repository remains private and archived after DELETE 403; it was not deleted. Production guard/live-path verification is complete, while #761 trust-root work remains separate.
+
+Staging remains unchanged and unverified by this production batch.

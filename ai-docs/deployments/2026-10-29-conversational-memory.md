@@ -18,14 +18,14 @@
   reconcile [Review History](2026-10-28-review-history.md) and
   [dispatch/schema work](2026-10-28-dispatch-cleanup-ci.md) when included in the
   selected installed-to-target release range.
-- Last updated: `2026-11-02`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment | Status        | Actual version / image        | Last verified (UTC) | Remaining work                                                                                                                                                 |
-| ----------- | ------------- | ----------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                  | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication.                                                                                     |
-| production  | `in_progress` | `57cc1513` / image `3550f3c7` | 2026-11-02          | Approved Memory delivery and physical Forget verified; automatic learning qualification, installed-App acceptance and self-hosted distribution remain pending. |
+| Environment | Status        | Actual version / image                              | Last verified (UTC) | Remaining work                                                             |
+| ----------- | ------------- | --------------------------------------------------- | ------------------- | -------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                                        | Not verified        | Reconcile, migrate, deploy disabled, qualify live, verify App publication. |
+| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.                         |
 
 No environment rollout was executed in this source-integration step. `pending`
 means completion has not been verified, not that deployment was observed absent.
@@ -525,3 +525,22 @@ physical Forget were not established by that continuation. Exact private receipt
 SHA256: `6597201c1a240b34a94064702860a5e446f7b60b9246a299830bac94a6101e25`.
 Normal distribution/CI, automatic-learning quality and installed-App acceptance
 remain separate unfinished delivery steps.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The reviewed implementation/settings readers are installed coherently, with qualification and interaction pin unset. Config89/workspace21 FREE inheritance and all seven MCP tools are preserved; superseded config87 was not restored. Automatic-learning semantic quality, installed-App acceptance, genuine capability and distribution remain pending; ordinary226 is not a semantic PASS.
+
+Staging remains unchanged and unverified by this production batch.
+
+The later PR800 diagnostic observed 3/3 selected adoption/recall events
+correctly but was forced UNAVAILABLE/ineligible. Its full T1 stopped UNAVAILABLE
+at 2/50 when the child reached the inherited parent/shared deadline. The original
+processing budget was 90 seconds; only 73,572 ms remained when the child was
+created after the parent. Later exact read-only reconciliation
+found the child fenced, transport unoccupied, closure acknowledged and cleanup
+done; provider result and usage remain UNKNOWN, without output recovery or replay. See the
+[current-source evidence](2026-11-03-memory-current-source-evidence.md).
+No T2/T3/H3, quality PASS or capability followed; R1 remains unqualified.
