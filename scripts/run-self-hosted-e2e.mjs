@@ -28,6 +28,13 @@ import {
   disposableTempCleanupDiagnostic,
 } from "./self-hosted-e2e/disposable-temp-cleanup.ts";
 
+import {
+  assertNetworkSubnet,
+  readNetworkOverride,
+  verifyOwnedNetworkSubnet,
+  selfHostedComposeArguments,
+} from "./self-hosted-e2e/network-isolation.ts";
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fetchHttp = globalThis.fetch;
 const composeFile = "deploy/self-hosted/compose.yml";
@@ -38,6 +45,7 @@ let ownedTempDirectory;
 let tempDirectory;
 let envFile;
 let configuredApiOrigin;
+let networkOverride;
 let investigationReleaseFixture;
 let composeTouched = false;
 let testDatabaseCreationAttempted = false;
@@ -59,7 +67,12 @@ export async function runSelfHostedE2E(options = {}) {
     typeof options !== "object" ||
     Array.isArray(options) ||
     Object.keys(options).some(
-      (key) => !["configuredApiOrigin", "afterComposeHealthy"].includes(key),
+      (key) =>
+        ![
+          "configuredApiOrigin",
+          "afterComposeHealthy",
+          "networkSubnet",
+        ].includes(key),
     ) ||
     (options.afterComposeHealthy !== undefined &&
       typeof options.afterComposeHealthy !== "function")
@@ -71,6 +84,8 @@ export async function runSelfHostedE2E(options = {}) {
     assertConfiguredSelfHostedApiOrigin(options.configuredApiOrigin);
     configuredApiOrigin = options.configuredApiOrigin;
   }
+  const networkSubnet = options.networkSubnet;
+  if (networkSubnet !== undefined) assertNetworkSubnet(networkSubnet);
   const runSuffix = `${process.pid}-${Date.now().toString(36)}`.toLowerCase();
   projectName = `reviewrouter-self-hosted-e2e-${runSuffix}`;
   testDatabase = `review_router_test_${process.pid}_${Date.now()}`;
@@ -98,6 +113,17 @@ export async function runSelfHostedE2E(options = {}) {
     writeEnvFile(testEnv);
 
     run("docker", ["version", "--format", "server={{.Server.Version}}"]);
+    if (networkSubnet !== undefined) {
+      const override = readNetworkOverride(networkSubnet);
+      networkOverride = join(tempDirectory, "network-override.json");
+      writeFileSync(networkOverride, override, { mode: 0o600, flag: "wx" });
+      const config = JSON.parse(captureCompose(["config", "--format", "json"]));
+      if (
+        config.networks?.default?.ipam?.config?.length !== 1 ||
+        config.networks.default.ipam.config[0].subnet !== networkSubnet
+      )
+        throw new Error("sandbox_network_compose_mismatch");
+    }
     run(process.execPath, ["scripts/check-self-hosted-readiness.mjs"], testEnv);
     run(
       process.execPath,
@@ -111,6 +137,7 @@ export async function runSelfHostedE2E(options = {}) {
       "scripts/self-hosted-e2e/runner-lifecycle.test.ts",
       "scripts/self-hosted-e2e/settle-memory-command.test.ts",
       "scripts/self-hosted-e2e/disposable-temp-cleanup.test.ts",
+      "scripts/self-hosted-e2e/network-isolation.test.ts",
     ]);
 
     memoryInstallStarted = true;
@@ -126,10 +153,14 @@ export async function runSelfHostedE2E(options = {}) {
 
     composeTouched = true;
     runCompose(["up", "-d", "--wait", "--wait-timeout", "120", "postgres"]);
+    if (networkSubnet !== undefined)
+      verifyOwnedNetworkSubnet(projectName, networkSubnet);
     provisionEffectAuthorityRole();
     runCompose(["build", "api"]);
     runCompose(["up", "-d", "--wait", "--wait-timeout", "300"]);
     assertComposeState(installedMemory.values);
+    if (networkSubnet !== undefined)
+      verifyOwnedNetworkSubnet(projectName, networkSubnet);
     await assertHealthEndpoint(
       `http://127.0.0.1:${ports.web}/api/health`,
       "review-router-web",
@@ -734,16 +765,13 @@ function writeEnvFile(env) {
 }
 
 function composeArguments(args) {
-  return [
-    "compose",
-    "-p",
+  return selfHostedComposeArguments(
     projectName,
-    "--env-file",
     envFile,
-    "-f",
     composeFile,
-    ...args,
-  ];
+    args,
+    networkOverride,
+  );
 }
 
 function runCompose(args, options) {

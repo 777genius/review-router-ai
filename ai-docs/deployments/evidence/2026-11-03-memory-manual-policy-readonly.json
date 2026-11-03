@@ -1,0 +1,38 @@
+{
+  "kind": "production-memory-manual-policy-readonly/v1",
+  "status": "one_authorized_readonly_capture_completed",
+  "sourceReceiptSha256": "9a739b95c3d35653e5582264dd7c6403e49586e10794fdbb13e810f3d04b7020",
+  "actualImage": "sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4",
+  "actualSource": "6e6a0f07829c465202512f87fb6a3195412ca347",
+  "observedAt": "2026-11-03T08:37:09.832Z",
+  "ownerLabelVerified": "agent-teams-ai",
+  "scopeVerified": true,
+  "serviceEnabled": true,
+  "entitlementRecordPresent": false,
+  "entitlementStatus": "active",
+  "balancedMemoryFlag": true,
+  "entitlementAllowed": true,
+  "workspaceScopeAllowed": true,
+  "manualWritesPolicyEnabled": true,
+  "webDashboardMutationFlagEnabled": true,
+  "userCanManage": "not_observed",
+  "realBrowserUiClaimed": false,
+  "appAuthenticationClaimed": false,
+  "conversationQualificationClaimed": false,
+  "databaseWrites": 0,
+  "nativeCalls": 0,
+  "modelCalls": 0,
+  "sourceQA": {
+    "strictTypecheckExitCode": 0,
+    "network": "none",
+    "apiEnvLoaded": false,
+    "databaseQueries": 0
+  },
+  "runtimeObserver": {
+    "currentRole": "reviewrouter_api",
+    "sessionRole": "reviewrouter_api",
+    "superuser": false,
+    "bypassRls": false,
+    "readOnly": true
+  }
+}

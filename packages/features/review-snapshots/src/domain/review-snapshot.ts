@@ -298,7 +298,7 @@ function redactReviewSnapshotSecrets(value: string): string {
       "-----BEGIN PRIVATE KEY-----***-----END PRIVATE KEY-----",
     )
     .replace(/sk-[A-Za-z0-9_-]{16,}/g, "sk-***")
-    .replace(/ghs_[A-Za-z0-9_]{16,}/g, "ghs_***")
+    .replace(/ghs_[A-Za-z0-9._-]{16,}/g, "ghs_***")
     .replace(/gh[pousr]_[A-Za-z0-9_]{16,}/g, "gh*-***")
     .replace(/github_pat_[A-Za-z0-9_]+/g, "github_pat_***")
     .replace(
