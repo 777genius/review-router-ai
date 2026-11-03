@@ -37,7 +37,10 @@ import {
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
 import { readReviewRunGatewayRelayPolicy } from "./review-run-gateway-relay.js";
 import { readServerApprovedReviewRunGatewayPolicy } from "./review-run-runtime-snapshot.js";
-import { createConversationGatewayInference } from "./action-conversation-inference.js";
+import {
+  createConversationGatewayInference,
+  type ConversationGatewayObservation,
+} from "./action-conversation-inference.js";
 
 /** Companion conversations follow the first/primary reviewer, as other V4 companions do.
  * Never silently select a later account or reinterpret a mixed-auth roster.
@@ -268,11 +271,36 @@ export type ConversationCurrentnessFailure = {
   readonly httpStatus?: number;
 };
 
+export type ConversationInferenceObservation = Pick<
+  ConversationGatewayObservation,
+  "failureCode" | "executionKnown" | "effect" | "cleanup"
+> & { readonly processingId: string };
+
+const inferenceFailureCodes: ReadonlySet<string> = new Set([
+  "invalid_task",
+  "rejected",
+  "unauthorized",
+  "busy",
+  "unavailable",
+  "conflict",
+  "provider_failed",
+  "output_truncated",
+  "output_refused",
+  "output_invalid",
+  "output_lost",
+  "effect_unknown",
+  "cancelled",
+  "deadline",
+]);
+
 type ConversationPolicyConstruction = {
   readonly prisma: PrismaClient;
   readonly runtime: MemoryKnowledgeRuntime;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly onCaptured?: (value: ConversationCapturedPolicy) => void;
+  readonly onInferenceObserved?: (
+    value: ConversationInferenceObservation,
+  ) => void | Promise<void>;
   readonly onCurrentnessFailure?: (
     value: ConversationCurrentnessFailure,
   ) => void | Promise<void>;
@@ -799,6 +827,35 @@ function createSelectedAccountPolicy(
               "not_dispatched",
               "rejected_before_dispatch",
             ].includes(value.effect);
+          // Diagnostic observers cannot alter settlement or publication authority.
+          if (
+            (value.failureCode === null ||
+              inferenceFailureCodes.has(value.failureCode)) &&
+            typeof value.executionKnown === "boolean" &&
+            [
+              "not_dispatched",
+              "rejected_before_dispatch",
+              "dispatch_started",
+              "response_started",
+              "completed",
+              "effect_unknown",
+            ].includes(value.effect) &&
+            ["not_needed", "closed", "pending"].includes(value.cleanup)
+          ) {
+            try {
+              void Promise.resolve(
+                input.onInferenceObserved?.({
+                  processingId,
+                  failureCode: value.failureCode,
+                  executionKnown: value.executionKnown,
+                  effect: value.effect,
+                  cleanup: value.cleanup,
+                }),
+              ).catch(() => {});
+            } catch {
+              /* Diagnostics never change the original outcome. */
+            }
+          }
           await input.prisma.conversationProcessing.updateMany({
             where: {
               id: processingId,

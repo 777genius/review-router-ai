@@ -4,6 +4,7 @@ import {
   createLlmClient,
   type ConsumerControlPort,
   type ExecutionConnector,
+  type LlmFailureCode,
   type LlmTask,
   type LlmResult,
 } from "@agent-teams/account-gateway/llm";
@@ -16,6 +17,8 @@ import {
 
 /** Bodyless settlement facts of the one original SDK attempt, including failed output. */
 export type ConversationGatewayObservation = {
+  readonly failureCode: LlmFailureCode | null;
+  readonly executionKnown: boolean;
   readonly model: string | null;
   readonly usage: LlmResult<unknown>["usage"];
   readonly effect: import("@agent-teams/account-gateway/llm").LlmEffect;
@@ -137,6 +140,8 @@ export function createConversationGatewayInference(input: {
       try {
         const result = await llm.generate(task, { signal });
         await input.onObserved?.({
+          failureCode: result.ok ? null : result.code,
+          executionKnown: result.ok || result.execution !== null,
           model: result.ok ? result.receipt.observedModel : null,
           usage: result.usage,
           effect: result.ok ? "completed" : result.effect,

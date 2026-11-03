@@ -21,6 +21,7 @@ import {
   createConversationPublicationAuthority,
   type ConversationCapturedPolicy,
   type ConversationCurrentnessFailure,
+  type ConversationInferenceObservation,
 } from "./action-conversation-policy.js";
 import * as conversationInference from "./action-conversation-inference.js";
 import { conversationCapabilityFixture } from "../../../packages/platform/config/src/tests/conversation-qualification-fixture.js";
@@ -333,6 +334,9 @@ function dynamicModelFixture(
     staticModel?: boolean;
     reasoningAllowed?: readonly ("low" | "medium" | "high")[] | null;
     catalogUnavailable?: boolean;
+    onInferenceObserved?: (
+      value: ConversationInferenceObservation,
+    ) => void | Promise<void>;
     onCurrentnessFailure?: (
       value: ConversationCurrentnessFailure,
     ) => void | Promise<void>;
@@ -633,6 +637,9 @@ function dynamicModelFixture(
       }),
     },
     admitMemory: async () => true,
+    ...(options.onInferenceObserved
+      ? { onInferenceObserved: options.onInferenceObserved }
+      : {}),
     ...(options.onCurrentnessFailure
       ? { onCurrentnessFailure: options.onCurrentnessFailure }
       : {}),
@@ -1002,6 +1009,8 @@ it("candidate paid admission and observations address its disposable row, not th
     usage: null,
     effect: "completed",
     cleanup: "closed",
+    failureCode: null,
+    executionKnown: true,
   });
   expect(f.transaction.conversationProcessing.updateMany).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -1052,6 +1061,8 @@ it.each([
       usage: null,
       effect,
       cleanup,
+      failureCode: null,
+      executionKnown: true,
     });
     expect(await policy.isCurrent(controls)).toBe(settled);
     expect(await f.checkSelection()).toBe(settled);
@@ -1299,3 +1310,79 @@ it("currentness diagnostics drop unknown error fields and invalid HTTP status", 
   ]);
   expect(JSON.stringify(failures)).not.toContain("private-");
 });
+
+it.each(["collect", "throw", "reject", "unrecognized"] as const)(
+  "SDK outcome diagnostics are closed and cannot alter unknown authority (%s)",
+  async (mode) => {
+    let transport:
+      | Parameters<
+          typeof conversationInference.createConversationGatewayInference
+        >[0]
+      | undefined;
+    vi.spyOn(
+      conversationInference,
+      "createConversationGatewayInference",
+    ).mockImplementation((value) => {
+      transport = value;
+      return {
+        generate: async () => {
+          throw new Error("no_model_call");
+        },
+      };
+    });
+    const observations: ConversationInferenceObservation[] = [];
+    const f = dynamicModelFixture({
+      candidate: true,
+      onInferenceObserved: (value) => {
+        observations.push(value);
+        if (mode === "throw") throw new Error("private_observer_error");
+        if (mode === "reject")
+          return Promise.reject(new Error("private_observer_error"));
+      },
+    });
+    const policy = await f.capture();
+    const controls = { deadlineAt: new Date(Date.now() + 10_000) };
+    expect(await policy.isCurrent(controls)).toBe(true);
+    const reads = f.fetch.mock.calls.length;
+    const value = {
+      model: "private_model",
+      usage: null,
+      effect: "effect_unknown" as const,
+      cleanup: "closed" as const,
+      failureCode: "effect_unknown" as const,
+      executionKnown: true,
+      privateError: "never-log-this-provider-payload",
+    };
+    if (mode === "unrecognized")
+      Object.assign(value, { failureCode: "never-log-this-provider-payload" });
+    await transport!.onObserved!(value);
+    await Promise.resolve();
+    expect(await policy.isCurrent(controls)).toBe(false);
+    expect(await f.checkSelection()).toBe(false);
+    expect(f.fetch.mock.calls.length).toBe(reads);
+    expect(observations).toEqual(
+      mode === "unrecognized"
+        ? []
+        : [
+            {
+              processingId: "processing_probe",
+              failureCode: "effect_unknown",
+              executionKnown: true,
+              effect: "effect_unknown",
+              cleanup: "closed",
+            },
+          ],
+    );
+    expect(JSON.stringify(observations)).not.toContain("private");
+    expect(
+      f.transaction.conversationProcessing.updateMany,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: {
+          observedModel: "private_model",
+          requestEffect: "effect_unknown",
+        },
+      }),
+    );
+  },
+);
