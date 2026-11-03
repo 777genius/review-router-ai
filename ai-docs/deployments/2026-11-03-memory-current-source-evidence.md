@@ -169,7 +169,8 @@ The reviewed grounding and closed-diagnostic implementation through frozen 286
 is ordinary code shipped in 226, not automatic-learning qualification. PR800, merged as `3475220dc`, has observation source `9a6b1a974` and preview
 digest797; it remains undeployed. Its later diagnostic
 and unavailable T1 below grant no semantic PASS, H3 checkpoint, capability or
-genuine self-hosted artifact/HTTPS acceptance.
+genuine self-hosted artifact acceptance. The later source-only candidate HTTPS
+stock proof is separate from semantic qualification.
 
 Staging remains unchanged and unverified by this production batch.
 
@@ -202,3 +203,20 @@ remain unchanged from the observed source; the diagnostic/T1 observations stay
 bound to `9a6b1a974`. No model rerun followed the base merge. The merged source
 is not deployed: production remains ordinary R1 at6e, without qualification or
 an interaction pin.
+
+## Production manual-policy read-only observation — 2026-11-03
+
+A single [sanitized compiled-policy observation](evidence/2026-11-03-memory-manual-policy-readonly.json)
+on the actual production6e image verified the `agent-teams-ai` organization
+scope. Normal compiled policy reported manual writes enabled, service and
+workspace scope allowed, and the web dashboard mutation flag enabled. The
+entitlement row was absent, with the normal resolver reporting active/allowed.
+The observer used the ordinary API database role in a read-only transaction;
+no database write, native request or model call occurred.
+
+This establishes the backend policy result only. User `canManage` was not
+observed; no real browser UI or authenticated-user interaction is claimed. It
+does not establish conversational qualification or enable a capability/pin.
+Production remains6e. The separate [candidate continuous HTTPS stock proof](2026-11-03-selfhost-test-network-isolation.md)
+does not supply the still-pending genuine-artifact first-install/update or
+automatic-learning acceptance.
