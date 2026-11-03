@@ -1,5 +1,15 @@
 # Account model catalog: coordinated deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-28-model-catalog`.
 - Goal: discover and execute authorized Codex/OpenRouter account models without a feature flag.
 - Affected services: sub2api native, Account Gateway, ReviewRouter Web/API/worker.
@@ -9,10 +19,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image                     | Last verified (UTC) | Evidence / next step                                                           |
-| ----------- | ------------- | --------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------ |
-| staging     | `pending`     | Not verified                                        | Not verified        | Reconcile native/Gateway and application versions; follow the ordered rollout. |
-| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.                             |
+| Environment | Status      | Actual deployed version / image             | Last verified (UTC) | Evidence / next step                                                           |
+| ----------- | ----------- | ------------------------------------------- | ------------------- | ------------------------------------------------------------------------------ |
+| staging     | `pending`   | Not verified                                | Not verified        | Reconcile native/Gateway and application versions; follow the ordered rollout. |
+| production  | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | 2026-11-03          | See current disposition; no repeat code rollout.                               |
 
 `pending` records missing deployment evidence, not observed absence. Implementation checks do not prove production readiness.
 

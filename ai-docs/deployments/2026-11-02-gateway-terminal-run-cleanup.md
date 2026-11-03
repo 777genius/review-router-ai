@@ -1,5 +1,15 @@
 # Gateway terminal-run capacity cleanup: deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-11-02-gateway-terminal-run-cleanup`.
 - Goal: failed, terminal Actions runs stop occupying retained Gateway relay capacity after their exact native cleanup succeeds; new reviews can dispatch normally.
 - Affected services: API; no migration or provider-setting change.
@@ -10,10 +20,10 @@
 
 ## Environment status
 
-| Environment / target | Status        | Actual deployed version                             | Last verified (UTC) | Evidence / next step                                    |
-| -------------------- | ------------- | --------------------------------------------------- | ------------------- | ------------------------------------------------------- |
-| staging              | `pending`     | Not verified                                        | Not verified        | Remote strict API and focused regression qualification. |
-| production / Hetzner | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.      |
+| Environment / target | Status      | Actual deployed version                     | Last verified (UTC) | Evidence / next step                                    |
+| -------------------- | ----------- | ------------------------------------------- | ------------------- | ------------------------------------------------------- |
+| staging              | `pending`   | Not verified                                | Not verified        | Remote strict API and focused regression qualification. |
+| production / Hetzner | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | 2026-11-03          | See current disposition; no repeat code rollout.        |
 
 ## Observed failure
 

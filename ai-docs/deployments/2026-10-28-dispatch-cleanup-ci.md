@@ -1,5 +1,15 @@
 # Dispatch cleanup and Scanner CI: deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-28-dispatch-cleanup-ci`.
 - Goal: retain durable cancellation for unresolved pre-admission dispatches, keep the first discovered run immutable across retries, and isolate Scanner main/manual qualification without losing same-PR replacement.
 - Targets: API, every review-v2 outbox worker, web completion focus, application PostgreSQL compatibility, and GitHub Scanner workflows.
@@ -10,10 +20,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image                     | Last verified (UTC) | Remaining work                                                                 |
-| ----------- | ------------- | --------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------ |
-| staging     | `pending`     | Not verified for this task                          | Not verified        | Select the authorized cohort and reconcile its prerequisites before executing. |
-| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.                             |
+| Environment | Status      | Actual deployed version / image             | Last verified (UTC) | Remaining work                                                                 |
+| ----------- | ----------- | ------------------------------------------- | ------------------- | ------------------------------------------------------------------------------ |
+| staging     | `pending`   | Not verified for this task                  | Not verified        | Select the authorized cohort and reconcile its prerequisites before executing. |
+| production  | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | 2026-11-03          | See current disposition; no repeat code rollout.                               |
 
 Earlier source `418c0ff` and image `sha256:64b092d075237e3981ad8c77610664a71242a50a4ed2227c94729887f46e07ab` were observed in an earlier read-only rollout snapshot on 28 October. That baseline includes earlier supersession cleanup, not verification of this final task. Reconcile the live environment again; a local receipt or an old image does not establish completion here. This record grants no additional deployment authorization.
 

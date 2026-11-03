@@ -1,5 +1,15 @@
 # Several Gateway reviewers: deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-29-gateway-multi-reviewers`.
 - Goal: configure and execute several Gateway reviewers with independent models,
   bounded shared account allowances, complete coverage and one publication.
@@ -16,10 +26,10 @@
 
 ## Environment status
 
-| Environment / target | Status        | Actual deployed version                             | Last verified (UTC) | Next step                                                                   |
-| -------------------- | ------------- | --------------------------------------------------- | ------------------- | --------------------------------------------------------------------------- |
-| staging              | `pending`     | Not verified                                        | Not verified        | Reconcile installed versions and select the exact qualified paired release. |
-| production           | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.                          |
+| Environment / target | Status      | Actual deployed version                     | Last verified (UTC) | Next step                                                                   |
+| -------------------- | ----------- | ------------------------------------------- | ------------------- | --------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                                | Not verified        | Reconcile installed versions and select the exact qualified paired release. |
+| production           | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | 2026-11-03          | See current disposition; no repeat code rollout.                            |
 
 This task records source implementation and local qualification. It does not
 claim a deployment or authorize workflow channel promotion. The separate

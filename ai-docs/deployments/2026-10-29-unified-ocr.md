@@ -1,5 +1,15 @@
 # Unified OCR discovery and finding verification
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 ## Goal and scope
 
 Deliver one review scenario for the currently supported connection routes:
@@ -20,10 +30,10 @@ Coordinate actual fleet changes and retirement evidence with the separate
 
 ## Environment status
 
-| Environment | Status        | Verified deployed version                           | Remaining work                                                                                                           |
-| ----------- | ------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Staging     | `pending`     | Not recorded                                        | Qualify the selected integrated source; reconcile actual environment; authorized rollout and designated live acceptance. |
-| Production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below.                                                                       |
+| Environment | Status      | Verified deployed version                   | Remaining work                                                                                                           |
+| ----------- | ----------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Staging     | `pending`   | Not recorded                                | Qualify the selected integrated source; reconcile actual environment; authorized rollout and designated live acceptance. |
+| Production  | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | See current disposition; no repeat code rollout.                                                                         |
 
 No rollout was executed by this task. `pending` does not prove that an environment
 lacks a particular step: reconcile its actual state before acting. Do not copy a

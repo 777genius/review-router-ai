@@ -1,5 +1,15 @@
 # Analytics extensibility — deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-31-analytics-extensibility`.
 - Implementation: [catalog #768](https://github.com/777genius/review-router-ai/pull/768),
   [URL/UI #769](https://github.com/777genius/review-router-ai/pull/769),
@@ -10,10 +20,10 @@
 - Dependencies: none beyond the selected coherent release. No new migration,
   flag, process, external BI service or activation step.
 
-| Environment | Status        | Actual revision                                     | Evidence                                           |
-| ----------- | ------------- | --------------------------------------------------- | -------------------------------------------------- |
-| staging     | `pending`     | Not verified                                        | No rollout performed                               |
-| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below. |
+| Environment | Status      | Actual revision                             | Evidence                                         |
+| ----------- | ----------- | ------------------------------------------- | ------------------------------------------------ |
+| staging     | `pending`   | Not verified                                | No rollout performed                             |
+| production  | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | See current disposition; no repeat code rollout. |
 
 ## Rollout and rollback
 

@@ -1,5 +1,17 @@
 # Usage SQL read path: deployment
 
+## Current disposition - 2026-11-03
+
+Production remains **deployed**, now retained in release227 / `dbc161c986`, image
+`89a28e11`. The prior2026-10-31 record already establishes migration155 applied
+and its index valid; do not run the migration/index build again from this old
+rollout checklist. The fresh227 Usage reader reconciled45 Native observations,
+including its honestly unknown optional request, as recorded in the
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json).
+A large concurrent-user load test remains unperformed and is optional capacity
+qualification, not a pending deployment or migration. See the
+[current owner decision](2026-11-03-production-status-reconciliation.md).
+
 - Task ID: `2026-10-30-usage-sql-read-path`.
 - Goal: calculate tenant and operator Usage reports in PostgreSQL while returning
   only aggregate results, summary-family metadata and the requested observation
@@ -11,7 +23,7 @@
   `000155_usage_member_report_index`, and the selected release's ordinary fleet
   prerequisites. No new service, environment configuration, feature flag, ledger
   rewrite or activation step is introduced by this task.
-- Last updated: `2026-10-30`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
