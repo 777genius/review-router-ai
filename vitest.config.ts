@@ -24,6 +24,7 @@ export default defineConfig({
       "scripts/self-hosted-e2e/settle-memory-command.test.ts",
       "scripts/self-hosted-e2e/disposable-temp-cleanup.test.ts",
       "scripts/self-hosted-e2e/runner-lifecycle.test.ts",
+      "scripts/self-hosted-e2e/network-isolation.test.ts",
       ...(process.env.REVIEW_ROUTER_RUN_HOSTED_POOL_POSTGRES_E2E === "1"
         ? []
         : ["scripts/hosted-pool-e2e/hosted-pool-postgres.e2e.test.ts"]),

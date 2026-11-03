@@ -51,3 +51,12 @@ test("invalid configuration and a second invocation refuse before sandbox creati
     "self_hosted_e2e_already_invoked",
   ]);
 });
+
+test("invalid subnet refuses before sandbox creation or any network command", () => {
+  const result = isolatedRunnerCheck(`
+    const { runSelfHostedE2E } = await import(${JSON.stringify(runnerUrl)});
+    try { await runSelfHostedE2E({ networkSubnet: "192.168.240.7/24" }); process.exitCode = 1; }
+    catch (error) { console.log(error.message); }
+  `);
+  assert.equal(result, "sandbox_network_subnet_invalid");
+});
