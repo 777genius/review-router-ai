@@ -961,10 +961,12 @@ test("provider usage overview keeps complete period totals, charts, models and r
     expect(await forbidden.json()).toEqual({ error: "usage_access_denied" });
     await page.reload();
     await expect(kpi("Known tokens")).toContainText("50");
+    // This plain anchor can cold-compile Support; use the harness navigation
+    // budget for its automatic navigation wait, retaining all destination checks.
     await page
       .getByRole("contentinfo", { name: "Dashboard footer", exact: true })
       .getByRole("link", { name: "Support", exact: true })
-      .click();
+      .click({ timeout: 30_000 });
     await expect(page).toHaveURL(/\/support$/);
     await expect(
       page.getByRole("contentinfo", { name: "Dashboard footer", exact: true }),
