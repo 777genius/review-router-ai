@@ -86,7 +86,10 @@ type Report = {
   corpusName?: CorpusName;
   split: "tuning" | "holdout";
   status: string;
-  profile?: Partial<CandidateSourceProfile> & { extractionMechanism?: string };
+  profile?: Partial<CandidateSourceProfile> & {
+    extractionMechanism?: string;
+    candidateModelBoundsDigest?: string;
+  };
   variants: {
     variant: string;
     status: string;
@@ -101,7 +104,8 @@ if (!path || !reviewPath)
 const report = JSON.parse(await readFile(path, "utf8")) as Report;
 const review = JSON.parse(await readFile(reviewPath, "utf8")) as Review;
 const corpus = await loadCorpus(report.corpusName ?? "legacy-v1");
-const successor = report.corpusName === "full-thread-v2";
+const successor =
+  report.corpusName !== undefined && report.corpusName !== "legacy-v1";
 if (
   report.status === "UNAVAILABLE" ||
   review.runId !== report.runId ||
@@ -753,16 +757,37 @@ for (const variant of report.variants) {
     linkedWitnesses: linked,
   });
 }
+const observedModels = [
+  ...new Set(
+    fullProduct[0]!.scenarios!.flatMap((scenario) =>
+      scenario.observations
+        .map((row) => ("followup" in row ? row.followup : row).observedModel)
+        .filter(
+          (model): model is string =>
+            typeof model === "string" && model.length > 0,
+        ),
+    ),
+  ),
+].sort();
 const final = {
   version: "conversation-quality-score.v1",
   runId: report.runId,
   corpusRevision: corpus.revision,
+  corpusName: report.corpusName ?? "legacy-v1",
   split: report.split,
   reviewer: review.reviewer,
   extractionMechanism:
     report.profile?.extractionMechanism ?? "historical-native-preview",
   productionActivated: false,
   qualificationIssued: false,
+  ...(report.profile?.extractionMechanism === gatewayCandidateMechanism
+    ? {
+        candidateSourceProfile: review.candidateSourceProfile,
+        candidateModelBoundsDigest:
+          report.profile.candidateModelBoundsDigest ?? null,
+        observedModels,
+      }
+    : {}),
   results,
 };
 await writeFile(`${path}.score.json`, JSON.stringify(final, null, 2) + "\n");

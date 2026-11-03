@@ -7,6 +7,66 @@ second extractor, semantic judge, memory store, inference service or product
 logging endpoint. The synthetic source authority is a fixture; this run does not
 qualify a real GitHub App installation or replace the disposable App-first E2E.
 
+## Isolated Gateway/Hindsight quality E2E
+
+The focused [Memory quality evaluation](../../.github/workflows/memory-quality-evals.yml)
+workflow verifies all three immutable corpora plus scorer regressions on PRs,
+without obtaining model credentials or making paid requests. The new
+`--corpus multilingual-v1` is independently versioned as
+`2026-11-02-multilingual-r1`: **10 threads, 14 events, 7 fact labels**;
+4 tuning / 6 protected. The successor explicitly includes RU and mixed RU/EN
+contexts, prompt injection, quote/negation, source edit, cross-repository
+isolation and actual A→B recall. All original corpora are unchanged.
+
+An operator can select **Run workflow → live-tuning** on reviewed `main`,
+with a protected `memory-quality-eval` environment and an isolated runner
+(`MEMORY_QUALITY_EVAL_RUNNER`). Required environment secrets/variables are named
+in the workflow. Set `MEMORY_EVAL_PRIVATE_RESULTS_DIR` to an existing
+operator-owned mode-0700 directory under `/srv/reviewrouter-memory-quality/`
+on that runner. Before _any_ paid inference, the workflow verifies its real
+path and access, then creates a run-ID subdirectory with restrictive permissions.
+Each raw result is written there with mode 0600 and must be reviewed/retired
+under the operator's existing private evidence policy. No raw model responses
+or private account metadata are uploaded as public GitHub Actions artifacts. The operator must separately qualify the selected Account
+Gateway account/model, native Hindsight generation and a migrated disposable
+loopback PostgreSQL database ending `_test`. The preflight refuses PR/head
+runs, absent authorization, production database/native endpoints, reused
+production generation, a protected checkpoint and missing selected-model
+bounds. It runs **three fresh full-product tuning observations** using the
+existing runner; failures stop the loop rather than buying replacement
+inference. This is not a release action or production activation.
+
+A successful tuning workflow reports **AWAITING_HUMAN_RUBRIC**, never
+automatically claims semantic accuracy. The result JSON is bounded synthetic
+observation evidence and must be reviewed under the existing human rubric
+contract. The scorer requires actual source/current authority, delivered
+body digests and a closed selected-account Gateway receipt. Use the exact
+returned `runId`, `corpusRevision` and observed source digests in each rubric:
+
+```sh
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-1.json private/tuning-1.rubric.json
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-2.json private/tuning-2.rubric.json
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-3.json private/tuning-3.rubric.json
+node --import tsx scripts/conversation-evals/memory-quality-reliability.ts \
+  private/tuning-1.json.score.json \
+  private/tuning-2.json.score.json \
+  private/tuning-3.json.score.json
+```
+
+The independent reliability summary compares three human-reviewed run IDs,
+one actual model and identical source/configuration digests; it preserves each
+run's numerator/denominator and reports min/max/range, failures and causal
+linked-recall witnesses without pooling correlated examples. Missing rubrics,
+model identity, authorization evidence, or a valid denominator never become
+a PASS. This tiny engineering benchmark does **not** establish population
+reliability. Protected holdout is not dispatched by this workflow; run one
+new checkpoint only after tuning is complete and the existing protected
+review/approval process is followed. Keep live artifacts strictly synthetic
+and protected from public release when they contain operator metadata.
+
 ## Full-thread successor slice
 
 `--corpus full-thread-v2` selects the separately versioned
@@ -52,6 +112,78 @@ a qualified live run and bound human rubric exist.** No protected live checkpoin
 has been consumed for this successor. Its new protected labels must be reviewed
 before the first qualification claim. Existing deterministic native/PG suites do
 not supply semantic scores.
+
+## Isolated multilingual and repeated Gateway/Hindsight quality E2E
+
+The independent `--corpus multilingual-v1` selects revision
+`2026-11-02-multilingual-r1`: **10 whole Russian/mixed Russian-English
+threads, 14 source events, 7 labeled facts; 4 tuning / 6 protected threads**.
+Three linked A→B groups include two positive recall paths and one
+cross-repository isolation path; only actual same-repository A→B delivery can
+earn positive recall. The original two corpora, labels and thresholds are
+untouched. The held-out messages/labels are not tuning prompts.
+
+[`memory-quality-evals.yml`](../../.github/workflows/memory-quality-evals.yml)
+runs _only_ fixed corpus/scorer contracts on pull requests. It also supports
+a manual `live-tuning` dispatch **from reviewed `main`**, never a PR,
+using the protected `memory-quality-eval` GitHub Environment and dedicated
+`MEMORY_QUALITY_EVAL_RUNNER` variable. This runner must have a previously
+provisioned **disposable migrated local PostgreSQL database** named `*_test`
+containing only the minimum selected-account template graph; it must also
+connect to a **separate Hindsight native service on loopback** with a
+qualified `eval_*` namespace and generation. A tunnel to an isolated
+service is acceptable; **do not point the native URL at production**.
+The Gateway is the actual authorized selected-account inference route.
+No workflow step creates an account, skips a grant, installs a Hindsight
+production image or performs a deployment.
+
+The environment must provide, without exposing values in logs:
+
+| Setting                                                                         | Source                                                                          |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `MEMORY_QUALITY_EVAL_RUNNER`, `MEMORY_EVAL_NAMESPACE`, `MEMORY_EVAL_GENERATION` | Protected environment/repository variables; both IDs begin `eval_`              |
+| `MEMORY_EVAL_TEMPLATE_WORKSPACE_ID`, `MEMORY_EVAL_TEMPLATE_REPOSITORY_ID`       | Minimal selected-account template fixture identifiers                           |
+| `MEMORY_EVAL_MODEL_BOUNDS_JSON`                                                 | Actual selected model/profile operational bounds, not an invented quality proof |
+| `MEMORY_EVAL_OPERATOR_ACK`                                                      | Protected secret, exact `APPROVED_ISOLATED_QUALITY_EVAL`                        |
+| `MEMORY_EVAL_DISPOSABLE_DATABASE_URL`                                           | Protected secret, local PostgreSQL `*_test` only                                |
+| `MEMORY_EVAL_HINDSIGHT_URL`, `MEMORY_EVAL_HINDSIGHT_API_KEY`                    | Protected secrets, **dedicated loopback native**, never production              |
+| `MEMORY_EVAL_GATEWAY_ORIGIN`, `MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER`          | Authorized Gateway endpoint and scoped run-control secret                       |
+| `MEMORY_EVAL_GATEWAY_POLICY`, `MEMORY_EVAL_GATEWAY_RELAY_POLICY`                | Existing selected-account Gateway authorization and relay policies              |
+
+If a requirement is absent or the operator has not approved the run, preflight
+fails before paid inference. No such environment is created automatically.
+The live job runs three separately named **full-product tuning** observations,
+not model-quality PASS assertions. A completed observation has exit code `3`
+and status `AWAITING_HUMAN_RUBRIC`; `2`/`UNAVAILABLE` is a real
+qualification blocker and stops further calls. Incomplete or ambiguous
+Gateway effects require investigation of the original attempt and cleanup,
+**not an automatic charged retry**. The bounded synthetic observations remain only in the operator-controlled
+private runner directory. **This workflow does not implement a three-day TTL
+or upload any GitHub artifact.** The operator must enforce an explicit private
+evidence retention/deletion policy and retire namespaces through the qualified
+native cleanup operator, never direct deletion. These observations are not
+customer data, a real App qualification or production activation.
+
+Bind **each** observed report to an independent human rubric using the existing
+[scorer](score.ts) and its exact run ID/source digests:
+
+```sh
+node --import tsx scripts/conversation-evals/score.ts tuning-1.json rubric-1.json
+node --import tsx scripts/conversation-evals/score.ts tuning-2.json rubric-2.json
+node --import tsx scripts/conversation-evals/score.ts tuning-3.json rubric-3.json
+node --import tsx scripts/conversation-evals/memory-quality-reliability.ts \
+  tuning-1.json.score.json tuning-2.json.score.json tuning-3.json.score.json
+```
+
+The comparison rejects duplicate run IDs, missing rubrics, inconsistent source
+digests, corpus revision, selected model/bounds or non-Gateway runs. It reports
+actual numerator/denominator for every run and min/max/range; it never pools
+correlated examples into fake statistical confidence. `PASS` means **all three
+independently human-scored tuning runs** met existing engineering gates, not
+population reliability, an unconsumed protected holdout, or live product
+activation. Use the existing separately authorized one-time holdout process
+_only after_ evaluating tuning and reviewing protected labels. Do not add a
+holdout option to the CI workflow or repeat a consumed holdout as new evidence.
 
 ## Fixed corpus and gates
 
