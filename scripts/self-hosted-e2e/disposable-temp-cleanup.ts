@@ -470,8 +470,10 @@ function isolation(root: Root, exceptId?: string) {
 }
 /** Serialized only after type stripping/compilation. Builtins only; the helper has one host bind and no writable container root or network. */
 function removeChildrenInContainer(expected: Identity & { nonce: string }) {
-  const fs = require("node:fs") as typeof import("node:fs");
-  const path = require("node:path") as typeof import("node:path");
+  const fs = process.getBuiltinModule("node:fs") as typeof import("node:fs");
+  const path = process.getBuiltinModule(
+    "node:path",
+  ) as typeof import("node:path");
   const root = "/owned";
   const check = () => {
     const s = fs.lstatSync(root, { bigint: true });
