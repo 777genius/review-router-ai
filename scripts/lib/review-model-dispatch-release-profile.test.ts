@@ -66,10 +66,18 @@ const capacityProfile = {
 describe("complete policy-bound model dispatch release source tuples", () => {
   it("preserves legacy bytes only for their original policy and 32 allowance", () => {
     expect(
-      bindModelDispatchReleaseProfile(legacyProfile, legacyFiles, agentProfiles),
+      bindModelDispatchReleaseProfile(
+        legacyProfile,
+        legacyFiles,
+        agentProfiles,
+      ),
     ).toEqual(legacyProfile);
     expect(() =>
-      bindModelDispatchReleaseProfile(capacityProfile, legacyFiles, agentProfiles),
+      bindModelDispatchReleaseProfile(
+        capacityProfile,
+        legacyFiles,
+        agentProfiles,
+      ),
     ).toThrow("no reviewed contract binding");
     expect(() =>
       bindModelDispatchReleaseProfile(

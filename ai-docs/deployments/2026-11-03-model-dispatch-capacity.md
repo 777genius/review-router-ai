@@ -3,17 +3,17 @@
 - Task ID: `2026-11-03-model-dispatch-capacity`.
 - Goal: qualify an explicitly named 128-request profile and complete the Payments review's full 17-file required coverage within that bounded contract.
 - Affected services/targets: shared model-dispatch contracts, their API/worker consumers, the public producer and its normal workflow channel; Usage and Statistics acceptance.
-- Implementation: follow-up to [#787](https://github.com/777genius/review-router-ai/pull/787). The capacity128 implementation is not deployed or qualified; exact candidate commits, generated contract bindings and release images remain unassigned here.
+- Implementation: follow-up to [#787](https://github.com/777genius/review-router-ai/pull/787). Canonical generated source `cc3bbcc97a48a3197e6894c8fa549d47f961a39f`, test-only fixture correction `a57a2c091b5a7f7edca9f7e1f8d047c5195642a3`, and [public Action #367](https://github.com/777genius/review-router/pull/367), merged as `abff4814dccab046debd61f7f5e14f4524f54e5e`. Source qualification passed; target deployment and live acceptance remain pending.
 - Candidate profile: `model-dispatch-policy.capacity128.v1`, `maxRequests=128`. Planned owner-coordinated cohort: paired release227.
 - Prerequisites: the deployed release226 analytics/readback baseline (A/B verified in the [analytics task](2026-11-02-analytics-review-reliability.md)), plus the existing paired release and protocol-compatibility procedures.
 - Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image           | Last verified (UTC)                         | Evidence / next step                                                                                            |
-| -------------------- | --------- | ----------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| staging              | `pending` | Not verified                              | Not verified                                | Qualify the exact parser/producer pair and bounded profile before rollout.                                      |
-| production / Hetzner | `pending` | Existing226 / `6e6a0f0`, public `fa3e87a` | Baseline 2026-11-03; capacity128 unverified | Capacity128 has not been deployed or qualified. Parser-first paired227 rollout and full live acceptance remain. |
+| Environment / target | Status    | Actual deployed version / image           | Last verified (UTC)                         | Evidence / next step                                                                          |
+| -------------------- | --------- | ----------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| staging              | `pending` | Not verified                              | Not verified                                | Source pair qualified; target rollout and acceptance remain pending.                          |
+| production / Hetzner | `pending` | Existing226 / `6e6a0f0`, public `fa3e87a` | Baseline 2026-11-03; capacity128 unverified | Capacity128 source qualified; parser-first paired227 rollout and full live acceptance remain. |
 
 The production row identifies the installed baseline, not completion of this task.
 Use the registry [status contract](README.md#status-contract).
@@ -34,9 +34,29 @@ The retained Native32 scope is closed and scoped cleanup is `DONE`; no 33rd Nati
 - Bind the exact generated/exported contract and agent catalog to the approved producer. An unqualified manifest, a supplied digest or a successful build alone does not authorize activation.
 - FREE provider quota remains unverified. The 128-request profile is a bounded execution contract; it establishes no exact remaining FREE allowance.
 
+## Source qualification
+
+The isolated server qualification passed 130 profile/snapshot/binder/handoff
+checks and strict TypeScript 7.0.2 checks for shared, feature, API, Web and tooling
+projects. All 33 dispatch-file cases are covered by composed evidence: 21 HTTP,
+10 durable PostgreSQL 17.11 cases, and the two corrected negative policy cases.
+The latter construct mismatched identities at initial INSERT; the immutable
+snapshot trigger remains enabled. Both legacy32/33 and new128/129 boundaries,
+shared-role accounting and unknown-effect fences passed. No database case was
+skipped and no production authority or model call was used for qualification.
+
+The [public exact-head CI](https://github.com/777genius/review-router/actions/runs/41592288382)
+and both native qualification workflows passed on the first attempt; its merge
+tree is identical to reviewed head `d4d3db4e400507df268186c9a3f54f7c23f7e651`.
+The rebuilt Action entrypoint SHA-256 is
+`ba9464453771959a18267e86892efcce279dbc3769f23a7359573382a99f1e1e`.
+The [official Action227 publication](https://github.com/777genius/review-router/actions/runs/41594020936) succeeded on 2026-11-03 at 07:14 UTC. Immutable `v1.0.227` and `v1` both resolve to `abff4814dccab046debd61f7f5e14f4524f54e5e`; the private CI pin selects that exact commit. These are source/artifact checks, not production acceptance. Private exact-head
+CI, paired publication, parser-first fleet delivery and the fresh live review
+remain separate required steps.
+
 ## Ordered rollout
 
-1. Qualify the additive parser, claim and capability paths, including unchanged legacy32 rejection behavior and the new 128 boundary. Record exact source pins, generated-byte bindings, focused evidence and the normal required CI. No capacity128 qualification is claimed by this pending record.
+1. Qualify the additive parser, claim and capability paths, including unchanged legacy32 rejection behavior and the new 128 boundary. Record exact source pins, generated-byte bindings, focused evidence and the normal required CI. Source checks passed; private exact-head CI and environment acceptance are not yet claimed.
 2. The release owner selects the exact paired227 artifacts through the [release order](../operations/07-environments-and-release-management.md#release-order). Reconcile installed fleet and active-run/producer inventories using the existing replacement-safety procedure. Preserve the closed Payments attempt and all retained stand/data/artifacts.
 3. Install and verify the compatible parser-consuming fleet **before producer selection or channel promotion**. Confirm actual versions and support for both the frozen legacy profile and the new qualified identity. Keep the current producer available to already admitted work.
 4. After parser readiness, follow the normal owner-controlled producer registration, paired activation and `workflow-v1` promotion sequence in the release guide. Record exact Action/control-plane commits, images, profile identity and channel before/after values; do not mutate an old profile or force-move an immutable release tag.
@@ -70,4 +90,4 @@ Use the release guide's [target-build protocol preflight](../operations/07-envir
 | Time (UTC)   | Environment                      | Actual version                           | Observed result                                                                                                             | Next action                                                                         |
 | ------------ | -------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | 2026-11-03   | production baseline              | release226 / `6e6a0f0`, public `fa3e87a` | A/B verified; Payments partial0/17 after exactly32 Native COMPLETE /508,896 tokens; scope closed, cleanupDONE, no33 issued. | Qualify the separately named capacity128 pair.                                      |
-| Not executed | staging / production capacity128 | paired227 candidate; exact pins pending  | Implementation is not deployed or qualified. No rollout or live request is performed by this record.                        | Parser-first qualification, owner-coordinated rollout, then full17-file acceptance. |
+| Not executed | staging / production capacity128 | paired227 candidate; exact pins pending  | Source checks passed; target rollout and live acceptance remain pending. No live request is performed by this record.       | Parser-first qualification, owner-coordinated rollout, then full17-file acceptance. |
