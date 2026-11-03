@@ -1,5 +1,7 @@
 "use client";
 
+import { workflowSetupOutcomePresentation } from "./dashboard-copy";
+
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button, LinkButton } from "@reviewrouter/ui";
@@ -214,6 +216,19 @@ export function RepositorySetupProgressPanel({
 
   const handleSetupMutation = (params: Record<string, string>) => {
     clearTransientDashboardUrlParams("repositories");
+
+    const outcome = workflowSetupOutcomePresentation(params);
+    if (outcome) {
+      if (params.setupOutcome === "committed") {
+        setSetupStatus("setup_pr_open");
+        setSetupPullRequestUrl(params.pr || null);
+        setSetupIssue(null);
+        setCurrentStep("merge_setup_pr");
+      }
+      setToast(outcome);
+      router.refresh();
+      return;
+    }
 
     if (params.error) {
       const issue = normalizeSetupIssue(params.error);

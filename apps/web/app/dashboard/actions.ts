@@ -1,5 +1,7 @@
 "use server";
 
+import { WorkflowProvisioningOutcomeError } from "@reviewrouter/features-workflow-provisioning";
+
 import { providerApiConfigurationMode } from "@reviewrouter/features-review-config";
 
 import { contextToolsWorkflowSecrets } from "../../src/server/context-tools";
@@ -7,10 +9,8 @@ import { contextToolsWorkflowSecrets } from "../../src/server/context-tools";
 import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import {
-  recordAuditEvent,
-  PrismaAuditLogRepository,
-} from "@reviewrouter/features-audit-log";
+import { recordAuditEvent } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import { OutboxInstallationSyncRequester } from "@reviewrouter/features-github-installations";
 import {
   PrismaOutboxEventRepository,
@@ -24,7 +24,6 @@ import {
   type OrgRulesetScope,
 } from "@reviewrouter/features-org-ruleset-provisioning";
 import {
-  PrismaReviewPolicyHeadReader,
   resolveReviewRuntimeEnv,
   saveRepositoryReviewSettings,
   saveWorkspaceReviewSettings,
@@ -32,6 +31,7 @@ import {
   type ResolvedReviewRuntimeEnv,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
 import { resolveApprovedClaudeSubscriptionActionRef } from "../../src/server/workflow-provisioning/approved-claude-subscription-action-ref";
@@ -68,11 +68,7 @@ import {
   defaultInteractionWorkflowPath,
   defaultWorkflowPath,
   isolatedQualityWorkflowPath,
-  OctokitWorkflowSetupGateway,
   preferredSetupBaseBranches,
-  PrismaWorkflowProvisioningRepository,
-  PrismaWorkflowProvisioningStatusAuthority,
-  PrismaWorkflowProvisioningTarget,
   provisionRepositoryReviewRouterWorkflow,
   provisionHostedPoolRepositoryWorkflow,
   canonicalHostedPoolProviderInstanceId,
@@ -93,11 +89,17 @@ import {
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
   verifiedWorkflowRequirement,
-  createInstalledGatewayReviewConfirmation,
-  supportsInstalledGatewayReviewConfirmation,
   validateAccountGatewayActionRef,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
+import {
+  OctokitWorkflowSetupGateway,
+  PrismaWorkflowProvisioningRepository,
+  PrismaWorkflowProvisioningStatusAuthority,
+  PrismaWorkflowProvisioningTarget,
+  createInstalledGatewayReviewConfirmation,
+  supportsInstalledGatewayReviewConfirmation,
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import {
   confirmCodexRotatingSetupReadiness,
   inspectCodexRotatingWorkflowNamespace,
@@ -470,6 +472,16 @@ export async function setHostedRepositorySessionSourceClientAction(
       },
     };
   } catch (error) {
+    if (error instanceof WorkflowProvisioningOutcomeError) {
+      revalidateDashboard();
+      return {
+        params: {
+          ...workflowProvisioningOutcomeParams(error),
+          workspace: workspaceId,
+          section: "repositories",
+        },
+      };
+    }
     return {
       params: {
         error: safeDashboardErrorCode(error),
@@ -1649,6 +1661,13 @@ async function createSetupPullRequestMutation(
       };
     }
   } catch (error) {
+    if (error instanceof WorkflowProvisioningOutcomeError) {
+      return {
+        ...workflowProvisioningOutcomeParams(error),
+        workspace: workspaceId,
+        section: "repositories",
+      };
+    }
     const errorCode = safeDashboardErrorCode(error);
     const untrustedWorkflowPath =
       dashboardUntrustedWorkflowPathFromError(error);
@@ -3985,4 +4004,20 @@ function redirectAfterMutation(
   params: Record<string, string>,
 ): never {
   redirectWithParams(params);
+}
+
+function workflowProvisioningOutcomeParams(
+  error: WorkflowProvisioningOutcomeError,
+): Record<string, string> {
+  const committed = error.committedPullRequest;
+  return {
+    error: error.code,
+    ...(committed
+      ? {
+          setupOutcome: "committed",
+          pr: committed.url,
+          ...(committed.baseBranch ? { branch: committed.baseBranch } : {}),
+        }
+      : {}),
+  };
 }

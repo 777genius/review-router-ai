@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import type {
   WorkflowProvisioningAttempt,
+  WorkflowProvisioningTransition,
   WorkflowProvisioningRecord,
   WorkflowProvisioningRepositoryPort,
 } from "../../application/ports/workflow-provisioning-repository-port";
@@ -71,22 +72,22 @@ export class PrismaWorkflowProvisioningRepository implements WorkflowProvisionin
 
   async markSetupPullRequestOpen(
     record: WorkflowProvisioningRecord & WorkflowProvisioningAttempt,
-  ): Promise<void> {
-    await this.finishAttempt(record, "setup_pr_open");
+  ): Promise<WorkflowProvisioningTransition> {
+    return this.finishAttempt(record, "setup_pr_open");
   }
 
   async markFailed(
     record: WorkflowProvisioningRecord & WorkflowProvisioningAttempt,
-  ): Promise<void> {
-    await this.finishAttempt(record, "failed");
+  ): Promise<WorkflowProvisioningTransition> {
+    return this.finishAttempt(record, "failed");
   }
 
   private async finishAttempt(
     record: WorkflowProvisioningRecord & WorkflowProvisioningAttempt,
     status: "setup_pr_open" | "failed",
-  ): Promise<void> {
-    await workflowProvisioningTransaction(this.prisma, async (tx) => {
-      if (!(await findProvisioningRepository(tx, record))) return;
+  ): Promise<WorkflowProvisioningTransition> {
+    return workflowProvisioningTransaction(this.prisma, async (tx) => {
+      if (!(await findProvisioningRepository(tx, record))) return "superseded";
       const current = await tx.workflowProvisioning.findUnique({
         where: { repositoryId: record.repositoryId },
       });
@@ -100,13 +101,13 @@ export class PrismaWorkflowProvisioningRepository implements WorkflowProvisionin
         current.workflowStyle !== record.workflowStyle ||
         current.actionVersion !== record.actionVersion
       )
-        return;
+        return "superseded";
       if (
         status === "setup_pr_open" &&
         !/^[a-f0-9]{40}$/.test(record.pullRequestHeadSha ?? "")
       )
         throw new Error("workflow_provisioning_artifact_required");
-      await tx.workflowProvisioning.updateMany({
+      const updated = await tx.workflowProvisioning.updateMany({
         where: {
           ...provisioningScopeWhere(record),
           attemptId: record.attemptId,
@@ -125,6 +126,7 @@ export class PrismaWorkflowProvisioningRepository implements WorkflowProvisionin
             status === "failed" ? (record.errorMessage ?? null) : null,
         },
       });
+      return updated.count === 1 ? "applied" : "superseded";
     });
   }
 }

@@ -1,15 +1,17 @@
 import type { PrismaClient } from "@prisma/client";
-import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
+import {
+  isReviewConfigurationWriteConflictError,
+  resolveReviewConfiguration,
+  ReviewConfigurationWriteConflictError,
+  type ReviewConfigurationOperatorMutationPort,
+} from "@reviewrouter/features-review-config";
 import {
   acquireReviewConfigurationWriteScope,
   isPrismaReviewConfigurationWriteConflict,
-  isReviewConfigurationWriteConflictError,
   PrismaReviewConfigurationTransactionRepository,
-  resolveReviewConfiguration,
-  ReviewConfigurationWriteConflictError,
   runReviewConfigurationTransaction,
-  type ReviewConfigurationOperatorMutationPort,
-} from "@reviewrouter/features-review-config";
+} from "@reviewrouter/features-review-config/composition";
 import { ReviewConfigurationOperatorAudit } from "./review-configuration-operator-audit.js";
 
 export class PrismaReviewConfigurationOperatorMutation implements ReviewConfigurationOperatorMutationPort {

@@ -4,10 +4,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPrismaClient } from "../packages/platform/db/src/index.js";
 import {
-  PrismaReviewPolicyHeadReader,
   resolveEffectiveReviewConfiguration,
   type ReviewPolicyHeadReaderPort,
 } from "../packages/features/review-config/src/index.js";
+import { PrismaReviewPolicyHeadReader } from "../packages/features/review-config/src/composition/index.js";
 import {
   canonicalHostedPoolProviderInstanceId,
   hostedPoolWorkflowSemanticSha256,

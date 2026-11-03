@@ -6,6 +6,7 @@ import {
   ReviewExecutionMutationResultStatus,
   ReviewInvocationLeaseResultStatus,
 } from "../../packages/protocol-review-action-v2/src/index.js";
+import { parseReviewRunRuntimeSnapshot } from "../../packages/features/review-run-control/src/index.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   reviewStatisticsSettledEventType,
@@ -48,6 +49,70 @@ describeWithDatabase.sequential(
       harness = null;
       await resetReviewActionV2E2EDatabase(databaseUrl!);
     });
+
+    it("publishes discovery with captured lifecycle capability before resolution history activation", async () => {
+      await harness?.close();
+      harness = null;
+      harness = await createReviewActionV2E2EHarness(databaseUrl!, {
+        lifecycleVerificationProfile: true,
+      });
+      const fixture = requiredHarness(harness);
+      const flow = await fixture.createCommittedFlow();
+      const authorization =
+        await fixture.prisma.reviewRunAuthorization.findUniqueOrThrow({
+          where: { authorizationId: flow.authorizationId },
+          select: { runtimeSnapshotCanonicalJson: true },
+        });
+      expect(
+        parseReviewRunRuntimeSnapshot(
+          authorization.runtimeSnapshotCanonicalJson,
+        )?.lifecycleVerificationCapability,
+      ).toBeTruthy();
+      await expect(
+        fixture.prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: fixture.repositoryConnectionId },
+          select: {
+            lifecycleResolutionMode: true,
+            lifecycleResolutionActivatedAt: true,
+            lifecycleResolutionActivationVersion: true,
+          },
+        }),
+      ).resolves.toEqual({
+        lifecycleResolutionMode: "legacy_open",
+        lifecycleResolutionActivatedAt: null,
+        lifecycleResolutionActivationVersion: 0,
+      });
+
+      const finalized = await fixture.finalize(flow);
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await expect(fixture.processFinalizedOutbox()).resolves.toMatchObject({
+        processed: 1,
+        deadLettered: 0,
+      });
+      await fixture.runWorkerUntilSettled();
+
+      await expectTerminalSuccess(fixture, flow.executionId);
+      await expectSnapshot(fixture, flow.executionId, true);
+      expect(fixture.fakeGitHub.comments).toHaveLength(1);
+      expect(fixture.fakeGitHub.checkRuns).toHaveLength(1);
+      const publication =
+        await fixture.prisma.reviewPublicationAttemptV2.findFirstOrThrow({
+          where: { executionId: flow.executionId },
+          select: { publicationAttemptId: true },
+        });
+      await expect(
+        fixture.prisma.reviewPublicationOperationV2.findMany({
+          where: { publicationAttemptId: publication.publicationAttemptId },
+          select: { publicationKind: true, state: true },
+          orderBy: { publicationKind: "asc" },
+        }),
+      ).resolves.toEqual([
+        { publicationKind: "summary", state: "completed" },
+        { publicationKind: "managed_check", state: "completed" },
+      ]);
+    }, 60_000);
 
     it("adopts a committed observation after provider restart without another semantic attempt", async () => {
       const fixture = requiredHarness(harness);

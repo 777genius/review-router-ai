@@ -8,10 +8,8 @@ import {
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
 import { PrismaHostedPoolQuery } from "@reviewrouter/features-hosted-account-pool";
-import {
-  PrismaReviewPolicyHeadReader,
-  resolveEffectiveReviewConfigurations,
-} from "@reviewrouter/features-review-config";
+import { resolveEffectiveReviewConfigurations } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import {
   listWorkspaceRepositoryHealth,
   PrismaRepositoryHealthRepository,

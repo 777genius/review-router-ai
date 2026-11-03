@@ -60,6 +60,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@reviewrouter/features-audit-log", () => ({
   recordAuditEvent: mocks.recordAuditEvent,
+}));
+vi.mock("@reviewrouter/features-audit-log/composition", () => ({
   PrismaAuditLogRepository: class PrismaAuditLogRepository {},
 }));
 vi.mock("@reviewrouter/features-entitlements", async (importOriginal) => ({
@@ -102,6 +104,7 @@ vi.mock("../../src/server/workflow-public-api-url", () => ({
 import { resolveReviewRouterActionRef } from "@reviewrouter/platform-config";
 import { parseReviewConfiguration } from "@reviewrouter/features-review-config";
 import {
+  WorkflowProvisioningOutcomeError,
   renderReviewRouterReusableWorkflow,
   renderClaudeSubscriptionWorkflow,
   reviewRouterWorkflowContract,
@@ -309,7 +312,15 @@ describe("dashboard setup PR recovery", () => {
 
   // RED if inherited Gateway is refused before setup, unsupported workflow
   // options pass through, or setup reaches GitHub before actor authorization.
-  it.each(["allowed", "explicit", "suggest", "unauthorized"] as const)(
+  it.each([
+    "allowed",
+    "explicit",
+    "suggest",
+    "unauthorized",
+    "audit_unavailable",
+    "superseded",
+    "persistence_uncertain",
+  ] as const)(
     "handles inherited workspace Gateway setup: %s",
     async (scenario) => {
       mocks.getPrisma.mockReturnValue({
@@ -348,6 +359,39 @@ describe("dashboard setup PR recovery", () => {
         `777genius/review-router@${"a".repeat(40)}`,
       );
       mocks.isWorkflowSetupAlreadyCurrent.mockResolvedValue(true);
+      if (
+        scenario === "audit_unavailable" ||
+        scenario === "superseded" ||
+        scenario === "persistence_uncertain"
+      ) {
+        mocks.isWorkflowSetupAlreadyCurrent.mockRejectedValueOnce(
+          new WorkflowProvisioningOutcomeError(
+            `workflow_provisioning_${scenario}`,
+            {
+              attempt: {
+                workspaceId: "workspace_1",
+                repositoryId: "repository_1",
+                installationId: "installation_1",
+                attemptId: "private-attempt",
+                revision: 0,
+                branch: "setup-branch",
+              },
+              stage:
+                scenario === "audit_unavailable"
+                  ? "success_audit"
+                  : "completion",
+              mayHaveExternalEffects: true,
+              observedPullRequest: {
+                url: "https://github.com/acme/widget/pull/7",
+                number: 7,
+                headSha: "b".repeat(40),
+                branch: "setup-branch",
+              },
+            },
+            { cause: new Error("private-error") },
+          ),
+        );
+      }
       if (scenario === "unauthorized") {
         mocks.assertDashboardRepositoryMutationAllowed.mockRejectedValueOnce(
           new Error("repository_mutation_forbidden"),
@@ -367,7 +411,27 @@ describe("dashboard setup PR recovery", () => {
 
       const result = await createSetupPullRequestClientAction(form);
 
-      if (scenario === "allowed") {
+      if (
+        scenario === "audit_unavailable" ||
+        scenario === "superseded" ||
+        scenario === "persistence_uncertain"
+      ) {
+        expect(result.params).toEqual({
+          error: `workflow_provisioning_${scenario}`,
+          workspace: "workspace_1",
+          section: "repositories",
+          ...(scenario === "audit_unavailable"
+            ? {
+                setupOutcome: "committed",
+                pr: "https://github.com/acme/widget/pull/7",
+              }
+            : {}),
+        });
+        expect(mocks.recordAuditEvent).not.toHaveBeenCalled();
+        expect(JSON.stringify(result)).not.toMatch(
+          /private-|headSha|attemptId/,
+        );
+      } else if (scenario === "allowed") {
         expect(result.params).toMatchObject({
           notice: "workflow_already_current",
         });

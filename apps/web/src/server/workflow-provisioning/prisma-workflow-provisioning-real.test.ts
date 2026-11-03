@@ -1,8 +1,10 @@
+import { WorkflowProvisioningOutcomeError } from "@reviewrouter/features-workflow-provisioning";
+import type { AuditEventInput } from "@reviewrouter/features-audit-log";
 import { PostgresLeaseLock } from "@reviewrouter/platform-locks";
 import { WorkflowGitHubFixture } from "../../../../../packages/features/workflow-provisioning/src/tests/workflow-github-fixture";
-import { OctokitWorkflowSetupGateway } from "@reviewrouter/features-workflow-provisioning";
+import { OctokitWorkflowSetupGateway } from "@reviewrouter/features-workflow-provisioning/composition";
 import { provisionReviewRouterWorkflow } from "@reviewrouter/features-workflow-provisioning";
-import { PrismaWorkflowProvisioningTarget } from "@reviewrouter/features-workflow-provisioning";
+import { PrismaWorkflowProvisioningTarget } from "@reviewrouter/features-workflow-provisioning/composition";
 import { provisionRepositoryReviewRouterWorkflow } from "@reviewrouter/features-workflow-provisioning";
 import { assertDisposableWorkflowDatabase } from "../../../../../packages/features/workflow-provisioning/src/tests/disposable-database";
 import { readFileSync } from "node:fs";
@@ -18,9 +20,9 @@ import {
 } from "@reviewrouter/features-repositories";
 import { PrismaRepositoryHealthRepository } from "@reviewrouter/features-repo-health";
 import { PrismaSupportDiagnosticsRepository } from "@reviewrouter/features-support-diagnostics";
-import { PrismaWorkflowProvisioningRepository } from "@reviewrouter/features-workflow-provisioning";
-import { PrismaWorkflowProvisioningStatusAuthority } from "@reviewrouter/features-workflow-provisioning";
-import { PrismaWorkflowProvisioningQuery } from "@reviewrouter/features-workflow-provisioning";
+import { PrismaWorkflowProvisioningRepository } from "@reviewrouter/features-workflow-provisioning/composition";
+import { PrismaWorkflowProvisioningStatusAuthority } from "@reviewrouter/features-workflow-provisioning/composition";
+import { PrismaWorkflowProvisioningQuery } from "@reviewrouter/features-workflow-provisioning/composition";
 import { withDrainedTargetAuthorityPools } from "../../../../../scripts/lib/quiesced-target-authority";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
@@ -432,6 +434,7 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
   });
   it("isolates remote writes after A pauses, expires, B finishes and A resumes", async () => {
     const remote = new WorkflowGitHubFixture();
+    const auditEvents: AuditEventInput[] = [];
     const entered = deferred();
     const resume = deferred();
     let paused = false;
@@ -462,11 +465,19 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
           },
           {
             provisioning: writer,
+            auditLog: {
+              append: async (event) => {
+                auditEvents.push(event);
+              },
+            },
             setupGateway: new OctokitWorkflowSetupGateway(remote),
           },
         ),
       );
-    const older = provision("a".repeat(40));
+    const older = provision("a".repeat(40)).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
     try {
       await Promise.race([
         entered.promise,
@@ -487,7 +498,21 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
         `@${"b".repeat(40)}`,
       );
       resume.resolve();
-      const stale = await older;
+      const staleOutcome = await older;
+      if (
+        !("error" in staleOutcome) ||
+        !(staleOutcome.error instanceof WorkflowProvisioningOutcomeError)
+      )
+        throw new Error("superseded_attempt_succeeded");
+      expect(staleOutcome.error.code).toBe("workflow_provisioning_superseded");
+      expect(staleOutcome.error.mayHaveExternalEffects).toBe(true);
+      const stale = staleOutcome.error.observedPullRequest!;
+      expect(auditEvents.map((event) => event.action)).toEqual([
+        "workflow.setup_pr_opened",
+      ]);
+      expect(auditEvents[0]?.metadata).toMatchObject({
+        pullRequestUrl: newer.url,
+      });
       expect(stale.branch).not.toBe(newer.branch);
       expect(remote.branches.get(newer.branch)).toBe(newer.headSha);
       expect(remote.commits.get(newer.headSha)).toEqual(intendedFiles);

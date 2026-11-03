@@ -18,13 +18,15 @@ import {
   assignProviderProfileToRepositories,
   setWorkspaceDefaultProviders,
   parseStoredReviewPolicy,
-  PrismaReviewConfigurationRepository,
-  PrismaReviewPolicyHeadReader,
   ProviderManagementDeniedError,
   renameWorkspaceProviderProfile,
-  PrismaWorkspaceProviderProfileRepository,
   type EffectiveReviewConfigurationValidatorPort,
 } from "../../packages/features/review-config/src/index.js";
+import {
+  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
+  PrismaWorkspaceProviderProfileRepository,
+} from "../../packages/features/review-config/src/composition/index.js";
 import { getDefaultProviderConfigForAuthMode } from "../../packages/features/review-providers/src/index.js";
 import {
   gotoDashboard,

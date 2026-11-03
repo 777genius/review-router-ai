@@ -1,13 +1,17 @@
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { SystemClock } from "@reviewrouter/shared";
 import { PrismaRateLimitStore } from "@reviewrouter/features-rate-limits";
-import { HashedReviewConfigurationOperatorAuthorization } from "@reviewrouter/features-review-config";
+import {
+  HashedReviewConfigurationOperatorAuthorization,
+} from "@reviewrouter/features-review-config/composition";
 import {
   assertWorkspaceFeatureEntitlement,
   EntitlementDeniedError,
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
-import { createInstalledGatewayReviewConfirmation } from "@reviewrouter/features-workflow-provisioning";
+import {
+  createInstalledGatewayReviewConfirmation,
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import { ReviewConfigurationOperatorRateLimit } from "./review-configuration-operator-rate-limit.js";
 import {
   createWorkflowProvisioningOperatorAuthorization,

@@ -1,3 +1,4 @@
+import { createWorkerPublicationLifecyclePort } from "../../worker/src/review-v2-publication-lifecycle";
 import { persistedReviewExecutionRestore } from "./review-execution-publication-restore.js";
 import type { EnsureReviewResolutionHistory } from "./review-resolution-history.js";
 import {
@@ -1890,203 +1891,284 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     await app.close();
   });
 
-  it("binds only the exact persisted publication's own pending resolution before evaluating history", async () => {
-    const sha256 = (value: string) =>
-      createHash("sha256").update(value).digest("hex");
-    const live = liveHistoryTarget();
-    const source = {
-      ...publishing,
-      lifecycleObservationVersion:
-        ReviewPublicationLifecycleObservationVersion.ThreadStateV1,
-      lifecycle: [
-        {
-          targetId: live.targetId,
-          threadId: live.threadId,
-          verdict: "resolved",
-          reasonCodes: [],
-          mutationEligible: true,
-          markerFingerprint: live.markerFingerprint,
-          threadStateHash: live.threadStateHash,
-        },
-      ],
-    };
-    const ownArtifact = finalizedArtifactWithPublishing(source, hash("8"));
-    const stored = {
-      artifact: ownArtifact,
-      execution: {
-        ...authorization,
-        executionId: ownArtifact.executionId,
-        generation: ownArtifact.generation,
-        revision: {
-          headSha: ownArtifact.reviewedHeadSha,
-          reviewRevisionHash: ownArtifact.reviewRevisionHash,
-        },
-        workSlots: [],
-      },
-    } as unknown as ReviewExecutionSnapshot;
-    const identity = {
-      sourceKind: "canonical_operation" as const,
-      operationId: "own-operation",
-      publicationAttemptId:
-        persistedReviewExecutionRestore(stored).artifact!.publicationAttemptId,
-      executionId: ownArtifact.executionId,
-      generation: "1",
-      reviewedHeadSha: ownArtifact.reviewedHeadSha,
-      bodyHash: sha256(
-        canonicalJson({ resolve: true, threadId: live.threadId }),
-      ),
-    };
-    const view = {
-      attempt: {
-        publicationAttemptId: identity.publicationAttemptId,
-        permit: ownArtifact.publicationPermit,
-        operations: [
+  it.each([
+    ["API", createProductionPublicationLifecyclePort],
+    ["worker", createWorkerPublicationLifecyclePort],
+  ] as const)(
+    "%s binds only the exact persisted publication's own pending resolution before evaluating history",
+    async (_host, createLifecycle) => {
+      const sha256 = (value: string) =>
+        createHash("sha256").update(value).digest("hex");
+      const live = liveHistoryTarget();
+      const source = {
+        ...publishing,
+        lifecycleObservationVersion:
+          ReviewPublicationLifecycleObservationVersion.ThreadStateV1,
+        lifecycle: [
           {
-            publicationOperationId: identity.operationId,
-            publicationKind: "thread_lifecycle",
-            targetCommitId: ownArtifact.reviewedHeadSha,
-            reviewRevisionHash: ownArtifact.reviewRevisionHash,
-            bodyHash: identity.bodyHash,
-            markerHash: sha256(
-              `reviewrouter-lifecycle:${live.targetId}:resolved`,
-            ),
+            targetId: live.targetId,
+            threadId: live.threadId,
+            verdict: "resolved",
+            reasonCodes: [],
+            mutationEligible: true,
+            markerFingerprint: live.markerFingerprint,
+            threadStateHash: live.threadStateHash,
           },
         ],
-      },
-    } as unknown as ReviewPublicationAttemptView;
-    const make = (
-      restored: ReviewPublicationAttemptView | null,
-      activated = true,
-    ) =>
-      createProductionPublicationLifecyclePort({
+      };
+      const ownArtifact = finalizedArtifactWithPublishing(source, hash("8"));
+      const stored = {
+        artifact: ownArtifact,
+        execution: {
+          ...authorization,
+          executionId: ownArtifact.executionId,
+          generation: ownArtifact.generation,
+          revision: {
+            headSha: ownArtifact.reviewedHeadSha,
+            reviewRevisionHash: ownArtifact.reviewRevisionHash,
+          },
+          workSlots: [],
+        },
+      } as unknown as ReviewExecutionSnapshot;
+      const identity = {
+        sourceKind: "canonical_operation" as const,
+        operationId: "own-operation",
+        publicationAttemptId:
+          persistedReviewExecutionRestore(stored).artifact!
+            .publicationAttemptId,
+        executionId: ownArtifact.executionId,
+        generation: "1",
+        reviewedHeadSha: ownArtifact.reviewedHeadSha,
+        bodyHash: sha256(
+          canonicalJson({ resolve: true, threadId: live.threadId }),
+        ),
+      };
+      const view = {
+        attempt: {
+          publicationAttemptId: identity.publicationAttemptId,
+          permit: ownArtifact.publicationPermit,
+          operations: [
+            {
+              publicationOperationId: identity.operationId,
+              publicationKind: "thread_lifecycle",
+              targetCommitId: ownArtifact.reviewedHeadSha,
+              reviewRevisionHash: ownArtifact.reviewRevisionHash,
+              bodyHash: identity.bodyHash,
+              markerHash: sha256(
+                `reviewrouter-lifecycle:${live.targetId}:resolved`,
+              ),
+            },
+          ],
+        },
+      } as unknown as ReviewPublicationAttemptView;
+      const make = (
+        restored: ReviewPublicationAttemptView | null,
+        activated = true,
+      ) =>
+        createLifecycle({
+          executions: {
+            findStream: async () =>
+              ({ activeExecutionId: ownArtifact.executionId }) as never,
+            findExecution: async () => stored,
+          },
+          authorizationQueries: {
+            findReviewRunAuthorizationById: async () => verifierAuthorization(),
+          },
+          liveLifecycle: {
+            resolve: async () => ({
+              status: LiveReviewPublicationLifecycleStatus.Available,
+              reviewedHeadSha: authorization.headSha,
+              commandLedgerWatermark: 2n,
+              targets: [live],
+            }),
+          },
+          publications: { findByPermitIdentity: async () => restored } as never,
+          resolutionHistory: {
+            read: async () => [
+              {
+                threadId: live.threadId,
+                version: 1,
+                historyCut: activated
+                  ? {
+                      activatedAt: "2026-01-01T00:00:00.000Z",
+                      activationVersion: 1,
+                      writerDigest: hash("a"),
+                    }
+                  : null,
+                confirmed: null,
+                pending: activated
+                  ? [
+                      {
+                        ...identity,
+                        state: "may_have_started",
+                        enteredAt: now.toISOString(),
+                      },
+                    ]
+                  : [],
+              },
+            ],
+          },
+        });
+      await expect(
+        make(view).resolve(publicationScope()),
+      ).resolves.toMatchObject({
+        status: CurrentPublicationLifecycleStatus.Current,
+      });
+      await expect(
+        make(null).resolve(publicationScope()),
+      ).resolves.toMatchObject({
+        status: CurrentPublicationLifecycleStatus.Changed,
+      });
+      await expect(
+        make({
+          ...view,
+          attempt: { ...view.attempt, publicationAttemptId: "foreign-attempt" },
+        }).resolve(publicationScope()),
+      ).resolves.toMatchObject({
+        status: CurrentPublicationLifecycleStatus.Unavailable,
+      });
+      await expect(
+        make(view, false).resolve(publicationScope()),
+      ).resolves.toMatchObject({
+        status: CurrentPublicationLifecycleStatus.Unavailable,
+      });
+    },
+  );
+
+  it.each([
+    ["API", createProductionPublicationLifecyclePort],
+    ["worker", createWorkerPublicationLifecyclePort],
+  ] as const)(
+    "%s preserves captured capability and no-target discovery without history activation",
+    async (_host, createLifecycle) => {
+      const read = vi.fn(async () => {
+        throw new Error("fleet_unqualified");
+      });
+      const stored = {
+        artifact,
+        execution: {
+          executionId: artifact.executionId,
+          generation: artifact.generation,
+          revision: {
+            headSha: artifact.reviewedHeadSha,
+            reviewRevisionHash: artifact.reviewRevisionHash,
+          },
+        },
+      } as unknown as ReviewExecutionSnapshot;
+      for (const [runtimeSnapshotCanonicalJson, status] of [
+        [
+          verifierAuthorization().runtimeSnapshotCanonicalJson!,
+          CurrentPublicationLifecycleStatus.Current,
+        ],
+        [null, CurrentPublicationLifecycleStatus.Current],
+        ["{malformed", CurrentPublicationLifecycleStatus.Unavailable],
+      ] as const) {
+        const lifecycle = createLifecycle({
+          executions: {
+            findStream: async () =>
+              ({ activeExecutionId: artifact.executionId }) as never,
+            findExecution: async () => stored,
+          },
+          authorizationQueries: {
+            findReviewRunAuthorizationById: async () => ({
+              ...verifierAuthorization(),
+              runtimeSnapshotCanonicalJson,
+            }),
+          },
+          liveLifecycle: {
+            resolve: async () => ({
+              status: LiveReviewPublicationLifecycleStatus.Available,
+              reviewedHeadSha: artifact.reviewedHeadSha,
+              commandLedgerWatermark: artifact.commandLedgerWatermark,
+              targets: [],
+            }),
+          },
+          publications: {
+            findByPermitIdentity: async () => null,
+            findById: async () => null,
+          },
+          resolutionHistory: { read },
+        });
+        await expect(
+          lifecycle.resolve(publicationScope()),
+        ).resolves.toMatchObject({ status });
+      }
+      expect(read).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["API", createProductionPublicationLifecyclePort],
+    ["worker", createWorkerPublicationLifecyclePort],
+  ] as const)(
+    "%s classifies malformed stored projection separately from transient repository failure",
+    async (_host, createLifecycle) => {
+      const malformedArtifact = finalizedArtifactWithProjectionEnvelope(
+        {
+          ...JSON.parse(projectionEnvelopeJson),
+          publishing: {
+            ...publishing,
+            inlineReviewChunks: [
+              {
+                comments: [{ marker: "reviewrouter:finding:v2:rrl_malformed" }],
+              },
+            ],
+          },
+        },
+        hash("9"),
+      );
+      const liveResolve = vi.fn();
+      const malformed = createLifecycle({
         executions: {
-          findStream: async () =>
-            ({ activeExecutionId: ownArtifact.executionId }) as never,
-          findExecution: async () => stored,
+          async findStream() {
+            return {
+              activeExecutionId: malformedArtifact.executionId,
+            } as never;
+          },
+          async findExecution() {
+            return { artifact: malformedArtifact } as never;
+          },
         },
         authorizationQueries: {
-          findReviewRunAuthorizationById: async () => verifierAuthorization(),
+          async findReviewRunAuthorizationById() {
+            return authorization;
+          },
         },
-        liveLifecycle: {
-          resolve: async () => ({
-            status: LiveReviewPublicationLifecycleStatus.Available,
-            reviewedHeadSha: authorization.headSha,
-            commandLedgerWatermark: 2n,
-            targets: [live],
-          }),
-        },
-        publications: { findByPermitIdentity: async () => restored } as never,
-        resolutionHistory: {
-          read: async () => [
-            {
-              threadId: live.threadId,
-              version: 1,
-              historyCut: activated
-                ? {
-                    activatedAt: "2026-01-01T00:00:00.000Z",
-                    activationVersion: 1,
-                    writerDigest: hash("a"),
-                  }
-                : null,
-              confirmed: null,
-              pending: activated
-                ? [
-                    {
-                      ...identity,
-                      state: "may_have_started",
-                      enteredAt: now.toISOString(),
-                    },
-                  ]
-                : [],
-            },
-          ],
-        },
+        liveLifecycle: { resolve: liveResolve },
       });
-    await expect(make(view).resolve(publicationScope())).resolves.toMatchObject(
-      { status: CurrentPublicationLifecycleStatus.Current },
-    );
-    await expect(make(null).resolve(publicationScope())).resolves.toMatchObject(
-      { status: CurrentPublicationLifecycleStatus.Changed },
-    );
-    await expect(
-      make({
-        ...view,
-        attempt: { ...view.attempt, publicationAttemptId: "foreign-attempt" },
-      }).resolve(publicationScope()),
-    ).resolves.toMatchObject({
-      status: CurrentPublicationLifecycleStatus.Unavailable,
-    });
-    await expect(
-      make(view, false).resolve(publicationScope()),
-    ).resolves.toMatchObject({
-      status: CurrentPublicationLifecycleStatus.Unavailable,
-    });
-  });
 
-  it("classifies malformed stored projection separately from transient repository failure", async () => {
-    const malformedArtifact = finalizedArtifactWithProjectionEnvelope(
-      {
-        ...JSON.parse(projectionEnvelopeJson),
-        publishing: {
-          ...publishing,
-          inlineReviewChunks: [
-            {
-              comments: [{ marker: "reviewrouter:finding:v2:rrl_malformed" }],
-            },
-          ],
-        },
-      },
-      hash("9"),
-    );
-    const liveResolve = vi.fn();
-    const malformed = createProductionPublicationLifecyclePort({
-      executions: {
-        async findStream() {
-          return { activeExecutionId: malformedArtifact.executionId } as never;
-        },
-        async findExecution() {
-          return { artifact: malformedArtifact } as never;
-        },
-      },
-      authorizationQueries: {
-        async findReviewRunAuthorizationById() {
-          return authorization;
-        },
-      },
-      liveLifecycle: { resolve: liveResolve },
-    });
+      await expect(malformed.resolve(publicationScope())).resolves.toEqual({
+        status: CurrentPublicationLifecycleStatus.Invalid,
+        lifecycleStateHash: null,
+        commandLedgerWatermark: null,
+      });
+      expect(liveResolve).not.toHaveBeenCalled();
 
-    await expect(malformed.resolve(publicationScope())).resolves.toEqual({
-      status: CurrentPublicationLifecycleStatus.Invalid,
-      lifecycleStateHash: null,
-      commandLedgerWatermark: null,
-    });
-    expect(liveResolve).not.toHaveBeenCalled();
+      const unavailable = createLifecycle({
+        executions: {
+          async findStream() {
+            throw new Error("repository_unavailable");
+          },
+          async findExecution() {
+            throw new Error("unexpected_execution_read");
+          },
+        },
+        authorizationQueries: {
+          async findReviewRunAuthorizationById() {
+            throw new Error("unexpected_authorization_read");
+          },
+        },
+        liveLifecycle: { resolve: liveResolve },
+      });
 
-    const unavailable = createProductionPublicationLifecyclePort({
-      executions: {
-        async findStream() {
-          throw new Error("repository_unavailable");
-        },
-        async findExecution() {
-          throw new Error("unexpected_execution_read");
-        },
-      },
-      authorizationQueries: {
-        async findReviewRunAuthorizationById() {
-          throw new Error("unexpected_authorization_read");
-        },
-      },
-      liveLifecycle: { resolve: liveResolve },
-    });
-
-    await expect(unavailable.resolve(publicationScope())).resolves.toEqual({
-      status: CurrentPublicationLifecycleStatus.Unavailable,
-      lifecycleStateHash: null,
-      commandLedgerWatermark: null,
-    });
-    expect(liveResolve).not.toHaveBeenCalled();
-  });
+      await expect(unavailable.resolve(publicationScope())).resolves.toEqual({
+        status: CurrentPublicationLifecycleStatus.Unavailable,
+        lifecycleStateHash: null,
+        commandLedgerWatermark: null,
+      });
+      expect(liveResolve).not.toHaveBeenCalled();
+    },
+  );
 });
 
 function createRoutes(

@@ -76,12 +76,14 @@ class CapturingProvisioningRepository implements WorkflowProvisioningRepositoryP
 
   async markSetupPullRequestOpen(
     record: WorkflowProvisioningRecord,
-  ): Promise<void> {
+  ): Promise<"applied"> {
     this.opened = record;
+    return "applied";
   }
 
-  async markFailed(record: WorkflowProvisioningRecord): Promise<void> {
+  async markFailed(record: WorkflowProvisioningRecord): Promise<"applied"> {
     this.failed = record;
+    return "applied";
   }
 }
 

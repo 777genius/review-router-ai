@@ -61,6 +61,55 @@ afterEach(() => {
 });
 
 describe("RepositorySetupProgressPanel", () => {
+  it("keeps a committed setup PR actionable when its activity record is unavailable", async () => {
+    vi.mocked(createSetupPullRequestClientAction).mockResolvedValueOnce({
+      params: {
+        error: "workflow_provisioning_audit_unavailable",
+        setupOutcome: "committed",
+        pr: "https://github.com/acme/repo/pull/7",
+      },
+    });
+    render(
+      <RepositorySetupProgressPanel
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="acme/repo"
+        selected
+        archived={false}
+        initialSetupStatus="not_started"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent={false}
+        mutationsEnabled
+        initialStep="setup_pr"
+      />,
+    );
+    await act(async () => {
+      screen
+        .getByRole("button", { name: "Create setup PR" })
+        .closest("form")!
+        .requestSubmit();
+    });
+    await waitFor(() =>
+      expect(createSetupPullRequestClientAction).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Create setup PR" }),
+      ).toBeNull(),
+    );
+    expect(
+      screen.getByRole("link", { name: /Open setup PR/ }).getAttribute("href"),
+    ).toBe("https://github.com/acme/repo/pull/7");
+    await waitFor(() => expect(toast.custom).toHaveBeenCalled());
+    const renderer = vi.mocked(toast.custom).mock.calls.at(-1)![0];
+    const notification = render(<>{renderer("committed-setup-toast")}</>);
+    expect(notification.getByText("Setup PR saved")).toBeTruthy();
+    expect(
+      notification.getByText(/activity record could not be completed/),
+    ).toBeTruthy();
+    expect(router.refresh).toHaveBeenCalled();
+  });
+
   it("opens the existing update PR and verifies it without creating another PR", async () => {
     vi.mocked(confirmSetupPullRequestMergedClientAction).mockResolvedValueOnce({
       params: { error: "dashboard_auth_misconfigured" },

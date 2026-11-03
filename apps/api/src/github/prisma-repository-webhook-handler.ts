@@ -1,5 +1,5 @@
 import type { GitHubRepositoryWebhookEnvelope } from "@reviewrouter/features-github-installations";
-import { workflowProvisioningTransaction } from "@reviewrouter/features-workflow-provisioning";
+import { workflowProvisioningTransaction } from "@reviewrouter/features-workflow-provisioning/composition";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import {

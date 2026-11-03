@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { HashedReviewConfigurationOperatorAuthorization } from "@reviewrouter/features-review-config";
+import { HashedReviewConfigurationOperatorAuthorization } from "@reviewrouter/features-review-config/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import {
   createWorkflowProvisioningOperatorAuthorization,

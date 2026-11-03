@@ -1,6 +1,7 @@
+import { createWorkerPublicationLifecyclePort } from "./review-v2-publication-lifecycle";
 import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import { createReviewRequestedDispatchCleanupHandler } from "./review-v2-dispatch-cleanup-handler";
-import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config";
+import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config/composition";
 import { assertUnreservedCheckIdentity } from "@reviewrouter/features-sdk-growth-authority";
 import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
@@ -53,14 +54,12 @@ import {
   ReviewPublicationCapability,
   ReviewPublicationEffectStrategy,
   ReviewPublicationOperationPlanningService,
-  ReviewPublicationLifecycleExpectationStatus,
   ReviewPublicationRunControlStatus,
   ReviewPublicationTerminalOutcome,
-  ResolveCurrentPublicationLifecycle,
   effectiveReviewPublicationOutcome,
-  reviewPublicationLifecycleExpectationFromProjection,
   type LiveReviewPublicationLifecyclePort,
   type ReviewPublicationAttemptQueryPort,
+  type ReviewPublicationResolutionHistoryPort,
   type ReviewPublicationAdjudicationEvidencePort,
   type ReviewPublicationDecisionPorts,
   type ReviewPublicationPermitIdentity,
@@ -280,6 +279,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
     ledgerHmacSecret ? new HmacActionLedgerKey(ledgerHmacSecret) : null,
   );
   const decisions = createProductionPublicationDecisions({
+    publications: attempts,
+    resolutionHistory,
     executions,
     releases,
     authorizations,
@@ -853,6 +854,8 @@ export const productionReviewV2AdjudicationEvidence: ReviewPublicationAdjudicati
   });
 
 function createProductionPublicationDecisions(input: {
+  readonly publications: ReviewPublicationAttemptQueryPort;
+  readonly resolutionHistory: ReviewPublicationResolutionHistoryPort;
   readonly executions: PrismaReviewExecutionStore;
   readonly releases: PrismaProducerReleaseRepository;
   readonly authorizations: PrismaReviewRunAuthorizationRepository;
@@ -860,44 +863,12 @@ function createProductionPublicationDecisions(input: {
   readonly safetyResolver: ResolveReviewSafetyPolicy;
   readonly liveLifecycle: LiveReviewPublicationLifecyclePort;
 }): ReviewPublicationDecisionPorts {
-  const lifecycle = new ResolveCurrentPublicationLifecycle({
-    expectations: {
-      async resolve(scope) {
-        try {
-          const stream = await input.executions.findStream(scope);
-          const snapshot = stream?.activeExecutionId
-            ? await input.executions.findExecution(stream.activeExecutionId)
-            : null;
-          const artifact = snapshot?.artifact;
-          if (!artifact) {
-            return {
-              status: ReviewPublicationLifecycleExpectationStatus.Missing,
-            };
-          }
-          const authorization =
-            await input.authorizations.findReviewRunAuthorizationById(
-              artifact.publicationPermit.authorizationId,
-            );
-          if (!authorization) {
-            return {
-              status: ReviewPublicationLifecycleExpectationStatus.Missing,
-            };
-          }
-          return reviewPublicationLifecycleExpectationFromProjection({
-            reviewedHeadSha: artifact.reviewedHeadSha,
-            lifecycleStateHash: artifact.lifecycleStateHash,
-            commandLedgerWatermark: artifact.commandLedgerWatermark,
-            projectionEnvelopeJson: artifact.projectionEnvelopeJson,
-            legacyObservationBoundary: authorization.createdAt,
-          });
-        } catch {
-          return {
-            status: ReviewPublicationLifecycleExpectationStatus.Unavailable,
-          };
-        }
-      },
-    },
-    live: input.liveLifecycle,
+  const lifecycle = createWorkerPublicationLifecyclePort({
+    executions: input.executions,
+    authorizationQueries: input.authorizations,
+    liveLifecycle: input.liveLifecycle,
+    publications: input.publications,
+    resolutionHistory: input.resolutionHistory,
   });
   return {
     permits: {

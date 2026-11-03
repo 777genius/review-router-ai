@@ -4,10 +4,10 @@ import { mapWithConcurrency } from "@reviewrouter/shared";
 import {
   managedApiKeyProviderTypes,
   parseStoredReviewPolicy,
-  PrismaReviewPolicyHeadReader,
   readProviderManagementFacts,
   type ProviderRepositoryCapability,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import {
   isClaudeCodeProviderEnabled,
   isCodexRotatingOAuthAllowedForRepository,

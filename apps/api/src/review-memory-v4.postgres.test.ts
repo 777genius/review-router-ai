@@ -2,10 +2,10 @@ import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import {
-  PrismaReviewConfigurationRepository,
   parseReviewConfigurationStrict,
   saveReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewConfigurationRepository } from "@reviewrouter/features-review-config/composition";
 import { parseReviewRunRuntimeSnapshot } from "@reviewrouter/features-review-run-control";
 import { reviewerPlanDescriptorDigest } from "@reviewrouter/shared";
 import {

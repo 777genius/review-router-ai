@@ -1,7 +1,5 @@
-import {
-  HashedReviewConfigurationOperatorAuthorization,
-  ReviewConfigurationOperatorOperation,
-} from "@reviewrouter/features-review-config";
+import { ReviewConfigurationOperatorOperation } from "@reviewrouter/features-review-config";
+import { HashedReviewConfigurationOperatorAuthorization } from "@reviewrouter/features-review-config/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 
 export type HostedPoolOperatorScope = Readonly<{

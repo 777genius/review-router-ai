@@ -66,7 +66,7 @@ import {
   freeBetaEntitlement,
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
-import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import { PrismaHostedPoolQuery } from "@reviewrouter/features-hosted-account-pool";
 import {
   buildProviderSecretSetupGuidance,
@@ -84,14 +84,12 @@ import {
 import {
   listRepositoryWorkflowProvisioning,
   projectRepositorySetupStatus,
-  PrismaWorkflowProvisioningQuery,
 } from "@reviewrouter/features-workflow-provisioning";
+import { PrismaWorkflowProvisioningQuery } from "@reviewrouter/features-workflow-provisioning/composition";
 import { redirect } from "next/navigation";
 import {
   defaultWorkspaceReviewPolicy,
   effectiveReviewSettings,
-  PrismaReviewPolicyHeadReader,
-  PrismaWorkspaceReviewSettings,
   readyReviewConfiguration,
   resolveEffectiveReviewConfigurations,
   type EffectiveReviewConfiguration,
@@ -103,6 +101,10 @@ import {
   type WorkspaceProviderProfile,
   type WorkspaceReviewPolicy,
 } from "@reviewrouter/features-review-config";
+import {
+  PrismaReviewPolicyHeadReader,
+  PrismaWorkspaceReviewSettings,
+} from "@reviewrouter/features-review-config/composition";
 import {
   getWorkspaceSupportDiagnostics,
   PrismaSupportDiagnosticsRepository,

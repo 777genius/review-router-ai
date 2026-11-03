@@ -31,14 +31,16 @@ import {
   createVersionedProviderSecretNamespace,
   createVersionedSecretWorkflowSourceAttestation,
   defaultCodexRotatingWorkflowPath,
-  OctokitWorkflowSetupGateway,
-  PrismaWorkflowProvisioningRepository,
-  PrismaWorkflowProvisioningTarget,
   provisionRepositoryReviewRouterWorkflow,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
   workflowDocumentSemanticSha256,
   type VersionedProviderSecretNamespace,
 } from "../../../packages/features/workflow-provisioning/src/index.ts";
+import {
+  OctokitWorkflowSetupGateway,
+  PrismaWorkflowProvisioningRepository,
+  PrismaWorkflowProvisioningTarget,
+} from "../../../packages/features/workflow-provisioning/src/composition/index.ts";
 import { inspectCodexRotatingWorkflowNamespace } from "../../../packages/features/provider-setup/src/index.ts";
 import { issueCodexRotatingSetupForRepository } from "../../../apps/web/src/server/codex-rotating-setup-command.ts";
 import { PrismaCodexRotatingSetupPayloadClaim } from "../../../apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts";

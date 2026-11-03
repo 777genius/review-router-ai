@@ -33,21 +33,6 @@ export * from "./application/use-cases/list-repository-workflow-provisioning";
 export * from "./application/use-cases/provision-reviewrouter-workflow";
 export * from "./application/use-cases/provision-repository-reviewrouter-workflow";
 export * from "./application/use-cases/provision-hosted-pool-workflow";
-export * from "./infrastructure/github/octokit-workflow-setup-gateway";
-export * from "./infrastructure/prisma/prisma-workflow-provisioning-query";
-export * from "./infrastructure/prisma/prisma-workflow-provisioning-repository";
-export * from "./infrastructure/prisma/prisma-workflow-provisioning-status-authority";
-export * from "./infrastructure/prisma/prisma-workflow-provisioning-target";
-export * from "./infrastructure/prisma/workflow-provisioning-transaction";
-export * from "./infrastructure/prisma/prisma-hosted-pool-workflow-activation";
-export * from "./infrastructure/prisma/prisma-hosted-pool-configuration";
 export * from "./application/provision-gateway-review-v2-repository";
-export * from "./infrastructure/review-v2-mutation-proof-facts";
-export * from "./infrastructure/github/managed-review-v2-workflow-inventory";
-export * from "./infrastructure/github/octokit-review-v2-dispatch-capability-inspector";
-
 export * from "./application/confirm-installed-gateway-review-repository";
-
-export * from "./infrastructure/prisma/prisma-gateway-review-v2-provisioning";
-
-export * from "./infrastructure/prisma/prisma-installed-gateway-review-confirmation";
+export * from "./application/workflow-provisioning-outcome";

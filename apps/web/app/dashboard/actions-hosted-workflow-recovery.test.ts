@@ -24,11 +24,13 @@ import {
   renderReviewRouterReusableWorkflow,
   renderCanonicalHostedPoolWorkflowV2,
   provisionReviewRouterWorkflow,
-  PrismaWorkflowProvisioningRepository,
-  OctokitWorkflowSetupGateway,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
+import {
+  PrismaWorkflowProvisioningRepository,
+  OctokitWorkflowSetupGateway,
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import {
   createProvisioningPrisma,
   initialCandidate,
@@ -89,6 +91,8 @@ vi.mock("@reviewrouter/features-provider-setup", async (original) => ({
 }));
 vi.mock("@reviewrouter/features-audit-log", () => ({
   recordAuditEvent: mocks.audit,
+}));
+vi.mock("@reviewrouter/features-audit-log/composition", () => ({
   PrismaAuditLogRepository: class {},
 }));
 vi.mock("@reviewrouter/features-entitlements", async (original) => ({
@@ -137,7 +141,7 @@ vi.mock("../../src/server/prisma-hosted-pool-mutations", async () => {
   const ts = await import("typescript");
   const configuration = await import("@reviewrouter/features-review-config");
   const { switchRepositoryConfigurationAuthMode } =
-    await import("@reviewrouter/features-workflow-provisioning");
+    await import("@reviewrouter/features-workflow-provisioning/composition");
   const identifiers =
     await import("../../../../packages/features/hosted-account-pool/src/domain/identifiers");
   const useCase =

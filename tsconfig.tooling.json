@@ -5,6 +5,7 @@
     "allowImportingTsExtensions": true
   },
   "include": [
+    "scripts/review-action-v2-production-e2e/**/*.ts",
     "scripts/review-history-tooling/**/*.ts",
     "scripts/activate-review-history.ts",
     "scripts/context-tools-e2e/**/*.ts",

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   providerApiKeyConnectionFindUnique: vi.fn(),
 }));
 
-vi.mock("@reviewrouter/features-audit-log", () => ({
+vi.mock("@reviewrouter/features-audit-log/composition", () => ({
   PrismaAuditLogRepository: class PrismaAuditLogRepository {},
 }));
 

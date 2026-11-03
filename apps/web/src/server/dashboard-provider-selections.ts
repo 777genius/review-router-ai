@@ -5,21 +5,23 @@ import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provid
 import {
   managedApiKeyProviderTypes,
   parseProviderProfileDraft,
-  PrismaReviewConfigurationRepository,
-  PrismaReviewPolicyHeadReader,
-  PrismaWorkspaceProviderProfileRepository,
   providerProfileIdentityKey,
   ProviderProfileError,
   reviewProviderSelectionSchema,
   type ProviderCredentialRequest,
   type ProviderCredentialSource,
   type ProviderProfileActor,
-  type ProviderProfileWriteOptions,
   type ProviderRepositoryCapability,
   type ProviderSelectionDraft,
   type ProviderSelectionSettings,
   type ReviewProviderSelection,
 } from "@reviewrouter/features-review-config";
+import {
+  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
+  PrismaWorkspaceProviderProfileRepository,
+  type ProviderProfileWriteOptions,
+} from "@reviewrouter/features-review-config/composition";
 import type { DashboardMutationActor } from "./dashboard-mutations";
 import {
   dashboardSelectionValidator,

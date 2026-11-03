@@ -1,5 +1,7 @@
 "use client";
 
+import { workflowSetupOutcomePresentation } from "./dashboard-copy";
+
 import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ActionToast } from "../action-toast";
@@ -102,6 +104,8 @@ function replaceDashboardContextUrl(params: Record<string, string>): void {
 function dashboardActionToast(
   params: Record<string, string>,
 ): Omit<DashboardActionToast, "key"> {
+  const outcome = workflowSetupOutcomePresentation(params);
+  if (outcome) return outcome;
   if (params.error) {
     const access = repositoryAccessErrorPresentation(params.error);
     return {

@@ -1,4 +1,9 @@
 import {
+  settleWorkflowProvisioningAttempt,
+  auditWorkflowProvisioningAttempt,
+} from "./workflow-provisioning-settlement";
+import type { WorkflowSetupPullRequest } from "../ports/workflow-setup-gateway-port";
+import {
   resolveReviewConfiguration,
   providerApiConfigurationMode,
   type ReviewConfigurationRepositoryPort,
@@ -242,38 +247,58 @@ export async function provisionReviewRouterWorkflow(
   });
 
   if (dependencies.enabled === false) {
-    await dependencies.provisioning.markFailed({
-      ...attempt,
-      workspaceId: plan.workspaceId,
-      repositoryId: plan.repositoryId,
-      status: "failed",
-      branch: attempt.branch,
-      workflowPath: plan.workflowPath,
-      workflowStyle: plan.workflowStyle,
-      actionVersion,
-      workflowRequirement: attemptRequirement,
-      pullRequestUrl: null,
-      errorMessage: "workflow_provisioning_disabled",
-    });
-    if (dependencies.auditLog) {
-      await recordAuditEvent(
-        {
+    await settleWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "failure",
+        mayHaveExternalEffects: false,
+        failureSummary: "workflow_provisioning_disabled",
+      },
+      () =>
+        dependencies.provisioning.markFailed({
+          ...attempt,
           workspaceId: plan.workspaceId,
-          actor: dependencies.actor ?? "system:workflow-provisioning",
-          action: "workflow.setup_pr_blocked",
-          targetType: "repository",
-          targetId: plan.repositoryId,
-          metadata: {
-            reason: "workflow_provisioning_disabled",
-            ...(dependencies.auditMetadata ?? {}),
-          },
+          repositoryId: plan.repositoryId,
+          status: "failed",
+          branch: attempt.branch,
+          workflowPath: plan.workflowPath,
+          workflowStyle: plan.workflowStyle,
+          actionVersion,
+          workflowRequirement: attemptRequirement,
+          pullRequestUrl: null,
+          errorMessage: "workflow_provisioning_disabled",
+        }),
+    );
+    if (dependencies.auditLog) {
+      await auditWorkflowProvisioningAttempt(
+        {
+          attempt,
+          stage: "failure_audit",
+          mayHaveExternalEffects: false,
+          failureSummary: "workflow_provisioning_disabled",
         },
-        { auditLog: dependencies.auditLog },
+        () =>
+          recordAuditEvent(
+            {
+              workspaceId: plan.workspaceId,
+              actor: dependencies.actor ?? "system:workflow-provisioning",
+              action: "workflow.setup_pr_blocked",
+              targetType: "repository",
+              targetId: plan.repositoryId,
+              metadata: {
+                reason: "workflow_provisioning_disabled",
+                ...(dependencies.auditMetadata ?? {}),
+              },
+            },
+            { auditLog: dependencies.auditLog! },
+          ),
       );
     }
     throw new Error("workflow_provisioning_disabled");
   }
 
+  let mayHaveExternalEffects = false;
+  let pullRequest: WorkflowSetupPullRequest;
   try {
     if (
       !managedFile &&
@@ -363,7 +388,8 @@ export async function provisionReviewRouterWorkflow(
           staticRuntimeEnv,
         });
 
-    const pullRequest =
+    mayHaveExternalEffects = true;
+    pullRequest =
       await dependencies.setupGateway.createOrUpdateSetupPullRequest({
         owner: plan.owner,
         repo: plan.name,
@@ -380,80 +406,116 @@ export async function provisionReviewRouterWorkflow(
           : {}),
         workflowFiles,
       });
-
-    await dependencies.provisioning.markSetupPullRequestOpen({
-      ...attempt,
-      workspaceId: plan.workspaceId,
-      repositoryId: plan.repositoryId,
-      status: "setup_pr_open",
-      branch: pullRequest.branch,
-      workflowPath: plan.workflowPath,
-      workflowStyle: plan.workflowStyle,
-      actionVersion,
-      workflowRequirement: attemptRequirement,
-      pullRequestUrl: pullRequest.url,
-      pullRequestHeadSha: pullRequest.headSha,
-      errorMessage: null,
-    });
-    if (dependencies.auditLog) {
-      await recordAuditEvent(
-        {
-          workspaceId: plan.workspaceId,
-          actor: dependencies.actor ?? "system:workflow-provisioning",
-          action: "workflow.setup_pr_opened",
-          targetType: "repository",
-          targetId: plan.repositoryId,
-          metadata: {
-            branch: pullRequest.branch,
-            workflowPath: plan.workflowPath,
-            workflowStyle: plan.workflowStyle,
-            actionVersion,
-            pullRequestUrl: pullRequest.url,
-            ...(dependencies.auditMetadata ?? {}),
-          },
-        },
-        { auditLog: dependencies.auditLog },
-      );
-    }
-
-    return pullRequest;
   } catch (error: unknown) {
     const message = safeWorkflowProvisioningErrorSummary(error);
-    await dependencies.provisioning.markFailed({
-      ...attempt,
-      workspaceId: plan.workspaceId,
-      repositoryId: plan.repositoryId,
-      status: "failed",
-      branch: attempt.branch,
-      workflowPath: plan.workflowPath,
-      workflowStyle: plan.workflowStyle,
-      actionVersion,
-      workflowRequirement: attemptRequirement,
-      pullRequestUrl: null,
-      errorMessage: message,
-    });
-    if (dependencies.auditLog) {
-      await recordAuditEvent(
-        {
+    await settleWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "failure",
+        mayHaveExternalEffects,
+        failureSummary: message,
+      },
+      () =>
+        dependencies.provisioning.markFailed({
+          ...attempt,
           workspaceId: plan.workspaceId,
-          actor: dependencies.actor ?? "system:workflow-provisioning",
-          action: "workflow.setup_pr_failed",
-          targetType: "repository",
-          targetId: plan.repositoryId,
-          metadata: {
-            branch: attempt.branch,
-            workflowPath: plan.workflowPath,
-            workflowStyle: plan.workflowStyle,
-            actionVersion,
-            errorSummary: message.slice(0, 500),
-            ...(dependencies.auditMetadata ?? {}),
-          },
+          repositoryId: plan.repositoryId,
+          status: "failed",
+          branch: attempt.branch,
+          workflowPath: plan.workflowPath,
+          workflowStyle: plan.workflowStyle,
+          actionVersion,
+          workflowRequirement: attemptRequirement,
+          pullRequestUrl: null,
+          errorMessage: message,
+        }),
+    );
+    if (dependencies.auditLog) {
+      await auditWorkflowProvisioningAttempt(
+        {
+          attempt,
+          stage: "failure_audit",
+          mayHaveExternalEffects,
+          failureSummary: message,
         },
-        { auditLog: dependencies.auditLog },
+        () =>
+          recordAuditEvent(
+            {
+              workspaceId: plan.workspaceId,
+              actor: dependencies.actor ?? "system:workflow-provisioning",
+              action: "workflow.setup_pr_failed",
+              targetType: "repository",
+              targetId: plan.repositoryId,
+              metadata: {
+                branch: attempt.branch,
+                workflowPath: plan.workflowPath,
+                workflowStyle: plan.workflowStyle,
+                actionVersion,
+                errorSummary: message.slice(0, 500),
+                mayHaveExternalEffects,
+                ...(dependencies.auditMetadata ?? {}),
+              },
+            },
+            { auditLog: dependencies.auditLog! },
+          ),
       );
     }
     throw error;
   }
+  await settleWorkflowProvisioningAttempt(
+    {
+      attempt,
+      stage: "completion",
+      mayHaveExternalEffects: true,
+      observedPullRequest: pullRequest,
+    },
+    () =>
+      dependencies.provisioning.markSetupPullRequestOpen({
+        ...attempt,
+        workspaceId: plan.workspaceId,
+        repositoryId: plan.repositoryId,
+        status: "setup_pr_open",
+        branch: pullRequest.branch,
+        workflowPath: plan.workflowPath,
+        workflowStyle: plan.workflowStyle,
+        actionVersion,
+        workflowRequirement: attemptRequirement,
+        pullRequestUrl: pullRequest.url,
+        pullRequestHeadSha: pullRequest.headSha,
+        errorMessage: null,
+      }),
+  );
+  if (dependencies.auditLog) {
+    await auditWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "success_audit",
+        mayHaveExternalEffects: true,
+        observedPullRequest: pullRequest,
+      },
+      () =>
+        recordAuditEvent(
+          {
+            workspaceId: plan.workspaceId,
+            actor: dependencies.actor ?? "system:workflow-provisioning",
+            action: "workflow.setup_pr_opened",
+            targetType: "repository",
+            targetId: plan.repositoryId,
+            metadata: {
+              branch: pullRequest.branch,
+              workflowPath: plan.workflowPath,
+              workflowStyle: plan.workflowStyle,
+              actionVersion,
+              pullRequestUrl: pullRequest.url,
+              ...(dependencies.auditMetadata ?? {}),
+            },
+          },
+          { auditLog: dependencies.auditLog! },
+        ),
+    );
+  }
+
+  return pullRequest;
 }
 
 function assertProductionCodexWorkflowProvisioningAllowed(input: {
