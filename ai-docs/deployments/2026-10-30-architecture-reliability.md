@@ -1,5 +1,15 @@
 # Architecture and reliability refactor: deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-30-architecture-reliability`.
 - Goal: preserve identity ownership and settings/audit consistency, prevent stale outbox dispatch and publication starvation, and let independent worker work continue with honest failure reporting.
 - Affected services/targets: Web, API, ordinary worker and Skills scanner worker; shared feature packages and CI architecture checks.
@@ -10,10 +20,10 @@
 
 ## Environment status
 
-| Environment / target                     | Status        | Actual deployed version / image                     | Last verified (UTC) | Evidence / next step / blocker                                                     |
-| ---------------------------------------- | ------------- | --------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------- |
-| staging: Web/API/worker/Skills worker    | `pending`     | Not verified                                        | Not verified        | Select an authorized release, reconcile the fleet and complete verification below. |
-| production: Web/API/worker/Skills worker | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.                                 |
+| Environment / target                     | Status      | Actual deployed version / image             | Last verified (UTC) | Evidence / next step / blocker                                                     |
+| ---------------------------------------- | ----------- | ------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------- |
+| staging: Web/API/worker/Skills worker    | `pending`   | Not verified                                | Not verified        | Select an authorized release, reconcile the fleet and complete verification below. |
+| production: Web/API/worker/Skills worker | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | 2026-11-03          | See current disposition; no repeat code rollout.                                   |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
