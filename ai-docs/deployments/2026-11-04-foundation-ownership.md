@@ -7,7 +7,9 @@
 - Implementation PR: [#810](https://github.com/777genius/review-router-ai/pull/810).
 - Source plan: [foundation ownership refactor](../plans/2026-11-04-foundation-ownership-refactor.md).
 - Implementation reference: select the final reviewed head/merge from #810;
-  the initial plan commits are not an implementation or deployed version.
+  production source checkpoint `b29d5ba3d7ef5919f08bfaa9ee68ceb8a31fe8e9`
+  plus the final reviewed test/documentation follow-up. Required CI remains
+  pending; none of these references is a deployed version.
 - Dependencies: existing workflow authority and resolution-history schema and
   accepted producer contracts; no new schema, configuration or activation step.
 - Last updated: `2026-11-04`.

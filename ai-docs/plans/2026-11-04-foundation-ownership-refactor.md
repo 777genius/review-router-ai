@@ -2,8 +2,9 @@
 
 Date: 2026-11-04 (Europe/Kiev)
 Baseline: `f952f7c8e72277c8367a20769db0b8d7bc548219`
-Status: implementation checkpoints published; independent implementation review
-is in progress in PR #810. The reviewed contracts below govern implementation.
+Status: implementation and independent source reviews complete; local integrated
+qualification passed. Required CI and real PostgreSQL execution remain pending
+in PR #810. The reviewed contracts below govern implementation.
 This file is the delivery plan
 and evidence journal, not a claim of completed qualification or deployment.
 
@@ -413,5 +414,63 @@ the still-pending real PostgreSQL execution.
   remains reachable without changing the ordinary notification layout.
   This is client-component qualification, not authenticated full-app E2E.
 
-Required CI, real PostgreSQL and the final integrated source check are tracked
-separately. Runner queue state must never be reported as successful execution.
+### Final integration review and recorded results
+
+Production source is published at
+`b29d5ba3d7ef5919f08bfaa9ee68ceb8a31fe8e9`. The final follow-up changes only
+existing tests and this evidence/deployment documentation; the production source
+qualified by the builds and critics is unchanged.
+
+The broader existing-suite run exposed one old attempt-isolation expectation
+that still treated a superseded PR as a successful return. The regression now
+expects the typed superseded outcome and uses its observed artifact. It retains
+every existing branch/content/state/confirmation assertion and observes the
+older promise's rejection immediately. Its four cases pass.
+
+A third independent integration review found two setup defects in the new
+PostgreSQL E2E before that test was executed: closing the first harness did not
+remove seeded unique identities, and the lifecycle-profile option alone did
+not create a captured capability with the default rotating policy. The corrected
+case resets the disposable database, saves a real Gateway account/binding and
+repository policy with a qualified profile, and verifies the actual persisted
+capability's transport/model. It then checks unactivated history, real
+finalization/outbox/worker progression, snapshot/comment/check, exactly the
+summary and managed-check operations, and two successful durable receipts.
+No capability is injected and no live model dispatch is claimed. A second
+critic accepted the corrected fixture; native tooling, lint and formatting pass.
+
+| Final available check                     | Observed result                                                                                                                                                                                                  |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Integrated existing suites, 58 test files | **1,106 passed, 0 failed, 18 skipped**                                                                                                                                                                           |
+| Explanation of the 18 existing skips      | 15 require PostgreSQL; two require paired Action golden artifacts; one requires the compiled CLI smoke configuration. None was added or disabled to make this change pass.                                       |
+| Native TypeScript 7 builds                | All seven pass: workflow-provisioning, repo-health, review-config, audit-log, review-publishing, API and worker.                                                                                                 |
+| Additional native projects                | Web, modular, tooling (including corrected E2E), spikes and Hosted Pool operations pass.                                                                                                                         |
+| Selected composition exports              | All three source/default and production targets resolve to existing source/emitted entries. This is not full application initialization.                                                                         |
+| Changed-source ESLint and formatting      | Pass; 131 changed code files were linted at the production checkpoint, and both final test corrections were linted afterward. All changed files pass formatting.                                                 |
+| Architecture                              | Direct 655-core-file check, 44 selected harness cases, full source/profile/Foundation checks, 23 memory and six statistics rejection cases, and history qualification pass.                                      |
+| Real-component Chromium                   | 10 scenarios pass, including keyboard submission, no automatic repeated request, status/PR presentation, transient URL cleanup, width/theme matrix and the reachable action at 200% text. Screenshots inspected. |
+| Independent source review                 | Plan review plus two implementation rounds and final integration review; all confirmed material findings above addressed.                                                                                        |
+| GitHub required CI / real PostgreSQL      | Pending runner execution; not a pass.                                                                                                                                                                            |
+
+The integrated command uses Vitest with one worker and the changed non-PG
+consumer tests, the complete workflow-provisioning and publication-v2 test
+directories, and the existing worker/CLI boundary suites. Native commands use
+`node scripts/local-checks/compiler-cli.ts --native`, with `GOMAXPROCS=2` and
+bounded memory; no dependency or compiler pin changed. Disposable detailed logs,
+JSON results and browser captures remain in the ignored `tmp/foundation-e2e`
+and `tmp/foundation-ui` directories.
+
+At `2026-11-03 23:44 UTC`, the required source-check jobs were still queued.
+The local UID namespace cannot start native PostgreSQL under a non-root user,
+so real-PG execution is delegated to the existing CI services without weakening
+their gates. The branch remains unmerged and no deployment was performed.
+
+External automation is recorded separately from agent review: CodeRabbit skipped
+the PR because its 100-file/capacity limit was exceeded; it did not review this
+source. Strix reported no open security finding for checkpoint `43ee950`, and
+explicitly reported subsequent commits as unreviewed. Neither status is claimed
+as an external approval of the final head. GitHub had no inline review threads.
+
+Runner queue state must never be reported as successful execution. Ordinary
+rollout remains pending in the deployment registry and requires its own
+environment-specific verification.
