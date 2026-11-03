@@ -61,6 +61,33 @@ optional-catalog behavior are unchanged; no extra metadata request, grace period
 retry or authority fallback is introduced. Throwing diagnostic sinks cannot
 change the decision. Old outcomes remain preserved.
 
+## SDK settlement diagnostics
+
+Source `2a8777fc1` passed 165 affected contracts but its first cold tuning run
+`804f53cd-8b22-409e-ad5e-999d9599fbea` stopped at event 34 when a child
+exhausted the original 90-second admission. The original native transport has
+closure acknowledgment and completed cleanup; its provider outcome remains
+unknown. Partial review found no new semantic defect in the 33 available events.
+
+One independently scoped cold measurement on the same immutable source,
+`cf40a3aa-cad3-4e9c-82fe-f1c459f9b6c6`, stopped at event 2. The parent
+was withheld after 14.1 seconds with an unknown effect and no recovered output.
+Native complete usage, applied close, physical acknowledgment and later cleanup
+do not recover the output or prove semantic success. This was not the original
+90-second expiry. The currentness diagnostic `cleanup_pending` also covers an
+unsettled inference effect; it does not establish that SDK close failed.
+
+The diagnostic successor retains only the SDK's closed failure code, actual
+execution-presence boolean, effect and cleanup enum alongside the processing ID.
+It excludes provider bodies, errors, traces, accounts and usage. The optional
+observer cannot change authority, persistence, request count or settlement; its
+throws and rejections are isolated. A first-event observation is retained in the
+evaluation report separately from currentness denial. There is no request retry,
+deadline change or fallback. Remote SDK/policy tests pass 104/104 with zero skips,
+strict API/evaluation types, lint/format and generated metadata checks pass.
+A fresh bounded diagnostic and subsequent full quality qualification remain
+pending; neither unavailable run has an official score or protected-run credit.
+
 ## Ordered verification and delivery
 
 1. Review both boundaries and run affected real PostgreSQL/SDK contracts, schema,

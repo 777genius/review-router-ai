@@ -47,6 +47,7 @@ import {
   conversationCandidateMemoryPolicy,
   type ConversationCapturedPolicy,
   type ConversationCurrentnessFailure,
+  type ConversationInferenceObservation,
   type ConversationOperationalModelBounds,
 } from "../../apps/api/src/action-conversation-policy.js";
 import { createConversationCandidateMemoryPreview } from "../../apps/api/src/action-conversation-candidate.js";
@@ -169,9 +170,10 @@ export type Witness = {
   productLatencyMs: number;
   nativeLatencyMs: number;
   gatewayPreviewLatencyMs?: number;
-  /** Actual parent SDK cleanup observation, never inferred from a missing child call. */
+  /** Parent authority is blocked by cleanup debt or an unsettled request effect. */
   gatewayParentCleanupPending?: boolean;
   gatewayCurrentnessFailure?: ConversationCurrentnessFailure | null;
+  gatewayInferenceObservation?: ConversationInferenceObservation | null;
   gatewayPreviewReceipt?: {
     processingId: string;
     observedModel: string | null;
@@ -308,6 +310,7 @@ export async function createEvaluationFixture(input: {
   });
   let capturedPolicy: ConversationCapturedPolicy | undefined;
   let currentnessFailure: ConversationCurrentnessFailure | null = null;
+  let inferenceObservation: ConversationInferenceObservation | null = null;
   const workspaceSettings =
     input.variant === "full-product"
       ? candidateWorkspaceMemorySettings({
@@ -340,6 +343,9 @@ export async function createEvaluationFixture(input: {
           models: input.candidateModels!,
           onCaptured: (value) => {
             capturedPolicy = value;
+          },
+          onInferenceObserved: (value) => {
+            inferenceObservation ??= value;
           },
           onCurrentnessFailure: (value) => {
             currentnessFailure ??= value;
@@ -1353,6 +1359,7 @@ export async function createEvaluationFixture(input: {
       gatewayPreviewLatencyMs = 0;
       gatewayPreviewReceipt = null;
       currentnessFailure = null;
+      inferenceObservation = null;
       modelDecisionTrace = null;
       observedModel = null;
       usage = null;
@@ -1423,6 +1430,7 @@ export async function createEvaluationFixture(input: {
         gatewayParentCleanupPending:
           capturedPolicy?.inferenceCleanupPending?.() ?? false,
         gatewayCurrentnessFailure: currentnessFailure,
+        gatewayInferenceObservation: inferenceObservation,
         gatewayPreviewReceipt,
         inventory,
         retained,
