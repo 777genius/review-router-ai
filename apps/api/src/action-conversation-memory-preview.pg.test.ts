@@ -1186,6 +1186,62 @@ describe.skipIf(!databaseUrl)(
       expect(f.requests).toHaveLength(1);
       expect(f.closes()).toBe(1);
     });
+    it("rejects an earlier human message revised after the current endorsement", async () => {
+      const body = "Yes, that is the cache-key convention.";
+      const support = "Cache keys are case-sensitive.";
+      const context = {
+        ...snapshot,
+        messages: [
+          snapshot.messages[0]!,
+          {
+            ...snapshot.messages[1]!,
+            id: "github-node:earlier-proposal",
+            commentId: "3",
+            actor: {
+              id: "contributor",
+              login: "contributor",
+              kind: "human" as const,
+            },
+            body: support,
+            bodyDigest: createHash("sha256").update(support).digest("hex"),
+            createdAt: new Date(
+              Date.parse(snapshot.messages[1]!.createdAt) - 1000,
+            ).toISOString(),
+            updatedAt: new Date(
+              Date.parse(snapshot.messages[1]!.updatedAt) + 1000,
+            ).toISOString(),
+          },
+          {
+            ...snapshot.messages[1]!,
+            body,
+            bodyDigest: createHash("sha256").update(body).digest("hex"),
+          },
+        ],
+      };
+      const f = await fixture(
+        undefined,
+        false,
+        true,
+        "medium",
+        JSON.stringify({
+          statements: [
+            {
+              body: support,
+              sourceQuote: body,
+              supportMessageId: "github-node:earlier-proposal",
+              supportQuote: support,
+            },
+          ],
+        }),
+        context,
+      );
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.requests).toHaveLength(1);
+      expect(f.closes()).toBe(1);
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.requests).toHaveLength(1);
+    });
+
     it("rejects later human evidence even when its quote and ID are exact", async () => {
       const context = {
         ...snapshot,
