@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Hosted test infrastructure: [stock self-hosted network isolation](2026-11-03-selfhost-test-network-isolation.md) - source QA passed; disposable configured-HTTPS acceptance pending. Product networks and production services are outside this test-harness change.
+
 Gateway saturation follow-up: [terminal-run cleanup](2026-11-02-gateway-terminal-run-cleanup.md) — staging `pending`, production `in_progress`;226 API installed, A/B full coverage; payments PARTIAL 0/17, versioned dispatch fix/fresh acceptance pending.
 
 Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging `pending`, production `in_progress`;226 coherent rollout complete, A/B full coverage and Usage/Statistics accepted; payments PARTIAL 0/17, future fresh run pending.

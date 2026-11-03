@@ -7,6 +7,8 @@
     "native-memory-install.ts",
     "native-memory-install.test.ts",
     "runner-lifecycle.test.ts",
+    "network-isolation.ts",
+    "network-isolation.test.ts",
     "native-memory-storage.ts",
     "settle-memory-command.ts",
     "settle-memory-command.test.ts"

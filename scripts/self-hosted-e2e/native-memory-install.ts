@@ -89,6 +89,7 @@ export type SelfHostedOwnedBinding = SelfHostedComposeBinding &
     }>;
   }>;
 export type SelfHostedE2EOptions = Readonly<{
+  networkSubnet?: string;
   configuredApiOrigin?: string;
   /** The owner journals cleanup before effects and returns the same one-shot cleanup promise. */
   afterComposeHealthy?: (
