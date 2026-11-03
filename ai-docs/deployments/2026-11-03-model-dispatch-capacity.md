@@ -22,7 +22,7 @@ Use the registry [status contract](README.md#status-contract).
 
 The deployed control-plane source is [6e6a0f0](https://github.com/777genius/review-router-ai/commit/6e6a0f07829c465202512f87fb6a3195412ca347), paired with public [fa3e87a](https://github.com/777genius/review-router/commit/fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8). Canary A/B acceptance on this baseline is recorded in the [analytics task](2026-11-02-analytics-review-reliability.md#release226-live-verification).
 
-[Payments PR29 run41581736184](https://github.com/agent-teams-ai/payments-sdk/actions/runs/41581736184) reviewed head `dcfadb0c199e69654b0aa25280f1b2a828b6d04f`. Its canonical result was partial, with required coverage **0/17**. Exactly **32 Native requests completed**, totalling **508,896 tokens**. The API rejected the next model-dispatch body with HTTP400 / `model_dispatch_request_invalid`: the selected profile's hard limit was32 while the Gateway execution allowed640. Gateway capacity did not enlarge the signed profile's authority.
+[Payments PR29 run41581736184](https://github.com/agent-teams-ai/payments-sdk/actions/runs/41581736184) reviewed head `dcfadb0c199e69654b0aa25280f1b2a828b6d04f`. Its canonical result was partial, with required work-slot coverage **0/1** and file coverage **0/17**. Exactly **32 Native requests completed**, totalling **508,896 tokens**. The API rejected the next model-dispatch body with HTTP400 / `model_dispatch_request_invalid`: the selected profile's hard limit was32 while the Gateway execution allowed640. Gateway capacity did not enlarge the signed profile's authority.
 
 The retained Native32 scope is closed and scoped cleanup is `DONE`; no 33rd Native request was issued. Preserve that partial result and its receipts. It is evidence of the existing bound, not full Payments acceptance or a provider-quota measurement.
 
@@ -46,7 +46,7 @@ The retained Native32 scope is closed and scoped cleanup is `DONE`; no 33rd Nati
 
 Record staging and production evidence separately. Production completion requires:
 
-- Canonical required coverage **17/17**, truthful full completion and the matching configured GitHub App publication for the exact new request identity/head. Finding-based quality RED must be distinguished from transport or coverage failure.
+- Canonical required work-slot coverage **1/1** and file coverage **17/17**, truthful full completion and the matching configured GitHub App publication for the exact new request identity/head. Finding-based quality RED must be distinguished from transport or coverage failure.
 - Usage readback reconciled to the actual Native requests and token totals for that same request/profile. Preserve unknown observed provider/model values and all immutable historical facts; record actual counts rather than projecting them from the128 bound.
 - Statistics processing and issue deduplication consistent with that actual completed review. Preserve the already verified Canary A/B facts and source-A lineage; do not manufacture a resolved prior issue or replay settlement/publication to obtain counters.
 - The new Native scope terminal with no occupied request slots and scoped cleanup `DONE`. Record any ambiguous effect or cleanup debt and stop before a replacement invocation.

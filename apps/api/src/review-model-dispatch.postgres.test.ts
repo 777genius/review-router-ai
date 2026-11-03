@@ -379,6 +379,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     maxRequests = 4,
     transport: ReviewModelTransport = "runner_local_responses",
     capacity128 = false,
+    frozenCapacity128 = capacity128,
   ): Promise<Fixture> {
     const prefix = `model-dispatch-test-${randomUUID()}`;
     const deadline = new Date(Date.now() + 600_000).toISOString();
@@ -391,7 +392,7 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
     };
     const budget: ReviewModelDispatchCapability = {
       ...limits,
-      ...(capacity128
+      ...(frozenCapacity128
         ? {
             capacityPolicy:
               reviewModelDispatchCapacity128Contract.capacityPolicy,
@@ -690,33 +691,13 @@ describeDatabase("durable V2 model dispatch with PostgreSQL", () => {
   it.each([false, true])(
     "denies mixed frozen/release capacity identity even when numeric limits fit both (capacity128=%s)",
     async (capacity128) => {
-      const f = await fixture(4, "runner_local_responses", capacity128);
-      const base = await f.acquireClaim(0);
-      const changed: unknown = JSON.parse(f.snapshot);
-      if (!changed || typeof changed !== "object" || Array.isArray(changed))
-        throw new Error("fixture");
-      const changedCapability: unknown = Reflect.get(
-        changed,
-        "modelDispatchCapability",
+      const f = await fixture(
+        4,
+        "runner_local_responses",
+        capacity128,
+        !capacity128,
       );
-      if (
-        !changedCapability ||
-        typeof changedCapability !== "object" ||
-        Array.isArray(changedCapability)
-      )
-        throw new Error("fixture");
-      if (capacity128)
-        Reflect.deleteProperty(changedCapability, "capacityPolicy");
-      else
-        Reflect.set(
-          changedCapability,
-          "capacityPolicy",
-          "model-dispatch-policy.capacity128.v1",
-        );
-      await f.prisma.reviewRunAuthorization.update({
-        where: { authorizationId: base.authorizationId },
-        data: { runtimeSnapshotCanonicalJson: canonicalJson(changed) },
-      });
+      const base = await f.acquireClaim(0);
       await expect(f.repository.claim(claim(base, f))).rejects.toMatchObject({
         code: "model_dispatch_profile_mismatch",
       });
