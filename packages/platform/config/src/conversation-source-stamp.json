@@ -1,9 +1,9 @@
 {
   "kind": "reviewrouter-conversation-source-stamp/v1",
   "sourceProfile": {
-    "commonPromptSourceDigest": "51e607df848aa1146c20267eb5b677dfba77d6dad6c0bebf7f5fc17e6e4bf689",
-    "gatewayPreviewSourceDigest": "20e3a73922054372a5b0140638754ae2c35016399987cc083f9a0f83a9182c52",
-    "accountPolicySourceDigest": "42c63a260979d645cf9931728c72b9bc6cfbdf0a2e3e328d2038daac4ae58392",
+    "commonPromptSourceDigest": "92853d5a574c0b37ff316e7c5e8aeacdf9386af855a171593b18e36eafddbbe1",
+    "gatewayPreviewSourceDigest": "f508e898d9e97ba7ad6371b912d3ae1d85e538f554e70378402c14ec18d9aec6",
+    "accountPolicySourceDigest": "e1fc1c786158c68a69a7eb7e6e7a010b76e7cd9197662bafd56c3d00e6f3b46f",
     "gatewaySdkProvenanceDigest": "d2a4394ecc1649f5b3837e5ec76407c2be38a98dcc941fc945bae324561a5eb3"
   }
 }

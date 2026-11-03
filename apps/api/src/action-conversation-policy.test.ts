@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { GatewayError } from "@agent-teams/account-gateway/http";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   PrismaProviderAccountRepository,
@@ -19,6 +20,7 @@ import {
   conversationCandidateMemoryPolicy,
   createConversationPublicationAuthority,
   type ConversationCapturedPolicy,
+  type ConversationCurrentnessFailure,
 } from "./action-conversation-policy.js";
 import * as conversationInference from "./action-conversation-inference.js";
 import { conversationCapabilityFixture } from "../../../packages/platform/config/src/tests/conversation-qualification-fixture.js";
@@ -331,6 +333,9 @@ function dynamicModelFixture(
     staticModel?: boolean;
     reasoningAllowed?: readonly ("low" | "medium" | "high")[] | null;
     catalogUnavailable?: boolean;
+    onCurrentnessFailure?: (
+      value: ConversationCurrentnessFailure,
+    ) => void | Promise<void>;
     configuredTokens?: number;
     profileOutputTokens?: number;
     sourceProcessingProfile?:
@@ -628,6 +633,9 @@ function dynamicModelFixture(
       }),
     },
     admitMemory: async () => true,
+    ...(options.onCurrentnessFailure
+      ? { onCurrentnessFailure: options.onCurrentnessFailure }
+      : {}),
     onCaptured: (value) => {
       captured = value;
     },
@@ -668,6 +676,9 @@ function dynamicModelFixture(
     },
     setCatalogUnavailable: () => {
       catalogUnavailable = true;
+    },
+    removeCatalogModel: () => {
+      catalog.models = [];
     },
     changeRemote: (change: Partial<typeof remote>) => {
       remote = { ...remote, ...change };
@@ -1123,7 +1134,13 @@ it.each([false, true])(
 );
 
 it("a static model captured without reasoning keeps its default when optional catalog disappears", async () => {
-  const f = dynamicModelFixture({ staticModel: true });
+  const failures: ConversationCurrentnessFailure[] = [];
+  const f = dynamicModelFixture({
+    staticModel: true,
+    onCurrentnessFailure: (value) => {
+      failures.push(value);
+    },
+  });
   const policy = await f.capture();
   const readsBefore = f.fetch.mock.calls.length;
   f.setCatalogUnavailable();
@@ -1139,4 +1156,146 @@ it("a static model captured without reasoning keeps its default when optional ca
       ),
   ).toBe(false);
   expect(policy.bindingManifest).not.toHaveProperty("reasoningEffort");
+  expect(failures).toEqual([]);
+});
+
+it.each([
+  {
+    change: "selection",
+    phase: "initial_selection",
+    reason: "selection_changed",
+    reads: 0,
+  },
+  { change: "account", phase: "account", reason: "account_changed", reads: 1 },
+  { change: "account-http", phase: "account", reason: "unavailable", reads: 1 },
+  {
+    change: "catalog-http",
+    phase: "catalog",
+    reason: "catalog_unavailable",
+    reads: 2,
+  },
+  {
+    change: "model",
+    phase: "catalog",
+    reason: "selected_model_missing",
+    reads: 2,
+  },
+  {
+    change: "medium",
+    phase: "catalog",
+    reason: "required_effort_unavailable",
+    reads: 2,
+  },
+] as const)(
+  "reports only the existing $change currentness denial without another metadata call",
+  async ({ change, phase, reason, reads }) => {
+    const failures: ConversationCurrentnessFailure[] = [];
+    const f = dynamicModelFixture({
+      reasoningAllowed: ["medium"],
+      onCurrentnessFailure: (value) => {
+        failures.push(value);
+      },
+    });
+    const policy = await f.capture();
+    const before = f.fetch.mock.calls.length;
+    if (change === "selection") f.setMemoryConfirmation(true);
+    if (change === "account") f.changeRemote({ ownerRef: "foreign-owner" });
+    if (change === "model") f.removeCatalogModel();
+    if (change === "medium") f.setReasoning(null);
+    if (change === "account-http" || change === "catalog-http") {
+      const original = f.fetch.getMockImplementation()!;
+      f.fetch.mockImplementation(async (target, init) =>
+        new URL(String(target)).pathname ===
+        (change === "account-http"
+          ? "/v1/accounts/account_probe"
+          : "/v1/account-models/read")
+          ? Response.json(
+              {
+                code: "upstream_failure",
+                traceRef: "never-log-this-trace",
+                effect: "not_dispatched",
+                retry: { kind: "never" },
+              },
+              { status: 503 },
+            )
+          : original(target, init),
+      );
+    }
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(false);
+    expect(f.fetch.mock.calls.length - before).toBe(reads);
+    expect(failures).toEqual([
+      {
+        processingId: "processing_probe",
+        phase,
+        reason,
+        ...(change.endsWith("-http")
+          ? { gatewayCode: "safe_error", httpStatus: 503 }
+          : {}),
+      },
+    ]);
+    expect(JSON.stringify(failures)).not.toContain("never-log-this-trace");
+  },
+);
+
+it.each([false, true])(
+  "a throwing currentness observer cannot change authority (async=%s)",
+  async (asynchronous) => {
+    const f = dynamicModelFixture({
+      onCurrentnessFailure: asynchronous
+        ? async () => {
+            throw new Error("observer-private-error");
+          }
+        : () => {
+            throw new Error("observer-private-error");
+          },
+    });
+    const policy = await f.capture();
+    const before = f.fetch.mock.calls.length;
+    f.setMemoryConfirmation(true);
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(false);
+    await Promise.resolve();
+    expect(f.fetch.mock.calls.length).toBe(before);
+  },
+);
+
+it("currentness diagnostics drop unknown error fields and invalid HTTP status", async () => {
+  const failures: ConversationCurrentnessFailure[] = [];
+  const f = dynamicModelFixture({
+    onCurrentnessFailure: (value) => {
+      failures.push(value);
+    },
+  });
+  const policy = await f.capture();
+  const error = new GatewayError(
+    "safe_error",
+    "effect_unknown",
+    undefined,
+    undefined,
+    {
+      code: "upstream_failure",
+      traceRef: "private-trace",
+      effect: "effect_unknown",
+      retry: { kind: "never" },
+    },
+    999.5,
+  );
+  error.message = "private-provider-body";
+  error.name = "private-error-name";
+  f.bindingReads.mockRejectedValueOnce(error);
+  expect(
+    await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(false);
+  expect(failures).toEqual([
+    {
+      processingId: "processing_probe",
+      phase: "initial_selection",
+      reason: "unavailable",
+      gatewayCode: "safe_error",
+    },
+  ]);
+  expect(JSON.stringify(failures)).not.toContain("private-");
 });
