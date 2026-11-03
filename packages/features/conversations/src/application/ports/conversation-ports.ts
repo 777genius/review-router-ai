@@ -9,6 +9,7 @@ import type {
   ConversationIdentity,
   ConversationRecord,
   ConversationSnapshot,
+  ConversationMessage,
   RequestControls,
 } from "../../domain/conversation.js";
 import type { TextInferencePort } from "./text-inference-port.js";
@@ -89,6 +90,14 @@ export type ConversationMemoryContext = {
 export type ConversationLearningPreparation = {
   readonly instructions: string;
   readonly observationsSchema: Readonly<Record<string, unknown>>;
+  /** Transient candidate evidence, not independent adoption authority or durable manifest content. */
+  readonly observationEvidence?: {
+    readonly selectedSourceId: string;
+    readonly candidates: readonly Pick<
+      ConversationMessage,
+      "id" | "actor" | "body" | "createdAt" | "updatedAt" | "replyTo"
+    >[];
+  };
   readonly manifest: Readonly<Record<string, unknown>>;
   isCurrent(controls: RequestControls): Promise<boolean>;
   complete(
