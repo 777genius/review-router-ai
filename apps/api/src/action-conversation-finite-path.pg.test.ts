@@ -578,6 +578,102 @@ describe.skipIf(!databaseUrl)(
       };
     }
 
+    it.each(["wrong_kind", "missing_action"])(
+      "one closed parent result learns independently of malformed decision: %s",
+      async (failure) => {
+        const facts = [
+          {
+            body: "A separately grounded fact.",
+            sourceQuote: "A current source fact.",
+          },
+        ];
+        const envelope = {
+          kind: failure === "wrong_kind" ? "invalid" : "silent",
+          answer: "",
+          ...(failure === "missing_action" ? {} : { action: null }),
+          observations: facts,
+        };
+        const f = await fixture({
+          sourceBody: "A current source fact.",
+          replies: false,
+          outputTokens: 8192,
+          policyOutputTokens: 8192,
+          modelText: JSON.stringify(envelope),
+        });
+        let consumed = 0;
+        f.memory.prepareLearning = async () => ({
+          instructions:
+            "Select independent observations from the current assertion.",
+          observationsSchema: { type: "array" },
+          manifest: { kind: "one-turn-test" },
+          isCurrent: async () => true,
+          complete: async (observations) => {
+            expect(observations).toEqual(facts);
+            consumed++;
+            return { status: "queued", effectIds: ["one-parent-effect"] };
+          },
+        });
+        try {
+          const request = { ...input, replyMode: "off" as const };
+          expect(await f.processor.execute(request, controls())).toMatchObject({
+            status: "silent",
+            learning: { status: "queued", effectIds: ["one-parent-effect"] },
+          });
+          expect(await f.processor.execute(request, controls())).toMatchObject({
+            status: "silent",
+          });
+          expect(consumed).toBe(1);
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+          expect(
+            f.calls.filter((call) => call.kind === "prepare"),
+          ).toHaveLength(1);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          expect(f.calls.filter((call) => call.kind === "close")).toHaveLength(
+            1,
+          );
+          expect(
+            f.calls.find((call) => call.kind === "request")?.body?.instructions,
+          ).toContain('"observations"');
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
+    it("a lost parent output cannot consume observations or buy a child request", async () => {
+      const f = await fixture({ loseOutput: true, replies: false });
+      let consumed = 0;
+      f.memory.prepareLearning = async () => ({
+        instructions: "Select observations.",
+        observationsSchema: { type: "array" },
+        manifest: { kind: "one-turn-test" },
+        isCurrent: async () => true,
+        complete: async () => {
+          consumed++;
+          return { status: "queued", effectIds: [] };
+        },
+      });
+      try {
+        expect(
+          (
+            await f.processor.execute(
+              { ...input, replyMode: "off" },
+              controls(),
+            )
+          ).status,
+        ).toBe("output_unavailable");
+        expect(consumed).toBe(0);
+        expect(f.counts().learned).toBe(0);
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          1,
+        );
+      } finally {
+        await f.app.close();
+      }
+    });
+
     it("reserves the frozen combined token budget before dispatch instead of assuming 2048", async () => {
       const sourceBody =
         "Which identifier convention is recorded for this source?";

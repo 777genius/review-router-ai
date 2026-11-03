@@ -12,7 +12,7 @@ import {
 } from "./corpus.js";
 import type { Witness } from "./fixture.js";
 import {
-  gatewayCandidateMechanism,
+  isGatewayCandidateMechanism,
   requireCandidateSourceProfile,
   type CandidateSourceProfile,
 } from "./configuration.js";
@@ -115,7 +115,7 @@ if (
   !Number.isFinite(Date.parse(review.reviewedAt))
 )
   throw new Error("eval_rubric_not_bound_to_observed_run");
-if (report.profile?.extractionMechanism === gatewayCandidateMechanism)
+if (isGatewayCandidateMechanism(report.profile?.extractionMechanism))
   requireCandidateSourceProfile(report.profile, review.candidateSourceProfile);
 const facts = new Map(corpus.facts.map((fact) => [fact.id, fact]));
 const threadSplits = new Map(
@@ -332,7 +332,7 @@ for (const variant of report.variants) {
       firstScope?.kind === "repository" ? firstScope.repositoryId : undefined;
     const syntheticCandidate =
       successor &&
-      report.profile?.extractionMechanism === gatewayCandidateMechanism;
+      isGatewayCandidateMechanism(report.profile?.extractionMechanism);
     const candidateNamespace = `eval_${createHash("sha256")
       .update(`${report.runId}:full-product:${scenario.scenario}`)
       .digest("hex")
@@ -365,10 +365,11 @@ for (const variant of report.variants) {
     for (const observation of scenario.observations) {
       const witness =
         "followup" in observation ? observation.followup : observation;
-      if (report.profile?.extractionMechanism === gatewayCandidateMechanism)
+      if (isGatewayCandidateMechanism(report.profile?.extractionMechanism))
         requireGatewayCandidateReceipt(
           witness,
           `${report.runId}:full-product:${scenario.scenario}`,
+          report.profile?.extractionMechanism,
         );
       if (
         witness.previewCalls > 1 ||
@@ -817,11 +818,11 @@ const final = {
     report.profile?.extractionMechanism ?? "historical-native-preview",
   productionActivated: false,
   qualificationIssued: false,
-  ...(report.profile?.extractionMechanism === gatewayCandidateMechanism
+  ...(isGatewayCandidateMechanism(report.profile?.extractionMechanism)
     ? {
         candidateSourceProfile: review.candidateSourceProfile,
         candidateModelBoundsDigest:
-          report.profile.candidateModelBoundsDigest ?? null,
+          report.profile?.candidateModelBoundsDigest ?? null,
         observedModels,
       }
     : {}),

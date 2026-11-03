@@ -274,6 +274,11 @@ export async function claimCheckedConversationPublication(
     return false;
   }
 }
+type ActionConversationMemoryPort = ConversationMemoryPort & {
+  admitSelection(
+    transaction: import("@prisma/client").Prisma.TransactionClient,
+  ): Promise<boolean>;
+};
 export function createConversationMemoryPort(input: {
   readonly runtime: MemoryKnowledgeRuntime;
   readonly scope: Extract<MemoryKnowledgeScope, { kind: "repository" }>;
@@ -303,9 +308,70 @@ export function createConversationMemoryPort(input: {
     receipt: import("@reviewrouter/features-memory").MemoryKnowledgeAdmissionReceipt,
     snapshot: ConversationSnapshot,
   ) => void;
-}): ConversationMemoryPort {
+}): ActionConversationMemoryPort {
   const { scope, sources, preview, managed } = input;
-  const memory: ConversationMemoryPort = {
+  let selectionAdmission:
+    | ((
+        transaction: import("@prisma/client").Prisma.TransactionClient,
+      ) => Promise<boolean>)
+    | undefined;
+  async function automaticSource(
+    snapshot: ConversationSnapshot,
+    processingId: string,
+    revision: string,
+  ) {
+    const selected = snapshot.messages.find(
+      (message) => message.id === snapshot.sourceId,
+    );
+    if (!selected || !snapshot.sourceMaintainer)
+      throw new ConversationError("unavailable");
+    const policy = await input.runtime.policy.getPolicy(scope);
+    const bound = managed(snapshot);
+    const checkedSource: MemoryAutomaticSourceCurrentPort = {
+      current: async (value, budget) =>
+        (await sources.isCurrent(snapshot, budget)) &&
+        sources.current(value, budget),
+    };
+    const extractor =
+      typeof preview === "function" ? preview(snapshot, processingId) : preview;
+    const learning = input.runtime.forAutomaticLearning(
+      bound.access,
+      checkedSource,
+      extractor,
+    );
+    return {
+      learning,
+      extractor,
+      request: {
+        processingId,
+        scope,
+        source: source(snapshot),
+        sourceActor: actor(snapshot),
+        policyRevision: revision,
+        threadId: snapshot.threadId,
+        threadDigest: snapshot.threadDigest,
+        headSha: snapshot.headSha,
+        selectableBody: selected.body,
+        readOnlyContext: renderConversation(snapshot),
+        contextEvidence: {
+          threadId: snapshot.threadId,
+          messages: snapshot.messages.map((message) => ({
+            id: message.id,
+            updatedAt: message.updatedAt,
+            bodyDigest: message.bodyDigest,
+            replyTo: message.replyTo,
+          })),
+        },
+        requireConfirmation: policy.requireConfirmation,
+        settingsRevision: policy.settingsRevision,
+      },
+    };
+  }
+  const memory: ActionConversationMemoryPort = {
+    admitSelection: (transaction) =>
+      selectionAdmission
+        ? selectionAdmission(transaction)
+        : Promise.resolve(true),
     async context(snapshot, controls) {
       // Retrieve for the current authored source, not a generic review topic or other authors' text.
       const selectedBody = snapshot.messages.find(
@@ -357,52 +423,23 @@ export function createConversationMemoryPort(input: {
             : context.admit(budget),
       };
     },
+    async prepareLearning(snapshot, processingId, revision, controls) {
+      const value = await automaticSource(snapshot, processingId, revision);
+      if (
+        !("prepareParent" in value.extractor) ||
+        typeof value.extractor.prepareParent !== "function"
+      )
+        return null;
+      if (selectionAdmission) throw new ConversationError("conflict");
+      const prepared = await (
+        value.extractor as import("./action-conversation-memory-preview.js").ConversationMemorySelector
+      ).prepareParent(await value.learning.prepare(value.request, controls));
+      selectionAdmission = prepared.admitDispatch;
+      return prepared;
+    },
     async learn(snapshot, processingId, revision, controls) {
-      const selected = snapshot.messages.find(
-        (message) => message.id === snapshot.sourceId,
-      );
-      if (!selected || !snapshot.sourceMaintainer)
-        return { status: "unavailable", effectIds: [] };
-      const policy = await input.runtime.policy.getPolicy(scope);
-      const bound = managed(snapshot);
-      const checkedSource: MemoryAutomaticSourceCurrentPort = {
-        current: async (value, budget) =>
-          (await sources.isCurrent(snapshot, budget)) &&
-          sources.current(value, budget),
-      };
-      const learning = input.runtime.forAutomaticLearning(
-        bound.access,
-        checkedSource,
-        typeof preview === "function"
-          ? preview(snapshot, processingId)
-          : preview,
-      );
-      const effect = await learning.learn(
-        {
-          processingId,
-          scope,
-          source: source(snapshot),
-          sourceActor: actor(snapshot),
-          policyRevision: revision,
-          threadId: snapshot.threadId,
-          threadDigest: snapshot.threadDigest,
-          headSha: snapshot.headSha,
-          selectableBody: selected.body,
-          readOnlyContext: renderConversation(snapshot),
-          contextEvidence: {
-            threadId: snapshot.threadId,
-            messages: snapshot.messages.map((message) => ({
-              id: message.id,
-              updatedAt: message.updatedAt,
-              bodyDigest: message.bodyDigest,
-              replyTo: message.replyTo,
-            })),
-          },
-          requireConfirmation: policy.requireConfirmation,
-          settingsRevision: policy.settingsRevision,
-        },
-        controls,
-      );
+      const value = await automaticSource(snapshot, processingId, revision);
+      const effect = await value.learning.learn(value.request, controls);
       return {
         status:
           effect.state === "active" && effect.entryIds.length === 0
@@ -860,7 +897,7 @@ export function createActionConversationComposition(input: {
               capturedPolicy = value;
             },
             admitMemory: async (transaction, now) =>
-              frozenContext
+              (await (frozenContext
                 ? frozenContext.receipt.scopes.every(
                     (section) => section.entries.length === 0,
                   ) ||
@@ -876,7 +913,7 @@ export function createActionConversationComposition(input: {
                       now,
                     },
                   )
-                : false,
+                : false)) && (await memory.admitSelection(transaction)),
           }),
         }),
         async verifyPublication(processingId, commentId, result) {

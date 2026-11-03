@@ -13,7 +13,7 @@ import {
 import {
   assertEvaluationNativeScope,
   evaluationMissingKeys,
-  gatewayCandidateMechanism,
+  gatewayOneTurnCandidateMechanism,
   readCandidateModels,
 } from "./configuration.js";
 
@@ -148,7 +148,7 @@ if (args.includes("--validate")) {
       connectionClass: "selected-review-account-gateway",
       productionActivated: false,
       extractionMechanism: variants.includes("full-product")
-        ? gatewayCandidateMechanism
+        ? gatewayOneTurnCandidateMechanism
         : "historical-native-preview",
       candidateModelBoundsDigest: process.env
         .CONVERSATION_EVAL_MODEL_BOUNDS_JSON

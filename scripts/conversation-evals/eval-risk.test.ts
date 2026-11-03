@@ -32,6 +32,7 @@ import type { PrismaClient } from "@prisma/client";
 import {
   assertEvaluationNativeScope,
   gatewayCandidateMechanism,
+  gatewayOneTurnCandidateMechanism,
   evaluationMissingKeys,
   readCandidateModels,
 } from "./configuration.js";
@@ -2630,5 +2631,63 @@ test("synthetic model decision observation preserves one dispatch, callback auth
       () => assert.fail("failed SDK result must not produce a trace"),
     ).generate(request, controls),
     (error) => error === unavailable,
+  );
+});
+
+test("one-turn candidate requires its real settled parent receipt and forbids a child receipt", () => {
+  const run = "fresh-run:full-product:scenario";
+  const receipt = {
+    processingId: "owned-parent",
+    observedModel: "selected-model",
+    usage: { inputTokens: 1, outputTokens: 1 },
+    requestEffect: "completed",
+    gatewayCleanup: "closed",
+    selectedAccountDigest: "a".repeat(64),
+    candidateRunId: run,
+  };
+  const witness = {
+    processingId: "owned-parent",
+    modelCalls: 1,
+    previewCalls: 0,
+    gatewayParentCleanupPending: false,
+    gatewayParentReceipt: receipt,
+    gatewayPreviewReceipt: null,
+  } as Witness;
+  assert.doesNotThrow(() =>
+    requireGatewayCandidateReceipt(
+      witness,
+      run,
+      gatewayOneTurnCandidateMechanism,
+    ),
+  );
+  for (const patch of [
+    { gatewayParentReceipt: null },
+    { gatewayParentReceipt: { ...receipt, processingId: "other-parent" } },
+    { gatewayParentReceipt: { ...receipt, candidateRunId: "other-run" } },
+    {
+      gatewayParentReceipt: {
+        ...receipt,
+        requestEffect: "response_started",
+        gatewayCleanup: "pending",
+      },
+    },
+    { gatewayParentReceipt: { ...receipt, gatewayCleanup: "pending" } },
+    { gatewayParentCleanupPending: true },
+    { previewCalls: 1 },
+    { gatewayPreviewReceipt: receipt },
+  ])
+    assert.throws(() =>
+      requireGatewayCandidateReceipt(
+        { ...witness, ...patch } as Witness,
+        run,
+        gatewayOneTurnCandidateMechanism,
+      ),
+    );
+  assert.doesNotThrow(() =>
+    requireGatewayCandidateReceipt(
+      { ...witness, modelCalls: 0, gatewayParentReceipt: null },
+      run,
+      gatewayOneTurnCandidateMechanism,
+    ),
   );
 });

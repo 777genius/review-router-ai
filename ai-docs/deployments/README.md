@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Memory source candidate: [One-turn source-fenced learning](2026-11-03-memory-one-turn-learning.md) — staging/production `pending`; one parent request, no new quality/deployment claim. Private227 published independently; installed fleet remains226/6e and Memory deployment is deferred.
+
 Gateway saturation follow-up: [terminal-run cleanup](2026-11-02-gateway-terminal-run-cleanup.md) — staging `pending`, production `in_progress`;226 API installed, A/B full coverage; payments PARTIAL 0/17, versioned dispatch fix/fresh acceptance pending.
 
 Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging `pending`, production `in_progress`;226 coherent rollout complete, A/B full coverage and Usage/Statistics accepted; payments PARTIAL 0/17, future fresh run pending.

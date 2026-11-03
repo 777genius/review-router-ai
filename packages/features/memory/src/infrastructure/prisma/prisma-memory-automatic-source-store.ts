@@ -10,6 +10,7 @@ import {
   type MemoryKnowledgeScope,
   type MemoryEntryRef,
 } from "../../domain/memory-knowledge";
+import { automaticMemorySelectionCursor } from "../../application/ports/memory-automatic-source-port";
 import type {
   MemoryAutomaticSourceStore,
   MemoryAutomaticSourceState,
@@ -71,6 +72,21 @@ export async function automaticMemorySourcePreviewFence(
   const state = await read(tx, key);
   return state?.suppressed ? null : memoryKnowledgeDigest(state);
 }
+/** One-turn selection fence: same locks and revocation cursor, excluding harmless delivery progress. */
+export async function automaticMemorySourceSelectionFence(
+  tx: Prisma.TransactionClient,
+  scope: MemoryKnowledgeScope,
+  sourceId: string,
+): Promise<string | null> {
+  const key = automaticMemoryLineageKey(scope, sourceId);
+  await lockExistingSourceScopes(tx, scope);
+  await sourceLock(tx, key);
+  const state = await read(tx, key);
+  return state?.suppressed
+    ? null
+    : memoryKnowledgeDigest(automaticMemorySelectionCursor(state));
+}
+
 async function write(
   tx: Database,
   state: MemoryAutomaticSourceState,
@@ -355,7 +371,13 @@ export async function reserveAutomaticMemorySource(
   const prior = await read(tx, key);
   const cohortId = automaticMemoryCohortId(input.input.processingId);
   if (prior?.suppressed || prior?.binding.cohortId === cohortId) return prior;
-  if ((prior?.binding.epoch ?? null) !== input.expectedPriorEpoch)
+  if (
+    (prior?.binding.epoch ?? null) !== input.expectedPriorEpoch ||
+    (input.expectedSourceAuthorityDigest !== undefined &&
+      (!/^[a-f0-9]{64}$/.test(input.expectedSourceAuthorityDigest) ||
+        memoryKnowledgeDigest(automaticMemorySelectionCursor(prior)) !==
+          input.expectedSourceAuthorityDigest))
+  )
     throw new MemoryKnowledgeError("conflict");
   const binding: MemoryAutomaticSourceBinding = {
     lineageKey: key,

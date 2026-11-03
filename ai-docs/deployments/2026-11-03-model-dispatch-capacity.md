@@ -62,9 +62,27 @@ and both native qualification workflows passed on the first attempt; its merge
 tree is identical to reviewed head `d4d3db4e400507df268186c9a3f54f7c23f7e651`.
 The rebuilt Action entrypoint SHA-256 is
 `ba9464453771959a18267e86892efcce279dbc3769f23a7359573382a99f1e1e`.
-The [official Action227 publication](https://github.com/777genius/review-router/actions/runs/41594020936) succeeded on 2026-11-03 at 07:14 UTC. Immutable `v1.0.227` and `v1` both resolve to `abff4814dccab046debd61f7f5e14f4524f54e5e`; the private CI pin selects that exact commit. These are source/artifact checks, not production acceptance. Private exact-head
-CI, paired publication, parser-first fleet delivery and the fresh live review
-remain separate required steps.
+The [official Action227 publication](https://github.com/777genius/review-router/actions/runs/41594020936) succeeded on 2026-11-03 at 07:14 UTC. Immutable `v1.0.227` and `v1` both resolve to `abff4814dccab046debd61f7f5e14f4524f54e5e`; the private CI pin selects that exact commit. These are source/artifact checks, not production acceptance. Private official227 publication subsequently completed as recorded below;
+parser-first fleet delivery, producer/channel adoption and the fresh live review
+remain required and are not established by publication.
+
+## Official private227 publication — not fleet deployment
+
+The [sanitized official publication evidence](evidence/2026-11-03-private-release227-publication.json)
+records successful private release `v1.0.227` at source
+`dbc161c9865f88e9cf60c8ad21b2814ecec8eec2`, published at
+**2026-11-03 11:26:42 UTC** by normal [release run41623082062](https://github.com/777genius/review-router-ai/actions/runs/41623082062), attempt1.
+Both private `v1.0.227` and `v1` resolve to that source. Artifact
+`13225782786` (`hosted-runtime-image-v1.0.227`) records image
+`sha256:89a28e11e9c3191b1160abd1fbdd12b1cdadcd3f820e75e52a3ea617f5a3947a`.
+
+This completes publication only. The actual fleet remains release226/source6e,
+with producer/workflow channel `fa3e87a`; parser-first fleet delivery, normal227
+producer materialization, stage2/channel adoption and fresh Payments acceptance
+remain pending. No independent runtime provenance-verifier PASS, image pull,
+native restart or database effect is claimed by this publication record.
+The newer one-turn Memory candidate is not included in227 and is not qualified;
+Memory deployment is deferred by the owner's latest instruction.
 
 ## Ordered rollout
 
@@ -102,4 +120,9 @@ Use the release guide's [target-build protocol preflight](../operations/07-envir
 | Time (UTC)   | Environment                      | Actual version                           | Observed result                                                                                                             | Next action                                                                         |
 | ------------ | -------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | 2026-11-03   | production baseline              | release226 / `6e6a0f0`, public `fa3e87a` | A/B verified; Payments partial0/17 after exactly32 Native COMPLETE /508,896 tokens; scope closed, cleanupDONE, no33 issued. | Qualify the separately named capacity128 pair.                                      |
-| Not executed | staging / production capacity128 | paired227 candidate; exact pins pending  | Source checks passed; target rollout and live acceptance remain pending. No live request is performed by this record.       | Parser-first qualification, owner-coordinated rollout, then full17-file acceptance. |
+| Not executed | staging / production capacity128 | official227 published; fleet remains226  | Source checks passed; target rollout and live acceptance remain pending. No live request is performed by this record.       | Parser-first qualification, owner-coordinated rollout, then full17-file acceptance. |
+
+2026-11-03 11:26:42 UTC: official private227 publication completed at `dbc161c98`
+(run41623082062/attempt1, image `89a28e11…`). Publication is separate from
+pending parser-first fleet and producer/channel adoption; no live review or
+Memory qualification is established by this entry.
