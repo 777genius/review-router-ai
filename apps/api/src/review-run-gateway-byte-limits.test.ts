@@ -21,6 +21,8 @@ import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
   lifecycleVerificationDescriptorDigestV2,
+  reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchHeaders,
   type ReviewCompanionDispatchContextV1,
 } from "@reviewrouter/shared";
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
@@ -31,7 +33,14 @@ import {
   createReviewRunGatewayTerminalGate,
   prepareReviewRunGatewayResponses,
   registerReviewRunGatewayRelayRoutes,
+  readReviewRunCompanionDispatchContext,
 } from "./review-run-gateway-relay";
+import {
+  createReviewRunHostedModelRoute,
+  registerReviewRunHostedModelRoute,
+  hostedModelRoutePath,
+  hostedModelGrantHeader,
+} from "./review-run-hosted-model-route";
 
 const MiB = 1024 * 1024;
 
@@ -116,6 +125,308 @@ const companionEnvelope = (model = "gpt-5.6-sol") =>
       max_output_tokens: 4096,
     }),
   );
+
+function modelForwardHeaders(ordinal: number) {
+  return {
+    authorization: "Bearer local-authorization-token",
+    "content-type": "application/json",
+    ...Object.fromEntries(
+      Object.entries(lifecycleVerificationContract.dispatchHeaders).map(
+        ([key, name]) => [
+          name,
+          String(companionContext[key as keyof typeof companionContext]),
+        ],
+      ),
+    ),
+    [reviewModelDispatchHeaders.dispatchVersion]: "2",
+    [reviewModelDispatchHeaders.requestOrdinal]: String(ordinal),
+    [reviewModelDispatchHeaders.routeIdentityHash]: "e".repeat(64),
+    // Caller-supplied policy metadata cannot select a capacity contract.
+    "x-reviewrouter-model-capacity-policy":
+      reviewModelDispatchCapacity128Contract.capacityPolicy,
+  };
+}
+
+const forwardingBounds = [
+  { capacity128: false, requests: 128, ordinal: 32, allowed: true },
+  { capacity128: false, requests: 128, ordinal: 33, allowed: false },
+  { capacity128: true, requests: 128, ordinal: 33, allowed: true },
+  { capacity128: true, requests: 128, ordinal: 100, allowed: true },
+  { capacity128: true, requests: 128, ordinal: 128, allowed: true },
+  { capacity128: true, requests: 128, ordinal: 129, allowed: false },
+  { capacity128: true, requests: 16, ordinal: 16, allowed: true },
+  { capacity128: true, requests: 16, ordinal: 17, allowed: false },
+];
+
+it.each(forwardingBounds)(
+  "HTTP native forwarding uses frozen capacity128=$capacity128 / clamp=$requests / ordinal=$ordinal",
+  async ({ capacity128, requests, ordinal, allowed }) => {
+    const state = companionReservation("finding_discovery");
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => {
+        const result = await state.admission.claim(...args);
+        if (result.status !== "restored")
+          throw new Error("reservation_required");
+        return { ...result, status: "claimed" as const };
+      },
+    );
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (response) => {
+        response.end(completedFrame);
+      },
+      {
+        admission: { ...state.admission, forward },
+        modelDispatchV2: true,
+        modelDispatchCapacity128: capacity128,
+      },
+      requests,
+    );
+    const app = Fastify();
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: ordinal,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const reserved = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...reserved.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: ordinal,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    await registerReviewRunGatewayRelayRoutes(app, f.relay);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${(app.server.address() as AddressInfo).port}/api/action/v2/account-gateway/responses`,
+        {
+          method: "POST",
+          headers: modelForwardHeaders(ordinal),
+          body: bytes,
+        },
+      );
+      const body = await response.text();
+      expect(response.status, body).toBe(allowed ? 200 : 400);
+      if (allowed) expect(body).toBe(completedFrame);
+      expect(f.intents).toHaveLength(allowed ? 1 : 0);
+      expect(f.admissions).toHaveLength(allowed ? 1 : 0);
+      expect(forward).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      expect(f.requestRefs).toEqual(
+        allowed ? ["stored-companion-native-ref"] : [],
+      );
+      if (!allowed)
+        expect(JSON.parse(body)).toMatchObject({
+          error: {
+            code: "model_dispatch_headers_invalid",
+            effect: "not_dispatched",
+          },
+        });
+    } finally {
+      await app.close();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it.each([
+  { capacity128: false, requests: 128, ordinal: 33 },
+  { capacity128: true, requests: 128, ordinal: 129 },
+  { capacity128: true, requests: 16, ordinal: 17 },
+])(
+  "direct forwarding rejects out-of-bound ordinal before prepare ($ordinal / $requests / $capacity128)",
+  async ({ capacity128, requests, ordinal }) => {
+    const state = companionReservation();
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      {
+        admission: { ...state.admission, forward: state.admission.claim },
+        modelDispatchV2: true,
+        modelDispatchCapacity128: capacity128,
+      },
+      requests,
+    );
+    try {
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          {
+            ...companionContext,
+            dispatchVersion: 2,
+            requestOrdinal: ordinal,
+            routeIdentityHash: "e".repeat(64),
+          },
+        ),
+      ).rejects.toMatchObject({ code: "model_dispatch_headers_invalid" });
+      expect(f.intents).toHaveLength(0);
+      expect(f.admissions).toHaveLength(0);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("retains the exported parser's default32 and rejects unknown frozen capacity before native prepare", async () => {
+  const request = { headers: modelForwardHeaders(33) } as Parameters<
+    typeof readReviewRunCompanionDispatchContext
+  >[0];
+  expect(() => readReviewRunCompanionDispatchContext(request)).toThrow(
+    "model_dispatch_headers_invalid",
+  );
+  const state = companionReservation();
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: { ...state.admission, forward: state.admission.claim },
+    modelDispatchV2: true,
+    modelDispatchCapacity128: true,
+  });
+  const snapshot = JSON.parse(f.authorization().runtimeSnapshotCanonicalJson);
+  snapshot.modelDispatchCapability.capacityPolicy =
+    "unapproved-capacity-policy";
+  f.overrides.set("authorization-1", {
+    runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+  });
+  const app = Fastify();
+  await registerReviewRunGatewayRelayRoutes(app, f.relay);
+  try {
+    const result = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/account-gateway/responses",
+      headers: modelForwardHeaders(33),
+      payload: companionEnvelope(),
+    });
+    expect(result.statusCode).toBe(502);
+    expect(f.intents).toHaveLength(0);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
+    await app.close();
+    await f.relay.shutdown();
+  }
+});
+
+it.each(forwardingBounds)(
+  "Hosted HTTP parses frozen capacity before grant admission ($capacity128 / $requests / $ordinal)",
+  async ({ capacity128, requests, ordinal, allowed }) => {
+    const state = companionReservation();
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      {
+        admission: state.admission,
+        modelDispatchV2: true,
+        modelDispatchCapacity128: capacity128,
+      },
+      requests,
+    );
+    const snapshot = JSON.parse(f.authorization().runtimeSnapshotCanonicalJson);
+    delete snapshot.lifecycleVerificationCapability;
+    snapshot.gateway = null;
+    snapshot.agent.modelTransports = ["provider_api"];
+    snapshot.modelDispatchCapability.transport = "hosted_pool";
+    snapshot.modelDispatchCapability.wireProtocol = "codex-responses";
+    snapshot.configurationCanonicalJson = canonicalJson(
+      parseReviewConfigurationStrict({
+        ...workspacePolicyFixture,
+        providers: [
+          {
+            ...workspacePolicyFixture.providers[0],
+            authMode: "codex_subscription_oauth_hosted_pool",
+            model: "gpt-5.6-sol",
+          },
+        ],
+      }),
+    );
+    snapshot.hosted = {
+      grantId: "grant-1",
+      invocationId: "invocation-1",
+      poolId: "pool-1",
+      repositoryBindingId: "binding-1",
+      activeAccountId: "account-1",
+      reviewRequestId: "request-1",
+      providerInvocationKey: "a".repeat(64),
+      policyFingerprint: "b".repeat(64),
+      model: "gpt-5.6-sol",
+      expiresAt: new Date(Date.parse(snapshot.deadline) + 120000).toISOString(),
+      bindingRevision: 1,
+      runtimeConfigVersion: 1,
+      authzEpoch: "1",
+      runtimeAuthzEpoch: "1",
+    };
+    f.overrides.set("authorization-1", {
+      runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+    });
+    const authority = vi.fn(async () => false);
+    const native = vi.fn(async () => {
+      throw new Error("unexpected_native_grant");
+    });
+    const route = createReviewRunHostedModelRoute({
+      prisma: {} as never,
+      api: {
+        authorizations: f.authorizations,
+        checkAuthority: authority,
+        admission: state.admission,
+        reconcileNativeProof: async () => "completed",
+      } as never,
+      native: {
+        authorization: { authorize: native },
+        relay: { open: native },
+      } as never,
+    });
+    const app = Fastify();
+    await registerReviewRunHostedModelRoute(app, route);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${(app.server.address() as AddressInfo).port}${hostedModelRoutePath}`,
+        {
+          method: "POST",
+          headers: {
+            ...modelForwardHeaders(ordinal),
+            [hostedModelGrantHeader]: "synthetic-hosted-grant",
+          },
+          body: companionEnvelope(),
+        },
+      );
+      const body = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(allowed ? 409 : 400);
+      expect(body).toMatchObject({
+        error: {
+          code: allowed
+            ? "hosted_model_authority_changed"
+            : "model_dispatch_headers_invalid",
+          effect: "not_dispatched",
+        },
+      });
+      expect(authority).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      expect(native).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+      await f.relay.shutdown();
+    }
+  },
+);
 
 it("requires the durable V2 forward for discovery while preserving native tools and its output cap", async () => {
   const state = companionReservation("finding_discovery");
@@ -815,6 +1126,7 @@ async function fixture(
     refusalStatus?: number;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
+    modelDispatchCapacity128?: boolean;
   },
   capturedRequests = 128,
   selection: {
@@ -892,6 +1204,12 @@ async function fixture(
     ...(companionOptions?.modelDispatchV2
       ? {
           modelDispatchCapability: {
+            ...(companionOptions.modelDispatchCapacity128
+              ? {
+                  capacityPolicy:
+                    reviewModelDispatchCapacity128Contract.capacityPolicy,
+                }
+              : {}),
             extensionId: "review-model-dispatch.v2",
             version: 2,
             transport: "account_gateway",
@@ -901,7 +1219,10 @@ async function fixture(
             providerIndex: 0,
             model: selection.model,
             deadline,
-            maxRequests: Math.min(32, capturedRequests),
+            maxRequests: Math.min(
+              companionOptions.modelDispatchCapacity128 ? 128 : 32,
+              capturedRequests,
+            ),
             maxConcurrentRequests: 1,
             maxRequestBytes: 4096,
             maxResponseBytes: outputBytes,

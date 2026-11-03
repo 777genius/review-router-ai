@@ -40,6 +40,8 @@ import {
   prDescriptionContract,
   reviewModelDispatchContract,
   reviewModelDispatchHeaders,
+  parseReviewModelDispatchCapability,
+  type ReviewModelDispatchCapability,
 } from "@reviewrouter/shared";
 
 // Selected production provider path: ReviewRouter -> Account Gateway -> Sub2API.
@@ -1008,7 +1010,13 @@ export function createReviewRunGatewayRelay(input: {
     raw: Uint8Array,
     controller: AbortController,
     diagnostic?: RelayDiagnostic,
-    companion?: Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1],
+    companionSource?:
+      | Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1]
+      | ((
+          capability: ReviewModelDispatchCapability | undefined,
+        ) =>
+          | Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1]
+          | undefined),
     reviewerId?: string,
   ): Promise<
     NativeResponse & {
@@ -1045,10 +1053,18 @@ export function createReviewRunGatewayRelay(input: {
       if (controller.signal.aborted)
         throw new RelayFailure("authorization_denied", 401);
       const lane = selected(auth, reviewerId);
+      const { snapshot, gateway } = lane;
+      // Parent headers are untrusted until the existing authority read selects
+      // the frozen route. Reject out-of-budget contexts before native prepare.
+      const companion = validateReviewRunCompanionDispatchContext(
+        typeof companionSource === "function"
+          ? companionSource(snapshot.modelDispatchCapability)
+          : companionSource,
+        snapshot.modelDispatchCapability,
+      );
       const session = await sessionFor(auth, reviewerId);
       if (controller.signal.aborted)
         throw new RelayFailure("authorization_denied", 401);
-      const { snapshot, gateway } = lane;
       if (
         companion &&
         snapshot.snapshotVersion === 4 &&
@@ -1738,6 +1754,7 @@ function companionReadback(dispatch: ReviewRunCompanionDispatch) {
  * parent-only facts and cannot turn ordinary traffic into companion evidence. */
 function companionContext(
   request: FastifyRequest,
+  capability?: ReviewModelDispatchCapability,
 ): Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1] | undefined {
   const names = lifecycleVerificationContract.dispatchHeaders;
   const modelVersion =
@@ -1780,23 +1797,54 @@ function companionContext(
     hasModel &&
     (modelVersion !== "2" ||
       typeof modelOrdinal !== "string" ||
-      !/^[1-9][0-9]?$/.test(modelOrdinal) ||
-      Number(modelOrdinal) > reviewModelDispatchContract.maxRequests ||
+      !/^[1-9][0-9]{0,2}$/.test(modelOrdinal) ||
       typeof modelRoute !== "string" ||
       !/^[a-f0-9]{64}$/.test(modelRoute))
   )
     throw new RelayFailure("model_dispatch_headers_invalid", 400);
-  return {
-    ...values,
-    attemptOrdinal: 1,
-    ...(hasModel
-      ? {
-          dispatchVersion: 2,
-          requestOrdinal: Number(modelOrdinal),
-          routeIdentityHash: modelRoute as string,
-        }
-      : {}),
-  } as Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1];
+  return validateReviewRunCompanionDispatchContext(
+    {
+      ...values,
+      attemptOrdinal: 1,
+      ...(hasModel
+        ? {
+            dispatchVersion: 2,
+            requestOrdinal: Number(modelOrdinal),
+            routeIdentityHash: modelRoute as string,
+          }
+        : {}),
+    } as Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1],
+    capability,
+  );
+}
+/** Direct callers and HTTP headers share the authenticated frozen bound. The
+ * absent-capability path retains the exported parser's legacy 32 semantics. */
+export function validateReviewRunCompanionDispatchContext(
+  context:
+    | Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1]
+    | undefined,
+  capability?: ReviewModelDispatchCapability,
+) {
+  if (context?.dispatchVersion !== 2) return context;
+  let maximum: number = reviewModelDispatchContract.maxRequests;
+  if (capability) {
+    let parsed: ReviewModelDispatchCapability;
+    try {
+      parsed = parseReviewModelDispatchCapability(capability);
+    } catch {
+      throw new RelayFailure("model_dispatch_headers_invalid", 400);
+    }
+    maximum = parsed.maxRequests;
+    if (context.routeIdentityHash !== parsed.routeIdentityHash)
+      throw new RelayFailure("model_dispatch_headers_invalid", 400);
+  }
+  if (
+    !Number.isInteger(context.requestOrdinal) ||
+    context.requestOrdinal! < 1 ||
+    context.requestOrdinal! > maximum
+  )
+    throw new RelayFailure("model_dispatch_headers_invalid", 400);
+  return context;
 }
 export { companionContext as readReviewRunCompanionDispatchContext };
 export type ReviewRunGatewayRelay = ReturnType<
@@ -1915,7 +1963,7 @@ export async function registerReviewRunGatewayRelayRoutes(
             request.body,
             controller,
             diagnostic,
-            companionContext(request),
+            (capability) => companionContext(request, capability),
             reviewerSelector(request),
           );
           if (upstream.kind === "status")

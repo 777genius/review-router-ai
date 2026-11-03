@@ -10,9 +10,15 @@ import {
   ReviewRunAuthorizationTokenResolutionStatus,
   type ReviewRunCompanionDispatchAdmission,
 } from "@reviewrouter/features-review-run-control";
-import { reviewModelDispatchContract } from "@reviewrouter/shared";
+import {
+  reviewModelDispatchContract,
+  type ReviewModelDispatchCapability,
+} from "@reviewrouter/shared";
 import type { ReviewModelDispatchApi } from "./review-model-dispatch";
-import { readReviewRunCompanionDispatchContext } from "./review-run-gateway-relay";
+import {
+  readReviewRunCompanionDispatchContext,
+  validateReviewRunCompanionDispatchContext,
+} from "./review-run-gateway-relay";
 import { confirmOriginalHostedReviewBinding } from "./review-run-hosted-binding";
 
 export const hostedModelRoutePath =
@@ -49,7 +55,13 @@ export function createReviewRunHostedModelRoute(input: {
     async responses(request: {
       token: string;
       opaqueGrant: string;
-      context: Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1];
+      context:
+        | Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1]
+        | ((
+            capability: ReviewModelDispatchCapability,
+          ) =>
+            | Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1]
+            | undefined);
       body: Buffer;
       controller: AbortController;
     }) {
@@ -71,14 +83,30 @@ export function createReviewRunHostedModelRoute(input: {
         !hosted ||
         cap.transport !== "hosted_pool" ||
         cap.wireProtocol !== "codex-responses" ||
-        request.context.dispatchVersion !== 2 ||
-        request.context.routeIdentityHash !== cap.routeIdentityHash ||
         !input.api.reconcileNativeProof
       )
         throw new HostedModelRouteFailure(
           "hosted_model_route_unavailable",
           403,
         );
+      let context:
+        | Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1]
+        | undefined;
+      try {
+        context = validateReviewRunCompanionDispatchContext(
+          typeof request.context === "function"
+            ? request.context(cap)
+            : request.context,
+          cap,
+        );
+      } catch {
+        throw new HostedModelRouteFailure(
+          "model_dispatch_headers_invalid",
+          400,
+        );
+      }
+      if (!context || context.dispatchVersion !== 2)
+        throw new HostedModelRouteFailure("model_dispatch_claim_required", 403);
       const configuration = parseReviewConfigurationStrict(
         JSON.parse(snapshot.configurationCanonicalJson),
       );
@@ -112,7 +140,7 @@ export function createReviewRunHostedModelRoute(input: {
         throw new HostedModelRouteFailure("hosted_model_grant_denied", 401);
       const reserved = await input.api.admission.read(
         authorization.authorizationId,
-        request.context.dispatchId,
+        context.dispatchId,
       );
       if (
         !reserved ||
@@ -146,7 +174,7 @@ export function createReviewRunHostedModelRoute(input: {
         const claim = await input.api.admission.forward(
           authorization,
           {
-            ...request.context,
+            ...context,
             requestBytes: request.body.byteLength,
             maxOutputTokens: reserved.maxOutputTokens,
           },
@@ -344,24 +372,11 @@ export async function registerReviewRunHostedModelRoute(
             !Buffer.isBuffer(request.body)
           )
             throw new HostedModelRouteFailure("invalid_request", 400);
-          let context: ReturnType<typeof readReviewRunCompanionDispatchContext>;
-          try {
-            context = readReviewRunCompanionDispatchContext(request);
-          } catch {
-            throw new HostedModelRouteFailure(
-              "model_dispatch_headers_invalid",
-              400,
-            );
-          }
-          if (!context || context.dispatchVersion !== 2)
-            throw new HostedModelRouteFailure(
-              "model_dispatch_claim_required",
-              403,
-            );
           const result = await route.responses({
             token: token.slice(7),
             opaqueGrant,
-            context,
+            context: (capability) =>
+              readReviewRunCompanionDispatchContext(request, capability),
             body: request.body,
             controller: reservation.controller,
           });
