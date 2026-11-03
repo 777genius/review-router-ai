@@ -4,6 +4,15 @@ import {
   type ConversationSnapshot,
 } from "./conversation.js";
 
+export const conversationEntryIdPattern = /^(?:mem|auto)_[A-Za-z0-9_-]{1,120}$/;
+export const conversationRevisionPattern = /^[1-9]\d{0,9}$/;
+const normalizeCommand = (value: string) =>
+  value.replaceAll("\r\n", "\n").trim();
+const fullMatch = (pattern: RegExp, value: string) =>
+  pattern.exec(value)?.[0] === value;
+const commandBody = (value: string) =>
+  value.length > 0 && value.length <= 1000 && value.trim().length > 0;
+
 /** An exact authored decision, not a classifier of natural language or semantic evidence. */
 export function conversationActionConfirmation(
   action: ConversationAction,
@@ -38,6 +47,84 @@ export function conversationActionConfirmation(
   }
 }
 
+/** Inverse of the existing authored forms, never a natural-language intent classifier. */
+export function parseConversationActionCommand(
+  body: string,
+): ConversationAction | null {
+  const command = normalizeCommand(body);
+  const target = (value: string) => {
+    const parts = value.split("@");
+    if (
+      parts.length !== 2 ||
+      !fullMatch(conversationEntryIdPattern, parts[0]!) ||
+      !fullMatch(conversationRevisionPattern, parts[1]!)
+    )
+      return null;
+    return { entryId: parts[0]!, expectedRevision: parts[1]! };
+  };
+  const roundTrip = (action: ConversationAction): ConversationAction | null =>
+    (["en", "ru"] as const).some(
+      (language) =>
+        normalizeCommand(conversationActionConfirmation(action, language)) ===
+        command,
+    )
+      ? action
+      : null;
+  for (const [prefix, knowledgeKind] of [
+    ["Remember rule: ", "rule"],
+    ["Remember observation: ", "observation"],
+    ["Запомни правило: ", "rule"],
+    ["Запомни наблюдение: ", "observation"],
+  ] as const) {
+    if (!command.startsWith(prefix)) continue;
+    const payload = command.slice(prefix.length);
+    return commandBody(payload)
+      ? roundTrip({ kind: "create", knowledgeKind, body: payload })
+      : null;
+  }
+  for (const prefix of ["Remember exception to ", "Запомни исключение для "]) {
+    if (!command.startsWith(prefix)) continue;
+    const rest = command.slice(prefix.length),
+      separator = rest.indexOf(": ");
+    if (separator < 0) return null;
+    const exceptionRuleId = rest.slice(0, separator),
+      payload = rest.slice(separator + 2);
+    return fullMatch(conversationEntryIdPattern, exceptionRuleId) &&
+      commandBody(payload)
+      ? roundTrip({
+          kind: "create",
+          knowledgeKind: "exception",
+          exceptionRuleId,
+          body: payload,
+        })
+      : null;
+  }
+  for (const prefix of ["Update ", "Обнови "]) {
+    if (!command.startsWith(prefix)) continue;
+    const rest = command.slice(prefix.length),
+      separator = rest.indexOf(": ");
+    if (separator < 0) return null;
+    const ref = target(rest.slice(0, separator)),
+      payload = rest.slice(separator + 2);
+    return ref && commandBody(payload)
+      ? roundTrip({ kind: "update", ...ref, body: payload })
+      : null;
+  }
+  for (const [prefix, kind] of [
+    ["Stop using ", "retire"],
+    ["Не используй ", "retire"],
+    ["Forget ", "forget"],
+    ["Забудь ", "forget"],
+    ["Allow learning again for ", "relearn"],
+    ["Разреши повторное обучение ", "relearn"],
+  ] as const) {
+    if (!command.startsWith(prefix)) continue;
+    const ref = target(command.slice(prefix.length));
+    return ref ? roundTrip({ kind, ...ref }) : null;
+  }
+  return null;
+}
+
 /** Verifies the current human actor and, when requested, their exact authored command. */
 export function sourceAuthorizesConversationAction(
   snapshot: ConversationSnapshot,
@@ -59,15 +146,15 @@ export function sourceAuthorizesConversationAction(
     conversationDigest(source.body) !== source.bodyDigest
   )
     return false;
-  // Automatic mode delegates intent recognition to the checked conversation model.
-  // Server-verified author/source identity above remains mandatory in both modes.
-  if (!requireConfirmation) return true;
-  // EOL/outer-space normalization does not rewrite text, target, revision or kind.
-  const normalize = (value: string) => value.replaceAll("\r\n", "\n").trim();
+  const canonical = parseConversationActionCommand(source.body);
+  // Noncanonical contextual intent keeps the existing checked-model delegation.
+  // An exact authored command binds every field even when confirmation is off.
+  if (!requireConfirmation && !canonical) return true;
+  if (!canonical) return false;
   return (["en", "ru"] as const).some(
     (language) =>
-      normalize(source.body) ===
-      normalize(conversationActionConfirmation(action, language)),
+      normalizeCommand(source.body) ===
+      normalizeCommand(conversationActionConfirmation(action, language)),
   );
 }
 

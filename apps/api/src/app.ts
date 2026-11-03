@@ -179,6 +179,11 @@ import {
 } from "./action-memory-routes.js";
 import { registerReviewV2RequestCommandRoutes } from "./review-v2-request-command-routes.js";
 import { registerOperatorReviewConfigRoutes } from "./operator-review-config-routes.js";
+import {
+  registerWorkflowProvisioningOperatorRoutes,
+  type WorkflowProvisioningOperatorDependencies,
+} from "./workflow-provisioning-operator-routes.js";
+import { createWorkflowProvisioningOperatorComposition } from "./workflow-provisioning-operator-composition.js";
 import { PrismaReviewConfigurationOperatorMutation } from "./prisma-review-configuration-operator-mutation.js";
 import { ReviewConfigurationOperatorAudit } from "./review-configuration-operator-audit.js";
 import { ReviewConfigurationOperatorRateLimit } from "./review-configuration-operator-rate-limit.js";
@@ -244,6 +249,7 @@ export type CreateApiAppOptions = {
   readonly actionMemoryV2Dependencies?: ActionMemoryV2Dependencies;
   readonly actionConversationDependencies?: ActionConversationDependencies;
   readonly operatorReviewConfigDependencies?: OperatorReviewConfigurationDependencies;
+  readonly workflowProvisioningOperatorDependencies?: WorkflowProvisioningOperatorDependencies;
   readonly reviewInvestigationOperatorDependencies?: RegisterReviewInvestigationOperatorRoutesDependencies;
   readonly reviewInvestigationTelemetrySamples?: ReviewInvestigationTerminalTelemetrySamplePort;
   readonly actionSessionSecret?: string;
@@ -529,6 +535,21 @@ export async function createApiApp(
       : undefined);
   if (hostedPoolOperatorDependencies)
     await registerHostedPoolOperatorRoutes(app, hostedPoolOperatorDependencies);
+
+  const workflowProvisioningOperatorDependencies =
+    options.workflowProvisioningOperatorDependencies ??
+    (prisma && operatorCredentialSha256
+      ? createWorkflowProvisioningOperatorComposition({
+          prisma,
+          env: reviewActionV2Env,
+          credentialSha256: operatorCredentialSha256,
+        })
+      : undefined);
+  if (workflowProvisioningOperatorDependencies)
+    await registerWorkflowProvisioningOperatorRoutes(
+      app,
+      workflowProvisioningOperatorDependencies,
+    );
 
   const operatorReviewConfigDependencies =
     options.operatorReviewConfigDependencies ??

@@ -320,6 +320,17 @@ if (args.includes("--validate")) {
       const variantResult = { variant, status: "UNAVAILABLE", scenarios };
       report.variants.push(variantResult);
       let gatewayCleanupUnsettled = false;
+      // A full-product event may make one extraction and one reply call.
+      // Keep :free evaluation bursts below OpenRouter's documented 20 RPM;
+      // pacing precedes product deadlines and does not retry any attempt.
+      const eventIntervalMs = candidateModels?.some(
+        (model) =>
+          model.profileId === "openrouter-openai-responses-apikey-v1" &&
+          model.model.endsWith(":free"),
+      )
+        ? 7000
+        : 0;
+      let nextEventAt = 0;
       for (const [scenario, scenarioThreads] of grouped) {
         phase = "fixture_creation";
         const fixture = await createEvaluationFixture({
@@ -357,6 +368,9 @@ if (args.includes("--validate")) {
         });
         for (const thread of scenarioThreads) {
           for (const event of thread.events) {
+            const waitMs = Math.max(0, nextEventAt - Date.now());
+            if (waitMs) await new Promise((done) => setTimeout(done, waitMs));
+            nextEventAt = Date.now() + eventIntervalMs;
             phase = "event_execution";
             if (variant === "native-selection-only")
               observations.push({

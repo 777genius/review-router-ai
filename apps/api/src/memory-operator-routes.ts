@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   MemoryKnowledgeError,
   memoryCleanupAuthorityMatches,
+  memoryNativeStartupBindingDigest,
   type MemoryKnowledgeEntryMetadata,
 } from "@reviewrouter/features-memory";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
@@ -19,6 +20,13 @@ const pauseInput = z
   .object({
     paused: z.boolean(),
     expectedEpoch: z.string().regex(/^(0|[1-9][0-9]*)$/),
+  })
+  .strict();
+const startupInput = z
+  .object({
+    attemptId: z.uuid(),
+    expectedEpoch: z.string().regex(/^(0|[1-9][0-9]*)$/),
+    bindingDigest: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict();
 
@@ -125,6 +133,56 @@ export async function registerMemoryOperatorRoutes(
           .send({ code: `memory_${code}` });
       }
     };
+  app.get(
+    "/api/internal/memory/startup",
+    { logLevel: "silent" },
+    guarded(async () => {
+      const binding = dependencies.runtime.nativeStartupBinding;
+      if (!binding) throw new MemoryKnowledgeError("disabled");
+      const time = now();
+      const bindingDigest = memoryNativeStartupBindingDigest(binding);
+      return {
+        binding,
+        bindingDigest,
+        ...(await dependencies.runtime.store.nativeStartupState({
+          generation: binding.generation,
+          bindingDigest,
+          now: time,
+          deadlineAt: new Date(time.getTime() + 30_000),
+        })),
+      };
+    }),
+  );
+  for (const phase of ["begin", "finish", "abort"] as const)
+    app.post(
+      `/api/internal/memory/startup/${phase}`,
+      { logLevel: "silent", bodyLimit: 1_024 },
+      guarded(async (request) => {
+        const input = startupInput.parse(request.body);
+        const binding = dependencies.runtime.nativeStartupBinding;
+        if (!binding) throw new MemoryKnowledgeError("disabled");
+        const bindingDigest = memoryNativeStartupBindingDigest(binding);
+        if (
+          input.bindingDigest !== bindingDigest ||
+          binding.generation !== dependencies.runtime.generation
+        )
+          throw new MemoryKnowledgeError("conflict");
+        const time = now();
+        const change = {
+          ...input,
+          generation: binding.generation,
+          now: time,
+          deadlineAt: new Date(time.getTime() + 30_000),
+        };
+        const state =
+          phase === "begin"
+            ? await dependencies.runtime.store.beginNativeStartup(change)
+            : phase === "finish"
+              ? await dependencies.runtime.store.finishNativeStartup(change)
+              : await dependencies.runtime.store.abortNativeStartup(change);
+        return { binding, bindingDigest, ...state };
+      }),
+    );
   app.get(
     "/api/internal/memory/maintenance",
     { logLevel: "silent" },

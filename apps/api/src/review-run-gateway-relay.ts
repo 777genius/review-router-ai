@@ -187,6 +187,11 @@ type Session = {
 export function createReviewRunGatewayRelay(input: {
   readonly policy: ReviewRunGatewayRelayPolicy;
   readonly runAccess: RunAccessConfig;
+  /** Authenticated SCM observation only; never proof of absent model effects. */
+  readonly isSourceRunTerminal?: (
+    authorization: ReviewRunAuthorization,
+    options: { readonly signal: AbortSignal },
+  ) => Promise<boolean>;
   readonly readPreparationOperation?: (
     operationId: string,
     options: import("@agent-teams/account-gateway/http").CallOptions,
@@ -266,9 +271,26 @@ export function createReviewRunGatewayRelay(input: {
   let stopping = false;
   let capacityCleanup: Promise<void> | undefined;
   let cleanupCursor = sessions.entries();
+  function saturated(reason: "in_flight" | "sessions" | "close_authority") {
+    try {
+      console.warn("review_run_gateway_relay_saturated", {
+        reason,
+        retainedSessions: sessions.size,
+        inFlight,
+        cleanupInFlight,
+        closeAuthorityInFlight,
+        maxSessions: policy.maxSessions,
+        maxInFlight: policy.maxInFlight,
+        stopping,
+      });
+    } catch {
+      // Observation cannot change admission or release retained custody.
+    }
+    return new RelayFailure("relay_saturated", 503);
+  }
   function reserve() {
     if (stopping || inFlight >= policy.maxInFlight)
-      throw new RelayFailure("relay_saturated", 503);
+      throw saturated("in_flight");
     inFlight++;
     let finished = false;
     return () => {
@@ -463,12 +485,35 @@ export function createReviewRunGatewayRelay(input: {
             row.runtimeSnapshotCanonicalJson !== session.canonical ||
             canonicalJson(reviewRunGatewayOwnedIdentity(row)) !==
               session.identity ||
-            row.maxExpiresAt.getTime() !== session.deadline ||
-            (row.state !== ReviewRunAuthorizationState.Revoked &&
-              row.state !== ReviewRunAuthorizationState.Expired &&
-              Date.now() < session.deadline)
+            row.maxExpiresAt.getTime() !== session.deadline
           )
             continue;
+          if (
+            row.state === ReviewRunAuthorizationState.Active &&
+            Date.now() < session.deadline
+          ) {
+            if (!input.isSourceRunTerminal || Date.now() >= deadline) continue;
+            const terminal = await input.isSourceRunTerminal(row, {
+              signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+            });
+            if (!terminal) continue;
+            // A failed workflow can leave paid/unknown native work behind. The
+            // existing deny-first close below must settle that exact capability;
+            // SCM completion alone must never free a slot or retry inference.
+            const current =
+              await input.queries.findReviewRunAuthorizationById(
+                authorizationId,
+              );
+            if (
+              !current ||
+              current.authorizationId !== authorizationId ||
+              current.runtimeSnapshotCanonicalJson !== session.canonical ||
+              canonicalJson(reviewRunGatewayOwnedIdentity(current)) !==
+                session.identity ||
+              current.maxExpiresAt.getTime() !== session.deadline
+            )
+              continue;
+          }
           // Keep durable deny-first and the exact retained-capability close.
           // Unknown attempted prepares/closes never release a memory slot.
           if (
@@ -558,7 +603,7 @@ export function createReviewRunGatewayRelay(input: {
     session = existing();
     if (session) return session;
     if ((!cleanupOnly && stopping) || sessions.size >= policy.maxSessions)
-      throw new RelayFailure("relay_saturated", 503);
+      throw saturated("sessions");
     const deadline = Date.parse(snapshot.deadline);
     if (!cleanupOnly && Date.now() >= deadline)
       throw new RelayFailure("authorization_denied", 401);
@@ -976,9 +1021,33 @@ export function createReviewRunGatewayRelay(input: {
     const bytes = new Uint8Array(raw); // Capture caller-owned bytes before any await.
     const finish = reserve();
     try {
-      const auth = await resolve(token, "full", reviewerId);
+      if (controller.signal.aborted)
+        throw new RelayFailure("authorization_denied", 401);
+      let aborted!: () => void;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        aborted = () => reject(new RelayFailure("authorization_denied", 401));
+        controller.signal.addEventListener("abort", aborted, { once: true });
+        if (controller.signal.aborted) aborted();
+      });
+      let auth: ReviewRunAuthorization;
+      try {
+        // This phase reads authority only. A caller cancellation releases the
+        // incoming reservation; a late read must never continue into session
+        // creation, capability preparation or inference. Do not race effectful
+        // prepare/close work or discard a retained native capability here.
+        auth = await Promise.race([
+          resolve(token, "full", reviewerId),
+          cancelled,
+        ]);
+      } finally {
+        controller.signal.removeEventListener("abort", aborted);
+      }
+      if (controller.signal.aborted)
+        throw new RelayFailure("authorization_denied", 401);
       const lane = selected(auth, reviewerId);
       const session = await sessionFor(auth, reviewerId);
+      if (controller.signal.aborted)
+        throw new RelayFailure("authorization_denied", 401);
       const { snapshot, gateway } = lane;
       if (
         companion &&
@@ -1164,6 +1233,10 @@ export function createReviewRunGatewayRelay(input: {
       session.aborts.set(controller, reviewerId);
       const fresh = () => check(token, auth, session, "full", reviewerId);
       try {
+        if (signal.aborted)
+          return await refuseBeforeForward(
+            new RelayFailure("authorization_denied", 401),
+          );
         if (!session.preparation.hasSession()) {
           if (session.preparation.needsRecovery())
             return await refuseBeforeForward(
@@ -1602,7 +1675,7 @@ export function createReviewRunGatewayRelay(input: {
       // Cancellation remains available while Responses is occupied, but its
       // authority preflight must not create unbounded SCM/database work.
       if (closeAuthorityInFlight >= policy.maxInFlight)
-        throw new RelayFailure("relay_saturated", 503);
+        throw saturated("close_authority");
       closeAuthorityInFlight++;
       try {
         const auth = await resolve(

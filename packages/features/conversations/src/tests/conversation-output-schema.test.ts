@@ -18,7 +18,7 @@ it("declares primitive string types on every structured-output discriminator wit
         (values as unknown[]).every((v) => typeof v === "string"),
         path,
       ).toBe(true);
-      discriminators.push({ path, values: values as unknown[] });
+      discriminators.push({ path, values: [...(values as string[])].sort() });
     }
     if (node.type === "object") {
       expect(node.additionalProperties, path).toBe(false);
@@ -39,7 +39,7 @@ it("declares primitive string types on every structured-output discriminator wit
     { path: "/properties/action/anyOf/1/properties/kind", values: ["create"] },
     {
       path: "/properties/action/anyOf/1/properties/knowledgeKind",
-      values: ["rule", "observation"],
+      values: ["observation", "rule"],
     },
     { path: "/properties/action/anyOf/2/properties/kind", values: ["create"] },
     {
@@ -49,10 +49,30 @@ it("declares primitive string types on every structured-output discriminator wit
     { path: "/properties/action/anyOf/3/properties/kind", values: ["update"] },
     {
       path: "/properties/action/anyOf/4/properties/kind",
-      values: ["retire", "forget", "relearn"],
+      values: ["forget", "relearn", "retire"],
     },
   ]);
   expect(conversationOutputSchema.schema.properties.action.anyOf[0]).toEqual({
     type: "null",
   });
+});
+
+it("requires bounded current-source evidence only inside non-null model actions", () => {
+  const variants = conversationOutputSchema.schema.properties.action.anyOf;
+  expect(variants[0]).toEqual({ type: "null" });
+  for (const action of variants.slice(1)) {
+    expect(action).toHaveProperty(
+      "properties.intentQuote",
+      expect.objectContaining({
+        type: "string",
+        minLength: 1,
+        maxLength: 1000,
+      }),
+    );
+    expect(action).toHaveProperty(
+      "required",
+      expect.arrayContaining(["intentQuote"]),
+    );
+    expect(action).toHaveProperty("additionalProperties", false);
+  }
 });

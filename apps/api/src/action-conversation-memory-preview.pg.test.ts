@@ -47,7 +47,7 @@ const account = {
   policyRevision: 2,
   bindingRevision: 3,
   expectedAuthorizationEpoch: 7,
-  limits: { requestBytes: 131_072, outputBytes: 262_144, tokens: 2048 },
+  limits: { requestBytes: 131_072, outputBytes: 262_144, tokens: 8192 },
   memorySettings: { requireConfirmation: false, revision: "0" },
 };
 const snapshot = {
@@ -232,7 +232,25 @@ describe.skipIf(!databaseUrl)(
       afterPrepare?: () => Promise<void>,
       ambiguous = false,
       seedSource = true,
+      reasoningEffort: "medium" | null = "medium",
+      modelText?: string,
+      context: ConversationSnapshot = snapshot,
     ) {
+      const frozenSnapshot = context;
+      const projection = {
+        ...source,
+        source: {
+          ...source.source,
+          body: frozenSnapshot.messages.find(
+            (message) => message.id === frozenSnapshot.sourceId,
+          )!.body,
+        },
+        readOnlyContext: renderConversation(frozenSnapshot),
+      };
+      const selectedAccount = {
+        ...account,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+      };
       const deadlineAt = new Date(Date.now() + 60_000);
       const parentId = randomUUID();
       if (seedSource)
@@ -242,18 +260,18 @@ describe.skipIf(!databaseUrl)(
             scope: memoryScope,
             source: {
               type: "github_comment",
-              sourceId: snapshot.sourceId,
-              revision: snapshot.sourceRevision,
-              updatedAt: snapshot.sourceUpdatedAt,
-              statementAt: snapshot.sourceUpdatedAt,
-              repositoryId: snapshot.repositoryId,
-              pullRequestNumber: snapshot.pullRequestNumber,
+              sourceId: frozenSnapshot.sourceId,
+              revision: frozenSnapshot.sourceRevision,
+              updatedAt: frozenSnapshot.sourceUpdatedAt,
+              statementAt: frozenSnapshot.sourceUpdatedAt,
+              repositoryId: frozenSnapshot.repositoryId,
+              pullRequestNumber: frozenSnapshot.pullRequestNumber,
               url: null,
               visibility: "private",
               claimedBodyDigest: createHash("sha256")
-                .update(source.source.body)
+                .update(projection.source.body)
                 .digest("hex"),
-              observedCommitSha: snapshot.headSha,
+              observedCommitSha: frozenSnapshot.headSha,
             },
             sourceActor: {
               kind: "github_user",
@@ -262,10 +280,10 @@ describe.skipIf(!databaseUrl)(
               login: "maintainer",
             },
             policyRevision: "1:1:qualification",
-            threadId: snapshot.threadId,
-            threadDigest: snapshot.threadDigest,
-            headSha: snapshot.headSha,
-            selectableBody: source.source.body,
+            threadId: frozenSnapshot.threadId,
+            threadDigest: frozenSnapshot.threadDigest,
+            headSha: frozenSnapshot.headSha,
+            selectableBody: projection.source.body,
           },
           generation: "test_generation",
           expectedPriorEpoch: null,
@@ -282,7 +300,7 @@ describe.skipIf(!databaseUrl)(
           contextWindowTokens: 131_072,
           tokensPerByteUpperBound: 4,
           maxInputBytes: 131_072,
-          bindingManifest: account,
+          bindingManifest: selectedAccount,
           inference: {
             generate: async () => {
               throw new Error("conversation inference untouched");
@@ -305,29 +323,29 @@ describe.skipIf(!databaseUrl)(
       await prisma.conversationProcessing.create({
         data: {
           id: parentId,
-          workspaceId: snapshot.workspaceId,
-          repositoryId: snapshot.repositoryId,
-          repositoryStableId: snapshot.repositoryStableId,
-          repositoryFullName: snapshot.repositoryFullName,
+          workspaceId: frozenSnapshot.workspaceId,
+          repositoryId: frozenSnapshot.repositoryId,
+          repositoryStableId: frozenSnapshot.repositoryStableId,
+          repositoryFullName: frozenSnapshot.repositoryFullName,
           pullRequestNumber: 1,
-          threadId: snapshot.threadId,
-          sourceId: snapshot.sourceId,
-          sourceCommentId: snapshot.sourceCommentId,
-          sourceRevision: snapshot.sourceRevision,
-          sourceUpdatedAt: new Date(snapshot.sourceUpdatedAt),
+          threadId: frozenSnapshot.threadId,
+          sourceId: frozenSnapshot.sourceId,
+          sourceCommentId: frozenSnapshot.sourceCommentId,
+          sourceRevision: frozenSnapshot.sourceRevision,
+          sourceUpdatedAt: new Date(frozenSnapshot.sourceUpdatedAt),
           sourceActorId: "author",
           sourceActorLogin: "maintainer",
           sourceActorKind: "human",
           deadlineAt,
           modelDispatched: true,
           boundManifest: JSON.stringify({
-            account,
-            threadDigest: snapshot.threadDigest,
-            headSha: snapshot.headSha,
-            baseSha: snapshot.baseSha,
-            sourceRevision: snapshot.sourceRevision,
+            account: selectedAccount,
+            threadDigest: frozenSnapshot.threadDigest,
+            headSha: frozenSnapshot.headSha,
+            baseSha: frozenSnapshot.baseSha,
+            sourceRevision: frozenSnapshot.sourceRevision,
             policyRevision: captured.policy.revision,
-            vector: snapshot.messages.map(
+            vector: frozenSnapshot.messages.map(
               ({ id, updatedAt, bodyDigest, replyTo }) => [
                 id,
                 updatedAt,
@@ -336,9 +354,9 @@ describe.skipIf(!databaseUrl)(
               ],
             ),
             sourceAuthority: {
-              actorId: snapshot.sourceActor.id,
-              maintainer: snapshot.sourceMaintainer,
-              visibility: snapshot.visibility,
+              actorId: frozenSnapshot.sourceActor.id,
+              maintainer: frozenSnapshot.sourceMaintainer,
+              visibility: frozenSnapshot.visibility,
             },
           }),
           result: {
@@ -400,13 +418,16 @@ describe.skipIf(!databaseUrl)(
                   content: [
                     {
                       type: "output_text",
-                      text: JSON.stringify({
-                        statements: [
-                          {
-                            body: "Opaque identifiers preserve leading zeroes.",
-                          },
-                        ],
-                      }),
+                      text:
+                        modelText ??
+                        JSON.stringify({
+                          statements: [
+                            {
+                              body: "Opaque identifiers preserve leading zeroes.",
+                              sourceQuote: projection.source.body,
+                            },
+                          ],
+                        }),
                     },
                   ],
                 },
@@ -442,7 +463,7 @@ describe.skipIf(!databaseUrl)(
         createConversationMemoryPreview({
           prisma,
           parentId,
-          snapshot,
+          snapshot: frozenSnapshot,
           captured,
           control,
           connectExecution,
@@ -453,10 +474,10 @@ describe.skipIf(!databaseUrl)(
               >`SELECT "source" FROM "PreviewAuthority" WHERE "id"=1`
             )[0]!.source,
         });
-      const preview = (projection = source) =>
-        create().preview(projection, {
-          deadlineAt: new Date(Date.now() + 30_000),
-        });
+      const preview = (
+        sourceProjection = projection,
+        deadlineAt = new Date(Date.now() + 30_000),
+      ) => create().preview(sourceProjection, { deadlineAt });
       return {
         preview,
         prepares,
@@ -773,7 +794,11 @@ describe.skipIf(!databaseUrl)(
 
     it("routes the selected user account and policy, and concurrent/restarted replay buys no second call", async () => {
       const f = await fixture();
-      const results = await Promise.all([f.preview(), f.preview()]);
+      const deadlineAt = new Date(Date.now() + 30_000);
+      const results = await Promise.all([
+        f.preview(source, deadlineAt),
+        f.preview(source, deadlineAt),
+      ]);
       expect(results.filter((r) => r.status === "complete")).toHaveLength(1);
       expect(f.prepares).toHaveLength(1);
       expect(f.prepares[0]).toMatchObject({
@@ -782,22 +807,55 @@ describe.skipIf(!databaseUrl)(
         policyRevision: 2,
         bindingRevision: 3,
         profileId: account.profileRef,
+        limits: expect.objectContaining({ tokens: account.limits.tokens }),
+        // An admitted extraction receives the remaining original budget, not a
+        // shorter subdeadline that can interrupt an otherwise valid response.
+        deadline: deadlineAt.toISOString(),
       });
       expect(f.requests).toHaveLength(1);
       expect(f.requests[0]).toMatchObject({
         model: account.model,
         store: false,
         service_tier: "default",
+        max_output_tokens: account.limits.tokens,
+        reasoning: { effort: "medium" },
       });
       const task = f.requests[0] as {
         instructions: string;
         input: { content: { text: string }[] }[];
-        text: { format: { schema: unknown } };
       };
+      expect(task).not.toHaveProperty("text");
+      const schema = JSON.parse(task.instructions.split("\nJSON Schema: ")[1]!);
+      expect(schema).toMatchObject({
+        additionalProperties: false,
+        properties: {
+          statements: {
+            maxItems: 4,
+            items: {
+              additionalProperties: false,
+              required: ["body", "sourceQuote"],
+              properties: {
+                body: { type: "string", minLength: 1, maxLength: 1000 },
+                sourceQuote: { type: "string", minLength: 1, maxLength: 1000 },
+              },
+            },
+          },
+        },
+      });
       const text = task.input[0]!.content[0]!.text;
       const projection = JSON.parse(text);
-      expect(projection.selectedSource).toEqual(source.source);
-      expect(projection.checkedDiscussion).toBe(renderConversation(snapshot));
+      expect(projection.selectedSource).toEqual({
+        ...source.source,
+        actor: snapshot.sourceActor,
+        authority: "verified_repository_maintainer",
+      });
+      expect(projection.checkedDiscussion).toEqual(
+        JSON.parse(renderConversation(snapshot)),
+      );
+      expect(projection.checkedDiscussion.messages).toEqual(snapshot.messages);
+      expect(projection.checkedDiscussion.selectedSourceId).toBe(
+        snapshot.sourceId,
+      );
       expect(projection.memorySettings).toEqual(account.memorySettings);
       expect(projection.contextEvidence.messages).toEqual(
         snapshot.messages.map(({ id, updatedAt, bodyDigest, replyTo }) => ({
@@ -817,7 +875,7 @@ describe.skipIf(!databaseUrl)(
         conversationDigest({
           instructions: task.instructions,
           input: text,
-          outputSchema: task.text.format.schema,
+          outputSchema: schema,
         }),
       );
       expect(JSON.stringify(f.requests[0])).not.toContain(
@@ -855,6 +913,187 @@ describe.skipIf(!databaseUrl)(
         expect(f.requests).toHaveLength(0);
       },
     );
+    it("rejects a quote from an earlier message after the real SDK response without replay", async () => {
+      const f = await fixture(
+        undefined,
+        false,
+        true,
+        "medium",
+        JSON.stringify({
+          statements: [
+            {
+              body: "Opaque identifiers preserve leading zeroes.",
+              sourceQuote: snapshot.messages[0]!.body,
+            },
+          ],
+        }),
+      );
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+      expect(f.requests).toHaveLength(1);
+      expect(f.closes()).toBe(1);
+      const row = await prisma.conversationProcessing.findUniqueOrThrow({
+        where: { id: conversationMemoryPreviewId(f.parentId) },
+      });
+      expect(row.status).toBe("output_unavailable");
+      expect(
+        (row.result as { gatewayFailureCode?: string }).gatewayFailureCode,
+      ).toBe("output_invalid");
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+    });
+    it("accepts a literal current endorsement with a full-thread referent and strips sourceQuote from the domain result", async () => {
+      const body = "Yes, that is how cache keys behave.";
+      const context = {
+        ...snapshot,
+        messages: [
+          {
+            ...snapshot.messages[0]!,
+            body: "Cache keys are case-sensitive.",
+            bodyDigest: createHash("sha256")
+              .update("Cache keys are case-sensitive.")
+              .digest("hex"),
+          },
+          {
+            ...snapshot.messages[1]!,
+            body,
+            bodyDigest: createHash("sha256").update(body).digest("hex"),
+          },
+        ],
+      };
+      const f = await fixture(
+        undefined,
+        false,
+        true,
+        "medium",
+        JSON.stringify({
+          statements: [
+            {
+              body: "Cache keys are case-sensitive.",
+              sourceQuote: "that is how cache keys behave",
+            },
+          ],
+        }),
+        context,
+      );
+      expect(await f.preview()).toEqual({
+        status: "complete",
+        source: { id: snapshot.sourceId, revision: snapshot.sourceRevision },
+        statements: [{ body: "Cache keys are case-sensitive." }],
+      });
+      expect(f.prepares).toHaveLength(1);
+      expect(f.requests).toHaveLength(1);
+      expect(f.closes()).toBe(1);
+    });
+    it.each([1, 1000, 1001])(
+      "enforces the literal quote length bound independently of substring matching (%i characters)",
+      async (length) => {
+        const body = "x".repeat(1001);
+        const context = {
+          ...snapshot,
+          messages: [
+            snapshot.messages[0]!,
+            {
+              ...snapshot.messages[1]!,
+              body,
+              bodyDigest: createHash("sha256").update(body).digest("hex"),
+            },
+          ],
+        };
+        const f = await fixture(
+          undefined,
+          false,
+          true,
+          "medium",
+          JSON.stringify({
+            statements: [
+              { body: "A concrete fact.", sourceQuote: body.slice(0, length) },
+            ],
+          }),
+          context,
+        );
+        expect((await f.preview()).status).toBe(
+          length <= 1000 ? "complete" : "incomplete",
+        );
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+        expect(f.closes()).toBe(1);
+      },
+    );
+    it.each([
+      "invalid JSON",
+      '```json\n{"statements":[]}\n```',
+      '{"statements":[],"extra":true}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":"Opaque identifiers","extra":true}]}',
+      '{"statements":[{"body":"A concrete fact."}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":""}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":" "}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":42}]}',
+      '{"statements":[{"body":"A concrete fact.","sourceQuote":"opaque identifiers"}]}',
+      JSON.stringify({
+        statements: Array.from({ length: 5 }, () => ({
+          body: "A concrete fact.",
+          sourceQuote: "Opaque identifiers",
+        })),
+      }),
+      JSON.stringify({
+        statements: [
+          { body: "x".repeat(1001), sourceQuote: "Opaque identifiers" },
+        ],
+      }),
+    ])(
+      "invalid text JSON extraction %s produces no statements or retry",
+      async (modelText) => {
+        const f = await fixture(undefined, false, true, "medium", modelText);
+        expect((await f.preview()).status).toBe("incomplete");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+        expect(f.closes()).toBe(1);
+        const row = await prisma.conversationProcessing.findUniqueOrThrow({
+          where: { id: conversationMemoryPreviewId(f.parentId) },
+        });
+        expect(row.status).toBe("output_unavailable");
+        expect(row.requestEffect).toBe("completed");
+        expect(
+          (row.result as { gatewayFailureCode?: string }).gatewayFailureCode,
+        ).toBe("output_invalid");
+        expect((await f.preview()).status).toBe("incomplete");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+      },
+    );
+    it.each([null, "medium"] as const)(
+      "preview encodes only frozen supported reasoning effort %s",
+      async (reasoningEffort) => {
+        const f = await fixture(undefined, false, true, reasoningEffort);
+        expect((await f.preview()).status).toBe("complete");
+        if (reasoningEffort)
+          expect(f.requests[0]).toMatchObject({
+            reasoning: { effort: "medium" },
+          });
+        else expect(f.requests[0]).not.toHaveProperty("reasoning");
+        expect(f.prepares).toHaveLength(1);
+        expect(f.requests).toHaveLength(1);
+        expect(f.closes()).toBe(1);
+      },
+    );
+    it("revoked frozen reasoning authority while preview grant waits prevents dispatch without fallback", async () => {
+      let supported = true;
+      const f = await fixture(async () => {
+        supported = false;
+      });
+      const current = f.captured.policy.isCurrent;
+      Object.assign(f.captured.policy, {
+        isCurrent: async (controls: Parameters<typeof current>[0]) =>
+          supported && current(controls),
+      });
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+      expect(f.requests).toHaveLength(0);
+      expect(f.closes()).toBe(1);
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.prepares).toHaveLength(1);
+    });
     it("confirmation settings changing while runAccess waits prevent paid dispatch", async () => {
       const f = await fixture(async () => {
         await prisma.$executeRaw`UPDATE "PreviewAuthority" SET "settings"=false WHERE "id"=1`;

@@ -7,6 +7,89 @@ import {
 const credential = "cli-operator-credential-with-at-least-32-characters";
 
 describe("ReviewRouter operator CLI", () => {
+  it("confirms only the explicitly named installed repository and never accepts owner/proof options", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        result: {
+          status: "blocked",
+          issue: "installed_gateway_workflow_incompatible",
+        },
+      }),
+    );
+    const env = {
+      REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
+      REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
+    };
+    const args = [
+      "repositories",
+      "confirm-installed",
+      "--workspace",
+      "workspace",
+      "--repo",
+      "example/repository",
+      "--confirm",
+      "example/repository",
+    ];
+    expect(
+      await executeReviewRouterOperatorCli(args, env, { fetchImpl }),
+    ).toEqual({
+      status: "blocked",
+      issue: "installed_gateway_workflow_incompatible",
+    });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url.toString()).toBe(
+      "https://api.reviewrouter.org/api/operator/v1/workflow-provisioning/confirm-installed-gateway",
+    );
+    expect(init).toMatchObject({
+      method: "POST",
+      redirect: "error",
+      headers: { authorization: `Bearer ${credential}` },
+    });
+    expect(JSON.parse(String(init?.body))).toEqual({
+      workspace: "workspace",
+      repository: "example/repository",
+      confirm: "example/repository",
+    });
+    fetchImpl.mockClear();
+    await expect(
+      executeReviewRouterOperatorCli([...args, "--owner", "forged"], env, {
+        fetchImpl,
+      }),
+    ).rejects.toThrow("reviewrouter_operator_option_unknown");
+    await expect(
+      executeReviewRouterOperatorCli(
+        [...args.slice(0, -1), "other/repository"],
+        env,
+        { fetchImpl },
+      ),
+    ).rejects.toThrow("reviewrouter_operator_confirmation_invalid");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it("redacts installed-workflow transport failures instead of reflecting credentials", async () => {
+    await expect(
+      executeReviewRouterOperatorCli(
+        [
+          "repositories",
+          "confirm-installed",
+          "--workspace",
+          "workspace",
+          "--repo",
+          "example/repository",
+          "--confirm",
+          "example/repository",
+        ],
+        {
+          REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
+          REVIEW_ROUTER_API_URL: "https://api.reviewrouter.org",
+        },
+        {
+          fetchImpl: vi.fn(async () => {
+            throw new Error(credential);
+          }),
+        },
+      ),
+    ).rejects.toThrow("reviewrouter_operator_workflow_confirmation_failed");
+  });
   it("sends an authenticated set request and returns only the result", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       Response.json({

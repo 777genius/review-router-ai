@@ -54,6 +54,55 @@ vi.mock("./provider-usage-price-snapshot.js", () => ({
 import { createGatewayUsageRecorder } from "./provider-usage-gateway-recorder";
 import { lifecycleVerificationContract } from "@reviewrouter/shared";
 describe("Gateway requested provider attribution", () => {
+  it("records frozen Gateway OpenRouter identity without inventing observed model or provider", async () => {
+    const model = "nvidia/nemotron-3-ultra-550b-a55b:free";
+    const lane = {
+      kind: "codex",
+      authMode: "codex_account_gateway",
+      gatewayProfileRef: "openrouter-openai-responses-apikey-v1",
+      model,
+    };
+    mocks.strict.mockReturnValueOnce({
+      providers: [lane],
+    });
+    const recorder = createGatewayUsageRecorder({
+      scmRepositoryIdentity: {
+        findUnique: async () => ({ externalRepositoryId: "123" }),
+      },
+      providerUsageGrant: { findFirst: async () => null },
+    } as never);
+    await recorder.prepare({
+      authorization: {
+        authorizationId: "auth",
+        workspaceId: "workspace",
+        scmRepositoryIdentityId: "repo",
+        sourceRunId: "12",
+        sourceRunAttempt: "1",
+        maxExpiresAt: new Date(Date.now() + 60000),
+        runtimeSnapshotCanonicalJson: "snapshot",
+      } as never,
+      executionRef: "exec",
+      requestRef: "openrouter-request",
+      occurredAt: new Date().toISOString(),
+      model,
+    });
+    expect(mocks.read).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provider: "openrouter", model }),
+    );
+    expect(mocks.prepare).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          provider: "openrouter",
+          requestedModel: model,
+          runtimeType: "codex",
+        }),
+        actualProvider: null,
+        actualModel: null,
+      }),
+      expect.anything(),
+    );
+  });
+
   it("uses selected OpenRouter provider while keeping Codex engine and unknown observed vendor", async () => {
     const prisma = {
       scmRepositoryIdentity: {

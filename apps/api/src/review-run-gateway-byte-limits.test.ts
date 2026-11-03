@@ -358,6 +358,43 @@ it("companion chunks use local authority while phase and EOF status retain full 
   }
 });
 
+it("settles an already claimed dispatch without preparing when its caller aborts during the claim", async () => {
+  const state = companionReservation();
+  const controller = new AbortController();
+  const admission = {
+    ...state.admission,
+    async claim(
+      ...args: Parameters<ReviewRunCompanionDispatchAdmission["claim"]>
+    ) {
+      const claimed = await state.admission.claim(...args);
+      controller.abort();
+      return claimed;
+    },
+  };
+  const f = await fixture(32768, 0, 2, 5000, undefined, { admission });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        controller,
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "authorization_denied",
+      effect: "not_dispatched",
+    });
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "not_dispatched",
+    );
+    expect(f.intents).toHaveLength(0);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
 it("companion proven pre-forward refusal records no dispatch without refunding its attempt", async () => {
   const state = companionReservation("pr_description");
   const f = await fixture(32768, 0, 2, 5000, undefined, {
@@ -1050,6 +1087,14 @@ async function fixture(
     [];
   const requestOwners = new Map<string, string | undefined>();
   const authorityChecks: ("full" | "local")[] = [];
+  let heldAuthority:
+    | {
+        ids: Set<string>;
+        entered: Set<string>;
+        started: () => void;
+        pending: Promise<void>;
+      }
+    | undefined;
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -1236,6 +1281,7 @@ async function fixture(
     snapshots,
     bindings,
   });
+  const terminalRuns = new Set<string>();
   const relayInput: Parameters<typeof createReviewRunGatewayRelay>[0] = {
     policy: {
       profiles: [
@@ -1259,6 +1305,7 @@ async function fixture(
       maxInFlight: 2,
     },
     runAccess,
+    isSourceRunTerminal: async (auth) => terminalRuns.has(auth.authorizationId),
     readPreparationOperation: async (operationId) => {
       operationReads.push(operationId);
       return operations.get(operationId);
@@ -1288,6 +1335,12 @@ async function fixture(
     queries: queries as never,
     checkAuthority: async (auth, freshness) => {
       authorityChecks.push(freshness);
+      const held = heldAuthority;
+      if (held?.ids.has(auth.authorizationId)) {
+        held.entered.add(auth.authorizationId);
+        if (held.entered.size === held.ids.size) held.started();
+        await held.pending;
+      }
       return !revoked.has(auth.authorizationId);
     },
     confirmAuthority: async (_token, auth) =>
@@ -1329,13 +1382,40 @@ async function fixture(
   return {
     preparation,
     relay,
+    terminalRuns,
     authorizations: relayInput.authorizations,
     usage: relayInput.usage,
-    restartRelay: (maxSessions = relayInput.policy.maxSessions) =>
+    restartRelay: (
+      maxSessions = relayInput.policy.maxSessions,
+      maxInFlight = relayInput.policy.maxInFlight,
+    ) =>
       createReviewRunGatewayRelay({
         ...relayInput,
-        policy: { ...relayInput.policy, maxSessions },
+        policy: { ...relayInput.policy, maxSessions, maxInFlight },
       }),
+    holdAuthority(ids: readonly string[]) {
+      let started!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      heldAuthority = {
+        ids: new Set(ids),
+        entered: new Set(),
+        started,
+        pending,
+      };
+      return {
+        started: entered,
+        release() {
+          heldAuthority = undefined;
+          release();
+        },
+      };
+    },
     intents,
     admissions,
     requestModels,
@@ -1469,6 +1549,99 @@ it("rejects unsupported captured output before run-access or inference", async (
     });
     expect(f.intents).toHaveLength(0);
     expect(f.admissions).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("releases six aborted pre-session authority reservations without dispatching their late results", async () => {
+  const f = await fixture(MiB, 0, 16);
+  const relay = f.restartRelay(16, 6);
+  const ids = Array.from(
+    { length: 6 },
+    (_, index) => `authorization-${index + 1}`,
+  );
+  const held = f.holdAuthority(ids);
+  const controllers = ids.map(() => new AbortController());
+  const body = new TextEncoder().encode(
+    JSON.stringify({
+      model: "gpt-5.6-sol",
+      input: [],
+      stream: true,
+      max_output_tokens: 32768,
+    }),
+  );
+  const attempts = ids.map((id, index) =>
+    relay.responses(id, body, controllers[index]!).then(
+      (response) => ({ unexpectedResponse: response.kind }),
+      (error: unknown) => error,
+    ),
+  );
+  try {
+    await held.started;
+    await expect(
+      relay.responses("authorization-7", body, new AbortController()),
+    ).rejects.toMatchObject({ code: "relay_saturated" });
+    for (const controller of controllers) controller.abort();
+    let cancelTimer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await Promise.race([
+      Promise.all(attempts),
+      new Promise<never>((_resolve, reject) => {
+        cancelTimer = setTimeout(
+          () => reject(new Error("pre_session_abort_not_settled")),
+          1000,
+        );
+      }),
+    ]).finally(() => clearTimeout(cancelTimer));
+    expect(settled).toEqual(
+      Array.from({ length: 6 }, () =>
+        expect.objectContaining({
+          code: "authorization_denied",
+          effect: "not_dispatched",
+        }),
+      ),
+    );
+    expect(f.intents).toHaveLength(0);
+    expect(f.admissions).toHaveLength(0);
+    await expect(streamRun({ ...f, relay }, "authorization-7")).resolves.toBe(
+      "stream",
+    );
+    expect(f.intents).toHaveLength(1);
+    held.release();
+    await setImmediate();
+    await setImmediate();
+    // Late pure authority completion must not create sessions or prepare native
+    // capabilities for any of the six already cancelled incoming requests.
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    held.release();
+    await Promise.allSettled(attempts);
+    await relay.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it("reclaims an active authorization only after its exact source run is terminal and native close applies", async () => {
+  const f = await fixture(MiB, 0, 1);
+  try {
+    await streamRun(f, "authorization-1");
+    f.terminalRuns.add("authorization-1");
+    // Failed Actions can outlive both renewable and maximum authority TTLs.
+    // Native work is still active: terminal SCM alone cannot discard custody.
+    f.setCloseState("unknown");
+    await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+      code: "relay_saturated",
+    });
+    expect(f.authorization("authorization-1").state).toBe("revoked");
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.nativeCloseReasons).toEqual(["cancelled"]);
+    f.setCloseState("applied");
+    await expect(streamRun(f, "authorization-2")).resolves.toBe("stream");
+    expect(f.nativeExecutions.get(f.nativeCloses[0]!)).toBe("closed");
+    expect(f.intents).toHaveLength(2);
+    expect(f.nativeCloseReasons).toEqual(["cancelled", "cancelled"]);
   } finally {
     await f.relay.shutdown();
   }

@@ -70,9 +70,9 @@ and protected from public release when they contain operator metadata.
 ## Full-thread successor slice
 
 `--corpus full-thread-v2` selects the separately versioned
-`corpus.full-thread-v2.json`, revision `2026-10-30-full-thread-r1`: **16 whole
-threads, 10 tuning / 6 protected, 50 events and 21 fact labels in 10 scenario
-groups**. Four groups have positive same-repository A→B recall. Two other paired
+`corpus.full-thread-v2.json`, revision `2026-11-03-full-thread-r3`: **22 whole
+threads, 16 tuning / 6 protected, 69 events and 29 fact labels in 13 scenario
+groups**. Six groups have positive same-repository A→B recall. Three other paired
 groups use different repositories in one workspace to test shared settings and
 repository memory isolation; they are not counted as positive cross-thread recall.
 The original `corpus.json`, its split, labels and numeric targets are unchanged.
@@ -107,11 +107,34 @@ template-repository GitHub URL. Later thread edits do not revoke maintained
 ownership; native automatic facts retain their checked-context currency fences.
 
 Structural validation and scorer controls are measured mechanism evidence only.
-**Live native/product precision, recall and answer quality remain UNAVAILABLE until
-a qualified live run and bound human rubric exist.** No protected live checkpoint
-has been consumed for this successor. Its new protected labels must be reviewed
-before the first qualification claim. Existing deterministic native/PG suites do
-not supply semantic scores.
+**A tuning PASS is not a successful protected qualification.** Revision r1's
+checkpoint `rr-full-thread-v2-holdout-20261102-5da70100c-1`, run
+`43ec0ef0-ec1d-4981-9da0-de8725cc8e9e`, was consumed and ended `UNAVAILABLE`.
+Before the unavailable steps it also missed a completed contextual endorsement
+and its linked recall. Its six original protected threads and eight fact labels
+remain unchanged as tuning regression; only their split changes. Original r1
+reports retain their r1 identity and are not retagged as r2 evidence.
+
+Revision r2 was not model-executed, but two protected snippets were accidentally
+displayed during tuning diagnosis. It cannot be described as fully unseen. Its
+original bytes remain in source history and retained private evidence; no report
+is relabelled as a result for another revision, and no product fix is based on
+protected model output.
+
+Revision r3 replaces only that protected set: six unexecuted threads in three
+scenario groups, 19 events and eight new fact labels. All 16 tuning threads, their
+50 events and 21 fact labels retain their exact object bytes, and numeric targets
+are unchanged. Two protected groups test positive same-repository A-to-B recall;
+the third tests shared workspace confirmation policy with repository isolation.
+The protected coverage retains contextual endorsement, foreign quoted authority,
+maintainer disagreement and negation, exact update/stale/Forget, unaffected
+knowledge, both confirmation modes, actual proposal confirmation and settled
+replay. Independent delegated author and peer review verified nonweakening
+coverage and source-supported labels before registration. Root receives only
+counts, digests and coverage metadata; protected case text and event/fact labels
+were withheld. This is agent review, not external or human independence. No r3
+protected result or successful qualification exists. Deterministic native/PG and
+corpus-risk checks do not supply semantic scores.
 
 ## Isolated multilingual and repeated Gateway/Hindsight quality E2E
 
@@ -453,3 +476,10 @@ request capability. Full-thread repository isolation does not widen the original
 synthetic identity guard. Missing or incompatible fixture setup remains UNAVAILABLE;
 never repair it with a Prisma proxy, grant bypass, copied credentials or a mocked
 quality PASS.
+
+For OpenRouter `:free` candidates the runner spaces event starts by at least
+seven seconds: one event can issue at most one extraction and one reply call,
+keeping this runner below the documented [20 requests/minute limit](https://openrouter.ai/collections/free-models).
+This wait precedes product deadlines and latency measurements. It is pacing,
+not a retry; unavailable or unsettled attempts retain the normal stop behavior.
+Provider daily quotas and other consumers still apply.

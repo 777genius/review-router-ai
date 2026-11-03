@@ -359,10 +359,14 @@ function RunIdentity({ row }: { row: RunRow }) {
 export function RunUsageTable({
   report,
   onNext,
+  onPrevious,
+  busy,
   selectedCurrency,
 }: {
   report: ProviderUsageReport;
   onNext: () => void;
+  onPrevious?: (() => void) | undefined;
+  busy?: boolean | undefined;
   selectedCurrency?: string | undefined;
 }) {
   return (
@@ -445,11 +449,12 @@ export function RunUsageTable({
           Run totals cover all matching observations in the period. Run outcome
           is not inferred.
         </p>
-        {report.overview.nextRunCursor ? (
-          <Button variant="ghost" size="sm" onClick={onNext}>
-            Next run page
-          </Button>
-        ) : null}
+        <UsagePageNavigation
+          kind="run"
+          onPrevious={onPrevious}
+          onNext={report.overview.nextRunCursor ? onNext : undefined}
+          busy={busy}
+        />
       </div>
     </>
   );
@@ -457,10 +462,14 @@ export function RunUsageTable({
 export function ObservationTable({
   report,
   onNext,
+  onPrevious,
+  busy,
   selectedCurrency,
 }: {
   report: ProviderUsageReport;
   onNext: () => void;
+  onPrevious?: (() => void) | undefined;
+  busy?: boolean | undefined;
   selectedCurrency?: string | undefined;
 }) {
   return (
@@ -521,11 +530,43 @@ export function ObservationTable({
       <p className="mt-3 text-xs text-slate-400">
         Showing up to 100 observations; totals cover the entire selected period.
       </p>
-      {report.hasMore ? (
-        <Button variant="ghost" size="sm" onClick={onNext}>
-          Next observation page
+      <UsagePageNavigation
+        kind="observation"
+        onPrevious={onPrevious}
+        onNext={report.hasMore ? onNext : undefined}
+        busy={busy}
+      />
+    </>
+  );
+}
+
+export function UsagePageNavigation({
+  kind,
+  onPrevious,
+  onNext,
+  busy = false,
+}: {
+  kind: "run" | "observation";
+  onPrevious?: (() => void) | undefined;
+  onNext?: (() => void) | undefined;
+  busy?: boolean | undefined;
+}) {
+  if (!onPrevious && !onNext) return null;
+  return (
+    <nav
+      aria-label={`${kind === "run" ? "Run" : "Observation"} pages`}
+      className="flex gap-2"
+    >
+      {onPrevious ? (
+        <Button variant="ghost" size="sm" disabled={busy} onClick={onPrevious}>
+          Previous {kind} page
         </Button>
       ) : null}
-    </>
+      {onNext ? (
+        <Button variant="ghost" size="sm" disabled={busy} onClick={onNext}>
+          Next {kind} page
+        </Button>
+      ) : null}
+    </nav>
   );
 }

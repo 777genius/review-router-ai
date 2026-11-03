@@ -1,6 +1,6 @@
-import type { UsageProjection, UsageTokens } from "../domain/usage";
+import type { UsageTokens } from "../domain/usage";
 import type { UsageReportQuery } from "./ports";
-import type { UsagePeriodReport } from "./report-usage";
+import type { UsagePeriodReport, UsageReportObservation } from "./report-usage";
 import { costUnits, decimal } from "./usage-money";
 import {
   buildUsageTopModels,
@@ -42,7 +42,7 @@ export interface UsageReportAggregateInput {
   query: UsageReportQuery;
   buckets: readonly UsageReportAggregateBucket[];
   facets: readonly UsageRequestedIdentity[];
-  rows: readonly UsageProjection[];
+  rows: readonly UsageReportObservation[];
   nextCursor: string | null;
   nextRunCursor: string | null;
   partialChildCount: number;

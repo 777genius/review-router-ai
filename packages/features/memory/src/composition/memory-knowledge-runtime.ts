@@ -29,6 +29,8 @@ import type {
 } from "../application/ports/memory-policy-config-port";
 import { MemoryKnowledgeService } from "../application/use-cases/memory-knowledge-service";
 import { MemoryKnowledgeError } from "../domain/memory-knowledge";
+import { memoryKnowledgeDigest } from "../domain/memory-knowledge";
+import type { MemoryNativeStartupBinding } from "../application/memory-native-startup";
 import { parseMemoryProviderConfig } from "../infrastructure/config/memory-provider-config";
 import { readMemoryServiceEnabled } from "../infrastructure/config/memory-service-flag";
 import { EntitlementMemoryPolicyConfig } from "../infrastructure/entitlements/entitlement-memory-policy-config";
@@ -46,6 +48,8 @@ export type MemoryKnowledgeRuntime = {
   readonly store: MemoryKnowledgeStore;
   readonly policy: MemoryPolicyConfigPort;
   readonly cleanupProof: MemoryCleanupProofPort | null;
+  /** Absent on older/non-native adapters; absence can never grant host startup. */
+  readonly nativeStartupBinding?: MemoryNativeStartupBinding | null;
   /** The host supplies an authenticated product/source context for each request. */
   readonly automaticSources: MemoryAutomaticSourceStore;
   forAccess(
@@ -194,6 +198,20 @@ export async function createMemoryKnowledgeRuntime(input: {
         providerProfileVersion,
         store,
         policy,
+        nativeStartupBinding:
+          config.kind === "hindsight" &&
+          /^sha256:[a-f0-9]{64}$/.test(
+            input.env.REVIEW_ROUTER_MEMORY_HINDSIGHT_IMAGE_DIGEST ?? "",
+          )
+            ? {
+                namespace: config.namespace,
+                generation: config.generation,
+                imageDigest:
+                  input.env.REVIEW_ROUTER_MEMORY_HINDSIGHT_IMAGE_DIGEST!,
+                profile: config.profileVersion,
+                endpointDigest: memoryKnowledgeDigest(config.baseUrl),
+              }
+            : null,
         cleanupProof:
           config.kind === "hindsight"
             ? createHindsightCleanupProofAdapter(config, input.env)

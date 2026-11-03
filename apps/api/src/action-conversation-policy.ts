@@ -9,7 +9,10 @@ export {
   type ConversationQualification,
 } from "@reviewrouter/platform-config";
 import * as c from "@agent-teams/account-gateway/contracts";
-import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import {
+  createConsumerControlClient,
+  GatewayError,
+} from "@agent-teams/account-gateway/http";
 import { executionConnector } from "@agent-teams/account-gateway/llm";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
@@ -34,7 +37,10 @@ import {
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
 import { readReviewRunGatewayRelayPolicy } from "./review-run-gateway-relay.js";
 import { readServerApprovedReviewRunGatewayPolicy } from "./review-run-runtime-snapshot.js";
-import { createConversationGatewayInference } from "./action-conversation-inference.js";
+import {
+  createConversationGatewayInference,
+  type ConversationGatewayObservation,
+} from "./action-conversation-inference.js";
 
 /** Companion conversations follow the first/primary reviewer, as other V4 companions do.
  * Never silently select a later account or reinterpret a mixed-auth roster.
@@ -237,18 +243,67 @@ export async function admitConversationDispatch(
 }
 export type ConversationCapturedPolicy = {
   readonly policy: ConversationPolicy;
-  /** The same capture cannot buy child work while its parent grant has cleanup debt. */
+  /** The same capture cannot buy child work with parent cleanup debt or an unsettled request outcome. */
   readonly inferenceCleanupPending?: () => boolean;
   readonly checkSelection: (
     transaction: Prisma.TransactionClient,
   ) => Promise<boolean>;
 };
 
+export type ConversationCurrentnessFailure = {
+  readonly processingId: string;
+  readonly phase:
+    | "initial_selection"
+    | "account"
+    | "catalog"
+    | "final_selection";
+  readonly reason:
+    | "cleanup_pending"
+    | "aborted"
+    | "deadline"
+    | "selection_changed"
+    | "account_changed"
+    | "catalog_unavailable"
+    | "selected_model_missing"
+    | "required_effort_unavailable"
+    | "unavailable";
+  readonly gatewayCode?: GatewayError["code"];
+  readonly httpStatus?: number;
+};
+
+export type ConversationInferenceObservation = Pick<
+  ConversationGatewayObservation,
+  "failureCode" | "executionKnown" | "effect" | "cleanup"
+> & { readonly processingId: string };
+
+const inferenceFailureCodes: ReadonlySet<string> = new Set([
+  "invalid_task",
+  "rejected",
+  "unauthorized",
+  "busy",
+  "unavailable",
+  "conflict",
+  "provider_failed",
+  "output_truncated",
+  "output_refused",
+  "output_invalid",
+  "output_lost",
+  "effect_unknown",
+  "cancelled",
+  "deadline",
+]);
+
 type ConversationPolicyConstruction = {
   readonly prisma: PrismaClient;
   readonly runtime: MemoryKnowledgeRuntime;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly onCaptured?: (value: ConversationCapturedPolicy) => void;
+  readonly onInferenceObserved?: (
+    value: ConversationInferenceObservation,
+  ) => void | Promise<void>;
+  readonly onCurrentnessFailure?: (
+    value: ConversationCurrentnessFailure,
+  ) => void | Promise<void>;
   readonly admitMemory: (
     transaction: Prisma.TransactionClient,
     now: Date,
@@ -511,15 +566,60 @@ function createSelectedAccountPolicy(
         responseBytes: accountModelCatalogResponseBytes,
       });
       let inferenceCleanupPending = false;
-      const remoteCurrent = async (budget: RequestControls) => {
+      const readCurrent = async (
+        budget: RequestControls,
+        requiredReasoningEffort?: "medium",
+        discoverReasoning = false,
+      ): Promise<{ readonly reasoningEffort?: "medium" } | null> => {
+        let phase: ConversationCurrentnessFailure["phase"] =
+          "initial_selection";
+        const fail = (
+          reason: ConversationCurrentnessFailure["reason"],
+          error?: unknown,
+        ): null => {
+          const gatewayCode =
+            error instanceof GatewayError &&
+            [
+              "invalid_input",
+              "transport",
+              "invalid_response",
+              "cancelled",
+              "safe_error",
+            ].includes(error.code)
+              ? error.code
+              : undefined;
+          const httpStatus =
+            error instanceof GatewayError &&
+            typeof error.httpStatus === "number" &&
+            Number.isInteger(error.httpStatus) &&
+            error.httpStatus >= 100 &&
+            error.httpStatus <= 599
+              ? error.httpStatus
+              : undefined;
+          try {
+            void Promise.resolve(
+              input.onCurrentnessFailure?.({
+                processingId,
+                phase,
+                reason,
+                ...(gatewayCode ? { gatewayCode } : {}),
+                ...(httpStatus !== undefined ? { httpStatus } : {}),
+              }),
+            ).catch(() => {});
+          } catch {
+            /* Diagnostics cannot change currentness authority. */
+          }
+          return null;
+        };
         try {
+          if (inferenceCleanupPending) return fail("cleanup_pending");
+          if (budget.signal?.aborted) return fail("aborted");
+          if (Date.now() >= budget.deadlineAt.getTime())
+            return fail("deadline");
           if (
-            inferenceCleanupPending ||
-            budget.signal?.aborted ||
-            Date.now() >= budget.deadlineAt.getTime() ||
             conversationDigest(await capture()) !== conversationDigest(selected)
           )
-            return false;
+            return fail("selection_changed");
           const owner = selected.selection!.connection.owner;
           const ownerRef = `${owner.kind === "user" ? "rru" : "rrw"}_${createHash(
             "sha256",
@@ -530,6 +630,7 @@ function createSelectedAccountPolicy(
                 : `rr-workspace-owner-v1\0${owner.workspaceId}`,
             )
             .digest("hex")}`;
+          phase = "account";
           const account = await control.get(
             selected.binding.gatewayAccountRef,
             budget.signal ? { signal: budget.signal } : {},
@@ -543,43 +644,77 @@ function createSelectedAccountPolicy(
               account.authorizationEpoch !==
                 selected.binding.expectedAuthorizationEpoch)
           )
-            return false;
-          if (!profile[0]!.profile.modelIds.includes(selected.provider.model)) {
-            const discoverySource = profile[0]!.profile.authKinds
-              .map((authKind) =>
-                c.accountModelDiscoverySource({
-                  profileId: profile[0]!.profile.profileId,
-                  protocol: profile[0]!.profile.protocol,
-                  authKind,
-                }),
-              )
-              .find((source) => source !== undefined);
-            if (!discoverySource) return false;
-            const models = await control.readAccountModels(
-              {
-                ownerRef,
-                accountRef: selected.binding.gatewayAccountRef,
-                profileId: selected.binding.profileRef,
-                expectedAuthorizationEpoch: account.authorizationEpoch,
-              },
-              budget.signal ? { signal: budget.signal } : {},
-            );
-            if (
-              models.status !== "snapshot" ||
-              models.source !== discoverySource ||
-              Date.parse(models.fetchedAt) > Date.now() ||
-              Date.parse(models.expiresAt) <= Date.now() ||
-              !models.models.some(
-                (model) => model.modelId === selected.provider.model,
-              )
-            )
-              return false;
-          }
-          return (
-            conversationDigest(await capture()) === conversationDigest(selected)
+            return fail("account_changed");
+          const dynamicModel = !profile[0]!.profile.modelIds.includes(
+            selected.provider.model,
           );
-        } catch {
-          return false;
+          const discoverySource = profile[0]!.profile.authKinds
+            .map((authKind) =>
+              c.accountModelDiscoverySource({
+                profileId: profile[0]!.profile.profileId,
+                protocol: profile[0]!.profile.protocol,
+                authKind,
+              }),
+            )
+            .find((source) => source !== undefined);
+          let selectedModel: c.AccountModelCapability | undefined;
+          let catalogError: unknown;
+          let usableCatalog = false;
+          if (
+            discoverySource &&
+            (dynamicModel || requiredReasoningEffort || discoverReasoning)
+          ) {
+            phase = "catalog";
+            try {
+              const models = await control.readAccountModels(
+                {
+                  ownerRef,
+                  accountRef: selected.binding.gatewayAccountRef,
+                  profileId: selected.binding.profileRef,
+                  expectedAuthorizationEpoch: account.authorizationEpoch,
+                },
+                budget.signal ? { signal: budget.signal } : {},
+              );
+              if (
+                models.status === "snapshot" &&
+                models.source === discoverySource &&
+                Date.parse(models.fetchedAt) <= Date.now() &&
+                Date.parse(models.expiresAt) > Date.now()
+              ) {
+                usableCatalog = true;
+                selectedModel = models.models.find(
+                  (model) => model.modelId === selected.provider.model,
+                );
+              }
+            } catch (error) {
+              catalogError = error;
+              // A pinned static model retains its existing default when optional
+              // reasoning metadata is unavailable. Dynamic membership stays required.
+            }
+          }
+          if (dynamicModel && !selectedModel)
+            return fail(
+              usableCatalog ? "selected_model_missing" : "catalog_unavailable",
+              catalogError,
+            );
+          const reasoningEffort = selectedModel?.reasoning?.allowed.includes(
+            "medium",
+          )
+            ? ("medium" as const)
+            : undefined;
+          if (
+            requiredReasoningEffort &&
+            reasoningEffort !== requiredReasoningEffort
+          )
+            return fail("required_effort_unavailable", catalogError);
+          phase = "final_selection";
+          if (
+            conversationDigest(await capture()) !== conversationDigest(selected)
+          )
+            return fail("selection_changed");
+          return reasoningEffort ? { reasoningEffort } : {};
+        } catch (error) {
+          return fail("unavailable", error);
         }
       };
       const original = configuredLimits[0]!.limits;
@@ -592,11 +727,19 @@ function createSelectedAccountPolicy(
           relay.ingressBytes,
         ),
         outputBytes: Math.min(262_144, original.outputBytes),
-        tokens: Math.min(2048, original.tokens, profile[0]!.outputTokens),
+        tokens: Math.min(8192, original.tokens, profile[0]!.outputTokens),
       });
+      const capability = await readCurrent(controls, undefined, true);
+      if (!capability) throw new ConversationError("unavailable");
+      const reasoningEffort = capability.reasoningEffort;
+      // The first authoritative catalog capture fixes this request's intent;
+      // later checks may revoke medium support, but never upgrade omitted effort.
+      const remoteCurrent = async (budget: RequestControls) =>
+        (await readCurrent(budget, reasoningEffort)) !== null;
       const bindingManifest = {
         ...selected.binding,
         model: selected.provider.model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         configurationDigest: selected.configurationDigest,
         ...(mode.kind === "qualified"
           ? {
@@ -620,8 +763,6 @@ function createSelectedAccountPolicy(
         limits,
         deadline: controls.deadlineAt.toISOString(),
       };
-      if (!(await remoteCurrent(controls)))
-        throw new ConversationError("unavailable");
       const inference = createConversationGatewayInference({
         control,
         connectExecution: executionConnector({ origin }),
@@ -638,6 +779,7 @@ function createSelectedAccountPolicy(
           deadline: controls.deadlineAt.toISOString(),
         },
         model: selected.provider.model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(selected.binding.expectedAuthorizationEpoch !== undefined
           ? {
               expectedAuthorizationEpoch:
@@ -676,7 +818,44 @@ function createSelectedAccountPolicy(
             }),
           ),
         async onObserved(value) {
-          inferenceCleanupPending = value.cleanup === "pending";
+          const cleanupPending = value.cleanup === "pending";
+          // A logical close does not settle an interrupted dispatch or its physical transport.
+          inferenceCleanupPending =
+            cleanupPending ||
+            ![
+              "completed",
+              "not_dispatched",
+              "rejected_before_dispatch",
+            ].includes(value.effect);
+          // Diagnostic observers cannot alter settlement or publication authority.
+          if (
+            (value.failureCode === null ||
+              inferenceFailureCodes.has(value.failureCode)) &&
+            typeof value.executionKnown === "boolean" &&
+            [
+              "not_dispatched",
+              "rejected_before_dispatch",
+              "dispatch_started",
+              "response_started",
+              "completed",
+              "effect_unknown",
+            ].includes(value.effect) &&
+            ["not_needed", "closed", "pending"].includes(value.cleanup)
+          ) {
+            try {
+              void Promise.resolve(
+                input.onInferenceObserved?.({
+                  processingId,
+                  failureCode: value.failureCode,
+                  executionKnown: value.executionKnown,
+                  effect: value.effect,
+                  cleanup: value.cleanup,
+                }),
+              ).catch(() => {});
+            } catch {
+              /* Diagnostics never change the original outcome. */
+            }
+          }
           await input.prisma.conversationProcessing.updateMany({
             where: {
               id: processingId,
@@ -686,9 +865,7 @@ function createSelectedAccountPolicy(
             data: {
               observedModel: value.model,
               ...(value.usage ? { observedUsage: value.usage } : {}),
-              requestEffect: inferenceCleanupPending
-                ? "cleanup_pending"
-                : value.effect,
+              requestEffect: cleanupPending ? "cleanup_pending" : value.effect,
             },
           });
         },
@@ -706,6 +883,7 @@ function createSelectedAccountPolicy(
         contextWindowTokens: modelQualification[0]!.contextWindowTokens,
         tokensPerByteUpperBound: modelQualification[0]!.tokensPerByteUpperBound,
         maxInputBytes: limits.requestBytes,
+        maxOutputTokens: limits.tokens,
         inference,
         bindingManifest,
         isCurrent: remoteCurrent,

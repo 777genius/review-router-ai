@@ -53,11 +53,11 @@ test("all fixed corpora retain separate immutable inventories and nonleaking pro
       pairs: 8,
     },
     "full-thread-v2": {
-      threads: 16,
-      events: 50,
-      tuning: 10,
+      threads: 22,
+      events: 69,
+      tuning: 16,
       holdout: 6,
-      pairs: 4,
+      pairs: 6,
     },
     "multilingual-v1": {
       threads: 10,

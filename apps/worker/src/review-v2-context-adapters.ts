@@ -586,7 +586,9 @@ export function reviewSnapshotSourceCoverage(
     artifact.coverageState !== ReviewCoverageState.Completed ||
     (artifact.projectionPolicyVersion !== "review-projection-policy.v5-t0" &&
       artifact.projectionPolicyVersion !==
-        "review-projection-policy.v6-comparison")
+        "review-projection-policy.v6-comparison" &&
+      artifact.projectionPolicyVersion !==
+        "review-projection-policy.v7-lifecycle-verification")
   ) {
     return artifact.coverageState;
   }

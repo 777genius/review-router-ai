@@ -2,6 +2,7 @@ export * from "./domain/memory-actor";
 export * from "./domain/memory-knowledge";
 export * from "./domain/memory-body";
 export * from "./application/memory-cleanup-policy";
+export * from "./application/memory-native-startup";
 export * from "./domain/memory-bundle-policy";
 export * from "./domain/memory-safety-policy";
 export * from "./domain/memory-scope-policy";

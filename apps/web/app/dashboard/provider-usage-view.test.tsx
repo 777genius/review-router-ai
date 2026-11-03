@@ -256,6 +256,105 @@ describe("provider usage interactive report", () => {
       screen.getByRole("table", { name: "Review run usage" }).textContent,
     ).toContain("entire-period-run");
   });
+  it.each([
+    ["run", "runAfter", "run-page"],
+    ["observation", "after", "observation-page"],
+  ] as const)(
+    "returns from a failed %s page without changing the selected report",
+    async (kind, key, cursor) => {
+      const calls: UsageFilters[] = [];
+      vi.mocked(fetchProviderUsage).mockImplementation(
+        async (_workspace, filters) => {
+          calls.push(filters);
+          if (filters[key] === cursor) throw new ProviderUsageError(503);
+          return report;
+        },
+      );
+      render(<Harness />);
+      change("Period", "custom");
+      change("Requested model", "requested-alpha");
+      await screen.findByRole("table", { name: "Requested model usage" });
+      change("Cost currency", "EUR");
+      if (kind === "run")
+        fireEvent.click(screen.getByRole("tab", { name: "Runs" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: `Next ${kind} page` }),
+      );
+      await waitFor(
+        () =>
+          expect(screen.getByRole("alert").textContent).toContain(
+            "Usage report unavailable",
+          ),
+        { timeout: 5_000 },
+      );
+      expect(screen.queryByLabelText("Period usage summary")).toBeNull();
+      fireEvent.click(
+        screen.getByRole("button", { name: `Previous ${kind} page` }),
+      );
+      await screen.findByLabelText("Period usage summary");
+      expect(calls.at(-1)).toEqual({
+        ...initialFilters,
+        model: "requested-alpha",
+      });
+      expect(screen.getByRole("definition", { name: "1,000" })).toBeTruthy();
+      expect((screen.getByLabelText("Period") as HTMLSelectElement).value).toBe(
+        "custom",
+      );
+      expect(
+        (screen.getByLabelText("Cost currency") as HTMLSelectElement).value,
+      ).toBe("EUR");
+      expect(
+        screen.queryByRole("button", { name: `Previous ${kind} page` }),
+      ).toBeNull();
+    },
+  );
+  it("keeps run and observation page histories independent and clears them on a filter change", async () => {
+    const calls: UsageFilters[] = [];
+    vi.mocked(fetchProviderUsage).mockImplementation(
+      async (_workspace, filters) => {
+        calls.push(filters);
+        return report;
+      },
+    );
+    render(<Harness />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Next observation page" }),
+    );
+    await screen.findByRole("table", { name: "Requested model usage" });
+    fireEvent.click(screen.getByRole("tab", { name: "Runs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next run page" }));
+    await screen.findByRole("table", { name: "Review run usage" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Previous observation page" }),
+    );
+    await waitFor(() =>
+      expect(calls.at(-1)).toEqual({ ...initialFilters, runAfter: "run-page" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Previous observation page" }),
+    ).toBeNull();
+    await screen.findByRole("table", { name: "Review run usage" });
+    fireEvent.click(screen.getByRole("button", { name: "Previous run page" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Previous run page" }),
+      ).toBeNull(),
+    );
+    expect(
+      client.getQueryData(providerUsageKey(usageScope, initialFilters)),
+    ).toEqual(report);
+    fireEvent.click(screen.getByRole("button", { name: "Next run page" }));
+    await screen.findByRole("table", { name: "Review run usage" });
+    change("Requested model", "requested-alpha");
+    await screen.findByRole("table", { name: "Review run usage" });
+    expect(
+      screen.queryByRole("button", { name: /Previous .* page/ }),
+    ).toBeNull();
+    expect(calls.at(-1)).toEqual({
+      ...initialFilters,
+      model: "requested-alpha",
+    });
+  });
   it("clears both cursors on filters, resets requested model on provider change, and aborts obsolete requests", async () => {
     const calls: { filters: UsageFilters; signal: AbortSignal }[] = [];
     vi.mocked(fetchProviderUsage).mockImplementation(

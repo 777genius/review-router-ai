@@ -87,6 +87,59 @@ credential ephemerally as
 
 ## Commands
 
+### Confirm an already installed Gateway caller
+
+The same genuine config-operator profile can confirm an existing canonical
+Gateway caller only when the API also has an explicit repository-scoped grant:
+
+```text
+reviewrouter repositories confirm-installed --workspace WORKSPACE_ID --repo OWNER/REPO --confirm OWNER/REPO
+```
+
+Configure `REVIEW_ROUTER_WORKFLOW_PROVISIONING_OPERATOR_GRANTS_JSON` on the API
+as a strict JSON array, for example:
+
+```json
+[
+  {
+    "operatorId": "reviewrouter-operator",
+    "permission": "confirm_installed_gateway_workflow",
+    "ownerGitHubUserId": "12345",
+    "workspaceId": "WORKSPACE_ID",
+    "repositoryIds": ["REPOSITORY_ID"]
+  }
+]
+```
+
+This is a permission manifest, not a credential or feature flag. Without it the
+new route is unavailable; the existing credential alone does not grant this
+operation. Each entry admits at most 16 exact repository IDs, and at most 16
+entries are allowed. Unknown fields, wildcard/empty scopes, duplicate repository
+selectors and noncanonical numeric owner IDs reject. Existing config operations
+are unchanged. Activate only the approved owner/workspace/repository grant.
+
+The API resolves that GitHub owner to the real app user and checks current owner
+membership or the actual personal-workspace owner plus `workflow_provisioning`
+entitlement. Admin membership alone does not authorize this operation. The audit
+actor remains the operator; the delegated owner is metadata, never a forged login.
+The application rechecks authority, immutable setup/policy/account/SCM binding
+versions and pinned live caller facts before its operational phases.
+
+Only a selected, unarchived GitHub repository with an existing canonical Gateway
+caller is eligible. Other transports, legacy callers, incompatible authority or
+explicitly disabled safety policies remain blocked. The command creates no PR,
+commit, caller, workflow dispatch or model request, and changes no provider policy.
+It can enroll the five missing repository safety policies and confirm the normal
+mutation/setup authority, retaining a durable pre-effect attempt audit. A partial
+result must be reconciled through the same command and original application
+state; it is never proof of no effects. Ready is returned only after confirmation
+and readiness readback. `WorkflowProvisioning.status` is authoritative; this
+operation does not promise a write to the legacy repository `setupStatus` column.
+
+Responses contain selected nonsecret confirmation facts. Blocked/conflict results
+and HTTP failures exit nonzero. No V2 operator credential, Web secret copy, direct
+SQL/grant/migration, NextAuth session or execution capability is involved.
+
 Read the effective repository, workspace, or global-default result:
 
 ```bash

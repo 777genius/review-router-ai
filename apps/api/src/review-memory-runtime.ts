@@ -27,6 +27,7 @@ import {
   type ReviewRunAuthorization,
 } from "@reviewrouter/features-review-run-control";
 import {
+  renderConversationMemoryPrompt,
   renderReviewMemoryPrompt,
   reviewMemoryBinding,
   reviewMemorySnapshotHash,
@@ -325,6 +326,7 @@ export async function captureAuthorizedMemoryContext(
     readonly scopes: readonly MemoryKnowledgeScope[];
     readonly contextPolicy: MemoryContextPolicy;
     readonly snapshotNotAfter?: Date;
+    readonly query?: string;
   },
   controls: MemoryRequestControls,
 ) {
@@ -333,6 +335,7 @@ export async function captureAuthorizedMemoryContext(
       actor: input.actor,
       scopes: input.scopes,
       query:
+        input.query ??
         "Approved repository review conventions and maintained project knowledge",
       limitPerScope: 6,
       contextPolicy: input.contextPolicy,
@@ -351,7 +354,14 @@ export async function captureAuthorizedMemoryContext(
       }),
     )
     .slice(0, 12);
-  const text = items.length ? renderReviewMemoryPrompt({ items }) : "";
+  const conversationOnly =
+    input.contextPolicy.allowedTasks.length === 1 &&
+    input.contextPolicy.allowedTasks[0] === "conversation";
+  const text = items.length
+    ? (conversationOnly
+        ? renderConversationMemoryPrompt
+        : renderReviewMemoryPrompt)({ items })
+    : "";
   return {
     bundle,
     receipt,

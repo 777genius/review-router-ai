@@ -6,12 +6,15 @@ import {
   type ReviewScmPullRequestPointer,
 } from "../../application/ports/review-scm-revision-ports";
 
-type OctokitRequester = {
-  request(
+type OctokitRequest = {
+  (
     route: string,
     parameters?: Readonly<Record<string, unknown>>,
   ): Promise<{ readonly data: unknown }>;
+  defaults(options: Readonly<Record<string, unknown>>): OctokitRequest;
 };
+type OctokitRequester = { request: OctokitRequest };
+const revisionReadTimeoutMs = 15_000;
 
 export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSourcePort {
   private readonly app: App;
@@ -28,9 +31,9 @@ export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSo
       GitHubReviewRevisionSourcePort["findPullRequestNumbersForRun"]
     >[0],
   ): Promise<readonly number[]> {
-    const octokit = await this.installationOctokit(input.githubInstallationId);
     try {
-      const response = await octokit.request(
+      const response = await this.request(
+        input.githubInstallationId,
         "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
         {
           owner: input.owner,
@@ -50,9 +53,9 @@ export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSo
       GitHubReviewRevisionSourcePort["loadPullRequestPointer"]
     >[0],
   ): Promise<ReviewScmPullRequestPointer | null> {
-    const octokit = await this.installationOctokit(input.githubInstallationId);
     try {
-      const response = await octokit.request(
+      const response = await this.request(
+        input.githubInstallationId,
         "GET /repos/{owner}/{repo}/pulls/{pull_number}",
         {
           owner: input.owner,
@@ -72,9 +75,9 @@ export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSo
       GitHubReviewRevisionSourcePort["resolveOfficialMergeBase"]
     >[0],
   ): Promise<ReviewScmMergeBaseResult> {
-    const octokit = await this.installationOctokit(input.githubInstallationId);
     try {
-      const response = await octokit.request(
+      const response = await this.request(
+        input.githubInstallationId,
         "GET /repos/{owner}/{repo}/compare/{basehead}",
         {
           owner: input.owner,
@@ -95,6 +98,38 @@ export class OctokitGitHubReviewRevisionSource implements GitHubReviewRevisionSo
         return { status: ReviewScmMergeBaseStatus.Unavailable };
       }
       throw error;
+    }
+  }
+
+  private async request(
+    githubInstallationId: string,
+    route: string,
+    parameters: Readonly<Record<string, unknown>>,
+  ): Promise<{ readonly data: unknown }> {
+    const signal = AbortSignal.timeout(revisionReadTimeoutMs);
+    let aborted!: () => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      aborted = () => reject(new Error("github_review_revision_read_timeout"));
+      signal.addEventListener("abort", aborted, { once: true });
+      if (signal.aborted) aborted();
+    });
+    try {
+      const work = (async () => {
+        const octokit = await this.installationOctokit(githubInstallationId);
+        if (signal.aborted)
+          throw new Error("github_review_revision_read_timeout");
+        // auth-app derives its cold installation-token POST from these request
+        // defaults. Endpoint-only options would leave that POST unbounded.
+        const request = octokit.request.defaults({
+          request: { signal, timeout: revisionReadTimeoutMs },
+        });
+        return await request(route, parameters);
+      })();
+      // Also bound auth-app's internal replication backoff, which is not itself
+      // signal-aware. Its underlying HTTP still receives the same cancellation.
+      return await Promise.race([work, cancelled]);
+    } finally {
+      signal.removeEventListener("abort", aborted);
     }
   }
 

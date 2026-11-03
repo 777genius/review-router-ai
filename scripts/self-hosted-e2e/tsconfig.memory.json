@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "allowImportingTsExtensions": true },
+  "include": [
+    "disposable-temp-cleanup.ts",
+    "disposable-temp-cleanup.test.ts",
+    "native-memory-install.ts",
+    "native-memory-install.test.ts",
+    "runner-lifecycle.test.ts",
+    "native-memory-storage.ts",
+    "settle-memory-command.ts",
+    "settle-memory-command.test.ts"
+  ]
+}
