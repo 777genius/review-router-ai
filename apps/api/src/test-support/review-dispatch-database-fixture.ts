@@ -10,7 +10,7 @@ import {
 import { PrismaReviewRunCompanionDispatchRepository } from "@reviewrouter/features-review-run-control/composition";
 import { ReviewInvocationLeasePurpose } from "@reviewrouter/features-review-executions";
 import { PrismaReviewExecutionStore } from "@reviewrouter/features-review-executions/composition";
-import type { ReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
+import type { ReviewModelDispatchProfile } from "@reviewrouter/shared";
 const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 const limits: ReviewProtocolLimits = {
@@ -47,7 +47,7 @@ export async function createReviewDispatchDatabaseFixture(
   prefix: string,
   options: {
     runtimeSnapshotCanonicalJson?: string;
-    modelDispatchProfile?: ReviewModelDispatchProfileV2;
+    modelDispatchProfile?: ReviewModelDispatchProfile;
     skipInitialLease?: boolean;
     sourceRunId?: string;
     reviewRevisionHash?: string;

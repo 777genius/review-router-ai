@@ -5,7 +5,7 @@ import {
   parseReviewAgentProfiles,
   parseProducerReviewerPlanProfile,
 } from "@reviewrouter/features-review-run-control";
-import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
+import { parseReviewModelDispatchProfile } from "@reviewrouter/shared";
 import { assertReviewModelDispatchDefaultAgents } from "@reviewrouter/shared/review-model-dispatch-default-agents";
 import {
   createRepositoryReleaseSelector,
@@ -1394,7 +1394,7 @@ export function parseReviewV2ReleaseBundleCandidate(
 
   const agentProfiles = parseReviewAgentProfiles(input.agentProfiles);
   const modelDispatchProfile = hasModelDispatchProfile
-    ? parseReviewModelDispatchProfileV2(input.modelDispatchProfile)
+    ? parseReviewModelDispatchProfile(input.modelDispatchProfile)
     : null;
   if (modelDispatchProfile)
     assertReviewModelDispatchDefaultAgents(modelDispatchProfile, agentProfiles);

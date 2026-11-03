@@ -18,13 +18,13 @@ import {
 import {
   reviewModelTransports,
   selectReviewModelRoutePolicy,
-  type ReviewModelDispatchProfileV2,
+  type ReviewModelDispatchProfile,
   type ReviewModelTransport,
 } from "@reviewrouter/shared";
 
 /** Exact registered releases for the new behavior, never the old admission overlap list. */
 export type DashboardRuntimeRelease = Readonly<{
-  modelDispatchProfile: ReviewModelDispatchProfileV2;
+  modelDispatchProfile: ReviewModelDispatchProfile;
   agentProfiles: readonly ReviewAgentProfile[] | null;
   /** Routes whose actual provisioning/default-producer config selects this SHA. */
   provisioningTransports: readonly ReviewModelTransport[];

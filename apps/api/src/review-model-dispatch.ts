@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   ReviewRunAuthorizationTokenResolutionStatus,
   ReviewRunCompanionDispatchFailure,
+  parseReviewRunRuntimeSnapshot,
   type ManageReviewRunAuthorizations,
   type ReviewRunCompanionDispatch,
   type ReviewRunModelDispatchAdmission,
@@ -9,6 +10,7 @@ import {
 } from "@reviewrouter/features-review-run-control";
 import {
   parseReviewModelDispatchClaimV2,
+  parseReviewModelDispatchClaimForCapability,
   parseReviewModelDispatchSettlementV2,
   reviewModelDispatchContract,
   type ReviewModelDispatchReadbackV2,
@@ -155,7 +157,12 @@ export async function registerReviewModelDispatchRoutes(
             409,
           );
         context.phase = "body";
-        const claim = parseReviewModelDispatchClaimV2(request.body);
+        const capability = parseReviewRunRuntimeSnapshot(
+          authorization.runtimeSnapshotCanonicalJson,
+        )?.modelDispatchCapability;
+        const claim = capability
+          ? parseReviewModelDispatchClaimForCapability(request.body, capability)
+          : parseReviewModelDispatchClaimV2(request.body);
         context.phase = "admission";
         const result = await api.admission.claim(
           authorization,
