@@ -582,6 +582,42 @@ test("provider usage overview keeps complete period totals, charts, models and r
     }
     await usage.getByRole("tab", { name: "Runs", exact: true }).click();
     await expectBreakdownCount(usage, "runs", 100);
+    const runRowsBeforeFailure = await usageBreakdown(
+      usage,
+      "runs",
+    ).textContent();
+    await page.route("**/api/dashboard/provider-usage?**", async (route) => {
+      if (new URL(route.request().url()).searchParams.has("runAfter"))
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: "{}",
+        });
+      else await route.fallback();
+    });
+    await usage
+      .getByRole("button", { name: "Next run page", exact: true })
+      .click();
+    await expect(usage.getByRole("alert")).toContainText(
+      "Usage report unavailable",
+    );
+    await page.screenshot({
+      path: info.outputPath("usage-run-page-error.png"),
+      fullPage: true,
+    });
+    await usage
+      .getByRole("button", { name: "Previous run page", exact: true })
+      .click();
+    await expectBreakdownCount(usage, "runs", 100);
+    expect(await usageBreakdown(usage, "runs").textContent()).toBe(
+      runRowsBeforeFailure,
+    );
+    await expect(kpi("Known tokens")).toContainText("858");
+    await page.screenshot({
+      path: info.outputPath("usage-run-page-recovered.png"),
+      fullPage: true,
+    });
+    await page.unroute("**/api/dashboard/provider-usage?**");
     await usage
       .getByRole("button", { name: "Next run page", exact: true })
       .click();
@@ -702,6 +738,47 @@ test("provider usage overview keeps complete period totals, charts, models and r
         .getByRole("table", { name: "Usage observations", exact: true })
         .getByRole("row"),
     ).toHaveCount(101);
+    const observationRowsBeforeFailure = await usage
+      .getByRole("table", { name: "Usage observations", exact: true })
+      .textContent();
+    await page.route("**/api/dashboard/provider-usage?**", async (route) => {
+      if (new URL(route.request().url()).searchParams.has("after"))
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: "{}",
+        });
+      else await route.fallback();
+    });
+    await usage
+      .getByRole("button", { name: "Next observation page", exact: true })
+      .click();
+    await expect(usage.getByRole("alert")).toContainText(
+      "Usage report unavailable",
+    );
+    await page.screenshot({
+      path: info.outputPath("usage-observation-page-error.png"),
+      fullPage: true,
+    });
+    await usage
+      .getByRole("button", { name: "Previous observation page", exact: true })
+      .click();
+    await expect(
+      usage
+        .getByRole("table", { name: "Usage observations", exact: true })
+        .getByRole("row"),
+    ).toHaveCount(101);
+    expect(
+      await usage
+        .getByRole("table", { name: "Usage observations", exact: true })
+        .textContent(),
+    ).toBe(observationRowsBeforeFailure);
+    await expect(kpi("Known tokens")).toContainText("858");
+    await page.screenshot({
+      path: info.outputPath("usage-observation-page-recovered.png"),
+      fullPage: true,
+    });
+    await page.unroute("**/api/dashboard/provider-usage?**");
     await usage
       .getByRole("button", { name: "Next observation page", exact: true })
       .click();
@@ -884,10 +961,12 @@ test("provider usage overview keeps complete period totals, charts, models and r
     expect(await forbidden.json()).toEqual({ error: "usage_access_denied" });
     await page.reload();
     await expect(kpi("Known tokens")).toContainText("50");
+    // This plain anchor can cold-compile Support; use the harness navigation
+    // budget for its automatic navigation wait, retaining all destination checks.
     await page
       .getByRole("contentinfo", { name: "Dashboard footer", exact: true })
       .getByRole("link", { name: "Support", exact: true })
-      .click();
+      .click({ timeout: 30_000 });
     await expect(page).toHaveURL(/\/support$/);
     await expect(
       page.getByRole("contentinfo", { name: "Dashboard footer", exact: true }),

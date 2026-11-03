@@ -124,7 +124,7 @@ describe("review completion processes", () => {
     expect(fixture.snapshots.commitCalls).toBe(0);
   });
 
-  it("never advances snapshot when finalized coverage conflicts after publication", async () => {
+  it("terminalizes published partial coverage already awaiting snapshot without repeating publication", async () => {
     const fixture = await createFixture("coverage-conflict");
     fixture.publications.seed(
       publication("coverage-conflict", {
@@ -148,10 +148,82 @@ describe("review completion processes", () => {
         ownerIdHash: "worker-b",
       }),
     ).resolves.toMatchObject({
-      status: AdvanceReviewCompletionProcessStatus.RetryDue,
-      process: { state: ReviewCompletionProcessState.AwaitingSnapshot },
+      status: AdvanceReviewCompletionProcessStatus.PartialCompleted,
+      process: {
+        state: ReviewCompletionProcessState.PartialCompleted,
+        nextActionAt: null,
+        snapshotCommitReceiptId: null,
+        lastSafeReason: ReviewCompletionSafeReason.PartialCoveragePublished,
+      },
     });
     expect(fixture.snapshots.commitCalls).toBe(0);
+    expect(fixture.publications.requestCalls).toBe(0);
+    fixture.clock.advance(60_000);
+    expect(
+      await fixture.advance.execute({
+        executionId: "coverage-conflict",
+        ownerIdHash: "worker-c",
+      }),
+    ).toMatchObject({
+      status: AdvanceReviewCompletionProcessStatus.PartialCompleted,
+    });
+    expect(fixture.snapshots.commitCalls).toBe(0);
+    expect(fixture.publications.requestCalls).toBe(0);
+  });
+
+  it.each([
+    {
+      outcome: ReviewCompletionPublicationOutcome.TerminalUnknown,
+      publicationAttemptId: "publication-partial-publication-unknown",
+      status: AdvanceReviewCompletionProcessStatus.BlockedPublicationUnknown,
+      state: ReviewCompletionProcessState.BlockedPublicationUnknown,
+      reason: ReviewCompletionSafeReason.PublicationTerminalUnknown,
+    },
+    {
+      outcome: ReviewCompletionPublicationOutcome.Succeeded,
+      publicationAttemptId: "publication-unavailable",
+      status: AdvanceReviewCompletionProcessStatus.RetryDue,
+      state: ReviewCompletionProcessState.AwaitingSnapshot,
+      reason: ReviewCompletionSafeReason.PublicationOutcomeUnavailable,
+    },
+  ])("guards partial recovery: $reason", async (expected) => {
+    const fixture = await createFixture("partial-publication-unknown");
+    fixture.publications.seed(
+      publication("partial-publication-unknown", {
+        state: ReviewCompletionPublicationState.Terminal,
+        effectiveOutcome: ReviewCompletionPublicationOutcome.Succeeded,
+      }),
+    );
+    await fixture.advance.execute({
+      executionId: "partial-publication-unknown",
+      ownerIdHash: "worker-a",
+    });
+    fixture.executions.seed({
+      executionId: "partial-publication-unknown",
+      finalizedArtifactId: "artifact-partial-publication-unknown",
+      coverage: ReviewExecutionCompletionCoverage.Partial,
+    });
+    fixture.publications.seed(
+      publication("partial-publication-unknown", {
+        publicationAttemptId: expected.publicationAttemptId,
+        state: ReviewCompletionPublicationState.Terminal,
+        effectiveOutcome: expected.outcome,
+      }),
+    );
+    await expect(
+      fixture.advance.execute({
+        executionId: "partial-publication-unknown",
+        ownerIdHash: "worker-b",
+      }),
+    ).resolves.toMatchObject({
+      status: expected.status,
+      process: {
+        state: expected.state,
+        lastSafeReason: expected.reason,
+      },
+    });
+    expect(fixture.snapshots.commitCalls).toBe(0);
+    expect(fixture.publications.requestCalls).toBe(0);
   });
 
   it("advances successful publication to a committed snapshot", async () => {

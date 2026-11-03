@@ -11,6 +11,8 @@ export function UsageDetails({
   report,
   controls,
   onNext,
+  onPrevious,
+  busy,
   selectedCurrency,
   bucket,
 }: {
@@ -18,6 +20,8 @@ export function UsageDetails({
   report: ProviderUsageReport;
   controls: ReactNode;
   onNext: () => void;
+  onPrevious?: (() => void) | undefined;
+  busy?: boolean | undefined;
   selectedCurrency?: string | undefined;
   bucket?: CostBucket | undefined;
 }) {
@@ -99,6 +103,8 @@ export function UsageDetails({
         <ObservationTable
           report={report}
           onNext={onNext}
+          onPrevious={onPrevious}
+          busy={busy}
           selectedCurrency={selectedCurrency}
         />
       </div>

@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -20,15 +19,21 @@ import {
   disposableReleaseMigrationRoleSql,
 } from "./self-hosted-e2e/disposable-release-role-fixture.mjs";
 
+import {
+  createDisposableTempDirectory,
+  captureDisposableTempCleanupImage,
+  cleanupDisposableTempDirectory,
+  disposableTempCleanupDiagnostic,
+} from "./self-hosted-e2e/disposable-temp-cleanup.ts";
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fetchHttp = globalThis.fetch;
 const composeFile = "deploy/self-hosted/compose.yml";
 const runSuffix = `${process.pid}-${Date.now().toString(36)}`.toLowerCase();
 const projectName = `reviewrouter-self-hosted-e2e-${runSuffix}`;
 const testDatabase = `review_router_test_${process.pid}_${Date.now()}`;
-const tempDirectory = mkdtempSync(
-  join(tmpdir(), "reviewrouter-self-hosted-e2e-"),
-);
+const ownedTempDirectory = createDisposableTempDirectory();
+const tempDirectory = ownedTempDirectory.path;
 const envFile = join(tempDirectory, "self-hosted.env");
 let investigationReleaseFixture;
 let composeTouched = false;
@@ -70,6 +75,7 @@ try {
     "--test",
     "scripts/self-hosted-e2e/native-memory-install.test.ts",
     "scripts/self-hosted-e2e/settle-memory-command.test.ts",
+    "scripts/self-hosted-e2e/disposable-temp-cleanup.test.ts",
   ]);
 
   memoryInstallStarted = true;
@@ -118,6 +124,7 @@ try {
     "startup-preflight",
   ]);
   const liveApiId = captureCompose(["ps", "--quiet", "api"]).trim();
+  captureDisposableTempCleanupImage(ownedTempDirectory, liveApiId, projectName);
   const liveApiState = JSON.parse(
     capture("docker", ["inspect", "--format", "{{json .State}}", liveApiId]),
   );
@@ -324,8 +331,16 @@ try {
   }
   if (!preserveFailedMemory && !cleanupFailures.length) {
     try {
-      rmSync(tempDirectory, { force: true, recursive: true });
-    } catch {
+      console.log(
+        JSON.stringify(
+          await cleanupDisposableTempDirectory(ownedTempDirectory),
+        ),
+      );
+    } catch (error) {
+      console.error(
+        `self_hosted_temp_cleanup_refused:${JSON.stringify(disposableTempCleanupDiagnostic(error))}`,
+      );
+      console.error(`self_hosted_private_evidence_retained:${tempDirectory}`);
       cleanupFailures.push("temporary_directory_removal");
     }
   } else

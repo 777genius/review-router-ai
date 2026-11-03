@@ -12,6 +12,7 @@ import {
 import { canonicalProviderJson } from "./codex-rotating-provider-provenance.mjs";
 import {
   codexRotatingCatalogTables,
+  codexRotatingPostAclWorkerInsertGuard,
   codexRotatingCatalogColumns,
   codexRotatingCatalogCheckNames,
   codexRotatingPrimaryKeys,
@@ -464,6 +465,7 @@ SELECT jsonb_build_object(
         WHERE n.nspname = current_schema()
           AND (
             p.proname LIKE 'codex_oauth_%'
+            OR p.proname = '${codexRotatingPostAclWorkerInsertGuard.function}'
             OR p.oid IN (
               SELECT t.tgfoid FROM pg_trigger t
               JOIN pg_class c ON c.oid = t.tgrelid
@@ -556,6 +558,7 @@ SELECT jsonb_build_object(
       WHERE n.nspname = current_schema()
         AND (
           p.proname LIKE 'codex_oauth_%'
+          OR p.proname = '${codexRotatingPostAclWorkerInsertGuard.function}'
           OR p.oid IN (
             SELECT t.tgfoid FROM pg_trigger t
             JOIN pg_class c ON c.oid = t.tgrelid
@@ -695,6 +698,7 @@ SELECT jsonb_build_object(
         WHERE n.nspname = current_schema()
           AND (
             p.proname LIKE 'codex_oauth_%'
+            OR p.proname = '${codexRotatingPostAclWorkerInsertGuard.function}'
             OR p.oid IN (
               SELECT t.tgfoid FROM pg_trigger t
               JOIN pg_class c ON c.oid = t.tgrelid

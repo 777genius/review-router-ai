@@ -62,7 +62,11 @@ const retainUntil = new Date("2026-08-22T12:00:00.000Z");
 
 describe("review v2 worker context adapters", () => {
   it("maps only a matching terminal execution and preserves partial coverage", async () => {
-    const completed = executionSnapshot();
+    const completed = executionSnapshot({
+      projectionPolicyVersion:
+        "review-projection-policy.v7-lifecycle-verification",
+      projectionCoverage: "complete",
+    });
     const adapter = new ReviewCompletionExecutionContextAdapter({
       findExecution: async () => completed,
     });
@@ -438,6 +442,7 @@ describe("review v2 worker context adapters", () => {
     for (const policy of [
       "review-projection-policy.v5-t0",
       "review-projection-policy.v6-comparison",
+      "review-projection-policy.v7-lifecycle-verification",
     ]) {
       // All required provider work completed, but OCR omitted lifecycle proof.
       // The canonical projection is partial and intentionally has no hints.

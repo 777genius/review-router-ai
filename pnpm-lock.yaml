@@ -943,6 +943,9 @@ importers:
 
   packages/features/provider-usage:
     dependencies:
+      '@agent-teams/account-gateway':
+        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
       '@get-modular/assembly':
         specifier: 0.7.0
         version: 0.7.0
