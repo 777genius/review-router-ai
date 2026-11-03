@@ -9,7 +9,10 @@ export {
   type ConversationQualification,
 } from "@reviewrouter/platform-config";
 import * as c from "@agent-teams/account-gateway/contracts";
-import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import {
+  createConsumerControlClient,
+  GatewayError,
+} from "@agent-teams/account-gateway/http";
 import { executionConnector } from "@agent-teams/account-gateway/llm";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
@@ -244,11 +247,35 @@ export type ConversationCapturedPolicy = {
   ) => Promise<boolean>;
 };
 
+export type ConversationCurrentnessFailure = {
+  readonly processingId: string;
+  readonly phase:
+    | "initial_selection"
+    | "account"
+    | "catalog"
+    | "final_selection";
+  readonly reason:
+    | "cleanup_pending"
+    | "aborted"
+    | "deadline"
+    | "selection_changed"
+    | "account_changed"
+    | "catalog_unavailable"
+    | "selected_model_missing"
+    | "required_effort_unavailable"
+    | "unavailable";
+  readonly gatewayCode?: GatewayError["code"];
+  readonly httpStatus?: number;
+};
+
 type ConversationPolicyConstruction = {
   readonly prisma: PrismaClient;
   readonly runtime: MemoryKnowledgeRuntime;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly onCaptured?: (value: ConversationCapturedPolicy) => void;
+  readonly onCurrentnessFailure?: (
+    value: ConversationCurrentnessFailure,
+  ) => void | Promise<void>;
   readonly admitMemory: (
     transaction: Prisma.TransactionClient,
     now: Date,
@@ -516,14 +543,55 @@ function createSelectedAccountPolicy(
         requiredReasoningEffort?: "medium",
         discoverReasoning = false,
       ): Promise<{ readonly reasoningEffort?: "medium" } | null> => {
+        let phase: ConversationCurrentnessFailure["phase"] =
+          "initial_selection";
+        const fail = (
+          reason: ConversationCurrentnessFailure["reason"],
+          error?: unknown,
+        ): null => {
+          const gatewayCode =
+            error instanceof GatewayError &&
+            [
+              "invalid_input",
+              "transport",
+              "invalid_response",
+              "cancelled",
+              "safe_error",
+            ].includes(error.code)
+              ? error.code
+              : undefined;
+          const httpStatus =
+            error instanceof GatewayError &&
+            typeof error.httpStatus === "number" &&
+            Number.isInteger(error.httpStatus) &&
+            error.httpStatus >= 100 &&
+            error.httpStatus <= 599
+              ? error.httpStatus
+              : undefined;
+          try {
+            void Promise.resolve(
+              input.onCurrentnessFailure?.({
+                processingId,
+                phase,
+                reason,
+                ...(gatewayCode ? { gatewayCode } : {}),
+                ...(httpStatus !== undefined ? { httpStatus } : {}),
+              }),
+            ).catch(() => {});
+          } catch {
+            /* Diagnostics cannot change currentness authority. */
+          }
+          return null;
+        };
         try {
+          if (inferenceCleanupPending) return fail("cleanup_pending");
+          if (budget.signal?.aborted) return fail("aborted");
+          if (Date.now() >= budget.deadlineAt.getTime())
+            return fail("deadline");
           if (
-            inferenceCleanupPending ||
-            budget.signal?.aborted ||
-            Date.now() >= budget.deadlineAt.getTime() ||
             conversationDigest(await capture()) !== conversationDigest(selected)
           )
-            return null;
+            return fail("selection_changed");
           const owner = selected.selection!.connection.owner;
           const ownerRef = `${owner.kind === "user" ? "rru" : "rrw"}_${createHash(
             "sha256",
@@ -534,6 +602,7 @@ function createSelectedAccountPolicy(
                 : `rr-workspace-owner-v1\0${owner.workspaceId}`,
             )
             .digest("hex")}`;
+          phase = "account";
           const account = await control.get(
             selected.binding.gatewayAccountRef,
             budget.signal ? { signal: budget.signal } : {},
@@ -547,7 +616,7 @@ function createSelectedAccountPolicy(
               account.authorizationEpoch !==
                 selected.binding.expectedAuthorizationEpoch)
           )
-            return null;
+            return fail("account_changed");
           const dynamicModel = !profile[0]!.profile.modelIds.includes(
             selected.provider.model,
           );
@@ -561,10 +630,13 @@ function createSelectedAccountPolicy(
             )
             .find((source) => source !== undefined);
           let selectedModel: c.AccountModelCapability | undefined;
+          let catalogError: unknown;
+          let usableCatalog = false;
           if (
             discoverySource &&
             (dynamicModel || requiredReasoningEffort || discoverReasoning)
           ) {
+            phase = "catalog";
             try {
               const models = await control.readAccountModels(
                 {
@@ -580,16 +652,23 @@ function createSelectedAccountPolicy(
                 models.source === discoverySource &&
                 Date.parse(models.fetchedAt) <= Date.now() &&
                 Date.parse(models.expiresAt) > Date.now()
-              )
+              ) {
+                usableCatalog = true;
                 selectedModel = models.models.find(
                   (model) => model.modelId === selected.provider.model,
                 );
-            } catch {
+              }
+            } catch (error) {
+              catalogError = error;
               // A pinned static model retains its existing default when optional
               // reasoning metadata is unavailable. Dynamic membership stays required.
             }
           }
-          if (dynamicModel && !selectedModel) return null;
+          if (dynamicModel && !selectedModel)
+            return fail(
+              usableCatalog ? "selected_model_missing" : "catalog_unavailable",
+              catalogError,
+            );
           const reasoningEffort = selectedModel?.reasoning?.allowed.includes(
             "medium",
           )
@@ -599,14 +678,15 @@ function createSelectedAccountPolicy(
             requiredReasoningEffort &&
             reasoningEffort !== requiredReasoningEffort
           )
-            return null;
+            return fail("required_effort_unavailable", catalogError);
+          phase = "final_selection";
           if (
             conversationDigest(await capture()) !== conversationDigest(selected)
           )
-            return null;
+            return fail("selection_changed");
           return reasoningEffort ? { reasoningEffort } : {};
-        } catch {
-          return null;
+        } catch (error) {
+          return fail("unavailable", error);
         }
       };
       const original = configuredLimits[0]!.limits;

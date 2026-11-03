@@ -46,6 +46,7 @@ import {
   createConversationCandidatePolicy,
   conversationCandidateMemoryPolicy,
   type ConversationCapturedPolicy,
+  type ConversationCurrentnessFailure,
   type ConversationOperationalModelBounds,
 } from "../../apps/api/src/action-conversation-policy.js";
 import { createConversationCandidateMemoryPreview } from "../../apps/api/src/action-conversation-candidate.js";
@@ -170,6 +171,7 @@ export type Witness = {
   gatewayPreviewLatencyMs?: number;
   /** Actual parent SDK cleanup observation, never inferred from a missing child call. */
   gatewayParentCleanupPending?: boolean;
+  gatewayCurrentnessFailure?: ConversationCurrentnessFailure | null;
   gatewayPreviewReceipt?: {
     processingId: string;
     observedModel: string | null;
@@ -305,6 +307,7 @@ export async function createEvaluationFixture(input: {
     exactStatementStrategy: "router-approved-v1",
   });
   let capturedPolicy: ConversationCapturedPolicy | undefined;
+  let currentnessFailure: ConversationCurrentnessFailure | null = null;
   const workspaceSettings =
     input.variant === "full-product"
       ? candidateWorkspaceMemorySettings({
@@ -337,6 +340,9 @@ export async function createEvaluationFixture(input: {
           models: input.candidateModels!,
           onCaptured: (value) => {
             capturedPolicy = value;
+          },
+          onCurrentnessFailure: (value) => {
+            currentnessFailure ??= value;
           },
           admitMemory: async (transaction, now) =>
             capturedReceipt
@@ -1346,6 +1352,7 @@ export async function createEvaluationFixture(input: {
       nativeLatencyMs = 0;
       gatewayPreviewLatencyMs = 0;
       gatewayPreviewReceipt = null;
+      currentnessFailure = null;
       modelDecisionTrace = null;
       observedModel = null;
       usage = null;
@@ -1415,6 +1422,7 @@ export async function createEvaluationFixture(input: {
         gatewayPreviewLatencyMs,
         gatewayParentCleanupPending:
           capturedPolicy?.inferenceCleanupPending?.() ?? false,
+        gatewayCurrentnessFailure: currentnessFailure,
         gatewayPreviewReceipt,
         inventory,
         retained,

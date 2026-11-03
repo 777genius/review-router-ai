@@ -3,9 +3,10 @@
 - Scope: selected-message grounding inside the existing parent and extraction
   SDK calls; no new service, flag, account selection, model call or deadline.
 - Successor to [conversational Memory](2026-10-29-conversational-memory.md).
-  The frozen `3fa922cef` implementation may ship in the separate coherent R1
-  batch; it does not contain this successor and remains unqualified for automatic
-  learning. No release/image is assigned to the successor yet.
+  The separate coherent R1 batch may include reviewed source with conversational
+  qualification and its interaction pin still unset. Ordinary code rollout is not
+  automatic-learning qualification or activation. No successor release/image is
+  assigned yet.
 - Dependencies: normal [release process](../operations/07-environments-and-release-management.md),
   actual selected Account Gateway connection and the existing native backend.
 
@@ -43,6 +44,22 @@ Literal membership proves origin only. It does not prove semantic entailment or
 that an excerpt requests a memory operation. Actual model qualification must
 still expose incorrect fact selection or unrequested actions. No keyword intent
 classifier, second model verifier or output repair is introduced.
+
+Run `604d5ff6-3bab-46d7-b911-6750852b6437` on `8b6b53e03` reached all
+50 events but remains **UNAVAILABLE**. Report SHA256:
+`027c81a1d869971509225ec84449bac9a54300aa057d39c11e61c6aed3807914`.
+The earlier two semantic errors were absent in this observation. One clear
+contextual endorsement yielded no fact, and one completed answer was withheld by
+a final currentness check. It receives no publication credit. Original execution
+completed and closed with about 69 seconds remaining; current configuration,
+account and catalog checks are healthy, which does not establish the past cause.
+No official score or protected run followed.
+
+The next source adds one generic cross-reply factual-adoption example and bounded
+closed currentness-denial diagnostics. Existing checks, read order and static
+optional-catalog behavior are unchanged; no extra metadata request, grace period,
+retry or authority fallback is introduced. Throwing diagnostic sinks cannot
+change the decision. Old outcomes remain preserved.
 
 ## Ordered verification and delivery
 
