@@ -255,6 +255,8 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
   getDashboardWorkspaceScope: identity.scope,
   getDashboardSignedInActor: identity.actor,
   asDashboardGitHubActor: (actor: unknown) => actor,
+  canDashboardActorMutateRepository: vi.fn(async () => false),
+  canDashboardActorConfigureRepository: vi.fn(async () => false),
   canDashboardActorAdminWorkspace: fixtures.spies.workspaceAdmin,
 }));
 vi.mock("../../src/server/github-app-install-url", () => ({

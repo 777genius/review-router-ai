@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Dashboard extraction awaiting ordinary Web rollout: [dashboard read boundaries](2026-11-03-dashboard-read-boundaries.md), consolidated [PR #798](https://github.com/777genius/review-router-ai/pull/798) from #796 and #797. Staging and production verification are `pending`; select the exact release and verify workspace/repository isolation and organization plan guidance.
+
 Memory source candidate: [One-turn source-fenced learning](2026-11-03-memory-one-turn-learning.md) — staging/production `pending`; one parent request, no new quality/deployment claim. Private227 installed independently; Memory deployment is deferred.
 
 Hosted test infrastructure: [stock self-hosted network isolation](2026-11-03-selfhost-test-network-isolation.md) — test target `pending`: continuous configured-HTTPS acceptance PASS on b361; source merged in PR803/543869f7a, without merged-source target installation evidence. Product networks and production services are outside this test-harness change.
