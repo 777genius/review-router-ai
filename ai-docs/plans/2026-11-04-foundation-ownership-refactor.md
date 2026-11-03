@@ -2,8 +2,8 @@
 
 Date: 2026-11-04 (Europe/Kiev)
 Baseline: `f952f7c8e72277c8367a20769db0b8d7bc548219`
-Status: investigation complete enough to select the bounded slices below;
-independent plan review precedes implementation. This file is the delivery plan
+Status: three independent cross-reviews completed; the reviewed contracts below
+govern implementation in draft PR #810. This file is the delivery plan
 and evidence journal, not a claim of completed qualification or deployment.
 
 ## Objective
@@ -196,7 +196,10 @@ No new library dependency or unused adapter interface is justified by this move.
 3. Reproduce the selected behavioral defects with existing focused/PG fixtures.
    Keep the before/after result bound to the baseline and changed source.
 4. Commit and push each coherent implementation checkpoint immediately. Use
-   author `777genius <iliyazelenkog@gmail.com>` and preserve contributor identity.
+   the maintained owner identity (`iliya <iliyazelenkog@gmail.com>` locally or
+   the explicitly accepted GitHub integration alias `Илия` with the same email)
+   and preserve contributor identity. Publish through the connected GitHub
+   plugin when local Git has no authenticated write transport.
 5. Run focused checks during implementation; run integrated E2E, relevant strict
    native TypeScript 7.0.2 projects, formatting/lint and required architecture/
    CI gates for the final source. Keep existing pinned compiler/API adoption
@@ -219,4 +222,90 @@ No new library dependency or unused adapter interface is justified by this move.
   `Quality Gates` and `Dedicated Release Authority PG17 contract`.
 - Installed the exact frozen workspace dependencies with pnpm 11.28.7 and the
   existing isolated native TypeScript 7.0.2 compiler; no dependency changes.
-- Implementation, regression results and critic dispositions: pending.
+- Baseline five focused suites: 116 passed, one pre-existing skipped scenario.
+- Plan published in [PR #810](https://github.com/777genius/review-router-ai/pull/810).
+- Three independent plan cross-reviews accepted the scope subject to the exact
+  contracts below; implementation and final qualification remain pending.
+
+## Reviewed contracts before implementation
+
+### A: external effect, settlement and audit are separate phases
+
+Both terminal port methods return `"applied" | "superseded"`. Applied means
+the transaction completed and the final scoped update affected exactly one
+row, not merely that its preceding read matched. Missing scope, changed attempt
+or a zero-row update means superseded. An exception remains uncertainty.
+
+Keep successful public PR return shapes. Introduce one bounded typed outcome
+error with safe codes `workflow_provisioning_superseded`,
+`workflow_provisioning_persistence_uncertain`, and
+`workflow_provisioning_audit_unavailable`. It retains immutable attempt identity,
+the known settlement stage and any observed PR internally. An audit-unavailable
+outcome after successful settlement explicitly carries the committed PR. Hosts
+must recognize that it is committed and direct the user to inspect/refresh its
+state; they must not show an ordinary provisioning failure or encourage another
+unconditional create. Public responses expose only the approved safe projection.
+
+- Entering the GitHub gateway means external effects may exist even when it
+  throws. Do not infer that a thrown request made no remote changes.
+- A returned PR followed by a refused or throwing terminal write never enters
+  `markFailed`, never clears the PR identity, and never appends either ordinary
+  success or failure audit. No automatic remote retry or deletion is added.
+- A known applied success reaches audit outside the provider-failure catch.
+  Audit failure remains visible through the typed committed outcome; it is not
+  swallowed and does not produce `workflow.setup_pr_failed`.
+- A preparation/provider failure still uses the existing scoped failure write.
+  Refusal suppresses failure audit; write uncertainty is surfaced. Preserve the
+  original safe provider failure as context rather than replacing it with the
+  last audit/settlement exception. The disabled branch follows the same rule.
+- Migrate the hosted operator resume adapter and its result mapping. The web
+  outer catch must not append its generic failure audit for these outcomes.
+
+The host extraction is specifically readiness policy and verified source
+reading. Move `workflow-setup-readiness` into the feature application, with an
+explicit public API URL rather than environment/Next dependencies. Consolidate
+repository/commit/blob evidence decoding and hashing in the feature's GitHub
+infrastructure for Next confirmation, rotating activation and hosted activation.
+Retain transport-specific canonical validators and safe error mappings.
+
+Do not move the full confirmation state machine or the rotating ledger. Keep
+the existing repeated authority/source/binding rechecks around effect boundaries,
+the distinction between desired config and installed transport, and separate
+installed-only Gateway confirmation. The latter's audit semantics and the
+organization-ruleset lifecycle are outside A's outcome guarantee.
+
+### B: preserve aggregate lifecycle authority and exact recovery proof
+
+The shared resolver keeps the existing aggregate-by-scope policy. One blocked
+mutation-eligible target makes the aggregate `Changed`; target-specific
+scheduling/replanning is not introduced. Preserve the API's artifact/execution
+consistency checks, deterministic publication-attempt identity, persisted
+attempt execution/generation/projection/head/revision comparisons, then the
+existing binder's canonical operation/body/marker/head/watermark checks.
+
+A missing publication before its first request means no own-operation exemption;
+it is not automatically unavailable. A mismatched persisted publication is
+rejected. Never derive the exemption from a fresh plan or similar thread.
+
+Missing execution/artifact/authorization remains `Missing`; malformed projection
+is `Invalid`; failed reads, missing required ports or activation cuts are
+`Unavailable`; absent required per-thread history or a foreign-blocked history
+is `Changed`. Preserve the existing runtime snapshot parser's actual behavior:
+null/absent compatible input means no capability; thrown malformed input remains
+unavailable. Do not convert parse errors into legacy admission.
+
+Both hosts inject their existing stores. With no mutation-eligible targets,
+skip history/activation reads so ordinary discovery remains possible. The
+application receives narrow publication-owned facts and an injected digest;
+host adapters translate other contexts' data without importing another app.
+Reconciliation, receipt recording and `recordPendingResolution` are unchanged.
+
+### C: migrate adapter types and reject the reverse dependency
+
+Move adapter-owned types, including `ReviewPolicyReader` and
+`ProviderProfileWriteOptions`, with their implementations. Enforce alias and
+relative imports from core into selected outer layers, and root forwarding
+exports that reintroduce those layers, including type-only edges. Migrate mocks,
+namespace/dynamic consumers and production export emission. The selected rule
+is a bounded adoption; it does not claim purity of the legacy Codex/provider
+graphs or extend unrelated strict-context constraints to these packages.
