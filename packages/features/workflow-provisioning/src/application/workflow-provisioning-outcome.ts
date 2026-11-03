@@ -2,6 +2,7 @@ import type { WorkflowProvisioningAttempt } from "./ports/workflow-provisioning-
 import type { WorkflowSetupPullRequest } from "./ports/workflow-setup-gateway-port";
 
 export type WorkflowProvisioningOutcomeCode =
+  | "workflow_provisioning_external_uncertain"
   | "workflow_provisioning_superseded"
   | "workflow_provisioning_persistence_uncertain"
   | "workflow_provisioning_audit_unavailable";

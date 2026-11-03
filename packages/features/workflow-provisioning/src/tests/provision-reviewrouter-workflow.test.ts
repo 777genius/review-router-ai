@@ -1025,7 +1025,12 @@ describe("provisionReviewRouterWorkflow", () => {
         },
         { setupGateway: gateway, provisioning, auditLog },
       ),
-    ).rejects.toThrow(rawToken);
+    ).rejects.toMatchObject({
+      code: "workflow_provisioning_external_uncertain",
+      cause: expect.objectContaining({
+        message: expect.stringContaining(rawToken),
+      }),
+    });
 
     expect(provisioning.failed?.errorMessage).toBe("github_api_error:403");
     expect(auditLog.events[0]?.metadata).toMatchObject({
@@ -1280,7 +1285,13 @@ it("persists a normalized untrusted deletion failure without the workflow path",
       configurations: savedConfigurations(),
       trustedGithubRepositoryId: "123456",
     }),
-  ).rejects.toThrow("workflow_delete_untrusted:");
+  ).rejects.toMatchObject({
+    code: "workflow_provisioning_external_uncertain",
+    failureSummary: "workflow_delete_untrusted",
+    cause: new Error(
+      "workflow_delete_untrusted:.github/workflows/reviewrouter-codex.yml",
+    ),
+  });
   expect(provisioning.failed?.errorMessage).toBe("workflow_delete_untrusted");
 });
 

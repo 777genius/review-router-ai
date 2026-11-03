@@ -175,7 +175,10 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
           },
         },
       ),
-    ).rejects.toThrow("sensitive upstream detail");
+    ).rejects.toMatchObject({
+      code: "workflow_provisioning_external_uncertain",
+      cause: new Error("sensitive upstream detail"),
+    });
     expect(markFailed).toHaveBeenCalledWith(
       expect.objectContaining({
         errorMessage: "workflow_provisioning_failed",

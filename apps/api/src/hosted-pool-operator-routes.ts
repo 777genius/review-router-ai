@@ -78,6 +78,7 @@ export async function registerHostedPoolOperatorRoutes(
   ): {
     status: number;
     code: string;
+    recoveryCode?: "hosted_pool_github_app_permissions_required";
     result?: {
       status: "setup_pr_recorded";
       pullRequestUrl: string;
@@ -91,6 +92,16 @@ export async function registerHostedPoolOperatorRoutes(
           error.code === "workflow_provisioning_superseded"
             ? "hosted_pool_conflict"
             : error.code,
+        ...(error.code === "workflow_provisioning_external_uncertain" &&
+        typeof error.cause === "object" &&
+        error.cause !== null &&
+        "status" in error.cause &&
+        error.cause.status === 403
+          ? {
+              recoveryCode:
+                "hosted_pool_github_app_permissions_required" as const,
+            }
+          : {}),
         ...(error.committedPullRequest
           ? {
               result: {
@@ -161,12 +172,13 @@ export async function registerHostedPoolOperatorRoutes(
       return { result: await dependencies.status(scope) };
     } catch (error) {
       const safe = sendError(error);
-      return reply
-        .code(safe.status)
-        .send({
-          error: { code: safe.code },
-          ...(safe.result ? { result: safe.result } : {}),
-        });
+      return reply.code(safe.status).send({
+        error: {
+          code: safe.code,
+          ...(safe.recoveryCode ? { recoveryCode: safe.recoveryCode } : {}),
+        },
+        ...(safe.result ? { result: safe.result } : {}),
+      });
     }
   });
   for (const action of Object.keys(schemas) as (keyof typeof schemas)[]) {
@@ -206,12 +218,13 @@ export async function registerHostedPoolOperatorRoutes(
           };
         } catch (error) {
           const safe = sendError(error, action === "connect");
-          return reply
-            .code(safe.status)
-            .send({
-              error: { code: safe.code },
-              ...(safe.result ? { result: safe.result } : {}),
-            });
+          return reply.code(safe.status).send({
+            error: {
+              code: safe.code,
+              ...(safe.recoveryCode ? { recoveryCode: safe.recoveryCode } : {}),
+            },
+            ...(safe.result ? { result: safe.result } : {}),
+          });
         } finally {
           bytes?.fill(0);
           if ("authBase64" in parsed.data) parsed.data.authBase64 = "";

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   codexRotatingProviderStateCopy,
   dashboardErrorText,
+  workflowSetupOutcomePresentation,
   repositoryAccessErrorPresentation,
   repositoryAccessPresentation,
 } from "./dashboard-copy";
@@ -136,4 +137,25 @@ it.each([
   ],
 ])("explains the configuration correction for %s", (issue, guidance) => {
   expect(dashboardErrorText(issue)).toContain(guidance);
+});
+
+it("retains useful safe workflow diagnostics while directing uncertain setup to inspection", () => {
+  const result = workflowSetupOutcomePresentation({
+    error: "workflow_provisioning_external_uncertain",
+    recoveryError: "workflow_delete_untrusted",
+    workflowPath: ".github/workflows/reviewrouter-codex.yml",
+  });
+  expect(result).toMatchObject({
+    tone: "warning",
+    title: "Check setup status",
+  });
+  expect(result?.body).toContain("may already exist");
+  expect(result?.body).toContain(".github/workflows/reviewrouter-codex.yml");
+  expect(result?.body).not.toContain("Retry once");
+  const hostile = workflowSetupOutcomePresentation({
+    error: "workflow_provisioning_external_uncertain",
+    recoveryError: "workflow_delete_untrusted",
+    workflowPath: "private-token/not-a-workflow",
+  });
+  expect(hostile?.body).not.toContain("private-token");
 });

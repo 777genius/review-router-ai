@@ -1,6 +1,4 @@
-import {
-  activateConfirmedHostedPoolBindingAfterWorkflowMerge as activateHostedBinding,
-} from "@reviewrouter/features-workflow-provisioning/composition";
+import { activateConfirmedHostedPoolBindingAfterWorkflowMerge as activateHostedBinding } from "@reviewrouter/features-workflow-provisioning/composition";
 import { resolveReviewRouterCodexRotatingTrustedActionRefs } from "@reviewrouter/platform-config";
 import { switchRepositoryConfigurationAuthMode } from "./prisma-hosted-pool-mutations";
 

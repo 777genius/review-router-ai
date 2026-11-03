@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -439,6 +445,52 @@ describe("application and composition boundaries", () => {
     expect(() => runChecker(root)).toThrow(
       /source, type and production composition entrypoints/,
     );
+  });
+
+  it.each(["./store", "./review-configuration"])(
+    "rejects an adapter exposed through the package alias %s",
+    (subpath) => {
+      const root = compositionFixture("review-config");
+      const manifestPath = "packages/features/review-config/package.json";
+      const manifest = JSON.parse(
+        readFileSync(join(root, manifestPath), "utf8"),
+      );
+      manifest.exports[subpath] = {
+        types: "./src/infrastructure/adapter.ts",
+        production: "./dist/infrastructure/adapter.js",
+        default: "./src/infrastructure/adapter.ts",
+      };
+      writeFile(root, manifestPath, JSON.stringify(manifest));
+      writeFile(
+        root,
+        "packages/features/consumer/src/application/use-case.ts",
+        `import { Adapter } from "@reviewrouter/features-review-config/${subpath.slice(2)}";\n`,
+      );
+      expect(() => runChecker(root)).toThrow(/only approved public subpaths/);
+    },
+  );
+
+  it("checks approved domain subpath forwarding without a root re-export", () => {
+    const root = compositionFixture("review-config");
+    const manifestPath = "packages/features/review-config/package.json";
+    const manifest = JSON.parse(readFileSync(join(root, manifestPath), "utf8"));
+    manifest.exports["./review-configuration"] = {
+      types: "./src/domain/review-configuration.ts",
+      production: "./dist/domain/review-configuration.js",
+      default: "./src/domain/review-configuration.ts",
+    };
+    writeFile(root, manifestPath, JSON.stringify(manifest));
+    writeFile(
+      root,
+      "packages/features/review-config/src/domain/review-configuration.ts",
+      'export { Adapter } from "../public-proxy";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/review-config/src/public-proxy.ts",
+      'export { Adapter } from "./infrastructure/adapter";\n',
+    );
+    expect(() => runChecker(root)).toThrow(/application root cannot expose/);
   });
 });
 

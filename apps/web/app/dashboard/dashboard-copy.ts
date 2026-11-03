@@ -724,6 +724,8 @@ export function dashboardErrorText(error: string): string {
       return "Organization secret setup requires workspace owner/admin access. Use a repository secret for repo-scoped setup.";
     case "entitlement_denied":
       return "This workspace plan does not allow that action. Check the plan status or feature flags.";
+    case "workflow_provisioning_external_uncertain":
+      return "GitHub did not confirm the setup request. The setup branch or PR may already exist. Inspect the repository and refresh its status before making another setup request.";
     case "workflow_provisioning_superseded":
       return "Another setup request replaced this one. Refresh the repository status and use its current setup PR.";
     case "workflow_provisioning_persistence_uncertain":
@@ -896,14 +898,21 @@ export function workflowSetupOutcomePresentation(
   if (
     [
       "workflow_provisioning_superseded",
+      "workflow_provisioning_external_uncertain",
       "workflow_provisioning_persistence_uncertain",
       "workflow_provisioning_audit_unavailable",
     ].includes(params.error ?? "")
   ) {
+    const recovery =
+      params.recoveryError === "workflow_delete_untrusted"
+        ? ` A workflow was not removed automatically${params.workflowPath && /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,78}\.ya?ml$/u.test(params.workflowPath) ? ` (${params.workflowPath})` : ""}. Check whether it belongs to another active mode or contains manual changes before replacing it.`
+        : params.recoveryError === "github_operation_forbidden"
+          ? " Check GitHub App Contents, Workflows, and Pull requests write permissions."
+          : "";
     return {
       tone: "warning",
       title: "Check setup status",
-      body: dashboardErrorText(params.error!),
+      body: dashboardErrorText(params.error!) + recovery,
     };
   }
   return null;

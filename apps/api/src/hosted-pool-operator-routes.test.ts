@@ -145,7 +145,12 @@ describe("hosted pool HTTP boundary", () => {
   });
 });
 
-it.each(["superseded", "persistence_uncertain", "audit_unavailable"] as const)(
+it.each([
+  "superseded",
+  "persistence_uncertain",
+  "audit_unavailable",
+  "external_uncertain",
+] as const)(
   "projects %s workflow outcomes without leaking internal evidence",
   async (outcome) => {
     const f = await fixture();
@@ -162,7 +167,11 @@ it.each(["superseded", "persistence_uncertain", "audit_unavailable"] as const)(
             revision: 1,
             branch: "internal-branch",
           },
-          stage: committed ? "success_audit" : "completion",
+          stage: committed
+            ? "success_audit"
+            : outcome === "external_uncertain"
+              ? "failure"
+              : "completion",
           mayHaveExternalEffects: true,
           observedPullRequest: {
             url: "https://github.com/acme/repo/pull/7",
@@ -211,3 +220,52 @@ it.each(["superseded", "persistence_uncertain", "audit_unavailable"] as const)(
     }
   },
 );
+
+it("retains approved permission guidance with an uncertain external setup", async () => {
+  const f = await fixture();
+  f.execute.mockRejectedValue(
+    new WorkflowProvisioningOutcomeError(
+      "workflow_provisioning_external_uncertain",
+      {
+        attempt: {
+          workspaceId: "workspace",
+          repositoryId: "internal-repo",
+          installationId: "internal-installation",
+          attemptId: "attempt",
+          revision: 0,
+          branch: "branch",
+        },
+        stage: "failure",
+        mayHaveExternalEffects: true,
+        failureSummary: "workflow_provisioning_failed",
+      },
+      {
+        cause: Object.assign(new Error("private permission detail"), {
+          status: 403,
+        }),
+      },
+    ),
+  );
+  try {
+    const response = await f.app.inject({
+      method: "POST",
+      url: "/api/operator/v1/hosted-pool/connect",
+      headers: { authorization: `Bearer ${credential}` },
+      payload: {
+        workspace: "workspace",
+        repository: "acme/repo",
+        expectedRevision: null,
+      },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      error: {
+        code: "workflow_provisioning_external_uncertain",
+        recoveryCode: "hosted_pool_github_app_permissions_required",
+      },
+    });
+    expect(response.body).not.toContain("private permission detail");
+  } finally {
+    await f.app.close();
+  }
+});

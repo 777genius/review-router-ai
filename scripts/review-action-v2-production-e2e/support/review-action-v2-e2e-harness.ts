@@ -3,9 +3,7 @@ import {
   workspacePolicyDocumentFixture,
   workspacePolicyFixture,
 } from "../../../packages/features/review-config/src/tests/current-policy-fixture.js";
-import {
-  PrismaReviewConfigurationRepository,
-} from "../../../packages/features/review-config/src/composition/index.js";
+import { PrismaReviewConfigurationRepository } from "../../../packages/features/review-config/src/composition/index.js";
 import { Buffer } from "node:buffer";
 import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
 import {

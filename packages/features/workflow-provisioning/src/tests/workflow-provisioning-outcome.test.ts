@@ -138,6 +138,32 @@ describe.each(["ordinary", "hosted"] as const)(
       expect(f.auditLog.append).toHaveBeenCalledOnce();
     });
 
+    it("retains possible external effects after applied failure settlement", async () => {
+      const f = fixture(kind);
+      const cause = new Error("private lost-response detail");
+      f.gateway.createOrUpdateSetupPullRequest.mockRejectedValue(cause);
+      await expect(f.run()).rejects.toMatchObject({
+        code: "workflow_provisioning_external_uncertain",
+        stage: "failure",
+        mayHaveExternalEffects: true,
+        failureSummary: "workflow_provisioning_failed",
+        cause,
+        committedPullRequest: null,
+      });
+      expect(f.provisioning.markFailed).toHaveBeenCalledOnce();
+      expect(f.provisioning.markSetupPullRequestOpen).not.toHaveBeenCalled();
+      expect(f.gateway.createOrUpdateSetupPullRequest).toHaveBeenCalledOnce();
+      expect(f.auditLog.append).toHaveBeenCalledTimes(
+        kind === "ordinary" ? 1 : 0,
+      );
+    });
+
+    it("keeps pre-gateway refusal distinct from external uncertainty", async () => {
+      const f = fixture(kind, false);
+      await expect(f.run()).rejects.toThrow("workflow_provisioning_disabled");
+      expect(f.gateway.createOrUpdateSetupPullRequest).not.toHaveBeenCalled();
+    });
+
     it("does not audit failure for a superseded attempt whose gateway threw", async () => {
       const f = fixture(kind);
       f.gateway.createOrUpdateSetupPullRequest.mockRejectedValue(

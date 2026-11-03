@@ -1,3 +1,4 @@
+import { WorkflowProvisioningOutcomeError } from "../workflow-provisioning-outcome";
 import {
   settleWorkflowProvisioningAttempt,
   auditWorkflowProvisioningAttempt,
@@ -458,6 +459,18 @@ export async function provisionReviewRouterWorkflow(
             },
             { auditLog: dependencies.auditLog! },
           ),
+      );
+    }
+    if (mayHaveExternalEffects) {
+      throw new WorkflowProvisioningOutcomeError(
+        "workflow_provisioning_external_uncertain",
+        {
+          attempt,
+          stage: "failure",
+          mayHaveExternalEffects: true,
+          failureSummary: message,
+        },
+        { cause: error },
       );
     }
     throw error;

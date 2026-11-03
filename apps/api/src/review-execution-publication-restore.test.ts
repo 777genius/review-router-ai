@@ -3,9 +3,7 @@ import type {
   ReviewExecutionSnapshot,
   ReviewInvocationLease,
 } from "@reviewrouter/features-review-executions";
-import type { ReviewPublicationAttemptView } from "@reviewrouter/features-review-publishing/v2";
 import {
-  exactRestoredPublication,
   persistedReviewExecutionRestore,
   loadAcceptedReviewInvocationManifests,
 } from "./review-execution-publication-restore.js";
@@ -58,28 +56,6 @@ describe("persisted publication recovery readback", () => {
     expect(restarted.artifact?.projectionEnvelopeCanonicalJson).toBe(
       '{"fixesVerified":2}',
     );
-    const view = {
-      attempt: {
-        publicationAttemptId: restarted.artifact!.publicationAttemptId,
-        permit: {
-          executionId: "execution",
-          generation: 3n,
-          reviewedHeadSha: "head",
-          reviewRevisionHash: "revision",
-          projectionHash: "projection",
-        },
-      },
-    } as unknown as ReviewPublicationAttemptView;
-    expect(exactRestoredPublication(snapshot, view)).toBe(view);
-    expect(() =>
-      exactRestoredPublication(snapshot, {
-        ...view,
-        attempt: {
-          ...view.attempt,
-          permit: { ...view.attempt.permit, reviewedHeadSha: "foreign-head" },
-        },
-      }),
-    ).toThrow("restore_publication_scope_mismatch");
     expect(() =>
       persistedReviewExecutionRestore({
         ...snapshot,

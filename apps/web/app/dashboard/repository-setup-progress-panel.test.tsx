@@ -62,6 +62,11 @@ afterEach(() => {
 
 describe("RepositorySetupProgressPanel", () => {
   it("keeps a committed setup PR actionable when its activity record is unavailable", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/dashboard?setupOutcome=committed&recoveryError=old&workflowPath=old",
+    );
     vi.mocked(createSetupPullRequestClientAction).mockResolvedValueOnce({
       params: {
         error: "workflow_provisioning_audit_unavailable",
@@ -108,6 +113,9 @@ describe("RepositorySetupProgressPanel", () => {
       notification.getByText(/activity record could not be completed/),
     ).toBeTruthy();
     expect(router.refresh).toHaveBeenCalled();
+    expect(window.location.search).not.toMatch(
+      /setupOutcome|recoveryError|workflowPath/,
+    );
   });
 
   it("opens the existing update PR and verifies it without creating another PR", async () => {

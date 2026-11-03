@@ -275,14 +275,9 @@ export async function isWorkflowSetupAlreadyCurrent(
     : null;
   const isolatedCodexWorkflow =
     codexWorkflowPath === isolatedQualityWorkflowPath;
-  let expectedPublicApiUrl: string | undefined;
-  if (input.codexRotatingProviderInstanceId) {
-    try {
-      expectedPublicApiUrl = dependencies.publicApiUrl;
-    } catch {
-      return false;
-    }
-  }
+  const expectedPublicApiUrl = input.codexRotatingProviderInstanceId
+    ? dependencies.publicApiUrl
+    : undefined;
   const workflowCheck = await dependencies.workflowProbe.probeWorkflow({
     githubInstallationId: input.githubInstallationId,
     owner: input.owner,

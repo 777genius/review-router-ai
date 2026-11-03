@@ -81,6 +81,7 @@ export function safeDashboardErrorCode(error: unknown): string {
       "organization_secret_scope_forbidden",
       "workflow_provisioning_disabled",
       "workflow_provisioning_superseded",
+      "workflow_provisioning_external_uncertain",
       "workflow_provisioning_persistence_uncertain",
       "workflow_provisioning_audit_unavailable",
       "hosted_pool_feature_disabled",

@@ -101,6 +101,135 @@ describe("pool operator CLI", () => {
       ],
     });
   });
+  it.each([
+    "workflow_provisioning_external_uncertain",
+    "workflow_provisioning_persistence_uncertain",
+    "workflow_provisioning_audit_unavailable",
+  ])("preserves %s through the HTTP transport without retry", async (code) => {
+    const credential = randomBytes(24).toString("base64url");
+    const committed = code === "workflow_provisioning_audit_unavailable";
+    const recoveryCode =
+      code === "workflow_provisioning_external_uncertain"
+        ? "hosted_pool_github_app_permissions_required"
+        : undefined;
+    const recordedPullRequest = {
+      status: "setup_pr_recorded",
+      pullRequestUrl: "https://github.com/owner/a/pull/7",
+      pullRequestNumber: 7,
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      if (init?.method === "GET")
+        return Response.json({
+          result: {
+            repositories: [
+              { fullName: "owner/a", eligible: true, bindingRevision: 1 },
+            ],
+          },
+        });
+      return Response.json(
+        {
+          error: {
+            code,
+            cause: credential,
+            failureSummary: credential,
+            recoveryCode: recoveryCode ?? credential,
+          },
+          result: { ...recordedPullRequest, providerSummary: credential },
+        },
+        { status: 503 },
+      );
+    });
+    const result = await executeReviewRouterOperatorCli(
+      ["pool", "repositories", "connect", "--workspace", "a", "--all"],
+      {
+        REVIEW_ROUTER_API_URL: "https://operator.invalid",
+        REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
+      },
+      { fetchImpl },
+    );
+    expect(result).toEqual({
+      status: "reconcile_required",
+      results: [
+        {
+          repository: "owner/a",
+          status: "reconcile_required",
+          code,
+          message: expect.stringContaining("before retrying"),
+          ...(recoveryCode ? { recoveryCode } : {}),
+          ...(committed ? { result: recordedPullRequest } : {}),
+        },
+      ],
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(result)).not.toContain(credential);
+    expect(JSON.stringify(result)).not.toContain("providerSummary");
+  });
+  it("keeps mixed bulk results and rejects unsafe committed-result fields", async () => {
+    const credential = randomBytes(24).toString("base64url");
+    const visited: string[] = [];
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      if (init?.method === "GET")
+        return Response.json({
+          result: {
+            repositories: ["a", "b", "c"].map((name) => ({
+              fullName: `owner/${name}`,
+              eligible: true,
+              bindingRevision: 1,
+            })),
+          },
+        });
+      const { repository } = JSON.parse(String(init?.body)) as {
+        repository: string;
+      };
+      visited.push(repository);
+      if (repository === "owner/a")
+        return Response.json(
+          {
+            error: { code: "workflow_provisioning_audit_unavailable" },
+            result: {
+              status: "setup_pr_recorded",
+              pullRequestUrl: `https://github.com/owner/a/pull/7?token=${credential}`,
+              pullRequestNumber: 7,
+            },
+          },
+          { status: 503 },
+        );
+      if (repository === "owner/b")
+        return Response.json(
+          { error: { code: credential }, result: { secret: credential } },
+          { status: 503 },
+        );
+      return Response.json({ result: { status: "already_active" } });
+    });
+    const result = await executeReviewRouterOperatorCli(
+      ["pool", "repositories", "connect", "--workspace", "a", "--all"],
+      {
+        REVIEW_ROUTER_API_URL: "https://operator.invalid",
+        REVIEW_ROUTER_REVIEW_CONFIG_OPERATOR_CREDENTIAL: credential,
+      },
+      { fetchImpl },
+    );
+    expect(result).toEqual({
+      status: "partial_failure",
+      results: [
+        {
+          repository: "owner/a",
+          status: "reconcile_required",
+          code: "workflow_provisioning_audit_unavailable",
+          message: expect.stringContaining("before retrying"),
+        },
+        {
+          repository: "owner/b",
+          status: "failed",
+          code: "hosted_pool_connect_failed",
+        },
+        { repository: "owner/c", result: { status: "already_active" } },
+      ],
+    });
+    expect(visited).toEqual(["owner/a", "owner/b", "owner/c"]);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(JSON.stringify(result)).not.toContain(credential);
+  });
   it("rereads after uncertain import without retry and wipes the source buffer", async () => {
     const bytes = Buffer.from("temporary-fake-auth");
     const request = vi.fn(async (method) => {

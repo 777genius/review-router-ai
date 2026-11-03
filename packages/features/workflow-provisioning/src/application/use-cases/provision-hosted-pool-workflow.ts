@@ -1,3 +1,4 @@
+import { WorkflowProvisioningOutcomeError } from "../workflow-provisioning-outcome";
 import {
   settleWorkflowProvisioningAttempt,
   auditWorkflowProvisioningAttempt,
@@ -149,6 +150,18 @@ export async function provisionHostedPoolRepositoryWorkflow(
           errorMessage: safeHostedProvisioningError(error),
         }),
     );
+    if (mayHaveExternalEffects) {
+      throw new WorkflowProvisioningOutcomeError(
+        "workflow_provisioning_external_uncertain",
+        {
+          attempt,
+          stage: "failure",
+          mayHaveExternalEffects: true,
+          failureSummary: safeHostedProvisioningError(error),
+        },
+        { cause: error },
+      );
+    }
     throw error;
   }
   await settleWorkflowProvisioningAttempt(

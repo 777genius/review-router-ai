@@ -3,7 +3,7 @@
 - Task ID: `2026-11-04-foundation-ownership`.
 - Goal: report setup attempt outcomes truthfully and apply the same publication
   lifecycle admission policy in API and worker.
-- Affected services/targets: Web, API and ordinary worker.
+- Affected services/targets: Web, API, ordinary worker and operator CLI.
 - Implementation PR: [#810](https://github.com/777genius/review-router-ai/pull/810).
 - Source plan: [foundation ownership refactor](../plans/2026-11-04-foundation-ownership-refactor.md).
 - Implementation reference: select the final reviewed head/merge from #810;
@@ -35,6 +35,8 @@ before claiming uniform admission. Older workers retain their former
 history-blind pre-effect policy, even while the existing transactional
 resolution guard continues protecting database transitions. Web/API setup
 callers likewise need the new outcome mapping together with the port change.
+Operators using Hosted Pool connect should update the CLI from the same reviewed
+batch so non-2xx responses retain uncertainty and any known committed PR.
 
 ## Ordered rollout
 
@@ -46,7 +48,8 @@ callers likewise need the new outcome mapping together with the port change.
    normal worker draining and possible-effect recovery; do not replay old
    operations or manually clear history/leases to accelerate convergence.
 3. Confirm all three roles use the selected source/image and readiness is
-   healthy. No task-specific migration or activation command follows.
+   healthy. Confirm the installed operator CLI includes the new safe outcome
+   projection when it is used. No task-specific migration or activation follows.
 4. Verify setup status and a new approved disposable review. Record the real
    environment, operator, UTC time, source/image and durable evidence before
    marking that environment complete.
@@ -58,7 +61,7 @@ callers likewise need the new outcome mapping together with the port change.
 - In an isolated fixture, resume an obsolete attempt after a newer one wins:
   the older result is superseded, the newer PR remains authoritative, and the
   older attempt emits neither current success nor current failure audit.
-- Persistence uncertainty and post-commit audit failure are distinguishable
+- External-response uncertainty, persistence uncertainty and post-commit audit failure are distinguishable
   from an ordinary failed setup. A committed result remains visible and the
   user is directed to inspect/refresh, without an automatic new external PR.
 - Setup recovery preserves pinned repository/default-branch/workflow/blob

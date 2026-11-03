@@ -3965,8 +3965,36 @@ function workflowProvisioningOutcomeParams(
   error: WorkflowProvisioningOutcomeError,
 ): Record<string, string> {
   const committed = error.committedPullRequest;
+  // Hosted provisioning retains its existing generic persisted error summary.
+  // Recover only these approved diagnostics from the original provider failure.
+  const providerCause =
+    error.code === "workflow_provisioning_external_uncertain"
+      ? error.cause
+      : null;
+  const originalRecovery =
+    (providerCause instanceof Error &&
+      providerCause.message.startsWith("workflow_delete_untrusted:")) ||
+    (typeof providerCause === "object" &&
+      providerCause !== null &&
+      "status" in providerCause &&
+      providerCause.status === 403)
+      ? safeDashboardErrorCode(providerCause)
+      : null;
+  const recoveryError =
+    originalRecovery ??
+    (error.failureSummary === "workflow_delete_untrusted"
+      ? "workflow_delete_untrusted"
+      : /^github_api_error:[0-9]{3}$/.test(error.failureSummary ?? "")
+        ? safeDashboardErrorCode(new Error(error.failureSummary))
+        : null);
+  const workflowPath =
+    recoveryError === "workflow_delete_untrusted"
+      ? dashboardUntrustedWorkflowPathFromError(error.cause)
+      : null;
   return {
     error: error.code,
+    ...(recoveryError ? { recoveryError } : {}),
+    ...(workflowPath ? { workflowPath } : {}),
     ...(committed
       ? {
           setupOutcome: "committed",

@@ -23,6 +23,13 @@ const outerLayers = new Set([
   "tests",
 ]);
 const coreLayers = new Set(["domain", "application"]);
+const reviewConfigDomainSubpaths = [
+  "review-reasoning-effort",
+  "review-configuration",
+  "review-policy-document",
+  "provider-management-policy",
+  "workspace-provider-profile",
+];
 
 /** Bounded adoption for three existing owners; external legacy graphs remain out of scope. */
 export async function checkApplicationCompositionBoundaries(
@@ -80,40 +87,50 @@ export async function checkApplicationCompositionBoundaries(
     const manifest = join(profile.sourceRoot, "..", "package.json");
     const entrypoint = join(profile.sourceRoot, "index.ts");
     const composition = join(profile.sourceRoot, "composition", "index.ts");
-    const expectedComposition = {
-      types: "./src/composition/index.ts",
-      production: "./dist/composition/index.js",
-      default: "./src/composition/index.ts",
-    };
+    const domainSubpaths =
+      profile.name === "review-config" ? reviewConfigDomainSubpaths : [];
+    const approvedEntrypoints = new Map([
+      [".", "index"],
+      ["./composition", "composition/index"],
+      ...domainSubpaths.map((name) => [`./${name}`, `domain/${name}`] as const),
+    ]);
     let validExport = false;
     if (existsSync(manifest)) {
       const value: unknown = JSON.parse(readFileSync(manifest, "utf8"));
       const exports = record(record(value)?.exports);
-      const conditions = record(exports?.["./composition"]);
-      const rootConditions = record(exports?.["."]);
       validExport =
-        conditions !== null &&
-        rootConditions !== null &&
-        Object.keys(conditions).length === 3 &&
-        Object.keys(rootConditions).length === 3 &&
-        Object.entries(expectedComposition).every(
-          ([key, value]) => conditions[key] === value,
-        ) &&
-        rootConditions.types === "./src/index.ts" &&
-        rootConditions.production === "./dist/index.js" &&
-        rootConditions.default === "./src/index.ts";
+        exports !== null &&
+        Object.hasOwn(exports, ".") &&
+        Object.hasOwn(exports, "./composition") &&
+        Object.entries(exports).every(([subpath, value]) => {
+          const target = approvedEntrypoints.get(subpath);
+          const conditions = record(value);
+          return (
+            target !== undefined &&
+            conditions !== null &&
+            Object.keys(conditions).length === 3 &&
+            conditions.types === `./src/${target}.ts` &&
+            conditions.production === `./dist/${target}.js` &&
+            conditions.default === `./src/${target}.ts`
+          );
+        });
     }
     if (!validExport || !existsSync(composition) || !existsSync(entrypoint))
       violations.push({
         file: manifest,
         imported: "./composition",
         reason:
-          "selected application roots require source, type and production composition entrypoints",
+          "selected application roots require source, type and production composition entrypoints and only approved public subpaths",
       });
 
     // Follow only this owner's local public-root graph. This catches a forwarding
     // barrel without attempting to certify other legacy packages transitively.
-    const pending = [entrypoint];
+    const pending = [
+      entrypoint,
+      ...domainSubpaths.map((name) =>
+        join(profile.sourceRoot, "domain", `${name}.ts`),
+      ),
+    ];
     const visited = new Set<string>();
     while (pending.length > 0) {
       const file = pending.pop()!;

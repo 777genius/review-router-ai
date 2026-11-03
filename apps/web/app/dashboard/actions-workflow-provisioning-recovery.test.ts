@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 
 const mocks = vi.hoisted(() => ({
   activateConfirmedCodexNamespaceAfterWorkflowMerge: vi.fn(),
+  changeHostedRepositorySessionSource: vi.fn(),
   assertDashboardMutationAllowed: vi.fn(),
   assertDashboardRepositoryConfigMutationAllowed: vi.fn(),
   assertDashboardRepositoryMutationAllowed: vi.fn(),
@@ -93,7 +94,10 @@ vi.mock("../../src/server/codex-rotating-workflow-activation", () => ({
 vi.mock("../../src/server/hosted-pool-workflow-activation", () => ({
   activateConfirmedHostedPoolBindingAfterWorkflowMerge: vi.fn(),
 }));
-vi.mock("../../src/server/hosted-pool-dashboard", () => ({}));
+vi.mock("../../src/server/hosted-pool-dashboard", () => ({
+  changeHostedRepositorySessionSource:
+    mocks.changeHostedRepositorySessionSource,
+}));
 vi.mock("../../src/server/prisma-hosted-pool-mutations", () => ({
   createPrismaHostedPoolDashboardMutationPort: vi.fn(),
 }));
@@ -116,6 +120,7 @@ import {
 
 import {
   confirmSetupPullRequestMergedClientAction,
+  setHostedRepositorySessionSourceClientAction,
   createSetupPullRequestClientAction,
   saveRepositoryReviewConfigClientAction,
   saveWorkspaceReviewConfigClientAction,
@@ -320,6 +325,7 @@ describe("dashboard setup PR recovery", () => {
     "audit_unavailable",
     "superseded",
     "persistence_uncertain",
+    "external_uncertain",
   ] as const)(
     "handles inherited workspace Gateway setup: %s",
     async (scenario) => {
@@ -362,7 +368,8 @@ describe("dashboard setup PR recovery", () => {
       if (
         scenario === "audit_unavailable" ||
         scenario === "superseded" ||
-        scenario === "persistence_uncertain"
+        scenario === "persistence_uncertain" ||
+        scenario === "external_uncertain"
       ) {
         mocks.isWorkflowSetupAlreadyCurrent.mockRejectedValueOnce(
           new WorkflowProvisioningOutcomeError(
@@ -379,8 +386,13 @@ describe("dashboard setup PR recovery", () => {
               stage:
                 scenario === "audit_unavailable"
                   ? "success_audit"
-                  : "completion",
+                  : scenario === "external_uncertain"
+                    ? "failure"
+                    : "completion",
               mayHaveExternalEffects: true,
+              ...(scenario === "external_uncertain"
+                ? { failureSummary: "workflow_delete_untrusted" }
+                : {}),
               observedPullRequest: {
                 url: "https://github.com/acme/widget/pull/7",
                 number: 7,
@@ -388,7 +400,13 @@ describe("dashboard setup PR recovery", () => {
                 branch: "setup-branch",
               },
             },
-            { cause: new Error("private-error") },
+            {
+              cause: new Error(
+                scenario === "external_uncertain"
+                  ? "workflow_delete_untrusted:.github/workflows/reviewrouter-codex.yml"
+                  : "private-error",
+              ),
+            },
           ),
         );
       }
@@ -414,10 +432,17 @@ describe("dashboard setup PR recovery", () => {
       if (
         scenario === "audit_unavailable" ||
         scenario === "superseded" ||
-        scenario === "persistence_uncertain"
+        scenario === "persistence_uncertain" ||
+        scenario === "external_uncertain"
       ) {
         expect(result.params).toEqual({
           error: `workflow_provisioning_${scenario}`,
+          ...(scenario === "external_uncertain"
+            ? {
+                recoveryError: "workflow_delete_untrusted",
+                workflowPath: ".github/workflows/reviewrouter-codex.yml",
+              }
+            : {}),
           workspace: "workspace_1",
           section: "repositories",
           ...(scenario === "audit_unavailable"
@@ -1338,6 +1363,80 @@ describe("dashboard setup PR recovery", () => {
         expect(mocks.createGitHubAppInstallationOctokit).toHaveBeenCalledWith(
           "123",
         );
+    },
+  );
+});
+
+describe("Hosted Pool workflow outcome projection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getPrisma.mockReturnValue({});
+  });
+  it.each([
+    "permissions",
+    "untrusted_workflow",
+    "private_failure",
+    "hostile_path",
+  ] as const)(
+    "preserves safe Hosted Pool external uncertainty diagnostics: %s",
+    async (scenario) => {
+      const cause =
+        scenario === "permissions"
+          ? Object.assign(new Error("private upstream permission detail"), {
+              status: 403,
+            })
+          : new Error(
+              scenario === "untrusted_workflow"
+                ? "workflow_delete_untrusted:.github/workflows/reviewrouter.yml"
+                : scenario === "hostile_path"
+                  ? "workflow_delete_untrusted:private-token/../../secret"
+                  : "private-token",
+            );
+      mocks.changeHostedRepositorySessionSource.mockRejectedValueOnce(
+        new WorkflowProvisioningOutcomeError(
+          "workflow_provisioning_external_uncertain",
+          {
+            attempt: {
+              workspaceId: "workspace_1",
+              repositoryId: "repository_1",
+              installationId: "installation_1",
+              attemptId: "private-attempt",
+              revision: 0,
+              branch: "branch",
+            },
+            stage: "failure",
+            mayHaveExternalEffects: true,
+            failureSummary: "workflow_provisioning_failed",
+          },
+          { cause },
+        ),
+      );
+      const form = new FormData();
+      for (const [key, value] of Object.entries({
+        workspaceId: "workspace_1",
+        repositoryId: "repository_1",
+        source: "hosted_workspace_pool",
+        expectedVersion: "0",
+      }))
+        form.set(key, value);
+      const result = await setHostedRepositorySessionSourceClientAction(form);
+      expect(result.params).toEqual({
+        error: "workflow_provisioning_external_uncertain",
+        workspace: "workspace_1",
+        section: "repositories",
+        ...(scenario === "permissions"
+          ? { recoveryError: "github_operation_forbidden" }
+          : scenario === "untrusted_workflow" || scenario === "hostile_path"
+            ? { recoveryError: "workflow_delete_untrusted" }
+            : {}),
+        ...(scenario === "untrusted_workflow"
+          ? { workflowPath: ".github/workflows/reviewrouter.yml" }
+          : {}),
+      });
+      expect(JSON.stringify(result)).not.toMatch(
+        /private-|secret|cause|attemptId/,
+      );
+      expect(mocks.recordAuditEvent).not.toHaveBeenCalled();
     },
   );
 });

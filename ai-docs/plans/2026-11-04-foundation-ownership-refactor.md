@@ -344,7 +344,7 @@ and API/worker E2E execution are pending the existing CI services; no local PG,
 live GitHub/provider or deployment success is claimed.
 
 Implementation review round 1 found the following bounded gaps. They are part
-of acceptance and must be fixed and independently re-reviewed:
+of acceptance; each is implemented and independently re-reviewed in round 2:
 
 1. The official Hosted Pool CLI discarded the precise operator error and known
    committed PR on non-2xx responses. Preserve only approved outcome codes and
@@ -374,3 +374,44 @@ contract after two independent critics reproduced the host information gap.
 It does not change the database's known failed-attempt state into persistence
 uncertainty. Preserve cleanup of the new transient dashboard parameter and
 redirect presentation as part of the same host contract.
+
+### Review round 2 and integrated qualification
+
+The A2 extraction was published in
+`fd49d426000c5277c14ddf9dc2d2637cce8946d9`. Root and both independent critics
+checked branch precedence, trusted URL semantics, dependency direction, Git
+object verification and the retained source/authority/binding rechecks. No
+material extraction issue remained; a dead catch around an explicit URL value
+was removed in the follow-up.
+
+The follow-up closes all four findings above. Both critics reviewed the stable
+four-outcome application and all active web/operator callers. They also reviewed
+the CLI safety projection and the strengthened boundary guard. No confirmed
+material findings remain in that source review. These reviews do not replace
+the still-pending real PostgreSQL execution.
+
+- Follow-up outcome/host batch: 361 passed; isolated Hosted diagnostics action
+  suite: 58 passed after its fixture reset was made explicit.
+- CLI transport and bulk result suites: 27 passed, including approved 503
+  outcomes, committed result validation, mixed results and suppressed private
+  fields. No extra remote requests are made for recovery.
+- Boundary harness: 44 passed; existing execution restore suite: two passed.
+  Native modular and direct architecture checks passed again.
+- Native API and web passed for the final follow-up. One concurrent web check
+  was killed without diagnostics; its sequential rerun passed.
+- The full architecture subgates passed: source/profile, Foundation checks,
+  dependency/registry assertions, memory/statistics negative qualifications and
+  history. The `tsx` CLI's local IPC bind was unavailable; the identical script
+  entrypoints ran with `node --import tsx`, without weakening their checks.
+- Browser qualification uses the actual setup panel, buttons, shared warning
+  presentation, toast and CSS, with fixture action/router boundaries. Keyboard
+  submission produced one request; committed setup retained its PR and merge
+  step, and superseded/persistence/external uncertainty did not falsely advance.
+  Desktop/intermediate/mobile and both themes were captured and inspected.
+  The 200% text check found the PR action below the fixed toast's viewport;
+  the existing toast now limits height and allows scrolling. The focused action
+  remains reachable without changing the ordinary notification layout.
+  This is client-component qualification, not authenticated full-app E2E.
+
+Required CI, real PostgreSQL and the final integrated source check are tracked
+separately. Runner queue state must never be reported as successful execution.
