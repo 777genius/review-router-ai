@@ -13,11 +13,11 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-Gateway saturation follow-up: [terminal-run cleanup](2026-11-02-gateway-terminal-run-cleanup.md) — staging `pending`, production `in_progress`;226 API installed, A/B full coverage; payments PARTIAL 0/17, versioned dispatch fix/fresh acceptance pending.
+Gateway saturation follow-up: [terminal-run cleanup](2026-11-02-gateway-terminal-run-cleanup.md) — staging `pending`, production `in_progress`;226 API installed, A/B full coverage; the old Payments0/17 result is retained; successor227 now has fresh17/17 acceptance (see the capacity task).
 
-Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging `pending`, production `in_progress`;226 coherent rollout complete, A/B full coverage and Usage/Statistics accepted; payments PARTIAL 0/17, future fresh run pending.
+Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging `pending`, production `in_progress`;226 coherent rollout complete, A/B full coverage and Usage/Statistics accepted; the old Payments0/17 result is retained; fresh227 Payments17/17 and Statistics are verified, with one optional description usage unknown (see the capacity task).
 
-Bounded request capacity: [Named capacity128 rollout](2026-11-03-model-dispatch-capacity.md) — staging/production `pending`; source qualified and official Action227 published at `abff4814`. The private parser, producer/channel adoption and fresh full17-file Payments acceptance remain pending.
+Bounded request capacity: [Named capacity128 rollout](2026-11-03-model-dispatch-capacity.md) — staging `pending`, production `deployed`; paired227 / `dbc161c` + `abff4814`, image `89a28e11`, immutable128 producer and workflow-v1 verified. Fresh Payments17/17 found two minor issues; Statistics and truthful Usage readbacks passed. One optional description call has unknown outcome/tokens, preserved without replay. See the [durable summary](evidence/2026-11-03-capacity128-release227.json).
 
 | Task                                                                                   | Implementation                                                                                                                                                   | Staging   | Production    | Remaining work                                                                                                                                                                                                                       |
 | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -59,7 +59,7 @@ The task file is authoritative; keep this summary in sync in the same commit.
 Missing entries do not prove that older changes are deployed: inspect the installed-to-target change range and
 the release runbook for additional required work before each rollout.
 
-Installed Gateway onboarding: [scoped operator path](2026-11-02-installed-gateway-operator-onboarding.md) — staging `pending`, production `in_progress`; normal payments CLI READY/CREATED; actual review PARTIAL 0/17 after 32 requests; versioned successor/fresh run pending.
+Installed Gateway onboarding: [scoped operator path](2026-11-02-installed-gateway-operator-onboarding.md) — staging `pending`, production `in_progress`; normal payments CLI READY/CREATED; old review0/17 after32 calls retained; fresh227 review17/17, publication and Statistics verified in the capacity task.
 
 ## Status contract
 
@@ -124,3 +124,5 @@ after 32 complete requests and 508,896 tokens; a versioned successor and future
 fresh normal acceptance remain pending. Ordinary release
 is complete while semantic Memory qualification and genuine self-hosted
 artifact/configured-HTTPS acceptance remain separate and unfinished.
+
+Release227 supersedes the historical Payments-pending statement in the R1/226 section above. See [the actual capacity128 rollout and live acceptance](2026-11-03-model-dispatch-capacity.md#release227-actual-rollout-and-live-acceptance); separate Memory successor and GitLab work are not claimed complete.
