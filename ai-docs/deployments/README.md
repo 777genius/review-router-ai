@@ -137,3 +137,5 @@ is complete while semantic Memory qualification and genuine self-hosted
 artifact/configured-HTTPS acceptance remain separate and unfinished.
 
 Release227 supersedes the historical Payments-pending statement in the R1/226 section above. See [the actual capacity128 rollout and live acceptance](2026-11-03-model-dispatch-capacity.md#release227-actual-rollout-and-live-acceptance); separate Memory successor and GitLab work are not claimed complete.
+
+Current application/Gateway rollout and pending live acceptance are recorded in [account concurrency rollout](2026-11-03-account-concurrency.md).
