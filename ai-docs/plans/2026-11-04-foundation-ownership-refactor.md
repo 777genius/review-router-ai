@@ -2,9 +2,10 @@
 
 Date: 2026-11-04 (Europe/Kiev)
 Baseline: `f952f7c8e72277c8367a20769db0b8d7bc548219`
-Status: implementation and independent source reviews complete; local integrated
-qualification passed. Required CI and real PostgreSQL execution remain pending
-in PR #810. The reviewed contracts below govern implementation.
+Status: A–C implemented and independently reviewed. The owner requested a larger
+refactor and completed E2E on 2026-11-04; continuation D–F below is now in scope.
+Required CI and real PostgreSQL execution remain pending in PR #810. The
+reviewed contracts below govern implementation.
 This file is the delivery plan
 and evidence journal, not a claim of completed qualification or deployment.
 
@@ -17,9 +18,14 @@ in-flight recovery. Use the existing feature owners, application ports and
 composition conventions. No new framework, service, feature flag or generalized
 workflow engine is needed.
 
-The owner permits a substantial refactor, including a 15–25k-line diff when
-justified. Changed-line volume is not an acceptance criterion. A smaller
-complete boundary is preferable to unrelated changes added to reach a number.
+The owner explicitly requested approximately 20k changed lines after reviewing
+the initial 6,115-line diff. The continuation must deliver a substantial,
+coherent ownership migration in that range. Count additions/deletions, relocated
+production source, and relocated tests separately: a moved line is not newly
+implemented behavior. Do not manufacture volume through formatting, duplicated
+tests, compatibility wrappers, generated output or unrelated rewrites. D and E
+address roughly 9.5k existing production lines and 7k existing test lines before
+the necessary policy extraction, consumer migration and rejecting checks.
 
 ## Research and counterevidence
 
@@ -46,9 +52,10 @@ is divergent admission behavior and missing history checks at one live caller.
 
 ## Scope and coordination
 
-Selected owners: `workflow-provisioning`, `review-publishing/v2`, and the public
-entrypoints of `review-config` and `audit-log`. Host changes are restricted to
-their real API, worker, web and operator consumers. Tests, package exports,
+Selected owners: `workflow-provisioning`, `provider-setup`,
+`review-publishing/v2`, and the public entrypoints of `review-config` and
+`audit-log`. Host changes are restricted to their real API, worker, web,
+operator and existing qualification consumers. Tests, package exports,
 required boundary checks and the deployment registry change with those owners.
 
 Open memory PR #806 and quota PR #809 retain their scope and ownership. Recheck
@@ -189,6 +196,165 @@ Inventory all imports, re-exports, namespace/dynamic imports and mocks before
 removal. Check source and production export resolution, package/API/worker/web
 typechecks, the affected behavior suites, and negative boundary fixtures.
 No new library dependency or unused adapter interface is justified by this move.
+
+## D. Provider setup owns its persistence and lifecycle policy
+
+### Evidence and boundary
+
+The web host currently contains the concrete implementations of the existing
+provider-setup ports: payload claim (2,314 lines), manifest issuance (1,249),
+recovery (959), readiness (234), workflow namespace (200), mutation fence (109)
+and migration source proof (60). Independent runtime tooling imports those web
+files directly. This makes the host the accidental owner of setup persistence
+and permits policy to continue growing in transaction adapters.
+
+Move this exact cluster to `provider-setup/infrastructure/prisma` and expose it
+through an explicit `/composition` entrypoint. Remove the old host modules and
+migrate every real caller and mock, including live-E2E and migration tooling.
+Move the existing memory adapter out of the application root. Preserve source,
+types and production export conditions; add only the dependencies already used
+by the moved adapters at their existing workspace pins. Do not add a cycle to
+workflow provisioning merely to reuse a type available from its actual owner.
+
+Extract these actual decisions into small provider-owned domain functions:
+
+- Forced-recovery admission from provider, recovery and active-manifest facts,
+  including the current conflict ordering and allocation versus replay choice.
+- Claim replay eligibility and its existing bounded lifetime.
+- Dispatch outcome choice: return, reject, retire expired, retire unknown, or
+  confirm, after the same locked authoritative reads have completed.
+- Coherent namespace/attempt state, bounded allocation and exact attestation
+  equality where those rules currently live in persistence helpers.
+
+The domain receives immutable fact values, never Prisma clients, environment
+getters, provider SDKs or Node APIs. A transaction-bound admitted operation
+remains an infrastructure capability; do not disguise its Prisma transaction as
+an application port. Keep transaction statements in their current owner and
+order. Split private adapter helpers only at a genuine responsibility boundary.
+The installer descriptor becomes a provider-owned value; resolving its local
+file, URL or configuration remains in the web adapter.
+
+### Preserved guarantees
+
+1. Preserve provider/manifest lock ordering, advisory retry behavior, transaction
+   timeouts, database time, and exact writer/incarnation/repository identity fences.
+2. Keep the pre-PUT effect inside the same repository identity transaction and
+   keep signing before definite confirmation. Preserve every existing CAS count
+   and role-authority database call; a pure policy result cannot replace them.
+3. Preserve the bounded predispatch chain and never reuse a retired namespace.
+   Ambiguous dispatch is not permission to create a new automatic external write.
+4. Preserve recovery epochs, exact workflow attestation and current rejection
+   ordering. An expired replay tombstone must commit before the error is surfaced.
+5. Keep trusted web authorization, request adaptation, installer transport,
+   exactly-once HTTPS ledger, signing composition and cache behavior in the host.
+   Preserve existing feature admission configuration without adding flags.
+
+### Qualification
+
+Relocate focused adapter tests with their owner, retaining host integration and
+actual PostgreSQL tests at their existing executable boundaries. Strengthen only
+the extracted high-risk policy decisions. Run the existing manifest lock-order,
+payload claim, recovery, readiness and namespace cases, the real manifest suite,
+runtime migration PostgreSQL suite and locked-provider PG17 proof. Update the
+secret-write boundary's exact audited ledger path and its rejecting fixtures;
+never disable the gate to accept relocation. Extend the existing bounded
+application/composition checker to provider-setup and prove rejecting imports.
+
+## E. Publication owns finite execution and provider adapters
+
+### Evidence and boundary
+
+The worker currently owns a 2,538-line finite publication executor, 276 lines of
+its consuming ports and a 1,554-line gateway combining signed capabilities,
+credential sessions and GitHub transport. These implement publication policy
+and adapters rather than worker scheduling. Move them to the existing
+`review-publishing/v2` application and infrastructure; keep the worker's bounded
+drain, polling, retry schedule, host clock and cross-context fact adapters.
+
+The application executor coordinates one existing operation. Extract existing
+command/identity construction and pure inventory, freshness and terminal-state
+inspection into private publication modules. Inject the existing-style UTF-8
+digest capability to remove Node crypto from application code. Do not create a
+new scheduler, state machine framework, service container or recovery engine.
+
+Separate infrastructure along its actual responsibilities: signed operation
+capability codec, provider credential session routing, and GitHub App
+credential/live-revision/publication transport. Expose concrete adapters only
+from the established `/v2/composition` entrypoint. Move the payload DTO and its
+consuming port into publication application so infrastructure cannot import the
+worker. Keep canonical artifact/release/snapshot mapping and its query adapter
+in the worker because they cross other feature owners. Preserve the injected
+SDK-growth identity callback in host composition and its host-specific test.
+
+Delete the old executor/gateway/ports host modules after all imports migrate;
+do not retain forwarding barrels. Move focused owner tests with their source,
+but keep host integration tests and cross-context fixtures in the host.
+
+### Preserved guarantees
+
+1. Every persisted ID and hash keeps the exact preimage, serialization, ordering
+   and digest. The executor's serializer supports Date and bigint; it must not
+   be merged with a plain-JSON serializer without proving the same contract.
+2. Preserve claim acquisition/renewal/report expiry and every fresh read before
+   an external effect. Keep current-generation, head and lifecycle gates.
+3. Preserve signed capability key, kind, audience, issuer, exact permit, head,
+   operation and expiration binding. Reconciliation-only sessions cannot mutate.
+4. Keep credential/session cleanup in the existing `finally` paths. The move
+   does not transfer worker lifetime ownership or add cancellation semantics.
+5. Preserve marker and bot ownership, pagination, external-effect uncertainty,
+   no-effect proofs, canonical receipt selection, sibling terminalization,
+   pending-review recovery and optional PR-description aggregate behavior.
+6. Preserve transactional final guards in the existing persistence adapters.
+   Moving an application policy does not replace database authority.
+
+### Qualification
+
+Before extraction, freeze representative existing ID/hash outputs including
+supported non-JSON values. Run executor/gateway baseline suites. After extraction
+run the same behavioral cases, production runtime/maintenance/payload and
+SDK-growth host tests, strict native TS7 feature/worker/tooling checks and emitted
+exports. Reuse the existing production PostgreSQL review-v2 E2E, including
+restart, expired-claim takeover, moving head and ambiguous marker recovery.
+
+## F. Complete E2E and independent review
+
+The previous local 1,106 passing tests and real-component browser qualification
+are retained evidence for A–C; they do not qualify D–E or replace PostgreSQL.
+The exact prior head is `e4327acd50dece733b3e2794497447f08eb10caf`.
+At continuation start, CI run 41741646669 has its Linux jobs queued, while its
+macOS installer job and the separate memory-quality workflow succeeded.
+
+The local executor has only UID 0 mapped, no privilege to create a non-root
+identity and no Docker daemon. Native PostgreSQL correctly refuses to initialize
+as root. Do not patch that check, simulate its identity, weaken the sandbox or
+describe an embedded substitute as native PostgreSQL. Use the repository's
+existing disposable PostgreSQL 17 and container CI jobs for actual execution.
+Continue implementation and review while they queue; do not call queued work
+successful or stop after merely requesting a run.
+
+Required evidence for the completed source:
+
+- Existing real PostgreSQL workflow race for ordinary and Hosted provisioning,
+  plus persisted-success/audit-failure and external-response-loss settlement.
+  Extend the existing fixture without creating a second framework.
+- Provider-setup real database integration and secret-write boundary checks for
+  the migrated adapters, preserving all authority and concurrency assertions.
+- Production review-v2 PostgreSQL E2E using the real API/worker factories and
+  synthetic external provider, plus the existing full self-hosted container E2E.
+  Report these separately from a live GitHub/provider or production rollout.
+- Focused meaningful behavior suites, strict native TS7 types/builds, source and
+  emitted exports, formatting/lint and the required architecture checks.
+- Multiple independent review rounds over domain ownership, hash compatibility,
+  transactional authority, external uncertainty and actual host composition.
+  Each material finding is fixed and re-reviewed against the changed source.
+- Exact final-head CI results, with failures investigated and corrected. Keep
+  the required branch checks and current execution environment contracts intact.
+
+D and E are assigned to separate Astra/ultra implementers with cross-review;
+an independent Astra/ultra critic owns the PostgreSQL qualification gap. The root
+owns integration, plan/evidence, boundary checks and GitHub publication. Publish
+every coherent commit immediately. The rollout registry remains pending until
+an independently authorized deployment; this continuation does not deploy.
 
 ## Delivery, reviews and acceptance
 
