@@ -76,6 +76,7 @@ any failed or unfinished step for the affected environment.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result             | Evidence | Next action                              |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------------------ | -------- | ---------------------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Implementation awaiting Web rollout. | PR #798  | Qualify and deploy the selected release. |
+| Time (UTC)   | Environment      | Operator   | Actual version / image | Step and observed result                 | Evidence | Next action                                         |
+| ------------ | ---------------- | ---------- | ---------------------- | ---------------------------------------- | -------- | --------------------------------------------------- |
+| Not executed | staging / Web    | Unassigned | Not verified           | Pending; no staging rollout executed.    | PR #798  | Qualify and deploy the selected staging release.    |
+| Not executed | production / Web | Unassigned | Not verified           | Pending; no production rollout executed. | PR #798  | Qualify and deploy the selected production release. |
