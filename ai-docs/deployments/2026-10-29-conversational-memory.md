@@ -537,7 +537,9 @@ Staging remains unchanged and unverified by this production batch.
 
 The later PR800 diagnostic observed 3/3 selected adoption/recall events
 correctly but was forced UNAVAILABLE/ineligible. Its full T1 stopped UNAVAILABLE
-at 2/50 on the original 90-second child bound. Later exact read-only reconciliation
+at 2/50 when the child reached the inherited parent/shared deadline. The original
+processing budget was 90 seconds; only 73,572 ms remained when the child was
+created after the parent. Later exact read-only reconciliation
 found the child fenced, transport unoccupied, closure acknowledged and cleanup
 done; provider result and usage remain UNKNOWN, without output recovery or replay. See the
 [current-source evidence](2026-11-03-memory-current-source-evidence.md).

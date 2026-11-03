@@ -338,7 +338,7 @@
       "runId": 41581736184,
       "status": "PARTIAL",
       "requiredSatisfied": 0,
-      "requiredTotal": 17,
+      "requiredTotal": 1,
       "fullCoverage": false,
       "completeModelRequests": 32,
       "totalTokens": 508896,
@@ -373,7 +373,10 @@
         "freshNormalPaymentsAcceptance": "pending",
         "oldRunReplayed": false
       },
-      "workflowRun": "https://github.com/agent-teams-ai/payments-sdk/actions/runs/41581736184"
+      "workflowRun": "https://github.com/agent-teams-ai/payments-sdk/actions/runs/41581736184",
+      "requiredExhausted": 1,
+      "eligibleFiles": 17,
+      "coveredFiles": 0
     },
     "paymentsOperatorGrant": {
       "operator": "reviewrouter-operator",
@@ -466,7 +469,6 @@
         "status": "UNAVAILABLE",
         "observedEvents": 2,
         "plannedEvents": 50,
-        "originalChildDeadlineSeconds": 90,
         "cleanup": "done_at_2026-11-03T06:05:45.722374Z",
         "closure": "exact_read_only_fenced_ACK_cleanup_done",
         "phaseAtOriginalDeadline": "response_started",
@@ -479,7 +481,11 @@
         "providerUsage": "UNKNOWN",
         "outputRecovered": false,
         "replayed": false,
-        "reconciliationSummarySha256": "56866c16d7fb86e34f5f0f134c9207049d8abe34b9ba3f3ad8d34497997a0ec8"
+        "reconciliationSummarySha256": "56866c16d7fb86e34f5f0f134c9207049d8abe34b9ba3f3ad8d34497997a0ec8",
+        "originalProcessingBudgetSeconds": 90,
+        "childRemainingBudgetMs": 73572,
+        "childCreatedAt": "2026-11-03T06:04:30.899Z",
+        "parentProcessingDeadlineAt": "2026-11-03T06:05:44.471Z"
       },
       "T2Executed": false,
       "T3Executed": false,

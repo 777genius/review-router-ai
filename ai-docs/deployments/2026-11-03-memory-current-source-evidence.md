@@ -181,8 +181,10 @@ and ineligible for qualification, not a full tuning result. Report SHA256:
 `051079524e58b1834510e94faebe0e2ec19d81f7672f3587725ce4d27a371d36`.
 
 Full T1 `03a6e14c-6b4c-470e-b370-b4a5f3c01183` then stopped
-`UNAVAILABLE` at 2/50 events when a child reached its original 90-second bound
-in `response_started` with cleanup pending. Subsequent exact read-only
+`UNAVAILABLE` at 2/50 events when a child reached the inherited shared processing
+deadline in `response_started` with cleanup pending. The original parent/shared
+processing budget was 90 seconds; after the parent, the child had only 73,572 ms
+remaining at creation, not a new 90-second budget. Subsequent exact read-only
 reconciliation observed that child fenced at 06:05:44.484878 UTC, its sole
 request still `effect_unknown` with transport unoccupied and closure ACK at
 06:05:44.537954, and cleanup done at 06:05:45.722374. Provider result and usage
