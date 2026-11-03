@@ -1753,7 +1753,7 @@ function companionReadback(dispatch: ReviewRunCompanionDispatch) {
 /** No header defaults or partial envelopes: engine children carry none of these
  * parent-only facts and cannot turn ordinary traffic into companion evidence. */
 function companionContext(
-  request: FastifyRequest,
+  request: Pick<FastifyRequest, "headers">,
   capability?: ReviewModelDispatchCapability,
 ): Parameters<ReviewRunCompanionDispatchAdmission["claim"]>[1] | undefined {
   const names = lifecycleVerificationContract.dispatchHeaders;

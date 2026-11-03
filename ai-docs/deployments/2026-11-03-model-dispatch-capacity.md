@@ -45,6 +45,18 @@ snapshot trigger remains enabled. Both legacy32/33 and new128/129 boundaries,
 shared-role accounting and unknown-effect fences passed. No database case was
 skipped and no production authority or model call was used for qualification.
 
+Forwarding has its own regression boundary: the former two-digit/32 header
+parser would reject already admitted requests33/100/128. Gateway and Hosted
+now derive that bound from the authenticated frozen capability before native
+preparation; the exported default parser retains32. On the old runtime,
+12 of20 focused cases failed. The corrected closest suites pass144/144,
+including the20 cases; an existing paired budget case also passes. Gateway
+positives cross the real HTTP route into a controlled SDK fixture. Hosted
+positives prove header acceptance before an intentional authority denial;
+they do not claim a live Hosted grant or provider call. Legacy33, new129,
+and a clamped16 allowance reject17 without native preparation or forwarding.
+No real provider/model was called for this source qualification.
+
 The [public exact-head CI](https://github.com/777genius/review-router/actions/runs/41592288382)
 and both native qualification workflows passed on the first attempt; its merge
 tree is identical to reviewed head `d4d3db4e400507df268186c9a3f54f7c23f7e651`.

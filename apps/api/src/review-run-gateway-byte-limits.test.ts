@@ -287,9 +287,7 @@ it.each([
 );
 
 it("retains the exported parser's default32 and rejects unknown frozen capacity before native prepare", async () => {
-  const request = { headers: modelForwardHeaders(33) } as Parameters<
-    typeof readReviewRunCompanionDispatchContext
-  >[0];
+  const request = { headers: modelForwardHeaders(33) };
   expect(() => readReviewRunCompanionDispatchContext(request)).toThrow(
     "model_dispatch_headers_invalid",
   );
@@ -299,7 +297,10 @@ it("retains the exported parser's default32 and rejects unknown frozen capacity 
     modelDispatchV2: true,
     modelDispatchCapacity128: true,
   });
-  const snapshot = JSON.parse(f.authorization().runtimeSnapshotCanonicalJson);
+  const canonical = f.authorization().runtimeSnapshotCanonicalJson;
+  if (typeof canonical !== "string")
+    throw new Error("fixture_snapshot_required");
+  const snapshot = JSON.parse(canonical);
   snapshot.modelDispatchCapability.capacityPolicy =
     "unapproved-capacity-policy";
   f.overrides.set("authorization-1", {
@@ -340,7 +341,10 @@ it.each(forwardingBounds)(
       },
       requests,
     );
-    const snapshot = JSON.parse(f.authorization().runtimeSnapshotCanonicalJson);
+    const canonical = f.authorization().runtimeSnapshotCanonicalJson;
+    if (typeof canonical !== "string")
+      throw new Error("fixture_snapshot_required");
+    const snapshot = JSON.parse(canonical);
     delete snapshot.lifecycleVerificationCapability;
     snapshot.gateway = null;
     snapshot.agent.modelTransports = ["provider_api"];
