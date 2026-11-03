@@ -14,10 +14,10 @@
   [conversation delivery](2026-10-29-conversational-memory.md) and the existing
   [release process](../operations/07-environments-and-release-management.md).
 
-| Environment | Status        | Actual version                                                                                | Remaining work                                                                                   |
-| ----------- | ------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa`                                           | See current R1 evidence and remaining scope below.                                               |
-| self-hosted | `pending`     | Retained test sandbox: application `657f80b6a`, host helper `b53b79d4c`; fully decommissioned | Continuous stock CI and normal distribution/update remain; bounded real acceptance below passed. |
+| Environment | Status        | Actual version                                                                                      | Remaining work                                                         |
+| ----------- | ------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa`                                                 | See current R1 evidence and remaining scope below.                     |
+| self-hosted | `pending`     | Candidate `b3613bfc0` continuous configured-HTTPS stock PASS; historical657/b53 retained separately | Genuine-artifact distribution/update and qualification remain pending. |
 
 ## Contract and compatibility
 
@@ -170,9 +170,8 @@ A declared real HTTPS origin is installed in both normal API URL settings before
 readiness, setup and Compose. The configured branch exercises actual
 `resumeMemory`, which derives its URL and saved provider tuple from the env file.
 No TLS bypass, DNS mapping or production flag is added. Remote helper/import
-contracts pass 18/18 with strict types, lint and format. This source check does
-not establish a continuous runtime PASS; actual TLS/ingress ownership and a
-normal complete stock lifecycle remain pending.
+contracts pass 18/18 with strict types, lint and format. This source check alone does not establish a runtime PASS. The later scoped
+candidate execution below supplies continuous configured-URL evidence.
 
 A definite `/begin` refusal (HTTP 400/403/409) now settles as `aborted` only
 when the existing fresh readback proves no owner, no pause and the unchanged
@@ -182,15 +181,39 @@ owner or a paused state remain unresolved and cannot buy a new attempt. Two
 source reviews approved this boundary. Remote bootstrap/stock contracts passed
 49 cases; the conditional privileged cleanup case was not available inside that
 QA container and retains its separate actual-server proof. All 46 evaluation
-risk cases and the five distinct merged workflow-gate cases passed. Normal
-release, installed behavior and continuous configured-URL acceptance are still
-pending.
+risk cases and the five distinct merged workflow-gate cases passed. Normal release and installed behavior remain separately scoped; the later
+candidate run below establishes continuous configured-URL stock acceptance.
 
 ## Production R1 /226 — 2026-11-03
 
 The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
 `0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
 
-The compatible command-writer barrier, operator/bootstrap and definite-begin-refusal repair are installed coherently. Production native services were not restarted to manufacture acceptance. Historical657/b53 remains a retained-sandbox continuation; high-level configured-HTTPS continuous stock resume and normal genuine-artifact first-install/update acceptance are still pending.
+The compatible command-writer barrier, operator/bootstrap and definite-begin-refusal repair are installed coherently. Production native services were not restarted to manufacture acceptance. Historical657/b53 remains a retained-sandbox continuation. The later candidate b361 run below proves high-level configured-HTTPS continuous stock resume; normal genuine-artifact first-install/update acceptance remains pending.
 
 Staging remains unchanged and unverified by this production batch.
+
+## Continuous configured-HTTPS candidate proof — 2026-11-03
+
+The [exact continuous acceptance receipt](evidence/2026-11-03-selfhost-continuous-https.json)
+records source-only candidate `b3613bfc012dc88015d9a9bf19be9cb27d67bd67`,
+original stock session `88861`, terminal exit 0 after 666.523 seconds. Normal
+first installation and idempotent reuse passed. Before any Save or Forget, the
+high-level `resumeMemory(envFile, operatorDirectory)` path actually derived
+`https://10.77.0.1:34943` from its saved configuration and used normal trusted-CA
+TLS. Native IDs and saved bindings remained identical; the real Compose API
+stayed running throughout native stop/resume.
+
+Real Save publication, readback, recall and foreign-user denial passed. Forget
+returned `cleanup_pending`: the current native document remained present while
+product read and recall excluded it. The exact private ingress was rolled back
+once, with zero persistent/live owned UFW rules, preserved foreign/IPv6 rules
+and observed proxy exit 0. Normal decommission and independent read-only census
+confirmed all owned native/Compose containers, volumes and network absent.
+
+This is a continuous candidate stock PASS, distinct from the historical failed
+657 stock run and its b53 retained continuation. It is not an official OCI,
+genuine capability artifact, automatic-learning qualification, signed physical
+Forget completion or production recovery test. No external generative model
+calls or production changes occurred. Genuine-artifact first-install/update and
+semantic qualification remain pending; the earlier T1 remains UNAVAILABLE.
