@@ -10,7 +10,7 @@ and review rules in one dashboard.
 
 ## Dashboard preview
 
-<img width="1145" height="737" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/c32ea23f-3d34-4e5c-917f-d72d981b88c5" />
+<img width="1136" height="681" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/18b8e7bd-88a3-4235-bfb2-2110ae284ce7" />
 <img width="721" height="630" alt="ReviewRouter review comment" src="https://github.com/user-attachments/assets/3def12b4-ad47-4b85-95b7-5cc585e4ff72" />
 
 ## Features
