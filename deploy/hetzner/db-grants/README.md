@@ -35,6 +35,17 @@ sudo -u reviewrouter_pg psql -h /var/lib/review-router-postgres/socket -p 5434 \
   -d review_router_dimy -X -f deploy/hetzner/db-grants/worker-repository-sync.sql
 ```
 
+The initial missing-function installation requires that approved session's
+existing superuser authority: `reviewrouter` deliberately has no CREATE on
+`public`. Only the missing-function branch uses transaction-local `ROLE NONE`,
+checks the actual session is a superuser, creates the fixed routine, transfers
+ownership to `reviewrouter`, and restores `SET LOCAL ROLE reviewrouter` before
+all existing integrity checks, trigger installation and grants. It never grants
+schema CREATE or changes schema ownership/ACL. An existing function is only
+verified: an altered body, owner or trigger is refused, never replaced/repaired.
+Do not substitute an application-role LOGIN or add schema permissions to make
+initial installation succeed. A refused installation retains the committed denial.
+
 Then confirm with `node scripts/check-runtime-db-privileges.mjs` under the worker
 role. Its seven checks include the specific identity UPDATE column, which an
 any-column UPDATE probe cannot establish. It fails if a privilege is missing or
@@ -58,6 +69,10 @@ re-verification. A failed post-ACL guard requires explicit operator repair.
 Other roles retain their existing canonical ACL and sanctioned writer paths.
 A disposable PG17 contract checks legitimate and adversarial INSERTs
 using the real worker LOGIN, plus existing first-bind UPDATE and advisory locks.
+Its application owner is explicitly deprived of schema CREATE under a separate
+schema owner; installation and every refusal must preserve the exact schema ACL.
+The contract also checks a confined owner cannot initialize the missing guard,
+and a conflicting existing function owner cannot be silently repaired.
 
 This fixes the immediate cross-workspace INSERT hole but **does not** reconcile
 the canonical ACL: that ACL still revokes worker write privileges on each

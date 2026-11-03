@@ -10,10 +10,10 @@
   The canonical ACL continues to revoke the worker's grants. Do not skip the
   ordered post-ACL grant step or treat this as a canonical ACL trust-root repair.
 
-| Environment | Status    | Actual version | Evidence   |
-| ----------- | --------- | -------------- | ---------- |
-| staging     | `pending` | Not verified   | No rollout |
-| production  | `pending` | Not verified   | No rollout |
+| Environment | Status    | Actual version            | Evidence                                                                    |
+| ----------- | --------- | ------------------------- | --------------------------------------------------------------------------- |
+| staging     | `pending` | Not verified              | No rollout                                                                  |
+| production  | `pending` | Fleet remains `57cc15137` | Official226 grant attempt stopped after durable denial; guard not installed |
 
 ## Release attestation ordering
 
@@ -47,6 +47,12 @@ roles and mistake the intended read-only failure for a guard failure.
    explicit owner repair is needed before recovery. The same post-ACL denial
    makes `GitHubInstallation` immutable to the worker while preserving the
    API-owned webhook installation writer. Never bypass the guard.
+   Initial creation uses the approved `reviewrouter_pg` session's existing
+   superuser authority only while the fixed function is absent. The application
+   object owner `reviewrouter` has no CREATE on `public`; no schema privilege or
+   owner change is authorized. The transaction-local installer restores
+   `reviewrouter` before existing exact owner/body/trigger checks and grants.
+   Conflicting existing objects remain fail-closed and require separate repair.
 4. Verify under the actual worker LOGIN: same-installation, same-workspace
    GitHub inventory INSERT succeeds; cross-workspace, foreign-installation
    and mismatched repository IDs yield SQLSTATE 42501. Confirm no broad table
@@ -71,3 +77,28 @@ This PR protects the immediate worker INSERT tenant invariant but **does not**
 change canonical activation routine hashes or the installed owner trust roots.
 Resolve that separate design in issue #761 with full security/release qualification
 rather than modifying accepted activation policy in this small patch.
+
+## 2026-11-03 owner-installation compatibility failure
+
+At approximately 04:01 UTC, the ordinary official226 operation using source
+`6e6a0f07829c465202512f87fb6a3195412ca347` completed migration reconciliation
+and canonical runtime ACL application. The guarded worker grant committed its
+first durable denial, then the second transaction rolled back at CREATE FUNCTION
+with permission denied on schema `public` under `SET LOCAL ROLE reviewrouter`.
+No INSERT guard was installed; worker writes remain revoked. The application
+fleet still runs source57, so the guarded post-ACL step is **not deployed**.
+
+The old disposable fixture made `reviewrouter` the effective public schema owner
+via database ownership, hiding its missing production CREATE privilege. The
+bounded correction uses only the approved session owner's already-existing
+superuser authority to create and transfer the absent fixed function, then
+restores the application role. It preserves the exact guard body/owner/ACL and
+trigger checks, durable denial, activation fence and schema ACL. No policy trust
+root, migration or new privilege is introduced. A separate extra canonical
+catalog diagnostic reported legacy owner/check/ACL mismatch; that is not this
+CREATE failure's cause and adds no new rollout gate.
+
+The corrected source requires focused real PG17 qualification, normal PR/CI and
+merge, followed by the single release owner's separately approved corrected
+SQL step. Do not replay already-completed migration/ACL phases, bypass denied
+writes, or mark the grant deployed from source-only or disposable results.
