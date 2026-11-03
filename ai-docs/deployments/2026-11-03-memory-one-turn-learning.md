@@ -78,8 +78,8 @@ record the exact source profile and scope. No protected checkpoint was consumed.
 
 The decoder proved a literal current endorsement quote, but did not bind the
 selected technical proposition to its checked human message. A bot-origin
-quoted referent and two discussion-status statements were retained. The narrow
-repair adds checked human-message identity and literal technical supporting
+quoted referent and two discussion-status statements were retained. The [repair in PR805](https://github.com/777genius/review-router-ai/pull/805) adds
+checked human-message identity and literal technical supporting
 evidence while preserving current-maintainer authority, implicit adoption,
 one parent request and independent action validation. Provenance checks cannot
 prove semantic eligibility by themselves: rejected/unresolved status must still
