@@ -18,6 +18,7 @@ export default defineConfig({
       "scripts/hindsight-e2e/**/*.test.ts",
       // Executed by node:test after Vitest in the root test command.
       "scripts/conversation-evals/eval-risk.test.ts",
+      "scripts/conversation-evals/memory-quality-gate.test.ts",
       // Run by node:test inside the real self-hosted acceptance entrypoint.
       "scripts/self-hosted-e2e/native-memory-install.test.ts",
       "scripts/self-hosted-e2e/settle-memory-command.test.ts",

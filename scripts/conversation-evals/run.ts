@@ -292,7 +292,9 @@ if (args.includes("--validate")) {
       const url = new URL(database);
       if (
         !["127.0.0.1", "localhost"].includes(url.hostname) ||
-        !url.pathname.endsWith("_test")
+        !url.pathname.endsWith("_test") ||
+        url.search !== "" ||
+        url.hash !== ""
       )
         throw new Error("eval_requires_disposable_loopback_database");
       assertEvaluationNativeScope(process.env);
