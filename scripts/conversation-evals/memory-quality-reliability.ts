@@ -63,7 +63,7 @@ const validRatio = (value: Ratio | undefined): boolean =>
       Number.isFinite(value.value) &&
       Math.abs(value.value - value.numerator / value.denominator) < 1e-9);
 
-/** Compare independently human-scored real runs; never score raw model text itself. */
+/** Compare separately rubric-scored real runs; never score raw model text itself. */
 export function summarizeQualityRuns(
   values: unknown[],
 ): Record<string, unknown> {
@@ -210,7 +210,7 @@ export function summarizeQualityRuns(
     productionActivated: false,
     qualificationIssued: false,
     qualificationScope:
-      "three independently human-scored tuning observations only",
+      "three separately rubric-scored tuning observations only",
     caveat:
       "Engineering benchmark, not population reliability or protected holdout qualification",
   };

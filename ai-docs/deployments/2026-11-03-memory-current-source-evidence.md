@@ -6,7 +6,7 @@
   Reviewed grounding and closed SDK diagnostics through frozen `286804783` shipped
   as ordinary code in `v1.0.226` / `6e6a0f078`. Qualification and the interaction
   pin remain unset; code rollout is not automatic-learning qualification.
-  Future [Ready PR800](https://github.com/777genius/review-router-ai/pull/800) at
+  Future [merged PR800](https://github.com/777genius/review-router-ai/pull/800) at
   `9a6b1a974`, preview digest `7972021e…`, has source QA and bounded diagnostic evidence, with full tuning unavailable;
   it is not installed or qualified.
 - Dependencies: normal [release process](../operations/07-environments-and-release-management.md),
@@ -94,6 +94,26 @@ empty memory, so semantic qualification remains pending. This bounded run is
 explicitly ineligible for a full tuning score. Neither unavailable full run has
 an official score or protected-run credit.
 
+## Pending contextual-adoption clarification
+
+The source-only successor narrows the prohibition on treating proposals as
+established behavior to **unadopted** proposals. It explicitly separates a literal
+current adoption quote from its single concrete technical referent in the checked
+discussion. The existing ambiguity abstention, quote validator, source authority,
+schema, model, one-call bounds and original deadline remain unchanged. This is a
+behavioral hypothesis from the three-event run, not a demonstrated semantic fix.
+At source preparation it had no fresh model evidence. The later bounded diagnostic
+and unavailable T1 below do not establish successful qualification or activation.
+
+Future reliability reporting describes three separately rubric-scored tuning
+observations and retains the actual reviewer names. Owner-delegated agent review
+must identify itself as agent review, without claiming human or external
+independence. The legacy `AWAITING_HUMAN_RUBRIC` status and all scoring gates remain
+unchanged. After source checks, use one fresh bounded diagnostic before any three
+full tuning observations on the same frozen source/model/corpus; partial and
+filtered reports cannot substitute for complete scored runs. Protected r3 remains
+unconsumed until the required tuning evidence and review are ready.
+
 ## Ordered verification and delivery
 
 1. Review both boundaries and run affected real PostgreSQL/SDK contracts, schema,
@@ -146,8 +166,8 @@ The [shared R1 release and environment evidence](evidence/2026-11-03-memory-prod
 `0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
 
 The reviewed grounding and closed-diagnostic implementation through frozen 286
-is ordinary code shipped in 226, not automatic-learning qualification. Ready
-PR800 at `9a6b1a974`, preview digest797, remains uninstalled. Its later diagnostic
+is ordinary code shipped in 226, not automatic-learning qualification. PR800, merged as `3475220dc`, has observation source `9a6b1a974` and preview
+digest797; it remains undeployed. Its later diagnostic
 and unavailable T1 below grant no semantic PASS, H3 checkpoint, capability or
 genuine self-hosted artifact/HTTPS acceptance.
 
@@ -171,11 +191,12 @@ summary SHA256: `56866c16d7fb86e34f5f0f134c9207049d8abe34b9ba3f3ad8d34497997a0ec
 No T2, T3 or H3 followed. Neither result grants quality PASS, a capability or an
 interaction pin. The installed R1 source remains 6e; future PR800 is not deployed.
 
-PR800 is Ready. Its feature observations above remain bound to `9a6b1a974`.
-A normal merge of `ced6c34b` advanced the PR head to
-`eaef9e81e506f4de5e00a51fbf8c3f578e235c7a`; all 104 staged source files
-remain byte-identical and the nine-file feature diff is unchanged. No model rerun followed.
-The release owner watches the new-head CI alone; the earlier run41588350935
-is not relabelled as evidence for the new head. The new run ID is not recorded
-here yet. This source state does not change the installed R1 image or grant
-semantic qualification. Documentation commit/push remains held until PR800 merges.
+PR800 merged as `3475220dc05b6b6918dab1b20abfffaf8fbb5f1a` at
+06:34:05 UTC after successful full
+[CI41588766562](https://github.com/777genius/review-router-ai/actions/runs/41588766562)
+on tested head `eaef9e81e506f4de5e00a51fbf8c3f578e235c7a`. The tested and
+merged trees match. All 104 staged source files and the nine-file feature diff
+remain unchanged from the observed source; the diagnostic/T1 observations stay
+bound to `9a6b1a974`. No model rerun followed the base merge. The merged source
+is not deployed: production remains ordinary R1 at6e, without qualification or
+an interaction pin.

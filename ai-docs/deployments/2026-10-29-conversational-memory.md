@@ -535,7 +535,7 @@ The reviewed implementation/settings readers are installed coherently, with qual
 
 Staging remains unchanged and unverified by this production batch.
 
-The later Ready PR800 diagnostic observed 3/3 selected adoption/recall events
+The later PR800 diagnostic observed 3/3 selected adoption/recall events
 correctly but was forced UNAVAILABLE/ineligible. Its full T1 stopped UNAVAILABLE
 at 2/50 on the original 90-second child bound. Later exact read-only reconciliation
 found the child fenced, transport unoccupied, closure acknowledged and cleanup

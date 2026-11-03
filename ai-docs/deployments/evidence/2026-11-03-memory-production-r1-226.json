@@ -395,36 +395,24 @@
       "A": {
         "completeRows": 5,
         "totalTokens": 22395,
-        "requestedProviders": [
-          "openrouter"
-        ],
-        "requestedModels": [
-          "nvidia/nemotron-3-ultra-550b-a55b:free"
-        ],
+        "requestedProviders": ["openrouter"],
+        "requestedModels": ["nvidia/nemotron-3-ultra-550b-a55b:free"],
         "observedProviderModel": "unknown",
         "actualBilling": "unknown"
       },
       "B": {
         "completeRows": 10,
         "totalTokens": 57463,
-        "requestedProviders": [
-          "openrouter"
-        ],
-        "requestedModels": [
-          "nvidia/nemotron-3-ultra-550b-a55b:free"
-        ],
+        "requestedProviders": ["openrouter"],
+        "requestedModels": ["nvidia/nemotron-3-ultra-550b-a55b:free"],
         "observedProviderModel": "unknown",
         "actualBilling": "unknown"
       },
       "payments": {
         "completeRows": 32,
         "totalTokens": 508896,
-        "requestedProviders": [
-          "openrouter"
-        ],
-        "requestedModels": [
-          "nvidia/nemotron-3-ultra-550b-a55b:free"
-        ],
+        "requestedProviders": ["openrouter"],
+        "requestedModels": ["nvidia/nemotron-3-ultra-550b-a55b:free"],
         "observedProviderModel": "unknown",
         "actualBilling": "unknown"
       }
@@ -445,13 +433,13 @@
     "capabilityIssued": false,
     "protectedH3Executed": false,
     "futurePR": "https://github.com/777genius/review-router-ai/pull/800",
-    "futurePRState": "ready",
+    "futurePRState": "merged_not_deployed",
     "futureFullCI": {
-      "head": "eaef9e81e506f4de5e00a51fbf8c3f578e235c7a",
-      "status": "new_head_under_sole_watch_run_id_not_recorded",
-      "watchOwner": "Root/session36176",
-      "previousHeadRun": "https://github.com/777genius/review-router-ai/actions/runs/41588350935",
-      "previousRunReusedForNewHead": false
+      "workflowRun": "https://github.com/777genius/review-router-ai/actions/runs/41588766562",
+      "status": "success",
+      "testedHead": "eaef9e81e506f4de5e00a51fbf8c3f578e235c7a",
+      "testedAndMergedTreesEqual": true,
+      "treeSha": "577ebc27fcee71c0f8dac862cdd4e41f5da1013b"
     },
     "futureSource": "9a6b1a974eaf9e0851731a4864d257dc76eaa7ea",
     "futurePreviewDigest": "7972021e88453c5a36bd0e719dcc1c37705f44abf845af43cd97f7f215c59d2d",
@@ -504,7 +492,9 @@
     "futureHeadMergedBase": "ced6c34b15dbfdb3bc2686828e0fad5787ceb812",
     "observedFeatureSourceFilesUnchanged": 104,
     "featureDiffFilesUnchanged": 9,
-    "modelRerunForBaseMerge": false
+    "modelRerunForBaseMerge": false,
+    "futureMergedCommit": "3475220dc05b6b6918dab1b20abfffaf8fbb5f1a",
+    "futureMergedAt": "2026-11-03T06:34:05Z"
   },
   "sourceReceiptHashes": {
     "action226-adoption-6e/stage2-readback.json": "40665b350f3b53233f6477c5ef7b7dd622730355591c6f8c7fc4cd86135cfe19",
