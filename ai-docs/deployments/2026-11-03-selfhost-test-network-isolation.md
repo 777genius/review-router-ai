@@ -78,6 +78,12 @@ with identical parsed fields.
 
 ## Remaining steps
 
+The first full PR803 CI run `41627891772` passed the real self-hosted E2E,
+but root Vitest also discovered the new `node:test` file and reported no Vitest
+suite. Register it beside the existing self-hosted Node exclusions; it remains
+executed by the normal self-hosted acceptance entrypoint. This changes test
+runner selection only, not the verified candidate runtime behavior.
+
 1. Complete normal PR803 protected distribution. Hosted candidate acceptance is
    complete; production services are `n/a` for this harness-only change.
 2. Keep genuine capability-bound release first-install/update and automatic
