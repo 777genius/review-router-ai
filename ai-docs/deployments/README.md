@@ -15,7 +15,9 @@ They do not grant deployment permission or replace existing operational runbooks
 
 Gateway saturation follow-up: [terminal-run cleanup](2026-11-02-gateway-terminal-run-cleanup.md) — staging/production `pending`; qualify exact terminal-run cleanup and verify real review after the coordinated rollout.
 
-Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging/production `pending`; preserve immutable usage facts and coordinate one Web/API/worker rollout.
+Current reliability batch: [Analytics and review completion](2026-11-02-analytics-review-reliability.md) — staging `pending`, production `in_progress`; release226/source `6e6a0f0` with public `fa3e87a` is deployed and A/B Usage/Statistics verified. Payments full coverage remains pending.
+
+Bounded request capacity: [Named capacity128 rollout](2026-11-03-model-dispatch-capacity.md) — staging/production `pending`; the new profile is not deployed or qualified. Preserve immutable V2; parser-first, owner-coordinated paired227 rollout must precede fresh full17-file Payments acceptance.
 
 | Task                                                                                   | Implementation                                                                                                                                           | Staging   | Production    | Remaining work                                                                                                                                                                                            |
 | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
