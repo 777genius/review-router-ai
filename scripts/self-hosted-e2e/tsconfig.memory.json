@@ -2,6 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "noEmit": true, "allowImportingTsExtensions": true },
   "include": [
+    "disposable-temp-cleanup.ts",
+    "disposable-temp-cleanup.test.ts",
     "native-memory-install.ts",
     "native-memory-install.test.ts",
     "native-memory-storage.ts",
