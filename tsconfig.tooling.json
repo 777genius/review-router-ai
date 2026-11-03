@@ -11,6 +11,8 @@
     "scripts/update-mcp-catalog.ts",
     "scripts/lib/server-rendered-heading.ts",
     "scripts/lib/server-rendered-heading.test.ts",
+    "scripts/lib/review-model-dispatch-release-profile.ts",
+    "scripts/lib/review-model-dispatch-release-profile.test.ts",
     "scripts/local-checks/compiler-*.ts",
     "scripts/local-checks/compiler-*.mts",
     "scripts/local-checks/lint-format-*.ts",
