@@ -1,14 +1,14 @@
 # Stock self-hosted test network isolation
 
 - Goal: finish isolated configured-HTTPS stock acceptance when the shared test host has exhausted Docker's predefined network pools.
-- Implementation: source `b3613bfc012dc88015d9a9bf19be9cb27d67bd67`, [PR #803](https://github.com/777genius/review-router-ai/pull/803); normal protected distribution pending.
+- Implementation: source `b3613bfc012dc88015d9a9bf19be9cb27d67bd67`, [PR #803](https://github.com/777genius/review-router-ai/pull/803), merged as `543869f7a1f7537c0bbbf8c6ea4463ed8f8bff50` on 2026-11-03.
 - Scope: optional test-runner `networkSubnet`, not product Compose, a feature flag, a daemon setting or a production network change.
 - Related work: [explicit Memory resume](2026-11-02-memory-explicit-resume.md), [conversation qualification](2026-11-03-memory-current-source-evidence.md).
 
-| Target                       | Status | Actual version / evidence                                                              | Remaining work                                                                                                        |
-| ---------------------------- | ------ | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| production services          | `n/a`  | Existing official226/source6e unchanged                                                | No production activation belongs to this test-harness change.                                                         |
-| hosted disposable acceptance | `PASS` | Source-only candidate `b3613bfc0`; original continuous stock session `88861` completed | Normal PR803 distribution remains pending; this is not official OCI, semantic qualification or production activation. |
+| Target                       | Status    | Actual version / evidence                              | Remaining work                                                                                   |
+| ---------------------------- | --------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| production services          | `n/a`     | Separate official227/source dbc                        | No production activation belongs to this test-harness change.                                    |
+| hosted disposable acceptance | `pending` | Candidate b361 acceptance PASS; source merged in PR803 | Protected merged-source target distribution is not evidenced; no product or semantic activation. |
 
 ## Retained failure
 
@@ -84,12 +84,18 @@ suite. Register it beside the existing self-hosted Node exclusions; it remains
 executed by the normal self-hosted acceptance entrypoint. This changes test
 runner selection only, not the verified candidate runtime behavior.
 
-1. Complete normal PR803 protected distribution. Hosted candidate acceptance is
-   complete; production services are `n/a` for this harness-only change.
+1. Normal PR803 protected source distribution completed as `543869f7a` after
+   CI `41630251883` passed on `795eed831`. The merged and tested trees match;
+   the six runtime harness files remain byte-identical to the hosted b361 proof.
+   [PR803 CI](https://github.com/777genius/review-router-ai/actions/runs/41630251883)
+   proves protected source checks. It does not prove a new merged-source install
+   on the disposable target: that target remains `pending`. The retained b361
+   acceptance remains valid for its exact source; no extra install is run here.
+   Production services remain `n/a` for this harness task.
 2. Keep genuine capability-bound release first-install/update and automatic
    conversational learning qualification separate. This source-only candidate
    has no official OCI or semantic capability; installed production remains
-   source6e with qualification and interaction pin unset.
+   separate official227/dbc, without activation from this harness task.
 
 Rollback is omission of the optional test input or an ordinary source revert.
 This task adds no data migration, product setting, service restart, qualification

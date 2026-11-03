@@ -89,6 +89,22 @@ export type MemoryAutomaticSourceState = {
     }
 );
 
+/** Authority cursor only: worker completion/progress does not renew or revoke selection. */
+export function automaticMemorySelectionCursor(
+  state: MemoryAutomaticSourceState | null,
+) {
+  return state
+    ? {
+        scope: state.scope,
+        sourceId: state.sourceId,
+        binding: state.binding,
+        suppressed: state.suppressed,
+        suppressionEpoch: state.suppressionEpoch,
+        entryIds: state.entryIds,
+      }
+    : null;
+}
+
 export interface MemoryAutomaticSourceStore {
   lookup(
     scope: MemoryKnowledgeScope,
@@ -102,6 +118,8 @@ export interface MemoryAutomaticSourceStore {
     readonly input: MemoryAutomaticSourceInput;
     readonly generation: string;
     readonly expectedPriorEpoch: string | null;
+    /** Frozen prepared selection authority; compared under the existing final source lock. */
+    readonly expectedSourceAuthorityDigest?: string;
     readonly entryIds: readonly string[];
     readonly bodyDigests: readonly string[];
     readonly now: Date;

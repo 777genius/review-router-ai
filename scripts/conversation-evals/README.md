@@ -263,7 +263,13 @@ owner, epoch, selection and paid-dispatch guards. It captures the real template
 selection while durable attempts belong to fresh disposable processing scopes.
 Its manifest contains `candidateEvaluationRunId`, never `qualificationProofId`.
 No production capability or successful proof is needed or manufactured to measure
-a candidate. A model bounds declaration is an operational limit, not quality
+a candidate. New full-product reports identify the parent-observations mechanism:
+one normal SDK parent result carries independently decoded observations, with the
+prepared source/ownership fence checked at dispatch and final native admission.
+Its real parent receipt is required; child calls or invented child receipts are
+forbidden. Historical two-turn reports retain their original child-receipt checks.
+Missing or malformed observations are unavailable, never empty selection success.
+A model bounds declaration is an operational limit, not quality
 evidence. Neither the runner nor scorer activates production or issues a
 `transient-checked-inline-gateway-full-thread-v1` capability. Historical source-only Gateway proof remains parseable but cannot activate this extractor.
 

@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import {
   assertEvaluationNativeScope,
   evaluationMissingKeys,
-  gatewayCandidateMechanism,
+  isGatewayCandidateMechanism,
   readCandidateModels,
   candidateSourceDigestKeys,
 } from "./configuration.js";
@@ -88,7 +88,7 @@ export function assertObservedTuningReport(
     typeof report.corpusRevision !== "string" ||
     !report.corpusRevision ||
     !profile ||
-    profile.extractionMechanism !== gatewayCandidateMechanism ||
+    !isGatewayCandidateMechanism(profile.extractionMechanism) ||
     !candidateSourceDigestKeys.every(
       (key) =>
         typeof profile[key] === "string" &&

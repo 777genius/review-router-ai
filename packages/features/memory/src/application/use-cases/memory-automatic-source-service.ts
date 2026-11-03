@@ -21,10 +21,24 @@ import type {
   MemoryAutomaticSourceStore,
   MemoryAutomaticLearningResult,
 } from "../ports/memory-automatic-source-port";
+import { automaticMemorySelectionCursor } from "../ports/memory-automatic-source-port";
 import type { MemoryRequestControls } from "../ports/memory-knowledge-provider-port";
 import type { MemoryKnowledgeService } from "./memory-knowledge-service";
 
-/** Semantic selection belongs to the native engine; this owner only coordinates authority and exact delivery. */
+type Selection = Awaited<ReturnType<MemorySourcePreviewPort["preview"]>>;
+export type PreparedAutomaticLearning =
+  | {
+      readonly status: "settled";
+      readonly result: MemoryAutomaticLearningResult;
+    }
+  | {
+      readonly status: "ready";
+      readonly previewInput: Parameters<MemorySourcePreviewPort["preview"]>[0];
+      current(): Promise<boolean>;
+      complete(selection: Selection): Promise<MemoryAutomaticLearningResult>;
+    };
+
+/** Semantic selection stays outside this owner; authority and exact delivery stay here. */
 export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort {
   constructor(
     private readonly dependencies: {
@@ -44,6 +58,16 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
     input: MemoryAutomaticSourceInput,
     controls: MemoryRequestControls,
   ): Promise<MemoryAutomaticLearningResult> {
+    const prepared = await this.prepare(input, controls);
+    if (prepared.status === "settled") return prepared.result;
+    return prepared.complete(
+      await this.dependencies.preview.preview(prepared.previewInput, controls),
+    );
+  }
+  async prepare(
+    input: MemoryAutomaticSourceInput,
+    controls: MemoryRequestControls,
+  ): Promise<PreparedAutomaticLearning> {
     const cohortId = automaticMemoryCohortId(input.processingId);
     const outcome = (
       state: MemoryAutomaticLearningResult["state"],
@@ -81,24 +105,30 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       input.scope,
       input.source.sourceId,
     );
-    if (prior?.suppressed) return outcome("suppressed", prior.entryIds);
+    if (prior?.suppressed)
+      return {
+        status: "settled",
+        result: outcome("suppressed", prior.entryIds),
+      };
     // Replay restores existing durable effects and never consumes another native inference.
     if (
       prior &&
       prior.state !== "unselected" &&
       prior.binding.cohortId === cohortId
     ) {
-      return (
-        (await this.dependencies.knowledge.automaticOperations(
-          {
-            actor: input.sourceActor,
-            scope: input.scope,
-            sourceId: input.source.sourceId,
-            processingId: input.processingId,
-          },
-          controls,
-        )) ?? outcome("needs_refresh", prior.entryIds)
-      );
+      return {
+        status: "settled",
+        result:
+          (await this.dependencies.knowledge.automaticOperations(
+            {
+              actor: input.sourceActor,
+              scope: input.scope,
+              sourceId: input.source.sourceId,
+              processingId: input.processingId,
+            },
+            controls,
+          )) ?? outcome("needs_refresh", prior.entryIds),
+      };
     }
     await this.dependencies.knowledge.authorizeAutomaticSource(
       input.sourceActor,
@@ -121,7 +151,8 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
         },
         controls,
       );
-    if (!(await current())) return outcome("needs_refresh");
+    if (!(await current()))
+      return { status: "settled", result: outcome("needs_refresh") };
     // An old accepted source may observe a newer cursor after its earlier host check.
     // It may mutate only the cursor it observed, after proving its own revision current.
     if (
@@ -141,14 +172,34 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
       input.source.sourceId,
     );
     if (expectedPrior?.suppressed)
-      return outcome("suppressed", expectedPrior.entryIds);
+      return {
+        status: "settled",
+        result: outcome("suppressed", expectedPrior.entryIds),
+      };
     if (
       expectedPrior?.binding.cohortId !== prior?.binding.cohortId ||
       expectedPrior?.binding.sourceRevision !== prior?.binding.sourceRevision
     )
-      return outcome("needs_refresh");
-    const selected = await this.dependencies.preview.preview(
-      {
+      return { status: "settled", result: outcome("needs_refresh") };
+    const expectedDigest = memoryKnowledgeDigest(
+      automaticMemorySelectionCursor(expectedPrior),
+    );
+    const preparedCurrent = async () =>
+      !controls.signal?.aborted &&
+      this.now() < controls.deadlineAt &&
+      memoryKnowledgeDigest(
+        automaticMemorySelectionCursor(
+          await this.dependencies.sources.lookup(
+            input.scope,
+            input.source.sourceId,
+          ),
+        ),
+      ) === expectedDigest &&
+      (await current());
+    let completion: Promise<MemoryAutomaticLearningResult> | undefined;
+    return {
+      status: "ready",
+      previewInput: {
         scope: memoryKnowledgeScopeKey(input.scope),
         source: {
           id: input.source.sourceId,
@@ -160,122 +211,138 @@ export class MemoryAutomaticSourceService implements AutomaticMemoryLearningPort
           ? { readOnlyContext: input.readOnlyContext }
           : {}),
       },
-      controls,
-    );
-    if (selected.status !== "complete")
-      return outcome(
-        selected.status === "unsupported" ? "unavailable" : "needs_refresh",
-      );
-    if (
-      selected.source.id !== input.source.sourceId ||
-      selected.source.revision !== input.source.revision ||
-      selected.statements.length > 4 ||
-      selected.statements.some(
-        (s) =>
-          !s.body.trim() ||
-          s.body.length > 1000 ||
-          s.body !== normalizeMemoryBody(s.body),
-      )
-    )
-      return outcome("needs_refresh");
-    if (!(await current())) return outcome("needs_refresh");
-    // Confirmation previews are read-only: no new cohort, command, outbox or AI retirement.
-    // The user may author one of these exact statements as an ordinary confirmed command.
-    if (input.requireConfirmation)
-      return {
-        ...outcome(
-          selected.statements.length ? "confirmation_required" : "active",
-        ),
-        proposals: selected.statements.map((statement) => statement.body),
-      };
-    const ids = selected.statements.map(
-      (_, i) =>
-        `auto_${memoryKnowledgeDigest([input.processingId, i]).slice(0, 48)}`,
-    );
-    const approval = {
-      actor: input.sourceActor,
-      approvedAt: this.now().toISOString(),
-      authorityRevision: `automatic:${input.policyRevision}`,
-      automaticSettingsRevision: input.settingsRevision ?? "0",
+      current: preparedCurrent,
+      complete: (selected) =>
+        (completion ??= (async () => {
+          if (!(await preparedCurrent())) return outcome("needs_refresh");
+          if (selected.status !== "complete")
+            return outcome(
+              selected.status === "unsupported"
+                ? "unavailable"
+                : "needs_refresh",
+            );
+          if (
+            selected.source.id !== input.source.sourceId ||
+            selected.source.revision !== input.source.revision ||
+            selected.statements.length > 4 ||
+            selected.statements.some(
+              (s) =>
+                !s.body.trim() ||
+                s.body.length > 1000 ||
+                s.body !== normalizeMemoryBody(s.body),
+            )
+          )
+            return outcome("needs_refresh");
+          if (!(await current())) return outcome("needs_refresh");
+          // Confirmation previews are read-only: no new cohort, command, outbox or AI retirement.
+          // The user may author one of these exact statements as an ordinary confirmed command.
+          if (input.requireConfirmation)
+            return {
+              ...outcome(
+                selected.statements.length ? "confirmation_required" : "active",
+              ),
+              proposals: selected.statements.map((statement) => statement.body),
+            };
+          const ids = selected.statements.map(
+            (_, i) =>
+              `auto_${memoryKnowledgeDigest([input.processingId, i]).slice(0, 48)}`,
+          );
+          const approval = {
+            actor: input.sourceActor,
+            approvedAt: this.now().toISOString(),
+            authorityRevision: `automatic:${input.policyRevision}`,
+            automaticSettingsRevision: input.settingsRevision ?? "0",
+          };
+          const retirements = [];
+          // Withdrawn old children use the existing CAS/retire owner. Ownership transfer wins a race.
+          if (prior && prior.state !== "unselected")
+            for (const entryId of prior.entryIds) {
+              const ref: MemoryEntryRef = {
+                type: "entry",
+                scope: input.scope,
+                entryId,
+              };
+              const entry = await this.dependencies.knowledge.metadata(ref);
+              if (
+                !entry?.automaticSource ||
+                entry.automaticSource.cohortId !== prior.binding.cohortId
+              )
+                continue;
+              retirements.push({
+                command: {
+                  kind: "retire" as const,
+                  commandId: automaticMemoryChildCommandId(
+                    input.processingId,
+                    entryId,
+                  ),
+                  ref,
+                  expectedRevision: entry.revision,
+                  generation: this.dependencies.generation,
+                  providerProfileVersion:
+                    this.dependencies.providerProfileVersion,
+                  approval,
+                },
+                binding: prior.binding,
+              });
+            }
+          const children = [];
+          for (const [index, statement] of selected.statements.entries()) {
+            const ref: MemoryEntryRef = {
+              type: "entry",
+              scope: input.scope,
+              entryId: ids[index]!,
+            };
+            const command: Extract<MemoryKnowledgeCommand, { kind: "save" }> = {
+              kind: "save",
+              commandId: automaticMemoryChildCommandId(
+                input.processingId,
+                index,
+              ),
+              ref,
+              expectedRevision: null,
+              generation: this.dependencies.generation,
+              providerProfileVersion: this.dependencies.providerProfileVersion,
+              approval,
+              body: statement.body,
+              knowledgeKind: "observation",
+              topicIds: [],
+              source: input.source,
+              applicability: {
+                validUntil: null,
+                observedCommitSha: input.headSha,
+                exceptionRule: null,
+              },
+              temporalMode: "preserve_original",
+            };
+            children.push(command);
+          }
+          const reserved =
+            await this.dependencies.knowledge.admitAutomaticSelection(
+              {
+                reservation: {
+                  input,
+                  generation: this.dependencies.generation,
+                  expectedPriorEpoch: expectedPrior?.binding.epoch ?? null,
+                  expectedSourceAuthorityDigest: expectedDigest,
+                  entryIds: ids,
+                  bodyDigests: selected.statements.map((s) =>
+                    createMemoryBodyHash(s.body),
+                  ),
+                  now: this.now(),
+                },
+                children,
+                retirements,
+              },
+              controls,
+            );
+          if (reserved.source.suppressed) return outcome("suppressed");
+          return outcome(
+            ids.length ? "queued" : "active",
+            ids,
+            reserved.operations,
+          );
+        })()),
     };
-    const retirements = [];
-    // Withdrawn old children use the existing CAS/retire owner. Ownership transfer wins a race.
-    if (prior && prior.state !== "unselected")
-      for (const entryId of prior.entryIds) {
-        const ref: MemoryEntryRef = {
-          type: "entry",
-          scope: input.scope,
-          entryId,
-        };
-        const entry = await this.dependencies.knowledge.metadata(ref);
-        if (
-          !entry?.automaticSource ||
-          entry.automaticSource.cohortId !== prior.binding.cohortId
-        )
-          continue;
-        retirements.push({
-          command: {
-            kind: "retire" as const,
-            commandId: automaticMemoryChildCommandId(
-              input.processingId,
-              entryId,
-            ),
-            ref,
-            expectedRevision: entry.revision,
-            generation: this.dependencies.generation,
-            providerProfileVersion: this.dependencies.providerProfileVersion,
-            approval,
-          },
-          binding: prior.binding,
-        });
-      }
-    const children = [];
-    for (const [index, statement] of selected.statements.entries()) {
-      const ref: MemoryEntryRef = {
-        type: "entry",
-        scope: input.scope,
-        entryId: ids[index]!,
-      };
-      const command: Extract<MemoryKnowledgeCommand, { kind: "save" }> = {
-        kind: "save",
-        commandId: automaticMemoryChildCommandId(input.processingId, index),
-        ref,
-        expectedRevision: null,
-        generation: this.dependencies.generation,
-        providerProfileVersion: this.dependencies.providerProfileVersion,
-        approval,
-        body: statement.body,
-        knowledgeKind: "observation",
-        topicIds: [],
-        source: input.source,
-        applicability: {
-          validUntil: null,
-          observedCommitSha: input.headSha,
-          exceptionRule: null,
-        },
-        temporalMode: "preserve_original",
-      };
-      children.push(command);
-    }
-    const reserved = await this.dependencies.knowledge.admitAutomaticSelection(
-      {
-        reservation: {
-          input,
-          generation: this.dependencies.generation,
-          expectedPriorEpoch: expectedPrior?.binding.epoch ?? null,
-          entryIds: ids,
-          bodyDigests: selected.statements.map((s) =>
-            createMemoryBodyHash(s.body),
-          ),
-          now: this.now(),
-        },
-        children,
-        retirements,
-      },
-      controls,
-    );
-    if (reserved.source.suppressed) return outcome("suppressed");
-    return outcome(ids.length ? "queued" : "active", ids, reserved.operations);
   }
   async revoke(
     input: Parameters<AutomaticMemoryLearningPort["revoke"]>[0],

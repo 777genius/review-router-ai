@@ -13,6 +13,10 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Memory source candidate: [One-turn source-fenced learning](2026-11-03-memory-one-turn-learning.md) — staging/production `pending`; one parent request, no new quality/deployment claim. Private227 installed independently; Memory deployment is deferred.
+
+Hosted test infrastructure: [stock self-hosted network isolation](2026-11-03-selfhost-test-network-isolation.md) — test target `pending`: continuous configured-HTTPS acceptance PASS on b361; source merged in PR803/543869f7a, without merged-source target installation evidence. Product networks and production services are outside this test-harness change.
+
 **Current production baseline:** release227 / `dbc161c986`, image `89a28e11`, public Action/channel `abff4814`. See [status reconciliation and owner decision](2026-11-03-production-status-reconciliation.md). `installed` means the code is already delivered and must not be redeployed merely to close a special verification item. Staging `pending` is not a production rollout instruction. Memory successors and GitLab remain separate.
 
 Hosted test infrastructure: [stock self-hosted network isolation](2026-11-03-selfhost-test-network-isolation.md) - source-only candidate b361 continuous configured-HTTPS disposable acceptance PASS; normal PR803 distribution pending. Product networks and production services are outside this test-harness change.

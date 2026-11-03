@@ -31,7 +31,10 @@ import {
   PrismaEntitlementRepository,
   freeBetaEntitlement,
 } from "@reviewrouter/features-entitlements";
-import type { ConversationCapturedPolicy } from "./action-conversation-policy.js";
+import {
+  admitConversationDispatch,
+  type ConversationCapturedPolicy,
+} from "./action-conversation-policy.js";
 import {
   conversationMemoryPreviewId,
   createConversationMemoryPreview,
@@ -479,6 +482,7 @@ describe.skipIf(!databaseUrl)(
         deadlineAt = new Date(Date.now() + 30_000),
       ) => create().preview(sourceProjection, { deadlineAt });
       return {
+        selector: create,
         preview,
         prepares,
         requests,
@@ -487,6 +491,164 @@ describe.skipIf(!databaseUrl)(
         closes: () => closes,
       };
     }
+
+    it.each([
+      "consume",
+      "wrong_quote",
+      "revoked_before_dispatch",
+      "delivery_progress",
+      "ownership_transfer",
+    ])(
+      "parent-bound selection retains SQL fence and strict source quote: %s",
+      async (mode) => {
+        const f = await fixture(
+          undefined,
+          false,
+          mode === "delivery_progress" || mode === "ownership_transfer",
+        );
+        const eligible = mode === "consume" || mode === "delivery_progress";
+        const authority = new PrismaMemoryAutomaticSourceStore(prisma);
+        const initial = await authority.lookup(memoryScope, snapshot.sourceId);
+        if (mode === "ownership_transfer")
+          await prisma.$executeRaw`UPDATE "MemoryAutomaticSource" SET "state"=jsonb_set("state", '{entryIds}', '["auto_parent_owned"]'::jsonb) WHERE "lineageKey"=${initial!.binding.lineageKey}`;
+        let consumed = 0;
+        const prepared = {
+          status: "ready" as const,
+          previewInput: source,
+          current: async () => true,
+          complete: async () => {
+            consumed++;
+            return {
+              state: "queued" as const,
+              cohortId: "prepared-parent",
+              entryIds: ["auto_prepared"],
+              operations: [],
+            };
+          },
+        };
+        const selection = await f.selector().prepareParent(prepared);
+        const row = await prisma.conversationProcessing.findUniqueOrThrow({
+          where: { id: f.parentId },
+        });
+        await prisma.conversationProcessing.update({
+          where: { id: f.parentId },
+          data: {
+            boundManifest: JSON.stringify({
+              ...JSON.parse(row.boundManifest!),
+              automaticSelection: selection.manifest,
+            }),
+          },
+        });
+        if (mode === "delivery_progress")
+          await prisma.$executeRaw`UPDATE "MemoryAutomaticSource" SET "state"=jsonb_set(jsonb_set("state", '{state}', '"active"'::jsonb), '{lastCompleteCohort}', 'true'::jsonb) WHERE "lineageKey"=${initial!.binding.lineageKey}`;
+        if (mode === "ownership_transfer")
+          await prisma.$executeRaw`UPDATE "MemoryAutomaticSource" SET "state"=jsonb_set("state", '{entryIds}', '[]'::jsonb) WHERE "lineageKey"=${initial!.binding.lineageKey}`;
+        if (mode === "revoked_before_dispatch") {
+          const sources = new PrismaMemoryAutomaticSourceStore(prisma);
+          await sources.invalidate({
+            scope: memoryScope,
+            sourceId: snapshot.sourceId,
+            cause: "deleted",
+            now: new Date(),
+          });
+          const tombstone = await sources.lookup(
+            memoryScope,
+            snapshot.sourceId,
+          );
+          await sources.clearSuppression({
+            scope: memoryScope,
+            sourceId: snapshot.sourceId,
+            expectedEpoch: tombstone!.binding.epoch,
+            expectedSuppressionEpoch: tombstone!.suppressionEpoch,
+            now: new Date(),
+          });
+        }
+        const admitted = await prisma.$transaction((transaction) =>
+          admitConversationDispatch(transaction, {
+            processingId: f.parentId,
+            workspaceId: snapshot.workspaceId,
+            repositoryId: snapshot.repositoryId,
+            bindingManifest: f.captured.policy.bindingManifest,
+            checkSelection: f.captured.checkSelection,
+            admitMemory: (tx) => selection.admitDispatch(tx),
+          }),
+        );
+        expect(admitted).toBe(
+          mode !== "revoked_before_dispatch" && mode !== "ownership_transfer",
+        );
+        if (admitted)
+          await prisma.conversationProcessing.update({
+            where: { id: f.parentId },
+            data: { requestEffect: "completed", observedModel: account.model },
+          });
+        const result = await selection.complete(
+          [
+            {
+              body: "Opaque identifiers preserve leading zeroes.",
+              sourceQuote:
+                mode === "wrong_quote"
+                  ? snapshot.messages[0]!.body
+                  : snapshot.messages[1]!.body,
+            },
+          ],
+          { deadlineAt: new Date(Date.now() + 30000) },
+        );
+        expect(result.status).toBe(eligible ? "queued" : "needs_refresh");
+        expect(consumed).toBe(eligible ? 1 : 0);
+        if (mode === "consume") {
+          const parent = await prisma.conversationProcessing.findUniqueOrThrow({
+            where: { id: f.parentId },
+          });
+          const frozen = parent.result as {
+            pendingObservations?: {
+              manifestDigest: string;
+              selectionDigest: string;
+              statements: { body: string }[];
+            };
+          };
+          expect(frozen.pendingObservations?.manifestDigest).toBe(
+            conversationDigest(selection.manifest),
+          );
+          expect(frozen.pendingObservations?.selectionDigest).toBe(
+            conversationDigest([
+              {
+                body: "Opaque identifiers preserve leading zeroes.",
+                sourceQuote: snapshot.messages[1]!.body,
+              },
+            ]),
+          );
+          const other = await f.selector().prepareParent(prepared);
+          expect(
+            (
+              await other.complete(
+                [
+                  {
+                    body: "A different result must not replace the frozen selection.",
+                    sourceQuote: snapshot.messages[1]!.body,
+                  },
+                ],
+                { deadlineAt: new Date(Date.now() + 30000) },
+              )
+            ).status,
+          ).toBe("needs_refresh");
+          expect(consumed).toBe(1);
+          expect(
+            (
+              await prisma.conversationProcessing.findUniqueOrThrow({
+                where: { id: f.parentId },
+              })
+            ).result,
+          ).toEqual(parent.result);
+        }
+        expect(f.prepares).toHaveLength(0);
+        expect(f.requests).toHaveLength(0);
+        expect(
+          await prisma.conversationProcessing.findUnique({
+            where: { id: conversationMemoryPreviewId(f.parentId) },
+          }),
+        ).toBeNull();
+      },
+    );
 
     async function candidateRuntime(afterPolicyRead?: () => Promise<void>) {
       const f = await fixture(undefined, false, false);
