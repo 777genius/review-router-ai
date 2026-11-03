@@ -100,6 +100,12 @@ deny_worker() {
   grep -Eq 'ERROR:[[:space:]]+42501:' "$WORK/$label.log" || fail "$label did not fail with SQLSTATE 42501"
   echo "ok - $label denied with 42501"
 }
+insert_repo_sql() {
+  local id="$1" workspace="$2" installation="$3" external="$4"
+  local repository_id="$5" provider="${6:-github}" source="${7:-https://github.com}"
+  printf 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","installationId","provider","sourceBaseUrl","externalRepositoryId","githubRepositoryId","owner","name","fullName","defaultBranch","visibility") VALUES ('"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"',%s,'"'"'owner'"'"','"'"'repo'"'"','"'"'owner/repo'"'"','"'"'main'"'"','"'"'private'"'"');' \
+    "$id" "$workspace" "$installation" "$provider" "$source" "$external" "$repository_id"
+}
 test -r "$GRANT_SQL" || fail "grant SQL is not readable"
 
 # No IF EXISTS, role reuse, or cleanup of someone else's database is allowed.
@@ -166,15 +172,53 @@ awk '/^CREATE TRIGGER "RepositoryConnection_runtime_referential_action_guard"/ {
   "$MIGRATIONS/000066_codex_oauth_rotating_cascade_authority/migration.sql" > "$WORK/trigger.sql"
 test -s "$WORK/trigger.sql" || fail "migration trigger was not extracted"
 owner < "$WORK/trigger.sql" > "$WORK/trigger.log" 2>&1
+# Mirror production: reviewrouter owns the application tables/functions but
+# does NOT own public and has no effective CREATE there. Database ownership via
+# pg_database_owner would otherwise make a plain REVOKE vacuous on PG17.
+database > "$WORK/schema-owner.log" 2>&1 <<'SQL'
+ALTER SCHEMA public OWNER TO CURRENT_USER;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC, reviewrouter, reviewrouter_worker;
+SQL
+schema_acl="$(database -qAt -c "SELECT nspowner::text || '|' || COALESCE(nspacl::text,'') FROM pg_namespace WHERE nspname='public'")"
+schema_unchanged() {
+  local current_acl
+  current_acl="$(database -qAt -c "SELECT nspowner::text || '|' || COALESCE(nspacl::text,'') FROM pg_namespace WHERE nspname='public'")"
+  [ "$current_acl" = "$schema_acl" ] || fail "guard installation changed public schema owner/ACL"
+  [ "$(database -qAt -c "SELECT
+    has_schema_privilege('reviewrouter','public','CREATE'),
+    has_schema_privilege('reviewrouter_worker','public','CREATE'),
+    EXISTS (SELECT 1 FROM pg_namespace n CROSS JOIN LATERAL
+      aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
+      WHERE n.nspname='public' AND a.grantee=0 AND a.privilege_type='CREATE')")" = 'f|f|f' ] || fail "fixture lost schema CREATE denial"
+}
+schema_unchanged
+# A confined object-owner LOGIN cannot initialize the absent routine. It must
+# still durably revoke stale worker writes, without creating or repairing DDL.
+reintroduce_worker_write_drift
+if owner < "$GRANT_SQL" > "$WORK/confined-owner-initialize.log" 2>&1; then
+  fail "confined owner initialized guard without authorized installation session"
+fi
+grep -Fq 'authorized superuser session required to initialize worker insert guard' "$WORK/confined-owner-initialize.log" || fail "confined owner did not reach the intended owner-capability refusal"
+worker_write_absent confined-owner
+[ "$(database -qAt -c "SELECT to_regprocedure('public.reviewrouter_worker_repository_insert_guard()') IS NULL")" = t ] || fail "refused initial installation left a function"
+schema_unchanged
 apply_grant || { cat "$WORK/grant.log" >&2; fail "first grant application failed"; }
 apply_grant || fail "idempotent grant application failed"
+schema_unchanged
+[ "$(database -qAt -c "SELECT p.proowner='reviewrouter'::regrole AND p.prosecdef AND p.proconfig=ARRAY['search_path=pg_catalog, public'] AND encode(sha256(convert_to(p.prosrc,'UTF8')),'hex')='2106daba0e9be131214e76b77f6d93771b76b904b1732f1910a6a6b25223ca63' FROM pg_proc p WHERE p.oid='public.reviewrouter_worker_repository_insert_guard()'::regprocedure")" = t ] || fail "installed guard final owner/body/search path changed"
+echo "ok - approved session installs exact owned guard without application schema CREATE or ACL change"
 
-insert_repo_sql() {
-  local id="$1" workspace="$2" installation="$3" external="$4"
-  local repository_id="$5" provider="${6:-github}" source="${7:-https://github.com}"
-  printf 'INSERT INTO public."RepositoryConnection" ("id","workspaceId","installationId","provider","sourceBaseUrl","externalRepositoryId","githubRepositoryId","owner","name","fullName","defaultBranch","visibility") VALUES ('"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"',%s,'"'"'owner'"'"','"'"'repo'"'"','"'"'owner/repo'"'"','"'"'main'"'"','"'"'private'"'"');' \
-    "$id" "$workspace" "$installation" "$provider" "$source" "$external" "$repository_id"
-}
+# Existing objects are verification-only: owner drift must not be auto-repaired.
+database -c 'ALTER FUNCTION public.reviewrouter_worker_repository_insert_guard() OWNER TO CURRENT_USER' > /dev/null
+reintroduce_worker_write_drift
+if apply_grant; then fail "existing foreign-owned guard unexpectedly accepted"; fi
+worker_write_absent foreign-owner
+[ "$(database -qAt -c "SELECT proowner=session_user::regrole FROM pg_proc WHERE oid='public.reviewrouter_worker_repository_insert_guard()'::regprocedure")" = t ] || fail "foreign function owner was repaired instead of refused"
+schema_unchanged
+# Explicit fixture-owner repair, never performed by the grant under test.
+database -c 'ALTER FUNCTION public.reviewrouter_worker_repository_insert_guard() OWNER TO reviewrouter' > /dev/null
+apply_grant || fail "guard did not recover after explicit fixture owner repair"
+
 # Exercise the actual LOGIN-backed worker; SET ROLE from an owner would bypass
 # session_user and therefore would not prove the tenant boundary.
 worker -c "$(insert_repo_sql 'repo-created' 'workspace-1' 'installation-1' '1001' 1001)" \
@@ -234,7 +278,7 @@ if apply_grant; then fail "missing INSERT trigger unexpectedly accepted"; fi
 worker_write_absent missing-guard
 owner -c 'DROP FUNCTION public.reviewrouter_worker_repository_insert_guard()' > /dev/null
 apply_grant || fail "owner failed to reinitialize fully removed guard"
-owner > "$WORK/insert-guard-tamper.log" 2>&1 <<'SQL'
+database > "$WORK/insert-guard-tamper.log" 2>&1 <<'SQL'
 CREATE OR REPLACE FUNCTION public.reviewrouter_worker_repository_insert_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public
@@ -301,7 +345,7 @@ for drift in disabled tampered_body missing_column missing_delete after_row stat
     disabled)
       owner -c 'ALTER TABLE public."RepositoryConnection" DISABLE TRIGGER "RepositoryConnection_runtime_referential_action_guard"' > /dev/null ;;
     tampered_body)
-      owner > /dev/null <<'SQL'
+      database > /dev/null <<'SQL'
 CREATE OR REPLACE FUNCTION public.codex_oauth_runtime_referential_action_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public
 AS $$ BEGIN RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END; END $$;
@@ -322,7 +366,7 @@ SQL
   esac
   if apply_grant; then fail "$drift guard unexpectedly accepted"; fi
   column_absent
-  owner < "$MIGRATIONS/000133_allow_first_time_scm_identity_bind/migration.sql" > /dev/null
+  database < "$MIGRATIONS/000133_allow_first_time_scm_identity_bind/migration.sql" > /dev/null
   owner -c 'DROP TRIGGER "RepositoryConnection_runtime_referential_action_guard" ON public."RepositoryConnection"' > /dev/null
   owner < "$WORK/trigger.sql" > /dev/null
   apply_grant || fail "$drift fixture did not recover after restoration"
@@ -346,4 +390,5 @@ wait "$holder_pid"
 holder_pid=""
 apply_grant || fail "grant did not recover after the owned lock released"
 echo "ok - canonical activation fence contention times out before grant and recovers"
+schema_unchanged
 echo "worker repository sync PG17 contract passed"

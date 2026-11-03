@@ -132,6 +132,17 @@ BEGIN
   IF pg_catalog.to_regprocedure(
     'public.reviewrouter_worker_repository_insert_guard()'
   ) IS NULL THEN
+    -- The application object owner deliberately lacks schema CREATE. Only the
+    -- already-authorized installation session may create this fixed routine;
+    -- a superuser is required to transfer it to an owner without schema CREATE.
+    -- SET LOCAL confines the switch to this transaction and missing-object path.
+    EXECUTE 'SET LOCAL ROLE NONE';
+    IF current_user <> session_user OR NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_roles
+      WHERE rolname = current_user AND rolsuper
+    ) THEN
+      RAISE EXCEPTION 'authorized superuser session required to initialize worker insert guard';
+    END IF;
     EXECUTE $create_worker_insert_guard$
 CREATE FUNCTION public.reviewrouter_worker_repository_insert_guard()
 RETURNS trigger
@@ -177,6 +188,8 @@ BEGIN
 END
 $worker_insert_body$;
 $create_worker_insert_guard$;
+    EXECUTE 'ALTER FUNCTION public.reviewrouter_worker_repository_insert_guard() OWNER TO reviewrouter';
+    EXECUTE 'SET LOCAL ROLE reviewrouter';
     newly_created := true;
   END IF;
   IF NOT EXISTS (
