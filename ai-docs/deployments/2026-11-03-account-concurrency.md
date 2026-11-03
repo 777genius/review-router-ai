@@ -8,4 +8,4 @@ The application includes merged memory repairs #804/#805 and #807. Explicit unde
 
 Rollback fleets and previous Gateway release are retained. Production cutover used fleet-overlay-8561576c-faDcPec6. No schema migration was required by these changes.
 
-Fresh review acceptance is running as attempt 2 of https://github.com/777genius/agent-teams-ai/actions/runs/41675031614. Live review, usage and semantic memory acceptance remain pending.
+The replay of historical run 41675031614 stopped with resource_gone on its closed authorization. Fresh review acceptance is queued as https://github.com/777genius/agent-teams-ai/actions/runs/41712631334 after an empty commit d86d56e384a359f9668b1fc9b2be571bd37a2c9c triggered a new request. Live review, usage and semantic memory acceptance remain pending.
