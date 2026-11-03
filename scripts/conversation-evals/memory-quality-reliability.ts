@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
   candidateSourceDigestKeys,
-  gatewayCandidateMechanism,
+  isGatewayCandidateMechanism,
 } from "./configuration.js";
 
 type Ratio = {
@@ -93,7 +93,8 @@ export function summarizeQualityRuns(
     if (
       run.version !== "conversation-quality-score.v1" ||
       run.split !== "tuning" ||
-      run.extractionMechanism !== gatewayCandidateMechanism ||
+      !isGatewayCandidateMechanism(run.extractionMechanism) ||
+      run.extractionMechanism !== baseline.extractionMechanism ||
       run.corpusName !== baseline.corpusName ||
       run.corpusRevision !== baseline.corpusRevision ||
       run.candidateModelBoundsDigest !== baseline.candidateModelBoundsDigest ||

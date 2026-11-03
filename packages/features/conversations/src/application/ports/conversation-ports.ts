@@ -86,7 +86,28 @@ export type ConversationMemoryContext = {
   readonly manifest: Readonly<Record<string, unknown>>;
   admit(controls: RequestControls): Promise<boolean>;
 };
+export type ConversationLearningPreparation = {
+  readonly instructions: string;
+  readonly observationsSchema: Readonly<Record<string, unknown>>;
+  readonly manifest: Readonly<Record<string, unknown>>;
+  isCurrent(controls: RequestControls): Promise<boolean>;
+  complete(
+    observations: unknown,
+    controls: RequestControls,
+  ): Promise<
+    ConversationProcessResult["learning"] & {
+      readonly proposals?: readonly string[];
+    }
+  >;
+};
 export interface ConversationMemoryPort {
+  /** Older plain ports retain their existing separate selector; production prepares the one-turn source fence. */
+  prepareLearning?(
+    snapshot: ConversationSnapshot,
+    processingId: string,
+    policyRevision: string,
+    controls: RequestControls,
+  ): Promise<ConversationLearningPreparation | null>;
   context(
     snapshot: ConversationSnapshot,
     controls: RequestControls,

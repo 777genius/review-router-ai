@@ -956,6 +956,194 @@ describe.skipIf(!databaseUrl)(
       deadlineAt: new Date(now.getTime() + 10000),
     });
 
+    it("prepares once without inference and consumes one selection through normal durable delivery", async () => {
+      const fixture = automaticFixture();
+      const value = automaticInput(1);
+      const prepared = await fixture.automatic.prepare(
+        value,
+        automaticControls(),
+      );
+      expect(prepared.status).toBe("ready");
+      expect(fixture.preview).not.toHaveBeenCalled();
+      if (prepared.status !== "ready")
+        throw new Error("preparation_unavailable");
+      expect(await prepared.current()).toBe(true);
+      const selection = {
+        status: "complete" as const,
+        source: prepared.previewInput.source,
+        statements: [{ body: "A current independently selected observation." }],
+      };
+      const first = await prepared.complete(selection);
+      expect(first.state).toBe("queued");
+      expect(await prepared.complete({ ...selection, statements: [] })).toEqual(
+        first,
+      );
+      expect(fixture.preview).not.toHaveBeenCalled();
+      expect(
+        (
+          await fixture.knowledge.automaticOperations(
+            {
+              actor: value.sourceActor,
+              scope,
+              sourceId: value.source.sourceId,
+              processingId: value.processingId,
+            },
+            automaticControls(),
+          )
+        )?.operations.map((operation) => operation.id),
+      ).toEqual(first.operations.map((operation) => operation.id));
+    });
+
+    it("prepared missing lineage cannot survive deletion and a later relearn cycle", async () => {
+      const fixture = automaticFixture();
+      const value = automaticInput(1);
+      const prepared = await fixture.automatic.prepare(
+        value,
+        automaticControls(),
+      );
+      if (prepared.status !== "ready")
+        throw new Error("preparation_unavailable");
+      await fixture.sources.invalidate({
+        scope,
+        sourceId: value.source.sourceId,
+        cause: "deleted",
+        now,
+      });
+      const tombstone = await fixture.sources.lookup(
+        scope,
+        value.source.sourceId,
+      );
+      expect(tombstone?.suppressed).toBe(true);
+      await fixture.sources.clearSuppression({
+        scope,
+        sourceId: value.source.sourceId,
+        expectedEpoch: tombstone!.binding.epoch,
+        expectedSuppressionEpoch: tombstone!.suppressionEpoch,
+        now,
+      });
+      expect(
+        (await fixture.sources.lookup(scope, value.source.sourceId))
+          ?.suppressed,
+      ).toBe(false);
+      expect(await prepared.current()).toBe(false);
+      expect(
+        await prepared.complete({
+          status: "complete",
+          source: prepared.previewInput.source,
+          statements: [{ body: "This old selection must not resurrect." }],
+        }),
+      ).toMatchObject({ state: "needs_refresh", entryIds: [], operations: [] });
+      expect(fixture.preview).not.toHaveBeenCalled();
+    });
+
+    it("a maintained save removes automatic ownership without renewing a prepared selection", async () => {
+      const first = await autoReserve(1, 1);
+      await publishAuto(first.commands[0]!, first.state.binding);
+      const fixture = automaticFixture();
+      const prepared = await fixture.automatic.prepare(
+        { ...first.input, processingId: "new_prepared_parent" },
+        automaticControls(),
+      );
+      if (prepared.status !== "ready")
+        throw new Error("preparation_unavailable");
+      const before = await fixture.sources.lookup(
+        scope,
+        first.input.source.sourceId,
+      );
+      const entry = await store.findEntry(first.commands[0]!.ref, generation);
+      await admit(
+        save({
+          ref: first.commands[0]!.ref,
+          expectedRevision: entry!.revision,
+          body: "This decision is now maintained by its author.",
+        }),
+      );
+      const after = await fixture.sources.lookup(
+        scope,
+        first.input.source.sourceId,
+      );
+      expect(after?.binding).toEqual(before?.binding);
+      expect(after?.suppressionEpoch).toBe(before?.suppressionEpoch);
+      expect(after?.entryIds).toEqual([]);
+      expect(await prepared.current()).toBe(false);
+      expect(
+        await prepared.complete({
+          status: "complete",
+          source: prepared.previewInput.source,
+          statements: [{ body: "A stale selected replacement." }],
+        }),
+      ).toMatchObject({ state: "needs_refresh", entryIds: [], operations: [] });
+    });
+
+    it("a maintained ownership transfer immediately before final reservation vetoes stale selection", async () => {
+      const first = await autoReserve(1, 1);
+      await publishAuto(first.commands[0]!, first.state.binding);
+      const fixture = automaticFixture();
+      const prepared = await fixture.automatic.prepare(
+        { ...first.input, processingId: "new_inflight_parent" },
+        automaticControls(),
+      );
+      if (prepared.status !== "ready")
+        throw new Error("preparation_unavailable");
+      const original = store.admitAutomaticSelection.bind(store);
+      const admission = vi
+        .spyOn(store, "admitAutomaticSelection")
+        .mockImplementationOnce(async (selection) => {
+          expect(selection.reservation.expectedSourceAuthorityDigest).toMatch(
+            /^[a-f0-9]{64}$/,
+          );
+          const entry = await store.findEntry(
+            first.commands[0]!.ref,
+            generation,
+          );
+          await admit(
+            save({
+              ref: first.commands[0]!.ref,
+              expectedRevision: entry!.revision,
+              body: "Maintained ownership wins at final reservation.",
+            }),
+          );
+          return original(selection);
+        });
+      try {
+        await expect(
+          prepared.complete({
+            status: "complete",
+            source: prepared.previewInput.source,
+            statements: [{ body: "A stale automatic replacement." }],
+          }),
+        ).rejects.toMatchObject({ code: "conflict" });
+      } finally {
+        admission.mockRestore();
+      }
+      expect(
+        (await fixture.sources.lookup(scope, first.input.source.sourceId))
+          ?.binding,
+      ).toEqual(first.state.binding);
+      expect(
+        (await fixture.sources.lookup(scope, first.input.source.sourceId))
+          ?.entryIds,
+      ).toEqual([]);
+    });
+
+    it("ordinary source delivery progress does not change the prepared authority cursor", async () => {
+      const fixture = automaticFixture();
+      const original = automaticInput(1);
+      await fixture.automatic.learn(original, automaticControls());
+      const prepared = await fixture.automatic.prepare(
+        { ...original, processingId: randomUUID() },
+        automaticControls(),
+      );
+      if (prepared.status !== "ready")
+        throw new Error("preparation_unavailable");
+      const prior = await fixture.sources.lookup(
+        scope,
+        original.source.sourceId,
+      );
+      await prisma.$executeRaw`UPDATE "MemoryAutomaticSource" SET "state"=jsonb_set(jsonb_set("state", '{state}', '"active"'::jsonb), '{lastCompleteCohort}', 'true'::jsonb) WHERE "lineageKey"=${prior!.binding.lineageKey}`;
+      expect(await prepared.current()).toBe(true);
+    });
+
     it("returns exact confirmation proposals without admitting an automatic cohort or delivery", async () => {
       const fixture = automaticFixture();
       const result = await fixture.automatic.learn(

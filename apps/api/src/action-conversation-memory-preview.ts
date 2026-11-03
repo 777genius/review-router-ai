@@ -13,13 +13,35 @@ import {
   type ConversationSnapshot,
   type ConversationPolicy,
   type RequestControls,
+  type ConversationLearningPreparation,
 } from "@reviewrouter/features-conversations";
-import { automaticMemorySourcePreviewFence } from "@reviewrouter/features-memory/infrastructure";
+import {
+  automaticMemorySourcePreviewFence,
+  automaticMemorySourceSelectionFence,
+} from "@reviewrouter/features-memory/infrastructure";
 import { normalizeMemoryAutomaticContextEvidence } from "@reviewrouter/features-memory";
 import type { MemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
 import type { ConversationCapturedPolicy } from "./action-conversation-policy.js";
 
 type Preview = Parameters<MemoryKnowledgeRuntime["forAutomaticLearning"]>[2];
+type LearningOwner = ReturnType<MemoryKnowledgeRuntime["forAutomaticLearning"]>;
+type PreparedOwner = Awaited<ReturnType<LearningOwner["prepare"]>>;
+type ParentSelection = ConversationLearningPreparation & {
+  admitDispatch(transaction: Prisma.TransactionClient): Promise<boolean>;
+};
+export type ConversationMemorySelector = Preview & {
+  prepareParent(prepared: PreparedOwner): Promise<ParentSelection>;
+};
+const learningResult = (
+  effect: import("@reviewrouter/features-memory").MemoryAutomaticLearningResult,
+) => ({
+  status:
+    effect.state === "active" && effect.entryIds.length === 0
+      ? ("complete_empty" as const)
+      : effect.state,
+  effectIds: effect.operations.map((operation) => operation.id),
+  ...(effect.proposals ? { proposals: effect.proposals } : {}),
+});
 const purpose = "memory-preview-v1";
 const instructions =
   "Extract only concrete durable engineering facts or project rules asserted or unambiguously adopted by selectedSource, the current verified maintainer message. " +
@@ -244,8 +266,9 @@ export function createConversationMemoryPreview(input: {
   readonly control: ConsumerControlPort;
   readonly connectExecution: ExecutionConnector;
   readonly isSourceCurrent: (controls: RequestControls) => Promise<boolean>;
-}): Preview {
+}): ConversationMemorySelector {
   return {
+    prepareParent: (prepared) => prepareParentSelection(input, prepared),
     async preview(source, controls) {
       const unavailable = {
         status: "incomplete",
@@ -543,5 +566,229 @@ export function createConversationMemoryPreview(input: {
         return unavailable;
       }
     },
+  };
+}
+
+async function prepareParentSelection(
+  input: Parameters<typeof createConversationMemoryPreview>[0],
+  prepared: PreparedOwner,
+): Promise<ParentSelection> {
+  if (prepared.status === "settled")
+    return {
+      instructions:
+        "Automatic observations are unavailable for this source; omit observations.",
+      observationsSchema: outputSchema.properties.statements,
+      manifest: {
+        kind: "parent-bound-selection-v1",
+        state: prepared.result.state,
+      },
+      isCurrent: async () => true,
+      admitDispatch: async () => true,
+      complete: async () => learningResult(prepared.result),
+    };
+  const s = input.snapshot,
+    policy = input.captured.policy;
+  const selected = s.messages.find((message) => message.id === s.sourceId);
+  const source = prepared.previewInput;
+  const settings = (
+    policy.bindingManifest as {
+      memorySettings?: {
+        requireConfirmation?: unknown;
+        revision?: unknown;
+        templateRevision?: unknown;
+      };
+    }
+  ).memorySettings;
+  if (
+    !selected ||
+    !policy.automaticLearning ||
+    !s.sourceMaintainer ||
+    source.source.id !== s.sourceId ||
+    source.source.revision !== s.sourceRevision ||
+    source.source.body !== selected.body ||
+    source.scope !==
+      JSON.stringify([s.workspaceId, "repository", s.repositoryId]) ||
+    source.maxStatements < 1 ||
+    source.maxStatements > 4 ||
+    source.readOnlyContext !== renderConversation(s) ||
+    !s.messages.every(
+      (message) =>
+        createHash("sha256").update(message.body).digest("hex") ===
+        message.bodyDigest,
+    ) ||
+    !settings ||
+    settings.requireConfirmation !== policy.requireConfirmation ||
+    typeof settings.revision !== "string" ||
+    !/^(0|[1-9][0-9]*)$/.test(settings.revision) ||
+    (settings.templateRevision !== undefined &&
+      (typeof settings.templateRevision !== "string" ||
+        !/^(0|[1-9][0-9]*)$/.test(settings.templateRevision)))
+  )
+    throw new Error("conversation_selection_unavailable");
+  const scope = {
+    kind: "repository" as const,
+    workspaceId: s.workspaceId,
+    repositoryId: s.repositoryId,
+  };
+  const fence = await input.prisma.$transaction(async (tx) => {
+    if (!(await input.captured.checkSelection(tx))) return null;
+    return automaticMemorySourceSelectionFence(tx, scope, s.sourceId);
+  });
+  if (!fence || !(await prepared.current()))
+    throw new Error("conversation_selection_stale");
+  const manifest = Object.freeze({
+    kind: "parent-bound-selection-v1",
+    sourceFence: fence,
+    sourceId: s.sourceId,
+    sourceRevision: s.sourceRevision,
+    threadDigest: s.threadDigest,
+    schemaDigest: conversationDigest(outputSchema),
+    policyRevision: policy.revision,
+  });
+  const admitDispatch = async (tx: Prisma.TransactionClient) => {
+    if (
+      !(await input.captured.checkSelection(tx)) ||
+      (await automaticMemorySourceSelectionFence(tx, scope, s.sourceId)) !==
+        fence
+    )
+      return false;
+    await tx.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${input.parentId} AND "workspaceId"=${s.workspaceId} AND "repositoryId"=${s.repositoryId} FOR UPDATE`;
+    const parent = await tx.conversationProcessing.findFirst({
+      where: {
+        id: input.parentId,
+        workspaceId: s.workspaceId,
+        repositoryId: s.repositoryId,
+        purpose: "conversation-v1",
+        status: "processing",
+        modelDispatched: true,
+        deadlineAt: { gt: new Date() },
+      },
+    });
+    if (
+      !parent?.boundManifest ||
+      !matchesParentManifest(parent.boundManifest, s, policy)
+    )
+      return false;
+    const bound = JSON.parse(parent.boundManifest) as {
+      automaticSelection?: unknown;
+    };
+    return (
+      conversationDigest(bound.automaticSelection) ===
+      conversationDigest(manifest)
+    );
+  };
+  const current = async (controls: RequestControls) => {
+    if (
+      controls.signal?.aborted ||
+      Date.now() >= controls.deadlineAt.getTime() ||
+      !(await prepared.current()) ||
+      !(await input.isSourceCurrent(controls)) ||
+      !(await policy.isCurrent(controls))
+    )
+      return false;
+    return input.prisma.$transaction(admitDispatch);
+  };
+  let completion:
+    | Promise<Awaited<ReturnType<ConversationLearningPreparation["complete"]>>>
+    | undefined;
+  return {
+    instructions:
+      "Also select independent automatic observations in the optional observations array. For extraction only, selectedSource means currentSource and checkedDiscussion means conversation. Ignore answer memory/code as extraction referents: only the current assertion or adoption of checked discussion content may authorize an observation. The following extraction examples use a standalone statements object; place that statements array in observations, never add a top-level statements key. " +
+      instructions,
+    observationsSchema: outputSchema.properties.statements,
+    manifest,
+    isCurrent: current,
+    admitDispatch,
+    complete: (observations, controls) =>
+      (completion ??= (async () => {
+        const unavailable = { status: "needs_refresh" as const, effectIds: [] };
+        let statements: readonly { readonly body: string }[];
+        try {
+          statements = decode({ statements: observations }, selected.body);
+        } catch {
+          return unavailable;
+        }
+        if (!(await current(controls))) return unavailable;
+        const frozen = await input.prisma.$transaction(async (tx) => {
+          if (
+            !(await input.captured.checkSelection(tx)) ||
+            (await automaticMemorySourceSelectionFence(
+              tx,
+              scope,
+              s.sourceId,
+            )) !== fence
+          )
+            return false;
+          await tx.$queryRaw`SELECT "id" FROM "ConversationProcessing" WHERE "id"=${input.parentId} AND "workspaceId"=${s.workspaceId} AND "repositoryId"=${s.repositoryId} FOR UPDATE`;
+          const parent = await tx.conversationProcessing.findFirst({
+            where: {
+              id: input.parentId,
+              workspaceId: s.workspaceId,
+              repositoryId: s.repositoryId,
+              requestEffect: "completed",
+              observedModel: (policy.bindingManifest as { model: string })
+                .model,
+              status: "processing",
+              deadlineAt: { gt: new Date() },
+            },
+          });
+          if (
+            !parent?.boundManifest ||
+            !matchesParentManifest(parent.boundManifest, s, policy)
+          )
+            return false;
+          const saved = JSON.parse(parent.boundManifest) as {
+            automaticSelection?: unknown;
+          };
+          if (
+            conversationDigest(saved.automaticSelection) !==
+            conversationDigest(manifest)
+          )
+            return false;
+          const result = parent.result as Prisma.JsonObject;
+          const selectionDigest = conversationDigest(observations);
+          if (result.pendingObservations !== undefined) {
+            const prior = result.pendingObservations as {
+              manifestDigest?: string;
+              selectionDigest?: string;
+            } | null;
+            return (
+              prior?.manifestDigest === conversationDigest(manifest) &&
+              prior.selectionDigest === selectionDigest
+            );
+          }
+          const value = {
+            ...result,
+            pendingObservations: {
+              manifestDigest: conversationDigest(manifest),
+              selectionDigest,
+              statements,
+            },
+          };
+          if (Buffer.byteLength(JSON.stringify(value)) > 16_384) return false;
+          return (
+            (
+              await tx.conversationProcessing.updateMany({
+                where: {
+                  id: parent.id,
+                  workspaceId: s.workspaceId,
+                  repositoryId: s.repositoryId,
+                  requestEffect: "completed",
+                  status: "processing",
+                },
+                data: { result: value as unknown as Prisma.InputJsonValue },
+              })
+            ).count === 1
+          );
+        });
+        if (!frozen) return unavailable;
+        return learningResult(
+          await prepared.complete({
+            status: "complete",
+            source: { id: s.sourceId, revision: s.sourceRevision },
+            statements,
+          }),
+        );
+      })()),
   };
 }

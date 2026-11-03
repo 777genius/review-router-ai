@@ -174,6 +174,7 @@ export type Witness = {
   gatewayParentCleanupPending?: boolean;
   gatewayCurrentnessFailure?: ConversationCurrentnessFailure | null;
   gatewayInferenceObservation?: ConversationInferenceObservation | null;
+  gatewayParentReceipt?: Witness["gatewayPreviewReceipt"];
   gatewayPreviewReceipt?: {
     processingId: string;
     observedModel: string | null;
@@ -312,6 +313,7 @@ export async function createEvaluationFixture(input: {
   let capturedPolicy: ConversationCapturedPolicy | undefined;
   let currentnessFailure: ConversationCurrentnessFailure | null = null;
   let inferenceObservation: ConversationInferenceObservation | null = null;
+  const latestInferenceObservation = () => inferenceObservation;
   const workspaceSettings =
     input.variant === "full-product"
       ? candidateWorkspaceMemorySettings({
@@ -352,7 +354,7 @@ export async function createEvaluationFixture(input: {
             currentnessFailure ??= value;
           },
           admitMemory: async (transaction, now) =>
-            capturedReceipt
+            (await (capturedReceipt
               ? capturedReceipt.scopes.every(
                   (section) => section.entries.length === 0,
                 ) ||
@@ -368,7 +370,7 @@ export async function createEvaluationFixture(input: {
                     now,
                   },
                 )
-              : false,
+              : false)) && (await actualMemory().admitSelection(transaction)),
         })
       : null;
   // Capture real template account/policy metadata before creating disposable rows.
@@ -604,6 +606,33 @@ export async function createEvaluationFixture(input: {
       isSourceCurrent: (budget) => sources.isCurrent(value, budget),
     });
     return {
+      async prepareParent(prepared: Parameters<typeof port.prepareParent>[0]) {
+        const selection = await port.prepareParent(prepared);
+        return {
+          ...selection,
+          complete: async (...args: Parameters<typeof selection.complete>) => {
+            const result = await selection.complete(...args);
+            const parent = await input.prisma.conversationProcessing.findUnique(
+              { where: { id: processingId }, select: { result: true } },
+            );
+            const stored = parent?.result as {
+              pendingObservations?: {
+                manifestDigest?: string;
+                statements?: { body: string }[];
+              };
+            } | null;
+            if (
+              stored?.pendingObservations?.manifestDigest ===
+              conversationDigest(selection.manifest)
+            )
+              selectedStatements =
+                stored.pendingObservations.statements?.map(
+                  (statement) => statement.body,
+                ) ?? [];
+            return result;
+          },
+        };
+      },
       async preview(...args: Parameters<typeof port.preview>) {
         previewCalls++;
         const start = Date.now();
@@ -809,39 +838,49 @@ export async function createEvaluationFixture(input: {
       }
     }
   };
-  const memories = new Map(
-    scopes.map((requested) => [
-      requested.repositoryId,
-      createConversationMemoryPort({
-        runtime:
-          input.variant === "full-product"
-            ? {
-                ...runtime,
-                policy: {
-                  async getPolicy(identity) {
-                    return conversationCandidateMemoryPolicy(
-                      await runtime.policy.getPolicy(input.template),
-                      await runtime.policy.getPolicy(identity),
-                    );
+  const createMemories = () =>
+    new Map(
+      scopes.map((requested) => [
+        requested.repositoryId,
+        createConversationMemoryPort({
+          runtime:
+            input.variant === "full-product"
+              ? {
+                  ...runtime,
+                  policy: {
+                    async getPolicy(identity) {
+                      return conversationCandidateMemoryPolicy(
+                        await runtime.policy.getPolicy(input.template),
+                        await runtime.policy.getPolicy(identity),
+                      );
+                    },
                   },
-                },
-              }
-            : runtime,
-        scope: requested,
-        sources,
-        preview:
-          input.variant === "full-product" ? gatewayPreview : observedPreview,
-        managed: (value) => ({ service, access, source: source(value) }),
-        clock: { now: () => new Date() },
-        contextAccess: () => access,
-        onReceipt: (receipt) => {
-          capturedReceipt = receipt;
-        },
-      }),
-    ]),
-  );
+                }
+              : runtime,
+          scope: requested,
+          sources,
+          preview:
+            input.variant === "full-product" ? gatewayPreview : observedPreview,
+          managed: (value) => ({ service, access, source: source(value) }),
+          clock: { now: () => new Date() },
+          contextAccess: () => access,
+          onReceipt: (receipt) => {
+            capturedReceipt = receipt;
+          },
+        }),
+      ]),
+    );
+  let memories = createMemories();
   const actualMemory = () => memories.get(scope.repositoryId)!;
   const memory: ConversationMemoryPort = {
+    async prepareLearning(value, processingId, revision, budget) {
+      return actualMemory().prepareLearning!(
+        projectEvaluationSnapshot(value, scope),
+        processingId,
+        revision,
+        budget,
+      );
+    },
     async context(value, budget) {
       const captured = await actualMemory().context(
         projectEvaluationSnapshot(value, scope),
@@ -1353,6 +1392,7 @@ export async function createEvaluationFixture(input: {
     },
     async run(thread: CorpusThread, event: CorpusEvent): Promise<Witness> {
       selectedStatements = [];
+      memories = createMemories();
       previewCalls = 0;
       modelCalls = 0;
       inputBytes = 0;
@@ -1390,6 +1430,54 @@ export async function createEvaluationFixture(input: {
       const inventory = await readInventory();
       const retained = inventory.filter(qualifiedReadback);
       const commands = await commandEvidence(result.learning.effectIds, true);
+      let gatewayParentReceipt: Witness["gatewayParentReceipt"] = null;
+      if (input.variant === "full-product" && modelCalls > 0) {
+        const row = await input.prisma.conversationProcessing.findUnique({
+          where: { id: result.processingId },
+          select: {
+            id: true,
+            observedModel: true,
+            observedUsage: true,
+            requestEffect: true,
+            boundManifest: true,
+          },
+        });
+        const parentObservation = latestInferenceObservation();
+        if (row?.boundManifest && parentObservation?.processingId === row.id) {
+          const account = (
+            JSON.parse(row.boundManifest) as {
+              account: Record<string, unknown>;
+            }
+          ).account;
+          const selected = Object.fromEntries(
+            [
+              "bindingId",
+              "bindingRevision",
+              "connectionId",
+              "gatewayAccountRef",
+              "profileRef",
+              "model",
+              "policySubject",
+              "policyRevision",
+              "bindingRevision",
+              "expectedAuthorizationEpoch",
+              "configurationDigest",
+            ].map((key) => [key, account[key] ?? null]),
+          );
+          gatewayParentReceipt = {
+            processingId: row.id,
+            observedModel: row.observedModel,
+            usage: row.observedUsage,
+            requestEffect: row.requestEffect,
+            gatewayCleanup: parentObservation.cleanup,
+            selectedAccountDigest: conversationDigest(selected),
+            candidateRunId:
+              typeof account.candidateEvaluationRunId === "string"
+                ? account.candidateEvaluationRunId
+                : null,
+          };
+        }
+      }
       return {
         sourceIdentity: "github-node-v1",
         ...(successor && event.action !== "deleted"
@@ -1433,6 +1521,7 @@ export async function createEvaluationFixture(input: {
         gatewayCurrentnessFailure: currentnessFailure,
         gatewayInferenceObservation: inferenceObservation,
         gatewayPreviewReceipt,
+        ...(input.variant === "full-product" ? { gatewayParentReceipt } : {}),
         inventory,
         retained,
       };
