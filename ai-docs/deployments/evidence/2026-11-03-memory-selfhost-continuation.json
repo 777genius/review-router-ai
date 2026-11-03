@@ -1,0 +1,78 @@
+{
+  "kind": "selfhost-real-install-retained-recovery-acceptance/v1",
+  "status": "passed_retained_sandbox_continuation",
+  "originalStockPassed": false,
+  "appSourceCommit": "657f80b6a69b8adf58dfddfd9002b1d24839867a",
+  "hostHelperCommit": "b53b79d4ce518beb1ad2e40553ec2ca9d9116ecf",
+  "productImage": "sha256:cfb60317d806e71a188529dc4c39e6bc7dbc323c241ba763d44cffd898aa5ccf",
+  "jobs": {
+    "originalStock": "73c883a77957594d8348e7d917117acf",
+    "firstFailedContinuation": "cd43424272123253fb15d33808d2badd",
+    "entrypointFixQA": "5e5611e418910df0fa8ac7332bd75d0b",
+    "recoveryOperatorTypes": "553dbafe1ba4e6c7f96f1dc53105ad55",
+    "normalStoppedResume": "ff50bc2e49f89e261b5f833f3e853c81",
+    "freshIngress": "dde4e911b0043496432e40e18e1f8ed2",
+    "storageRollbackDecommission": "c8a32ae095e03e07bf82a41fb412e034"
+  },
+  "realNormalFirstInstallAndIdempotence": true,
+  "stockComposeBuiltAndHealthy": true,
+  "allThreeConsumerMemoryEnvironmentMatched": true,
+  "postVerification": {
+    "nativeContainersAbsent": true,
+    "nativeVolumesAbsent": true,
+    "composeResourceCounts": {
+      "ps": 0,
+      "volume": 0,
+      "network": 0
+    },
+    "firewall": {
+      "ownedRules": 0,
+      "liveMatches": [false, false, false],
+      "ipv4Rules": 10,
+      "manager": "UFW0.36.2"
+    },
+    "productPhysicalForgetClaimed": false
+  },
+  "normalBootstrapApiOrigin": "owned_loopback_origin",
+  "setupResumeUrlDerivationExercised": false,
+  "productPhysicalForgetClaimed": false,
+  "conversationReleaseArtifactAbsent": true,
+  "conversationQualificationClaimed": false,
+  "scope": "isolated owned sandbox; no SaaS/prod/candidate mutation or paid model request",
+  "evidenceArchiveSha256": "22912f09ba544b48e368aef2503cdf9a069a377b2c587c3823569250a7d73a03",
+  "operatorHashes": {
+    "resume-b53.ts": "e3e4c53f6e74c6c6a4940a3015b0721cb21abad63b6d8e22effd40ad6511a137",
+    "storage-b53.ts": "3bee2a960937e941bcd3f5d092057b421f21e441b3b33901a154d38efbe12318",
+    "ingress/owner-b53.py": "821e2b4728d6b48d2990003862ac0d44f050a34b6941e9069229b256839dc871",
+    "update-b53.bundle": "9ada0746b3a314a080ee9a1eb68c339f15b616d2e45a3d28a8424a678fa67932"
+  },
+  "evidenceHashes": {
+    "owned-sandbox-decommission.json": "f3e1b28f1d9a3df0926ecdd74ce38a02db0c93d5656090d524bbc4c401b56ae9",
+    "resume-b53/intent.json": "5f262156c851c9ac256b6071aadc28b573438dd55dab5eca763b49bfff80c1fd",
+    "resume-b53/result.json": "f151e0680b3a617fba7baca58e9d83246e632af83727fe39ba22051bd0ec09e2",
+    "resume-b53/resource.json": "07a949953bd233f390442941221725b5a5f19754e2a2ea5b6a2b62ba1adb3d32",
+    "ingress-b53/cycle2-context.json": "c9c6f9f4bdfd682e1845c035fd0e5fb7e22af74b27ac8bc0ffb2c809696a75c2",
+    "ingress-b53/apply-result.json": "64284c4c28864302c83b787551ca18980aaceb027a61f0c8ba8dea98ed451a5b",
+    "ingress-b53/rollback-result.json": "5e660081a725fee585c712d49538e1a0ea2e9df475dc0f7755745e3d222d8b58",
+    "storage-b53/intent.json": "5c0f9dfb1dfb62424d5b508b874f268f26779ddccf7306e07a19effe9d435d98",
+    "storage-b53/preflight-process.json": "3ba527ecb100218a76082cecbd7cefa2e2fe622d9a50dda9029566253c13888f",
+    "storage-b53/consumer-environment.json": "570840c03a5fd5483232c001e2e357e796d93a1eab670543b114d0cea795b718",
+    "storage-b53/health-api.json": "085b1d9eddcdfdb901b30aca0bc67bd7d8de2a1badbcd0ff36ae071945e3ef5f",
+    "storage-b53/result.json": "4fd0d76988dcacf318b163efca930ab6f2fde172e6977b6c6ce4d646da2b5c50",
+    "storage-b53/ingress-rollback-process.json": "3ba527ecb100218a76082cecbd7cefa2e2fe622d9a50dda9029566253c13888f",
+    "storage-b53/storage-process.json": "3ba527ecb100218a76082cecbd7cefa2e2fe622d9a50dda9029566253c13888f",
+    "storage-b53/health-web.json": "54c0e478d6479b4eb711352ba3e1803d9ed3cbf480c00dbddefb2b37cdf5d1ef",
+    "storage-b53/health-worker.json": "a3163a58a00037582165e51122f2e7bf5069b4b07de6b2fd8e75468227f12991",
+    "storage-b53/preflight.json": "64dd908f7d38b1ef9d1d04ac918de923ffbc011cd4d9752a2d32d6b45f3e41e7",
+    "storage-b53/storage.json": "6dbe1d8779805977f098b5fda7c21d43c458ac82e25d12189a87859026b2b03c",
+    "storage-b53/launch-intent.json": "cc3572a39288f0c3aa91534ab626998de9c3a54a233984d6ebcdb1f28eef739f",
+    "storage-b53/post-verification.json": "d389a6539d5bdb3ec07092d4b79694e31347741c21bea7840dc70bbba2e26486"
+  },
+  "archive": {
+    "location": "ssh://workers-fsn1-01-jump/srv/platform/artifacts/review-router/evidence/selfhost-recovery-b53-20261103.tar",
+    "access": "private owner SSH; root0600",
+    "sha256": "22912f09ba544b48e368aef2503cdf9a069a377b2c587c3823569250a7d73a03"
+  },
+  "jobsAreGithubWorkflowRuns": false,
+  "completionBoundary": "Retained-sandbox continuation only; original continuous stock FAILED; configured-URL high-level resume, signed physical Forget, quality qualification, release and distribution not established."
+}

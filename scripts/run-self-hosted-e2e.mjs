@@ -11,6 +11,8 @@ import {
   disposeSelfHostedMemory,
   assertComposeMemoryEnvironment,
   selfHostedCleanupDiagnostic,
+  collectSelfHostedOwnedBinding,
+  assertConfiguredSelfHostedApiOrigin,
 } from "./self-hosted-e2e/native-memory-install.ts";
 import {
   disposableBefore87HandoffSql,
@@ -29,12 +31,13 @@ import {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fetchHttp = globalThis.fetch;
 const composeFile = "deploy/self-hosted/compose.yml";
-const runSuffix = `${process.pid}-${Date.now().toString(36)}`.toLowerCase();
-const projectName = `reviewrouter-self-hosted-e2e-${runSuffix}`;
-const testDatabase = `review_router_test_${process.pid}_${Date.now()}`;
-const ownedTempDirectory = createDisposableTempDirectory();
-const tempDirectory = ownedTempDirectory.path;
-const envFile = join(tempDirectory, "self-hosted.env");
+let runnerInvoked = false;
+let projectName;
+let testDatabase;
+let ownedTempDirectory;
+let tempDirectory;
+let envFile;
+let configuredApiOrigin;
 let investigationReleaseFixture;
 let composeTouched = false;
 let testDatabaseCreationAttempted = false;
@@ -46,320 +49,387 @@ let testEnv;
 let controlPlaneCommit;
 let memoryInstallStarted = false;
 
-try {
-  investigationReleaseFixture = JSON.parse(
-    readFileSync(
-      join(
-        repoRoot,
-        "scripts/self-hosted-e2e/review-investigation-release.fixture.json",
+/** The stock lifecycle, with an optional owned test-infrastructure seam. */
+/** @param {import("./self-hosted-e2e/native-memory-install.ts").SelfHostedE2EOptions} options */
+export async function runSelfHostedE2E(options = {}) {
+  if (runnerInvoked) throw new Error("self_hosted_e2e_already_invoked");
+  runnerInvoked = true;
+  if (
+    !options ||
+    typeof options !== "object" ||
+    Array.isArray(options) ||
+    Object.keys(options).some(
+      (key) => !["configuredApiOrigin", "afterComposeHealthy"].includes(key),
+    ) ||
+    (options.afterComposeHealthy !== undefined &&
+      typeof options.afterComposeHealthy !== "function")
+  )
+    throw new Error("self_hosted_e2e_options_invalid");
+  if (options.configuredApiOrigin !== undefined) {
+    if (typeof options.configuredApiOrigin !== "string")
+      throw new Error("configured_sandbox_api_origin_invalid");
+    assertConfiguredSelfHostedApiOrigin(options.configuredApiOrigin);
+    configuredApiOrigin = options.configuredApiOrigin;
+  }
+  const runSuffix = `${process.pid}-${Date.now().toString(36)}`.toLowerCase();
+  projectName = `reviewrouter-self-hosted-e2e-${runSuffix}`;
+  testDatabase = `review_router_test_${process.pid}_${Date.now()}`;
+  ownedTempDirectory = createDisposableTempDirectory();
+  tempDirectory = ownedTempDirectory.path;
+  envFile = join(tempDirectory, "self-hosted.env");
+  let infrastructureCleanup;
+  let infrastructureCleanupPromise;
+
+  try {
+    investigationReleaseFixture = JSON.parse(
+      readFileSync(
+        join(
+          repoRoot,
+          "scripts/self-hosted-e2e/review-investigation-release.fixture.json",
+        ),
+        "utf8",
       ),
-      "utf8",
-    ),
-  );
-  assertInvestigationReleaseFixture(investigationReleaseFixture);
-  const [webPort, apiPort, postgresPort] = await reserveFreePorts(3);
-  ports = { web: webPort, api: apiPort, postgres: postgresPort };
-  secrets = createTestSecrets();
-  testEnv = createTestEnvironment();
-  writeEnvFile(testEnv);
+    );
+    assertInvestigationReleaseFixture(investigationReleaseFixture);
+    const [webPort, apiPort, postgresPort] = await reserveFreePorts(3);
+    ports = { web: webPort, api: apiPort, postgres: postgresPort };
+    secrets = createTestSecrets();
+    testEnv = createTestEnvironment();
+    writeEnvFile(testEnv);
 
-  run("docker", ["version", "--format", "server={{.Server.Version}}"]);
-  run(process.execPath, ["scripts/check-self-hosted-readiness.mjs"], testEnv);
-  run(
-    process.execPath,
-    ["scripts/check-self-hosted-compose-contract.mjs"],
-    testEnv,
-  );
+    run("docker", ["version", "--format", "server={{.Server.Version}}"]);
+    run(process.execPath, ["scripts/check-self-hosted-readiness.mjs"], testEnv);
+    run(
+      process.execPath,
+      ["scripts/check-self-hosted-compose-contract.mjs"],
+      testEnv,
+    );
 
-  run(process.execPath, [
-    "--test",
-    "scripts/self-hosted-e2e/native-memory-install.test.ts",
-    "scripts/self-hosted-e2e/settle-memory-command.test.ts",
-    "scripts/self-hosted-e2e/disposable-temp-cleanup.test.ts",
-  ]);
+    run(process.execPath, [
+      "--test",
+      "scripts/self-hosted-e2e/native-memory-install.test.ts",
+      "scripts/self-hosted-e2e/runner-lifecycle.test.ts",
+      "scripts/self-hosted-e2e/settle-memory-command.test.ts",
+      "scripts/self-hosted-e2e/disposable-temp-cleanup.test.ts",
+    ]);
 
-  memoryInstallStarted = true;
-  const installedMemory = await installSelfHostedMemory(envFile, tempDirectory);
-  secrets.nativeService =
-    installedMemory.values.REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY;
-  secrets.nativeOperator =
-    installedMemory.values.REVIEW_ROUTER_MEMORY_OPERATOR_TOKEN;
-  console.log(JSON.stringify(installedMemory.receipt));
+    memoryInstallStarted = true;
+    const installedMemory = await installSelfHostedMemory(
+      envFile,
+      tempDirectory,
+    );
+    secrets.nativeService =
+      installedMemory.values.REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY;
+    secrets.nativeOperator =
+      installedMemory.values.REVIEW_ROUTER_MEMORY_OPERATOR_TOKEN;
+    console.log(JSON.stringify(installedMemory.receipt));
 
-  composeTouched = true;
-  runCompose(["up", "-d", "--wait", "--wait-timeout", "120", "postgres"]);
-  provisionEffectAuthorityRole();
-  runCompose(["build", "api"]);
-  runCompose(["up", "-d", "--wait", "--wait-timeout", "300"]);
-  assertComposeState(installedMemory.values);
-  await assertHealthEndpoint(
-    `http://127.0.0.1:${ports.web}/api/health`,
-    "review-router-web",
-  );
-  await assertHealthEndpoint(
-    `http://127.0.0.1:${ports.api}/health`,
-    "review-router-api",
-  );
+    composeTouched = true;
+    runCompose(["up", "-d", "--wait", "--wait-timeout", "120", "postgres"]);
+    provisionEffectAuthorityRole();
+    runCompose(["build", "api"]);
+    runCompose(["up", "-d", "--wait", "--wait-timeout", "300"]);
+    assertComposeState(installedMemory.values);
+    await assertHealthEndpoint(
+      `http://127.0.0.1:${ports.web}/api/health`,
+      "review-router-web",
+    );
+    await assertHealthEndpoint(
+      `http://127.0.0.1:${ports.api}/health`,
+      "review-router-api",
+    );
 
-  runComposeWithSanitizedOutput([
-    "exec",
-    "-T",
-    "worker",
-    "node",
-    "scripts/local-checks/compiler-cli.ts",
-    "--native",
-    "--noEmit",
-    "-p",
-    "scripts/self-hosted-e2e/tsconfig.memory.json",
-  ]);
-  // A fresh product DB proves the resume is exercised before any Save/Forget debt.
-  runComposeWithSanitizedOutput([
-    "exec",
-    "-T",
-    "worker",
-    "node",
-    "--import",
-    "tsx",
-    "scripts/self-hosted-e2e/native-memory-storage.ts",
-    "startup-preflight",
-  ]);
-  const liveApiId = captureCompose(["ps", "--quiet", "api"]).trim();
-  captureDisposableTempCleanupImage(ownedTempDirectory, liveApiId, projectName);
-  const liveApiState = JSON.parse(
-    capture("docker", ["inspect", "--format", "{{json .State}}", liveApiId]),
-  );
-  console.log(
-    JSON.stringify(
-      await resumeSelfHostedMemory(
+    if (options.afterComposeHealthy) {
+      const binding = await collectSelfHostedOwnedBinding(
         envFile,
         tempDirectory,
+        projectName,
         `http://127.0.0.1:${ports.api}`,
-        async () => {
-          const current = JSON.parse(
-            capture("docker", [
-              "inspect",
-              "--format",
-              "{{json .State}}",
-              liveApiId,
-            ]),
-          );
-          if (
-            !current.Running ||
-            current.Pid !== liveApiState.Pid ||
-            current.StartedAt !== liveApiState.StartedAt
-          )
-            throw new Error(
-              "selfhost_api_lifetime_changed_during_native_resume",
+      );
+      const rollback = await options.afterComposeHealthy(binding);
+      if (typeof rollback !== "function")
+        throw new Error("self_hosted_infrastructure_cleanup_missing");
+      infrastructureCleanup = () =>
+        (infrastructureCleanupPromise ??= Promise.resolve().then(rollback));
+    }
+
+    runComposeWithSanitizedOutput([
+      "exec",
+      "-T",
+      "worker",
+      "node",
+      "scripts/local-checks/compiler-cli.ts",
+      "--native",
+      "--noEmit",
+      "-p",
+      "scripts/self-hosted-e2e/tsconfig.memory.json",
+    ]);
+    // A fresh product DB proves the resume is exercised before any Save/Forget debt.
+    runComposeWithSanitizedOutput([
+      "exec",
+      "-T",
+      "worker",
+      "node",
+      "--import",
+      "tsx",
+      "scripts/self-hosted-e2e/native-memory-storage.ts",
+      "startup-preflight",
+    ]);
+    const liveApiId = captureCompose(["ps", "--quiet", "api"]).trim();
+    captureDisposableTempCleanupImage(
+      ownedTempDirectory,
+      liveApiId,
+      projectName,
+    );
+    const liveApiState = JSON.parse(
+      capture("docker", ["inspect", "--format", "{{json .State}}", liveApiId]),
+    );
+    console.log(
+      JSON.stringify(
+        await resumeSelfHostedMemory(
+          envFile,
+          tempDirectory,
+          `http://127.0.0.1:${ports.api}`,
+          async () => {
+            const current = JSON.parse(
+              capture("docker", [
+                "inspect",
+                "--format",
+                "{{json .State}}",
+                liveApiId,
+              ]),
             );
-          await assertHealthEndpoint(
-            `http://127.0.0.1:${ports.api}/health`,
-            "review-router-api",
-          );
-        },
+            if (
+              !current.Running ||
+              current.Pid !== liveApiState.Pid ||
+              current.StartedAt !== liveApiState.StartedAt
+            )
+              throw new Error(
+                "selfhost_api_lifetime_changed_during_native_resume",
+              );
+            await assertHealthEndpoint(
+              `http://127.0.0.1:${ports.api}/health`,
+              "review-router-api",
+            );
+          },
+          configuredApiOrigin ? { configuredApiOrigin } : undefined,
+        ),
       ),
-    ),
-  );
-  assertComposeState(installedMemory.values);
-  runComposeWithSanitizedOutput([
-    "exec",
-    "-T",
-    "worker",
-    "node",
-    "--import",
-    "tsx",
-    "scripts/self-hosted-e2e/native-memory-storage.ts",
-  ]);
+    );
+    assertComposeState(installedMemory.values);
+    runComposeWithSanitizedOutput([
+      "exec",
+      "-T",
+      "worker",
+      "node",
+      "--import",
+      "tsx",
+      "scripts/self-hosted-e2e/native-memory-storage.ts",
+    ]);
 
-  runComposeWithSanitizedOutput(["run", "--rm", "migrate"]);
-  setGlobalReviewV2EmergencyStop(false);
-  runComposeWithSanitizedOutput(["run", "--rm", "migrate"]);
-  setGlobalReviewV2EmergencyStop(true);
-  testDatabaseCreationAttempted = true;
-  runComposeWithSanitizedOutput([
-    "exec",
-    "-T",
-    "postgres",
-    "createdb",
-    "-U",
-    testEnv.POSTGRES_USER,
-    testDatabase,
-  ]);
-  runDisposableDatabaseSql(
-    disposableFreshDatabasePreflightSql,
-    "disposable_fresh_database_preflight",
-  );
-  provisionDisposableReleaseMigrationRole();
-  runComposeWithSanitizedOutput([
-    "exec",
-    "-T",
-    "-e",
-    `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
-    "worker",
-    "sh",
-    "-lc",
-    containerMigrationCommand(true),
-  ]);
-  runDisposableDatabaseSql(
-    disposableBefore87HandoffSql,
-    "disposable_before87_handoff",
-  );
-  runComposeWithSanitizedOutput([
-    "exec",
-    "-T",
-    "-e",
-    `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
-    "worker",
-    "sh",
-    "-lc",
-    containerMigrationCommand(false),
-  ]);
-  runDisposableDatabaseSql(
-    disposableFullChainVerificationSql,
-    "disposable_full_chain_verification",
-  );
+    runComposeWithSanitizedOutput(["run", "--rm", "migrate"]);
+    setGlobalReviewV2EmergencyStop(false);
+    runComposeWithSanitizedOutput(["run", "--rm", "migrate"]);
+    setGlobalReviewV2EmergencyStop(true);
+    testDatabaseCreationAttempted = true;
+    runComposeWithSanitizedOutput([
+      "exec",
+      "-T",
+      "postgres",
+      "createdb",
+      "-U",
+      testEnv.POSTGRES_USER,
+      testDatabase,
+    ]);
+    runDisposableDatabaseSql(
+      disposableFreshDatabasePreflightSql,
+      "disposable_fresh_database_preflight",
+    );
+    provisionDisposableReleaseMigrationRole();
+    runComposeWithSanitizedOutput([
+      "exec",
+      "-T",
+      "-e",
+      `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
+      "worker",
+      "sh",
+      "-lc",
+      containerMigrationCommand(true),
+    ]);
+    runDisposableDatabaseSql(
+      disposableBefore87HandoffSql,
+      "disposable_before87_handoff",
+    );
+    runComposeWithSanitizedOutput([
+      "exec",
+      "-T",
+      "-e",
+      `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
+      "worker",
+      "sh",
+      "-lc",
+      containerMigrationCommand(false),
+    ]);
+    runDisposableDatabaseSql(
+      disposableFullChainVerificationSql,
+      "disposable_full_chain_verification",
+    );
 
-  runCompose([
-    "exec",
-    "-T",
-    "-e",
-    `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
-    "worker",
-    "sh",
-    "-lc",
-    containerE2ECommand(),
-  ]);
+    runCompose([
+      "exec",
+      "-T",
+      "-e",
+      `REVIEW_ROUTER_E2E_DATABASE=${testDatabase}`,
+      "worker",
+      "sh",
+      "-lc",
+      containerE2ECommand(),
+    ]);
 
-  assertLogsAreSanitized();
-  controlPlaneCommit = capture("git", ["rev-parse", "HEAD"]).trim();
-} catch (error) {
-  failedBeforeCleanup = true;
-  if (composeTouched) {
-    try {
-      printSafeDiagnostics();
-    } catch {
-      console.error("disposable_failure_diagnostics_unavailable");
-    }
-  }
-  throw error;
-} finally {
-  const cleanupFailures = [];
-  const preserveFailedMemory = failedBeforeCleanup && memoryInstallStarted;
-  if (preserveFailedMemory)
-    console.error(`self_hosted_failed_state_retained:${tempDirectory}`);
-  const disposeCompose = () => {
-    if (testDatabaseCreationAttempted) {
-      try {
-        const dropped = runCompose(
-          [
-            "exec",
-            "-T",
-            "postgres",
-            "dropdb",
-            "--if-exists",
-            "--force",
-            "-U",
-            testEnv.POSTGRES_USER,
-            testDatabase,
-          ],
-          { allowFailure: true },
-        );
-        if (dropped.status !== 0) cleanupFailures.push("database_drop");
-        else {
-          try {
-            assertDisposableTestDatabaseAbsent();
-          } catch {
-            cleanupFailures.push("database_absence");
-          }
-        }
-      } catch {
-        cleanupFailures.push("database_drop_exception");
-      }
-    }
+    assertLogsAreSanitized();
+    controlPlaneCommit = capture("git", ["rev-parse", "HEAD"]).trim();
+  } catch (error) {
+    failedBeforeCleanup = true;
     if (composeTouched) {
       try {
-        const down = runCompose(["down", "--volumes", "--remove-orphans"], {
-          allowFailure: true,
-        });
-        if (down.status !== 0) cleanupFailures.push("compose_down");
+        printSafeDiagnostics();
       } catch {
-        cleanupFailures.push("compose_down_exception");
-      }
-      try {
-        assertDisposableComposeResourcesAbsent();
-      } catch {
-        cleanupFailures.push("compose_absence");
+        console.error("disposable_failure_diagnostics_unavailable");
       }
     }
-    if (cleanupFailures.length) throw new Error("compose_cleanup_unproved");
-  };
-  if (
-    !preserveFailedMemory &&
-    memoryInstallStarted &&
-    !cleanupFailures.length
-  ) {
-    try {
-      await disposeSelfHostedMemory(tempDirectory, disposeCompose);
-      console.log(
-        readFileSync(
-          join(tempDirectory, "memory-decommission-result.json"),
-          "utf8",
-        ).trim(),
-      );
-    } catch (error) {
-      const diagnostic = selfHostedCleanupDiagnostic(error);
-      console.error(
-        `self_hosted_native_cleanup_refused:${JSON.stringify(diagnostic)}`,
-      );
+    throw error;
+  } finally {
+    const cleanupFailures = [];
+    let preserveFailedMemory = failedBeforeCleanup && memoryInstallStarted;
+    if (infrastructureCleanup) {
       try {
-        writeFileSync(
-          join(tempDirectory, "memory-decommission-refusal.json"),
-          JSON.stringify(diagnostic) + "\n",
-          { mode: 0o600, flag: "wx" },
+        await infrastructureCleanup();
+      } catch {
+        cleanupFailures.push("test_infrastructure_rollback");
+        preserveFailedMemory = true;
+      }
+    }
+    if (preserveFailedMemory)
+      console.error(`self_hosted_failed_state_retained:${tempDirectory}`);
+    const disposeCompose = () => {
+      if (testDatabaseCreationAttempted) {
+        try {
+          const dropped = runCompose(
+            [
+              "exec",
+              "-T",
+              "postgres",
+              "dropdb",
+              "--if-exists",
+              "--force",
+              "-U",
+              testEnv.POSTGRES_USER,
+              testDatabase,
+            ],
+            { allowFailure: true },
+          );
+          if (dropped.status !== 0) cleanupFailures.push("database_drop");
+          else {
+            try {
+              assertDisposableTestDatabaseAbsent();
+            } catch {
+              cleanupFailures.push("database_absence");
+            }
+          }
+        } catch {
+          cleanupFailures.push("database_drop_exception");
+        }
+      }
+      if (composeTouched) {
+        try {
+          const down = runCompose(["down", "--volumes", "--remove-orphans"], {
+            allowFailure: true,
+          });
+          if (down.status !== 0) cleanupFailures.push("compose_down");
+        } catch {
+          cleanupFailures.push("compose_down_exception");
+        }
+        try {
+          assertDisposableComposeResourcesAbsent();
+        } catch {
+          cleanupFailures.push("compose_absence");
+        }
+      }
+      if (cleanupFailures.length) throw new Error("compose_cleanup_unproved");
+    };
+    if (
+      !preserveFailedMemory &&
+      memoryInstallStarted &&
+      !cleanupFailures.length
+    ) {
+      try {
+        await disposeSelfHostedMemory(tempDirectory, disposeCompose);
+        console.log(
+          readFileSync(
+            join(tempDirectory, "memory-decommission-result.json"),
+            "utf8",
+          ).trim(),
         );
-      } catch {
-        /* Preserve any existing private refusal evidence. */
+      } catch (error) {
+        const diagnostic = selfHostedCleanupDiagnostic(error);
+        console.error(
+          `self_hosted_native_cleanup_refused:${JSON.stringify(diagnostic)}`,
+        );
+        try {
+          writeFileSync(
+            join(tempDirectory, "memory-decommission-refusal.json"),
+            JSON.stringify(diagnostic) + "\n",
+            { mode: 0o600, flag: "wx" },
+          );
+        } catch {
+          /* Preserve any existing private refusal evidence. */
+        }
+        cleanupFailures.push("native_sandbox_decommission");
       }
-      cleanupFailures.push("native_sandbox_decommission");
     }
-  }
-  if (!preserveFailedMemory && !memoryInstallStarted) {
-    try {
-      disposeCompose();
-    } catch {
-      cleanupFailures.push("compose_cleanup");
+    if (
+      !preserveFailedMemory &&
+      !memoryInstallStarted &&
+      !cleanupFailures.length
+    ) {
+      try {
+        disposeCompose();
+      } catch {
+        cleanupFailures.push("compose_cleanup");
+      }
     }
-  }
-  if (!preserveFailedMemory && !cleanupFailures.length) {
-    try {
-      console.log(
-        JSON.stringify(
-          await cleanupDisposableTempDirectory(ownedTempDirectory),
-        ),
-      );
-    } catch (error) {
-      console.error(
-        `self_hosted_temp_cleanup_refused:${JSON.stringify(disposableTempCleanupDiagnostic(error))}`,
-      );
+    if (!preserveFailedMemory && !cleanupFailures.length) {
+      try {
+        console.log(
+          JSON.stringify(
+            await cleanupDisposableTempDirectory(ownedTempDirectory),
+          ),
+        );
+      } catch (error) {
+        console.error(
+          `self_hosted_temp_cleanup_refused:${JSON.stringify(disposableTempCleanupDiagnostic(error))}`,
+        );
+        console.error(`self_hosted_private_evidence_retained:${tempDirectory}`);
+        cleanupFailures.push("temporary_directory_removal");
+      }
+    } else
       console.error(`self_hosted_private_evidence_retained:${tempDirectory}`);
-      cleanupFailures.push("temporary_directory_removal");
+    if (cleanupFailures.length) {
+      const diagnostic = `disposable_cleanup_unproved:${cleanupFailures.join(",")}`;
+      if (failedBeforeCleanup) console.error(diagnostic);
+      else cleanupFailure = new Error(diagnostic);
     }
-  } else
-    console.error(`self_hosted_private_evidence_retained:${tempDirectory}`);
-  if (cleanupFailures.length) {
-    const diagnostic = `disposable_cleanup_unproved:${cleanupFailures.join(",")}`;
-    if (failedBeforeCleanup) console.error(diagnostic);
-    else cleanupFailure = new Error(diagnostic);
   }
+
+  if (cleanupFailure) throw cleanupFailure;
+
+  console.log("Self-hosted E2E passed.");
+  console.log(`control-plane-commit=${controlPlaneCommit}`);
+  console.log(`action-ref=${testEnv.REVIEW_ROUTER_ACTION_REF}`);
+  console.log(
+    "compose=healthy migrations=idempotent review-v2=passed investigation-same-release=passed action-oidc=passed memory=real-install-resume-save-read-recall-forget-exclusion sandbox=removed logs=clean",
+  );
 }
-
-if (cleanupFailure) throw cleanupFailure;
-
-console.log("Self-hosted E2E passed.");
-console.log(`control-plane-commit=${controlPlaneCommit}`);
-console.log(`action-ref=${testEnv.REVIEW_ROUTER_ACTION_REF}`);
-console.log(
-  "compose=healthy migrations=idempotent review-v2=passed investigation-same-release=passed action-oidc=passed memory=real-install-resume-save-read-recall-forget-exclusion sandbox=removed logs=clean",
-);
 
 function createTestSecrets() {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -410,9 +480,11 @@ function createTestEnvironment() {
     REVIEW_ROUTER_API_BIND: `127.0.0.1:${ports.api}`,
     REVIEW_ROUTER_POSTGRES_BIND: `127.0.0.1:${ports.postgres}`,
     REVIEW_ROUTER_WEB_URL: "https://selfhost.reviewrouter.test",
-    REVIEW_ROUTER_API_URL: "https://api.selfhost.reviewrouter.test",
+    REVIEW_ROUTER_API_URL:
+      configuredApiOrigin ?? "https://api.selfhost.reviewrouter.test",
     REVIEW_ROUTER_PUBLIC_WEB_URL: "https://selfhost.reviewrouter.test",
-    REVIEW_ROUTER_PUBLIC_API_URL: "https://api.selfhost.reviewrouter.test",
+    REVIEW_ROUTER_PUBLIC_API_URL:
+      configuredApiOrigin ?? "https://api.selfhost.reviewrouter.test",
     NEXTAUTH_URL: "https://selfhost.reviewrouter.test",
     AUTH_SECRET: secrets.auth,
     REVIEW_ROUTER_ACTION_SESSION_SECRET: secrets.actionSession,
@@ -1107,4 +1179,11 @@ async function reserveFreePorts(count) {
       ),
     );
   }
+}
+
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  await runSelfHostedE2E();
 }

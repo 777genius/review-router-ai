@@ -374,7 +374,7 @@ The failed r1 holdout stays frozen as tuning regression. Required remaining work
 1. Complete remote exact-source PostgreSQL/CI checks for the coherent repair batch;
    reconcile the UNKNOWN diagnostic without a fresh attempt of its identity.
 2. Freeze actual source/model inputs, run fresh complete FREE tuning, review and
-   score its real outputs, then use one explicit r2 protected checkpoint only
+   score its real outputs, then use one explicit r2-protected checkpoint only
    after tuning passes. Preserve semantic gates and delegated-agent attribution.
 3. Complete the normal paired `226` protected-main release/OCI/protocol and
    producer-adoption gates, then coherently install the initially unqualified
@@ -439,7 +439,7 @@ time budgets. Request, token, source-current and one-shot limits remain intact.
 The earlier exact-source CI210 run had genuine formatting and sandbox-cleanup
 failures before a later push cancelled its remaining jobs. Formatting was
 reconciled, including the quality-bound policy file; old source-profile results
-are not relabelled with its new hash. The functional self-hosted flow reached
+are not relabeled with its new hash. The functional self-hosted flow reached
 its final checks, then decommission refused before Compose teardown. The old
 job did not retain enough inspect evidence to establish that guard's cause.
 Closed phase/code diagnostics now preserve refusal evidence without raw errors
@@ -502,7 +502,7 @@ Report SHA256: `e73ece44f2a169828262fe8ecf4ebd4e4e06f3babf779fe8280c8a6ad5d0e7bf
 Owner-delegated agent review covered every event and 21 body versions. The
 official score remains **FAIL**: zero unauthorized effects, missing effects,
 bound violations or harmful memories; precision, recall and attribution each
-21/21, supported answers 11/12. The mandatory exact-metadata linked answer added
+21/21, supported answers 11/12. The mandatory exact-metadata-linked answer added
 an unsupported caveat about applicability to the code anchor. Score SHA256:
 `24dc2c8fa1d3a92d3c689c7f70b04776c66dfadc1b9cb41ed698014f4d6573b2`.
 
