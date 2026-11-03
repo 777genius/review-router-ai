@@ -465,15 +465,34 @@ test.describe("Accounts UX reference browser contract", () => {
     await installLoopbackOnlyNetworkGuard(page, violations);
     await useViewerSession(context);
     await openAccounts(page, "rr-e2e-org-alpha");
+    const expectWorkspaceScope = async (workspace: "orgAlpha" | "orgBravo") => {
+      await expect(
+        page.getByRole("tab", {
+          name: new RegExp(FIXTURES.workspaceNames[workspace]),
+          selected: true,
+        }),
+      ).toBeVisible();
+      const region = organizationAccountsRegion(page);
+      await expect(
+        sourceRow(page, FIXTURES.sourceLabels.viewerPrimary, region),
+      ).toHaveCount(1);
+      for (const label of [
+        FIXTURES.sourceLabels.orgAlpha,
+        FIXTURES.sourceLabels.otherPrimary,
+      ]) {
+        await expect(sourceRow(page, label, region)).toHaveCount(
+          workspace === "orgAlpha" ? 1 : 0,
+        );
+      }
+    };
     await page.getByRole("tab", { name: /RR E2E Org Bravo/ }).click();
-    await expect(
-      page.getByText("Connections available for RR E2E Org Bravo.", {
-        exact: false,
-      }),
-    ).toBeVisible();
-    // The heading was removed on purpose (UX batch 3); the Accounts region is
-    // the page's top anchor and must stay clear of the workspace bar.
-    const accountsRegion = page.getByRole("region", { name: "Accounts" });
+    await expectWorkspaceScope("orgBravo");
+    // The Connections region is the page's top anchor and must stay clear of
+    // the workspace bar.
+    const accountsRegion = page.getByRole("region", {
+      name: "Connections",
+      exact: true,
+    });
     await expect(accountsRegion).toBeVisible();
     await page.evaluate(() => {
       location.hash = "dashboard-section-content";
@@ -489,18 +508,11 @@ test.describe("Accounts UX reference browser contract", () => {
       })
       .toBeGreaterThanOrEqual(0);
     await page.goBack();
-    await expect(
-      page.getByText("Connections available for RR E2E Org Bravo.", {
-        exact: false,
-      }),
-    ).toBeVisible();
+    await expectWorkspaceScope("orgBravo");
     await page.goBack();
-    await expect(
-      page.getByText("Connections available for RR E2E Org Alpha.", {
-        exact: false,
-      }),
-    ).toBeVisible();
+    await expectWorkspaceScope("orgAlpha");
     await page.goForward();
+    await expectWorkspaceScope("orgBravo");
     await expect(accountsRegion).toBeVisible();
     await context.clearCookies();
     await useOtherSession(context);

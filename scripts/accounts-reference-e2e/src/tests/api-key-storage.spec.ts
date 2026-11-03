@@ -111,7 +111,7 @@ async function accountsReady(
   );
   await navigate();
   await expect(
-    page.getByRole("region", { name: "Accounts", exact: true }),
+    page.getByRole("region", { name: "Connections", exact: true }),
   ).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dashboard-layout-ready",

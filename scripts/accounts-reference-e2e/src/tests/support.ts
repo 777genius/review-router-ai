@@ -110,10 +110,10 @@ export async function openAccounts(
       waitUntil: "domcontentloaded",
     },
   );
-  // The "Accounts" page heading was removed (UX batch 3); the section region
-  // is the page's top anchor and marks the content as rendered.
+  // The Connections section region is the page's top anchor and marks the
+  // current account-management content as rendered.
   await expect(
-    page.getByRole("region", { name: "Accounts", exact: true }),
+    page.getByRole("region", { name: "Connections", exact: true }),
   ).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute(
     "data-dashboard-layout-ready",
