@@ -10,6 +10,11 @@ import {
   type UsageReportAggregateBucket,
 } from "../application/usage-report-aggregate";
 import { checkedUsageInteger } from "../application/usage-totals";
+import type { UsageReportObservation } from "../application/report-usage";
+import {
+  usageRequestedProviderJoinSql,
+  usageRequestedProviderSql,
+} from "./usage-requested-provider-sql";
 
 type SelectionMetadata = {
   identity: Pick<
@@ -61,8 +66,8 @@ function jsOrder(value: Prisma.Sql): Prisma.Sql {
 
 function fromScope(scope: ReportScope): Prisma.Sql {
   return scope.operator
-    ? Prisma.sql`FROM "UsageCall" u JOIN "Workspace" w ON w."id"=u."workspaceId"`
-    : Prisma.sql`FROM "UsageCall" u`;
+    ? Prisma.sql`FROM "UsageCall" u JOIN "Workspace" w ON w."id"=u."workspaceId" ${usageRequestedProviderJoinSql()}`
+    : Prisma.sql`FROM "UsageCall" u ${usageRequestedProviderJoinSql()}`;
 }
 function scopePredicate({ query: q, operator }: ReportScope): Prisma.Sql {
   const filters = [
@@ -83,7 +88,7 @@ function scopePredicate({ query: q, operator }: ReportScope): Prisma.Sql {
 function dimensions(q: UsageReportQuery): Prisma.Sql {
   const filters: Prisma.Sql[] = [];
   if (q.provider !== undefined)
-    filters.push(Prisma.sql`u."provider"=${q.provider}`);
+    filters.push(Prisma.sql`${usageRequestedProviderSql()}=${q.provider}`);
   if (q.model !== undefined)
     filters.push(
       Prisma.sql`u."projection"#>>'{identity,requestedModel}'=${q.model}`,
@@ -118,7 +123,7 @@ function selectionMetadataSql(): Prisma.Sql {
     'callId',u."callId",'granularity',u."projection"#>'{identity,granularity}',
     'parentScope',u."projection"#>'{identity,parentScope}',
     'invocationId',u."projection"#>'{identity,invocationId}',
-    'provider',u."provider",'requestedModel',u."projection"#>'{identity,requestedModel}'),
+    'provider',${usageRequestedProviderSql()},'requestedModel',u."projection"#>'{identity,requestedModel}'),
     'usage',CASE WHEN u."projection"->'usage' IS NULL OR u."projection"->'usage'='null'::jsonb
       THEN NULL ELSE jsonb_build_object('childCallIds',u."projection"#>'{usage,childCallIds}',
         'completeness',u."projection"#>'{usage,completeness}') END)`;
@@ -182,7 +187,7 @@ async function readProjectionPage(
   scope: ReportScope,
   decisions: readonly ProfileDecision[],
   selection: FamilySelection,
-): Promise<{ rows: UsageProjection[]; nextCursor: string | null }> {
+): Promise<{ rows: UsageReportObservation[]; nextCursor: string | null }> {
   const { query: q } = scope;
   const limit = q.limit ?? 100;
   const ids = await tx.$queryRaw<{ callId: string }[]>(
@@ -196,15 +201,21 @@ async function readProjectionPage(
   );
   const page = ids.slice(0, limit).map((r) => r.callId);
   const rows = page.length
-    ? await tx.$queryRaw<{ projection: UsageProjection }[]>(
-        Prisma.sql`/* usage-report:projection-page */ SELECT u."projection"
+    ? await tx.$queryRaw<
+        { projection: UsageProjection; requestedProvider: string }[]
+      >(
+        Prisma.sql`/* usage-report:projection-page */ SELECT u."projection",${usageRequestedProviderSql()} AS "requestedProvider"
           ${fromScope(scope)} WHERE ${scopePredicate(scope)}
           AND u."callId" IN (${jsonValues(page)})
           ORDER BY ${jsOrder(Prisma.sql`u."callId"`)} LIMIT ${limit}`,
       )
     : [];
   return {
-    rows: rows.map((r) => r.projection),
+    rows: rows.map((r) =>
+      r.requestedProvider === r.projection.identity.provider
+        ? r.projection
+        : { ...r.projection, requestedProvider: r.requestedProvider },
+    ),
     nextCursor: ids.length > limit ? page.at(-1)! : null,
   };
 }
@@ -329,8 +340,8 @@ async function readAggregates(
     ${decisionRelation(decisions)},
     raw AS MATERIALIZED (
       SELECT u."callId",u."runId" AS "observationRunId",u."route" AS "observationRoute",
-        u."provider" AS "requestedProvider",u."projection"#>>'{identity,requestedModel}' AS "requestedModel",
-        COALESCE(u."projection"#>>'{usage,actualProvider}',u."provider") AS "observedProvider",
+        ${usageRequestedProviderSql()} AS "requestedProvider",u."projection"#>>'{identity,requestedModel}' AS "requestedModel",
+        COALESCE(u."projection"#>>'{usage,actualProvider}',${usageRequestedProviderSql()}) AS "observedProvider",
         u."projection"#>>'{usage,actualModel}' AS "observedModel",
         left(u."projection"#>>'{identity,occurredAt}',10) AS day,
         u."occurredAt",u."projection"#>>'{identity,occurredAt}' AS "rawOccurredAt",
@@ -396,7 +407,7 @@ export async function readPrismaUsagePeriodReport(
   const facets = await tx.$queryRaw<
     { provider: string; requestedModel: string | null }[]
   >(
-    Prisma.sql`/* usage-report:facets */ SELECT DISTINCT u."provider",u."projection"#>>'{identity,requestedModel}' AS "requestedModel"
+    Prisma.sql`/* usage-report:facets */ SELECT DISTINCT ${usageRequestedProviderSql()} AS provider,u."projection"#>>'{identity,requestedModel}' AS "requestedModel"
       ${fromScope(scope)} WHERE ${scopePredicate(scope)}`,
   );
   const page = await readProjectionPage(tx, scope, decisions, selection);

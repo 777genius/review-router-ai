@@ -21,6 +21,8 @@ import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
   lifecycleVerificationDescriptorDigestV2,
+  reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchHeaders,
   type ReviewCompanionDispatchContextV1,
 } from "@reviewrouter/shared";
 import { workspacePolicyFixture } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
@@ -31,7 +33,14 @@ import {
   createReviewRunGatewayTerminalGate,
   prepareReviewRunGatewayResponses,
   registerReviewRunGatewayRelayRoutes,
+  readReviewRunCompanionDispatchContext,
 } from "./review-run-gateway-relay";
+import {
+  createReviewRunHostedModelRoute,
+  registerReviewRunHostedModelRoute,
+  hostedModelRoutePath,
+  hostedModelGrantHeader,
+} from "./review-run-hosted-model-route";
 
 const MiB = 1024 * 1024;
 
@@ -116,6 +125,312 @@ const companionEnvelope = (model = "gpt-5.6-sol") =>
       max_output_tokens: 4096,
     }),
   );
+
+function modelForwardHeaders(ordinal: number) {
+  return {
+    authorization: "Bearer local-authorization-token",
+    "content-type": "application/json",
+    ...Object.fromEntries(
+      Object.entries(lifecycleVerificationContract.dispatchHeaders).map(
+        ([key, name]) => [
+          name,
+          String(companionContext[key as keyof typeof companionContext]),
+        ],
+      ),
+    ),
+    [reviewModelDispatchHeaders.dispatchVersion]: "2",
+    [reviewModelDispatchHeaders.requestOrdinal]: String(ordinal),
+    [reviewModelDispatchHeaders.routeIdentityHash]: "e".repeat(64),
+    // Caller-supplied policy metadata cannot select a capacity contract.
+    "x-reviewrouter-model-capacity-policy":
+      reviewModelDispatchCapacity128Contract.capacityPolicy,
+  };
+}
+
+const forwardingBounds = [
+  { capacity128: false, requests: 128, ordinal: 32, allowed: true },
+  { capacity128: false, requests: 128, ordinal: 33, allowed: false },
+  { capacity128: true, requests: 128, ordinal: 33, allowed: true },
+  { capacity128: true, requests: 128, ordinal: 100, allowed: true },
+  { capacity128: true, requests: 128, ordinal: 128, allowed: true },
+  { capacity128: true, requests: 128, ordinal: 129, allowed: false },
+  { capacity128: true, requests: 16, ordinal: 16, allowed: true },
+  { capacity128: true, requests: 16, ordinal: 17, allowed: false },
+];
+
+it.each(forwardingBounds)(
+  "HTTP native forwarding uses frozen capacity128=$capacity128 / clamp=$requests / ordinal=$ordinal",
+  async ({ capacity128, requests, ordinal, allowed }) => {
+    const state = companionReservation("finding_discovery");
+    const forward = vi.fn(
+      async (
+        ...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>
+      ) => {
+        const result = await state.admission.claim(...args);
+        if (result.status !== "restored")
+          throw new Error("reservation_required");
+        return { ...result, status: "claimed" as const };
+      },
+    );
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      async (response) => {
+        response.end(completedFrame);
+      },
+      {
+        admission: { ...state.admission, forward },
+        modelDispatchV2: true,
+        modelDispatchCapacity128: capacity128,
+      },
+      requests,
+    );
+    const app = Fastify();
+    const bytes = companionEnvelope();
+    const context = {
+      ...companionContext,
+      dispatchVersion: 2 as const,
+      requestOrdinal: ordinal,
+      routeIdentityHash: "e".repeat(64),
+    };
+    const reserved = await state.admission.claim(
+      f.authorization(),
+      context,
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    state.rows.set(context.dispatchId, {
+      ...reserved.dispatch,
+      dispatchVersion: 2,
+      requestOrdinal: ordinal,
+      routeIdentityHash: context.routeIdentityHash,
+      requestBytes: bytes.byteLength,
+      maxOutputTokens: 4096,
+    });
+    await registerReviewRunGatewayRelayRoutes(app, f.relay);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${(app.server.address() as AddressInfo).port}/api/action/v2/account-gateway/responses`,
+        {
+          method: "POST",
+          headers: modelForwardHeaders(ordinal),
+          body: bytes,
+        },
+      );
+      const body = await response.text();
+      expect(response.status, body).toBe(allowed ? 200 : 400);
+      if (allowed) expect(body).toBe(completedFrame);
+      expect(f.intents).toHaveLength(allowed ? 1 : 0);
+      expect(f.admissions).toHaveLength(allowed ? 1 : 0);
+      expect(forward).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      expect(f.requestRefs).toEqual(
+        allowed ? ["stored-companion-native-ref"] : [],
+      );
+      if (!allowed)
+        expect(JSON.parse(body)).toMatchObject({
+          error: {
+            code: "model_dispatch_headers_invalid",
+            effect: "not_dispatched",
+          },
+        });
+    } finally {
+      await app.close();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it.each([
+  { capacity128: false, requests: 128, ordinal: 33 },
+  { capacity128: true, requests: 128, ordinal: 129 },
+  { capacity128: true, requests: 16, ordinal: 17 },
+])(
+  "direct forwarding rejects out-of-bound ordinal before prepare ($ordinal / $requests / $capacity128)",
+  async ({ capacity128, requests, ordinal }) => {
+    const state = companionReservation();
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      {
+        admission: { ...state.admission, forward: state.admission.claim },
+        modelDispatchV2: true,
+        modelDispatchCapacity128: capacity128,
+      },
+      requests,
+    );
+    try {
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          companionEnvelope(),
+          new AbortController(),
+          undefined,
+          {
+            ...companionContext,
+            dispatchVersion: 2,
+            requestOrdinal: ordinal,
+            routeIdentityHash: "e".repeat(64),
+          },
+        ),
+      ).rejects.toMatchObject({ code: "model_dispatch_headers_invalid" });
+      expect(f.intents).toHaveLength(0);
+      expect(f.admissions).toHaveLength(0);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("retains the exported parser's default32 and rejects unknown frozen capacity before native prepare", async () => {
+  const request = { headers: modelForwardHeaders(33) };
+  expect(() => readReviewRunCompanionDispatchContext(request)).toThrow(
+    "model_dispatch_headers_invalid",
+  );
+  const state = companionReservation();
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: { ...state.admission, forward: state.admission.claim },
+    modelDispatchV2: true,
+    modelDispatchCapacity128: true,
+  });
+  const canonical = f.authorization().runtimeSnapshotCanonicalJson;
+  if (typeof canonical !== "string")
+    throw new Error("fixture_snapshot_required");
+  const snapshot = JSON.parse(canonical);
+  snapshot.modelDispatchCapability.capacityPolicy =
+    "unapproved-capacity-policy";
+  f.overrides.set("authorization-1", {
+    runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+  });
+  const app = Fastify();
+  await registerReviewRunGatewayRelayRoutes(app, f.relay);
+  try {
+    const result = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/account-gateway/responses",
+      headers: modelForwardHeaders(33),
+      payload: companionEnvelope(),
+    });
+    expect(result.statusCode).toBe(502);
+    expect(f.intents).toHaveLength(0);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
+    await app.close();
+    await f.relay.shutdown();
+  }
+});
+
+it.each(forwardingBounds)(
+  "Hosted HTTP parses frozen capacity before grant admission ($capacity128 / $requests / $ordinal)",
+  async ({ capacity128, requests, ordinal, allowed }) => {
+    const state = companionReservation();
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      {
+        admission: state.admission,
+        modelDispatchV2: true,
+        modelDispatchCapacity128: capacity128,
+      },
+      requests,
+    );
+    const canonical = f.authorization().runtimeSnapshotCanonicalJson;
+    if (typeof canonical !== "string")
+      throw new Error("fixture_snapshot_required");
+    const snapshot = JSON.parse(canonical);
+    delete snapshot.lifecycleVerificationCapability;
+    snapshot.gateway = null;
+    snapshot.agent.modelTransports = ["provider_api"];
+    snapshot.modelDispatchCapability.transport = "hosted_pool";
+    snapshot.modelDispatchCapability.wireProtocol = "codex-responses";
+    snapshot.configurationCanonicalJson = canonicalJson(
+      parseReviewConfigurationStrict({
+        ...workspacePolicyFixture,
+        providers: [
+          {
+            ...workspacePolicyFixture.providers[0],
+            authMode: "codex_subscription_oauth_hosted_pool",
+            model: "gpt-5.6-sol",
+          },
+        ],
+      }),
+    );
+    snapshot.hosted = {
+      grantId: "grant-1",
+      invocationId: "invocation-1",
+      poolId: "pool-1",
+      repositoryBindingId: "binding-1",
+      activeAccountId: "account-1",
+      reviewRequestId: "request-1",
+      providerInvocationKey: "a".repeat(64),
+      policyFingerprint: "b".repeat(64),
+      model: "gpt-5.6-sol",
+      expiresAt: new Date(Date.parse(snapshot.deadline) + 120000).toISOString(),
+      bindingRevision: 1,
+      runtimeConfigVersion: 1,
+      authzEpoch: "1",
+      runtimeAuthzEpoch: "1",
+    };
+    f.overrides.set("authorization-1", {
+      runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+    });
+    const authority = vi.fn(async () => false);
+    const native = vi.fn(async () => {
+      throw new Error("unexpected_native_grant");
+    });
+    const route = createReviewRunHostedModelRoute({
+      prisma: {} as never,
+      api: {
+        authorizations: f.authorizations,
+        checkAuthority: authority,
+        admission: state.admission,
+        reconcileNativeProof: async () => "completed",
+      } as never,
+      native: {
+        authorization: { authorize: native },
+        relay: { open: native },
+      } as never,
+    });
+    const app = Fastify();
+    await registerReviewRunHostedModelRoute(app, route);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${(app.server.address() as AddressInfo).port}${hostedModelRoutePath}`,
+        {
+          method: "POST",
+          headers: {
+            ...modelForwardHeaders(ordinal),
+            [hostedModelGrantHeader]: "synthetic-hosted-grant",
+          },
+          body: companionEnvelope(),
+        },
+      );
+      const body = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(allowed ? 409 : 400);
+      expect(body).toMatchObject({
+        error: {
+          code: allowed
+            ? "hosted_model_authority_changed"
+            : "model_dispatch_headers_invalid",
+          effect: "not_dispatched",
+        },
+      });
+      expect(authority).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      expect(native).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+      await f.relay.shutdown();
+    }
+  },
+);
 
 it("requires the durable V2 forward for discovery while preserving native tools and its output cap", async () => {
   const state = companionReservation("finding_discovery");
@@ -354,6 +669,43 @@ it("companion chunks use local authority while phase and EOF status retain full 
   } finally {
     eof.resolve();
     if (response?.kind === "stream") await response.cancel().catch(() => {});
+    await f.relay.shutdown();
+  }
+});
+
+it("settles an already claimed dispatch without preparing when its caller aborts during the claim", async () => {
+  const state = companionReservation();
+  const controller = new AbortController();
+  const admission = {
+    ...state.admission,
+    async claim(
+      ...args: Parameters<ReviewRunCompanionDispatchAdmission["claim"]>
+    ) {
+      const claimed = await state.admission.claim(...args);
+      controller.abort();
+      return claimed;
+    },
+  };
+  const f = await fixture(32768, 0, 2, 5000, undefined, { admission });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        controller,
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "authorization_denied",
+      effect: "not_dispatched",
+    });
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "not_dispatched",
+    );
+    expect(f.intents).toHaveLength(0);
+    expect(f.admissions).toHaveLength(0);
+  } finally {
     await f.relay.shutdown();
   }
 });
@@ -778,6 +1130,7 @@ async function fixture(
     refusalStatus?: number;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
+    modelDispatchCapacity128?: boolean;
   },
   capturedRequests = 128,
   selection: {
@@ -855,6 +1208,12 @@ async function fixture(
     ...(companionOptions?.modelDispatchV2
       ? {
           modelDispatchCapability: {
+            ...(companionOptions.modelDispatchCapacity128
+              ? {
+                  capacityPolicy:
+                    reviewModelDispatchCapacity128Contract.capacityPolicy,
+                }
+              : {}),
             extensionId: "review-model-dispatch.v2",
             version: 2,
             transport: "account_gateway",
@@ -864,7 +1223,10 @@ async function fixture(
             providerIndex: 0,
             model: selection.model,
             deadline,
-            maxRequests: Math.min(32, capturedRequests),
+            maxRequests: Math.min(
+              companionOptions.modelDispatchCapacity128 ? 128 : 32,
+              capturedRequests,
+            ),
             maxConcurrentRequests: 1,
             maxRequestBytes: 4096,
             maxResponseBytes: outputBytes,
@@ -1050,6 +1412,14 @@ async function fixture(
     [];
   const requestOwners = new Map<string, string | undefined>();
   const authorityChecks: ("full" | "local")[] = [];
+  let heldAuthority:
+    | {
+        ids: Set<string>;
+        entered: Set<string>;
+        started: () => void;
+        pending: Promise<void>;
+      }
+    | undefined;
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -1236,6 +1606,7 @@ async function fixture(
     snapshots,
     bindings,
   });
+  const terminalRuns = new Set<string>();
   const relayInput: Parameters<typeof createReviewRunGatewayRelay>[0] = {
     policy: {
       profiles: [
@@ -1259,6 +1630,7 @@ async function fixture(
       maxInFlight: 2,
     },
     runAccess,
+    isSourceRunTerminal: async (auth) => terminalRuns.has(auth.authorizationId),
     readPreparationOperation: async (operationId) => {
       operationReads.push(operationId);
       return operations.get(operationId);
@@ -1288,6 +1660,12 @@ async function fixture(
     queries: queries as never,
     checkAuthority: async (auth, freshness) => {
       authorityChecks.push(freshness);
+      const held = heldAuthority;
+      if (held?.ids.has(auth.authorizationId)) {
+        held.entered.add(auth.authorizationId);
+        if (held.entered.size === held.ids.size) held.started();
+        await held.pending;
+      }
       return !revoked.has(auth.authorizationId);
     },
     confirmAuthority: async (_token, auth) =>
@@ -1329,13 +1707,40 @@ async function fixture(
   return {
     preparation,
     relay,
+    terminalRuns,
     authorizations: relayInput.authorizations,
     usage: relayInput.usage,
-    restartRelay: (maxSessions = relayInput.policy.maxSessions) =>
+    restartRelay: (
+      maxSessions = relayInput.policy.maxSessions,
+      maxInFlight = relayInput.policy.maxInFlight,
+    ) =>
       createReviewRunGatewayRelay({
         ...relayInput,
-        policy: { ...relayInput.policy, maxSessions },
+        policy: { ...relayInput.policy, maxSessions, maxInFlight },
       }),
+    holdAuthority(ids: readonly string[]) {
+      let started!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      heldAuthority = {
+        ids: new Set(ids),
+        entered: new Set(),
+        started,
+        pending,
+      };
+      return {
+        started: entered,
+        release() {
+          heldAuthority = undefined;
+          release();
+        },
+      };
+    },
     intents,
     admissions,
     requestModels,
@@ -1469,6 +1874,99 @@ it("rejects unsupported captured output before run-access or inference", async (
     });
     expect(f.intents).toHaveLength(0);
     expect(f.admissions).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("releases six aborted pre-session authority reservations without dispatching their late results", async () => {
+  const f = await fixture(MiB, 0, 16);
+  const relay = f.restartRelay(16, 6);
+  const ids = Array.from(
+    { length: 6 },
+    (_, index) => `authorization-${index + 1}`,
+  );
+  const held = f.holdAuthority(ids);
+  const controllers = ids.map(() => new AbortController());
+  const body = new TextEncoder().encode(
+    JSON.stringify({
+      model: "gpt-5.6-sol",
+      input: [],
+      stream: true,
+      max_output_tokens: 32768,
+    }),
+  );
+  const attempts = ids.map((id, index) =>
+    relay.responses(id, body, controllers[index]!).then(
+      (response) => ({ unexpectedResponse: response.kind }),
+      (error: unknown) => error,
+    ),
+  );
+  try {
+    await held.started;
+    await expect(
+      relay.responses("authorization-7", body, new AbortController()),
+    ).rejects.toMatchObject({ code: "relay_saturated" });
+    for (const controller of controllers) controller.abort();
+    let cancelTimer: ReturnType<typeof setTimeout> | undefined;
+    const settled = await Promise.race([
+      Promise.all(attempts),
+      new Promise<never>((_resolve, reject) => {
+        cancelTimer = setTimeout(
+          () => reject(new Error("pre_session_abort_not_settled")),
+          1000,
+        );
+      }),
+    ]).finally(() => clearTimeout(cancelTimer));
+    expect(settled).toEqual(
+      Array.from({ length: 6 }, () =>
+        expect.objectContaining({
+          code: "authorization_denied",
+          effect: "not_dispatched",
+        }),
+      ),
+    );
+    expect(f.intents).toHaveLength(0);
+    expect(f.admissions).toHaveLength(0);
+    await expect(streamRun({ ...f, relay }, "authorization-7")).resolves.toBe(
+      "stream",
+    );
+    expect(f.intents).toHaveLength(1);
+    held.release();
+    await setImmediate();
+    await setImmediate();
+    // Late pure authority completion must not create sessions or prepare native
+    // capabilities for any of the six already cancelled incoming requests.
+    expect(f.intents).toHaveLength(1);
+    expect(f.admissions).toHaveLength(1);
+  } finally {
+    held.release();
+    await Promise.allSettled(attempts);
+    await relay.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it("reclaims an active authorization only after its exact source run is terminal and native close applies", async () => {
+  const f = await fixture(MiB, 0, 1);
+  try {
+    await streamRun(f, "authorization-1");
+    f.terminalRuns.add("authorization-1");
+    // Failed Actions can outlive both renewable and maximum authority TTLs.
+    // Native work is still active: terminal SCM alone cannot discard custody.
+    f.setCloseState("unknown");
+    await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+      code: "relay_saturated",
+    });
+    expect(f.authorization("authorization-1").state).toBe("revoked");
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.intents).toHaveLength(1);
+    expect(f.nativeCloseReasons).toEqual(["cancelled"]);
+    f.setCloseState("applied");
+    await expect(streamRun(f, "authorization-2")).resolves.toBe("stream");
+    expect(f.nativeExecutions.get(f.nativeCloses[0]!)).toBe("closed");
+    expect(f.intents).toHaveLength(2);
+    expect(f.nativeCloseReasons).toEqual(["cancelled", "cancelled"]);
   } finally {
     await f.relay.shutdown();
   }

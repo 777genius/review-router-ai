@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { GatewayError } from "@agent-teams/account-gateway/http";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   PrismaProviderAccountRepository,
@@ -19,6 +20,8 @@ import {
   conversationCandidateMemoryPolicy,
   createConversationPublicationAuthority,
   type ConversationCapturedPolicy,
+  type ConversationCurrentnessFailure,
+  type ConversationInferenceObservation,
 } from "./action-conversation-policy.js";
 import * as conversationInference from "./action-conversation-inference.js";
 import { conversationCapabilityFixture } from "../../../packages/platform/config/src/tests/conversation-qualification-fixture.js";
@@ -328,6 +331,17 @@ function dynamicModelFixture(
     qualifiedProfile?: string;
     qualifiedModel?: string;
     staleSource?: boolean;
+    staticModel?: boolean;
+    reasoningAllowed?: readonly ("low" | "medium" | "high")[] | null;
+    catalogUnavailable?: boolean;
+    onInferenceObserved?: (
+      value: ConversationInferenceObservation,
+    ) => void | Promise<void>;
+    onCurrentnessFailure?: (
+      value: ConversationCurrentnessFailure,
+    ) => void | Promise<void>;
+    configuredTokens?: number;
+    profileOutputTokens?: number;
     sourceProcessingProfile?:
       | "transient-checked-inline-v1"
       | "transient-checked-inline-gateway-v1"
@@ -460,9 +474,13 @@ function dynamicModelFixture(
     .digest("hex")}`;
   let remote = { ownerRef, profileId, authorizationEpoch: 7 };
   const source = options.source ?? "openrouter";
+  let reasoningAllowed = options.reasoningAllowed ?? null;
+  let catalogUnavailable = options.catalogUnavailable ?? false;
   const capability = (modelId: string) => ({
     modelId,
-    reasoning: null,
+    reasoning: reasoningAllowed
+      ? { allowed: reasoningAllowed, default: reasoningAllowed[0] }
+      : null,
     fast:
       source === "codex"
         ? { allowed: ["balanced"], default: "balanced" }
@@ -509,7 +527,20 @@ function dynamicModelFixture(
           expectedAuthorizationEpoch: 7,
         });
         return new Response(
-          catalogJson + (options.oversized ? " ".repeat(2 * 1024 * 1024) : ""),
+          (catalogUnavailable
+            ? JSON.stringify({ status: "unavailable" })
+            : JSON.stringify({
+                ...catalog,
+                models: catalog.models.map((row) => ({
+                  ...row,
+                  reasoning: reasoningAllowed
+                    ? {
+                        allowed: reasoningAllowed,
+                        default: reasoningAllowed[0],
+                      }
+                    : null,
+                })),
+              })) + (options.oversized ? " ".repeat(2 * 1024 * 1024) : ""),
           { headers: { "content-type": "application/json" } },
         );
       }
@@ -522,7 +553,7 @@ function dynamicModelFixture(
     concurrency: 1,
     requestBytes: 131_072,
     outputBytes: 262_144,
-    tokens: 2048,
+    tokens: options.configuredTokens ?? 2048,
   };
   let memorySettings = { requireConfirmation: false, settingsRevision: "0" };
   let captured: ConversationCapturedPolicy | undefined;
@@ -591,10 +622,10 @@ function dynamicModelFixture(
             profile: {
               profileId,
               protocol: "openai-responses",
-              modelIds: ["openai/gpt-5.4-mini"],
+              modelIds: options.staticModel ? [model] : ["openai/gpt-5.4-mini"],
               authKinds: ["api_key"],
             },
-            outputTokens: 2048,
+            outputTokens: options.profileOutputTokens ?? 2048,
           },
         ],
         ingressBytes: 131_072,
@@ -606,6 +637,12 @@ function dynamicModelFixture(
       }),
     },
     admitMemory: async () => true,
+    ...(options.onInferenceObserved
+      ? { onInferenceObserved: options.onInferenceObserved }
+      : {}),
+    ...(options.onCurrentnessFailure
+      ? { onCurrentnessFailure: options.onCurrentnessFailure }
+      : {}),
     onCaptured: (value) => {
       captured = value;
     },
@@ -640,6 +677,15 @@ function dynamicModelFixture(
     transaction,
     unselectRepository: () => {
       repositorySelected = false;
+    },
+    setReasoning: (allowed: typeof reasoningAllowed) => {
+      reasoningAllowed = allowed;
+    },
+    setCatalogUnavailable: () => {
+      catalogUnavailable = true;
+    },
+    removeCatalogModel: () => {
+      catalog.models = [];
     },
     changeRemote: (change: Partial<typeof remote>) => {
       remote = { ...remote, ...change };
@@ -963,6 +1009,8 @@ it("candidate paid admission and observations address its disposable row, not th
     usage: null,
     effect: "completed",
     cleanup: "closed",
+    failureCode: null,
+    executionKnown: true,
   });
   expect(f.transaction.conversationProcessing.updateMany).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -975,9 +1023,18 @@ it("candidate paid admission and observations address its disposable row, not th
   );
 });
 
-it.each(["closed", "pending"] as const)(
-  "parent cleanup %s fences child authority for the same capture",
-  async (cleanup) => {
+it.each([
+  { cleanup: "closed", effect: "not_dispatched", settled: true },
+  { cleanup: "closed", effect: "rejected_before_dispatch", settled: true },
+  { cleanup: "closed", effect: "completed", settled: true },
+  { cleanup: "closed", effect: "effect_unknown", settled: false },
+  { cleanup: "closed", effect: "dispatch_started", settled: false },
+  { cleanup: "closed", effect: "response_started", settled: false },
+  { cleanup: "pending", effect: "not_dispatched", settled: false },
+  { cleanup: "pending", effect: "completed", settled: false },
+] as const)(
+  "parent cleanup $cleanup and outcome $effect fence child authority unless settled",
+  async ({ cleanup, effect, settled }) => {
     let transport:
       | Parameters<
           typeof conversationInference.createConversationGatewayInference
@@ -1002,19 +1059,328 @@ it.each(["closed", "pending"] as const)(
     await transport!.onObserved!({
       model: null,
       usage: null,
-      effect: "not_dispatched",
+      effect,
       cleanup,
+      failureCode: null,
+      executionKnown: true,
     });
-    expect(await policy.isCurrent(controls)).toBe(cleanup === "closed");
-    expect(await f.checkSelection()).toBe(cleanup === "closed");
+    expect(await policy.isCurrent(controls)).toBe(settled);
+    expect(await f.checkSelection()).toBe(settled);
     expect(
       f.transaction.conversationProcessing.updateMany,
     ).toHaveBeenLastCalledWith(
       expect.objectContaining({
         data: {
           observedModel: null,
-          requestEffect:
-            cleanup === "pending" ? "cleanup_pending" : "not_dispatched",
+          requestEffect: cleanup === "pending" ? "cleanup_pending" : effect,
+        },
+      }),
+    );
+  },
+);
+
+it.each([
+  { configuredTokens: 32768, profileOutputTokens: 32768, expected: 8192 },
+  { configuredTokens: 1024, profileOutputTokens: 32768, expected: 1024 },
+  { configuredTokens: 32768, profileOutputTokens: 1536, expected: 1536 },
+])(
+  "freezes one combined output budget within both configured ceilings: %j",
+  async ({ expected, ...ceilings }) => {
+    const f = dynamicModelFixture(ceilings);
+    const policy = await f.capture();
+    expect(policy.maxOutputTokens).toBe(expected);
+    expect(policy.bindingManifest.limits).toMatchObject({ tokens: expected });
+  },
+);
+
+// The normal selected-account catalog, not a profile/model name, authorizes effort.
+it.each([
+  { staticModel: false, reasoningAllowed: null, expected: undefined },
+  {
+    staticModel: false,
+    reasoningAllowed: ["high"] as const,
+    expected: undefined,
+  },
+  {
+    staticModel: false,
+    reasoningAllowed: ["high", "medium"] as const,
+    expected: "medium",
+  },
+  { staticModel: true, reasoningAllowed: null, expected: undefined },
+  {
+    staticModel: true,
+    reasoningAllowed: ["medium"] as const,
+    expected: "medium",
+  },
+  { staticModel: true, catalogUnavailable: true, expected: undefined },
+])(
+  "freezes only advertised selected-model medium reasoning: %j",
+  async ({ expected, ...options }) => {
+    const f = dynamicModelFixture(options);
+    const policy = await f.capture();
+    expect(policy.bindingManifest.reasoningEffort).toBe(expected);
+    if (expected === undefined)
+      expect(policy.bindingManifest).not.toHaveProperty("reasoningEffort");
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(true);
+  },
+);
+
+it.each([false, true])(
+  "revoked medium capability fences captured authority (static=%s) without fallback",
+  async (staticModel) => {
+    const f = dynamicModelFixture({
+      staticModel,
+      reasoningAllowed: ["medium"],
+    });
+    const policy = await f.capture();
+    expect(policy.bindingManifest.reasoningEffort).toBe("medium");
+    f.setReasoning(null);
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(false);
+    expect(policy.bindingManifest.reasoningEffort).toBe("medium");
+  },
+);
+
+it("a static model captured without reasoning keeps its default when optional catalog disappears", async () => {
+  const failures: ConversationCurrentnessFailure[] = [];
+  const f = dynamicModelFixture({
+    staticModel: true,
+    onCurrentnessFailure: (value) => {
+      failures.push(value);
+    },
+  });
+  const policy = await f.capture();
+  const readsBefore = f.fetch.mock.calls.length;
+  f.setCatalogUnavailable();
+  expect(
+    await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(true);
+  expect(
+    f.fetch.mock.calls
+      .slice(readsBefore)
+      .some(
+        ([target]) =>
+          new URL(String(target)).pathname === "/v1/account-models/read",
+      ),
+  ).toBe(false);
+  expect(policy.bindingManifest).not.toHaveProperty("reasoningEffort");
+  expect(failures).toEqual([]);
+});
+
+it.each([
+  {
+    change: "selection",
+    phase: "initial_selection",
+    reason: "selection_changed",
+    reads: 0,
+  },
+  { change: "account", phase: "account", reason: "account_changed", reads: 1 },
+  { change: "account-http", phase: "account", reason: "unavailable", reads: 1 },
+  {
+    change: "catalog-http",
+    phase: "catalog",
+    reason: "catalog_unavailable",
+    reads: 2,
+  },
+  {
+    change: "model",
+    phase: "catalog",
+    reason: "selected_model_missing",
+    reads: 2,
+  },
+  {
+    change: "medium",
+    phase: "catalog",
+    reason: "required_effort_unavailable",
+    reads: 2,
+  },
+] as const)(
+  "reports only the existing $change currentness denial without another metadata call",
+  async ({ change, phase, reason, reads }) => {
+    const failures: ConversationCurrentnessFailure[] = [];
+    const f = dynamicModelFixture({
+      reasoningAllowed: ["medium"],
+      onCurrentnessFailure: (value) => {
+        failures.push(value);
+      },
+    });
+    const policy = await f.capture();
+    const before = f.fetch.mock.calls.length;
+    if (change === "selection") f.setMemoryConfirmation(true);
+    if (change === "account") f.changeRemote({ ownerRef: "foreign-owner" });
+    if (change === "model") f.removeCatalogModel();
+    if (change === "medium") f.setReasoning(null);
+    if (change === "account-http" || change === "catalog-http") {
+      const original = f.fetch.getMockImplementation()!;
+      f.fetch.mockImplementation(async (target, init) =>
+        new URL(String(target)).pathname ===
+        (change === "account-http"
+          ? "/v1/accounts/account_probe"
+          : "/v1/account-models/read")
+          ? Response.json(
+              {
+                code: "upstream_failure",
+                traceRef: "never-log-this-trace",
+                effect: "not_dispatched",
+                retry: { kind: "never" },
+              },
+              { status: 503 },
+            )
+          : original(target, init),
+      );
+    }
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(false);
+    expect(f.fetch.mock.calls.length - before).toBe(reads);
+    expect(failures).toEqual([
+      {
+        processingId: "processing_probe",
+        phase,
+        reason,
+        ...(change.endsWith("-http")
+          ? { gatewayCode: "safe_error", httpStatus: 503 }
+          : {}),
+      },
+    ]);
+    expect(JSON.stringify(failures)).not.toContain("never-log-this-trace");
+  },
+);
+
+it.each([false, true])(
+  "a throwing currentness observer cannot change authority (async=%s)",
+  async (asynchronous) => {
+    const f = dynamicModelFixture({
+      onCurrentnessFailure: asynchronous
+        ? async () => {
+            throw new Error("observer-private-error");
+          }
+        : () => {
+            throw new Error("observer-private-error");
+          },
+    });
+    const policy = await f.capture();
+    const before = f.fetch.mock.calls.length;
+    f.setMemoryConfirmation(true);
+    expect(
+      await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+    ).toBe(false);
+    await Promise.resolve();
+    expect(f.fetch.mock.calls.length).toBe(before);
+  },
+);
+
+it("currentness diagnostics drop unknown error fields and invalid HTTP status", async () => {
+  const failures: ConversationCurrentnessFailure[] = [];
+  const f = dynamicModelFixture({
+    onCurrentnessFailure: (value) => {
+      failures.push(value);
+    },
+  });
+  const policy = await f.capture();
+  const error = new GatewayError(
+    "safe_error",
+    "effect_unknown",
+    undefined,
+    undefined,
+    {
+      code: "upstream_failure",
+      traceRef: "private-trace",
+      effect: "effect_unknown",
+      retry: { kind: "never" },
+    },
+    999.5,
+  );
+  error.message = "private-provider-body";
+  error.name = "private-error-name";
+  f.bindingReads.mockRejectedValueOnce(error);
+  expect(
+    await policy.isCurrent({ deadlineAt: new Date(Date.now() + 30_000) }),
+  ).toBe(false);
+  expect(failures).toEqual([
+    {
+      processingId: "processing_probe",
+      phase: "initial_selection",
+      reason: "unavailable",
+      gatewayCode: "safe_error",
+    },
+  ]);
+  expect(JSON.stringify(failures)).not.toContain("private-");
+});
+
+it.each(["collect", "throw", "reject", "unrecognized"] as const)(
+  "SDK outcome diagnostics are closed and cannot alter unknown authority (%s)",
+  async (mode) => {
+    let transport:
+      | Parameters<
+          typeof conversationInference.createConversationGatewayInference
+        >[0]
+      | undefined;
+    vi.spyOn(
+      conversationInference,
+      "createConversationGatewayInference",
+    ).mockImplementation((value) => {
+      transport = value;
+      return {
+        generate: async () => {
+          throw new Error("no_model_call");
+        },
+      };
+    });
+    const observations: ConversationInferenceObservation[] = [];
+    const f = dynamicModelFixture({
+      candidate: true,
+      onInferenceObserved: (value) => {
+        observations.push(value);
+        if (mode === "throw") throw new Error("private_observer_error");
+        if (mode === "reject")
+          return Promise.reject(new Error("private_observer_error"));
+      },
+    });
+    const policy = await f.capture();
+    const controls = { deadlineAt: new Date(Date.now() + 10_000) };
+    expect(await policy.isCurrent(controls)).toBe(true);
+    const reads = f.fetch.mock.calls.length;
+    const value = {
+      model: "private_model",
+      usage: null,
+      effect: "effect_unknown" as const,
+      cleanup: "closed" as const,
+      failureCode: "effect_unknown" as const,
+      executionKnown: true,
+      privateError: "never-log-this-provider-payload",
+    };
+    if (mode === "unrecognized")
+      Object.assign(value, { failureCode: "never-log-this-provider-payload" });
+    await transport!.onObserved!(value);
+    await Promise.resolve();
+    expect(await policy.isCurrent(controls)).toBe(false);
+    expect(await f.checkSelection()).toBe(false);
+    expect(f.fetch.mock.calls.length).toBe(reads);
+    expect(observations).toEqual(
+      mode === "unrecognized"
+        ? []
+        : [
+            {
+              processingId: "processing_probe",
+              failureCode: "effect_unknown",
+              executionKnown: true,
+              effect: "effect_unknown",
+              cleanup: "closed",
+            },
+          ],
+    );
+    expect(JSON.stringify(observations)).not.toContain("private");
+    expect(
+      f.transaction.conversationProcessing.updateMany,
+    ).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        data: {
+          observedModel: "private_model",
+          requestEffect: "effect_unknown",
         },
       }),
     );

@@ -43,7 +43,7 @@ export function createOrganizationSecretPolicyLoader(input: {
 }): (
   organization: OrganizationSecretPolicyInput,
 ) => Promise<DashboardOrganizationSecretPolicy | null> {
-  const now = input.now ?? Date.now;
+  const now = input.now ?? (() => Date.now());
   const capacity = input.capacity ?? maxCacheEntries;
   if (!Number.isSafeInteger(capacity) || capacity < 1) {
     throw new Error("organization_secret_policy_cache_capacity_invalid");
@@ -78,14 +78,16 @@ export function createOrganizationSecretPolicyLoader(input: {
           status: planName ? "available" : "unknown",
         };
       })
-      .catch((error): DashboardOrganizationSecretPolicy => ({
-        planName: null,
-        privateRepositoriesAvailable: null,
-        status:
-          githubApiStatus(error) === 401 || githubApiStatus(error) === 403
-            ? "permission_required"
-            : "unknown",
-      }))
+      .catch(
+        (error): DashboardOrganizationSecretPolicy => ({
+          planName: null,
+          privateRepositoriesAvailable: null,
+          status:
+            githubApiStatus(error) === 401 || githubApiStatus(error) === 403
+              ? "permission_required"
+              : "unknown",
+        }),
+      )
       .then((policy) => {
         if (cache.get(key) === entry) {
           const ttl =
@@ -126,5 +128,3 @@ function githubApiStatus(error: unknown): number | null {
     ? error.status
     : null;
 }
-
-export const loadOrganizationSecretPolicy = createOrganizationSecretPolicyLoa

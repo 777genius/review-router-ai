@@ -2382,7 +2382,9 @@ lifecycleCase.each([
               expect(String(error)).toContain(
                 ["forged_claim", "budget_exhausted"].includes(scenario)
                   ? unified
-                    ? "account_gateway_transport_unknown"
+                    ? scenario === "budget_exhausted"
+                      ? "model_dispatch_budget_exhausted"
+                      : "account_gateway_transport_unknown"
                     : "paired_relay_denied:409:companion_lease_mismatch"
                   : "lifecycle_verification_response_invalid",
               );

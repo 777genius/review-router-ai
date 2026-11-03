@@ -1,3 +1,4 @@
+import { observeEvaluationModelDecision } from "./decision-trace.js";
 import { randomUUID, createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { acquireCurrentScopeGuards } from "../../packages/platform/db/src/index.js";
@@ -45,6 +46,8 @@ import {
   createConversationCandidatePolicy,
   conversationCandidateMemoryPolicy,
   type ConversationCapturedPolicy,
+  type ConversationCurrentnessFailure,
+  type ConversationInferenceObservation,
   type ConversationOperationalModelBounds,
 } from "../../apps/api/src/action-conversation-policy.js";
 import { createConversationCandidateMemoryPreview } from "../../apps/api/src/action-conversation-candidate.js";
@@ -157,13 +160,20 @@ export type Witness = {
   /** Qualified at the exact time of model delivery, before later mutations. */
   deliveredQualifiedBodyDigests: string[];
   memoryManifest: Readonly<Record<string, unknown>> | null;
+  modelDecisionTrace?: {
+    text: string;
+    bytes: number;
+    truncated: boolean;
+  } | null;
   observedModel: string | null;
   usage: unknown;
   productLatencyMs: number;
   nativeLatencyMs: number;
   gatewayPreviewLatencyMs?: number;
-  /** Actual parent SDK cleanup observation, never inferred from a missing child call. */
+  /** Parent authority is blocked by cleanup debt or an unsettled request effect. */
   gatewayParentCleanupPending?: boolean;
+  gatewayCurrentnessFailure?: ConversationCurrentnessFailure | null;
+  gatewayInferenceObservation?: ConversationInferenceObservation | null;
   gatewayPreviewReceipt?: {
     processingId: string;
     observedModel: string | null;
@@ -245,7 +255,8 @@ export async function createEvaluationFixture(input: {
   const namespace = `eval_${rawHash(`${input.runId}:${input.scenario}`).slice(0, 40)}`;
   const pullRequestNumber =
     Number.parseInt(rawHash(namespace).slice(0, 7), 16) + 1;
-  const successor = input.corpusName === "full-thread-v2";
+  const successor =
+    input.corpusName !== undefined && input.corpusName !== "legacy-v1";
   const repositoryKeys = input.repositoryKeys ?? ["main"];
   const scopes = repositoryKeys.map((key) => ({
     kind: "repository" as const,
@@ -299,6 +310,8 @@ export async function createEvaluationFixture(input: {
     exactStatementStrategy: "router-approved-v1",
   });
   let capturedPolicy: ConversationCapturedPolicy | undefined;
+  let currentnessFailure: ConversationCurrentnessFailure | null = null;
+  let inferenceObservation: ConversationInferenceObservation | null = null;
   const workspaceSettings =
     input.variant === "full-product"
       ? candidateWorkspaceMemorySettings({
@@ -331,6 +344,12 @@ export async function createEvaluationFixture(input: {
           models: input.candidateModels!,
           onCaptured: (value) => {
             capturedPolicy = value;
+          },
+          onInferenceObserved: (value) => {
+            inferenceObservation ??= value;
+          },
+          onCurrentnessFailure: (value) => {
+            currentnessFailure ??= value;
           },
           admitMemory: async (transaction, now) =>
             capturedReceipt
@@ -547,6 +566,7 @@ export async function createEvaluationFixture(input: {
     nativeLatencyMs = 0,
     gatewayPreviewLatencyMs = 0,
     gatewayPreviewReceipt: Witness["gatewayPreviewReceipt"] = null,
+    modelDecisionTrace: Witness["modelDecisionTrace"] = null,
     observedModel: string | null = null,
     usage: unknown = null,
     deliveredBodyDigests: string[] = [],
@@ -883,7 +903,12 @@ export async function createEvaluationFixture(input: {
             activeThread?.policy.automaticLearning ??
             false),
       };
-      const inference = base.inference;
+      const inference = observeEvaluationModelDecision(
+        base.inference,
+        (trace) => {
+          modelDecisionTrace = trace;
+        },
+      );
       return {
         ...base,
         automaticLearning: currentPolicy.automaticLearning,
@@ -1334,6 +1359,9 @@ export async function createEvaluationFixture(input: {
       nativeLatencyMs = 0;
       gatewayPreviewLatencyMs = 0;
       gatewayPreviewReceipt = null;
+      currentnessFailure = null;
+      inferenceObservation = null;
+      modelDecisionTrace = null;
       observedModel = null;
       usage = null;
       deliveredBodyDigests = [];
@@ -1394,6 +1422,7 @@ export async function createEvaluationFixture(input: {
         deliveredBodyDigests,
         deliveredQualifiedBodyDigests,
         memoryManifest,
+        modelDecisionTrace,
         observedModel,
         usage,
         productLatencyMs,
@@ -1401,6 +1430,8 @@ export async function createEvaluationFixture(input: {
         gatewayPreviewLatencyMs,
         gatewayParentCleanupPending:
           capturedPolicy?.inferenceCleanupPending?.() ?? false,
+        gatewayCurrentnessFailure: currentnessFailure,
+        gatewayInferenceObservation: inferenceObservation,
         gatewayPreviewReceipt,
         inventory,
         retained,

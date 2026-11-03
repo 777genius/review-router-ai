@@ -1,5 +1,15 @@
 # Unified OCR discovery and finding verification
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 ## Goal and scope
 
 Deliver one review scenario for the currently supported connection routes:
@@ -20,10 +30,10 @@ Coordinate actual fleet changes and retirement evidence with the separate
 
 ## Environment status
 
-| Environment | Status        | Verified deployed version     | Remaining work                                                                                                                                                                                  |
-| ----------- | ------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Staging     | `pending`     | Not recorded                  | Qualify the selected integrated source; reconcile actual environment; authorized rollout and designated live acceptance.                                                                        |
-| Production  | `in_progress` | `533c040d` / image `e1578f75` | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
+| Environment | Status      | Verified deployed version                   | Remaining work                                                                                                           |
+| ----------- | ----------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Staging     | `pending`   | Not recorded                                | Qualify the selected integrated source; reconcile actual environment; authorized rollout and designated live acceptance. |
+| Production  | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | See current disposition; no repeat code rollout.                                                                         |
 
 No rollout was executed by this task. `pending` does not prove that an environment
 lacks a particular step: reconcile its actual state before acting. Do not copy a
@@ -324,3 +334,12 @@ state and coordinate applicable rollout/history authority with `rr: deploy`
 only through the separately authorized release/deployment process.
 
 2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The compatible226 producer/runtime and coherent fleet are adopted. Reuse already accepted OCR/multi-reviewer/MCP slices; do not republish managed OCR assets or replay the old provider matrix. Companion reviews A/B passed full-coverage publication/Usage/Statistics acceptance. B has zero new issues and one retained lineage from A; the prior issue is NOT VERIFIED, not resolved. Payments is PARTIAL 0/17; broader combinations remain unclaimed.
+
+Staging remains unchanged and unverified by this production batch.

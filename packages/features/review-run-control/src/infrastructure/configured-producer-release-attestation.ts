@@ -1,4 +1,4 @@
-import { parseReviewModelDispatchProfileV2 } from "@reviewrouter/shared";
+import { parseReviewModelDispatchProfile } from "@reviewrouter/shared";
 import type { ProducerReleaseQueryPort } from "../application/ports/producer-release-ports";
 import { parseReviewAgentProfiles } from "../domain/review-agent-profile";
 import {
@@ -69,7 +69,7 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
           ...(attestation.modelDispatchProfile == null
             ? {}
             : {
-                modelDispatchProfile: parseReviewModelDispatchProfileV2(
+                modelDispatchProfile: parseReviewModelDispatchProfile(
                   attestation.modelDispatchProfile,
                 ),
               }),
@@ -138,7 +138,7 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
             ...(configured.modelDispatchProfile == null
               ? {}
               : {
-                  modelDispatchProfile: parseReviewModelDispatchProfileV2(
+                  modelDispatchProfile: parseReviewModelDispatchProfile(
                     configured.modelDispatchProfile,
                   ),
                 }),
@@ -255,7 +255,7 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
     ...(value.modelDispatchProfile == null
       ? {}
       : {
-          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+          modelDispatchProfile: parseReviewModelDispatchProfile(
             value.modelDispatchProfile,
           ),
         }),
@@ -332,7 +332,7 @@ function parseAttestation(value: unknown): TrustedProducerReleaseAttestation {
 
 function assertAttestation(value: TrustedProducerReleaseAttestation): void {
   if (value.modelDispatchProfile != null)
-    parseReviewModelDispatchProfileV2(value.modelDispatchProfile);
+    parseReviewModelDispatchProfile(value.modelDispatchProfile);
   if (value.reviewerPlanProfile !== undefined)
     parseProducerReviewerPlanProfile(value.reviewerPlanProfile);
   if (value.contextToolsProfile !== undefined)
@@ -413,7 +413,7 @@ function configuredReleaseKey(
     ...(configured.modelDispatchProfile == null
       ? {}
       : {
-          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+          modelDispatchProfile: parseReviewModelDispatchProfile(
             configured.modelDispatchProfile,
           ),
         }),

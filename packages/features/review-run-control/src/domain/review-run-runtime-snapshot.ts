@@ -7,8 +7,8 @@ import {
   lifecycleVerificationDescriptorDigest,
   type LifecycleVerificationCapability,
   parseLifecycleVerificationCapabilityV2,
-  parseReviewModelDispatchCapabilityV2,
-  type ReviewModelDispatchCapabilityV2,
+  parseReviewModelDispatchCapability,
+  type ReviewModelDispatchCapability,
   reviewModelTransportForAuthMode,
 } from "@reviewrouter/shared";
 import { reviewAgentExecutionProviderKind } from "./review-agent-profile";
@@ -35,7 +35,7 @@ export type ReviewRunRuntimeSnapshotV3 = {
     | "verification_configuration_invalid"
     | "verification_unavailable";
   readonly lifecycleVerificationCapability?: LifecycleVerificationCapability;
-  readonly modelDispatchCapability?: ReviewModelDispatchCapabilityV2;
+  readonly modelDispatchCapability?: ReviewModelDispatchCapability;
   readonly prDescriptionCapability?: ProducerPrDescriptionProfile;
   readonly configurationSource: "workspace" | "repository";
   readonly configurationVersion: number;
@@ -666,7 +666,7 @@ function parseReviewRunRuntimeSnapshotV3(
   }
   const modelDispatchCapability =
     "modelDispatchCapability" in parsed
-      ? parseReviewModelDispatchCapabilityV2(parsed.modelDispatchCapability)
+      ? parseReviewModelDispatchCapability(parsed.modelDispatchCapability)
       : undefined;
   const hosted = Object.hasOwn(parsed, "hosted")
     ? parseReviewRunHostedSelection(parsed.hosted)
@@ -675,6 +675,15 @@ function parseReviewRunRuntimeSnapshotV3(
     fail();
   if (modelDispatchCapability) {
     const cap = modelDispatchCapability;
+    if (
+      "capacityPolicy" in cap &&
+      gateway &&
+      (cap.maxRequests > gateway.limits.requests ||
+        cap.maxRequestBytes > gateway.limits.requestBytes ||
+        cap.maxResponseBytes > gateway.limits.outputBytes ||
+        cap.maxOutputTokens > gateway.limits.tokens)
+    )
+      fail();
     const provider = Array.isArray(configuration.providers)
       ? configuration.providers[cap.providerIndex]
       : undefined;

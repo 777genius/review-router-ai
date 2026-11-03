@@ -1,3 +1,4 @@
+import { createReviewRunGatewayTerminalRunReader } from "./review-run-gateway-terminal-run.js";
 import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
 import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import {
@@ -1463,6 +1464,12 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
+        isSourceRunTerminal: createReviewRunGatewayTerminalRunReader({
+          appId: githubAppId,
+          privateKey: githubAppPrivateKey,
+          resolveRepository: (authorization) =>
+            readCheckoutTarget(prisma, authorization),
+        }),
         readPreparationOperation: (operationId, options) =>
           accountGatewayConsumerControl!.operation(operationId, options),
         companionDispatches: modelDispatchAdmission,

@@ -38,7 +38,9 @@ function harness(options?: {
   const findMany = vi.fn().mockResolvedValue([repository, repository]);
   const listAccess = vi.fn().mockResolvedValue(discovered);
   const canMutate = vi.fn().mockResolvedValue(options?.canMutate ?? false);
-  const canConfigure = vi.fn().mockResolvedValue(options?.canConfigure ?? false);
+  const canConfigure = vi
+    .fn()
+    .mockResolvedValue(options?.canConfigure ?? false);
   const load = createDashboardRepositoryAccessLoader({
     getPrisma: (() => ({
       repositoryConnection: { findMany },
@@ -89,7 +91,10 @@ describe("dashboard repository access boundary", () => {
 
   it("never uses a requested repository to expand global workspace access", async () => {
     const h = harness();
-    const access = await h.load({ ...input, workspaceScope: { kind: "all" } });
+    const access = await h.load({
+      ...input,
+      workspaceScope: { kind: "all", reason: "local_admin_override" },
+    });
     expect(access.repositoryIds.size).toBe(0);
     expect(h.findMany).not.toHaveBeenCalled();
     expect(h.listAccess).not.toHaveBeenCalled();

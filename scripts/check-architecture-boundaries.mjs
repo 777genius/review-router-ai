@@ -264,6 +264,7 @@ async function checkReviewActionV2ProtocolBoundaries(violations) {
           "packages/features/codex-oauth-rotating/src/tests/provider-usage-bootstrap.test.ts",
           "packages/features/workflow-provisioning/src/infrastructure/review-v2-mutation-proof-facts.ts",
           "packages/features/workflow-provisioning/src/tests/gateway-review-v2-provisioning.test.ts",
+          "packages/features/workflow-provisioning/src/tests/installed-gateway-review-confirmation.postgres.test.ts",
         ].includes(repositoryPath) &&
         !repositoryPath.startsWith(
           "packages/features/action-control-plane/src/v2/interface/",

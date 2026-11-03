@@ -82,10 +82,7 @@ describe("dashboard workspace read model visibility", () => {
         select: expect.objectContaining({
           repositories: expect.objectContaining({
             where: {
-              OR: [
-                { workspaceId: { in: [] } },
-                { id: { in: ["repo_1"] } },
-              ],
+              OR: [{ workspaceId: { in: [] } }, { id: { in: ["repo_1"] } }],
             },
           }),
         }),
@@ -118,7 +115,10 @@ describe("dashboard workspace read model visibility", () => {
 
   it("uses a distinct unscoped query only for globally authorized workspace access", async () => {
     const h = harness();
-    const result = await h.load({ kind: "all" }, baseAccess);
+    const result = await h.load(
+      { kind: "all", reason: "local_admin_override" },
+      baseAccess,
+    );
     expect(result).toHaveLength(1);
     expect(h.findMany).toHaveBeenCalledWith(
       expect.not.objectContaining({ where: expect.anything() }),
@@ -136,7 +136,10 @@ describe("dashboard workspace read model visibility", () => {
       _count: { repositories: 2 },
     };
     const h = harness([mainWorkspace, secondary]);
-    const result = await h.load({ kind: "all" }, baseAccess);
+    const result = await h.load(
+      { kind: "all", reason: "local_admin_override" },
+      baseAccess,
+    );
     expect(result.map((entry) => entry.workspace.id)).toEqual(["ws_2", "ws_1"]);
   });
 
@@ -148,7 +151,10 @@ describe("dashboard workspace read model visibility", () => {
       _count: { repositories: 0 },
     };
     const h = harness([empty]);
-    const result = await h.load({ kind: "all" }, baseAccess);
+    const result = await h.load(
+      { kind: "all", reason: "local_admin_override" },
+      baseAccess,
+    );
     expect(result.map((entry) => entry.workspace.id)).toEqual(["ws_1"]);
     expect(result[0]?.repositoryCount).toBe(0);
   });

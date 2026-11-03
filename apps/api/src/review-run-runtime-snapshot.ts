@@ -10,11 +10,12 @@ import {
   lifecycleVerificationDescriptorDigest,
   lifecycleVerificationContractV2,
   lifecycleVerificationDescriptorDigestV2,
-  parseReviewModelDispatchProfileV2,
+  parseReviewModelDispatchProfile,
   selectReviewModelRoutePolicy,
   reviewModelDispatchContract,
+  reviewModelDispatchCapacity128Contract,
   type LifecycleVerificationCapability,
-  type ReviewModelDispatchCapabilityV2,
+  type ReviewModelDispatchCapability,
 } from "@reviewrouter/shared";
 import {
   captureContextToolsPlan,
@@ -384,7 +385,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     const modelDispatchProfile =
       input.producerRelease.modelDispatchProfile == null
         ? undefined
-        : parseReviewModelDispatchProfileV2(
+        : parseReviewModelDispatchProfile(
             input.producerRelease.modelDispatchProfile,
           );
     const preparedRoute = modelDispatchProfile
@@ -567,8 +568,11 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         : undefined;
     if (preparedRoute?.transport === "hosted_pool" && !hosted)
       return { captureDenied: "agent_profile_unavailable" };
-    let modelDispatchCapability: ReviewModelDispatchCapabilityV2 | undefined;
+    let modelDispatchCapability: ReviewModelDispatchCapability | undefined;
     if (modelDispatchProfile && preparedRoute && reviewerIndex === undefined) {
+      const capacity128 =
+        modelDispatchProfile.policyVersion ===
+        reviewModelDispatchCapacity128Contract.policyVersion;
       // The admission owns one exact model route, shared by all paid roles.
       // Credential bytes remain with their existing adapter and never enter it.
       modelDispatchCapability = {
@@ -591,10 +595,25 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         ),
         extensionId: reviewModelDispatchContract.extensionId,
         version: 2,
+        ...(capacity128
+          ? {
+              capacityPolicy:
+                reviewModelDispatchCapacity128Contract.capacityPolicy,
+            }
+          : {}),
         routeIdentityHash: createHash("sha256")
           .update(
             canonicalJson({
               version: 2,
+              ...(capacity128
+                ? {
+                    capacityPolicy:
+                      reviewModelDispatchCapacity128Contract.capacityPolicy,
+                    modelDispatchDescriptorDigest:
+                      modelDispatchProfile.descriptorDigest,
+                    modelDispatchLimits: modelDispatchProfile.limits,
+                  }
+                : {}),
               producer,
               effectivePolicyDigest: current.effectivePolicyDigest,
               agentProfileDigest,
@@ -1411,7 +1430,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
             ...(producer.modelDispatchProfile == null
               ? {}
               : {
-                  modelDispatchProfile: parseReviewModelDispatchProfileV2(
+                  modelDispatchProfile: parseReviewModelDispatchProfile(
                     producer.modelDispatchProfile,
                   ),
                 }),

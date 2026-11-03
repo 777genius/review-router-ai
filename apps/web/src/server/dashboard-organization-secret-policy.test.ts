@@ -109,7 +109,10 @@ describe("dashboard organization plan metadata boundary", () => {
 
   it("evicts the least recently used entry within the configured capacity", async () => {
     const readPlan = vi.fn().mockResolvedValue({ name: "team" });
-    const load = createOrganizationSecretPolicyLoader({ readPlan, capacity: 2 });
+    const load = createOrganizationSecretPolicyLoader({
+      readPlan,
+      capacity: 2,
+    });
     const forId = (id: bigint) => ({
       ...organization,
       githubInstallationId: id,
@@ -123,25 +126,34 @@ describe("dashboard organization plan metadata boundary", () => {
   });
 
   it("does not let an evicted in-flight request overwrite a newer entry", async () => {
-    let finish!: (value: unknown) => void;
-    const readPlan = vi.fn().mockImplementation(({ githubInstallationId }) =>
-      githubInstallationId === 1n
-        ? new Promise((resolve) => {
-            finish = resolve;
-          })
-        : Promise.resolve({ name: "free" }),
-    );
+    let finishFirst!: (value: unknown) => void;
+    let finishNewer!: (value: unknown) => void;
+    let firstOrganizationReads = 0;
+    const readPlan = vi.fn().mockImplementation(({ githubInstallationId }) => {
+      if (githubInstallationId !== 1n) return Promise.resolve({ name: "free" });
+      firstOrganizationReads++;
+      return new Promise<unknown>((resolve) => {
+        if (firstOrganizationReads === 1) finishFirst = resolve;
+        else finishNewer = resolve;
+      });
+    });
     const load = createOrganizationSecretPolicyLoader({
       readPlan,
       capacity: 1,
     });
-    const pending = load({ ...organization, githubInstallationId: 1n });
+    const first = load({ ...organization, githubInstallationId: 1n });
     await Promise.resolve();
     await load({ ...organization, githubInstallationId: 2n });
-    finish({ name: "team" });
-    await pending;
-    await load({ ...organization, githubInstallationId: 2n });
-    expect(readPlan).toHaveBeenCalledTimes(2);
+    const newer = load({ ...organization, githubInstallationId: 1n });
+    await Promise.resolve();
+    finishNewer({ name: "enterprise" });
+    expect((await newer)?.planName).toBe("enterprise");
+    finishFirst({ name: "team" });
+    expect((await first)?.planName).toBe("team");
+    expect(
+      (await load({ ...organization, githubInstallationId: 1n }))?.planName,
+    ).toBe("enterprise");
+    expect(readPlan).toHaveBeenCalledTimes(3);
   });
 
   it("rejects invalid capacity rather than silently growing without bound", () => {

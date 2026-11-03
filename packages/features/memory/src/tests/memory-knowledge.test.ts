@@ -8,7 +8,9 @@ import {
   type MemoryKnowledgeCommand,
   type MemoryKnowledgeEntryMetadata,
   type MemoryKnowledgeScope,
+  type MemoryEntryRef,
 } from "../domain/memory-knowledge";
+import type { MemoryKnowledgeAccessPort } from "../application/ports/memory-knowledge-access-port";
 import { MemoryKnowledgeService } from "../application/use-cases/memory-knowledge-service";
 import type {
   MemoryProviderEntry,
@@ -105,7 +107,11 @@ function fixture(
       epoch: "0",
       paused: false,
     })),
-    findEntry: vi.fn(async () => metadata),
+    findEntry: vi.fn(async (_ref: MemoryEntryRef, _generation: string) => {
+      void _ref;
+      void _generation;
+      return metadata;
+    }),
     scopeEpoch: vi.fn(async () => "1"),
     listEntries: vi.fn(async () => ({ entries: [metadata], nextCursor: null })),
     listExpiredEntries: vi.fn(async () => [metadata]),
@@ -118,10 +124,11 @@ function fixture(
   };
   const reader = {
     read: vi.fn(async () => entry),
-    list: vi.fn(async () => ({
-      entries: [entry],
-      nextCursor: null as string | null,
-    })),
+    list: vi.fn(async (_input: unknown, _controls: MemoryRequestControls) => {
+      void _input;
+      void _controls;
+      return { entries: [entry], nextCursor: null as string | null };
+    }),
     recall: vi.fn(
       async (
         _input: unknown,
@@ -136,7 +143,14 @@ function fixture(
   const access = {
     authorize: vi.fn(async () => {}),
     verifySource: vi.fn(async () => command.source),
-    sourceApplicable: vi.fn(async () => true),
+    sourceApplicable: vi.fn(
+      async (
+        _input: Parameters<MemoryKnowledgeAccessPort["sourceApplicable"]>[0],
+      ) => {
+        void _input;
+        return true;
+      },
+    ),
   };
   const policy = {
     getPolicy: vi.fn(async () => ({
@@ -553,6 +567,172 @@ describe("complete provider memory policy", () => {
     await expect(
       service.bundle({ actor, scopes: [scope], query: "requests" }, controls),
     ).resolves.toMatchObject({ scopes: [], degraded: true });
+  });
+
+  it("fills empty conversation recall from one six-entry page using the original two-second budget", async () => {
+    const { service, reader, store } = fixture();
+    reader.recall.mockResolvedValueOnce([]);
+    const listed = Array.from({ length: 7 }, (_, index) => ({
+      ...entry,
+      ref: { ...entry.ref, entryId: `mem_fallback_${index}` },
+    }));
+    reader.list.mockResolvedValueOnce({ entries: listed, nextCursor: "more" });
+    store.findEntry.mockImplementation(async (ref) => ({ ...metadata, ref }));
+    const bundle = await service.bundle(
+      {
+        actor,
+        scopes: [scope],
+        query: "Which conventions apply here?",
+        limitPerScope: 6,
+        contextPolicy: {
+          audience: "internal",
+          repositoryId: "repository",
+          allowedTasks: ["conversation"],
+        },
+      },
+      controls,
+    );
+    expect(bundle.degraded).toBe(false);
+    expect(
+      bundle.scopes[0]?.items.map(
+        (item) => item.type === "entry" && item.entry.ref.entryId,
+      ),
+    ).toEqual(listed.slice(0, 6).map((item) => item.ref.entryId));
+    expect(reader.list).toHaveBeenCalledTimes(1);
+    expect(reader.list).toHaveBeenCalledWith(
+      { scope, limit: 6 },
+      reader.recall.mock.calls[0]![1],
+    );
+    expect(reader.list.mock.calls[0]![1]).toBe(reader.recall.mock.calls[0]![1]);
+    expect(reader.list.mock.calls[0]![1].deadlineAt.getTime()).toBe(
+      now.getTime() + 2_000,
+    );
+    expect(await service.admitBundle({ actor, bundle }, controls)).toBe(true);
+  });
+
+  it("applies scope, audience, source currency and cleanup-debt fences to fallback entries", async () => {
+    const { service, reader, store, access } = fixture();
+    const ids = ["wrong_scope", "private", "stale", "debt", "valid"];
+    const listed = ids.map((entryId) => ({
+      ...entry,
+      ref: {
+        ...entry.ref,
+        entryId,
+        scope:
+          entryId === "wrong_scope"
+            ? { ...scope, workspaceId: "other" }
+            : scope,
+      },
+    }));
+    reader.recall.mockResolvedValueOnce([{ type: "entry", entry: listed[0]! }]);
+    reader.list.mockResolvedValueOnce({ entries: listed, nextCursor: null });
+    store.findEntry.mockImplementation(async (ref) => ({
+      ...metadata,
+      ref,
+      source: {
+        ...command.source,
+        sourceId: ref.entryId,
+        visibility: ref.entryId === "private" ? "internal" : "public",
+      },
+      pendingCommandId: ref.entryId === "debt" ? "unsettled_write" : null,
+    }));
+    access.sourceApplicable.mockImplementation(
+      async ({ source }) => source.sourceId !== "stale",
+    );
+    const bundle = await service.bundle(
+      {
+        actor,
+        scopes: [scope],
+        query: "Which conventions apply here?",
+        limitPerScope: 6,
+        contextPolicy: {
+          audience: "public",
+          repositoryId: "repository",
+          allowedTasks: ["conversation"],
+        },
+      },
+      controls,
+    );
+    expect(bundle.degraded).toBe(false);
+    expect(
+      bundle.scopes[0]?.items.map(
+        (item) => item.type === "entry" && item.entry.ref.entryId,
+      ),
+    ).toEqual(["valid"]);
+    expect(reader.list).toHaveBeenCalledTimes(1);
+    store.scopeEpoch.mockResolvedValue("2");
+    expect(await service.admitBundle({ actor, bundle }, controls)).toBe(false);
+  });
+
+  it("does not list after successful semantic admission or for other consumer tasks", async () => {
+    const { service, reader } = fixture();
+    await service.bundle(
+      {
+        actor,
+        scopes: [scope],
+        query: "requests",
+        contextPolicy: {
+          audience: "internal",
+          repositoryId: "repository",
+          allowedTasks: ["conversation"],
+        },
+      },
+      controls,
+    );
+    expect(reader.list).not.toHaveBeenCalled();
+    reader.recall.mockResolvedValueOnce([]);
+    await service.bundle(
+      {
+        actor,
+        scopes: [scope],
+        query: "requests",
+        contextPolicy: {
+          audience: "internal",
+          repositoryId: "repository",
+          allowedTasks: ["review"],
+        },
+      },
+      controls,
+    );
+    expect(reader.list).not.toHaveBeenCalled();
+  });
+
+  it("never converts semantic errors or an expired bundle budget into a fallback retry", async () => {
+    let current = now;
+    const { service, reader } = fixture(() => current);
+    const input = {
+      actor,
+      scopes: [scope],
+      query: "conventions",
+      contextPolicy: {
+        audience: "internal" as const,
+        repositoryId: "repository",
+        allowedTasks: ["conversation" as const],
+      },
+    };
+    reader.recall.mockRejectedValueOnce(new Error("native_read_failed"));
+    expect(await service.bundle(input, controls)).toMatchObject({
+      scopes: [],
+      degraded: true,
+    });
+    expect(reader.list).not.toHaveBeenCalled();
+    reader.recall.mockImplementationOnce(async () => {
+      current = new Date(now.getTime() + 2_001);
+      return [];
+    });
+    expect(await service.bundle(input, controls)).toMatchObject({
+      scopes: [],
+      degraded: true,
+    });
+    expect(reader.list).not.toHaveBeenCalled();
+    current = now;
+    reader.recall.mockResolvedValueOnce([]);
+    reader.list.mockRejectedValueOnce(new Error("native_page_failed"));
+    expect(await service.bundle(input, controls)).toMatchObject({
+      scopes: [],
+      degraded: true,
+    });
+    expect(reader.list).toHaveBeenCalledTimes(1);
   });
 
   it("keeps ordinary snapshots at thirty seconds", async () => {

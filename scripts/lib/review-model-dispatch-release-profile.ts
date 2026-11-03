@@ -1,10 +1,14 @@
 import { parseReviewAgentProfiles } from "../../packages/shared/dist/review-agent-profile.js";
-import { parseReviewModelDispatchProfileV2 } from "../../packages/shared/dist/review-model-dispatch-contract.js";
+import {
+  parseReviewModelDispatchProfile,
+  reviewModelDispatchContract,
+  reviewModelDispatchCapacity128Contract,
+} from "../../packages/shared/dist/review-model-dispatch-contract.js";
 import { assertReviewModelDispatchDefaultAgents } from "../../packages/shared/dist/review-model-dispatch-default-agents.js";
 
 // Reviewed S2 contract bytes. Append qualified identities rather than trusting
 // a caller-provided digest or executing code from the public repository.
-const supportedContractDigests = Object.freeze({
+const legacyContractDigests = Object.freeze({
   "review-model-dispatch-contract.ts":
     "c9d91addfd46122d095908c42cf416527d438c374e8bb4f65a333d62bf4b1728",
   "review-model-route-policy.ts":
@@ -12,6 +16,29 @@ const supportedContractDigests = Object.freeze({
   "review-agent-profile.ts":
     "6da405b0a67d717010f012ba114864a9dc1f69534062a9bb98e4729742ffa190",
 });
+// Reviewed generated/exported capacity128 bytes. Keep this complete tuple
+// separate from legacy; the unchanged agent file does not authorize mixing.
+const capacity128ContractDigests = Object.freeze({
+  "review-model-dispatch-contract.ts":
+    "0b89d16e3c7f8049a42f114b9984730264be69745081f2ee1eef29c39a13728e",
+  "review-model-route-policy.ts":
+    "1b240b3662714b03445092c74bdd31028a3360331ad95848573bf724c5aad115",
+  "review-agent-profile.ts":
+    "6da405b0a67d717010f012ba114864a9dc1f69534062a9bb98e4729742ffa190",
+});
+const supportedBindings = [
+  {
+    files: legacyContractDigests,
+    policies: [reviewModelDispatchContract.policyVersion],
+  },
+  {
+    files: capacity128ContractDigests,
+    policies: [
+      reviewModelDispatchContract.policyVersion,
+      reviewModelDispatchCapacity128Contract.policyVersion,
+    ],
+  },
+] as const;
 
 /** Producer policy needs both the reviewed wire implementation and its exact catalog. */
 export function bindModelDispatchReleaseProfile(
@@ -19,13 +46,17 @@ export function bindModelDispatchReleaseProfile(
   files: Readonly<Record<string, string>>,
   agentProfiles: unknown,
 ) {
-  const profile = parseReviewModelDispatchProfileV2(value);
-  for (const [file, digest] of Object.entries(supportedContractDigests)) {
-    if (files[file] !== digest)
-      throw new Error(
-        `model dispatch profile has no reviewed contract binding: ${file}`,
-      );
-  }
+  const profile = parseReviewModelDispatchProfile(value);
+  const binding = supportedBindings.find(
+    (candidate) =>
+      candidate.policies.some((policy) => policy === profile.policyVersion) &&
+      Object.entries(candidate.files).every(
+        ([file, digest]) =>
+          /^[a-f0-9]{64}$/.test(digest) && files[file] === digest,
+      ),
+  );
+  if (!binding)
+    throw new Error("model dispatch profile has no reviewed contract binding");
   assertReviewModelDispatchDefaultAgents(
     profile,
     parseReviewAgentProfiles(agentProfiles),

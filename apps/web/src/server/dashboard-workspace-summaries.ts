@@ -30,7 +30,7 @@ export function createDashboardWorkspaceSummaryLoader(dependencies: {
     ) {
       return [];
     }
-  
+
     const prisma = dependencies.getPrisma();
     const workspaceIds = mergeWorkspaceIds(
       scope.kind === "workspace_ids" ? scope.workspaceIds : [],
@@ -46,7 +46,9 @@ export function createDashboardWorkspaceSummaryLoader(dependencies: {
               {
                 workspaceId: {
                   in:
-                    scope.kind === "workspace_ids" ? [...scope.workspaceIds] : [],
+                    scope.kind === "workspace_ids"
+                      ? [...scope.workspaceIds]
+                      : [],
                 },
               },
               { id: { in: [...repositoryAccess.repositoryIds] } },
@@ -93,7 +95,7 @@ export function createDashboardWorkspaceSummaryLoader(dependencies: {
         },
       },
     });
-  
+
     return filterVisibleDashboardWorkspaces(
       workspaces
         .map((workspace): DashboardWorkspaceSummary => {
@@ -137,9 +139,10 @@ export function createDashboardWorkspaceSummaryLoader(dependencies: {
   };
 }
 
-export const loadDashboardWorkspaceSummaries = createDashboardWorkspaceSummaryLoader({
-  getPrisma,
-});
+export const loadDashboardWorkspaceSummaries =
+  createDashboardWorkspaceSummaryLoader({
+    getPrisma,
+  });
 
 type SortableDashboardWorkspace = {
   readonly repositoryCount: number;
@@ -180,4 +183,3 @@ function mergeWorkspaceIds(
 ): string[] {
   return [...new Set([...left, ...right])];
 }
-

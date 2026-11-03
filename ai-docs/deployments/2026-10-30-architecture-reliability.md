@@ -1,19 +1,29 @@
 # Architecture and reliability refactor: deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-30-architecture-reliability`.
 - Goal: preserve identity ownership and settings/audit consistency, prevent stale outbox dispatch and publication starvation, and let independent worker work continue with honest failure reporting.
 - Affected services/targets: Web, API, ordinary worker and Skills scanner worker; shared feature packages and CI architecture checks.
 - Implementation PR: [PR #747](https://github.com/777genius/review-router-ai/pull/747).
 - Implementation reference: [`dd5ddbf6c1f64762e501632474f07173b83e9c48`](https://github.com/777genius/review-router-ai/commit/dd5ddbf6c1f64762e501632474f07173b83e9c48). This is the reviewed implementation snapshot, not a merged, released or installed version. Record the selected release SHA/image separately.
 - Dependencies: no new migration, configuration, feature flag, activation or cutover for this task. Reconcile applicable earlier tasks and schema/fleet holds from the installed-to-selected release range.
-- Last updated: `2026-10-30`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment / target                     | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                                              |
-| ---------------------------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
-| staging: Web/API/worker/Skills worker    | `pending` | Not verified                    | Not verified        | Select an authorized release, reconcile the fleet and complete verification below.          |
-| production: Web/API/worker/Skills worker | `pending` | Not verified                    | Not verified        | Reconcile actual state and applicable release gates before the authorized coherent rollout. |
+| Environment / target                     | Status      | Actual deployed version / image             | Last verified (UTC) | Evidence / next step / blocker                                                     |
+| ---------------------------------------- | ----------- | ------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------- |
+| staging: Web/API/worker/Skills worker    | `pending`   | Not verified                                | Not verified        | Select an authorized release, reconcile the fleet and complete verification below. |
+| production: Web/API/worker/Skills worker | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | 2026-11-03          | See current disposition; no repeat code rollout.                                   |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -105,3 +115,12 @@ loss of protection and the follow-up before another attempt.
 | ------------ | ----------- | ---------- | ---------------------- | ----------------------------------- | -------- | ------------------------------------------------------------ |
 | Not executed | staging     | Unassigned | Not verified           | No rollout verified by this record. | None     | Select an authorized release and reconcile actual state.     |
 | Not executed | production  | Unassigned | Not verified           | No rollout verified by this record. | None     | Complete applicable release gates, rollout and verification. |
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+Web/API/ordinary worker/Skills worker converged on one official image; old57 and stage1 containers are stopped and retained. Normal readiness and zero-restart fleet checks passed. Reuse existing failure-boundary qualifications; no production fault injection, old-operation replay or unrelated rollout is required by a stale pending label.
+
+Staging remains unchanged and unverified by this production batch.

@@ -1,5 +1,15 @@
 # Review V2 publication item isolation: deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-31-review-publication-item-isolation`.
 - Goal: prevent one unexpected publication item error from starving later work or losing the pass's verified settlement evidence, and surface outbox claim-renewal storage failures without dispatching under uncertain ownership.
 - Affected targets: ordinary worker (Review V2 maintenance) and Skills scanner worker (shared outbox execution); no task-specific Web/API change.
@@ -7,14 +17,14 @@
 - Plan: [implementation contract](../plans/2026-10-31-review-publication-item-isolation.md).
 - Required checks: [CI workflow](https://github.com/777genius/review-router-ai/actions/workflows/ci.yml) and [PR #751 exact-head checks](https://github.com/777genius/review-router-ai/pull/751/checks); older green runs are not sufficient for rollout qualification.
 - Dependencies: selected release includes PR #747. No task-specific migration, flag, secret, backfill or activation.
-- Last updated: `2026-10-31`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment | Status    | Actual deployed version | Verification |
-| ----------- | --------- | ----------------------- | ------------ |
-| staging     | `pending` | Not verified            | Not executed |
-| production  | `pending` | Not verified            | Not executed |
+| Environment | Status      | Actual deployed version                     | Verification                                     |
+| ----------- | ----------- | ------------------------------------------- | ------------------------------------------------ |
+| staging     | `pending`   | Not verified                                | Not executed                                     |
+| production  | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | See current disposition; no repeat code rollout. |
 
 `pending` does not establish absence of a deployment. Inspect actual versions
 and the [status contract](README.md#status-contract) before proceeding.
@@ -45,3 +55,12 @@ single-item-starvation risk. No schema or activation reversal is needed.
 ## Execution log
 
 No rollout or environment verification receipt is recorded.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+Compatible workers converged after old-role drain. Companion reviews A/B have full coverage and genuine App publication/accounting evidence. B adds zero new issues and retains one lineage from A without resolving the prior issue. Payments remains PARTIAL 0/17 after 32 complete requests; its fresh successor acceptance is pending. Partial settlement/claim-renewal fault cases retain source-test scope; no duplicate publication or production fault injection was performed.
+
+Staging remains unchanged and unverified by this production batch.

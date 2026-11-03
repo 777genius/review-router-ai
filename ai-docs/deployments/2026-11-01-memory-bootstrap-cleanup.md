@@ -5,10 +5,10 @@ Affected component: standalone native Memory cleanup operator. No application
 fleet rollout, migrations, database grants, native image change, restart-policy
 change or conversation-learning activation is introduced by this patch.
 
-| Environment | Status    | Remaining work                                                                                                         |
-| ----------- | --------- | ---------------------------------------------------------------------------------------------------------------------- |
-| production  | `pending` | Deliver reviewed operator source and verify both task-owned Forget commands through signed physical cleanup.           |
-| self-hosted | `pending` | Include updated operator and its new helper in the next installation/update; verify a bootstrap-produced cleanup plan. |
+| Environment | Status     | Remaining work                                                                                                         |
+| ----------- | ---------- | ---------------------------------------------------------------------------------------------------------------------- |
+| production  | `deployed` | Operator source delivered in226; prior signed Forget evidence retained; self-hosted distribution separate.             |
+| self-hosted | `pending`  | Include updated operator and its new helper in the next installation/update; verify a bootstrap-produced cleanup plan. |
 
 The bundled bootstrap gives PostgreSQL the same deployment label as API/worker.
 The previous operator treated every matching label as a native executor and
@@ -65,3 +65,12 @@ refusal path and cannot close this task.
 Completed stopped-deployment recovery after a host reboot remains a separate
 unimplemented limitation. This patch adds no unattended reconciler and does not
 claim that an unpaused maintenance flag proves absence of cleanup debt.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The operator implementation is delivered. The two unchanged task-owned signed physical Forget settlements already verified on Core57 remain authoritative; no cleanup or model request was replayed to refresh a label. Genuine self-hosted distribution/update remains separate; the retained657/b53 sandbox proof is not signed product erasure.
+
+Staging remains unchanged and unverified by this production batch.

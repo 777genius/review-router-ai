@@ -7,12 +7,72 @@ second extractor, semantic judge, memory store, inference service or product
 logging endpoint. The synthetic source authority is a fixture; this run does not
 qualify a real GitHub App installation or replace the disposable App-first E2E.
 
+## Isolated Gateway/Hindsight quality E2E
+
+The focused [Memory quality evaluation](../../.github/workflows/memory-quality-evals.yml)
+workflow verifies all three immutable corpora plus scorer regressions on PRs,
+without obtaining model credentials or making paid requests. The new
+`--corpus multilingual-v1` is independently versioned as
+`2026-11-02-multilingual-r1`: **10 threads, 14 events, 7 fact labels**;
+4 tuning / 6 protected. The successor explicitly includes RU and mixed RU/EN
+contexts, prompt injection, quote/negation, source edit, cross-repository
+isolation and actual A→B recall. All original corpora are unchanged.
+
+An operator can select **Run workflow → live-tuning** on reviewed `main`,
+with a protected `memory-quality-eval` environment and an isolated runner
+(`MEMORY_QUALITY_EVAL_RUNNER`). Required environment secrets/variables are named
+in the workflow. Set `MEMORY_EVAL_PRIVATE_RESULTS_DIR` to an existing
+operator-owned mode-0700 directory under `/srv/reviewrouter-memory-quality/`
+on that runner. Before _any_ paid inference, the workflow verifies its real
+path and access, then creates a run-ID subdirectory with restrictive permissions.
+Each raw result is written there with mode 0600 and must be reviewed/retired
+under the operator's existing private evidence policy. No raw model responses
+or private account metadata are uploaded as public GitHub Actions artifacts. The operator must separately qualify the selected Account
+Gateway account/model, native Hindsight generation and a migrated disposable
+loopback PostgreSQL database ending `_test`. The preflight refuses PR/head
+runs, absent authorization, production database/native endpoints, reused
+production generation, a protected checkpoint and missing selected-model
+bounds. It runs **three fresh full-product tuning observations** using the
+existing runner; failures stop the loop rather than buying replacement
+inference. This is not a release action or production activation.
+
+A successful tuning workflow reports **AWAITING_HUMAN_RUBRIC**, never
+automatically claims semantic accuracy. The result JSON is bounded synthetic
+observation evidence and must be reviewed under the existing semantic rubric
+contract. The scorer requires actual source/current authority, delivered
+body digests and a closed selected-account Gateway receipt. Use the exact
+returned `runId`, `corpusRevision` and observed source digests in each rubric:
+
+```sh
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-1.json private/tuning-1.rubric.json
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-2.json private/tuning-2.rubric.json
+node --import tsx scripts/conversation-evals/score.ts \
+  private/tuning-3.json private/tuning-3.rubric.json
+node --import tsx scripts/conversation-evals/memory-quality-reliability.ts \
+  private/tuning-1.json.score.json \
+  private/tuning-2.json.score.json \
+  private/tuning-3.json.score.json
+```
+
+The reliability summary compares three separately rubric-scored run IDs,
+one actual model and identical source/configuration digests; it preserves each
+run's numerator/denominator and reports min/max/range, failures and causal
+linked-recall witnesses without pooling correlated examples. Missing rubrics,
+model identity, authorization evidence, or a valid denominator never become
+a PASS. This tiny engineering benchmark does **not** establish population
+reliability. Protected holdout is not dispatched by this workflow; run one
+new checkpoint only after tuning is complete and the existing protected
+review/approval process is followed. Keep live artifacts strictly synthetic
+and protected from public release when they contain operator metadata.
+
 ## Full-thread successor slice
 
 `--corpus full-thread-v2` selects the separately versioned
-`corpus.full-thread-v2.json`, revision `2026-10-30-full-thread-r1`: **16 whole
-threads, 10 tuning / 6 protected, 50 events and 21 fact labels in 10 scenario
-groups**. Four groups have positive same-repository A→B recall. Two other paired
+`corpus.full-thread-v2.json`, revision `2026-11-03-full-thread-r3`: **22 whole
+threads, 16 tuning / 6 protected, 69 events and 29 fact labels in 13 scenario
+groups**. Six groups have positive same-repository A→B recall. Three other paired
 groups use different repositories in one workspace to test shared settings and
 repository memory isolation; they are not counted as positive cross-thread recall.
 The original `corpus.json`, its split, labels and numeric targets are unchanged.
@@ -32,7 +92,7 @@ index, never expected fact content. An explicit `confirmProposal` event may copy
 one **actually observed native** statement into a new standalone authored command.
 This choice exists only on declared successor events; ordinary events and v1
 never receive hidden confirmation. Wrong native text is retained as wrong text
-for the independent human rubric, not replaced with a label. Successor mutations
+for the separate semantic rubric, not replaced with a label. Successor mutations
 run through `ProcessConversation`; they do not use the legacy direct owner-mutation
 helper. Forget proves immediate read exclusion and reports the actual queued or
 cleanup state; physical erasure remains the existing operator's responsibility.
@@ -41,17 +101,112 @@ The scorer checks each explicit command's actual owner fingerprint, source actor
 body revision, scope, effective mode and exact target. Complete independent command
 inventory still includes omitted commands, and pending/bodyless metadata earns no
 retention credit. Each declared successful mutation must have the matching actual
-command; an unsupported human annotation cannot grant authority.
+command; an unsupported reviewer annotation cannot grant authority.
 Maintained statements use the existing approved-provenance reader and a valid
 template-repository GitHub URL. Later thread edits do not revoke maintained
 ownership; native automatic facts retain their checked-context currency fences.
 
 Structural validation and scorer controls are measured mechanism evidence only.
-**Live native/product precision, recall and answer quality remain UNAVAILABLE until
-a qualified live run and bound human rubric exist.** No protected live checkpoint
-has been consumed for this successor. Its new protected labels must be reviewed
-before the first qualification claim. Existing deterministic native/PG suites do
-not supply semantic scores.
+**A tuning PASS is not a successful protected qualification.** Revision r1's
+checkpoint `rr-full-thread-v2-holdout-20261102-5da70100c-1`, run
+`43ec0ef0-ec1d-4981-9da0-de8725cc8e9e`, was consumed and ended `UNAVAILABLE`.
+Before the unavailable steps it also missed a completed contextual endorsement
+and its linked recall. Its six original protected threads and eight fact labels
+remain unchanged as tuning regression; only their split changes. Original r1
+reports retain their r1 identity and are not retagged as r2 evidence.
+
+Revision r2 was not model-executed, but two protected snippets were accidentally
+displayed during tuning diagnosis. It cannot be described as fully unseen. Its
+original bytes remain in source history and retained private evidence; no report
+is relabelled as a result for another revision, and no product fix is based on
+protected model output.
+
+Revision r3 replaces only that protected set: six unexecuted threads in three
+scenario groups, 19 events and eight new fact labels. All 16 tuning threads, their
+50 events and 21 fact labels retain their exact object bytes, and numeric targets
+are unchanged. Two protected groups test positive same-repository A-to-B recall;
+the third tests shared workspace confirmation policy with repository isolation.
+The protected coverage retains contextual endorsement, foreign quoted authority,
+maintainer disagreement and negation, exact update/stale/Forget, unaffected
+knowledge, both confirmation modes, actual proposal confirmation and settled
+replay. Independent delegated author and peer review verified nonweakening
+coverage and source-supported labels before registration. Root receives only
+counts, digests and coverage metadata; protected case text and event/fact labels
+were withheld. This is agent review, not external or human independence. No r3
+protected result or successful qualification exists. Deterministic native/PG and
+corpus-risk checks do not supply semantic scores.
+
+## Isolated multilingual and repeated Gateway/Hindsight quality E2E
+
+The independent `--corpus multilingual-v1` selects revision
+`2026-11-02-multilingual-r1`: **10 whole Russian/mixed Russian-English
+threads, 14 source events, 7 labeled facts; 4 tuning / 6 protected threads**.
+Three linked A→B groups include two positive recall paths and one
+cross-repository isolation path; only actual same-repository A→B delivery can
+earn positive recall. The original two corpora, labels and thresholds are
+untouched. The held-out messages/labels are not tuning prompts.
+
+[`memory-quality-evals.yml`](../../.github/workflows/memory-quality-evals.yml)
+runs _only_ fixed corpus/scorer contracts on pull requests. It also supports
+a manual `live-tuning` dispatch **from reviewed `main`**, never a PR,
+using the protected `memory-quality-eval` GitHub Environment and dedicated
+`MEMORY_QUALITY_EVAL_RUNNER` variable. This runner must have a previously
+provisioned **disposable migrated local PostgreSQL database** named `*_test`
+containing only the minimum selected-account template graph; it must also
+connect to a **separate Hindsight native service on loopback** with a
+qualified `eval_*` namespace and generation. A tunnel to an isolated
+service is acceptable; **do not point the native URL at production**.
+The Gateway is the actual authorized selected-account inference route.
+No workflow step creates an account, skips a grant, installs a Hindsight
+production image or performs a deployment.
+
+The environment must provide, without exposing values in logs:
+
+| Setting                                                                         | Source                                                                          |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `MEMORY_QUALITY_EVAL_RUNNER`, `MEMORY_EVAL_NAMESPACE`, `MEMORY_EVAL_GENERATION` | Protected environment/repository variables; both IDs begin `eval_`              |
+| `MEMORY_EVAL_TEMPLATE_WORKSPACE_ID`, `MEMORY_EVAL_TEMPLATE_REPOSITORY_ID`       | Minimal selected-account template fixture identifiers                           |
+| `MEMORY_EVAL_MODEL_BOUNDS_JSON`                                                 | Actual selected model/profile operational bounds, not an invented quality proof |
+| `MEMORY_EVAL_OPERATOR_ACK`                                                      | Protected secret, exact `APPROVED_ISOLATED_QUALITY_EVAL`                        |
+| `MEMORY_EVAL_DISPOSABLE_DATABASE_URL`                                           | Protected secret, local PostgreSQL `*_test` only                                |
+| `MEMORY_EVAL_HINDSIGHT_URL`, `MEMORY_EVAL_HINDSIGHT_API_KEY`                    | Protected secrets, **dedicated loopback native**, never production              |
+| `MEMORY_EVAL_GATEWAY_ORIGIN`, `MEMORY_EVAL_GATEWAY_RUN_CONTROL_BEARER`          | Authorized Gateway endpoint and scoped run-control secret                       |
+| `MEMORY_EVAL_GATEWAY_POLICY`, `MEMORY_EVAL_GATEWAY_RELAY_POLICY`                | Existing selected-account Gateway authorization and relay policies              |
+
+If a requirement is absent or the operator has not approved the run, preflight
+fails before paid inference. No such environment is created automatically.
+The live job runs three separately named **full-product tuning** observations,
+not model-quality PASS assertions. A completed observation has exit code `3`
+and status `AWAITING_HUMAN_RUBRIC`; `2`/`UNAVAILABLE` is a real
+qualification blocker and stops further calls. Incomplete or ambiguous
+Gateway effects require investigation of the original attempt and cleanup,
+**not an automatic charged retry**. The bounded synthetic observations remain only in the operator-controlled
+private runner directory. **This workflow does not implement a three-day TTL
+or upload any GitHub artifact.** The operator must enforce an explicit private
+evidence retention/deletion policy and retire namespaces through the qualified
+native cleanup operator, never direct deletion. These observations are not
+customer data, a real App qualification or production activation.
+
+Bind **each** observed report to a separately prepared semantic rubric using the existing
+[scorer](score.ts) and its exact run ID/source digests:
+
+```sh
+node --import tsx scripts/conversation-evals/score.ts tuning-1.json rubric-1.json
+node --import tsx scripts/conversation-evals/score.ts tuning-2.json rubric-2.json
+node --import tsx scripts/conversation-evals/score.ts tuning-3.json rubric-3.json
+node --import tsx scripts/conversation-evals/memory-quality-reliability.ts \
+  tuning-1.json.score.json tuning-2.json.score.json tuning-3.json.score.json
+```
+
+The comparison rejects duplicate run IDs, missing rubrics, inconsistent source
+digests, corpus revision, selected model/bounds or non-Gateway runs. It reports
+actual numerator/denominator for every run and min/max/range; it never pools
+correlated examples into fake statistical confidence. `PASS` means **all three
+separately rubric-scored tuning runs** met existing engineering gates, not
+population reliability, an unconsumed protected holdout, or live product
+activation. Use the existing separately authorized one-time holdout process
+_only after_ evaluating tuning and reviewing protected labels. Do not add a
+holdout option to the CI workflow or repeat a consumed holdout as new evidence.
 
 ## Fixed corpus and gates
 
@@ -98,7 +253,7 @@ qualification/mission requirements; it is unavailable on a non-generative backen
 and does not stand in for Gateway extraction. Missing
 configuration produces `UNAVAILABLE`, never a passing mocked quality score.
 Deterministic product transport/authority suites remain separate contract proof.
-Human review binds rubric decisions to the result run ID and source-event IDs;
+Semantic review binds rubric decisions to the result run ID and source-event IDs;
 there is no second LLM semantic verifier. Tune on the tuning split, then run one
 planned hold-out checkpoint. A failed hold-out becomes regression evidence; a
 new protected set is required before another independent qualification claim.
@@ -209,7 +364,7 @@ comments, code, raw Gateway streams or broad production dump belong in this seed
 
 A hold-out execution additionally requires a new explicit
 `CONVERSATION_EVAL_HOLDOUT_CHECKPOINT_ID`. The runner exits 2 for unavailable
-configuration or transport and 3 when an observed run awaits human review. These
+configuration or transport and 3 when an observed run awaits rubric review. These
 codes never mean a quality pass. No raw Gateway stream, secret or credential is
 written to results. Actual terminal model and usage evidence, native service time
 and product time are recorded separately; absent usage is not estimated.
@@ -222,9 +377,19 @@ receipt, and requires cleanup `closed`. Before any calls, reports hash the actua
 shared account-policy and vendored SDK provenance file bytes. Carry those exact
 source files at their repository paths in the frozen execution bundle; no
 source identity is read from an environment-provided SHA.
-These receipts establish execution identity; human review still decides quality.
+These receipts establish execution identity; semantic review still decides quality.
 
-## Human rubric and scoring
+## Semantic rubric and scoring
+
+Record the actual review method in `reviewer`. When an owner delegates semantic
+review to an agent, identify it explicitly, for example
+`Codex agent review (owner-delegated; not human/external)`. Review each observed
+run separately and preserve unsupported facts, missing learning and unavailable
+outputs honestly. The same reviewer may assess multiple runs; distinct run IDs
+do not establish independent reviewers, blind review or human review. The existing
+`AWAITING_HUMAN_RUBRIC` status is a legacy protocol name, not evidence of a human
+reviewer. Rubric fields, scoring gates and the summary's actual `reviewers` array
+remain unchanged.
 
 Review only observed synthetic outputs, then create a JSON rubric with `runId`,
 `corpusRevision`, `reviewer`, `reviewedAt`, `entries` and `answers`:
@@ -245,7 +410,7 @@ Review only observed synthetic outputs, then create a JSON rubric with `runId`,
 
 ```sh
 node --import tsx scripts/conversation-evals/score.ts \
-  tmp/conversation-results.json tmp/human-rubric.json
+  tmp/conversation-results.json tmp/semantic-rubric.json
 ```
 
 Every observed metadata version is checked before source attribution. Full
@@ -253,14 +418,14 @@ inventory includes inactive and pending rows, with current visible bodies kept
 separately. Concrete human maintainer authority and the actual standing learning
 policy determine automatic source eligibility per source revision. Both automatic
 command proofs and observed automatic entries require that eligibility; semantic
-support and human forbidden-effect labels cannot grant it. Explicit owner
+support and reviewer forbidden-effect labels cannot grant it. Explicit owner
 retirement/forget retains its separate authority checks.
 Actual readback records the unavailable reason, checked source
 currency and the owning store's active-cohort eligibility. Only a visible active
 body with successful readback and both eligibility checks earns retention,
 precision or recall credit. A digest on pending or unavailable metadata earns no
 such credit. Earlier qualified publication remains credited after later
-retirement/forget; a never-visible pending version never does. Every new/revised statement version needs exactly one human rubric
+retirement/forget; a never-visible pending version never does. Every new/revised statement version needs exactly one semantic rubric
 row; the key includes the actual entry revision and digest, and authority changes
 with the same ID/body are checked again. A bounded independent PostgreSQL command
 inventory queries the fresh workspace, source namespace, known entry identities
@@ -321,3 +486,10 @@ request capability. Full-thread repository isolation does not widen the original
 synthetic identity guard. Missing or incompatible fixture setup remains UNAVAILABLE;
 never repair it with a Prisma proxy, grant bypass, copied credentials or a mocked
 quality PASS.
+
+For OpenRouter `:free` candidates the runner spaces event starts by at least
+seven seconds: one event can issue at most one extraction and one reply call,
+keeping this runner below the documented [20 requests/minute limit](https://openrouter.ai/collections/free-models).
+This wait precedes product deadlines and latency measurements. It is pacing,
+not a retry; unavailable or unsettled attempts retain the normal stop behavior.
+Provider daily quotas and other consumers still apply.

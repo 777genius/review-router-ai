@@ -43,7 +43,7 @@ export function createDashboardRepositoryAccessLoader(dependencies: {
     if (!githubActor) {
       return emptyDashboardRepositoryAccess();
     }
-  
+
     const fullAccessWorkspaceIds =
       input.workspaceScope.kind === "workspace_ids"
         ? input.workspaceScope.workspaceIds
@@ -62,7 +62,7 @@ export function createDashboardRepositoryAccessLoader(dependencies: {
     if (discovered.status !== "ready" || !requestedRepositoryFullName) {
       return discovered;
     }
-  
+
     const candidateWhere = {
       provider: "github" as const,
       selected: true,
@@ -114,7 +114,7 @@ export function createDashboardRepositoryAccessLoader(dependencies: {
               repository,
             })
           : false;
-  
+
         return { repository, allowed, canConfigure };
       }),
     );
@@ -129,7 +129,7 @@ export function createDashboardRepositoryAccessLoader(dependencies: {
     const workspaceIds = new Set<string>(
       discovered.status === "ready" ? discovered.workspaceIds : [],
     );
-  
+
     for (const item of allowed) {
       if (!item.allowed) continue;
       repositoryIds.add(item.repository.id);
@@ -138,7 +138,7 @@ export function createDashboardRepositoryAccessLoader(dependencies: {
         directConfigRepositoryIds.add(item.repository.id);
       }
     }
-  
+
     return {
       status: discovered.status,
       workspaceIds: [...workspaceIds],
@@ -150,12 +150,13 @@ export function createDashboardRepositoryAccessLoader(dependencies: {
   };
 }
 
-export const listDashboardRepositoryAccess = createDashboardRepositoryAccessLoader({
-  getPrisma,
-  listAccess: listGitHubUserRepositoryAccess,
-  canMutate: canDashboardActorMutateRepository,
-  canConfigure: canDashboardActorConfigureRepository,
-});
+export const listDashboardRepositoryAccess =
+  createDashboardRepositoryAccessLoader({
+    getPrisma,
+    listAccess: listGitHubUserRepositoryAccess,
+    canMutate: canDashboardActorMutateRepository,
+    canConfigure: canDashboardActorConfigureRepository,
+  });
 
 function dedupeRepositoryAccessCandidates<T extends { readonly id: string }>(
   repositories: readonly T[],
@@ -179,7 +180,9 @@ function emptyDashboardRepositoryAccess(
   };
 }
 
-export function normalizeRequestedRepositoryFullName(value: string): string | null {
+export function normalizeRequestedRepositoryFullName(
+  value: string,
+): string | null {
   const trimmed = value.trim();
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(trimmed)) {
     return null;
@@ -203,4 +206,3 @@ export function dashboardRepositoryVisibilityChanged(
     )
   );
 }
-

@@ -1,5 +1,15 @@
 # Several Gateway reviewers: deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-29-gateway-multi-reviewers`.
 - Goal: configure and execute several Gateway reviewers with independent models,
   bounded shared account allowances, complete coverage and one publication.
@@ -12,14 +22,14 @@
   identify an installed release.
 - Dependencies: the existing Account Gateway deployment and authorized consumer
   control/run access credentials; no new native service protocol or credentials.
-- Last updated: `2026-10-29`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment / target | Status        | Actual deployed version       | Last verified (UTC) | Next step                                                                                                                                                                                       |
-| -------------------- | ------------- | ----------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| staging              | `pending`     | Not verified                  | Not verified        | Reconcile installed versions and select the exact qualified paired release.                                                                                                                     |
-| production           | `in_progress` | `533c040d` / image `e1578f75` | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
+| Environment / target | Status      | Actual deployed version                     | Last verified (UTC) | Next step                                                                   |
+| -------------------- | ----------- | ------------------------------------------- | ------------------- | --------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                                | Not verified        | Reconcile installed versions and select the exact qualified paired release. |
+| production           | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | 2026-11-03          | See current disposition; no repeat code rollout.                            |
 
 This task records source implementation and local qualification. It does not
 claim a deployment or authorize workflow channel promotion. The separate
@@ -197,3 +207,12 @@ reviewers or lowering agreement requirements.
 ## Evidence log
 
 2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The approved226 registry profile preserves225 default OCR managedv5 and every old producer row. Existing two-reviewer/MCP and Memory delivery evidence remains authoritative; allocations, exact selectors and no-secondary-fallback are preserved. A/B completed full coverage; B has zero new issues and retains the original A lineage/caughtAt. The prior issue is NOT VERIFIED, not resolved. Payments is PARTIAL 0/17, so all three acceptance paths have not passed.
+
+Staging remains unchanged and unverified by this production batch.

@@ -1,5 +1,15 @@
 # Review dispatch retry storm: deployment
 
+## Current disposition - 2026-11-03
+
+Production code: **installed** in verified release227 (`dbc161c986`, image `89a28e11`).
+Specific feature scenarios without production evidence remain verification-only,
+not a further code rollout.
+See the [current decision](2026-11-03-production-status-reconciliation.md) and
+[release227 evidence](evidence/2026-11-03-capacity128-release227.json). Older
+pending/not-executed entries are historical; owner-waived legacy recovery is not
+a redeployment prerequisite. Staging remains unverified.
+
 - Task ID: `2026-10-29-review-dispatch-retry-storm`.
 - Goal: a dispatched review run that ends before authorization is redispatched only when a fresh run can help. Runs cancelled by an operator, skipped or waiting for approval stop their request without a successor, and the delay between redispatch attempts grows instead of staying at a fixed 30 seconds.
 - Targets: every review-v2 worker that runs ReviewRequested dispatch recovery. No API, Web, schema, Action or workflow change.
@@ -10,10 +20,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                                                  |
-| ----------- | ------------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified                    | Not verified        | Select the authorized cohort and deploy the worker with it.                                                                                                                                     |
-| production  | `in_progress` | `533c040d` / image `e1578f75`   | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
+| Environment | Status      | Actual deployed version / image             | Last verified (UTC) | Evidence / next step / blocker                              |
+| ----------- | ----------- | ------------------------------------------- | ------------------- | ----------------------------------------------------------- |
+| staging     | `pending`   | Not verified                                | Not verified        | Select the authorized cohort and deploy the worker with it. |
+| production  | `installed` | `dbc161c986` / `v1.0.227`, image `89a28e11` | 2026-11-03          | See current disposition; no repeat code rollout.            |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -58,3 +68,12 @@ Redeploying the previous worker image restores the old behavior: completed runs 
 ## Evidence log
 
 2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+Compatible API/workers are installed; original unknowns and pending cleanup are retained rather than replayed. Observe normal recovery through its existing owner. No synthetic failed runs, new retry allowance or assumed mitigation removal is introduced.
+
+Staging remains unchanged and unverified by this production batch.

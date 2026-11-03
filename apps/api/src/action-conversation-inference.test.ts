@@ -29,16 +29,21 @@ function fixture(
     closePending?: boolean;
     accessUnknown?: boolean;
     lostOutput?: boolean;
+    readbackPending?: boolean;
     epoch?: number;
     maxRequestBytes?: number;
+    outputTokens?: number;
+    reasoningEffort?: "medium";
     controls?: { deadlineAt: Date; signal?: AbortSignal };
+    preparedDeadlineAt?: Date;
   } = {},
 ) {
   const order: string[] = [];
   let authority = true,
     sourceCurrent = true,
     admission = true;
-  const deadlineAt = new Date(Date.now() + 20_000);
+  const deadlineAt =
+    options.preparedDeadlineAt ?? new Date(Date.now() + 20_000);
   const checkAuthority = vi.fn(async () => {
     order.push("authority");
     return authority;
@@ -113,8 +118,8 @@ function fixture(
   );
   const status = vi.fn<ReturnType<ExecutionConnector>["status"]>(async () => ({
     requestRef: "rr-conversation-original-a1-r",
-    status: "completed",
-    effect: "completed",
+    status: options.readbackPending ? "pending" : "completed",
+    effect: options.readbackPending ? "effect_unknown" : "completed",
   }));
   const close = vi.fn<ReturnType<ExecutionConnector>["close"]>(
     async (_ref, value) => {
@@ -146,11 +151,14 @@ function fixture(
         concurrency: 1,
         requestBytes: options.maxRequestBytes ?? 131_072,
         outputBytes: 262_144,
-        tokens: 2048,
+        tokens: options.outputTokens ?? 2048,
       },
       deadline: deadlineAt.toISOString(),
     },
     model,
+    ...(options.reasoningEffort
+      ? { reasoningEffort: options.reasoningEffort }
+      : {}),
     expectedAuthorizationEpoch: 7,
     checkAuthority,
     admitDispatch,
@@ -190,7 +198,12 @@ function fixture(
 }
 
 it("uses actual SDK reduction and exact selected account/model policy with one acknowledged close", async () => {
-  const f = fixture();
+  const preparedDeadlineAt = new Date(Date.now() + 80_000);
+  const f = fixture({
+    preparedDeadlineAt,
+    reasoningEffort: "medium",
+    controls: { deadlineAt: new Date(Date.now() + 90_000) },
+  });
   expect(await f.generate()).toEqual({
     text,
     actualModel: model,
@@ -208,6 +221,7 @@ it("uses actual SDK reduction and exact selected account/model policy with one a
   ]);
   expect(f.control.runAccess).toHaveBeenCalledOnce();
   const intent = vi.mocked(f.control.runAccess).mock.calls[0]![0];
+  expect(intent.deadline).toBe(preparedDeadlineAt.toISOString());
   expect(intent).toMatchObject({
     operationId: "rr-conversation-original-a1-p",
     invocationRef: "rr-conversation-original",
@@ -227,19 +241,19 @@ it("uses actual SDK reduction and exact selected account/model policy with one a
     stream: true,
     store: false,
     max_output_tokens: 2048,
-    text: {
-      format: {
-        type: "json_schema",
-        strict: true,
-        schema: conversationOutputSchema.schema,
-      },
-    },
+    reasoning: { effort: "medium" },
   });
+  expect(body).not.toHaveProperty("text");
+  expect(body.instructions).toBe(
+    `Synthetic test instructions.\nReturn exactly one JSON object matching this schema. No Markdown fences or surrounding text.\nJSON Schema: ${JSON.stringify(conversationOutputSchema.schema)}`,
+  );
   expect(dispatched.requestId).toBe("rr-conversation-original-a1-r");
   expect(f.close.mock.calls[0]![1].operationId).toBe(
     "rr-conversation-original-a1-c",
   );
   expect(f.onObserved).toHaveBeenCalledWith({
+    failureCode: null,
+    executionKnown: true,
     model,
     usage: {
       inputTokens: 1137,
@@ -279,7 +293,12 @@ it.each(["account", "source", "admission", "epoch"] as const)(
     expect(f.request).not.toHaveBeenCalled();
     expect(f.close).toHaveBeenCalledOnce();
     expect(f.onObserved).toHaveBeenCalledWith(
-      expect.objectContaining({ effect: "not_dispatched", cleanup: "closed" }),
+      expect.objectContaining({
+        failureCode: "unavailable",
+        executionKnown: true,
+        effect: "not_dispatched",
+        cleanup: "closed",
+      }),
     );
     if (kind === "source") expect(f.admitDispatch).not.toHaveBeenCalled();
     await expect(f.generate()).rejects.toMatchObject({ code: "conflict" });
@@ -288,8 +307,8 @@ it.each(["account", "source", "admission", "epoch"] as const)(
 );
 
 it.each([
-  { events: [completed({ model: "foreign-model" })] },
-  { events: [completed({ model: undefined })] },
+  { events: [completed({ model: "foreign-model" })], expectedCode: null },
+  { events: [completed({ model: undefined })], expectedCode: null },
   {
     events: [
       completed({
@@ -301,6 +320,7 @@ it.each([
         ],
       }),
     ],
+    expectedCode: "output_invalid",
   },
   {
     events: [
@@ -313,16 +333,26 @@ it.each([
         ],
       }),
     ],
+    expectedCode: "output_refused",
   },
-  { events: [{ type: "response.incomplete", response: { model, usage } }] },
-  { closePending: true },
+  {
+    events: [{ type: "response.incomplete", response: { model, usage } }],
+    expectedCode: "output_truncated",
+  },
+  { closePending: true, expectedCode: null },
 ])(
   "rejects incomplete, refused, invalid, foreign-model or unclosed output without a new attempt: %j",
-  async (options) => {
+  async ({ expectedCode, ...options }) => {
     const f = fixture(options);
     await expect(f.generate()).rejects.toMatchObject({ code: "unavailable" });
     expect(f.request).toHaveBeenCalledOnce();
     expect(f.close).toHaveBeenCalledOnce();
+    expect(f.onObserved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: expectedCode,
+        executionKnown: true,
+      }),
+    );
     await expect(f.generate()).rejects.toMatchObject({ code: "conflict" });
     expect(f.control.runAccess).toHaveBeenCalledOnce();
   },
@@ -334,6 +364,8 @@ it("records completed monetary effect without recovering lost output or dispatch
   expect(f.status).toHaveBeenCalledOnce();
   expect(f.close).toHaveBeenCalledOnce();
   expect(f.onObserved).toHaveBeenCalledWith({
+    failureCode: "output_lost",
+    executionKnown: true,
     model: null,
     usage: null,
     effect: "completed",
@@ -343,10 +375,30 @@ it("records completed monetary effect without recovering lost output or dispatch
   expect(f.request).toHaveBeenCalledOnce();
 });
 
+it("keeps an unknown request distinct from lost completed output after acknowledged close", async () => {
+  const f = fixture({ lostOutput: true, readbackPending: true });
+  await expect(f.generate()).rejects.toMatchObject({ code: "unavailable" });
+  expect(f.onObserved).toHaveBeenCalledWith({
+    failureCode: "effect_unknown",
+    executionKnown: true,
+    model: null,
+    usage: null,
+    effect: "effect_unknown",
+    cleanup: "closed",
+  });
+  expect(f.status).toHaveBeenCalledOnce();
+  expect(f.close).toHaveBeenCalledOnce();
+  await expect(f.generate()).rejects.toMatchObject({ code: "conflict" });
+  expect(f.control.runAccess).toHaveBeenCalledOnce();
+  expect(f.request).toHaveBeenCalledOnce();
+});
+
 it("keeps an ambiguous grant cleanup pending and never prepares the same intent again", async () => {
   const f = fixture({ accessUnknown: true });
   await expect(f.generate()).rejects.toMatchObject({ code: "unavailable" });
   expect(f.onObserved).toHaveBeenCalledWith({
+    failureCode: "unavailable",
+    executionKnown: false,
     model: null,
     usage: null,
     effect: "not_dispatched",
@@ -364,6 +416,8 @@ it("enforces the frozen exact encoded request-byte ceiling before runAccess", as
   expect(f.request).not.toHaveBeenCalled();
   expect(f.onObserved).toHaveBeenCalledWith(
     expect.objectContaining({
+      failureCode: "invalid_task",
+      executionKnown: false,
       effect: "not_dispatched",
       cleanup: "not_needed",
     }),
@@ -384,7 +438,12 @@ it("cancels before paid dispatch after a waited grant and still closes with an i
   expect(f.close).toHaveBeenCalledOnce();
   expect(f.close.mock.calls[0]![2]?.signal?.aborted).toBe(false);
   expect(f.onObserved).toHaveBeenCalledWith(
-    expect.objectContaining({ effect: "not_dispatched", cleanup: "closed" }),
+    expect.objectContaining({
+      failureCode: "cancelled",
+      executionKnown: true,
+      effect: "not_dispatched",
+      cleanup: "closed",
+    }),
   );
 });
 
@@ -393,4 +452,40 @@ it("does not acquire a grant after the caller's original deadline", async () => 
   await expect(f.generate()).rejects.toMatchObject({ code: "unavailable" });
   expect(f.control.runAccess).not.toHaveBeenCalled();
   expect(f.request).not.toHaveBeenCalled();
+  expect(f.onObserved).not.toHaveBeenCalled();
 });
+
+it.each([8192, 1024])(
+  "sends the exact frozen %i combined token budget once without reclamping",
+  async (outputTokens) => {
+    const f = fixture({ outputTokens, reasoningEffort: "medium" });
+    expect((await f.generate()).effect).toBe("completed");
+    const intent = vi.mocked(f.control.runAccess).mock.calls[0]![0];
+    const body = JSON.parse(
+      new TextDecoder().decode(f.request.mock.calls[0]![1].body),
+    );
+    expect(intent.limits.tokens).toBe(outputTokens);
+    expect(body.max_output_tokens).toBe(outputTokens);
+    expect(body.reasoning).toEqual({ effort: "medium" });
+    expect(f.request).toHaveBeenCalledOnce();
+    expect(f.close).toHaveBeenCalledOnce();
+    await expect(f.generate()).rejects.toMatchObject({ code: "conflict" });
+    expect(f.request).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([undefined, "medium"] as const)(
+  "encodes only frozen reasoning effort %s with one original request",
+  async (reasoningEffort) => {
+    const f = fixture(reasoningEffort ? { reasoningEffort } : {});
+    await f.generate();
+    const body = JSON.parse(
+      new TextDecoder().decode(f.request.mock.calls[0]![1].body),
+    );
+    if (reasoningEffort) expect(body.reasoning).toEqual({ effort: "medium" });
+    else expect(body).not.toHaveProperty("reasoning");
+    expect(f.control.runAccess).toHaveBeenCalledOnce();
+    expect(f.request).toHaveBeenCalledOnce();
+    expect(f.close).toHaveBeenCalledOnce();
+  },
+);

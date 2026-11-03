@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import {
   bootstrap,
   validateConfig,
+  privateFile,
   type BootstrapConfig,
 } from "../hindsight/bootstrap.ts";
 import { acquireDeploymentLock } from "../../scripts/hindsight-e2e/deployment-lock.ts";
@@ -443,6 +444,47 @@ export async function setupMemory(
     await lock.close();
   }
 }
+/** Explicit completed-deployment recovery: never enters first-install preparation. */
+export async function resumeMemory(
+  envFile: string,
+  directory: string,
+): Promise<object> {
+  const original = await privateFile(envFile);
+  if (explicitlyDisabled(original))
+    return { status: "explicitly_disabled", envFile };
+  assert(
+    (await privateFile(join(directory, "setup-binding.json"))) === envFile,
+    "Setup directory belongs to a different environment",
+  );
+  const lock = await acquireDeploymentLock(join(directory, "setup.lock"));
+  try {
+    const config = validateConfig(
+      JSON.parse(await privateFile(join(directory, "bootstrap.json"))),
+    );
+    assert(config.directory === directory, "Saved bootstrap directory differs");
+    const generated = await privateFile(join(directory, "router.env"));
+    for (const key of [
+      "REVIEW_ROUTER_MEMORY_PROVIDER",
+      "REVIEW_ROUTER_MEMORY_GENERATION",
+      "REVIEW_ROUTER_MEMORY_NAMESPACE",
+      "REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE",
+      "REVIEW_ROUTER_MEMORY_HINDSIGHT_URL",
+      "REVIEW_ROUTER_MEMORY_HINDSIGHT_API_KEY",
+      "REVIEW_ROUTER_MEMORY_OPERATOR_TOKEN",
+      "REVIEW_ROUTER_MEMORY_HINDSIGHT_IMAGE_DIGEST",
+    ])
+      assert(
+        assignment(original, key) === assignment(generated, key),
+        "Self-hosted provider tuple differs from the saved backend",
+      );
+    const origin = assignment(original, "REVIEW_ROUTER_API_URL");
+    assert(origin, "Resume requires the configured Router API URL");
+    return await bootstrap("resume", config, origin);
+  } finally {
+    await lock.close();
+  }
+}
+
 if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
@@ -450,15 +492,24 @@ if (
   try {
     assert(
       process.argv[2],
-      "Usage: node deploy/self-hosted/setup-memory.ts /absolute/selfhost.env [/absolute/operator-directory [/absolute/scratch-directory]]",
+      "Usage: node deploy/self-hosted/setup-memory.ts [resume] /absolute/selfhost.env [/absolute/operator-directory [/absolute/scratch-directory]]",
     );
     console.log(
       JSON.stringify(
-        await setupMemory(
-          resolve(process.argv[2]),
-          resolve(process.argv[3] ?? "/srv/reviewrouter/hindsight-operator"),
-          process.argv[4] ? resolve(process.argv[4]) : undefined,
-        ),
+        process.argv[2] === "resume"
+          ? await resumeMemory(
+              resolve(process.argv[3] ?? ""),
+              resolve(
+                process.argv[4] ?? "/srv/reviewrouter/hindsight-operator",
+              ),
+            )
+          : await setupMemory(
+              resolve(process.argv[2]),
+              resolve(
+                process.argv[3] ?? "/srv/reviewrouter/hindsight-operator",
+              ),
+              process.argv[4] ? resolve(process.argv[4]) : undefined,
+            ),
         null,
         2,
       ),

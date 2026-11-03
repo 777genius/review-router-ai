@@ -77,7 +77,7 @@ import {
   lifecycleVerificationContract,
   lifecycleVerificationDescriptorDigest,
   type ProviderApiAuthMode,
-  type ReviewModelDispatchProfileV2,
+  type ReviewModelDispatchProfile,
 } from "../../../packages/shared/src/index.js";
 import {
   ReviewActionV2OperationId,
@@ -223,7 +223,7 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   prDescriptionProfile?: boolean;
   lifecycleVerificationProfile?: boolean;
   /** Explicit producer approval for the all-role durable model dispatch path. */
-  modelDispatchProfile?: ReviewModelDispatchProfileV2;
+  modelDispatchProfile?: ReviewModelDispatchProfile;
   /**
    * The repository's stored provider selection. The workspace has no default
    * provider, so "rotating" (the default) stores a repository selection of
@@ -2332,7 +2332,7 @@ async function seedProductionControlPlane(
     }>;
     prDescriptionProfile?: boolean;
     lifecycleVerificationProfile?: boolean;
-    modelDispatchProfile?: ReviewModelDispatchProfileV2;
+    modelDispatchProfile?: ReviewModelDispatchProfile;
     repositoryProviderSelection: "rotating" | "none";
   }>,
 ): Promise<void> {
@@ -2619,7 +2619,7 @@ function productionEnv(input: {
   readonly investigationProfile?: ReviewActionV2E2EInvestigationProfile;
   readonly prDescriptionProfile?: boolean;
   readonly lifecycleVerificationProfile?: boolean;
-  readonly modelDispatchProfile?: ReviewModelDispatchProfileV2;
+  readonly modelDispatchProfile?: ReviewModelDispatchProfile;
 }): Readonly<Record<string, string>> {
   const release = input.releaseCandidate;
   const reviewerPlanProfile =

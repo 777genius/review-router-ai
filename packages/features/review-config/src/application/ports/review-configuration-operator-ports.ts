@@ -7,6 +7,7 @@ export enum ReviewConfigurationOperatorOperation {
   Read = "read_review_configuration",
   SetReasoningEffort = "set_review_reasoning_effort",
   SetInvestigationRollout = "set_review_investigation_rollout",
+  ConfirmInstalledGatewayWorkflow = "confirm_installed_gateway_workflow",
 }
 
 export type ReviewConfigurationOperatorPrincipal = Readonly<{

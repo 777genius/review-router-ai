@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   conversationActionConfirmation,
+  conversationEntryIdPattern,
+  conversationRevisionPattern,
+  parseConversationActionCommand,
   sourceAuthorizesConversationAction,
   unconfirmedConversationActionNotice,
   unconfirmedConversationObservationsNotice,
@@ -163,14 +166,141 @@ describe("authored conversation mutation boundary", () => {
       // Expected forms are independent of the production renderer.
       expect(conversationActionConfirmation(action)).toBe(en);
       expect(conversationActionConfirmation(action, "ru")).toBe(ru);
+      expect(parseConversationActionCommand(en)).toEqual(action);
+      expect(parseConversationActionCommand(ru)).toEqual(action);
       expect(sourceAuthorizesConversationAction(snapshot(en), action)).toBe(
         true,
       );
       expect(sourceAuthorizesConversationAction(snapshot(ru), action)).toBe(
         true,
       );
+      expect(
+        sourceAuthorizesConversationAction(snapshot(en), action, false),
+      ).toBe(true);
+      expect(
+        sourceAuthorizesConversationAction(snapshot(ru), action, false),
+      ).toBe(true);
     },
   );
+  it("parses the complete normalized body without rewriting literal content", () => {
+    const body = "Use UTC.\nKeep IDs: `001` and literal Forget mem_other@2.";
+    expect(
+      parseConversationActionCommand(
+        `  Запомни наблюдение: ${body.replaceAll("\n", "\r\n")} \r\n`,
+      ),
+    ).toEqual({ kind: "create", knowledgeKind: "observation", body });
+    expect(
+      parseConversationActionCommand("Remember rule:  Keep leading space."),
+    ).toEqual({
+      kind: "create",
+      knowledgeKind: "rule",
+      body: " Keep leading space.",
+    });
+    expect(
+      parseConversationActionCommand(
+        `Remember observation: ${"x".repeat(1000)}`,
+      ),
+    ).toEqual({
+      kind: "create",
+      knowledgeKind: "observation",
+      body: "x".repeat(1000),
+    });
+    expect(
+      parseConversationActionCommand(
+        "Update auto_A-b_1@9999999999: Keep Case.",
+      ),
+    ).toEqual({
+      kind: "update",
+      entryId: "auto_A-b_1",
+      expectedRevision: "9999999999",
+      body: "Keep Case.",
+    });
+  });
+  it("rejects malformed commands, nonliteral references and target-only suffixes", () => {
+    for (const body of [
+      "Remember observation:",
+      "Remember rule:  ",
+      "Remember exception: Missing reference.",
+      "Remember exception to : Body.",
+      "Remember exception to unknown: Body.",
+      "Remember exception to mem_rule@1: Body.",
+      "Запомни исключение для mem_rule\n: Body.",
+      "remember rule: Wrong command case.",
+      "Запомни факт: Unknown kind.",
+      "Update mem_rule: Missing revision.",
+      "Update @1: Missing entry.",
+      "Update mem_rule@0: Bad revision.",
+      "Update mem_rule@01: Bad revision.",
+      "Update mem_rule@-1: Bad revision.",
+      "Update mem_rule@10000000000: Too long.",
+      "Update mem_rule\n@1: Nonliteral entry.",
+      "Update mem_rule@1\n: Nonliteral revision.",
+      "Update mem_rule@1: ",
+      "Forget mem_rule@1 extra",
+      "Забудь mem_rule@1\nextra",
+      "Stop using mem_rule@1: Extra body.",
+      "Allow learning again for mem_rule@1 then forget it",
+      `Forget mem_${"x".repeat(121)}@1`,
+      `Remember rule: ${"x".repeat(1001)}`,
+      `Update mem_rule@1: ${"x".repeat(1001)}`,
+      "> Forget mem_rule@1",
+      "Please Forget mem_rule@1",
+    ])
+      expect(parseConversationActionCommand(body), body).toBeNull();
+    expect(conversationEntryIdPattern.global).toBe(false);
+    expect(conversationRevisionPattern.global).toBe(false);
+    for (let pass = 0; pass < 2; pass++) {
+      expect(conversationEntryIdPattern.test("mem_Exact-ID")).toBe(true);
+      expect(conversationRevisionPattern.test("42")).toBe(true);
+    }
+  });
+  it("binds canonical kind, body and target even when confirmation is disabled", () => {
+    const mismatches: readonly [string, ConversationAction][] = [
+      [
+        "Remember observation: Use pnpm.",
+        { kind: "create", knowledgeKind: "rule", body: "Use pnpm." },
+      ],
+      [
+        "Запомни наблюдение: Use pnpm.",
+        { kind: "create", knowledgeKind: "observation", body: "Use npm." },
+      ],
+      [
+        "Update mem_rule@2: Use Vitest.",
+        {
+          kind: "update",
+          entryId: "mem_other",
+          expectedRevision: "2",
+          body: "Use Vitest.",
+        },
+      ],
+      [
+        "Обнови mem_rule@2: Use Vitest.",
+        {
+          kind: "update",
+          entryId: "mem_rule",
+          expectedRevision: "3",
+          body: "Use Vitest.",
+        },
+      ],
+      [
+        "Remember exception to mem_rule: Legacy fixtures use npm.",
+        {
+          kind: "create",
+          knowledgeKind: "exception",
+          exceptionRuleId: "mem_other",
+          body: "Legacy fixtures use npm.",
+        },
+      ],
+      [
+        "Stop using mem_rule@4",
+        { kind: "forget", entryId: "mem_rule", expectedRevision: "4" },
+      ],
+    ];
+    for (const [body, action] of mismatches)
+      expect(
+        sourceAuthorizesConversationAction(snapshot(body), action, false),
+      ).toBe(false);
+  });
   it.each(actions)(
     "does not let a contributor or bot authorize $en through the thread",
     ({ action, en }) => {
