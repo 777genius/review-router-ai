@@ -2,6 +2,14 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   parseReviewModelDispatchProfileV2,
+  parseReviewModelDispatchProfile,
+  parseReviewModelDispatchCapabilityV2,
+  parseReviewModelDispatchCapability,
+  parseReviewModelDispatchClaimV2,
+  parseReviewModelDispatchClaimForCapability,
+  reviewModelDispatchCapacity128Contract,
+  reviewModelDispatchCapacity128DescriptorDigest,
+  reviewModelDispatchCapacityPolicyMatches,
   parseReviewModelDispatchSettlementV2,
   reviewModelDispatchContract,
   reviewModelDispatchDescriptorDigest,
@@ -230,5 +238,227 @@ describe("versioned model dispatch approval", () => {
         })
       ).status,
     ).toBe("attested");
+  });
+});
+
+describe("explicit capacity128 model dispatch policy", () => {
+  const capacityProfile = {
+    ...profile,
+    descriptorDigest: reviewModelDispatchCapacity128DescriptorDigest,
+    policyVersion: reviewModelDispatchCapacity128Contract.policyVersion,
+    limits: { ...profile.limits, maxRequests: 128 },
+  };
+  const legacyCapability = {
+    ...profile.limits,
+    extensionId: "review-model-dispatch.v2" as const,
+    version: 2 as const,
+    routeIdentityHash: "a".repeat(64),
+    transport: "runner_local_responses" as const,
+    wireProtocol: "openai-responses" as const,
+    outputTokenLimit: "upstream_request" as const,
+    providerIndex: 0,
+    model: "qualified-model",
+    deadline: "2126-10-21T00:00:00.000Z",
+  };
+  const capacityCapability = {
+    ...legacyCapability,
+    capacityPolicy: "model-dispatch-policy.capacity128.v1" as const,
+    maxRequests: 128,
+  };
+  const claim = (requestOrdinal: number) => ({
+    dispatchVersion: 2,
+    dispatchId: `rr-model-${"a".repeat(64)}`,
+    executionId: "execution",
+    workSlotId: "discovery",
+    attemptOrdinal: 1,
+    requestOrdinal,
+    leaseId: "lease",
+    leaseCapability: "synthetic-test-capability",
+    fencingToken: "1",
+    preparedManifestKey: "manifest",
+    routeIdentityHash: "a".repeat(64),
+    providerRequestEnvelopeHash: "b".repeat(64),
+    requestBytes: 1024,
+    maxOutputTokens: 1024,
+  });
+
+  it("adds a distinct canonical descriptor and attested profile without reinterpreting legacy32", () => {
+    expect(
+      `sha256:${createHash("sha256").update(canonicalJson(reviewModelDispatchCapacity128Contract)).digest("hex")}`,
+    ).toBe(
+      "sha256:d529a458a0d6e6644df1d8e341f42988b5c137920f6883cd1467bfe524e8aadb",
+    );
+    expect(reviewModelDispatchCapacity128DescriptorDigest).not.toBe(
+      reviewModelDispatchDescriptorDigest,
+    );
+    expect(reviewModelDispatchContract.maxRequests).toBe(32);
+    expect(parseReviewModelDispatchProfile(profile)).toEqual(profile);
+    expect(parseReviewModelDispatchProfile(capacityProfile)).toEqual(
+      capacityProfile,
+    );
+    expect(() => parseReviewModelDispatchProfileV2(capacityProfile)).toThrow();
+    const candidate = {
+      ...releaseCandidate,
+      agentProfiles: qualifiedAgentProfiles,
+    };
+    const oldRelease = createProducerRelease(
+      { ...candidate, modelDispatchProfile: profile },
+      new Date("2026-10-21"),
+    );
+    const newRelease = createProducerRelease(
+      { ...candidate, modelDispatchProfile: capacityProfile },
+      oldRelease.registeredAt,
+    );
+    expect(cloneProducerRelease(newRelease).modelDispatchProfile).toEqual(
+      capacityProfile,
+    );
+    expect(producerReleaseImmutableKey(newRelease)).not.toBe(
+      producerReleaseImmutableKey(oldRelease),
+    );
+    expect(
+      readConfiguredProducerReleaseAttestations({
+        [reviewRunProducerReleaseAttestationsEnv]: JSON.stringify([
+          {
+            ...candidate,
+            canonicalizerDigest: hashC,
+            reviewInvestigationCapability: null,
+            reviewInvestigationCoverageProfileHash: null,
+            reviewInvestigationPolicyHash: null,
+            contextGatewayPolicyVersion: null,
+            contextGatewayEntrypointDigest: null,
+            modelDispatchProfile: capacityProfile,
+          },
+        ]),
+      })[0]?.modelDispatchProfile,
+    ).toEqual(capacityProfile);
+  });
+
+  it("denies unapproved and mixed policy/digest identities even below32, and capacity129", () => {
+    for (const value of [
+      { ...profile, limits: { ...profile.limits, maxRequests: 33 } },
+      {
+        ...capacityProfile,
+        descriptorDigest: reviewModelDispatchDescriptorDigest,
+      },
+      { ...capacityProfile, policyVersion: "model-dispatch-policy.v2" },
+      {
+        ...capacityProfile,
+        policyVersion: "model-dispatch-policy.capacity256.v1",
+      },
+      {
+        ...capacityProfile,
+        descriptorDigest: reviewModelDispatchDescriptorDigest,
+        limits: profile.limits,
+      },
+      {
+        ...capacityProfile,
+        limits: { ...capacityProfile.limits, maxRequests: 129 },
+      },
+      {
+        ...capacityProfile,
+        limits: { ...capacityProfile.limits, maxConcurrentRequests: 2 },
+      },
+    ])
+      expect(() => parseReviewModelDispatchProfile(value)).toThrow();
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(
+        {
+          ...capacityProfile,
+          descriptorDigest: reviewModelDispatchDescriptorDigest,
+        },
+        capacityCapability,
+      ),
+    ).toBe(false);
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(profile, legacyCapability),
+    ).toBe(true);
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(
+        capacityProfile,
+        capacityCapability,
+      ),
+    ).toBe(true);
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(profile, {
+        ...capacityCapability,
+        maxRequests: 32,
+      }),
+    ).toBe(false);
+    expect(
+      reviewModelDispatchCapacityPolicyMatches(
+        capacityProfile,
+        legacyCapability,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires the frozen discriminator and preserves legacy32/33 and new128/129 boundaries", () => {
+    expect(parseReviewModelDispatchCapabilityV2(legacyCapability)).toEqual(
+      legacyCapability,
+    );
+    expect(parseReviewModelDispatchCapability(capacityCapability)).toEqual(
+      capacityCapability,
+    );
+    expect(() =>
+      parseReviewModelDispatchCapabilityV2(capacityCapability),
+    ).toThrow();
+    for (const value of [
+      { ...legacyCapability, maxRequests: 33 },
+      { ...capacityCapability, capacityPolicy: "model-dispatch-policy.v2" },
+      { ...capacityCapability, maxRequests: 129 },
+      {
+        ...capacityCapability,
+        descriptorDigest: reviewModelDispatchCapacity128DescriptorDigest,
+      },
+    ])
+      expect(() => parseReviewModelDispatchCapability(value)).toThrow();
+    expect(parseReviewModelDispatchClaimV2(claim(32)).requestOrdinal).toBe(32);
+    expect(() => parseReviewModelDispatchClaimV2(claim(33))).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(claim(33), legacyCapability),
+    ).toThrow();
+    for (const ordinal of [32, 33, 128])
+      expect(
+        parseReviewModelDispatchClaimForCapability(
+          claim(ordinal),
+          capacityCapability,
+        ).requestOrdinal,
+      ).toBe(ordinal);
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(
+        claim(129),
+        capacityCapability,
+      ),
+    ).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(claim(17), {
+        ...capacityCapability,
+        maxRequests: 16,
+      }),
+    ).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(
+        { ...claim(1), capacityPolicy: capacityCapability.capacityPolicy },
+        capacityCapability,
+      ),
+    ).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(
+        { ...claim(1), attemptOrdinal: 2 },
+        capacityCapability,
+      ),
+    ).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(
+        { ...claim(1), requestBytes: 16777217 },
+        capacityCapability,
+      ),
+    ).toThrow();
+    expect(() =>
+      parseReviewModelDispatchClaimForCapability(
+        { ...claim(1), maxOutputTokens: 32769 },
+        capacityCapability,
+      ),
+    ).toThrow();
   });
 });

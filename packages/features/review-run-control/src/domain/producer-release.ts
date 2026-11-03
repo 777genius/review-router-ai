@@ -1,6 +1,6 @@
 import {
-  parseReviewModelDispatchProfileV2,
-  type ReviewModelDispatchProfileV2,
+  parseReviewModelDispatchProfile,
+  type ReviewModelDispatchProfile,
 } from "@reviewrouter/shared";
 import { assertReviewModelDispatchDefaultAgents } from "@reviewrouter/shared/review-model-dispatch-default-agents";
 import {
@@ -216,7 +216,7 @@ export type ProducerRelease = {
   readonly agentProfiles: readonly ReviewAgentProfile[] | null;
   readonly prDescriptionProfile?: ProducerPrDescriptionProfile | null;
   readonly lifecycleVerificationProfile?: ProducerLifecycleVerificationProfile | null;
-  readonly modelDispatchProfile?: ReviewModelDispatchProfileV2 | null;
+  readonly modelDispatchProfile?: ReviewModelDispatchProfile | null;
   readonly schemaDigest: string;
   readonly capabilityProfile: ReviewCapabilityProfile;
   readonly protocolLimitsProfileId: string;
@@ -420,7 +420,7 @@ export function createProducerRelease(
   const modelDispatchProfile =
     candidate.modelDispatchProfile == null
       ? null
-      : parseReviewModelDispatchProfileV2(candidate.modelDispatchProfile);
+      : parseReviewModelDispatchProfile(candidate.modelDispatchProfile);
   if (modelDispatchProfile)
     assertReviewModelDispatchDefaultAgents(
       modelDispatchProfile,
@@ -503,7 +503,7 @@ export function producerReleaseImmutableKey(
     ...(release.modelDispatchProfile == null
       ? {}
       : {
-          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+          modelDispatchProfile: parseReviewModelDispatchProfile(
             release.modelDispatchProfile,
           ),
         }),
@@ -580,7 +580,7 @@ export function cloneProducerRelease(
     ...(release.modelDispatchProfile == null
       ? {}
       : {
-          modelDispatchProfile: parseReviewModelDispatchProfileV2(
+          modelDispatchProfile: parseReviewModelDispatchProfile(
             release.modelDispatchProfile,
           ),
         }),

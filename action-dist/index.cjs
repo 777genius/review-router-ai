@@ -133373,6 +133373,12 @@ var reviewModelDispatchContract = Object.freeze({
   maxOutputTokens: 32768,
   maxReceiptBytes: 8 * 1024
 });
+var reviewModelDispatchCapacity128Contract = Object.freeze({
+  ...reviewModelDispatchContract,
+  policyVersion: "model-dispatch-policy.capacity128.v1",
+  capacityPolicy: "model-dispatch-policy.capacity128.v1",
+  maxRequests: 128
+});
 var reviewModelDispatchHeaders = Object.freeze({
   dispatchVersion: "x-reviewrouter-model-dispatch-version",
   requestOrdinal: "x-reviewrouter-model-request-ordinal",

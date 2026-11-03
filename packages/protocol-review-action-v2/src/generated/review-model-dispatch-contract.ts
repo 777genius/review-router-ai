@@ -38,6 +38,20 @@ export const reviewModelDispatchContract = Object.freeze({
 export const reviewModelDispatchDescriptorDigest =
   "sha256:be55241ba86af0788b6a60973ac7c55e6aa33244d18bba52a230cbc195ba4a2d";
 
+/** Additive approved capacity identity. The legacy descriptor and parsers retain
+ * their original 32-request meaning; a numeric limit never selects this policy. */
+export const reviewModelDispatchCapacity128Contract = Object.freeze({
+  ...reviewModelDispatchContract,
+  policyVersion: "model-dispatch-policy.capacity128.v1",
+  capacityPolicy: "model-dispatch-policy.capacity128.v1",
+  maxRequests: 128,
+} as const);
+export const reviewModelDispatchCapacity128DescriptorDigest =
+  "sha256:d529a458a0d6e6644df1d8e341f42988b5c137920f6883cd1467bfe524e8aadb";
+type ReviewModelDispatchCapacityContract =
+  | typeof reviewModelDispatchContract
+  | typeof reviewModelDispatchCapacity128Contract;
+
 /** Native forwarding supplements the existing parent-only lease headers. */
 export const reviewModelDispatchHeaders = Object.freeze({
   dispatchVersion: "x-reviewrouter-model-dispatch-version",
@@ -94,6 +108,25 @@ export type ReviewModelDispatchCapabilityV2 = ReviewModelDispatchLimitsV2 &
     configuredModel?: AnthropicModelAlias;
     deadline: string;
   }>;
+
+export type ReviewModelDispatchCapacity128ProfileV2 = Omit<
+  ReviewModelDispatchProfileV2,
+  "policyVersion"
+> &
+  Readonly<{
+    policyVersion: typeof reviewModelDispatchCapacity128Contract.policyVersion;
+  }>;
+export type ReviewModelDispatchProfile =
+  | ReviewModelDispatchProfileV2
+  | ReviewModelDispatchCapacity128ProfileV2;
+export type ReviewModelDispatchCapacity128CapabilityV2 =
+  ReviewModelDispatchCapabilityV2 &
+    Readonly<{
+      capacityPolicy: typeof reviewModelDispatchCapacity128Contract.capacityPolicy;
+    }>;
+export type ReviewModelDispatchCapability =
+  | ReviewModelDispatchCapabilityV2
+  | ReviewModelDispatchCapacity128CapabilityV2;
 
 /** This parent-only context never reaches the review engine or upstream. */
 export type ReviewModelDispatchClaimV2 = Readonly<{
@@ -204,6 +237,13 @@ export function reviewModelDispatchIdPreimage(
 export function parseReviewModelDispatchLimitsV2(
   value: unknown,
 ): ReviewModelDispatchLimitsV2 {
+  return parseLimits(value, reviewModelDispatchContract);
+}
+
+function parseLimits(
+  value: unknown,
+  contract: ReviewModelDispatchCapacityContract,
+): ReviewModelDispatchLimitsV2 {
   const names = [
     "maxRequests",
     "maxConcurrentRequests",
@@ -213,11 +253,7 @@ export function parseReviewModelDispatchLimitsV2(
   ] as const;
   if (!record(value) || !keys(value, names)) invalid();
   for (const name of names)
-    if (
-      !positive(value[name]) ||
-      value[name] > reviewModelDispatchContract[name]
-    )
-      invalid();
+    if (!positive(value[name]) || value[name] > contract[name]) invalid();
   if (value.maxConcurrentRequests !== 1) invalid();
   return Object.freeze({ ...value }) as ReviewModelDispatchLimitsV2;
 }
@@ -225,6 +261,31 @@ export function parseReviewModelDispatchLimitsV2(
 export function parseReviewModelDispatchProfileV2(
   value: unknown,
 ): ReviewModelDispatchProfileV2 {
+  return parseProfile(
+    value,
+    reviewModelDispatchContract,
+    reviewModelDispatchDescriptorDigest,
+  ) as ReviewModelDispatchProfileV2;
+}
+
+export function parseReviewModelDispatchProfile(
+  value: unknown,
+): ReviewModelDispatchProfile {
+  return record(value) &&
+    value.policyVersion === reviewModelDispatchCapacity128Contract.policyVersion
+    ? parseProfile(
+        value,
+        reviewModelDispatchCapacity128Contract,
+        reviewModelDispatchCapacity128DescriptorDigest,
+      )
+    : parseReviewModelDispatchProfileV2(value);
+}
+
+function parseProfile(
+  value: unknown,
+  contract: ReviewModelDispatchCapacityContract,
+  descriptorDigest: string,
+): ReviewModelDispatchProfile {
   if (
     !record(value) ||
     !keys(value, [
@@ -240,8 +301,8 @@ export function parseReviewModelDispatchProfileV2(
       "limits",
     ]) ||
     value.extensionId !== reviewModelDispatchContract.extensionId ||
-    value.descriptorDigest !== reviewModelDispatchDescriptorDigest ||
-    value.policyVersion !== reviewModelDispatchContract.policyVersion ||
+    value.descriptorDigest !== descriptorDigest ||
+    value.policyVersion !== contract.policyVersion ||
     !Array.isArray(value.transports) ||
     value.transports.length < 1 ||
     value.transports.length > reviewModelTransports.length ||
@@ -281,8 +342,8 @@ export function parseReviewModelDispatchProfileV2(
   }
   return Object.freeze({
     extensionId: reviewModelDispatchContract.extensionId,
-    descriptorDigest: reviewModelDispatchDescriptorDigest,
-    policyVersion: reviewModelDispatchContract.policyVersion,
+    descriptorDigest,
+    policyVersion: contract.policyVersion,
     transports: Object.freeze([
       ...value.transports,
     ]) as readonly ReviewModelTransport[],
@@ -299,18 +360,38 @@ export function parseReviewModelDispatchProfileV2(
     defaultAgentProfileRefs: Object.freeze({
       ...value.defaultAgentProfileRefs,
     }),
-    limits: parseReviewModelDispatchLimitsV2(value.limits),
-  }) as ReviewModelDispatchProfileV2;
+    limits: parseLimits(value.limits, contract),
+  }) as ReviewModelDispatchProfile;
 }
 
 export function parseReviewModelDispatchCapabilityV2(
   value: unknown,
 ): ReviewModelDispatchCapabilityV2 {
+  return parseCapability(
+    value,
+    reviewModelDispatchContract,
+  ) as ReviewModelDispatchCapabilityV2;
+}
+
+export function parseReviewModelDispatchCapability(
+  value: unknown,
+): ReviewModelDispatchCapability {
+  return record(value) && Object.hasOwn(value, "capacityPolicy")
+    ? parseCapability(value, reviewModelDispatchCapacity128Contract)
+    : parseReviewModelDispatchCapabilityV2(value);
+}
+
+function parseCapability(
+  value: unknown,
+  contract: ReviewModelDispatchCapacityContract,
+): ReviewModelDispatchCapability {
+  const capacity128 = contract === reviewModelDispatchCapacity128Contract;
   if (
     !record(value) ||
     !keys(value, [
       "extensionId",
       "version",
+      ...(capacity128 ? ["capacityPolicy"] : []),
       "routeIdentityHash",
       "transport",
       "wireProtocol",
@@ -327,6 +408,9 @@ export function parseReviewModelDispatchCapabilityV2(
     ]) ||
     value.extensionId !== reviewModelDispatchContract.extensionId ||
     value.version !== 2 ||
+    (capacity128 &&
+      value.capacityPolicy !==
+        reviewModelDispatchCapacity128Contract.capacityPolicy) ||
     !hash(value.routeIdentityHash) ||
     !isReviewModelTransport(value.transport) ||
     !isReviewModelWireProtocol(value.wireProtocol) ||
@@ -364,17 +448,20 @@ export function parseReviewModelDispatchCapabilityV2(
     maxResponseBytes,
     maxOutputTokens,
   } = value;
-  const limits = parseReviewModelDispatchLimitsV2({
-    maxRequests,
-    maxConcurrentRequests,
-    maxRequestBytes,
-    maxResponseBytes,
-    maxOutputTokens,
-  });
+  const limits = parseLimits(
+    {
+      maxRequests,
+      maxConcurrentRequests,
+      maxRequestBytes,
+      maxResponseBytes,
+      maxOutputTokens,
+    },
+    contract,
+  );
   return Object.freeze({
     ...value,
     ...limits,
-  }) as ReviewModelDispatchCapabilityV2;
+  }) as ReviewModelDispatchCapability;
 }
 
 export function isReviewModelTransport(
@@ -430,6 +517,50 @@ export function reviewModelDispatchOutputUsageIsWithinLimit(
 export function parseReviewModelDispatchClaimV2(
   value: unknown,
 ): ReviewModelDispatchClaimV2 {
+  return parseClaim(value, reviewModelDispatchContract.maxRequests);
+}
+
+/** Only the authenticated saved capability selects capacity. Claim body fields
+ * cannot opt into a newer policy, and legacy parsing remains exactly bounded32. */
+export function parseReviewModelDispatchClaimForCapability(
+  value: unknown,
+  authenticatedFrozenCapability: ReviewModelDispatchCapability,
+): ReviewModelDispatchClaimV2 {
+  const capability = parseReviewModelDispatchCapability(
+    authenticatedFrozenCapability,
+  );
+  return "capacityPolicy" in capability
+    ? parseClaim(value, capability.maxRequests)
+    : parseReviewModelDispatchClaimV2(value);
+}
+
+export function reviewModelDispatchCapacityPolicyMatches(
+  profile: ReviewModelDispatchProfile,
+  capability: ReviewModelDispatchCapability,
+): boolean {
+  switch (profile.policyVersion) {
+    case reviewModelDispatchContract.policyVersion:
+      return (
+        profile.descriptorDigest === reviewModelDispatchDescriptorDigest &&
+        !("capacityPolicy" in capability)
+      );
+    case reviewModelDispatchCapacity128Contract.policyVersion:
+      return (
+        profile.descriptorDigest ===
+          reviewModelDispatchCapacity128DescriptorDigest &&
+        "capacityPolicy" in capability &&
+        capability.capacityPolicy ===
+          reviewModelDispatchCapacity128Contract.capacityPolicy
+      );
+    default:
+      return false;
+  }
+}
+
+function parseClaim(
+  value: unknown,
+  maxRequests: number,
+): ReviewModelDispatchClaimV2 {
   if (
     !record(value) ||
     !keys(value, [
@@ -453,7 +584,7 @@ export function parseReviewModelDispatchClaimV2(
     typeof value.dispatchId !== "string" ||
     !/^rr-model-[a-f0-9]{64}$/.test(value.dispatchId) ||
     !positive(value.requestOrdinal) ||
-    value.requestOrdinal > reviewModelDispatchContract.maxRequests ||
+    value.requestOrdinal > maxRequests ||
     !positive(value.requestBytes) ||
     value.requestBytes > reviewModelDispatchContract.maxRequestBytes ||
     !positive(value.maxOutputTokens) ||

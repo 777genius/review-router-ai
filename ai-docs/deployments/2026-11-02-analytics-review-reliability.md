@@ -4,7 +4,7 @@
 - Goal: attribute Gateway usage to the configured provider, recover Usage pagination after page errors, and settle partial reviews without retrying forever.
 - Affected services: Web, API, worker; PostgreSQL read path only.
 - Implementation PR: [#787](https://github.com/777genius/review-router-ai/pull/787).
-- Implementation reference: `44b06c141d056fa2779bc2bb29e18dbd9c84ea06`; not yet released.
+- Qualified implementation reference: `44b06c141d056fa2779bc2bb29e18dbd9c84ea06`; included in deployed release226 source `6e6a0f07829c465202512f87fb6a3195412ca347`.
 - Related work: [Statistics and Usage](2026-10-29-statistics-history-followthrough.md), [Analytics extensibility](2026-10-31-analytics-extensibility.md).
 - Last updated: `2026-11-03`.
 
@@ -51,7 +51,7 @@ Preserve all receipts, immutable Usage facts and native observations. Historical
 - The initial local browser qualification stopped before browser startup: ordinary cold migrations and seeding passed, but Next exited during authenticated boot. Zero browser tests ran; it is not a pass. At the owner’s explicit request all local heavy processes and three owned temporary PostgreSQL clusters were stopped with data preserved. The four Usage scenarios now run in the existing Linux CI acceptance job, including both503/error and Previous-recovery screenshots. Exact-head Linux run [41489941032](https://github.com/777genius/review-router-ai/actions/runs/41489941032) passed all8 browser cases, including all4 Usage scenarios. Four error/recovery PNGs from artifact13164273757 were verified and inspected. This is isolated CI acceptance, not staging or production deployment; the remaining mandatory CI and actual application rollout are separate.
 - Exact OpenRouter free-request quota is not exposed by the installed Gateway cached `account-limits/v1` SDK: both configured OpenRouter accounts return `unsupported`. No provider credential was extracted, request quota invented, or credit purchase performed.
 
-- Shared rollout coordination: Memory owner will include this batch in the single paired private release226 after PR #785 and this implementation merge; no separate deployment is started here. Selective server build-cache GC reclaimed4,466,106,368bytes; exact image/container/volume inventories were unchanged. Receipt: `/srv/workers/rr-selective-buildcache-gc-20261102-153044/receipt.json`.
+- Planning receipt (2026-11-02): Memory owner will include this batch in the single paired private release226 after PR #785 and this implementation merge; no separate deployment is started here. Selective server build-cache GC reclaimed4,466,106,368bytes; exact image/container/volume inventories were unchanged. Receipt: `/srv/workers/rr-selective-buildcache-gc-20261102-153044/receipt.json`.
 
 ## Production R1 /226 — 2026-11-03
 
@@ -68,3 +68,14 @@ Ordinal 33 is a source/count explanation, not an observed request body. A
 versioned 128-request successor is source-only in the neighboring workstream;
 immutable 226 producer `fa3e87a71…` is unchanged. A fresh normal payments run
 after that successor is pending; the old run is not replayed or relabelled.
+
+## Release226 live verification
+
+The owner deployed release226 at source [6e6a0f0](https://github.com/777genius/review-router-ai/commit/6e6a0f07829c465202512f87fb6a3195412ca347), with public producer [fa3e87a](https://github.com/777genius/review-router/commit/fa3e87a71f500f63f9ef64bcbc63f640c4e4d7f8). The following are observed live results, separate from the earlier source/CI qualification:
+
+| Observation                                                                                                                                                              | Canonical review                                                                                                                                         | Usage readback           | Statistics readback                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | --------------------------------------------- |
+| [Canary A run41581680152](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41581680152), reviewed `b94250dbb65aedecbd6f85d044b6bc53f5f5fb01`              | Complete required coverage1/1; genuine critical ownership bypass found and App-published. Finding-based quality RED was accepted as the expected result. | 5 calls /22,395 tokens.  | 1 new critical issue fact.                    |
+| [Fixed-source Canary B run41583013357](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/41583013357), reviewed `809f69d8744c5d10c051120c9634626bcf666f20` | Complete required coverage1/1, workflow success, 0 NEW findings. The prior issue is `NOT_VERIFIED`; this is not a resolution claim.                      | 10 calls /57,463 tokens. | Dedupe1; source-A fact and lineage unchanged. |
+
+The separate [Payments PR29 run41581736184](https://github.com/agent-teams-ai/payments-sdk/actions/runs/41581736184) remains **partial0/17**. It reached the immutable profile's 32-request bound despite Gateway capacity640; exactly32 Native requests completed, scope cleanup is `DONE`, and no33rd Native request was issued. Full Payments acceptance belongs to the pending [named capacity128 rollout](2026-11-03-model-dispatch-capacity.md). These A/B successes do not establish that Payments is complete or disclose an exact remaining FREE request quota.
