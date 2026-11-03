@@ -85,8 +85,12 @@ throws and rejections are isolated. A first-event observation is retained in the
 evaluation report separately from currentness denial. There is no request retry,
 deadline change or fallback. Remote SDK/policy tests pass 104/104 with zero skips,
 strict API/evaluation types, lint/format and generated metadata checks pass.
-A fresh bounded diagnostic and subsequent full quality qualification remain
-pending; neither unavailable run has an official score or protected-run credit.
+The fresh three-event `contextual-units` diagnostic on `286804783` completed
+all parent and extraction calls with closed cleanup and no SDK failure code.
+The endorsement yielded no retained fact and the linked question abstained on
+empty memory, so semantic qualification remains pending. This bounded run is
+explicitly ineligible for a full tuning score. Neither unavailable full run has
+an official score or protected-run credit.
 
 ## Ordered verification and delivery
 

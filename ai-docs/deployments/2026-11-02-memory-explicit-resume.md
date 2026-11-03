@@ -143,12 +143,44 @@ volume disposal is separate from a signed product entry-erasure receipt.
 Conversation qualification remained absent; no paid model call or automatic
 production activation was part of this acceptance.
 
-Private receipt:
-`tmp/memory-production/stock-selfhost-657f80/recovery-b53-receipt.json`, SHA256
-`6597201c1a240b34a94064702860a5e446f7b60b9246a299830bac94a6101e25`.
-Its exact evidence archive and the original failures remain retained. Managed
-jobs: bootstrap regression `5e5611e418910df0fa8ac7332bd75d0b`, normal stopped
-resume `ff50bc2e49f89e261b5f833f3e853c81`, fresh ingress
-`dde4e911b0043496432e40e18e1f8ed2`, and storage/rollback/decommission
-`c8a32ae095e03e07bf82a41fb412e034`. Normal protected release/CI and self-hosted
-distribution still require their own exact-source completion.
+Durable acceptance record: [sanitized source/image, hosted-job and evidence-hash manifest](evidence/2026-11-03-memory-selfhost-continuation.json).
+The [private evidence archive](ssh://workers-fsn1-01-jump/srv/platform/artifacts/review-router/evidence/selfhost-recovery-b53-20261103.tar)
+is retained in the operator artifact store with owner SSH access and root-only
+permissions; archive SHA256 is
+`22912f09ba544b48e368aef2503cdf9a069a377b2c587c3823569250a7d73a03`.
+These hosted managed-job IDs are not GitHub workflow runs, so no Actions URL is
+claimed for them. The manifest records every job and hashes the exact outputs.
+The local receipt `tmp/memory-production/stock-selfhost-657f80/recovery-b53-receipt.json`
+(SHA256 `6597201c1a240b34a94064702860a5e446f7b60b9246a299830bac94a6101e25`)
+is supplemental. The [implementation PR](https://github.com/777genius/review-router-ai/pull/787)
+tracks normal protected CI and rollout separately; self-hosted distribution
+still requires exact-source completion.
+
+## Continuous configured-URL acceptance seam
+
+The stock runner now exports one inert, single-invocation lifecycle. Its default
+CLI stays unchanged. An optional owned test-infrastructure callback runs after
+real Compose health and before the first native preflight; it receives only
+validated runtime identities and returns the owner's cached rollback operation.
+Rollback is awaited before native, Compose or temporary-directory teardown.
+Uncertain rollback retains the sandbox and fails acceptance.
+
+A declared real HTTPS origin is installed in both normal API URL settings before
+readiness, setup and Compose. The configured branch exercises actual
+`resumeMemory`, which derives its URL and saved provider tuple from the env file.
+No TLS bypass, DNS mapping or production flag is added. Remote helper/import
+contracts pass 18/18 with strict types, lint and format. This source check does
+not establish a continuous runtime PASS; actual TLS/ingress ownership and a
+normal complete stock lifecycle remain pending.
+
+A definite `/begin` refusal (HTTP 400/403/409) now settles as `aborted` only
+when the existing fresh readback proves no owner, no pause and the unchanged
+initial epoch, with no native start intent. A later normal invocation may archive
+that terminal journal and try normally. Transport loss, changed epoch, another
+owner or a paused state remain unresolved and cannot buy a new attempt. Two
+source reviews approved this boundary. Remote bootstrap/stock contracts passed
+49 cases; the conditional privileged cleanup case was not available inside that
+QA container and retains its separate actual-server proof. All 46 evaluation
+risk cases and the five distinct merged workflow-gate cases passed. Normal
+release, installed behavior and continuous configured-URL acceptance are still
+pending.

@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { lstat, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readConversationRelease } from "../../deploy/self-hosted/conversation-release.ts";
-import { setupMemory } from "../../deploy/self-hosted/setup-memory.ts";
+import {
+  setupMemory,
+  resumeMemory,
+} from "../../deploy/self-hosted/setup-memory.ts";
+import { isLoopbackHostname } from "../../packages/shared/src/validation/loopback-hostname.mjs";
 import { bootstrap, validateConfig } from "../../deploy/hindsight/bootstrap.ts";
 import { acquireDeploymentLock } from "../hindsight-e2e/deployment-lock.ts";
 import { dockerCommand } from "../hindsight-e2e/native-runtime.ts";
@@ -32,6 +37,268 @@ type State = {
 };
 const label = "io.reviewrouter.hindsight.deployment";
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
+
+const composeRoles = ["web", "api", "worker"] as const;
+type ComposeRole = (typeof composeRoles)[number];
+type ComposeInspection = Inspection & {
+  State: Inspection["State"] & { Health?: { Status: string } };
+  NetworkSettings: {
+    Networks: Record<string, { NetworkID: string; IPAddress: string }>;
+    Ports?: Record<string, { HostIp: string; HostPort: string }[] | null>;
+  };
+};
+type NetworkInspection = {
+  Id: string;
+  Name: string;
+  Driver: string;
+  Labels: Record<string, string>;
+};
+export type SelfHostedComposeBinding = Readonly<{
+  projectName: string;
+  network: Readonly<{ id: string; name: string }>;
+  roles: Readonly<
+    Record<
+      ComposeRole,
+      Readonly<{
+        id: string;
+        imageId: string;
+        ip: string;
+        pid: number;
+        startedAt: string;
+      }>
+    >
+  >;
+}>;
+export type SelfHostedOwnedBinding = SelfHostedComposeBinding &
+  Readonly<{
+    directory: string;
+    envFile: string;
+    operatorDirectory: string;
+    apiOrigin: string;
+    native: Readonly<{
+      deployment: string;
+      imageId: string;
+      postgresImageId: string;
+      configurationDigest: string;
+      containers: Readonly<State["containers"]>;
+      apiHost: string;
+      apiPort: number;
+      namespace: string;
+      generation: string;
+      deploymentLockPath: string;
+    }>;
+  }>;
+export type SelfHostedE2EOptions = Readonly<{
+  configuredApiOrigin?: string;
+  /** The owner journals cleanup before effects and returns the same one-shot cleanup promise. */
+  afterComposeHealthy?: (
+    binding: SelfHostedOwnedBinding,
+  ) => Promise<() => Promise<void>>;
+}>;
+
+/** Same shared hostname classification as normal readiness; never relax TLS or map DNS. */
+export function assertConfiguredSelfHostedApiOrigin(origin: string): void {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    assert.fail("configured_sandbox_api_origin_invalid");
+  }
+  assert(
+    url.protocol === "https:" &&
+      !isLoopbackHostname(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      url.pathname === "/" &&
+      origin === url.origin &&
+      !/example\.com|placeholder/i.test(origin),
+    "configured_sandbox_api_origin_invalid",
+  );
+}
+
+function environmentValue(environment: string, key: string): string {
+  const values = environment
+    .split("\n")
+    .filter((line) => line.startsWith(`${key}=`));
+  assert(
+    values.length === 1,
+    "sandbox_environment_setting_missing_or_duplicate",
+  );
+  return values[0]!.slice(key.length + 1);
+}
+
+export function assertSelfHostedConfiguredResumeOrigin(
+  environment: string,
+  origin: string,
+): void {
+  assertConfiguredSelfHostedApiOrigin(origin);
+  for (const key of ["REVIEW_ROUTER_API_URL", "REVIEW_ROUTER_PUBLIC_API_URL"])
+    assert(
+      environmentValue(environment, key) === origin,
+      "configured_sandbox_api_origin_mismatch",
+    );
+}
+
+/** Projection only: the collector below supplies its actual complete Docker census. */
+export function projectSelfHostedComposeBinding(
+  projectName: string,
+  network: NetworkInspection,
+  records: readonly ComposeInspection[],
+): SelfHostedComposeBinding {
+  assert(
+    /^reviewrouter-self-hosted-e2e-[a-z0-9-]+$/.test(projectName),
+    "sandbox_project_invalid",
+  );
+  assert(
+    network.Name === `${projectName}_default` &&
+      network.Driver === "bridge" &&
+      /^[a-f0-9]{64}$/.test(network.Id) &&
+      network.Labels["com.docker.compose.project"] === projectName,
+    "sandbox_network_binding_invalid",
+  );
+  assert(
+    records.length === composeRoles.length,
+    "sandbox_consumer_inventory_invalid",
+  );
+  const roles = {} as Record<
+    ComposeRole,
+    SelfHostedComposeBinding["roles"][ComposeRole]
+  >;
+  for (const role of composeRoles) {
+    const matching = records.filter(
+      (r) => r.Config.Labels["com.docker.compose.service"] === role,
+    );
+    assert(matching.length === 1, "sandbox_consumer_missing_or_duplicate");
+    const record = matching[0]!;
+    const attached = record.NetworkSettings.Networks[network.Name];
+    assert(
+      record.Config.Labels["com.docker.compose.project"] === projectName &&
+        /^[a-f0-9]{64}$/.test(record.Id) &&
+        /^sha256:[a-f0-9]{64}$/.test(record.Image) &&
+        record.State.Running &&
+        !record.State.Restarting &&
+        !record.State.Paused &&
+        !record.State.Dead &&
+        Number.isSafeInteger(record.State.Pid) &&
+        record.State.Pid > 0 &&
+        record.RestartCount === 0 &&
+        record.State.StartedAt &&
+        Number.isFinite(Date.parse(record.State.StartedAt)) &&
+        (role === "worker" || record.State.Health?.Status === "healthy") &&
+        Object.keys(record.NetworkSettings.Networks).length === 1 &&
+        attached?.NetworkID === network.Id &&
+        isIP(attached.IPAddress) === 4,
+      "sandbox_consumer_binding_invalid",
+    );
+    roles[role] = Object.freeze({
+      id: record.Id,
+      imageId: record.Image,
+      ip: attached.IPAddress,
+      pid: record.State.Pid,
+      startedAt: record.State.StartedAt,
+    });
+  }
+  assert(
+    new Set(Object.values(roles).map((r) => r.id)).size === 3 &&
+      new Set(Object.values(roles).map((r) => r.ip)).size === 3 &&
+      new Set(Object.values(roles).map((r) => r.imageId)).size === 1,
+    "sandbox_consumer_binding_not_exclusive",
+  );
+  return Object.freeze({
+    projectName,
+    network: Object.freeze({ id: network.Id, name: network.Name }),
+    roles: Object.freeze(roles),
+  });
+}
+
+/** Read and attest owned runtime identities; no credentials enter the lifecycle callback. */
+export async function collectSelfHostedOwnedBinding(
+  envFile: string,
+  directory: string,
+  projectName: string,
+  apiOrigin: string,
+): Promise<SelfHostedOwnedBinding> {
+  assert(
+    envFile === join(directory, "self-hosted.env"),
+    "sandbox_env_binding_invalid",
+  );
+  assertSelfHostedResumeOrigin(await readFile(envFile, "utf8"), apiOrigin);
+  return withSandboxAuthority(
+    directory,
+    async ({
+      config,
+      state,
+      lock,
+      inventory,
+      census,
+      operator,
+      postgresImageId,
+    }) => {
+      const all = await census();
+      inventory.inspect(all, "initial");
+      const records = all.filter(
+        (r) =>
+          r.Config.Labels["com.docker.compose.project"] === projectName &&
+          composeRoles.includes(
+            r.Config.Labels["com.docker.compose.service"] as ComposeRole,
+          ),
+      ) as ComposeInspection[];
+      const network = JSON.parse(
+        await dockerCommand(["network", "inspect", `${projectName}_default`]),
+      ) as NetworkInspection[];
+      assert(network.length === 1, "sandbox_network_inventory_invalid");
+      const compose = projectSelfHostedComposeBinding(
+        projectName,
+        network[0]!,
+        records,
+      );
+      const api = records.find((record) => record.Id === compose.roles.api.id)!;
+      const published = api.NetworkSettings.Ports?.["4000/tcp"];
+      assert(
+        published?.length === 1 &&
+          published[0]!.HostIp === "127.0.0.1" &&
+          published[0]!.HostPort === new URL(apiOrigin).port,
+        "sandbox_api_published_binding_invalid",
+      );
+      const generated = await readFile(join(operator, "router.env"), "utf8");
+      const expected = Object.fromEntries(
+        generated
+          .trim()
+          .split("\n")
+          .map((line) => {
+            const equal = line.indexOf("=");
+            assert(equal > 0, "generated_memory_setting_invalid");
+            return [line.slice(0, equal), line.slice(equal + 1)];
+          }),
+      );
+      assertComposeMemoryEnvironment(records, expected);
+      await lock.assertHeld();
+      return Object.freeze({
+        ...compose,
+        directory,
+        envFile,
+        operatorDirectory: operator,
+        apiOrigin,
+        native: Object.freeze({
+          deployment: config.deployment,
+          imageId: state.imageId,
+          postgresImageId,
+          configurationDigest: state.configurationDigest,
+          containers: Object.freeze({ ...state.containers }),
+          apiHost: config.apiBindHost,
+          apiPort: config.apiPort,
+          namespace: config.namespace,
+          generation: config.generation,
+          deploymentLockPath: join(operator, "deployment.lock"),
+        }),
+      });
+    },
+  ).catch(() => {
+    throw new Error("selfhost_owned_binding_refused");
+  });
+}
 
 /** Uses the real first-install owner; no qualification or provider is substituted. */
 export async function installSelfHostedMemory(
@@ -279,8 +546,28 @@ export async function resumeSelfHostedMemory(
   directory: string,
   apiOrigin: string,
   assertApiStillRunning: () => Promise<void>,
+  options: Pick<SelfHostedE2EOptions, "configuredApiOrigin"> = {},
 ) {
-  assertSelfHostedResumeOrigin(await readFile(envFile, "utf8"), apiOrigin);
+  const environment = await readFile(envFile, "utf8");
+  assertSelfHostedResumeOrigin(environment, apiOrigin);
+  const configuredOrigin = options.configuredApiOrigin;
+  if (configuredOrigin !== undefined) {
+    assertSelfHostedConfiguredResumeOrigin(environment, configuredOrigin);
+    const response = await fetch(new URL("/health", configuredOrigin), {
+      redirect: "error",
+      signal: AbortSignal.timeout(5000),
+    });
+    assert(response.status === 200, "configured_sandbox_api_health_status");
+    const health = (await response.json()) as {
+      service?: unknown;
+      status?: unknown;
+    };
+    assert(
+      health?.service === "review-router-api" && health.status === "ok",
+      "configured_sandbox_api_health_payload",
+    );
+    await assertApiStillRunning();
+  }
   const operator = join(directory, "memory-operator");
   const paths = [
     envFile,
@@ -316,9 +603,13 @@ export async function resumeSelfHostedMemory(
   );
   // The stop owner releases the lock before the normal resume owner acquires it.
   // Any failed/ambiguous resume is preserved by the outer acceptance runner.
-  // Readiness uses synthetic public callback origins; this existing operator
-  // interface explicitly targets the real sandbox API without DNS overrides.
-  const resumed = (await bootstrap("resume", original.config, apiOrigin)) as {
+  // Default CI uses the explicit owned loopback interface. Configured acceptance
+  // instead exercises the normal setup owner reading its real saved HTTPS URL.
+  const resumed = (
+    configuredOrigin === undefined
+      ? await bootstrap("resume", original.config, apiOrigin)
+      : await resumeMemory(envFile, operator)
+  ) as {
     phase?: string;
     resumed?: boolean;
   };
@@ -338,8 +629,11 @@ export async function resumeSelfHostedMemory(
   assert.deepEqual(after, before, "resume_changed_saved_installation_bindings");
   const receipt = {
     status: "selfhost_native_explicit_resume_passed",
-    operator: "bootstrap resume",
-    setupResumeUrlDerivationExercised: false,
+    operator:
+      configuredOrigin === undefined
+        ? "bootstrap resume"
+        : "setup-memory resume",
+    setupResumeUrlDerivationExercised: configuredOrigin !== undefined,
     sameContainerIds: true,
     sameSavedBindings: true,
     composeApiStayedRunning: true,
@@ -400,6 +694,7 @@ type SandboxAuthority = {
   operator: string;
   config: ReturnType<typeof validateConfig>;
   state: State;
+  postgresImageId: string;
   ids: string[];
   lock: Awaited<ReturnType<typeof acquireDeploymentLock>>;
   inventory: CleanupHostInventory;
@@ -496,6 +791,7 @@ async function withSandboxAuthority<T>(
       operator,
       config,
       state,
+      postgresImageId: pgImage,
       ids,
       lock,
       inventory,

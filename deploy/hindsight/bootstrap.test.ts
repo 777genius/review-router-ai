@@ -253,6 +253,14 @@ test("completed resume preserves exact entrypoints and refuses debt, wrong bindi
     "null-container-entrypoint",
     "absent-container-entrypoint",
     "changed-nonempty-entrypoint",
+    "begin-refused-400",
+    "begin-refused-403",
+    "begin-refused-409",
+    "begin-transport",
+    "begin-unavailable",
+    "begin-refused-epoch",
+    "begin-refused-owner",
+    "begin-refused-paused",
   ] as const)
     await t.test(failure, async () => {
       const directory = await mkdtemp(
@@ -296,9 +304,39 @@ test("completed resume preserves exact entrypoints and refuses debt, wrong bindi
           .digest("hex"),
       };
       let requests = 0;
-      const server = createServer((_request, response) => {
+      let beginRequests = 0;
+      let followupAfterBegin = false;
+      const methods: string[] = [];
+      const beginCase = failure.startsWith("begin-");
+      const definitelyUnowned = [
+        "begin-refused-400",
+        "begin-refused-403",
+        "begin-refused-409",
+      ].includes(failure);
+      const server = createServer((request, response) => {
         requests++;
+        methods.push(`${request.method} ${request.url}`);
         response.setHeader("content-type", "application/json");
+        if (request.url?.endsWith("/begin")) {
+          beginRequests++;
+          followupAfterBegin = true;
+          if (failure === "begin-transport") {
+            response.destroy();
+            return;
+          }
+          response.statusCode =
+            failure === "begin-unavailable"
+              ? 503
+              : failure === "begin-refused-400"
+                ? 400
+                : failure === "begin-refused-403"
+                  ? 403
+                  : 409;
+          response.end("{}");
+          return;
+        }
+        const freshAfterBegin = followupAfterBegin;
+        followupAfterBegin = false;
         response.end(
           JSON.stringify({
             binding:
@@ -307,10 +345,25 @@ test("completed resume preserves exact entrypoints and refuses debt, wrong bindi
                 : binding,
             bindingDigest: memoryNativeStartupBindingDigest(binding),
             generation: config.generation,
-            epoch: "0",
-            paused: false,
-            owner: null,
-            cleanupDebt: failure === "debt" || nullishEntrypoint,
+            epoch:
+              failure === "begin-refused-owner"
+                ? "2"
+                : failure === "begin-refused-epoch" && beginRequests > 0
+                  ? "1"
+                  : "0",
+            paused: failure === "begin-refused-paused" && beginRequests > 0,
+            owner:
+              failure === "begin-refused-owner"
+                ? {
+                    attemptId: "00000000-0000-4000-8000-000000000001",
+                    bindingDigest: memoryNativeStartupBindingDigest(binding),
+                    phase: "complete",
+                  }
+                : null,
+            cleanupDebt:
+              failure === "debt" ||
+              nullishEntrypoint ||
+              (failure === "begin-refused-409" && freshAfterBegin),
           }),
         );
       });
@@ -503,7 +556,7 @@ test("completed resume preserves exact entrypoints and refuses debt, wrong bindi
           routerEnvironmentDigest: "a".repeat(64),
           containers: { api, worker, postgres },
         };
-        await assert.rejects(
+        const resume = () =>
           resumeNativeDeployment(
             config,
             state,
@@ -512,8 +565,59 @@ test("completed resume preserves exact entrypoints and refuses debt, wrong bindi
             async () => {
               throw new Error("unexpected readiness");
             },
-          ),
-        );
+          );
+        await assert.rejects(resume());
+        if (beginCase) {
+          const journalPath = join(directory, "resume-attempt.json");
+          const first = JSON.parse(await readFile(journalPath, "utf8"));
+          assert.equal(
+            first.phase,
+            definitelyUnowned ? "aborted" : "ambiguous",
+          );
+          assert.deepEqual(first.startIntents, []);
+          assert.equal(beginRequests, 1);
+          assert.equal(requests, definitelyUnowned ? 3 : 4);
+          if (definitelyUnowned) {
+            // A normal later invocation archives the definite refusal and reaches
+            // a fresh begin; its second refusal is not hidden by the old journal.
+            await assert.rejects(
+              resume(),
+              /Router refused startup before any effect/,
+            );
+            const next = JSON.parse(await readFile(journalPath, "utf8"));
+            assert.equal(next.phase, "aborted");
+            assert.notEqual(next.attemptId, first.attemptId);
+            assert.deepEqual(
+              JSON.parse(
+                await readFile(
+                  join(directory, `resume-attempt-${first.attemptId}.json`),
+                  "utf8",
+                ),
+              ),
+              first,
+            );
+            assert.equal(beginRequests, 2);
+            assert.equal(requests, 6);
+          } else {
+            await assert.rejects(
+              resume(),
+              /Previous resume remains unresolved/,
+            );
+            assert.deepEqual(
+              JSON.parse(await readFile(journalPath, "utf8")),
+              first,
+            );
+            assert.equal(beginRequests, 1);
+            assert.equal(requests, 5);
+          }
+          assert(
+            methods.every(
+              (method) =>
+                method === "GET /api/internal/memory/startup" ||
+                method === "POST /api/internal/memory/startup/begin",
+            ),
+          );
+        }
         const calls = await readFile(join(directory, "calls"), "utf8");
         assert(
           !calls.includes('"start"') &&
@@ -521,15 +625,20 @@ test("completed resume preserves exact entrypoints and refuses debt, wrong bindi
             !calls.includes(password) &&
             !calls.includes(token),
         );
-        assert.equal(
-          requests,
-          ["volume-user", "changed-nonempty-entrypoint"].includes(failure)
-            ? 0
-            : 1,
-        );
-        await assert.rejects(readFile(join(directory, "resume-attempt.json")), {
-          code: "ENOENT",
-        });
+        if (!beginCase) {
+          assert.equal(
+            requests,
+            ["volume-user", "changed-nonempty-entrypoint"].includes(failure)
+              ? 0
+              : 1,
+          );
+          await assert.rejects(
+            readFile(join(directory, "resume-attempt.json")),
+            {
+              code: "ENOENT",
+            },
+          );
+        }
       } finally {
         if (oldPath === undefined) delete process.env.PATH;
         else process.env.PATH = oldPath;

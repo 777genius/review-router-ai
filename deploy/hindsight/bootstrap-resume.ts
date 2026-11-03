@@ -549,12 +549,24 @@ export async function resumeNativeDeployment(
     expectedEpoch,
   });
   let finishUncertain = false;
+  let beginRefused = false;
   try {
     let paused: Status;
     try {
       paused = await request("/begin", change(initial.epoch));
-    } catch {
+    } catch (error) {
+      beginRefused = error instanceof Refused;
       paused = await request("");
+    }
+    if (
+      beginRefused &&
+      paused.owner === null &&
+      !paused.paused &&
+      paused.epoch === initial.epoch
+    ) {
+      attempt.phase = "aborted";
+      await save();
+      throw new Refused("Router refused startup before any effect");
     }
     assert(
       owned(paused, "paused") && !paused.cleanupDebt,
@@ -659,7 +671,13 @@ export async function resumeNativeDeployment(
       attemptId: attempt.attemptId,
       maintenanceEpoch: finished.epoch,
     };
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Refused &&
+      attempt.phase === "aborted" &&
+      attempt.startIntents.length === 0
+    )
+      throw error;
     let current: Status | undefined;
     try {
       current = await request("");
@@ -693,12 +711,14 @@ export async function resumeNativeDeployment(
       await save();
       throw new Error(
         "Native resume refused; own started writers stopped, Router remains paused for normal cleanup/reconciliation",
+        { cause: error },
       );
     }
     attempt.phase = "ambiguous";
     await save();
     throw new Error(
       "Native resume outcome is unresolved; preserve the exact attempt and inspect startup status before any lifecycle operation",
+      { cause: error },
     );
   }
 }
