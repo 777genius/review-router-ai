@@ -1,20 +1,6 @@
-import type { RepositoryWorkflowCheck } from "../../domain/repository-health";
-
-export type { RepositoryWorkflowCheck };
-
-export type RepositoryWorkflowProbeInput = {
-  readonly githubInstallationId: string;
-  readonly owner: string;
-  readonly name: string;
-  readonly defaultBranch: string;
-  readonly workflowPath: string;
-  readonly expectedActionRef: string;
-  readonly expectedContentMarkerGroups?: readonly (readonly string[])[];
-  readonly expectedContentValidator?: (workflow: string) => boolean;
-};
-
-export interface RepositoryWorkflowProbePort {
-  probeWorkflow(
-    input: RepositoryWorkflowProbeInput,
-  ): Promise<RepositoryWorkflowCheck>;
-}
+// The workflow owner defines the capability; health retains its existing public API.
+export type {
+  RepositoryWorkflowCheck,
+  RepositoryWorkflowProbeInput,
+  RepositoryWorkflowProbePort,
+} from "@reviewrouter/features-workflow-provisioning";

@@ -1326,3 +1326,70 @@ it.each(["current", "missing", "stale", "source-stamp"] as const)(
     ).toBe(scenario === "current");
   },
 );
+
+it.each([
+  { name: "legacy", extra: {}, resolutionCalls: 0, result: true },
+  {
+    name: "invalid MCP selection",
+    extra: { mcpSecrets: { KEY: "SECRET" } },
+    resolutionCalls: 0,
+    result: false,
+  },
+  {
+    name: "invalid discussion selection",
+    extra: { discussionMode: "suggest" as const },
+    resolutionCalls: 0,
+    result: false,
+  },
+  {
+    name: "managed",
+    extra: { codexSessionMode: "account-gateway" as const },
+    resolutionCalls: 1,
+    result: false,
+  },
+  {
+    name: "rotating",
+    extra: { codexRotatingProviderInstanceId: "codex-rotating:123456" },
+    resolutionCalls: 1,
+    result: false,
+  },
+])(
+  "preserves unavailable API URL admission for $name",
+  async ({ extra, resolutionCalls, result }) => {
+    const resolvePublicApiUrl = vi.fn(() => {
+      throw new Error("missing_env:REVIEW_ROUTER_PUBLIC_API_URL");
+    });
+    const workflowProbe = new CapturingWorkflowProbe({
+      status: "present",
+      expectedActionRefFound: true,
+    });
+    await expect(
+      isWorkflowSetupAlreadyCurrent(
+        { ...readinessInput, ...extra },
+        { workflowProbe, resolvePublicApiUrl },
+      ),
+    ).resolves.toBe(result);
+    expect(resolvePublicApiUrl).toHaveBeenCalledTimes(resolutionCalls);
+    expect(workflowProbe.inputs.length).toBe(result ? 1 : 0);
+  },
+);
+
+it("preserves a secrets caller's explicit API URL configuration failure", async () => {
+  const failure = new Error("missing_env:REVIEW_ROUTER_PUBLIC_API_URL");
+  const workflowProbe = new CapturingWorkflowProbe({
+    status: "present",
+    expectedActionRefFound: true,
+  });
+  await expect(
+    isWorkflowSetupAlreadyCurrent(
+      { ...readinessInput, secretsRuntimeActionRef: versionedActionRef },
+      {
+        workflowProbe,
+        resolvePublicApiUrl: () => {
+          throw failure;
+        },
+      },
+    ),
+  ).rejects.toBe(failure);
+  expect(workflowProbe.inputs).toEqual([]);
+});

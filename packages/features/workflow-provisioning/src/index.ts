@@ -36,3 +36,6 @@ export * from "./application/use-cases/provision-hosted-pool-workflow";
 export * from "./application/provision-gateway-review-v2-repository";
 export * from "./application/confirm-installed-gateway-review-repository";
 export * from "./application/workflow-provisioning-outcome";
+
+export * from "./application/ports/repository-workflow-probe-port";
+export * from "./application/use-cases/inspect-workflow-setup-readiness";

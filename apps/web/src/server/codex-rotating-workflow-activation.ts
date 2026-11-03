@@ -1,3 +1,8 @@
+import {
+  readGitHubWorkflowRepositoryIdentity,
+  readGitHubWorkflowCommitSha,
+  readGitHubVerifiedWorkflowBlob,
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import { createHash } from "node:crypto";
 import {
   canonicalCodexRotatingProviderId,
@@ -354,71 +359,16 @@ function defaultWorkflowSourcePort(
   };
 }
 
-function readGitHubRepositoryIdentity(data: unknown): {
-  readonly id: string;
-  readonly fullName: string;
-  readonly defaultBranch: string;
-} {
-  const repository = data as {
-    id?: unknown;
-    full_name?: unknown;
-    default_branch?: unknown;
-  } | null;
-  if (
-    typeof repository?.id !== "number" ||
-    !Number.isSafeInteger(repository.id) ||
-    repository.id <= 0 ||
-    typeof repository.full_name !== "string" ||
-    typeof repository.default_branch !== "string" ||
-    repository.default_branch.length === 0
-  ) {
-    throw new Error("codex_rotating_workflow_repository_invalid_response");
-  }
-  return {
-    id: String(repository.id),
-    fullName: repository.full_name,
-    defaultBranch: repository.default_branch,
-  };
+function readGitHubRepositoryIdentity(data: unknown) {
+  return readGitHubWorkflowRepositoryIdentity(data, "codex_rotating_workflow");
 }
 
 function readGitHubCommitSha(data: unknown): string {
-  const sha = (data as { object?: { sha?: unknown } } | null)?.object?.sha;
-  if (typeof sha !== "string" || !/^[a-f0-9]{40}$/i.test(sha)) {
-    throw new Error("codex_rotating_workflow_commit_invalid_response");
-  }
-  return sha.toLowerCase();
+  return readGitHubWorkflowCommitSha(data, "codex_rotating_workflow");
 }
 
-function readGitHubWorkflowBlob(data: unknown): {
-  readonly source: string;
-  readonly blobSha: string;
-} {
-  const blob = data as {
-    type?: unknown;
-    encoding?: unknown;
-    content?: unknown;
-    sha?: unknown;
-  } | null;
-  if (
-    blob?.type !== "file" ||
-    blob.encoding !== "base64" ||
-    typeof blob.content !== "string" ||
-    typeof blob.sha !== "string" ||
-    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(blob.sha)
-  ) {
-    throw new Error("codex_rotating_workflow_content_invalid_response");
-  }
-  const source = Buffer.from(
-    blob.content.replace(/\s+/g, ""),
-    "base64",
-  ).toString("utf8");
-  const blobSha = blob.sha.toLowerCase();
-  const computed = createHash(blobSha.length === 40 ? "sha1" : "sha256")
-    .update(`blob ${Buffer.byteLength(source, "utf8")}\0`, "utf8")
-    .update(source, "utf8")
-    .digest("hex");
-  if (computed !== blobSha) {
-    throw new Error("codex_rotating_workflow_blob_sha_mismatch");
-  }
-  return { source, blobSha };
+function readGitHubWorkflowBlob(data: unknown) {
+  return readGitHubVerifiedWorkflowBlob(data, {
+    errorPrefix: "codex_rotating_workflow",
+  });
 }

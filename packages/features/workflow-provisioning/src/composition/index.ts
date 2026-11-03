@@ -11,3 +11,5 @@ export * from "../infrastructure/github/managed-review-v2-workflow-inventory";
 export * from "../infrastructure/github/octokit-review-v2-dispatch-capability-inspector";
 export * from "../infrastructure/prisma/prisma-gateway-review-v2-provisioning";
 export * from "../infrastructure/prisma/prisma-installed-gateway-review-confirmation";
+
+export * from "../infrastructure/github/github-workflow-source-reader";

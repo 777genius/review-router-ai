@@ -2,8 +2,9 @@
 
 Date: 2026-11-04 (Europe/Kiev)
 Baseline: `f952f7c8e72277c8367a20769db0b8d7bc548219`
-Status: three independent cross-reviews completed; the reviewed contracts below
-govern implementation in draft PR #810. This file is the delivery plan
+Status: implementation checkpoints published; independent implementation review
+is in progress in PR #810. The reviewed contracts below govern implementation.
+This file is the delivery plan
 and evidence journal, not a claim of completed qualification or deployment.
 
 ## Objective
@@ -108,8 +109,8 @@ changes, full compiler migration and all-repository barrel rewriting.
   do not retry as if the external operation were known not to have happened.
 - Post-commit audit failure preserves the persisted successful state and does
   not enter external provisioning failure cleanup.
-- Exercise real PostgreSQL plus the existing HTTP GitHub fixture and real
-  Octokit adapter. Strengthen the existing concurrency regression rather than
+- Exercise real PostgreSQL plus the existing in-memory GitHub request fixture
+  and real Octokit adapter. Strengthen the existing concurrency regression rather than
   creating a second test harness. Cover both provisioning variants at their
   application boundaries and existing web/operator result mapping.
 
@@ -309,3 +310,67 @@ exports that reintroduce those layers, including type-only edges. Migrate mocks,
 namespace/dynamic consumers and production export emission. The selected rule
 is a bounded adoption; it does not claim purity of the legacy Codex/provider
 graphs or extend unrelated strict-context constraints to these packages.
+
+## Implementation checkpoints and review refinements
+
+Checkpoint `43ee9501106422f1d53a9dc1d43a2a6609d0fc07` published A1, B and C
+immediately after creation. Source author and committer are the maintained
+integration identity. The PR is ready for review so existing required CI can run
+while the remaining bounded work and critics continue.
+
+- A1 discriminating regressions failed against the original outcome handling.
+  The focused workflow/host batch passed 340 tests; expanded outcome/host
+  suites also passed. Exact stale-attempt PostgreSQL assertions were strengthened.
+- B's same two host regressions passed for the original API but failed for the
+  original worker (foreign pending ownership and malformed projection). The
+  shared resolver batch passed 110 tests, with one existing skipped scenario.
+- C passed 41 architecture harness cases, the direct architecture check and
+  361 tests across migrated consumer/mock suites. The selected three packages
+  build and resolve their composition entries under source and production
+  conditions. This is not full production startup qualification.
+- Native TypeScript 7.0.2 passed the affected feature/API/worker/web/modular
+  projects. Tooling also passed after building shared outputs, including the
+  existing production E2E harness now covered by its native project.
+- A2's readiness/source extraction passed 341 tests across eight focused suites
+  and native workflow-provisioning, repo-health and web checks. The existing
+  probe contract moves to its workflow consumer to avoid a package cycle;
+  repo-health retains type re-exports. A small pure mode classifier lets the
+  web adapter preserve lazy URL-error semantics with an explicit application
+  value. There is no environment-reading property getter in the contract.
+
+These test groups overlap and must not be added into a claimed total. Native
+PostgreSQL cannot run in this local UID namespace. Real PostgreSQL concurrency
+and API/worker E2E execution are pending the existing CI services; no local PG,
+live GitHub/provider or deployment success is claimed.
+
+Implementation review round 1 found the following bounded gaps. They are part
+of acceptance and must be fixed and independently re-reviewed:
+
+1. The official Hosted Pool CLI discarded the precise operator error and known
+   committed PR on non-2xx responses. Preserve only approved outcome codes and
+   validated committed PR fields, with inspect-before-retry guidance. Do not
+   print arbitrary response fields or internal causes.
+2. Selected packages could add an infrastructure alias under a harmless export
+   name. Pin the selected packages' existing public subpaths and their exact
+   source/type/production targets, preserving review-config's five legitimate
+   domain subpaths. Include those core entrypoints in the bounded purity walk;
+   do not build an all-repository alias resolver.
+3. When the gateway threw but the failed-attempt write applied, the original
+   provider error still lost the fact that external effects may already exist.
+   Complete that narrow contract with `workflow_provisioning_external_uncertain`:
+   gateway entered, no confirmed PR response, exact failure settlement and any
+   existing failure audit applied. Keep the internal original safe summary and
+   cause; expose no committed PR. Hosts direct the user to inspect current
+   status and GitHub before another setup request. Preserve approved recovery
+   diagnostics such as an untrusted workflow path. Preparation failures before
+   gateway entry retain their existing behavior. No retries, new ledger or
+   reconciliation engine are introduced.
+4. Remove the now-unused API `exactRestoredPublication` helper and its redundant
+   isolated test. Its active proof lives in the publication feature; keep the
+   independently used `persistedReviewExecutionRestore` helper.
+
+The fourth outcome above refines the original three-code settlement/audit
+contract after two independent critics reproduced the host information gap.
+It does not change the database's known failed-attempt state into persistence
+uncertainty. Preserve cleanup of the new transient dashboard parameter and
+redirect presentation as part of the same host contract.
