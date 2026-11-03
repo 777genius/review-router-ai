@@ -428,6 +428,8 @@ describe.skipIf(!databaseUrl)(
                             {
                               body: "Opaque identifiers preserve leading zeroes.",
                               sourceQuote: projection.source.body,
+                              supportMessageId: projection.source.id,
+                              supportQuote: projection.source.body,
                             },
                           ],
                         }),
@@ -495,6 +497,9 @@ describe.skipIf(!databaseUrl)(
     it.each([
       "consume",
       "wrong_quote",
+      "bot_support",
+      "unknown_support",
+      "mismatched_support_quote",
       "revoked_before_dispatch",
       "delivery_progress",
       "ownership_transfer",
@@ -589,6 +594,18 @@ describe.skipIf(!databaseUrl)(
                 mode === "wrong_quote"
                   ? snapshot.messages[0]!.body
                   : snapshot.messages[1]!.body,
+              supportMessageId:
+                mode === "bot_support"
+                  ? snapshot.messages[0]!.id
+                  : mode === "unknown_support"
+                    ? "not-a-checked-message"
+                    : snapshot.sourceId,
+              supportQuote:
+                mode === "bot_support"
+                  ? snapshot.messages[0]!.body
+                  : mode === "mismatched_support_quote"
+                    ? "Invented technical referent."
+                    : snapshot.messages[1]!.body,
             },
           ],
           { deadlineAt: new Date(Date.now() + 30000) },
@@ -614,6 +631,8 @@ describe.skipIf(!databaseUrl)(
               {
                 body: "Opaque identifiers preserve leading zeroes.",
                 sourceQuote: snapshot.messages[1]!.body,
+                supportMessageId: snapshot.sourceId,
+                supportQuote: snapshot.messages[1]!.body,
               },
             ]),
           );
@@ -625,6 +644,8 @@ describe.skipIf(!databaseUrl)(
                   {
                     body: "A different result must not replace the frozen selection.",
                     sourceQuote: snapshot.messages[1]!.body,
+                    supportMessageId: snapshot.sourceId,
+                    supportQuote: snapshot.messages[1]!.body,
                   },
                 ],
                 { deadlineAt: new Date(Date.now() + 30000) },
@@ -995,7 +1016,12 @@ describe.skipIf(!databaseUrl)(
             maxItems: 4,
             items: {
               additionalProperties: false,
-              required: ["body", "sourceQuote"],
+              required: [
+                "body",
+                "sourceQuote",
+                "supportMessageId",
+                "supportQuote",
+              ],
               properties: {
                 body: { type: "string", minLength: 1, maxLength: 1000 },
                 sourceQuote: { type: "string", minLength: 1, maxLength: 1000 },
@@ -1086,6 +1112,8 @@ describe.skipIf(!databaseUrl)(
             {
               body: "Opaque identifiers preserve leading zeroes.",
               sourceQuote: snapshot.messages[0]!.body,
+              supportMessageId: snapshot.sourceId,
+              supportQuote: snapshot.messages[1]!.body,
             },
           ],
         }),
@@ -1109,9 +1137,18 @@ describe.skipIf(!databaseUrl)(
       const context = {
         ...snapshot,
         messages: [
+          snapshot.messages[0]!,
           {
             ...snapshot.messages[0]!,
+            id: "github-node:human-proposal",
+            commentId: "3",
+            replyTo: "1",
             body: "Cache keys are case-sensitive.",
+            actor: {
+              id: "contributor",
+              login: "contributor",
+              kind: "human" as const,
+            },
             bodyDigest: createHash("sha256")
               .update("Cache keys are case-sensitive.")
               .digest("hex"),
@@ -1133,6 +1170,8 @@ describe.skipIf(!databaseUrl)(
             {
               body: "Cache keys are case-sensitive.",
               sourceQuote: "that is how cache keys behave",
+              supportMessageId: "github-node:human-proposal",
+              supportQuote: "Cache keys are case-sensitive.",
             },
           ],
         }),
@@ -1147,6 +1186,100 @@ describe.skipIf(!databaseUrl)(
       expect(f.requests).toHaveLength(1);
       expect(f.closes()).toBe(1);
     });
+    it("rejects an earlier human message revised after the current endorsement", async () => {
+      const body = "Yes, that is the cache-key convention.";
+      const support = "Cache keys are case-sensitive.";
+      const context = {
+        ...snapshot,
+        messages: [
+          snapshot.messages[0]!,
+          {
+            ...snapshot.messages[1]!,
+            id: "github-node:earlier-proposal",
+            commentId: "3",
+            actor: {
+              id: "contributor",
+              login: "contributor",
+              kind: "human" as const,
+            },
+            body: support,
+            bodyDigest: createHash("sha256").update(support).digest("hex"),
+            createdAt: new Date(
+              Date.parse(snapshot.messages[1]!.createdAt) - 1000,
+            ).toISOString(),
+            updatedAt: new Date(
+              Date.parse(snapshot.messages[1]!.updatedAt) + 1000,
+            ).toISOString(),
+          },
+          {
+            ...snapshot.messages[1]!,
+            body,
+            bodyDigest: createHash("sha256").update(body).digest("hex"),
+          },
+        ],
+      };
+      const f = await fixture(
+        undefined,
+        false,
+        true,
+        "medium",
+        JSON.stringify({
+          statements: [
+            {
+              body: support,
+              sourceQuote: body,
+              supportMessageId: "github-node:earlier-proposal",
+              supportQuote: support,
+            },
+          ],
+        }),
+        context,
+      );
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.requests).toHaveLength(1);
+      expect(f.closes()).toBe(1);
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.requests).toHaveLength(1);
+    });
+
+    it("rejects later human evidence even when its quote and ID are exact", async () => {
+      const context = {
+        ...snapshot,
+        messages: [
+          ...snapshot.messages,
+          {
+            ...snapshot.messages[1]!,
+            id: "github-node:future",
+            createdAt: new Date(
+              Date.parse(snapshot.messages[1]!.createdAt) + 1000,
+            ).toISOString(),
+          },
+        ],
+      };
+      const f = await fixture(
+        undefined,
+        false,
+        true,
+        "medium",
+        JSON.stringify({
+          statements: [
+            {
+              body: "Opaque identifiers preserve leading zeroes.",
+              sourceQuote: snapshot.messages[1]!.body,
+              supportMessageId: "github-node:future",
+              supportQuote: snapshot.messages[1]!.body,
+            },
+          ],
+        }),
+        context,
+      );
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.requests).toHaveLength(1);
+      expect(f.closes()).toBe(1);
+      expect((await f.preview()).status).toBe("incomplete");
+      expect(f.requests).toHaveLength(1);
+    });
+
     it.each([1, 1000, 1001])(
       "enforces the literal quote length bound independently of substring matching (%i characters)",
       async (length) => {
@@ -1169,7 +1302,12 @@ describe.skipIf(!databaseUrl)(
           "medium",
           JSON.stringify({
             statements: [
-              { body: "A concrete fact.", sourceQuote: body.slice(0, length) },
+              {
+                body: "A concrete fact.",
+                sourceQuote: body.slice(0, length),
+                supportMessageId: snapshot.sourceId,
+                supportQuote: "x",
+              },
             ],
           }),
           context,
@@ -1206,6 +1344,20 @@ describe.skipIf(!databaseUrl)(
     ])(
       "invalid text JSON extraction %s produces no statements or retry",
       async (modelText) => {
+        // Keep the original malformed-field cases independent of the new evidence fields.
+        try {
+          const parsed = JSON.parse(modelText);
+          if (Array.isArray(parsed.statements)) {
+            for (const statement of parsed.statements)
+              Object.assign(statement, {
+                supportMessageId: snapshot.sourceId,
+                supportQuote: snapshot.messages[1]!.body,
+              });
+            modelText = JSON.stringify(parsed);
+          }
+        } catch {
+          /* Keep malformed JSON unchanged. */
+        }
         const f = await fixture(undefined, false, true, "medium", modelText);
         expect((await f.preview()).status).toBe("incomplete");
         expect(f.prepares).toHaveLength(1);

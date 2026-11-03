@@ -8,7 +8,7 @@
   claim, further tuning run or protected checkpoint is credited here.
 - Official private227 was published and installed independently (source dbc).
   This new one-turn candidate is not in227, is unqualified and is not deployed.
-  Deployment and model qualification remain a separate deferred delivery step.
+  Deployment is now assigned to a single release owner; activation remains blocked by the actual tuning failure below.
 
 | Environment | Status  | Actual version               | Remaining work                                                                  |
 | ----------- | ------- | ---------------------------- | ------------------------------------------------------------------------------- |
@@ -65,3 +65,30 @@ There is no migration or automatic activation. Rollback follows the normal relea
 [runbook](../operations/07-environments-and-release-management.md); withdrawing an unqualified candidate is not permission to replay inference,
 relabel an old source proof or close unresolved operations. Record actual source QA
 and future delivery evidence before changing environment status.
+
+## Actual first live tuning and evidence repair — 2026-11-03
+
+The merged [PR804](https://github.com/777genius/review-router-ai/pull/804) source
+`849f319a2` completed all 50 tuning events using the selected FREE account and
+one parent request per inferred event. The maintained official scorer returned
+**FAIL** after owner-delegated agent semantic review: retained precision20/23,
+eligible recall20/21 and three unauthorized effects. The
+[sanitized result and retained evidence hashes](evidence/2026-11-03-memory-one-turn-tuning-r1.json)
+record the exact source profile and scope. No protected checkpoint was consumed.
+
+The decoder proved a literal current endorsement quote, but did not bind the
+selected technical proposition to its checked human message. A bot-origin
+quoted referent and two discussion-status statements were retained. The [repair in PR805](https://github.com/777genius/review-router-ai/pull/805) adds
+checked human-message identity and literal technical supporting
+evidence while preserving current-maintainer authority, implicit adoption,
+one parent request and independent action validation. Provenance checks cannot
+prove semantic eligibility by themselves: rejected/unresolved status must still
+be assessed by fresh actual-output qualification. No lexical classifier, corpus
+exception or scoring threshold relaxation is authorized by this repair.
+
+Further tuning, protected evaluation and activation of the failed candidate
+stopped. The source repair requires focused regressions, normal source review
+and protected CI, then fresh semantic qualification before release activation.
+Production remains the separately installed227/dbc with prior settings and
+native state preserved; self-hosted genuine capability distribution and
+first-install/update acceptance remain pending.

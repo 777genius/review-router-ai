@@ -693,6 +693,8 @@ describe.skipIf(!databaseUrl)(
           {
             body: "A separately grounded fact.",
             sourceQuote: "A current source fact.",
+            supportMessageId: "github-node:PRRC_105",
+            supportQuote: "A current source fact.",
           },
         ];
         const envelope = {
