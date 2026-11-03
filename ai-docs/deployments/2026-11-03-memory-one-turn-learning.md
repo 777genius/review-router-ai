@@ -8,11 +8,11 @@
   claim, further tuning run or protected checkpoint is credited here.
 - Official private227 was published independently; the fleet remains226/source6e.
   This new one-turn candidate is not in227, is unqualified and is not deployed.
-  Deployment and any model qualification are deferred to separate authorization.
+  Deployment and model qualification remain a separate deferred delivery step.
 
 | Environment | Status  | Actual version               | Remaining work                                                                  |
 | ----------- | ------- | ---------------------------- | ------------------------------------------------------------------------------- |
-| staging     | pending | Not installed                | Source review/checks, genuine selected-model qualification and App acceptance.  |
+| staging     | pending | Not installed                | Genuine selected-model qualification and App acceptance.                        |
 | production  | pending | Existing226/6e unchanged     | Separate normal rollout after qualification; no activation from this source PR. |
 | self-hosted | pending | No genuine capability issued | Normal qualified artifact/distribution and stock acceptance remain separate.    |
 
@@ -44,11 +44,16 @@ reliability runs cannot mix inference mechanisms. No eval run occurred in this t
 
 ## Delivery and rollback
 
-Complete bounded remote affected PG/SDK/type/risk checks and source review, regenerate
-source stamp/verifier and freeze an immutable candidate. Future model qualification
-must use the new source honestly; previous diagnostics or unavailable runs do not
-qualify it. Only then follow normal protected source/release/App/artifact processes
-under separate deployment authorization. Do not change current production settings,
+Remote source QA passed: all 158 affected PostgreSQL/SDK cases and 52 risk cases,
+strict API/evaluation types, lint, formatting, source stamp and generated verifier.
+The initial QA environment failures and targeted failed-phase retries are retained.
+A separate agent reviewed the frozen implementation. These are source checks,
+not model-quality qualification, App acceptance or deployment evidence.
+
+The source-only change may follow normal protected CI and merge while unqualified.
+Future model qualification must use the new source honestly; previous diagnostics
+or unavailable runs do not qualify it. Qualification must precede release
+activation, App and genuine-artifact delivery. Deployment remains deferred. Do not change current production settings,
 FREE defaults/MCP configuration, native generations or any retained UNKNOWN.
 
 There is no migration or automatic activation. Rollback follows the normal release
