@@ -881,20 +881,49 @@ export function createReviewRunGatewayRelay(input: {
     let requestStage: GatewayRequestStage = "session";
     try {
       if (diagnostic) diagnostic.stage = "request";
-      // Exactly one SDK request per inserted reservation. Never enter the
-      // discovery admission_limited wait loop, including positively unpaid calls.
-      upstream = await session.preparation.request(
-        requestRef,
-        body,
-        { signal },
-        async () => {
-          requestStage = "local_authority";
-          await fresh();
-          requestStage = "local_forward";
-          await beforeForward?.();
-          requestStage = "sdk_request";
-        },
+      const waitUntil = Math.min(
+        Date.now() + policy.waitBudgetMs,
+        session.deadline,
       );
+      for (let waits = 0; ; waits++) {
+        try {
+          upstream = await session.preparation.request(
+            requestRef,
+            body,
+            { signal },
+            async () => {
+              requestStage = "local_authority";
+              await fresh();
+              requestStage = "local_forward";
+              await beforeForward?.();
+              requestStage = "sdk_request";
+            },
+          );
+          break;
+        } catch (error) {
+          // Reuse the reservation only for an explicit pre-dispatch admission
+          // refusal. A durable request status or ambiguous outcome is final here.
+          if (
+            !(error instanceof GatewayError) ||
+            error.code !== "safe_error" ||
+            !localLimited(error.diagnostic) ||
+            error.diagnostic?.retry.kind !== "after"
+          )
+            throw error;
+          const milliseconds = Math.max(1, error.diagnostic.retry.milliseconds);
+          if (
+            signal.aborted ||
+            waits >= policy.maxWaits ||
+            Date.now() + milliseconds >= waitUntil
+          )
+            throw error;
+          try {
+            await delay(milliseconds, undefined, { signal });
+          } catch {
+            throw error;
+          }
+        }
+      }
       requestStage = "post_request_authority";
       await fresh();
       if (upstream.kind === "status") {
