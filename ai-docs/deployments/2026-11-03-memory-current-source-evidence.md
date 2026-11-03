@@ -3,17 +3,19 @@
 - Scope: selected-message grounding inside the existing parent and extraction
   SDK calls; no new service, flag, account selection, model call or deadline.
 - Successor to [conversational Memory](2026-10-29-conversational-memory.md).
-  The separate coherent R1 batch may include reviewed source with conversational
-  qualification and its interaction pin still unset. Ordinary code rollout is not
-  automatic-learning qualification or activation. No successor release/image is
-  assigned yet.
+  Reviewed grounding and closed SDK diagnostics through frozen `286804783` shipped
+  as ordinary code in `v1.0.226` / `6e6a0f078`. Qualification and the interaction
+  pin remain unset; code rollout is not automatic-learning qualification.
+  Future [Ready PR800](https://github.com/777genius/review-router-ai/pull/800) at
+  `9a6b1a974`, preview digest `7972021e…`, has source QA and bounded diagnostic evidence, with full tuning unavailable;
+  it is not installed or qualified.
 - Dependencies: normal [release process](../operations/07-environments-and-release-management.md),
   actual selected Account Gateway connection and the existing native backend.
 
-| Environment | Status    | Actual version                                | Remaining work                                                                                          |
-| ----------- | --------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| production  | `pending` | Core `57cc1513`; this successor not installed | Source checks, fresh quality qualification, normal coherent release and installed-App acceptance.       |
-| self-hosted | `pending` | No genuine release capability issued          | Qualified source/runtime artifact, normal distribution and actual stock installation/update acceptance. |
+| Environment | Status        | Actual version                                      | Remaining work                                                                                          |
+| ----------- | ------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below.                                                      |
+| self-hosted | `pending`     | No genuine release capability issued                | Qualified source/runtime artifact, normal distribution and actual stock installation/update acceptance. |
 
 ## Observed failures and repair boundary
 
@@ -137,3 +139,43 @@ the release runbook and retains native generations, commands and cleanup debt;
 never grant an unqualified source or reprepare an unknown identity to recover.
 Record exact deployed source/image, real qualification/App evidence and completed
 self-hosted distribution before changing either environment to `deployed`.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The reviewed grounding and closed-diagnostic implementation through frozen 286
+is ordinary code shipped in 226, not automatic-learning qualification. Ready
+PR800 at `9a6b1a974`, preview digest797, remains uninstalled. Its later diagnostic
+and unavailable T1 below grant no semantic PASS, H3 checkpoint, capability or
+genuine self-hosted artifact/HTTPS acceptance.
+
+Staging remains unchanged and unverified by this production batch.
+
+## Future PR800 source observations — not production activation
+
+The `9a6b1a974` diagnostic `337e04c1` observed all three selected events with
+correct current adoption and linked recall. It remains forced `UNAVAILABLE`
+and ineligible for qualification, not a full tuning result. Report SHA256:
+`051079524e58b1834510e94faebe0e2ec19d81f7672f3587725ce4d27a371d36`.
+
+Full T1 `03a6e14c-6b4c-470e-b370-b4a5f3c01183` then stopped
+`UNAVAILABLE` at 2/50 events when a child reached its original 90-second bound
+in `response_started` with cleanup pending. Subsequent exact read-only
+reconciliation observed that child fenced at 06:05:44.484878 UTC, its sole
+request still `effect_unknown` with transport unoccupied and closure ACK at
+06:05:44.537954, and cleanup done at 06:05:45.722374. Provider result and usage
+remain UNKNOWN; closure does not recover output or permit replay. Reconciliation
+summary SHA256: `56866c16d7fb86e34f5f0f134c9207049d8abe34b9ba3f3ad8d34497997a0ec8`.
+No T2, T3 or H3 followed. Neither result grants quality PASS, a capability or an
+interaction pin. The installed R1 source remains 6e; future PR800 is not deployed.
+
+PR800 is Ready. Its feature observations above remain bound to `9a6b1a974`.
+A normal merge of `ced6c34b` advanced the PR head to
+`eaef9e81e506f4de5e00a51fbf8c3f578e235c7a`; all 104 staged source files
+remain byte-identical and the nine-file feature diff is unchanged. No model rerun followed.
+The release owner watches the new-head CI alone; the earlier run41588350935
+is not relabelled as evidence for the new head. The new run ID is not recorded
+here yet. This source state does not change the installed R1 image or grant
+semantic qualification. Documentation commit/push remains held until PR800 merges.

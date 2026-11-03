@@ -6,14 +6,14 @@
 - Implementation PR: [#787](https://github.com/777genius/review-router-ai/pull/787).
 - Implementation reference: `44b06c141d056fa2779bc2bb29e18dbd9c84ea06`; not yet released.
 - Related work: [Statistics and Usage](2026-10-29-statistics-history-followthrough.md), [Analytics extensibility](2026-10-31-analytics-extensibility.md).
-- Last updated: `2026-11-02`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                             |
-| -------------------- | --------- | ------------------------------- | ------------------- | -------------------------------------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Qualify changed browser and PostgreSQL paths in the isolated test environment.   |
-| production / Hetzner | `pending` | Baseline `57cc15137`            | 2026-11-02 14:59    | Apply one coherent qualified batch after the shared rollout window is available. |
+| Environment / target | Status        | Actual deployed version / image                     | Last verified (UTC) | Evidence / next step                                                           |
+| -------------------- | ------------- | --------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------ |
+| staging              | `pending`     | Not verified                                        | Not verified        | Qualify changed browser and PostgreSQL paths in the isolated test environment. |
+| production / Hetzner | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.                             |
 
 ## Findings and data preservation
 
@@ -52,3 +52,19 @@ Preserve all receipts, immutable Usage facts and native observations. Historical
 - Exact OpenRouter free-request quota is not exposed by the installed Gateway cached `account-limits/v1` SDK: both configured OpenRouter accounts return `unsupported`. No provider credential was extracted, request quota invented, or credit purchase performed.
 
 - Shared rollout coordination: Memory owner will include this batch in the single paired private release226 after PR #785 and this implementation merge; no separate deployment is started here. Selective server build-cache GC reclaimed4,466,106,368bytes; exact image/container/volume inventories were unchanged. Receipt: `/srv/workers/rr-selective-buildcache-gc-20261102-153044/receipt.json`.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The coherent Web/API/worker fix is installed. A/B prove full coverage and complete Usage/Statistics accounting, with genuine App publication. B has zero new issues and preserves one A lineage with the original caughtAt; its prior issue is NOT VERIFIED, not resolved. Payments is PARTIAL 0/17 after 32 completed requests and 508,896 tokens; full fresh payments acceptance remains pending. Retain partial/unknown observations and natural completion recovery; no historical inference/publication was replayed.
+
+Staging remains unchanged and unverified by this production batch.
+
+Payments API returned HTTP 400 `model_dispatch_request_invalid` at 05:20:45 UTC.
+The frozen Gateway allowance is 640 requests while installed dispatch allows 32.
+Ordinal 33 is a source/count explanation, not an observed request body. A
+versioned 128-request successor is source-only in the neighboring workstream;
+immutable 226 producer `fa3e87a71…` is unchanged. A fresh normal payments run
+after that successor is pending; the old run is not replayed or relabelled.

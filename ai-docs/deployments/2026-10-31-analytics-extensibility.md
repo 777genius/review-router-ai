@@ -10,10 +10,10 @@
 - Dependencies: none beyond the selected coherent release. No new migration,
   flag, process, external BI service or activation step.
 
-| Environment | Status    | Actual revision | Evidence             |
-| ----------- | --------- | --------------- | -------------------- |
-| staging     | `pending` | Not verified    | No rollout performed |
-| production  | `pending` | Not verified    | No rollout performed |
+| Environment | Status        | Actual revision                                     | Evidence                                           |
+| ----------- | ------------- | --------------------------------------------------- | -------------------------------------------------- |
+| staging     | `pending`     | Not verified                                        | No rollout performed                               |
+| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below. |
 
 ## Rollout and rollback
 
@@ -40,3 +40,12 @@ verify grants and reconcile those events using existing outbox/release
 procedures; do not report historical completeness without proof.
 
 No environment was deployed by this PR.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The Web/catalog/report changes are installed in the same release. A/B provide two actual full-coverage Usage/Statistics slices; payments remains PARTIAL 0/17; authenticated cursor/error-recovery and remaining report/UI/unknown-value combinations are not all established by this evidence. No production event replay or extra activation was performed.
+
+Staging remains unchanged and unverified by this production batch.

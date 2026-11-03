@@ -8,15 +8,15 @@
 - Dependencies: installed [multi-reviewer](2026-10-29-gateway-multi-reviewers.md)
   and [unified OCR](2026-10-29-unified-ocr.md) contracts. This qualifies the
   two-reviewer MCP slice, not their complete feature matrix.
-- Last updated: `2026-11-01`.
+- Last updated: `2026-11-03`.
 
 ## Environment status
 
-| Environment                  | Status     | Actual version                               | Evidence / remaining work                                                                                              |
-| ---------------------------- | ---------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| staging                      | `pending`  | Not exercised                                | No staging rollout in this task.                                                                                       |
-| production acceptance canary | `deployed` | RR `e7f2e600`; approved Action224 `72634bbc` | Run41318061244:2/2 required OCR reviewers, six real successful MCP calls, App publication, final cleanup85.            |
-| API defensive error mapping  | `pending`  | Source/test `a09c68214`; not deployed        | PR777 awaits required CI and its ordinary code rollout. The live positive path does not imply this correction shipped. |
+| Environment                  | Status     | Actual version                               | Evidence / remaining work                                                                                   |
+| ---------------------------- | ---------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| staging                      | `pending`  | Not exercised                                | No staging rollout in this task.                                                                            |
+| production acceptance canary | `deployed` | RR `e7f2e600`; approved Action224 `72634bbc` | Run41318061244:2/2 required OCR reviewers, six real successful MCP calls, App publication, final cleanup85. |
+| API defensive error mapping  | `deployed` | Official226 / `6e6a0f078`                    | Source included; prior actual positive MCP acceptance retained; shared R1 evidence below.                   |
 
 ## Source correction and regression scope
 
@@ -164,3 +164,12 @@ and applicable [deployment registry](README.md) entries for that code delivery.
 Sanitized source reviews, qualification and actual setup/admission/terminal/
 cleanup receipts are retained under `tmp/reviewer-v4-mcp/`; durable run and
 publication links above identify the accepted result.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The defensive API path is included in the installed source. Reuse the accepted two-reviewer/six-real-MCP run and its cleanup at their original exact identities; this rollout preserves all seven currently configured MCP tools and does not claim a new MCP run or a broader provider matrix.
+
+Staging remains unchanged and unverified by this production batch.

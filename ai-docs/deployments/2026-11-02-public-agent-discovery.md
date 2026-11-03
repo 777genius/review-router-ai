@@ -6,10 +6,10 @@
 - Prerequisites: exact shipping source revision, signed/verified release and selected immutable Web image digest through the [release source of truth](../operations/07-environments-and-release-management.md). Reconcile unfinished release tasks before shipping.
 - No database migration, new env secret, feature flag, Action pin change, OAuth change, public API endpoint, worker activation or new entitlement required.
 
-| Environment | Status    | Actual revision / image | Evidence                                                                        |
-| ----------- | --------- | ----------------------- | ------------------------------------------------------------------------------- |
-| staging     | `pending` | Not verified            | Verified staging rollout/image identity and HTTP smoke evidence not recorded    |
-| production  | `pending` | Not verified            | Verified production rollout/image identity and HTTP smoke evidence not recorded |
+| Environment | Status        | Actual revision / image                             | Evidence                                                                     |
+| ----------- | ------------- | --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| staging     | `pending`     | Not verified                                        | Verified staging rollout/image identity and HTTP smoke evidence not recorded |
+| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | See current R1 evidence and remaining scope below.                           |
 
 ## Pre-deploy and release
 
@@ -39,3 +39,12 @@ Use the established [hosted Web smoke](../../scripts/check-hosted-web.mjs), plus
 - After any deploy attempt, update the staging/production rows and the [task index](README.md) with actual observed evidence and remaining steps. **Merge alone leaves both environments `pending`.**
 
 This implementation PR does not establish that an exact Render rollout occurred; staging and production remain unverified until release-system and public HTTP evidence is recorded.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The immutable Web code is installed. Public discovery path/content/media-type/zero-dollar JSON-LD smoke evidence is not supplied by this rollout record and remains pending; readiness alone is not that check.
+
+Staging remains unchanged and unverified by this production batch.

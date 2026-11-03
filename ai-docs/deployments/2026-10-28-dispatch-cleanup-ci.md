@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment | Status        | Actual deployed version / image | Last verified (UTC) | Remaining work                                                                                                                                                                                  |
-| ----------- | ------------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| staging     | `pending`     | Not verified for this task      | Not verified        | Select the authorized cohort and reconcile its prerequisites before executing.                                                                                                                  |
-| production  | `in_progress` | `533c040d` / image `e1578f75`   | 2026-10-30 17:35    | Code and migrations deployed, see [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific live verification is not recorded yet: verify below and then close. |
+| Environment | Status        | Actual deployed version / image                     | Last verified (UTC) | Remaining work                                                                 |
+| ----------- | ------------- | --------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------ |
+| staging     | `pending`     | Not verified for this task                          | Not verified        | Select the authorized cohort and reconcile its prerequisites before executing. |
+| production  | `in_progress` | `6e6a0f078` / official `v1.0.226`, image `0114caaa` | 2026-11-03          | See current R1 evidence and remaining scope below.                             |
 
 Earlier source `418c0ff` and image `sha256:64b092d075237e3981ad8c77610664a71242a50a4ed2227c94729887f46e07ab` were observed in an earlier read-only rollout snapshot on 28 October. That baseline includes earlier supersession cleanup, not verification of this final task. Reconcile the live environment again; a local receipt or an old image does not establish completion here. This record grants no additional deployment authorization.
 
@@ -73,3 +73,12 @@ Use the release guide rollback preflight and the History task for any remaining 
 ## Evidence log
 
 2026-10-30: production moved to main `533c040de09d2609c8ebb44474812e2b35f0e7ea` (image `sha256:e1578f75207de943031a6652ab94318433ef311c85fcaa5a1428fef26d08227a`). Migrations through `000154` are applied (including `000152` and `000153`); full evidence is in the [Production rollout 2026-10-30](2026-10-30-production-rollout-533c040d.md). Task-specific checks were not run separately.
+
+## Production R1 /226 — 2026-11-03
+
+The [shared R1 release and environment evidence](evidence/2026-11-03-memory-production-r1-226.json) records official application source `6e6a0f078`, image
+`0114caaa…`, all four running roles with zero restarts, and verified 226 producer/channel adoption.
+
+The compatible cleanup/History implementation is installed. Historical dispatch/prepare outcomes remain UNKNOWN where unresolved; no blanket backfill or replay occurred. Natural scanner/cleanup evidence and remaining feature-specific checks retain their original scope.
+
+Staging remains unchanged and unverified by this production batch.

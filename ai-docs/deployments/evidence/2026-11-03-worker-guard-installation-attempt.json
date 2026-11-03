@@ -1,0 +1,48 @@
+{
+  "kind": "reviewrouter-worker-guard-installation-attempt/v1",
+  "status": "in_progress_guard_not_installed",
+  "environment": "production",
+  "release": {
+    "version": "v1.0.226",
+    "source": "6e6a0f07829c465202512f87fb6a3195412ca347",
+    "workflowRun": "https://github.com/777genius/review-router-ai/actions/runs/41567885045",
+    "image": "ghcr.io/777genius/review-router-saas-runtime@sha256:0114caaa6e4b9625eeed792a064044d607c9998624061553fa22bbd4de749fc4",
+    "applicationFleetStillAt": "57cc15137e62068ccf12b98eb4206b2dbbf43fef"
+  },
+  "backup": {
+    "label": "20261103-044537F",
+    "type": "full",
+    "error": false
+  },
+  "completedPhases": {
+    "migrationReconciliation": "no pending migrations; ledger 164, unfinished 0",
+    "canonicalRuntimeAcl": "applied",
+    "workerGuardDurableDenial": "committed before the failed installation transaction"
+  },
+  "failure": {
+    "observedAtApproximatelyUtc": "2026-11-03T04:00:45Z",
+    "phase": "create_missing_worker_insert_guard",
+    "reason": "permission denied for schema public under reviewrouter",
+    "installationTransaction": "aborted and rolled back when psql disconnected",
+    "workerWrites": "remain revoked",
+    "guardInstalled": false
+  },
+  "retainedPrivateLogDigests": {
+    "migrate.log": "74c9b96982ca9de7e511a3bd5b9deedf43335d770e8b79cc0a13f417a40526d3",
+    "ledger.txt": "4b5df85d601ef2e6456666d8577313eb5f76bcc064ea31cff06a63a7fbafac37",
+    "acl.log": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "worker-grant-stdin.log": "7c36f07ca05e956e21f7564d46e5488cc1cf999dea8c5b1c14b76661be4f9fa4"
+  },
+  "separateFormalCatalogDiagnostic": "FAIL retained for legacy owner/check/ACL differences; no formal rotating activation or catalog PASS claimed",
+  "next": "reviewed corrected guarded SQL, actual worker LOGIN proof, coherent fleet rollout and fresh signed installation synchronization",
+  "doNotRepeat": [
+    "completed migration reconciliation",
+    "canonical runtime ACL application"
+  ],
+  "notClaimed": [
+    "deployed guard",
+    "worker LOGIN acceptance",
+    "native physical closure",
+    "successful application rollout"
+  ]
+}
