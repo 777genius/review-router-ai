@@ -48,7 +48,7 @@ export async function fetchWithRetry<T = Response>(input: {
       if (shouldRetryHttpStatus(response.status) && attempt < maxAttempts) {
         await discardResponseBody(response);
         cleanup();
-        await sleep(networkRetryDelayMs(attempt));
+        await sleepBeforeRetry(networkRetryDelayMs(attempt), externalSignal, input.label);
         continue;
       }
       const result = input.consume
@@ -66,7 +66,7 @@ export async function fetchWithRetry<T = Response>(input: {
         );
       }
       if (attempt < maxAttempts) {
-        await sleep(networkRetryDelayMs(attempt));
+        await sleepBeforeRetry(networkRetryDelayMs(attempt), externalSignal, input.label);
         continue;
       }
       const code = timedOut
@@ -80,6 +80,35 @@ export async function fetchWithRetry<T = Response>(input: {
 
   throw new Error(`network_request_failed:${safeNetworkLabel(input.label)}`, {
     cause: lastError,
+  });
+}
+
+/**
+ * Cancels retry backoff immediately when the caller aborts, rather than
+ * delaying cancellation until the next network attempt.
+ */
+function sleepBeforeRetry(
+  ms: number,
+  signal: AbortSignal | null | undefined,
+  label: string,
+): Promise<void> {
+  if (!signal) return sleep(ms);
+  const aborted = (): Error =>
+    new Error(`network_request_aborted:${safeNetworkLabel(label)}`);
+  if (signal.aborted) return Promise.reject(aborted());
+  return new Promise<void>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(aborted());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    if (signal.aborted) onAbort();
   });
 }
 
