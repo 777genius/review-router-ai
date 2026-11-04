@@ -133,13 +133,30 @@ export function createAccountLimitsService(input: {
       const value = await readAccountLimits({
         reader: {
           async read(target) {
-            refreshAvailable =
-              source.state === "active" &&
-              !!input.refresher &&
-              (await input.refresher
-                .supports(target.profileId)
-                .catch(() => false));
-            if (!explicitRefresh) return input.reader.read(target);
+            const supported =
+              source.state === "active" && input.refresher
+                ? input.refresher.supports(target.profileId).catch(() => false)
+                : Promise.resolve(false);
+            if (!explicitRefresh) {
+              let timer: ReturnType<typeof setTimeout> | undefined;
+              try {
+                // Optional discovery must not consume the cached page's deadline.
+                const [result, available] = await Promise.all([
+                  input.reader.read(target),
+                  Promise.race([
+                    supported,
+                    new Promise<boolean>((resolve) => {
+                      timer = setTimeout(() => resolve(false), 250);
+                    }),
+                  ]),
+                ]);
+                refreshAvailable = available;
+                return result;
+              } finally {
+                if (timer) clearTimeout(timer);
+              }
+            }
+            refreshAvailable = await supported;
             if (!refreshAvailable || !input.refresher)
               return { status: "unsupported", reason: "unsupported_profile" };
             // Capability negotiation is awaited I/O too: fence immediately before

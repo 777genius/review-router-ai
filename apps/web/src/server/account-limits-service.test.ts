@@ -306,3 +306,31 @@ it("explicit refresh derives target and fences authority after the effect", asyn
   });
   expect(await service.refresh("source")).toEqual({ status: "denied" });
 });
+
+it("keeps a valid cached snapshot when optional refresh capability stalls beyond the page deadline", async () => {
+  vi.useFakeTimers();
+  const { service, supports, read, refresh } = fixture(true);
+  supports.mockImplementation(
+    () =>
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(true), 10_000),
+      ),
+  );
+  const pending = service.page([account("source")]);
+  await vi.advanceTimersByTimeAsync(3000);
+  const rows = await pending;
+  expect(rows).toMatchObject([
+    {
+      limits: {
+        status: "snapshot",
+        refreshAvailable: false,
+        windows: [{ usedPercent: 37.5 }],
+      },
+    },
+  ]);
+  expect(read).toHaveBeenCalledOnce();
+  expect(refresh).not.toHaveBeenCalled();
+  // A late optional capability cannot mutate an already released projection.
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(rows[0]!.limits?.refreshAvailable).toBe(false);
+});

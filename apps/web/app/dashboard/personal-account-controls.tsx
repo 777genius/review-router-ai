@@ -1396,7 +1396,7 @@ function WorkspaceAccess({
                   summary.personalWorkspaceId === currentWorkspace,
                 )}
               />
-              <Badge tone="neutral">Always available</Badge>
+              <Badge tone="neutral">Your account</Badge>
             </div>
             <h4 className="font-medium">Workspace access</h4>
             {grants.isPending ? <p role="status">Loading access...</p> : null}

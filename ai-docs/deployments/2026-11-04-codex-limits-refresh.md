@@ -8,9 +8,11 @@ The batch adds an owner-authorized Codex quota GET with live binding/generation 
 
 No SQL migration or new public Action is required. Existing cached-only quota reads remain unchanged. Upgrade the paired native/Gateway artifact before enabling the new SaaS refresh client. Retain existing native custody, management credentials, runtime profile identity and producer registry. Preserve old release artifacts and test stands.
 
-Ordered rollout:
+Runbook: [environment and release management](../operations/07-environments-and-release-management.md); final SaaS qualification is tracked in [PR #814](https://github.com/777genius/review-router-ai/pull/814).
 
-1. Merge exact reviewed sources after relevant successful checks; build paired native/Gateway once on Hetzner and replace through the existing service release path.
+Ordered rollout (production status is explicit; staging remains pending):
+
+1. **Production complete:** the paired native/Gateway sources were merged, qualified and installed; see the installed checkpoint below. Reconcile the retained activation receipt and live service before any further replacement. This step is not an instruction to rebuild or reinstall the pair.
 2. Build the exact merged SaaS source once, then perform the documented coherent fleet swap and readiness verification. Preserve Action230 and registry58 settings.
 3. Verify native capability negotiation and owner-authorized fresh Codex quota observations without inference. Preserve old observation timestamps on refresh failure; verify recipients cannot access owner limits.
 4. Freeze the test repository's complete prior provider selection/version. Temporarily select Seventeen only for that repository, perform exactly one fresh review, and restore the prior selection through the supported CAS writer even if the review fails. Never change all-workspace defaults merely to run this test.

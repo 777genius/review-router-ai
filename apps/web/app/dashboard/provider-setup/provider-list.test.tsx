@@ -1,4 +1,12 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
+import {
+  GatewayModelAccountsProvider,
+  type GatewayModelAccountsApi,
+} from "../gateway-model-account-options";
+import { ProviderModelCatalogProvider } from "../provider-model-catalog";
+import type { ProviderModelCatalogSnapshot } from "@reviewrouter/features-review-providers";
+import type { readProviderModelCatalog } from "../provider-model-catalog-api";
 import type { ReviewModelOption } from "@reviewrouter/features-review-providers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -91,6 +99,7 @@ function renderList(
   ],
   options: Pick<ProviderListProps, "gatewayAccounts"> & {
     setupView?: ProviderSetupView;
+    wrap?: (children: ReactNode) => ReactNode;
   } = { gatewayAccounts: undefined },
 ) {
   const client = new QueryClient({
@@ -101,7 +110,7 @@ function renderList(
       providerSetupQueryKeys.view(options.setupView.workspaceId, []),
       options.setupView,
     );
-  return render(
+  const children = (
     <QueryClientProvider client={client}>
       <ProviderList
         view={buildProviderListView(facts(input))}
@@ -111,8 +120,9 @@ function renderList(
         agentProfileOptions={[]}
         accessRightsHref="/dashboard?section=other"
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  return render(options.wrap ? options.wrap(children) : children);
 }
 
 const rowOf = (label: string) =>
@@ -224,6 +234,91 @@ describe("Providers list", () => {
         status: "saved",
         results: [],
       });
+      const publicSnapshot = (
+        toolCalling: boolean,
+      ): ProviderModelCatalogSnapshot => ({
+        providerKind: "openrouter",
+        source: "openrouter",
+        fetchedAt: Date.now(),
+        lastAttemptAt: Date.now(),
+        state: "fresh",
+        error: null,
+        refresh: "cached",
+        models: [
+          {
+            id: model,
+            name: model,
+            contextTokens: 10000,
+            textInput: true,
+            textOutput: true,
+            toolCalling,
+            pricing: null,
+          },
+        ],
+      });
+      const refreshPublic = vi
+        .fn<typeof readProviderModelCatalog>()
+        .mockImplementation(async ({ providerKind }) =>
+          providerKind === "openrouter"
+            ? publicSnapshot(true)
+            : {
+                ...publicSnapshot(true),
+                providerKind,
+                models: [],
+                source: "models.dev",
+              },
+        );
+      const refreshGateway = vi
+        .fn<GatewayModelAccountsApi["get"]>()
+        .mockResolvedValue({
+          status: "ok",
+          value: {
+            account: {
+              connectionId: "connection-1",
+              profileId: gatewayProfileId,
+              profileLabel: "OpenRouter",
+              label: "Current connection",
+              state: "active",
+              gatewayRevision: 1,
+              mirrorRevision: 1,
+              binding: {
+                id: "binding-1",
+                state: "active",
+                revision: 1,
+                fencePending: false,
+              },
+              modelCatalog: {
+                status: "unknown",
+                source: "legacy_profile",
+                models: [model],
+              },
+            },
+            profile: {
+              id: gatewayProfileId,
+              label: "OpenRouter",
+              provider: "openrouter",
+              authKind: "api_key",
+              protocol: "openai-responses",
+              models: [model],
+              connection: {
+                provider: "openrouter",
+                planLabel: "API",
+                regionLabel: "Global",
+                completionInputKind: "none",
+                personalOnly: false,
+                limitsContract: "none",
+                modelSettings: [
+                  {
+                    modelId: model,
+                    reasoning: null,
+                    fast: null,
+                    tools: { allowed: ["function"], default: "function" },
+                  },
+                ],
+              },
+            },
+          },
+        });
       renderList(
         {
           actor: { userId: "user_owner", role: "owner" },
@@ -246,6 +341,39 @@ describe("Providers list", () => {
         [],
         {
           setupView,
+          wrap: (children) => (
+            <GatewayModelAccountsProvider
+              scope="test-viewer:workspace:workspace_1"
+              api={{
+                list: async () => ({
+                  status: "ok",
+                  value: { accounts: [], profiles: [], nextCursor: null },
+                }),
+                get: refreshGateway,
+              }}
+            >
+              <ProviderModelCatalogProvider
+                snapshots={[
+                  publicSnapshot(false),
+                  {
+                    ...publicSnapshot(true),
+                    providerKind: "codex",
+                    source: "models.dev",
+                    models: [],
+                  },
+                  {
+                    ...publicSnapshot(true),
+                    providerKind: "claude",
+                    source: "models.dev",
+                    models: [],
+                  },
+                ]}
+                api={refreshPublic}
+              >
+                {children}
+              </ProviderModelCatalogProvider>
+            </GatewayModelAccountsProvider>
+          ),
           gatewayAccounts: {
             status: "ok",
             value: {
@@ -308,6 +436,30 @@ describe("Providers list", () => {
         within(edit).getByRole("button", { name: "Test connection" }),
       ).toBeTruthy();
       expect(within(edit).queryByText("Model list is up to date.")).toBeNull();
+      const refreshModels = await within(edit).findByRole("button", {
+        name: "Refresh models",
+      });
+      expect(
+        within(edit).getAllByRole("button", { name: "Refresh models" }),
+      ).toHaveLength(1);
+      expect(refreshPublic).not.toHaveBeenCalled();
+      expect(
+        refreshGateway.mock.calls.some(([, options]) => options?.forceRefresh),
+      ).toBe(false);
+      fireEvent.click(refreshModels);
+      await waitFor(() =>
+        expect(refreshPublic).toHaveBeenCalledWith(
+          expect.objectContaining({
+            providerKind: "openrouter",
+            forceRefresh: true,
+          }),
+        ),
+      );
+      await waitFor(() =>
+        expect(refreshGateway).toHaveBeenCalledWith("binding-1", {
+          forceRefresh: true,
+        }),
+      );
       fireEvent.click(
         within(edit).getByRole("button", { name: "Close provider edit" }),
       );

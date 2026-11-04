@@ -3,8 +3,7 @@
   "scope": "Paired AccountGateway/native quota-only refresh and exact ingress routes; SaaS delivery remains separate.",
   "sanitized": true,
   "host": {
-    "name": "prod-hel1-01",
-    "machineId": "b28fc7b17042414386eb9b114046e50c"
+    "name": "prod-hel1-01"
   },
   "sources": {
     "gateway": {

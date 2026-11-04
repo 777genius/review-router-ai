@@ -49,16 +49,14 @@ export function accountLimitsRefreshOptions(
         current.value.displayToken !== before.value.displayToken
       )
         return;
-      if (
-        result.status === "unavailable" ||
-        (result.status === "ok" && result.value.status === "unavailable")
-      )
-        throw new Error("Could not refresh current limits");
-      if (
-        result.status === "ok" &&
-        result.value.fetchedAt < current.value.fetchedAt
-      )
+      // A real authorization loss must erase the prior numeric observation.
+      if (result.status === "denied") {
+        client.setQueryData(key, result);
         return;
+      }
+      if (result.status !== "ok" || result.value.status === "unavailable")
+        throw new Error("Could not refresh current limits");
+      if (result.value.fetchedAt < current.value.fetchedAt) return;
       client.setQueryData(key, result);
     },
   });
