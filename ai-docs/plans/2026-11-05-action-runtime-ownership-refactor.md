@@ -85,3 +85,18 @@ A declaration-reference audit found an acyclic extraction boundary when the smal
 - Inspect the Action bundle artifact as well as integration/source-certification and GitHub-hosted/self-hosted E2E jobs; distinguish skipped/draft gates from actual success.
 - Review secret/credential trust and process-tree/log cleanup under abort/timeout. Do not expand the diff for merely cosmetic decomposition; correct concrete regressions only.
 - Record any failed steps and remediation with exact job IDs and links; leave PR Draft and do not merge/release.
+
+### Review pass 2 — automatic review findings and trust-boundary correction
+
+- CodeRabbit reviewed original `61fc782` and published **four actionable findings**. Exact current-source inspection confirms: `reviewThreadLifecycleResolveTokenEnvKey` is exported (`1263d3d`), missing retry/environment bindings have been restored (`128ffbc`), removed `hostedPoolMaxLeaseAttempts` has no remaining Action references, and obsolete imports were removed (`527b2d`). The associated three threads may still display unresolved until subsequent verification/review; do not count them as new findings without rechecking current HEAD.
+- **HTTP response-commit uncertainty:** `fetchWithRetry` previously retried a mutation if a `consume` callback failed decoding a successful response; replaying that operation could duplicate external effects. `d176307` separates transport retries from post-response handling. The 201/invalid-JSON POST regression asserts exactly one request and preserves the established sanitized error category. The earlier abort-aware retry backoff fix remains intact.
+- **Architecture policy:** `527b2d` adds a narrowly scoped CI guard prohibiting Action-local adapters from importing the Action entrypoint and domain owners from importing Action adapters. The review found an initially ineffective double-escaped regex; corrected in `3942f90`, including `.js` ESM specifiers and platform-neutral path matching. Do not count the guard as qualified until `architecture:check` completes.
+- Approximate cumulative diff at `3942f90`: 20 files and 9,971 added/deleted lines, overwhelmingly implementation relocation. There is no new DI framework, service, feature flag, database migration or new public protocol.
+- **Unproven at this checkpoint:** full current-head CI/E2E. Ready-for-review triggered heavy jobs, but prior attempts were cancelled after later revisions; green draft Quality Gates can tolerate skipped jobs and are not acceptance evidence. External Strix review was unavailable because of its own billing state; CodeRabbit is not a substitute for runtime qualification. Independent parallel coding agents were not available in this execution environment, so no fabricated agent-review claim is recorded.
+
+### Acceptance rules for the final PR checkpoint
+
+1. Confirm exact `main` and PR HEAD; allow heavy CI to finish on that SHA without superseding pushes, inspect each required job/step instead of its aggregate status alone.
+2. Verify Action bundle and source parity, package typecheck, root lint/Prettier, architecture qualification, new regressions, existing Codex Action tests, and applicable integration/E2E on the exact SHA.
+3. For reviewer concerns, distinguish already corrected, new, and stale findings; only resolve threads with source evidence and passing related tests.
+4. Record run/job IDs and any remaining gaps, revert PR to Draft after complete checks, and do not merge or release.
