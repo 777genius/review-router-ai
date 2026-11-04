@@ -52,3 +52,18 @@ Reject a finding if no concrete caller or failure mode exists. A moved line coun
 - `AGENTS.md`, maintained architecture guidance and previous plans read.
 - PR #809 (quota runtime) merged, PR #810 (foundation ownership) merged; open #806 remains separate.
 - Remote GitHub connector can write commits but the current sandbox cannot resolve github.com or run the pinned Node 26/pnpm 11 toolchain; validation must come from GitHub Actions. No claims of local E2E.
+
+## Domain owner review — additional selected slice
+
+Source audit on current `main`: `src/domain/codex-oauth-rotating.ts` is 3,292 lines and contains *both* OAuth/session/key material handling and approximately two thousand lines of canonical workflow rendering, YAML scanning, source attestation and Account Gateway workflow documents. These are distinct change axes: new workflow schema or branch permission rules should not require editing the OAuth/authentication/encryption owner.
+
+A declaration-reference audit found an acyclic extraction boundary when the small shared workflow/action contract (schema/version constants, input patterns and safe Action references) is owned by `codex-contract.ts`, with `codex-workflow.ts` owning workflow construction/scanning/attestation, and the old domain path retained as a public facade. The OAuth/lease/secret implementation depends only on that contract; the workflow implementation never imports the OAuth implementation.
+
+**Contract for this slice**:
+- Move source *without changing parsing, schema values, YAML layout, action refs, exception strings, source hashes, canonical workflow attestation or workflow text*.
+- Preserve all existing exports from `domain/codex-oauth-rotating`, including transitively via `src/index.ts`, and do not make internal regex/escaping helpers available through the existing facade.
+- Keep domain modules free of Action/Next/Prisma/GitHub host dependencies; no runtime import cycles.
+- Existing workflow-scanning and security tests must pass on the exact HEAD. Record the moved-versus-new line counts accurately.
+- If import graph proves cyclic or CI is ambiguous, revert the slice rather than adding an abstraction container.
+
+**Critic objections considered**: a mere one-file rename would not reduce coupling; reject it. The common contract must not grow into a service locator. This is one domain boundary extraction with two cohesive owners, not a proposed domain framework.
