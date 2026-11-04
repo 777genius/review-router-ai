@@ -23,61 +23,86 @@ import {
   JoseRotatingCapabilityCodec,
 } from "@reviewrouter/platform-signed-capabilities";
 import {
+  type ReviewV2ProviderCredentialPort,
+  type ReviewV2ProviderPublicationClientPort,
+} from "@reviewrouter/features-review-publishing/v2";
+import {
   ProviderNeutralReviewV2ScmCredentialRouter,
   RotatingReviewV2OperationCapabilityIssuer,
   SignedReviewV2OperationCapabilityVerifier,
   GitHubReviewV2PublicationClient,
   readGitHubReviewV2LiveRevision,
   type GitHubInstallationClient,
-  type ReviewV2ProviderCredentialPort,
-  type ReviewV2ProviderPublicationClientPort,
-} from "./review-v2-publication-gateways";
+} from "@reviewrouter/features-review-publishing/v2/composition";
 import {
   ReviewV2PublicationPayloadKind,
   type ReviewV2PublicationPayload,
-} from "./review-v2-publication-payloads";
+} from "@reviewrouter/features-review-publishing/v2";
+
 import {
   ReviewV2ScmMutationFailureOutcome,
   ReviewV2ScmCredentialPurpose,
   ReviewV2ScmProvider,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 
 describe("protocol v2 provider-neutral SCM gateways", () => {
-  it.each([ReviewV2ScmProvider.GitHub, ReviewV2ScmProvider.GitLab])(
-    "routes %s through an adapter-bound credential session without exposing a token",
-    async (provider) => {
+  it.each([
+    [ReviewV2ScmProvider.GitHub, ReviewV2ScmCredentialPurpose.Mutate],
+    [ReviewV2ScmProvider.GitHub, ReviewV2ScmCredentialPurpose.ReconcileOnly],
+    [ReviewV2ScmProvider.GitLab, ReviewV2ScmCredentialPurpose.Mutate],
+    [ReviewV2ScmProvider.GitLab, ReviewV2ScmCredentialPurpose.ReconcileOnly],
+  ] as const)(
+    "routes %s %s through a verified, purpose-scoped credential session",
+    async (provider, purpose) => {
       const acquired: unknown[] = [];
-      const client = fakeClient();
+      const lifecycle: string[] = [];
+      const client = { ...fakeClient(), privateToken: "fixture-only-token" };
       const credentials: ReviewV2ProviderCredentialPort = {
         provider,
         async acquireClient(input) {
+          lifecycle.push("acquire");
           acquired.push(input);
-          return { client, async close() {} };
+          return {
+            client,
+            async close() {
+              lifecycle.push("close");
+            },
+          };
         },
       };
       const router = new ProviderNeutralReviewV2ScmCredentialRouter(
         [credentials],
-        allowingCapabilityVerifier,
+        {
+          async verify() {
+            lifecycle.push("verify");
+          },
+        },
       );
 
       const session = await router.acquire({
         provider,
-        purpose: ReviewV2ScmCredentialPurpose.ReconcileOnly,
+        purpose,
         permit: permit(),
         operation: operation(),
         capability: capability(),
         claim: claim(),
         signedCapability: signedCapability(),
       });
-      expect(session.purpose).toBe(ReviewV2ScmCredentialPurpose.ReconcileOnly);
-      expect("applyOperation" in session.gateway).toBe(false);
+      expect(session.purpose).toBe(purpose);
+      expect("applyOperation" in session.gateway).toBe(
+        purpose === ReviewV2ScmCredentialPurpose.Mutate,
+      );
+      expect(Object.keys(session.gateway).sort()).toEqual(
+        purpose === ReviewV2ScmCredentialPurpose.Mutate
+          ? ["applyOperation", "findAllByMarker", "markStaleOrDelete"]
+          : ["findAllByMarker", "markStaleOrDelete"],
+      );
       expect(acquired).toEqual([
-        {
-          purpose: ReviewV2ScmCredentialPurpose.ReconcileOnly,
-          permit: permit(),
-          capability: capability(),
-        },
+        { purpose, permit: permit(), capability: capability() },
       ]);
+      expect(lifecycle).toEqual(["verify", "acquire"]);
+      await session.close();
+      expect(lifecycle).toEqual(["verify", "acquire", "close"]);
       expect(collectKeys(acquired)).not.toContainEqual(
         expect.stringMatching(/^(?:token|secret|credential)$/i),
       );

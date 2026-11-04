@@ -9,10 +9,8 @@ import Fastify from "fastify";
 import { expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { registerReviewExecutionV2Routes } from "../../packages/features/action-control-plane/src/v2/interface/index.js";
-import {
-  PrismaReviewConfigurationRepository,
-  parseReviewConfigurationStrict,
-} from "../../packages/features/review-config/src/index.js";
+import { parseReviewConfigurationStrict } from "../../packages/features/review-config/src/index.js";
+import { PrismaReviewConfigurationRepository } from "../../packages/features/review-config/src/composition/index.js";
 import {
   systemPolicyWriteFixture,
   workspacePolicyFixture,

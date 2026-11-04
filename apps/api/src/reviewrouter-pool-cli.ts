@@ -25,6 +25,57 @@ const LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
 const LOGIN_POLL_MS = 3_000;
 const AUTH_FILE_MAX_BYTES = 1024 * 1024;
 
+type PoolWorkflowOutcomeCode =
+  | "workflow_provisioning_external_uncertain"
+  | "workflow_provisioning_persistence_uncertain"
+  | "workflow_provisioning_audit_unavailable";
+
+export class PoolWorkflowOutcomeError extends Error {
+  readonly recoveryCode?: "hosted_pool_github_app_permissions_required";
+  readonly recordedPullRequest?: {
+    readonly status: "setup_pr_recorded";
+    readonly pullRequestUrl: string;
+    readonly pullRequestNumber: number;
+  };
+
+  constructor(
+    readonly code: PoolWorkflowOutcomeCode,
+    result: unknown,
+    recoveryCode?: unknown,
+  ) {
+    super(code);
+    this.name = "PoolWorkflowOutcomeError";
+    if (recoveryCode === "hosted_pool_github_app_permissions_required")
+      this.recoveryCode = recoveryCode;
+    // Only an audit failure can accompany a known committed setup result.
+    if (
+      code !== "workflow_provisioning_audit_unavailable" ||
+      result === null ||
+      typeof result !== "object"
+    )
+      return;
+    const value = result as Record<string, unknown>;
+    const pullRequest =
+      typeof value.pullRequestUrl === "string"
+        ? /^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+\/pull\/([1-9]\d*)$/u.exec(
+            value.pullRequestUrl,
+          )
+        : null;
+    if (
+      value.status === "setup_pr_recorded" &&
+      pullRequest &&
+      Number.isSafeInteger(value.pullRequestNumber) &&
+      value.pullRequestNumber === Number(pullRequest[1])
+    ) {
+      this.recordedPullRequest = {
+        status: "setup_pr_recorded",
+        pullRequestUrl: value.pullRequestUrl as string,
+        pullRequestNumber: value.pullRequestNumber as number,
+      };
+    }
+  }
+}
+
 export type PoolLoginProcess = {
   readonly chunks: string[];
   wait(): Promise<number>;
@@ -160,6 +211,23 @@ export async function executePoolCli(input: {
           }),
         });
       } catch (error) {
+        if (error instanceof PoolWorkflowOutcomeError) {
+          results.push({
+            repository: repository.fullName,
+            status: "reconcile_required",
+            code: error.code,
+            message: error.recordedPullRequest
+              ? "The setup pull request was recorded, but audit logging is unavailable. Inspect the pull request and repository setup status before retrying."
+              : error.recoveryCode
+                ? "The setup outcome needs verification. Inspect repository setup status and GitHub, and check GitHub App permissions before retrying."
+                : "The setup outcome needs verification. Inspect repository setup status and GitHub before retrying.",
+            ...(error.recoveryCode ? { recoveryCode: error.recoveryCode } : {}),
+            ...(error.recordedPullRequest
+              ? { result: error.recordedPullRequest }
+              : {}),
+          });
+          continue;
+        }
         const conflict =
           error instanceof Error && error.message === "hosted_pool_conflict";
         const permissions =
@@ -181,7 +249,9 @@ export async function executePoolCli(input: {
         (r) => r.status === "failed" || r.status === "conflict",
       )
         ? "partial_failure"
-        : "complete",
+        : results.some((r) => r.status === "reconcile_required")
+          ? "reconcile_required"
+          : "complete",
       results,
     };
   }

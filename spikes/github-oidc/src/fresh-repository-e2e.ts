@@ -20,17 +20,19 @@ import {
   syncInstallationRepositories,
 } from "../../../packages/features/repositories/src/index.ts";
 import { OctokitRepositoryWorkflowProbe } from "../../../packages/features/repo-health/src/index.ts";
+import { provisionReviewRouterWorkflow } from "../../../packages/features/workflow-provisioning/src/index.ts";
 import {
   OctokitWorkflowSetupGateway,
   PrismaWorkflowProvisioningRepository,
-  provisionReviewRouterWorkflow,
-} from "../../../packages/features/workflow-provisioning/src/index.ts";
+} from "../../../packages/features/workflow-provisioning/src/composition/index.ts";
 import {
-  PrismaReviewConfigurationRepository,
-  PrismaReviewPolicyHeadReader,
   resolveReviewRuntimeEnv,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.ts";
+import {
+  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
+} from "../../../packages/features/review-config/src/composition/index.ts";
 import { createGitHubApp, findInstallationForRepo } from "./github-app.js";
 import { loadAppProfile, loadEnvFiles } from "./config.js";
 

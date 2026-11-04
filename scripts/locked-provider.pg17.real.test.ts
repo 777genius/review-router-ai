@@ -5,16 +5,20 @@ import {
 } from "../packages/features/codex-oauth-rotating/src/index";
 import { PrismaCodexRotatingOAuthRepository } from "../packages/features/action-control-plane/src/infrastructure/prisma/prisma-codex-rotating-oauth-repository";
 import { createHash } from "node:crypto";
-import { resolveCodexRotatingSetupManifestForNonce } from "../apps/web/src/server/codex-rotating-setup-manifest";
-import { PrismaCodexRotatingSetupPayloadClaim } from "../apps/web/src/server/prisma-codex-rotating-setup-payload-claim";
+import { readFileSync } from "node:fs";
+import { resolveCodexRotatingSetupManifestForNonce } from "../packages/features/provider-setup/src/composition/index";
+import { PrismaCodexRotatingSetupPayloadClaim } from "../packages/features/provider-setup/src/composition/index";
 import { codexRotatingSetupManifestSchema } from "../packages/features/provider-setup/src/index";
-import { issueCodexRotatingSetupCommand } from "../apps/web/src/server/codex-rotating-setup-manifest";
+import { issueCodexRotatingSetupCommand } from "../packages/features/provider-setup/src/composition/index";
 import { setTimeout as delay } from "node:timers/promises";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { managedPg17Fixture } from "./lib/render-managed-pg17-fixture";
-import { readRenderSchemaHandoffCatalog } from "./lib/render-schema-handoff-policy.mjs";
+import {
+  readRenderManagedCheckoutInventory,
+  readRenderSchemaHandoffCatalog,
+} from "./lib/render-schema-handoff-policy.mjs";
 import { readLockedCodexRotatingCurrentProvider } from "../packages/features/action-control-plane/src/infrastructure/prisma/codex-rotating-current-provider";
 // Root-only opt-in; authentic local source catalog and offline managed PG image.
 describe.skipIf(process.env.REVIEW_ROUTER_RUN_LOCKED_PROVIDER_PG17 !== "1")(
@@ -122,20 +126,100 @@ describe.skipIf(process.env.REVIEW_ROUTER_RUN_LOCKED_PROVIDER_PG17 !== "1")(
         "postgres",
       );
       const catalog = readRenderSchemaHandoffCatalog();
-      const last = "000089_codex_oauth_v4_v5_staged_compatibility";
-      const count =
-        catalog.findIndex((entry) => entry.migrationName === last) + 1;
-      expect(count).toBeGreaterThan(0);
+      const checkout = readRenderManagedCheckoutInventory();
+      expect(catalog.length).toBeGreaterThan(0);
+      expect(checkout.slice(0, catalog.length)).toEqual(catalog);
       const applied = await pg.apply(
         database,
-        count,
+        catalog.length,
         "provider-root-current-scope",
       ).result;
-      expect(applied).toHaveLength(count);
-      expect(applied.at(-1)).toBe(last);
+      expect(applied).toEqual(catalog.map((entry) => entry.migrationName));
+      const setupTableOwners = () =>
+        pg.query(
+          database,
+          `SELECT c.relname || ':' || pg_catalog.pg_get_userbyid(c.relowner)
+           FROM pg_catalog.pg_class c
+           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'public' AND c.relkind = 'r'
+             AND (c.relname LIKE 'CodexOAuth%'
+                  OR c.relname IN ('Workspace', 'GitHubInstallation',
+                                   'RepositoryConnection', 'ScmRepositoryIdentity'))
+           ORDER BY c.relname`,
+          "postgres",
+        );
+      const originalSetupOwners = setupTableOwners();
+      expect(originalSetupOwners).toContain(
+        "CodexOAuthSetupManifest:reviewrouter",
+      );
+      expect(
+        originalSetupOwners
+          .split("\n")
+          .every((owner) => owner.endsWith(":reviewrouter")),
+      ).toBe(true);
+      // This exercises current Prisma source, not a historical upgrade. Keep
+      // the managed schema and setup table owners, then apply verified checkout
+      // additions as the disposable administrator their role bootstrap needs.
+      // Runtime clients retain the original non-superuser reviewrouter identity.
+      // The unchanged cutover guard also requires this writer to be quiesced.
+      // Its migration engine has exited; keep login closed until schema checks
+      // pass, and let afterAll remove the contained database if bootstrap fails.
+      pg.query(database, "ALTER ROLE reviewrouter NOLOGIN", "postgres");
+      expect(
+        pg.query(
+          database,
+          `SELECT count(*) FROM pg_catalog.pg_stat_activity
+           WHERE datname = current_database() AND pid <> pg_backend_pid()
+             AND backend_type = 'client backend'`,
+          "postgres",
+        ),
+      ).toBe("0");
+      const extensions = checkout.slice(catalog.length);
+      expect(extensions.length).toBeGreaterThan(0);
+      const appliedExtensions: string[] = [];
+      for (const entry of extensions) {
+        const source = readFileSync(
+          new URL(
+            `../packages/platform/db/prisma/migrations/${entry.migrationName}/migration.sql`,
+            import.meta.url,
+          ),
+          "utf8",
+        );
+        expect(createHash("sha256").update(source).digest("hex")).toBe(
+          entry.checksum,
+        );
+        pg.query(database, source, "postgres");
+        appliedExtensions.push(entry.migrationName);
+      }
+      expect([...applied, ...appliedExtensions]).toEqual(
+        checkout.map((entry) => entry.migrationName),
+      );
+      expect(
+        pg.query(
+          database,
+          `SELECT count(*) FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='Workspace'
+             AND column_name IN ('personalOwnerUserId', 'deletionState',
+                                 'deletionRevision', 'deletionTombstonedAt')`,
+          "postgres",
+        ),
+      ).toBe("4");
+      expect(setupTableOwners()).toBe(originalSetupOwners);
+      pg.query(database, "ALTER ROLE reviewrouter LOGIN", "postgres");
       reader = client("provider-root-reader");
       writer = client("provider-root-writer");
       observer = client("provider-root-observer");
+      await expect(reader.$queryRaw`
+        SELECT current_user::text AS "currentUser", session_user::text AS "sessionUser",
+          (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls) AS privileged
+        FROM pg_catalog.pg_roles WHERE rolname = current_user
+      `).resolves.toEqual([
+        {
+          currentUser: "reviewrouter",
+          sessionUser: "reviewrouter",
+          privileged: false,
+        },
+      ]);
       await seedProvider("provider", 900007);
     }, 300000);
     afterAll(async () => {

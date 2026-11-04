@@ -22,8 +22,8 @@ import { JoseGitHubActionsOidcTokenVerifier } from "@reviewrouter/features-actio
 import {
   issueCodexRotatingSetupCommand,
   resolveCodexRotatingSetupManifestForNonce,
-} from "./codex-rotating-setup-manifest";
-import { PrismaCodexRotatingSetupPayloadClaim } from "./prisma-codex-rotating-setup-payload-claim";
+} from "@reviewrouter/features-provider-setup/composition";
+import { PrismaCodexRotatingSetupPayloadClaim } from "@reviewrouter/features-provider-setup/composition";
 import { exchangeCodexRuntimeMigration } from "./codex-runtime-migration-exchange";
 import { completeCodexRuntimeMigrationActivation } from "./codex-runtime-migration-activation";
 import {

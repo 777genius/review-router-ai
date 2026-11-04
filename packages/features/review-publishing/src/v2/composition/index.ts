@@ -167,3 +167,6 @@ export type {
   LegacyResolutionEntry,
   ResolutionWriterQuiescenceProof,
 } from "../infrastructure/prisma/prisma-review-thread-resolution-history";
+export * from "../infrastructure/scm/review-publication-credential-router";
+export * from "../infrastructure/signing/review-publication-operation-capabilities";
+export * from "../infrastructure/github/github-review-publication-client";

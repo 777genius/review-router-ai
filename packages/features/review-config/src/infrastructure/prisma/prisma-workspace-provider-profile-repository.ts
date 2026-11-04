@@ -1,7 +1,5 @@
-import {
-  PrismaAuditLogRepository,
-  recordAuditEvent,
-} from "@reviewrouter/features-audit-log";
+import { recordAuditEvent } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import { acquireCurrentScopeGuards } from "@reviewrouter/platform-db";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { WorkspacePolicyHeads } from "../../application/ports/review-configuration-repository-port";

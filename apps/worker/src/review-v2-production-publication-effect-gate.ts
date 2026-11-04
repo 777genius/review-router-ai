@@ -29,7 +29,7 @@ import type { ReviewRunAuthorizationQueryPort } from "@reviewrouter/features-rev
 import {
   ReviewV2PublicationEffectGateDecision,
   type ReviewV2PublicationEffectGatePort,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 
 export type ProductionReviewInvestigationPublicationEffectGateDependencies =
   Readonly<{

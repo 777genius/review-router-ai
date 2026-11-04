@@ -1,3 +1,4 @@
+import { workflowSetupOutcomePresentation } from "./dashboard-copy";
 import { inspectConfiguredRuntimeMigrationTarget } from "../../src/server/workflow-provisioning/approved-codex-runtime-migration-ref";
 import { savedProviderIdentity } from "../../src/server/provider-identity";
 import { randomUUID } from "node:crypto";
@@ -66,7 +67,7 @@ import {
   freeBetaEntitlement,
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
-import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import { PrismaHostedPoolQuery } from "@reviewrouter/features-hosted-account-pool";
 import {
   buildProviderSecretSetupGuidance,
@@ -84,14 +85,12 @@ import {
 import {
   listRepositoryWorkflowProvisioning,
   projectRepositorySetupStatus,
-  PrismaWorkflowProvisioningQuery,
 } from "@reviewrouter/features-workflow-provisioning";
+import { PrismaWorkflowProvisioningQuery } from "@reviewrouter/features-workflow-provisioning/composition";
 import { redirect } from "next/navigation";
 import {
   defaultWorkspaceReviewPolicy,
   effectiveReviewSettings,
-  PrismaReviewPolicyHeadReader,
-  PrismaWorkspaceReviewSettings,
   readyReviewConfiguration,
   resolveEffectiveReviewConfigurations,
   type EffectiveReviewConfiguration,
@@ -103,6 +102,10 @@ import {
   type WorkspaceProviderProfile,
   type WorkspaceReviewPolicy,
 } from "@reviewrouter/features-review-config";
+import {
+  PrismaReviewPolicyHeadReader,
+  PrismaWorkspaceReviewSettings,
+} from "@reviewrouter/features-review-config/composition";
 import {
   getWorkspaceSupportDiagnostics,
   PrismaSupportDiagnosticsRepository,
@@ -157,7 +160,7 @@ import {
   type DashboardRepositoryReadiness,
 } from "../../src/server/dashboard-repository-readiness";
 import { deriveDashboardProviderSetupReadiness } from "../../src/server/dashboard-codex-rotating-setup-readiness";
-import { PrismaCodexRotatingSetupReadiness } from "../../src/server/prisma-codex-rotating-setup-readiness";
+import { PrismaCodexRotatingSetupReadiness } from "@reviewrouter/features-provider-setup/composition";
 import {
   getReviewModelOptions,
   getProviderModelCatalogs,
@@ -3186,17 +3189,28 @@ function WorkspaceActionNotice({
   if (!error) return null;
 
   const pullRequestUrl = safeGitHubDashboardLink(readParam(params.pr));
+  const outcome = workflowSetupOutcomePresentation({
+    error,
+    setupOutcome: readParam(params.setupOutcome),
+    pr: pullRequestUrl ?? "",
+    recoveryError: readParam(params.recoveryError),
+    workflowPath: readParam(params.workflowPath),
+  });
 
   return (
     <div
       className={[
         "rounded-2xl border p-4 text-sm leading-6",
-        "border-red-300/25 bg-red-300/10 text-red-50",
+        outcome
+          ? "border-amber-300/25 bg-amber-300/10 text-amber-50"
+          : "border-red-300/25 bg-red-300/10 text-red-50",
       ].join(" ")}
     >
       <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
-        <Badge tone="danger">Action failed</Badge>
-        <p>{dashboardErrorText(error)}</p>
+        <Badge tone={outcome ? "warning" : "danger"}>
+          {outcome?.title ?? "Action failed"}
+        </Badge>
+        <p>{outcome?.body ?? dashboardErrorText(error)}</p>
         {pullRequestUrl ? (
           <LinkButton
             href={pullRequestUrl}
@@ -3267,6 +3281,9 @@ const dashboardNoticeToastSearchParams = [
   "notice",
   "version",
   "pr",
+  "setupOutcome",
+  "recoveryError",
+  "workflowPath",
   "error",
 ] as const;
 const dashboardErrorToastSearchParams = [
@@ -3274,6 +3291,9 @@ const dashboardErrorToastSearchParams = [
   "notice",
   "version",
   "pr",
+  "setupOutcome",
+  "recoveryError",
+  "workflowPath",
 ] as const;
 
 function DashboardActionToast({
@@ -3289,6 +3309,22 @@ function DashboardActionToast({
   const error = readParam(params.error);
   const repository = readParam(params.repository);
   const prUrl = safeGitHubDashboardLink(readParam(params.pr)) ?? undefined;
+
+  const outcome = workflowSetupOutcomePresentation({
+    error,
+    setupOutcome: readParam(params.setupOutcome),
+    pr: prUrl ?? "",
+    recoveryError: readParam(params.recoveryError),
+    workflowPath: readParam(params.workflowPath),
+  });
+  if (outcome)
+    return (
+      <ActionToast
+        {...outcome}
+        clearUrlSearchParams={dashboardErrorToastSearchParams}
+        setUrlSearchParams={{ section: selectedSection }}
+      />
+    );
 
   if (error) {
     const access = repositoryAccessErrorPresentation(error);

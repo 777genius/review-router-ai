@@ -1,13 +1,9 @@
 "use server";
 
-import {
-  changeProviderAccessRights,
-  PrismaWorkspaceReviewSettings,
-} from "@reviewrouter/features-review-config";
-import {
-  recordAuditEvent,
-  PrismaAuditLogRepository,
-} from "@reviewrouter/features-audit-log";
+import { changeProviderAccessRights } from "@reviewrouter/features-review-config";
+import { PrismaWorkspaceReviewSettings } from "@reviewrouter/features-review-config/composition";
+import { recordAuditEvent } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import {
   assertDashboardMutationAllowed,
   dashboardMutationAccessAuditMetadata,

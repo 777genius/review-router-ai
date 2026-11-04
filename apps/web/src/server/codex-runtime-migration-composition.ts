@@ -3,10 +3,8 @@ import type { PrismaClient } from "@prisma/client";
 import { JoseGitHubActionsOidcTokenVerifier } from "@reviewrouter/features-action-control-plane/oidc";
 import { selectModelDispatchReviewAgentProfile } from "@reviewrouter/features-review-run-control";
 import { createPrismaReviewRunControlRepositories } from "@reviewrouter/features-review-run-control/composition";
-import {
-  PrismaReviewPolicyHeadReader,
-  resolveReviewRuntimeEnv,
-} from "@reviewrouter/features-review-config";
+import { resolveReviewRuntimeEnv } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import {
   requireGitHubAppPrivateKey,
   requireReviewRouterDatabaseRecoveryWitness,

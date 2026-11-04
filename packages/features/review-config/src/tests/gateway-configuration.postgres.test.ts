@@ -14,14 +14,16 @@ import { switchRepositoryConfigurationAuthMode } from "../../../workflow-provisi
 import {
   parseRepositoryReviewPolicy,
   parseReviewConfigurationStrict,
-  PrismaReviewConfigurationRepository,
-  PrismaReviewConfigurationTransactionRepository,
-  PrismaReviewPolicyHeadReader,
   resolveEffectiveReviewConfigurations,
   resolveReviewConfiguration,
   saveReviewConfiguration,
   type RepositoryReviewPolicy,
 } from "../index";
+import {
+  PrismaReviewConfigurationRepository,
+  PrismaReviewConfigurationTransactionRepository,
+  PrismaReviewPolicyHeadReader,
+} from "../composition";
 
 const enabled = process.env.RR_REVIEW_CONFIG_GATEWAY_PG_TEST === "1";
 

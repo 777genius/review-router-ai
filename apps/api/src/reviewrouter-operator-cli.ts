@@ -10,6 +10,7 @@ import { ReviewInvestigationPromotionRequestVersion } from "./review-investigati
 
 import {
   executePoolCli,
+  PoolWorkflowOutcomeError,
   poolCliOptions,
   type PoolAccountsLoginHooks,
 } from "./reviewrouter-pool-cli.js";
@@ -125,6 +126,7 @@ export async function executeReviewRouterOperatorCli(
             fetchImpl,
           );
         } catch (error) {
+          if (error instanceof PoolWorkflowOutcomeError) throw error;
           for (const code of [
             "hosted_pool_conflict",
             "hosted_pool_github_app_permissions_required",
@@ -431,11 +433,27 @@ async function requestJson(
   });
   const body = (await response.json()) as {
     readonly result?: unknown;
-    readonly error?: { readonly code?: unknown };
+    readonly error?: {
+      readonly code?: unknown;
+      readonly recoveryCode?: unknown;
+    };
   };
   if (!response.ok) {
     const code =
       typeof body.error?.code === "string" ? body.error.code : "unknown_error";
+    if (
+      init.method === "POST" &&
+      url.pathname === "/api/operator/v1/hosted-pool/connect" &&
+      response.status === 503 &&
+      (code === "workflow_provisioning_external_uncertain" ||
+        code === "workflow_provisioning_persistence_uncertain" ||
+        code === "workflow_provisioning_audit_unavailable")
+    )
+      throw new PoolWorkflowOutcomeError(
+        code,
+        body.result,
+        body.error?.recoveryCode,
+      );
     throw new Error(
       `reviewrouter_operator_api_error:${response.status}:${code}`,
     );

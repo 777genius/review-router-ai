@@ -9,7 +9,7 @@ describe("SDK growth reservation ownership", () => {
   it("keeps generic SCM exports and publishers free of feature policy", () => {
     for (const path of [
       "packages/shared/src/scm/index.ts",
-      "apps/worker/src/review-v2-publication-gateways.ts",
+      "packages/features/review-publishing/src/v2/infrastructure/github/github-review-publication-client.ts",
       "apps/api/src/github/octokit-conflict-review-posting-gateway.ts",
     ]) {
       expect(source(path)).not.toMatch(
@@ -33,7 +33,7 @@ describe("SDK growth reservation ownership", () => {
       /new GitHubAppReviewV2CredentialProvider\([\s\S]*?projections,\s*assertUnreservedCheckIdentity,/,
     );
     const provider = source(
-      "apps/worker/src/review-v2-publication-gateways.ts",
+      "packages/features/review-publishing/src/v2/infrastructure/github/github-review-publication-client.ts",
     );
     expect(provider).toContain(
       "assertCheckIdentityAllowed: this.assertCheckIdentityAllowed",

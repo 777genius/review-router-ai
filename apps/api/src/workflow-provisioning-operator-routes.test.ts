@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { HashedReviewConfigurationOperatorAuthorization } from "@reviewrouter/features-review-config";
+import { HashedReviewConfigurationOperatorAuthorization } from "@reviewrouter/features-review-config/composition";
 import { createApiApp } from "./app.js";
 import { executeReviewRouterOperatorCli } from "./reviewrouter-operator-cli.js";
 import { createWorkflowProvisioningOperatorAuthorization } from "./workflow-provisioning-operator-authorization.js";

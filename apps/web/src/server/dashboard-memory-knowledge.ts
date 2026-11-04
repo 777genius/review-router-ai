@@ -20,7 +20,7 @@ import type {
   MemoryDashboardMutation,
   MemoryScopeSelection,
 } from "../features/memory/application/memory-knowledge-view";
-import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config/composition";
 import {
   createGitHubAppInstallationOctokit,
   getDashboardSignedInActor,

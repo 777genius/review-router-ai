@@ -24,11 +24,13 @@ import {
   renderReviewRouterReusableWorkflow,
   renderCanonicalHostedPoolWorkflowV2,
   provisionReviewRouterWorkflow,
-  PrismaWorkflowProvisioningRepository,
-  OctokitWorkflowSetupGateway,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
+import {
+  PrismaWorkflowProvisioningRepository,
+  OctokitWorkflowSetupGateway,
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import {
   createProvisioningPrisma,
   initialCandidate,
@@ -89,6 +91,8 @@ vi.mock("@reviewrouter/features-provider-setup", async (original) => ({
 }));
 vi.mock("@reviewrouter/features-audit-log", () => ({
   recordAuditEvent: mocks.audit,
+}));
+vi.mock("@reviewrouter/features-audit-log/composition", () => ({
   PrismaAuditLogRepository: class {},
 }));
 vi.mock("@reviewrouter/features-entitlements", async (original) => ({
@@ -121,14 +125,22 @@ vi.mock(
 );
 // Run the production ledger/use cases; stop at the namespace persistence port.
 // Generation and provider-transaction qualification belong to the downstream DB lane.
-vi.mock("../../src/server/prisma-codex-rotating-setup-payload-claim", () => ({
-  PrismaCodexRotatingSetupPayloadClaim: class {
-    activate = mocks.ledgerActivate;
-    readActiveWorkflowAttestation = mocks.activeAttestation;
-    validateActiveWorkflowSource = mocks.validateActive;
-    replaceActiveWorkflowSource = mocks.persistReplacement;
-  },
-}));
+vi.mock(
+  "@reviewrouter/features-provider-setup/composition",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@reviewrouter/features-provider-setup/composition")
+    >()),
+    PrismaCodexRotatingSetupPayloadClaim: class {
+      activate = mocks.ledgerActivate;
+    },
+    PrismaCodexRotatingWorkflowAttestation: class {
+      readActiveWorkflowAttestation = mocks.activeAttestation;
+      validateActiveWorkflowSource = mocks.validateActive;
+      replaceActiveWorkflowSource = mocks.persistReplacement;
+    },
+  }),
+);
 // Extract the unchanged production source-switch chain without constructing
 // account, credential or KMS adapters. Only that construction boundary is fake;
 // the dashboard method, use case, Prisma adapters and configuration writes run.
@@ -137,7 +149,7 @@ vi.mock("../../src/server/prisma-hosted-pool-mutations", async () => {
   const ts = await import("typescript");
   const configuration = await import("@reviewrouter/features-review-config");
   const { switchRepositoryConfigurationAuthMode } =
-    await import("@reviewrouter/features-workflow-provisioning");
+    await import("@reviewrouter/features-workflow-provisioning/composition");
   const identifiers =
     await import("../../../../packages/features/hosted-account-pool/src/domain/identifiers");
   const useCase =

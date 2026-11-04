@@ -1,4 +1,4 @@
-import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config/composition";
 import {
   canDashboardActorAdminWorkspace,
   getDashboardSignedInActor,

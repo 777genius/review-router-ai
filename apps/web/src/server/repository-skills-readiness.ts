@@ -1,11 +1,11 @@
 import type { PrismaClient } from "@prisma/client";
 import { supportsContextToolsV1 } from "@reviewrouter/features-review-context-tools";
 import {
-  PrismaReviewPolicyHeadReader,
   resolveEffectiveReviewConfigurations,
   type EffectiveReviewConfiguration,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import {
   ProducerReleaseAttestationStatus,
   readImplicitReviewAgentSelection,

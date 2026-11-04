@@ -21,8 +21,8 @@ import {
   workspaceId,
   type RepositoryReviewConfigurationAuthModeAuthority,
 } from "@reviewrouter/features-hosted-account-pool";
-import { switchRepositoryConfigurationAuthMode } from "@reviewrouter/features-workflow-provisioning";
-export { switchRepositoryConfigurationAuthMode } from "@reviewrouter/features-workflow-provisioning";
+import { switchRepositoryConfigurationAuthMode } from "@reviewrouter/features-workflow-provisioning/composition";
+export { switchRepositoryConfigurationAuthMode } from "@reviewrouter/features-workflow-provisioning/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { assertHostedCodexProductionReadiness } from "@reviewrouter/platform-config";
 import type { HostedPoolDashboardMutationPort } from "./hosted-pool-dashboard";

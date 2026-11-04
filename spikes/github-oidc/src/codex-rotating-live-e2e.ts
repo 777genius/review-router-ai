@@ -31,18 +31,20 @@ import {
   createVersionedProviderSecretNamespace,
   createVersionedSecretWorkflowSourceAttestation,
   defaultCodexRotatingWorkflowPath,
-  OctokitWorkflowSetupGateway,
-  PrismaWorkflowProvisioningRepository,
-  PrismaWorkflowProvisioningTarget,
   provisionRepositoryReviewRouterWorkflow,
   readCanonicalCodexRotatingT0WorkflowSourceMetadata,
   workflowDocumentSemanticSha256,
   type VersionedProviderSecretNamespace,
 } from "../../../packages/features/workflow-provisioning/src/index.ts";
+import {
+  OctokitWorkflowSetupGateway,
+  PrismaWorkflowProvisioningRepository,
+  PrismaWorkflowProvisioningTarget,
+} from "../../../packages/features/workflow-provisioning/src/composition/index.ts";
 import { inspectCodexRotatingWorkflowNamespace } from "../../../packages/features/provider-setup/src/index.ts";
 import { issueCodexRotatingSetupForRepository } from "../../../apps/web/src/server/codex-rotating-setup-command.ts";
-import { PrismaCodexRotatingSetupPayloadClaim } from "../../../apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts";
-import { PrismaCodexRotatingWorkflowNamespace } from "../../../apps/web/src/server/prisma-codex-rotating-workflow-namespace.ts";
+import { PrismaCodexRotatingSetupPayloadClaim } from "../../../packages/features/provider-setup/src/composition/index.ts";
+import { PrismaCodexRotatingWorkflowNamespace } from "../../../packages/features/provider-setup/src/composition/index.ts";
 import { createGitHubApp, findInstallationForRepo } from "./github-app.js";
 import { loadAppProfile, loadEnvFiles } from "./config.js";
 import {

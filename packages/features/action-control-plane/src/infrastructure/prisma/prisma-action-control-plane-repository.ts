@@ -1,9 +1,9 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { resolveEffectiveReviewConfiguration } from "@reviewrouter/features-review-config";
 import {
   PrismaReviewPolicyHeadReader,
-  resolveEffectiveReviewConfiguration,
   type ReviewPolicyReader,
-} from "@reviewrouter/features-review-config";
+} from "@reviewrouter/features-review-config/composition";
 import type {
   ActionHealthReport,
   ActionRepositoryContext,

@@ -1,5 +1,13 @@
 "use server";
 
+import {
+  readGitHubWorkflowRepositoryIdentity,
+  readGitHubWorkflowCommitSha,
+  readGitHubVerifiedWorkflowBlob,
+} from "@reviewrouter/features-workflow-provisioning/composition";
+
+import { WorkflowProvisioningOutcomeError } from "@reviewrouter/features-workflow-provisioning";
+
 import { providerApiConfigurationMode } from "@reviewrouter/features-review-config";
 
 import { contextToolsWorkflowSecrets } from "../../src/server/context-tools";
@@ -7,10 +15,8 @@ import { contextToolsWorkflowSecrets } from "../../src/server/context-tools";
 import { createHash, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import {
-  recordAuditEvent,
-  PrismaAuditLogRepository,
-} from "@reviewrouter/features-audit-log";
+import { recordAuditEvent } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import { OutboxInstallationSyncRequester } from "@reviewrouter/features-github-installations";
 import {
   PrismaOutboxEventRepository,
@@ -24,7 +30,6 @@ import {
   type OrgRulesetScope,
 } from "@reviewrouter/features-org-ruleset-provisioning";
 import {
-  PrismaReviewPolicyHeadReader,
   resolveReviewRuntimeEnv,
   saveRepositoryReviewSettings,
   saveWorkspaceReviewSettings,
@@ -32,6 +37,7 @@ import {
   type ResolvedReviewRuntimeEnv,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
 import { resolveApprovedClaudeSubscriptionActionRef } from "../../src/server/workflow-provisioning/approved-claude-subscription-action-ref";
@@ -68,11 +74,7 @@ import {
   defaultInteractionWorkflowPath,
   defaultWorkflowPath,
   isolatedQualityWorkflowPath,
-  OctokitWorkflowSetupGateway,
   preferredSetupBaseBranches,
-  PrismaWorkflowProvisioningRepository,
-  PrismaWorkflowProvisioningStatusAuthority,
-  PrismaWorkflowProvisioningTarget,
   provisionRepositoryReviewRouterWorkflow,
   provisionHostedPoolRepositoryWorkflow,
   canonicalHostedPoolProviderInstanceId,
@@ -93,11 +95,17 @@ import {
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
   verifiedWorkflowRequirement,
-  createInstalledGatewayReviewConfirmation,
-  supportsInstalledGatewayReviewConfirmation,
   validateAccountGatewayActionRef,
   reviewRouterWorkflowContract,
 } from "@reviewrouter/features-workflow-provisioning";
+import {
+  OctokitWorkflowSetupGateway,
+  PrismaWorkflowProvisioningRepository,
+  PrismaWorkflowProvisioningStatusAuthority,
+  PrismaWorkflowProvisioningTarget,
+  createInstalledGatewayReviewConfirmation,
+  supportsInstalledGatewayReviewConfirmation,
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import {
   confirmCodexRotatingSetupReadiness,
   inspectCodexRotatingWorkflowNamespace,
@@ -136,8 +144,8 @@ import { resolveWorkflowPublicApiUrl } from "../../src/server/workflow-public-ap
 import { isWorkflowSetupAlreadyCurrent } from "../../src/server/workflow-setup-readiness";
 import { activateConfirmedCodexNamespaceAfterWorkflowMerge } from "../../src/server/codex-rotating-workflow-activation";
 import { activateConfirmedHostedPoolBindingAfterWorkflowMerge } from "../../src/server/hosted-pool-workflow-activation";
-import { PrismaCodexRotatingSetupReadiness } from "../../src/server/prisma-codex-rotating-setup-readiness";
-import { PrismaCodexRotatingWorkflowNamespace } from "../../src/server/prisma-codex-rotating-workflow-namespace";
+import { PrismaCodexRotatingSetupReadiness } from "@reviewrouter/features-provider-setup/composition";
+import { PrismaCodexRotatingWorkflowNamespace } from "@reviewrouter/features-provider-setup/composition";
 import type {
   CodexRotatingVersionedWriterSchemaVersion,
   CodexRotatingWriterSchemaPolicy,
@@ -470,6 +478,16 @@ export async function setHostedRepositorySessionSourceClientAction(
       },
     };
   } catch (error) {
+    if (error instanceof WorkflowProvisioningOutcomeError) {
+      revalidateDashboard();
+      return {
+        params: {
+          ...workflowProvisioningOutcomeParams(error),
+          workspace: workspaceId,
+          section: "repositories",
+        },
+      };
+    }
     return {
       params: {
         error: safeDashboardErrorCode(error),
@@ -1649,6 +1667,13 @@ async function createSetupPullRequestMutation(
       };
     }
   } catch (error) {
+    if (error instanceof WorkflowProvisioningOutcomeError) {
+      return {
+        ...workflowProvisioningOutcomeParams(error),
+        workspace: workspaceId,
+        section: "repositories",
+      };
+    }
     const errorCode = safeDashboardErrorCode(error);
     const untrustedWorkflowPath =
       dashboardUntrustedWorkflowPathFromError(error);
@@ -1967,11 +1992,11 @@ async function confirmSetupPullRequestMergedMutation(
           throw new Error("workflow_provisioning_match_not_found");
       };
       const readCommit = (data: unknown) => {
-        const sha = (data as { object?: { sha?: unknown } } | null)?.object
-          ?.sha;
-        if (typeof sha !== "string" || !/^[a-f0-9]{40}$/iu.test(sha))
+        try {
+          return readGitHubWorkflowCommitSha(data, "codex_rotating_workflow");
+        } catch {
           throw new Error("workflow_provisioning_match_not_found");
-        return sha.toLowerCase();
+        }
       };
       assertRepositoryIdentity(
         (await octokit.request(repositoryRoute, location)).data,
@@ -3828,65 +3853,14 @@ async function resolveCodexRotatingProvisioningActionRef(input: {
   return metadata.actionRef;
 }
 
-function readGitHubRepositoryIdentity(data: unknown): {
-  readonly id: string;
-  readonly fullName: string;
-  readonly defaultBranch: string;
-} {
-  const repository = data as {
-    id?: unknown;
-    full_name?: unknown;
-    default_branch?: unknown;
-  } | null;
-  if (
-    typeof repository?.id !== "number" ||
-    !Number.isSafeInteger(repository.id) ||
-    repository.id <= 0 ||
-    typeof repository.full_name !== "string" ||
-    typeof repository.default_branch !== "string" ||
-    repository.default_branch.length === 0
-  ) {
-    throw new Error("codex_rotating_workflow_repository_invalid_response");
-  }
-  return {
-    id: String(repository.id),
-    fullName: repository.full_name,
-    defaultBranch: repository.default_branch,
-  };
+function readGitHubRepositoryIdentity(data: unknown) {
+  return readGitHubWorkflowRepositoryIdentity(data, "codex_rotating_workflow");
 }
 
-function readGitHubWorkflowBlob(data: unknown): {
-  readonly source: string;
-  readonly blobSha: string;
-} {
-  const blob = data as {
-    type?: unknown;
-    encoding?: unknown;
-    content?: unknown;
-    sha?: unknown;
-  } | null;
-  if (
-    blob?.type !== "file" ||
-    blob.encoding !== "base64" ||
-    typeof blob.content !== "string" ||
-    typeof blob.sha !== "string" ||
-    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(blob.sha)
-  ) {
-    throw new Error("codex_rotating_workflow_content_invalid_response");
-  }
-  const source = Buffer.from(
-    blob.content.replace(/\s+/g, ""),
-    "base64",
-  ).toString("utf8");
-  const blobSha = blob.sha.toLowerCase();
-  const computed = createHash(blobSha.length === 40 ? "sha1" : "sha256")
-    .update(`blob ${Buffer.byteLength(source, "utf8")}\0`, "utf8")
-    .update(source, "utf8")
-    .digest("hex");
-  if (computed !== blobSha) {
-    throw new Error("codex_rotating_workflow_blob_sha_mismatch");
-  }
-  return { source, blobSha };
+function readGitHubWorkflowBlob(data: unknown) {
+  return readGitHubVerifiedWorkflowBlob(data, {
+    errorPrefix: "codex_rotating_workflow",
+  });
 }
 
 function codexRotatingWorkflowSecretInputs(config: ReviewConfiguration): {
@@ -3985,4 +3959,48 @@ function redirectAfterMutation(
   params: Record<string, string>,
 ): never {
   redirectWithParams(params);
+}
+
+function workflowProvisioningOutcomeParams(
+  error: WorkflowProvisioningOutcomeError,
+): Record<string, string> {
+  const committed = error.committedPullRequest;
+  // Hosted provisioning retains its existing generic persisted error summary.
+  // Recover only these approved diagnostics from the original provider failure.
+  const providerCause =
+    error.code === "workflow_provisioning_external_uncertain"
+      ? error.cause
+      : null;
+  const originalRecovery =
+    (providerCause instanceof Error &&
+      providerCause.message.startsWith("workflow_delete_untrusted:")) ||
+    (typeof providerCause === "object" &&
+      providerCause !== null &&
+      "status" in providerCause &&
+      providerCause.status === 403)
+      ? safeDashboardErrorCode(providerCause)
+      : null;
+  const recoveryError =
+    originalRecovery ??
+    (error.failureSummary === "workflow_delete_untrusted"
+      ? "workflow_delete_untrusted"
+      : /^github_api_error:[0-9]{3}$/.test(error.failureSummary ?? "")
+        ? safeDashboardErrorCode(new Error(error.failureSummary))
+        : null);
+  const workflowPath =
+    recoveryError === "workflow_delete_untrusted"
+      ? dashboardUntrustedWorkflowPathFromError(error.cause)
+      : null;
+  return {
+    error: error.code,
+    ...(recoveryError ? { recoveryError } : {}),
+    ...(workflowPath ? { workflowPath } : {}),
+    ...(committed
+      ? {
+          setupOutcome: "committed",
+          pr: committed.url,
+          ...(committed.baseBranch ? { branch: committed.baseBranch } : {}),
+        }
+      : {}),
+  };
 }

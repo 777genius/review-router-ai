@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
-import {
-  PrismaAuditLogRepository,
-  recordAuditEvent,
-} from "@reviewrouter/features-audit-log";
+import { recordAuditEvent } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import { ProviderApiKeyGitHubGateway } from "./provider-api-key-github-gateway";
 import {
   decryptServerToken,

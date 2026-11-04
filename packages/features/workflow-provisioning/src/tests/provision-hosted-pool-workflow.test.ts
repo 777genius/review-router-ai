@@ -30,7 +30,7 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
         baseBranch: input.baseBranch,
       }),
     );
-    const markSetupPullRequestOpen = vi.fn(async () => undefined);
+    const markSetupPullRequestOpen = vi.fn(async () => "applied" as const);
     await provisionHostedPoolRepositoryWorkflow(
       {
         workspaceId: "workspace-1",
@@ -55,7 +55,7 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
             revision: 0,
           })),
           markSetupPullRequestOpen,
-          markFailed: vi.fn(async () => undefined),
+          markFailed: vi.fn(async () => "applied" as const),
         },
       },
     );
@@ -123,8 +123,8 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
             branch: `${record.branch}/attempt-1`,
             revision: 0,
           })),
-          markSetupPullRequestOpen: vi.fn(async () => undefined),
-          markFailed: vi.fn(async () => undefined),
+          markSetupPullRequestOpen: vi.fn(async () => "applied" as const),
+          markFailed: vi.fn(async () => "applied" as const),
         },
       },
     );
@@ -141,7 +141,7 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
   });
 
   it("persists a safe failure while the binding remains pending", async () => {
-    const markFailed = vi.fn(async () => undefined);
+    const markFailed = vi.fn(async () => "applied" as const);
     await expect(
       provisionHostedPoolRepositoryWorkflow(
         {
@@ -170,12 +170,15 @@ describe("provisionHostedPoolRepositoryWorkflow", () => {
               branch: `${record.branch}/attempt-1`,
               revision: 0,
             })),
-            markSetupPullRequestOpen: vi.fn(async () => undefined),
+            markSetupPullRequestOpen: vi.fn(async () => "applied" as const),
             markFailed,
           },
         },
       ),
-    ).rejects.toThrow("sensitive upstream detail");
+    ).rejects.toMatchObject({
+      code: "workflow_provisioning_external_uncertain",
+      cause: new Error("sensitive upstream detail"),
+    });
     expect(markFailed).toHaveBeenCalledWith(
       expect.objectContaining({
         errorMessage: "workflow_provisioning_failed",

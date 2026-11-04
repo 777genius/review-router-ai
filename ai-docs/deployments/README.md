@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Workflow and publication ownership: [foundation ownership](2026-11-04-foundation-ownership.md), [PR #810](https://github.com/777genius/review-router-ai/pull/810) — staging and production `pending`; ordinary Web/API/worker rollout after source qualification, with no new schema or activation step.
+
 Current provider-error delivery: [2026-11-04 provider errors and findings](2026-11-04-provider-errors-and-findings.md). Gateway/native diagnostics installed; SaaS809 and Action368/228 pending delivery. Live review coverage and fresh Statistics/Usage are established on installed856/227; a confirmed security-finding projection bug is repaired in source and awaits rollout. Memory qualification is separate.
 
 Dashboard extraction awaiting ordinary Web rollout: [dashboard read boundaries](2026-11-03-dashboard-read-boundaries.md), consolidated [PR #798](https://github.com/777genius/review-router-ai/pull/798) from #796 and #797. Staging and production verification are `pending`; select the exact release and verify workspace/repository isolation and organization plan guidance.

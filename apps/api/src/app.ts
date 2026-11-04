@@ -1,6 +1,6 @@
 import { createReviewHistoryFeature } from "@reviewrouter/features-review-history/composition";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
-import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config/composition";
 import {
   registerActionMemoryV2Routes,
   type ActionMemoryV2Dependencies,
@@ -53,7 +53,7 @@ import { createHash, randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import { registerApiDemoRoutes } from "@reviewrouter/features-api-demo";
-import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import {
   JoseActionSessionTokenService,
   JoseActionConflictReviewPostingSessionTokenService,
@@ -139,13 +139,13 @@ import {
   resolveReviewRouterPublicApiUrl,
 } from "@reviewrouter/platform-config";
 import { PrismaRateLimitStore } from "@reviewrouter/features-rate-limits";
+import { type OperatorReviewConfigurationDependencies } from "@reviewrouter/features-review-config";
 import {
   HashedReviewConfigurationOperatorAuthorization,
   PrismaReviewConfigurationOperatorRepository,
   PrismaReviewConfigurationRepository,
   PrismaWorkspaceReviewSettings,
-  type OperatorReviewConfigurationDependencies,
-} from "@reviewrouter/features-review-config";
+} from "@reviewrouter/features-review-config/composition";
 import { PrismaReviewSnapshotRepository } from "@reviewrouter/features-review-snapshots";
 import { PrismaReviewExecutionCheckpointRepository } from "@reviewrouter/features-review-execution-checkpoints";
 import { PrismaReviewRequestedIntentStore } from "@reviewrouter/features-review-executions/composition";

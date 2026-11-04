@@ -28,6 +28,13 @@ import {
   assertCodexRotatingWorkflowReplacementTransition,
 } from "../../domain/codex-rotating-workflow-reattestation";
 import {
+  assertSetupDispatchAllocationOrdinal,
+  planSetupDispatchOutcome,
+  sameExactWorkflowAttestation,
+  setupClaimReplayDeadline,
+  SetupDispatchOutcomeDecision,
+} from "../../domain/codex-rotating-setup-lifecycle";
+import {
   allocateVersionedProviderSecretNamespace,
   assertProviderSecretAuthorizationUnexpired,
   assertSameVersionedProviderSecretNamespace,
@@ -117,14 +124,15 @@ export class InMemoryCodexRotatingSetupPayloadClaim
     const claimId = `codex_claim_00000000-0000-4000-8000-${claimSequence
       .toString(16)
       .padStart(12, "0")}`;
+    const recoveryExpiresAt = new Date(now.getTime() + 24 * 60 * 60_000);
     const stored: Stored = {
       claim: { ...claim },
       claimId,
       status: "prepared",
       attempts: new Map(),
       attemptOrder: [],
-      prepareReplayExpiresAt: new Date(now.getTime() + 15 * 60_000),
-      recoveryExpiresAt: new Date(now.getTime() + 24 * 60 * 60_000),
+      prepareReplayExpiresAt: setupClaimReplayDeadline(now, recoveryExpiresAt),
+      recoveryExpiresAt,
       workflowAttestation: null,
       retiringWorkflowAttestation: null,
       retiringWorkflowAt: null,
@@ -166,7 +174,7 @@ export class InMemoryCodexRotatingSetupPayloadClaim
       }
     }
     const ordinal = stored.attemptOrder.length + 1;
-    if (ordinal > 3) throw new Error("codex_rotating_setup_attempt_limit");
+    assertSetupDispatchAllocationOrdinal(ordinal, null);
     const sequence = ++this.#sequence;
     const allocated = allocateVersionedProviderSecretNamespace({
       scope: {
@@ -210,21 +218,35 @@ export class InMemoryCodexRotatingSetupPayloadClaim
     );
     if (!entry) throw new Error("codex_rotating_setup_attempt_not_found");
     const [key, attempt] = entry;
-    if (attempt.status === "retired_ambiguous") {
-      if (input.outcome === "unknown")
-        return { status: "retired_ambiguous" as const };
-      throw new Error("codex_rotating_setup_namespace_retired");
+    const decision = planSetupDispatchOutcome({
+      attempt: {
+        attemptId: attempt.attemptId,
+        status: attempt.status,
+        dispatchExpiresAt: new Date(attempt.dispatchExpiresAt),
+      },
+      confirmedAttemptId:
+        [...stored.attempts.values()].find(
+          (candidate) => candidate.status === "confirmed",
+        )?.attemptId ?? null,
+      outcome: input.outcome,
+      now,
+    });
+    if (decision === SetupDispatchOutcomeDecision.ReturnRetired) {
+      return { status: "retired_ambiguous" as const };
     }
-    try {
-      this.#assertUnexpired(new Date(attempt.dispatchExpiresAt), now);
-    } catch (error) {
-      stored.attempts.set(key, { ...attempt, status: "retired_ambiguous" });
-      throw error;
+    if (
+      decision === SetupDispatchOutcomeDecision.RetireExpired ||
+      decision === SetupDispatchOutcomeDecision.Expire
+    ) {
+      if (decision === SetupDispatchOutcomeDecision.RetireExpired) {
+        stored.attempts.set(key, { ...attempt, status: "retired_ambiguous" });
+      }
+      throw new Error("codex_rotating_setup_dispatch_expired");
     }
-    if (attempt.status === "confirmed") {
+    if (decision === SetupDispatchOutcomeDecision.ReturnConfirmed) {
       return { status: "confirmed_candidate" as const };
     }
-    if (input.outcome === "unknown") {
+    if (decision === SetupDispatchOutcomeDecision.RetireUnknown) {
       stored.attempts.set(key, { ...attempt, status: "retired_ambiguous" });
       return { status: "retired_ambiguous" as const };
     }
@@ -567,28 +589,5 @@ function sameExactNamespace(
     left.name === right.name &&
     left.scope.repositoryId === right.scope.repositoryId &&
     left.scope.providerInstanceId === right.scope.providerInstanceId
-  );
-}
-
-function sameExactWorkflowAttestation(
-  left: VersionedSecretWorkflowSourceAttestation,
-  right: VersionedSecretWorkflowSourceAttestation,
-): boolean {
-  return (
-    left.repositoryId === right.repositoryId &&
-    left.workflowPath === right.workflowPath &&
-    left.workflowSourceCommitSha === right.workflowSourceCommitSha &&
-    left.workflowSourceBlobSha === right.workflowSourceBlobSha &&
-    left.workflowSourceSha256 === right.workflowSourceSha256 &&
-    left.workflowSemanticSha256 === right.workflowSemanticSha256 &&
-    left.workflowSchemaVersion === right.workflowSchemaVersion &&
-    left.sourceTrust === right.sourceTrust &&
-    left.secretNamespace.namespaceId === right.secretNamespace.namespaceId &&
-    left.secretNamespace.epoch === right.secretNamespace.epoch &&
-    left.secretNamespace.name === right.secretNamespace.name &&
-    left.secretNamespace.scope.repositoryId ===
-      right.secretNamespace.scope.repositoryId &&
-    left.secretNamespace.scope.providerInstanceId ===
-      right.secretNamespace.scope.providerInstanceId
   );
 }

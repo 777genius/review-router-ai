@@ -9,7 +9,7 @@ import {
   resolveCodexRotatingPublicWebUrl,
   resolveCodexRotatingSeedScriptDescriptor,
 } from "./codex-rotating-seed-script";
-import { issueCodexRotatingSetupCommand } from "./codex-rotating-setup-manifest";
+import { issueCodexRotatingSetupCommand } from "@reviewrouter/features-provider-setup/composition";
 
 export type CodexRotatingSetupRepository = {
   readonly id: string;

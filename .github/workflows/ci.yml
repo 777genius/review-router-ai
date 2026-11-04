@@ -819,6 +819,29 @@ jobs:
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
 
+      # Clone the qualified ordinary schema before any application sessions.
+      # Replaying 000079 after its inert owner exists would reject that topology.
+      # This setup fixture preserves its ledger until the disposable service ends.
+      - name: Prepare provider setup migration PostgreSQL database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+          psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE reviewrouter_hosted_model_test TEMPLATE review_router_ci_test'
+
+      - name: Provider setup migration and locked-provider PostgreSQL (zero skips)
+        env:
+          REVIEW_ROUTER_MIGRATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/reviewrouter_hosted_model_test?schema=public
+          REVIEW_ROUTER_RUN_LOCKED_PROVIDER_PG17: "1"
+        run: |
+          GOMAXPROCS=2 node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.hosted-pool-operations.json
+          results="$RUNNER_TEMP/provider-setup-postgres-results.json"
+          pnpm exec vitest run \
+            apps/web/src/server/codex-runtime-migration.postgres.test.ts \
+            scripts/locked-provider.pg17.real.test.ts \
+            --maxWorkers=1 --reporter=default --reporter=json --outputFile="$results"
+          node scripts/check-provider-setup-postgres-results.ts "$results"
+
       - name: Rotating Codex PostgreSQL 17 combined migration rehearsal (no skips)
         env:
           REVIEW_ROUTER_MIGRATION_REHEARSAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/review_router_ci

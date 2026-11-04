@@ -20,7 +20,7 @@ vi.mock("./codex-rotating-seed-script", () => ({
   }),
 }));
 
-vi.mock("./codex-rotating-setup-manifest", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   issueCodexRotatingSetupCommand: mocks.issueCodexRotatingSetupCommand,
 }));
 

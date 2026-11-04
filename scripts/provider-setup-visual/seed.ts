@@ -22,9 +22,6 @@ import {
   assignProviderProfileToRepositories,
   changeProviderAccessRights,
   createWorkspaceProviderProfile,
-  PrismaReviewConfigurationRepository,
-  PrismaReviewPolicyHeadReader,
-  PrismaWorkspaceProviderProfileRepository,
   resolveEffectiveReviewConfigurations,
   setWorkspaceDefaultProvider,
   type EffectiveReviewConfigurationValidatorPort,
@@ -35,6 +32,11 @@ import {
   type ProviderSelectionDraft,
   type ReviewConfiguration,
 } from "../../packages/features/review-config/src/index.js";
+import {
+  PrismaReviewConfigurationRepository,
+  PrismaReviewPolicyHeadReader,
+  PrismaWorkspaceProviderProfileRepository,
+} from "../../packages/features/review-config/src/composition/index.js";
 import { getProviderAuthModeMetadata } from "../../packages/features/review-providers/src/index.js";
 import {
   defaultSetupBranch,

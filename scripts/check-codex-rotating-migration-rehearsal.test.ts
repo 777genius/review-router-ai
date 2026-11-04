@@ -150,7 +150,14 @@ describe("Codex rotating PostgreSQL 17 rehearsal contract", () => {
   const setupAdapterSource = readFileSync(
     resolve(
       import.meta.dirname,
-      "../apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts",
+      "../packages/features/provider-setup/src/infrastructure/prisma/prisma-codex-rotating-setup-payload-claim.ts",
+    ),
+    "utf8",
+  );
+  const workflowAttestationAdapterSource = readFileSync(
+    resolve(
+      import.meta.dirname,
+      "../packages/features/provider-setup/src/infrastructure/prisma/prisma-codex-rotating-workflow-attestation.ts",
     ),
     "utf8",
   );
@@ -2576,8 +2583,8 @@ describe("Codex rotating PostgreSQL 17 rehearsal contract", () => {
 
   it("executes the void re-attestation routine without Prisma row decoding", () => {
     const reattestation =
-      /async replaceActiveWorkflowSource\([\s\S]+?\n {2}\}\n\n {2}async retireProviderGeneration/u.exec(
-        setupAdapterSource,
+      /async replaceActiveWorkflowSource\([\s\S]+?\n {2}\}\n\}/u.exec(
+        workflowAttestationAdapterSource,
       )?.[0];
     expect(reattestation).toBeDefined();
     expect(reattestation).toContain("await tx.$executeRaw`");

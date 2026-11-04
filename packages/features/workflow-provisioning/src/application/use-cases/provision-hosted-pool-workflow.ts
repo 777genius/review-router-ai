@@ -1,3 +1,9 @@
+import { WorkflowProvisioningOutcomeError } from "../workflow-provisioning-outcome";
+import {
+  settleWorkflowProvisioningAttempt,
+  auditWorkflowProvisioningAttempt,
+} from "./workflow-provisioning-settlement";
+import type { WorkflowSetupPullRequest } from "../ports/workflow-setup-gateway-port";
 import {
   recordAuditEvent,
   type AuditLogRepositoryPort,
@@ -78,18 +84,31 @@ export async function provisionHostedPoolRepositoryWorkflow(
     status: "not_started",
   });
   if (dependencies.enabled === false) {
-    await dependencies.provisioning.markFailed({
-      ...record,
-      ...attempt,
-      status: "failed",
-      pullRequestUrl: null,
-      errorMessage: "workflow_provisioning_disabled",
-    });
+    await settleWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "failure",
+        mayHaveExternalEffects: false,
+        failureSummary: "workflow_provisioning_disabled",
+      },
+      () =>
+        dependencies.provisioning.markFailed({
+          ...record,
+          ...attempt,
+          status: "failed",
+          pullRequestUrl: null,
+          errorMessage: "workflow_provisioning_disabled",
+        }),
+    );
     throw new Error("workflow_provisioning_disabled");
   }
 
+  let mayHaveExternalEffects = false;
+  let pullRequest: WorkflowSetupPullRequest;
   try {
-    const pullRequest =
+    const workflow = renderCanonicalHostedPoolWorkflowV2(input);
+    mayHaveExternalEffects = true;
+    pullRequest =
       await dependencies.setupGateway.createOrUpdateSetupPullRequest({
         owner: plan.owner,
         repo: plan.name,
@@ -99,7 +118,7 @@ export async function provisionHostedPoolRepositoryWorkflow(
         workflowFiles: [
           {
             path: defaultCodexRotatingWorkflowPath,
-            content: renderCanonicalHostedPoolWorkflowV2(input),
+            content: workflow,
           },
           {
             path: defaultWorkflowPath,
@@ -114,46 +133,85 @@ export async function provisionHostedPoolRepositoryWorkflow(
           },
         ],
       });
-    await dependencies.provisioning.markSetupPullRequestOpen({
-      ...record,
-      ...attempt,
-      status: "setup_pr_open",
-      branch: pullRequest.branch,
-      pullRequestUrl: pullRequest.url,
-      pullRequestHeadSha: pullRequest.headSha,
-      errorMessage: null,
-    });
-    if (dependencies.auditLog) {
-      await recordAuditEvent(
+  } catch (error) {
+    await settleWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "failure",
+        mayHaveExternalEffects,
+        failureSummary: safeHostedProvisioningError(error),
+      },
+      () =>
+        dependencies.provisioning.markFailed({
+          ...record,
+          ...attempt,
+          status: "failed",
+          pullRequestUrl: null,
+          errorMessage: safeHostedProvisioningError(error),
+        }),
+    );
+    if (mayHaveExternalEffects) {
+      throw new WorkflowProvisioningOutcomeError(
+        "workflow_provisioning_external_uncertain",
         {
-          workspaceId: plan.workspaceId,
-          actor: input.actor ?? "system:workflow-provisioning",
-          action: "workflow.hosted_pool_setup_pr_opened",
-          targetType: "repository",
-          targetId: plan.repositoryId,
-          metadata: {
-            branch: pullRequest.branch,
-            workflowPath: plan.workflowPath,
-            actionVersion: plan.actionRef,
-            bindingId: input.bindingId,
-            bindingRevision: input.bindingRevision,
-            ...(dependencies.auditMetadata ?? {}),
-          },
+          attempt,
+          stage: "failure",
+          mayHaveExternalEffects: true,
+          failureSummary: safeHostedProvisioningError(error),
         },
-        { auditLog: dependencies.auditLog },
+        { cause: error },
       );
     }
-    return pullRequest;
-  } catch (error) {
-    await dependencies.provisioning.markFailed({
-      ...record,
-      ...attempt,
-      status: "failed",
-      pullRequestUrl: null,
-      errorMessage: safeHostedProvisioningError(error),
-    });
     throw error;
   }
+  await settleWorkflowProvisioningAttempt(
+    {
+      attempt,
+      stage: "completion",
+      mayHaveExternalEffects: true,
+      observedPullRequest: pullRequest,
+    },
+    () =>
+      dependencies.provisioning.markSetupPullRequestOpen({
+        ...record,
+        ...attempt,
+        status: "setup_pr_open",
+        branch: pullRequest.branch,
+        pullRequestUrl: pullRequest.url,
+        pullRequestHeadSha: pullRequest.headSha,
+        errorMessage: null,
+      }),
+  );
+  if (dependencies.auditLog) {
+    await auditWorkflowProvisioningAttempt(
+      {
+        attempt,
+        stage: "success_audit",
+        mayHaveExternalEffects: true,
+        observedPullRequest: pullRequest,
+      },
+      () =>
+        recordAuditEvent(
+          {
+            workspaceId: plan.workspaceId,
+            actor: input.actor ?? "system:workflow-provisioning",
+            action: "workflow.hosted_pool_setup_pr_opened",
+            targetType: "repository",
+            targetId: plan.repositoryId,
+            metadata: {
+              branch: pullRequest.branch,
+              workflowPath: plan.workflowPath,
+              actionVersion: plan.actionRef,
+              bindingId: input.bindingId,
+              bindingRevision: input.bindingRevision,
+              ...(dependencies.auditMetadata ?? {}),
+            },
+          },
+          { auditLog: dependencies.auditLog! },
+        ),
+    );
+  }
+  return pullRequest;
 }
 
 function safeHostedProvisioningError(error: unknown): string {

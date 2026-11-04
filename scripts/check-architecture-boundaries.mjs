@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
+import { checkApplicationCompositionBoundaries } from "./lib/application-composition-boundaries.ts";
 
 const root = process.env.REVIEWROUTER_ARCHITECTURE_ROOT
   ? resolve(process.env.REVIEWROUTER_ARCHITECTURE_ROOT)
@@ -95,6 +96,12 @@ await checkReviewActionV2ProtocolBoundaries(violations);
 await checkRevisionAwareReviewRatchet(violations);
 await checkPrismaTransactionQuerySerialization(violations);
 await checkReleaseRolloutProviderNeutrality(violations);
+violations.push(
+  ...(await checkApplicationCompositionBoundaries(
+    root,
+    extractImportSpecifiers,
+  )),
+);
 
 if (violations.length > 0) {
   writeSync(

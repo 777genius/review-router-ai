@@ -1,10 +1,8 @@
 "use server";
 
 import { z } from "zod";
-import {
-  PrismaReviewPolicyHeadReader,
-  saveWorkspaceMemorySettings,
-} from "@reviewrouter/features-review-config";
+import { saveWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import { assertDashboardMutationAllowed } from "../../src/server/dashboard-mutations";
 import {
   dashboardProviderActor,

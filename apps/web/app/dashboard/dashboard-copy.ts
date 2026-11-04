@@ -724,6 +724,14 @@ export function dashboardErrorText(error: string): string {
       return "Organization secret setup requires workspace owner/admin access. Use a repository secret for repo-scoped setup.";
     case "entitlement_denied":
       return "This workspace plan does not allow that action. Check the plan status or feature flags.";
+    case "workflow_provisioning_external_uncertain":
+      return "GitHub did not confirm the setup request. The setup branch or PR may already exist. Inspect the repository and refresh its status before making another setup request.";
+    case "workflow_provisioning_superseded":
+      return "Another setup request replaced this one. Refresh the repository status and use its current setup PR.";
+    case "workflow_provisioning_persistence_uncertain":
+      return "The setup status could not be confirmed. A GitHub PR may already exist. Check the repository and refresh its status before making another setup request.";
+    case "workflow_provisioning_audit_unavailable":
+      return "The setup activity record could not be saved. Refresh the repository status before making another setup request. If this continues, ask your workspace administrator to check the activity log.";
     case "workflow_provisioning_disabled":
       return "Workflow provisioning is disabled. Set REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING=1 in a trusted local or beta environment.";
     case "codex_rotating_not_enabled":
@@ -862,4 +870,50 @@ export function buildInstallationSettingsUrl(
     return `https://github.com/organizations/${installation.accountLogin}/settings/installations/${installation.githubInstallationId}`;
   }
   return `https://github.com/settings/installations/${installation.githubInstallationId}`;
+}
+
+/** Shared safe presentation for provisioning outcomes across setup and source changes. */
+export function workflowSetupOutcomePresentation(
+  params: Readonly<Record<string, string>>,
+): {
+  readonly tone: "warning";
+  readonly title: string;
+  readonly body: string;
+  readonly actionUrl?: string;
+  readonly actionLabel?: string;
+} | null {
+  if (
+    params.error === "workflow_provisioning_audit_unavailable" &&
+    params.setupOutcome === "committed"
+  ) {
+    return {
+      tone: "warning",
+      title: "Setup PR saved",
+      body: "Your setup PR was created and saved, but its activity record could not be completed. Open the PR or refresh its status before making another setup request.",
+      ...(params.pr
+        ? { actionUrl: params.pr, actionLabel: "Open setup PR" }
+        : {}),
+    };
+  }
+  if (
+    [
+      "workflow_provisioning_superseded",
+      "workflow_provisioning_external_uncertain",
+      "workflow_provisioning_persistence_uncertain",
+      "workflow_provisioning_audit_unavailable",
+    ].includes(params.error ?? "")
+  ) {
+    const recovery =
+      params.recoveryError === "workflow_delete_untrusted"
+        ? ` A workflow was not removed automatically${params.workflowPath && /^\.github\/workflows\/[A-Za-z0-9][A-Za-z0-9._-]{0,78}\.ya?ml$/u.test(params.workflowPath) ? ` (${params.workflowPath})` : ""}. Check whether it belongs to another active mode or contains manual changes before replacing it.`
+        : params.recoveryError === "github_operation_forbidden"
+          ? " Check GitHub App Contents, Workflows, and Pull requests write permissions."
+          : "";
+    return {
+      tone: "warning",
+      title: "Check setup status",
+      body: dashboardErrorText(params.error!) + recovery,
+    };
+  }
+  return null;
 }

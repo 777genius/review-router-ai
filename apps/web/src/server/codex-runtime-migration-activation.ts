@@ -3,7 +3,7 @@ import { codexRotatingSetupManifestSchema } from "@reviewrouter/features-provide
 import { renderCanonicalCodexRotatingInteractionWorkflowV3 } from "@reviewrouter/features-workflow-provisioning";
 import { createCodexRuntimeMigrationGitHub } from "./codex-runtime-migration-composition";
 import { resolveCodexRotatingPublicWebUrl } from "./codex-rotating-seed-script";
-import { lockCodexRotatingProviderRow } from "./codex-rotating-provider-mutation-fence";
+import { lockCodexRotatingProviderRow } from "@reviewrouter/features-provider-setup/composition";
 
 /** Normal setup is unchanged. A migration resumes only its exact activated B. */
 export async function completeCodexRuntimeMigrationActivation(input: {

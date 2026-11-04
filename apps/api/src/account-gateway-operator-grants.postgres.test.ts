@@ -21,9 +21,9 @@ import {
 import { PrismaProviderAccountSynchronization } from "@reviewrouter/features-provider-accounts/synchronization";
 import {
   parseReviewConfigurationStrict,
-  PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewConfigurationRepository } from "@reviewrouter/features-review-config/composition";
 import {
   ReviewTrustDomain,
   type VerifiedScmRunIdentity,

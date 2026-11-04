@@ -19,13 +19,13 @@ import {
   createMemoryKnowledgeRuntime,
   type MemoryKnowledgeRuntime,
 } from "@reviewrouter/features-memory/composition";
+import { saveWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
 import {
   PrismaWorkspaceMemorySettings,
   PrismaReviewConfigurationRepository,
   PrismaReviewConfigurationTransactionRepository,
   PrismaReviewPolicyHeadReader,
-  saveWorkspaceMemorySettings,
-} from "@reviewrouter/features-review-config";
+} from "@reviewrouter/features-review-config/composition";
 import { candidateWorkspaceMemorySettings } from "../../../scripts/conversation-evals/fixture.js";
 import {
   PrismaEntitlementRepository,

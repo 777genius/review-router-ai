@@ -19,10 +19,8 @@ import {
   canonicalReviewSkillsJson,
   parseCapturedReviewSkills,
 } from "@reviewrouter/shared/review-skills-contract";
-import {
-  PrismaReviewConfigurationRepository,
-  parseReviewConfigurationStrict,
-} from "@reviewrouter/features-review-config";
+import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
+import { PrismaReviewConfigurationRepository } from "@reviewrouter/features-review-config/composition";
 import {
   systemPolicyWriteFixture,
   workspacePolicyFixture,

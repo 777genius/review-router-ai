@@ -8,13 +8,21 @@
       "types": "./src/index.ts",
       "production": "./dist/index.js",
       "default": "./src/index.ts"
+    },
+    "./composition": {
+      "types": "./src/composition/index.ts",
+      "production": "./dist/composition/index.js",
+      "default": "./src/composition/index.ts"
     }
   },
   "dependencies": {
     "@reviewrouter/features-codex-oauth-rotating": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*",
     "@reviewrouter/shared": "workspace:*",
-    "zod": "^4.4.2"
+    "zod": "^4.4.2",
+    "@prisma/client": "7.8.0",
+    "@reviewrouter/platform-db": "workspace:*",
+    "@reviewrouter/platform-config": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

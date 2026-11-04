@@ -21,10 +21,8 @@ import {
   PrismaProviderAccountRepository,
   type WorkspaceAccountBinding,
 } from "@reviewrouter/features-provider-accounts";
-import {
-  parseReviewConfigurationStrict,
-  PrismaReviewConfigurationRepository,
-} from "@reviewrouter/features-review-config";
+import { parseReviewConfigurationStrict } from "@reviewrouter/features-review-config";
+import { PrismaReviewConfigurationRepository } from "@reviewrouter/features-review-config/composition";
 import { parseReviewRunRuntimeSnapshot } from "@reviewrouter/features-review-run-control";
 import {
   reviewerPlanDescriptorDigest,

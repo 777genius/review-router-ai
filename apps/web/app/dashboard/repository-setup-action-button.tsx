@@ -1,5 +1,7 @@
 "use client";
 
+import { workflowSetupOutcomePresentation } from "./dashboard-copy";
+
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactElement } from "react";
 import { Button, Checkbox } from "@reviewrouter/ui";
@@ -323,6 +325,8 @@ function setupPrButtonLabel(setupStatus: string): string {
 function setupActionToast(
   params: Record<string, string>,
 ): Omit<SetupActionToast, "key"> {
+  const outcome = workflowSetupOutcomePresentation(params);
+  if (outcome) return outcome;
   if (params.error) {
     const access = repositoryAccessErrorPresentation(params.error);
     return {
@@ -428,7 +432,14 @@ function cleanDashboardActionUrl(section: string): void {
   const url = new URL(window.location.href);
   let changed = false;
 
-  for (const key of ["notice", "error", "pr"]) {
+  for (const key of [
+    "notice",
+    "error",
+    "pr",
+    "setupOutcome",
+    "recoveryError",
+    "workflowPath",
+  ]) {
     if (url.searchParams.has(key)) {
       url.searchParams.delete(key);
       changed = true;

@@ -4,11 +4,11 @@ import {
   type ReviewPublicationWorkFeedPort,
 } from "@reviewrouter/features-review-publishing/v2";
 import type { SystemClock } from "@reviewrouter/shared";
-import type { ExecuteReviewV2PublicationOperation } from "./review-v2-publication-executor";
+import type { ExecuteReviewV2PublicationOperation } from "@reviewrouter/features-review-publishing/v2";
 import {
   ReviewV2PublicationExecutionStatus,
   ReviewV2ScmProvider,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 import type {
   ReviewProgressSettlement,
   ReviewV2PublicationMaintenanceRuntime,

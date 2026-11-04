@@ -29,9 +29,9 @@ import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider
 import {
   mapConfigToRuntimeEnv,
   parseReviewConfigurationStrict,
-  PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewConfigurationRepository } from "@reviewrouter/features-review-config/composition";
 import {
   ManageReviewRunAuthorizations,
   canonicalJson,

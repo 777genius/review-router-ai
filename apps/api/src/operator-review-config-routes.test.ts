@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import Fastify from "fastify";
 import {
-  HashedReviewConfigurationOperatorAuthorization,
   parseRepositoryReviewPolicy,
   resolveEffectiveReviewPolicy,
   resolveReviewConfiguration,
@@ -12,6 +11,7 @@ import {
   type ReviewInvestigationRolloutConfiguration,
   type ReviewConfigurationOperatorAuditEvent,
 } from "@reviewrouter/features-review-config";
+import { HashedReviewConfigurationOperatorAuthorization } from "@reviewrouter/features-review-config/composition";
 import { afterEach, describe, expect, it } from "vitest";
 import { InMemoryReviewConfigurationRepository } from "../../../packages/features/review-config/src/tests/in-memory-review-configuration";
 import {

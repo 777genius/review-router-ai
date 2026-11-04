@@ -26,6 +26,8 @@ vi.mock("../../src/server/prisma", () => ({
 }));
 vi.mock("@reviewrouter/features-audit-log", () => ({
   recordAuditEvent: mocks.audit,
+}));
+vi.mock("@reviewrouter/features-audit-log/composition", () => ({
   PrismaAuditLogRepository: class {},
 }));
 import {

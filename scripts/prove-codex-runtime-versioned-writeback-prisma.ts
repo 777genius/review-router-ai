@@ -20,9 +20,12 @@ import { PrismaCodexRotatingOAuthRepository } from "../packages/features/action-
 import {
   issueCodexRotatingSetupCommand,
   resolveCodexRotatingSetupManifestForNonce,
-} from "../apps/web/src/server/codex-rotating-setup-manifest";
-import { PrismaCodexRotatingSetupRecovery } from "../apps/web/src/server/prisma-codex-rotating-setup-recovery";
-import { PrismaCodexRotatingSetupPayloadClaim } from "../apps/web/src/server/prisma-codex-rotating-setup-payload-claim";
+} from "../packages/features/provider-setup/src/composition/index";
+import { PrismaCodexRotatingSetupRecovery } from "../packages/features/provider-setup/src/composition/index";
+import {
+  PrismaCodexRotatingSetupPayloadClaim,
+  PrismaCodexRotatingWorkflowAttestation,
+} from "../packages/features/provider-setup/src/composition/index";
 
 const providerAdminDatabaseUrl = requiredUrl(
   "REVIEW_ROUTER_PRISMA_EVIDENCE_PROVIDER_ADMIN_DATABASE_URL",
@@ -937,6 +940,10 @@ try {
   });
   verifiedWorkflowAttestation = attestationFor(recoveredNamespace, "4", 4);
   const reattestedWorkflow = attestationFor(recoveredNamespace, "5", 5);
+  const workflowAttestation = new PrismaCodexRotatingWorkflowAttestation(
+    webPrisma,
+    databaseRecoveryWitnessW2,
+  );
   await reattestCodexRotatingWorkflow(
     {
       claimId: prepared.claimId,
@@ -948,7 +955,7 @@ try {
       namespace: recoveredNamespace,
     },
     {
-      currentWorkflowAttestation: setupLedger,
+      currentWorkflowAttestation: workflowAttestation,
       defaultWorkflowSource: {
         readDefaultSourceIdentity: async () => ({
           repositoryId: "900007",
@@ -961,7 +968,7 @@ try {
             ? verifiedWorkflowAttestation
             : reattestedWorkflow,
       },
-      workflowReattestation: setupLedger,
+      workflowReattestation: workflowAttestation,
     },
   );
   verifiedWorkflowAttestation = reattestedWorkflow;

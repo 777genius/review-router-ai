@@ -19,7 +19,6 @@ import {
   parseProviderProfileDraft,
   parseProviderProfileLabel,
   ProviderManagementDeniedError,
-  PrismaReviewPolicyHeadReader,
   parseStoredReviewPolicy,
   ProviderProfileError,
   renameWorkspaceProviderProfile,
@@ -28,6 +27,7 @@ import {
   type ProviderManagementDenialReason,
   type ProviderRepositoryFacts,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import {
   assertDashboardMutationAllowed,
   assertDashboardRepositoryConfigMutationAllowed,

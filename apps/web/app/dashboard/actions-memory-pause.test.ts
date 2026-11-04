@@ -30,6 +30,8 @@ vi.mock("../../src/server/dashboard-mutations", () => ({
 }));
 vi.mock("@reviewrouter/features-audit-log", () => ({
   recordAuditEvent: mocks.audit,
+}));
+vi.mock("@reviewrouter/features-audit-log/composition", () => ({
   PrismaAuditLogRepository: class {},
 }));
 vi.mock("@reviewrouter/features-entitlements", async (importOriginal) => ({

@@ -1,10 +1,10 @@
 import type { ProviderApiAuthMode } from "@reviewrouter/shared";
 import { reviewRouterApiUrlsMatch } from "@reviewrouter/shared";
 import {
-  ManagedReviewV2WorkflowInventory,
   readManagedReviewRouterCallerSource,
   readAccountGatewayInteractionCallerSource,
 } from "@reviewrouter/features-workflow-provisioning";
+import { ManagedReviewV2WorkflowInventory } from "@reviewrouter/features-workflow-provisioning/composition";
 import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
 import { App } from "@octokit/app";
 import { request as githubRequest } from "@octokit/request";

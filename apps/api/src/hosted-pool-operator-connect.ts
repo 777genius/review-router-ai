@@ -16,11 +16,13 @@ import {
 import {
   canonicalHostedPoolProviderInstanceId,
   provisionHostedPoolRepositoryWorkflow,
+  type WorkflowProvisioningRepositoryPort,
+} from "@reviewrouter/features-workflow-provisioning";
+import {
   PrismaWorkflowProvisioningTarget,
   PrismaWorkflowProvisioningRepository,
   OctokitWorkflowSetupGateway,
-  type WorkflowProvisioningRepositoryPort,
-} from "@reviewrouter/features-workflow-provisioning";
+} from "@reviewrouter/features-workflow-provisioning/composition";
 import type { HostedPoolOperatorConnect } from "./hosted-pool-operator-composition.js";
 
 type Requester = ConstructorParameters<typeof OctokitWorkflowSetupGateway>[0];
