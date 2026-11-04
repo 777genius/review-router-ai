@@ -176,12 +176,12 @@ async function checkCodexRuntimeOwnershipBoundaries(violations) {
   for (const file of actionFiles) {
     if (
       file.endsWith("github-action.ts") ||
-      /\\.(?:test|spec)\\.[cm]?tsx?$/u.test(file)
+      /\.(?:test|spec)\.[cm]?tsx?$/u.test(file)
     ) {
       continue;
     }
     for (const imported of extractImportSpecifiers(readFileSync(file, "utf8"))) {
-      if (/^\\.\\/github-action(?:\\.[cm]?tsx?)?$/u.test(imported)) {
+      if (/^\.\/github-action(?:\.(?:js|ts|mts|cts))?$/u.test(imported)) {
         violations.push({
           file,
           imported,
@@ -194,15 +194,14 @@ async function checkCodexRuntimeOwnershipBoundaries(violations) {
 
   const domainFiles = await collectAllSourceFiles(domainRoot);
   for (const file of domainFiles) {
-    if (/\\.(?:test|spec)\\.[cm]?tsx?$/u.test(file)) continue;
+    if (/\.(?:test|spec)\.[cm]?tsx?$/u.test(file)) continue;
     const isExtractedWorkflowOwner =
-      file.endsWith("/codex-contract.ts") ||
-      file.endsWith("/codex-workflow.ts");
+      /(?:^|[\\/])codex-(?:contract|workflow)\.ts$/u.test(file);
     for (const imported of extractImportSpecifiers(readFileSync(file, "utf8"))) {
       if (
         imported.startsWith("../action/") ||
         (isExtractedWorkflowOwner &&
-          /^\\.\\/codex-oauth-rotating(?:\\.[cm]?tsx?)?$/u.test(imported))
+          /^\.\/codex-oauth-rotating(?:\.(?:js|ts|mts|cts))?$/u.test(imported))
       ) {
         violations.push({
           file,
