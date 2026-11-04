@@ -819,3 +819,43 @@ At this local continuation checkpoint, final-head PostgreSQL and self-hosted
 container execution are still required. Their actual results must be read from
 the exact-head PR checks and recorded in the PR's final qualification evidence;
 the local assertion counts above do not substitute for those executions.
+
+### Actual PostgreSQL qualification and fixture quiescence correction
+
+CI run `41755536925` tested head `163ef97c389601477db8db6becefbe33e0375bd9`
+through merge ref `4af5636038043e7ca2324c817e43edca31f13e5e` against
+`f952f7c8e72277c8367a20769db0b8d7bc548219`. The head and tested merge have
+the identical Git tree `5bcb68cc2ec78b1f8ce2863f6351839d0dececea`.
+Source/certification and static checks passed. Full disposable self-hosted E2E
+passed, including all 14 production review-v2 PostgreSQL scenarios, both
+same-release investigation cases, Action OIDC, the real memory installation
+lifecycle, sanitized logs and verified sandbox removal. Dedicated release
+authority PG17 passed its 60 assertions and worker repository-sync contract;
+managed migration prerequisites passed 119 cases. These are observed execution
+results, separate from the earlier local conditional skips.
+
+The newly required setup DB step exposed another dormant fixture error. Its
+three runtime-migration cases passed, but the locked-provider fixture failed
+before its five cases could execute. Migration
+`000089_workflow_provisioning_writer_quiescence` correctly rejected applying the
+current extensions as the administrator while the separate `reviewrouter` role
+could still log in and write. The failed step and its five skipped cases are
+retained as failure evidence, not acceptance.
+
+The follow-up correction quiesces only that disposable fixture role before
+the administrator applies the checksum-verified extensions. It requires no
+remaining client sessions, retains the original setup/provider table owners,
+and restores the same non-superuser login only after complete schema and owner
+verification, before constructing any runtime Prisma clients. Failed setup is
+removed by the existing container cleanup. Production migrations, their
+quiescence checks, historical fixture helpers and runtime grants stay intact.
+Root and an independent fixture critic reviewed the exact ordering, failure
+cleanup and ownership. The review confirmed that every table exercised by the
+five cases belongs to the historical catalog, so no additional grants or
+ownership changes are needed. The client-session assertion excludes unrelated
+background workers while the unchanged migration retains its own admission
+check. Native TypeScript 7.0.2 for the full hosted-pool operations project,
+ESLint, formatting and 163 existing acceptance/catalog/fixture assertions pass.
+The new head must execute all eight setup cases and the
+remaining required CI successfully; final results and the merge are tracked
+in #810 without treating this earlier failed run as a pass.

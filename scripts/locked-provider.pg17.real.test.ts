@@ -135,10 +135,45 @@ describe.skipIf(process.env.REVIEW_ROUTER_RUN_LOCKED_PROVIDER_PG17 !== "1")(
         "provider-root-current-scope",
       ).result;
       expect(applied).toEqual(catalog.map((entry) => entry.migrationName));
+      const setupTableOwners = () =>
+        pg.query(
+          database,
+          `SELECT c.relname || ':' || pg_catalog.pg_get_userbyid(c.relowner)
+           FROM pg_catalog.pg_class c
+           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'public' AND c.relkind = 'r'
+             AND (c.relname LIKE 'CodexOAuth%'
+                  OR c.relname IN ('Workspace', 'GitHubInstallation',
+                                   'RepositoryConnection', 'ScmRepositoryIdentity'))
+           ORDER BY c.relname`,
+          "postgres",
+        );
+      const originalSetupOwners = setupTableOwners();
+      expect(originalSetupOwners).toContain(
+        "CodexOAuthSetupManifest:reviewrouter",
+      );
+      expect(
+        originalSetupOwners
+          .split("\n")
+          .every((owner) => owner.endsWith(":reviewrouter")),
+      ).toBe(true);
       // This exercises current Prisma source, not a historical upgrade. Keep
       // the managed schema and setup table owners, then apply verified checkout
       // additions as the disposable administrator their role bootstrap needs.
       // Runtime clients retain the original non-superuser reviewrouter identity.
+      // The unchanged cutover guard also requires this writer to be quiesced.
+      // Its migration engine has exited; keep login closed until schema checks
+      // pass, and let afterAll remove the contained database if bootstrap fails.
+      pg.query(database, "ALTER ROLE reviewrouter NOLOGIN", "postgres");
+      expect(
+        pg.query(
+          database,
+          `SELECT count(*) FROM pg_catalog.pg_stat_activity
+           WHERE datname = current_database() AND pid <> pg_backend_pid()
+             AND backend_type = 'client backend'`,
+          "postgres",
+        ),
+      ).toBe("0");
       const extensions = checkout.slice(catalog.length);
       expect(extensions.length).toBeGreaterThan(0);
       const appliedExtensions: string[] = [];
@@ -166,11 +201,25 @@ describe.skipIf(process.env.REVIEW_ROUTER_RUN_LOCKED_PROVIDER_PG17 !== "1")(
            WHERE table_schema='public' AND table_name='Workspace'
              AND column_name IN ('personalOwnerUserId', 'deletionState',
                                  'deletionRevision', 'deletionTombstonedAt')`,
+          "postgres",
         ),
       ).toBe("4");
+      expect(setupTableOwners()).toBe(originalSetupOwners);
+      pg.query(database, "ALTER ROLE reviewrouter LOGIN", "postgres");
       reader = client("provider-root-reader");
       writer = client("provider-root-writer");
       observer = client("provider-root-observer");
+      await expect(reader.$queryRaw`
+        SELECT current_user::text AS "currentUser", session_user::text AS "sessionUser",
+          (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls) AS privileged
+        FROM pg_catalog.pg_roles WHERE rolname = current_user
+      `).resolves.toEqual([
+        {
+          currentUser: "reviewrouter",
+          sessionUser: "reviewrouter",
+          privileged: false,
+        },
+      ]);
       await seedProvider("provider", 900007);
     }, 300000);
     afterAll(async () => {

@@ -11,8 +11,8 @@
   The initial A–C checkpoint is `e4327acd50dece733b3e2794497447f08eb10caf`;
   continuation D–F was authorized and planned at
   `cdd4037953e88322aca6d19592b18b0b2c274d32` and must be included in final
-  qualification. Required CI remains pending; none of these references is a
-  deployed version.
+  qualification. Exact-head required CI and merge evidence are maintained in
+  #810; none of these implementation references is a deployed version.
 - Dependencies: existing workflow authority and resolution-history schema and
   accepted producer contracts; no new schema, configuration or activation step.
 - Last updated: `2026-11-04`.
