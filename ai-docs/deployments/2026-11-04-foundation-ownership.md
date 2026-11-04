@@ -19,12 +19,12 @@
 
 ## Environment status
 
-| Environment / target          | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                                                     |
-| ----------------------------- | --------- | ------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------- |
-| staging / Web, API, worker    | `pending` | Not verified                    | Not verified        | Select an authorized exact release containing #810 and run the checks below.                             |
-| production / Web, API, worker | `pending` | Not verified                    | Not verified        | Select an authorized exact release containing #810 and record actual fleet convergence and verification. |
+| Environment / target          | Status      | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                                                                                                                                                         |
+| ----------------------------- | ----------- | ------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging / Web, API, worker    | `pending`   | Not verified                    | Not verified        | Select an authorized exact release containing #810 and run the checks below.                                                                                                                 |
+| production / Web, API, worker | `installed` | `d184d13e` / image `6d8d7f2d`   | 2026-11-04          | Four-role convergence and readiness verified; setup confirmations succeeded for three migrated installations. Remaining journey/fault-injection verification is not another code deployment. |
 
-Pending records no verified completion. This task is an ordinary code rollout
+Production code installation is confirmed; full task-specific fault-injection qualification is not claimed. Staging remains pending. This task is an ordinary code rollout
 record; it does not authorize deployment or imply that merging the PR deploys it.
 
 ## Applicability and prerequisites
@@ -126,3 +126,7 @@ approved version, or fix forward after the required checks.
 | ------------ | ----------- | ---------- | ---------------------- | -------------------------------------------- | -------- | ----------------------------------------- |
 | Not executed | staging     | Unassigned | Not verified           | No staging rollout executed by this task.    | PR #810  | Select and qualify an authorized release. |
 | Not executed | production  | Unassigned | Not verified           | No production rollout executed by this task. | PR #810  | Select and qualify an authorized release. |
+
+### Production installation — 2026-11-04
+
+Source `d184d13e56733586ba65d31aacb076d4eefbee7d` includes the complete #810 merge. The normal Hetzner build/swap/verify path installed image `sha256:6d8d7f2d164877676b55f6a8d2936780d902dae705ed1c3a1878e82af72b57ca` on all four roles, with no restarts, readiness200 and seven worker privilege checks passing. No schema changes or migration were required. All three installed-only Gateway confirmations completed through the real operator API and persisted configured workflow-v1 metadata. See [current delivery](2026-11-04-workflow-migration-action230.md). Historical pending log rows above describe the pre-installation state; do not repeat the rollout to close remaining journey verification.

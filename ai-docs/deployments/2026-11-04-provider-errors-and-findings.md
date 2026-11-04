@@ -1,5 +1,7 @@
 # Provider errors and security findings: deployment
 
+> Current installation supersedes the historical228/229 tuple below: private d184/image6d8 with Action230/8328 and registry58. See [current delivery](2026-11-04-workflow-migration-action230.md). Preserve this record and its evidence as the completed earlier delivery; do not redeploy it.
+
 - Task ID: `2026-11-04-provider-errors-and-findings`.
 - Goal: retain accepted security findings and explain confirmed provider failures
   without presenting an incomplete review as approval or guessing quota exhaustion.
