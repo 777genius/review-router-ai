@@ -270,6 +270,9 @@ function fixture() {
     audits,
     operationalWrites,
     authorize,
+    replaceSetup: (value: Record<string, unknown>) => {
+      setup = value;
+    },
     duringFinalRead: (hook: () => void) => {
       remoteHook = hook;
     },
@@ -301,6 +304,36 @@ describe("production installed Gateway guard callbacks (no external network)", (
       },
     });
     expect(f.authorize.mock.calls.length).toBeGreaterThan(4);
+  });
+  it("passes the captured legacy binding only after installed source verification", async () => {
+    const f = fixture();
+    const previous = {
+      workflowPath: ".github/workflows/reviewrouter-codex.yml",
+      workflowStyle: "explicit",
+      actionVersion: "v1",
+    };
+    f.replaceSetup({
+      ...previous,
+      workspaceId: "workspace-1",
+      installationId: "installation-1",
+      attemptId: "legacy-attempt",
+      revision: 7,
+      branch: "reviewrouter/setup",
+      status: "configured",
+      pullRequestUrl: null,
+      pullRequestHeadSha: null,
+      installedWorkflowRequirement: "gateway",
+    });
+    expect(await f.service.confirm(command)).toMatchObject({ status: "ready" });
+    expect(io.configured).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verifiedPreviousGatewayBinding: previous,
+        expectedAttempt: { attemptId: "legacy-attempt", revision: 7 },
+        workflowPath: reviewRouterWorkflowContract.callerPath,
+        actionVersion: "workflow-v1",
+      }),
+    );
+    expect(f.operationalWrites).toEqual(["authority", "setup"]);
   });
   it("keeps caller runtime channel separate from the immutable server-selected producer", async () => {
     const f = fixture();

@@ -436,6 +436,19 @@ export function createInstalledGatewayReviewConfirmation(input: {
                   revision: scope.setup.revision,
                 }
               : null,
+            ...(scope.setup &&
+            (scope.setup.workflowPath !== expected.path ||
+              scope.setup.workflowStyle !== "reusable" ||
+              scope.setup.actionVersion !==
+                reviewRouterWorkflowContract.channel)
+              ? {
+                  verifiedPreviousGatewayBinding: {
+                    workflowPath: scope.setup.workflowPath,
+                    workflowStyle: scope.setup.workflowStyle,
+                    actionVersion: scope.setup.actionVersion,
+                  },
+                }
+              : {}),
             branch: scope.setup?.branch ?? "reviewrouter/setup",
             baseBranch: scope.defaultBranch,
             status: "configured",
