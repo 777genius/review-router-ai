@@ -14,7 +14,6 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   getOperatorReviewConfiguration,
-  HashedReviewConfigurationOperatorAuthorization,
   ReviewConfigurationOperatorError,
   ReviewConfigurationOperatorErrorCode,
   ReviewConfigurationOperatorOperation,
@@ -26,6 +25,7 @@ import {
   ReviewConfigurationWriteConflictError,
   resolveReviewConfiguration,
 } from "../index";
+import { HashedReviewConfigurationOperatorAuthorization } from "../composition";
 
 const credential = "operator-credential-with-at-least-32-characters";
 const repository = {

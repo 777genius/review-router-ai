@@ -3,8 +3,8 @@
 Date: 2026-11-04 (Europe/Kiev)
 Baseline: `f952f7c8e72277c8367a20769db0b8d7bc548219`
 Status: A–C implemented and independently reviewed. The owner requested a larger
-refactor and completed E2E on 2026-11-04; continuation D–F below is now in scope.
-Required CI and real PostgreSQL execution remain pending in PR #810. The
+refactor and completion of E2E on 2026-11-04; continuation D–F below is in progress.
+Required CI and complete PostgreSQL qualification remain pending in PR #810. The
 reviewed contracts below govern implementation.
 This file is the delivery plan
 and evidence journal, not a claim of completed qualification or deployment.
@@ -636,7 +636,7 @@ the still-pending real PostgreSQL execution.
   remains reachable without changing the ordinary notification layout.
   This is client-component qualification, not authenticated full-app E2E.
 
-### Final integration review and recorded results
+### Initial A–C integration review and recorded results
 
 Production source is published at
 `b29d5ba3d7ef5919f08bfaa9ee68ceb8a31fe8e9`. The final follow-up changes only
@@ -696,3 +696,40 @@ as an external approval of the final head. GitHub had no inline review threads.
 Runner queue state must never be reported as successful execution. Ordinary
 rollout remains pending in the deployment registry and requires its own
 environment-specific verification.
+
+### Continuation recovery and current-source verification
+
+The transferred conversation stopped before the latest implementation report.
+The live PR and preserved checkout both identify
+`5a18c8ca4b36d124df615ff5f4848790f11eb918` as the continuation checkpoint:
+provider-setup persistence and its domain policies have moved to their owner,
+and publication execution, credential routing and signed capabilities have
+moved out of the worker. The final execution responsibility separation in E
+and independent continuation review are still in progress.
+
+Actual job results supersede the workflow collection's stale `queued` summary.
+For CI run `41745190369` at that exact head:
+
+- The dedicated Release Authority PG17 contract passed. The Quality job also
+  executed all 22 real PostgreSQL workflow provisioning cases successfully,
+  including both setup transports, stale attempts, post-commit audit failure,
+  persistence uncertainty and a lost external response.
+- The full test step found 18 failures in two review-config test files. Static
+  checking and the separate Gateway-grants PostgreSQL lane identified the same
+  missed migration in three tests: concrete adapters still came from `../index`.
+  They now import `../composition`, without restoring infrastructure exports
+  from the application root or weakening their assertions.
+- The corrected review-config slice passes all 201 tests in 13 non-PG suites.
+  Native TypeScript 7.0.2 checks the full feature `tsconfig.json`, including its
+  tests; ESLint and formatting pass for all three corrected files. Feature
+  build-only evidence did not cover those tests and is not claimed to do so.
+- Source certification reports `conflict_runtime_bundle_stale`; regeneration
+  and final-source qualification are pending. Production API/worker PostgreSQL
+  and self-hosted container E2E must still complete on the final source.
+
+The prior 1,675-pass local continuation JSON also contained one failed suite
+load, despite zero failed assertions. The missing provider-setup composition
+workspace resolution was corrected at `5a18c8c`; that earlier JSON is retained
+as diagnostic evidence and must not be described as a successful full run.
+The final integrated rerun must include suite-load status, not only assertion
+counts. Logs remain in ignored `tmp/foundation-e2e/recovery/`.

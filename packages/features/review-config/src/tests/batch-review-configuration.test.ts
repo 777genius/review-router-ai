@@ -10,9 +10,9 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   parseReviewConfigurationStrict,
-  PrismaReviewPolicyHeadReader,
   resolveEffectiveReviewConfigurations,
 } from "../index";
+import { PrismaReviewPolicyHeadReader } from "../composition";
 
 const hostedProfile = providerProfileFixture({
   id: "profile_hosted",
