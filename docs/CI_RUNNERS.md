@@ -1,10 +1,13 @@
 # Linux CI runners
 
-Trusted Linux CI jobs use the repository variable `CI_LINUX_CHECKS_RUNNER`, configured
-as `ubuntu-latest`. Namespace remains enabled for builds, but its Docker 29.9.1
-mount inventory currently fails the strict native-memory E2E sandbox census.
-Keep checks on GitHub-hosted Ubuntu until that runner compatibility is qualified;
-do not relax the sandbox mount allowlist to accommodate a runner.
+Trusted Linux CI jobs use `CI_LINUX_CHECKS_RUNNER`, configured as
+`nscloud-ubuntu-24.04-amd64-4x8` (Ubuntu 24.04, x86-64, 4 vCPU, 8 GB RAM).
+The Docker-sensitive `Self-hosted E2E` job uses the independent
+`CI_LINUX_E2E_RUNNER` override, defaulting to `ubuntu-latest`. Namespace Docker
+29.9.1 currently fails its strict native-memory sandbox mount census. Keep this
+job on compatible GitHub Ubuntu until runner compatibility is qualified; do not
+relax the sandbox mount allowlist. Keeping that exception scoped to E2E lets the
+remaining checks use the existing Namespace pool in parallel.
 Namespace GitHub Actions is already enabled for the account repositories.
 The Namespace workspace shares 32 Linux vCPU / 64 GB RAM. Its available light
 shape is `nscloud-ubuntu-24.04-amd64-4x8` (4 vCPU, 8 GB RAM).
