@@ -1,10 +1,12 @@
 import type {
   AccountLimitsReader,
+  AccountLimitsRefresher,
   AccountLimitsSourceResult,
   SubscriptionLimitsProvider,
 } from "@reviewrouter/features-provider-accounts";
 import {
   createAccountLimitsClient,
+  createAccountLimitsRefreshClient,
   createAccountLimitsV2Client,
   createConsumerControlClient,
   createManagementClient,
@@ -165,4 +167,55 @@ export async function accountLimitsReader(
       }),
     };
   }
+}
+
+/** Separate explicit effect; cached readers never gain refresh side effects. */
+export function accountLimitsRefresher(
+  settings:
+    | ConsumerControlConfig
+    | { role: "management"; origin: string; token: string },
+): AccountLimitsRefresher {
+  let client: ReturnType<typeof createAccountLimitsRefreshClient> | undefined;
+  let profiles: Promise<ReadonlySet<string>> | undefined;
+  const getClient = () =>
+    (client ??= createAccountLimitsRefreshClient({
+      ...settings,
+      timeoutMs: 10000,
+      responseBytes: 262144,
+    }));
+  return {
+    async supports(profileId) {
+      try {
+        profiles ??= getClient()
+          .getAccountLimitsRefreshCapabilities()
+          .then(
+            (value) =>
+              new Set(
+                value.contract === "account-limits-refresh/v1" &&
+                  value.quotaOnlyRefresh
+                  ? value.profileIds
+                  : [],
+              ),
+          );
+        return (await profiles).has(profileId);
+      } catch {
+        return false;
+      }
+    },
+    async refresh(target) {
+      try {
+        return await getClient().refreshAccountLimits(target);
+      } catch (error) {
+        if (
+          error instanceof GatewayError &&
+          error.diagnostic &&
+          ["forbidden", "not_found", "conflict", "unauthenticated"].includes(
+            error.diagnostic.code,
+          )
+        )
+          return { status: "unknown", reason: "generation_changed" };
+        return { status: "unavailable", reason: "source_unavailable" };
+      }
+    },
+  };
 }

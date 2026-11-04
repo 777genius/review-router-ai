@@ -646,21 +646,41 @@ function privateRunAccess(config: RunAccessConfig) {
             response.on("end", () => {
               try {
                 if (
-                  response.statusCode !== 200 ||
                   !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(
                     response.headers["content-type"] ?? "",
                   )
                 )
                   throw new Error();
-                resolve(
-                  JSON.parse(
-                    new TextDecoder("utf-8", { fatal: true }).decode(
-                      Buffer.concat(chunks, size),
-                    ),
+                const parsed: unknown = JSON.parse(
+                  new TextDecoder("utf-8", { fatal: true }).decode(
+                    Buffer.concat(chunks, size),
                   ),
                 );
-              } catch {
-                reject(new Error());
+                if (response.statusCode !== 200) {
+                  const failure = c.safeError.safeParse(parsed);
+                  if (
+                    !response.statusCode ||
+                    response.statusCode < 400 ||
+                    response.statusCode > 599 ||
+                    !failure.success ||
+                    (failure.data.operationRef !== undefined &&
+                      failure.data.operationRef !== intent.operationId)
+                  )
+                    throw new Error();
+                  // A validated pre-admission refusal is not an uncertain
+                  // model dispatch. Preserve the same safe SDK error contract.
+                  throw new GatewayError(
+                    "safe_error",
+                    failure.data.effect,
+                    intent.operationId,
+                    undefined,
+                    failure.data,
+                    response.statusCode,
+                  );
+                }
+                resolve(parsed);
+              } catch (error) {
+                reject(error);
               }
             });
           },
@@ -714,7 +734,8 @@ function privateRunAccess(config: RunAccessConfig) {
             : "invalid",
         client,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
       throw new GatewayError(
         signal.aborted ? "cancelled" : "invalid_response",
         "effect_unknown",

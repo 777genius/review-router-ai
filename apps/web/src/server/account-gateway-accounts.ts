@@ -51,7 +51,10 @@ import {
   createAccountLimitsService,
   type AccountLimitsService,
 } from "./account-limits-service";
-import { accountLimitsReader } from "./account-limits-composition";
+import {
+  accountLimitsReader,
+  accountLimitsRefresher,
+} from "./account-limits-composition";
 import {
   connectionProfiles,
   configuredSubscriptionProfiles,
@@ -1617,6 +1620,18 @@ export function createAccountsAdapter(input: {
         return safeFailure(error);
       }
     },
+    async refreshLimits(
+      context: string,
+      connectionId: string,
+    ): Promise<AccountsResult<AccountLimitsView>> {
+      try {
+        await authorize(context);
+        if (!input.limits) return { status: "unavailable" };
+        return (await input.limits(context)).refresh(connectionId);
+      } catch (error) {
+        return safeFailure(error);
+      }
+    },
     list,
     /**
      * The deployment's approved profiles with their live models. It holds no
@@ -2190,16 +2205,17 @@ async function production() {
     },
     authorize: authorizeContext,
     async limits(context) {
+      const limitsSettings = {
+        role: "management" as const,
+        origin:
+          process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+        token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+      };
       return createAccountLimitsService({
         prisma,
         secret: settings.contextKey,
-        reader: await accountLimitsReader({
-          role: "management",
-          origin:
-            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
-          token:
-            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
-        }),
+        refresher: accountLimitsRefresher(limitsSettings),
+        reader: await accountLimitsReader(limitsSettings),
         ...(settings.operatorWorkspaceId
           ? { operatorWorkspaceId: settings.operatorWorkspaceId }
           : {}),

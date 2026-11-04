@@ -1,0 +1,20 @@
+# Codex connections, limits and review verification
+
+Owner requests from 2026-11-04; keep this checklist current across continuation.
+
+- [x] Publish and activate Action230 diagnostics; private d184/image6d8 and all three Gateway workflow confirmations installed. Deployment records merged in #813. Historical OpenRouter canary hit real0/1000 free quota; preserve that evidence.
+- [x] Confirm 777genius workspace and clean_disk use Codex gpt-6.1-sol after the owner changed the default. Do not change another workspace implicitly.
+- [x] Reproduce missing workspace limits after tab unmount/remount with retained inventory. Restore missing projections through the authorized cached-read route; preserve observation times, owner/generation checks and no provider calls from rendering. Regression failed before the change;34 relevant UI tests passed on Hetzner.
+- [x] Reuse GatewayConnectionTest in provider Edit and remove the duplicate public-catalog refresh status for Gateway providers. No model request on modal open.
+- [ ] Fix the newly enrolled account case: Seventeen has no saved quota snapshot because the current native API collects Codex headers only from model responses. Investigate a real authorized quota-only source; never invent fresh limits/credits or use a model request merely to refresh display.
+- [x] Keep Outdated truthful and explain that credential Ready differs from remaining quota. Existing snapshots are from2November; expired reset times and unknown window duration are not current quota evidence.
+- [x] Deliver Access-dialog UX: shared workspace/avatar components, personal account identity, current workspace and slug/type labels, exact-ID deduplication. Do not merge/delete distinct legacy workspaces or change ACL/pagination/history. Integrated and reviewed; 73 combined UI/sharing tests passed on Hetzner.
+- [x] Remove native pre-admission denial inferred solely from cached Codex subscription exhaustion when credit availability is unknown. User explicitly confirms Seventeen has additional credits. Preserve native owner/principal/generation authority and real upstream429 handling; permanent explanatory comment and meaningful regression tests are merged in sub2api #92 (fcab1ded); not yet installed.
+- [ ] Preserve validated run-access safe errors instead of turning every non200 preparation response into invalid_response/effect_unknown. Malformed, foreign or interrupted replies must remain uncertain; no blind retry.
+- [ ] Temporarily select Seventeen through supported account binding/provider-roster services for exactly one live review E2E. Freeze the complete prior workspace selection/version before the change, then restore it after the run, including on error. Do not leave Seventeen as default or consume further quota. Preserve the test stand and previous unknown outcomes.
+- [ ] Verify actual new producer/source, review completion/publication, unique truthful Usage and Statistics; no fake zero tokens or successful facts for a failed run.
+- [ ] Batch fixes into one coherent application rollout and native update where required; no repeated deploys or heavy local Mac processes. Brave remains prohibited. Update deployment records with actual outcomes after required exact-head CI and ordinary merges.
+
+Scope ownership: root owns SaaS limits/provider Edit and preparation diagnostics; access_workspace_ux owns Access presentation/metadata; codex_live_failure owns native cached-admission credit fix; codex_initial_limits audits fresh quota discovery. Coverage redesign remains with the other owner-appointed agent and is not changed here.
+
+Implementation checkpoint: additive Gateway quota-only refresh merged in account-gateway #100 (2a8379da), SDK archive cf08f9e4559a adopted. Native quota-only refresh is under final qualification. SaaS server refresh passed 72 focused tests, and combined UI/sharing passed 73; 103 API preparation regression tests, combined production type checks and formatting passed. Independent combined source review: GO. No new production rollout or Seventeen model call has been performed at this checkpoint.

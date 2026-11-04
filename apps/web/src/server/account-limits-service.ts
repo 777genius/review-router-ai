@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   readAccountLimits,
   type AccountLimitsReader,
+  type AccountLimitsRefresher,
   type AccountLimitsView,
 } from "@reviewrouter/features-provider-accounts";
 import type { AccountsResult, AccountView } from "./account-gateway-accounts";
@@ -29,6 +30,7 @@ export type AccountLimitsService = ReturnType<
 export function createAccountLimitsService(input: {
   prisma: PrismaClient;
   reader: AccountLimitsReader;
+  refresher?: AccountLimitsRefresher;
   secret: string;
   authorize(): Promise<Scope>;
   ownerRef(
@@ -100,8 +102,9 @@ export function createAccountLimitsService(input: {
     (scope.workspaceId !== undefined &&
       source.ownerWorkspaceId === scope.workspaceId &&
       ["owner", "admin"].includes(source.role ?? ""));
-  async function read(
+  async function observe(
     connectionId: string,
+    explicitRefresh: boolean,
   ): Promise<AccountsResult<AccountLimitsView>> {
     try {
       const scope = await input.authorize();
@@ -110,6 +113,8 @@ export function createAccountLimitsService(input: {
       if (!owned(scope, source))
         return { status: "ok", value: view("restricted") };
       const token = fingerprint(scope, source);
+      if (explicitRefresh && source.state !== "active")
+        return { status: "denied" };
       // A reconnect/delete intent invalidates the prior generation immediately.
       if (
         source.pendingSourceOperationId ||
@@ -124,46 +129,67 @@ export function createAccountLimitsService(input: {
         !source.profileRef
       )
         return { status: "ok", value: view("unavailable", token) };
+      let refreshAvailable = false;
       const value = await readAccountLimits({
-        reader: input.reader,
-        now,
-        authorize: async () => {
-          const currentScope = await input.authorize();
-          if (!equalScope(scope, currentScope)) return null;
-          const current = (await resolve(currentScope, [connectionId]))[0];
-          if (
-            !current ||
-            !owned(currentScope, current) ||
-            fingerprint(currentScope, current) !== token
-          )
-            return null;
-          return {
-            displayToken: token,
-            target: {
-              ownerRef: input.ownerRef(
-                current.ownerUserId
-                  ? { kind: "user", userId: current.ownerUserId }
-                  : {
-                      kind: "workspace",
-                      workspaceId: current.ownerWorkspaceId!,
-                    },
-              ),
-              accountRef: current.gatewayAccountRef,
-              profileId: current.profileRef!,
-              expectedAuthorizationEpoch: epoch,
-            },
-          };
+        reader: {
+          async read(target) {
+            refreshAvailable =
+              source.state === "active" &&
+              !!input.refresher &&
+              (await input.refresher
+                .supports(target.profileId)
+                .catch(() => false));
+            if (!explicitRefresh) return input.reader.read(target);
+            if (!refreshAvailable || !input.refresher)
+              return { status: "unsupported", reason: "unsupported_profile" };
+            // Capability negotiation is awaited I/O too: fence immediately before
+            // the explicit effect, then readAccountLimits fences its result again.
+            if (!(await authorizeObservation()))
+              return { status: "unknown", reason: "generation_changed" };
+            return input.refresher.refresh(target);
+          },
         },
+        now,
+        authorize: authorizeObservation,
       });
+      async function authorizeObservation() {
+        const currentScope = await input.authorize();
+        if (!equalScope(scope, currentScope)) return null;
+        const current = (await resolve(currentScope, [connectionId]))[0];
+        if (
+          !current ||
+          !owned(currentScope, current) ||
+          fingerprint(currentScope, current) !== token
+        )
+          return null;
+        return {
+          displayToken: token,
+          target: {
+            ownerRef: input.ownerRef(
+              current.ownerUserId
+                ? { kind: "user", userId: current.ownerUserId }
+                : {
+                    kind: "workspace",
+                    workspaceId: current.ownerWorkspaceId!,
+                  },
+            ),
+            accountRef: current.gatewayAccountRef,
+            profileId: current.profileRef!,
+            expectedAuthorizationEpoch: epoch,
+          },
+        };
+      }
       // Ownership was established above. A later scope/lifetime fence is an
       // authorization failure, not evidence that this viewer is a recipient.
       if (value.status === "restricted") return { status: "denied" };
-      return { status: "ok", value };
+      return { status: "ok", value: { ...value, refreshAvailable } };
     } catch {
       // Session/DB failure and transport diagnostics never become browser labels.
       return { status: "denied" };
     }
   }
+  const read = (connectionId: string) => observe(connectionId, false);
+  const refresh = (connectionId: string) => observe(connectionId, true);
   async function page<T extends AccountView>(
     accounts: readonly T[],
   ): Promise<T[]> {
@@ -196,18 +222,20 @@ export function createAccountLimitsService(input: {
       if (timer) clearTimeout(timer);
     }
     // A fast row may finish before another row consumes the page deadline.
-    // Revalidate every numeric projection immediately before releasing the batch.
-    const numeric = rows.filter((row) => row.limits.status === "snapshot");
-    if (numeric.length) {
+    // Revalidate numeric projections and refresh authority before releasing the batch.
+    const protectedRows = rows.filter(
+      (row) => row.limits.status === "snapshot" || row.limits.refreshAvailable,
+    );
+    if (protectedRows.length) {
       try {
         const currentScope = await input.authorize();
         // One final SQL observation for the whole batch avoids holding an early
         // row's successful validation while another row's validation is awaited.
         const currentRows = await resolve(
           currentScope,
-          numeric.map((row) => row.connectionId),
+          protectedRows.map((row) => row.connectionId),
         );
-        for (const row of numeric) {
+        for (const row of protectedRows) {
           const current = currentRows.find(
             (source) =>
               source.id === row.connectionId ||
@@ -221,10 +249,10 @@ export function createAccountLimitsService(input: {
             row.limits = view("unavailable");
         }
       } catch {
-        for (const row of numeric) row.limits = view("unavailable");
+        for (const row of protectedRows) row.limits = view("unavailable");
       }
     }
     return rows;
   }
-  return { read, page };
+  return { read, refresh, page };
 }

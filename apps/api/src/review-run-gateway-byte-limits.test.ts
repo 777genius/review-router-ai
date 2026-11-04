@@ -1443,6 +1443,9 @@ async function fixture(
   let prepareGate: Promise<void> | undefined;
   let prepareStarted: (() => void) | undefined;
   let prepareFailure = false;
+  let prepareRejection:
+    | { statusCode: number; body: (intent: c.Prepare) => unknown }
+    | undefined;
   const operations = new Map<string, c.Operation>();
   const operationReads: string[] = [];
   const intents: c.Prepare[] = [];
@@ -1469,6 +1472,14 @@ async function fixture(
     if (req.url === "/internal/v1/run-access") {
       const intent = JSON.parse(raw) as c.Prepare;
       intents.push(intent);
+      if (prepareRejection) {
+        res
+          .writeHead(prepareRejection.statusCode, {
+            "content-type": "application/json",
+          })
+          .end(JSON.stringify(prepareRejection.body(intent)));
+        return;
+      }
       const executionRef = `execution-${intent.operationId}`;
       nativeExecutions.set(executionRef, "active");
       operations.set(intent.operationId, {
@@ -1761,6 +1772,12 @@ async function fixture(
   const relay = createReviewRunGatewayRelay(relayInput);
   return {
     preparation,
+    rejectPreparation(
+      statusCode: number,
+      body: (intent: c.Prepare) => unknown,
+    ) {
+      prepareRejection = { statusCode, body };
+    },
     relay,
     terminalRuns,
     authorizations: relayInput.authorizations,
@@ -1900,6 +1917,58 @@ it.each([
     }
   },
   10000,
+);
+
+it("preserves a validated run-access admission refusal without claiming a model dispatch", async () => {
+  const f = await fixture(8 * MiB);
+  f.rejectPreparation(503, (intent) => ({
+    code: "admission_limited",
+    traceRef: "fixture-trace",
+    operationRef: intent.operationId,
+    effect: "not_dispatched",
+    retry: { kind: "after", milliseconds: 1000 },
+  }));
+  try {
+    await expect(f.preparation.prepare()).rejects.toMatchObject({
+      code: "safe_error",
+      effect: "not_dispatched",
+      httpStatus: 503,
+      diagnostic: { code: "admission_limited" },
+    });
+    expect(f.intents).toHaveLength(1);
+    expect(f.nativeExecutions.size).toBe(0);
+    expect(f.requestRefs).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each(["foreign-operation", "malformed"])(
+  "keeps %s run-access rejection uncertain",
+  async (kind) => {
+    const f = await fixture(8 * MiB);
+    f.rejectPreparation(503, (intent) => ({
+      code: "admission_limited",
+      traceRef: "fixture-trace",
+      operationRef:
+        kind === "foreign-operation" ? "another-operation" : intent.operationId,
+      effect: "not_dispatched",
+      retry: { kind: "after", milliseconds: 1000 },
+      ...(kind === "malformed"
+        ? { untrustedDetails: "not a safe diagnostic" }
+        : {}),
+    }));
+    try {
+      await expect(f.preparation.prepare()).rejects.toMatchObject({
+        code: "invalid_response",
+        effect: "effect_unknown",
+      });
+      expect(f.intents).toHaveLength(1);
+      expect(f.nativeExecutions.size).toBe(0);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
 );
 
 it("rejects unsupported captured output before run-access or inference", async () => {

@@ -302,6 +302,16 @@ describe("Providers list", () => {
       expect(
         within(row).queryByRole("button", { name: "Make default" }),
       ).toBeNull();
+      fireEvent.click(button(row, "Edit"));
+      const edit = await screen.findByRole("dialog");
+      expect(
+        within(edit).getByRole("button", { name: "Test connection" }),
+      ).toBeTruthy();
+      expect(within(edit).queryByText("Model list is up to date.")).toBeNull();
+      fireEvent.click(
+        within(edit).getByRole("button", { name: "Close provider edit" }),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       fireEvent.click(button(row, "Review settings"));
       const dialog = await screen.findByRole("dialog");
       await within(dialog).findByText(

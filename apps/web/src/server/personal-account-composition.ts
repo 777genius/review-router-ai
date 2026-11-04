@@ -1,6 +1,9 @@
 import { connectionProfiles } from "./account-connection-catalog";
 import { createAccountLimitsService } from "./account-limits-service";
-import { accountLimitsReader } from "./account-limits-composition";
+import {
+  accountLimitsReader,
+  accountLimitsRefresher,
+} from "./account-limits-composition";
 import { createAccountLifecycleReader } from "./account-lifecycle-reader";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -270,6 +273,15 @@ export async function productionPersonalAccounts() {
     },
   });
   function limits(workspaceId?: string, management = false) {
+    const limitsSettings = management
+      ? {
+          role: "management" as const,
+          origin:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+          token:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+        }
+      : controlSettings;
     let cachedReader: ReturnType<typeof accountLimitsReader> | undefined;
     const reader = {
       async read(
@@ -277,24 +289,14 @@ export async function productionPersonalAccounts() {
           import("@reviewrouter/features-provider-accounts").AccountLimitsReader["read"]
         >[0],
       ) {
-        const settings = management
-          ? {
-              role: "management" as const,
-              origin:
-                process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ??
-                "",
-              token:
-                process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ??
-                "",
-            }
-          : controlSettings;
-        cachedReader ??= accountLimitsReader(settings);
+        cachedReader ??= accountLimitsReader(limitsSettings);
         return (await cachedReader).read(target);
       },
     };
     return createAccountLimitsService({
       prisma,
       reader,
+      refresher: accountLimitsRefresher(limitsSettings),
       secret: settings.contextKey,
       ...(settings.operatorWorkspaceId
         ? { operatorWorkspaceId: settings.operatorWorkspaceId }

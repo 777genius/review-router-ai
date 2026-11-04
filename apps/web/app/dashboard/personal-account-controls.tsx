@@ -31,6 +31,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { Badge, Button, Checkbox, Dialog } from "@reviewrouter/ui";
+import { GitHubAccountAvatar } from "../github-account-avatar";
 import { AccountIdentity } from "./account-identity";
 import { readAccountResult } from "./account-read-result";
 import { AccountActionsMenu } from "./account-actions-menu";
@@ -841,6 +842,7 @@ function PersonalControls({
                   {source && !personalOnly ? (
                     <WorkspaceAccess
                       scope={bootstrap.scope}
+                      summary={accessSummary}
                       source={source}
                       api={api}
                       disabled={sharingDisabled}
@@ -1208,8 +1210,46 @@ function ShareDialog({
   );
 }
 
+function AccessWorkspaceIdentity({
+  label,
+  avatarUrl,
+  current = false,
+  kind = "Workspace",
+  slug,
+}: {
+  label: string;
+  avatarUrl?: string | null | undefined;
+  current?: boolean;
+  kind?: string;
+  slug?: string | null | undefined;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      {avatarUrl ? (
+        <GitHubAccountAvatar avatarUrl={avatarUrl} login={label} altText="" />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="grid size-7 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-sm text-slate-300"
+        >
+          {label.slice(0, 1).toUpperCase()}
+        </span>
+      )}
+      <div className="min-w-0">
+        <p className="break-words">{label}</p>
+        <p className="text-xs text-slate-400">
+          {kind}
+          {slug ? ` · ${slug}` : ""}
+          {current ? " · current workspace" : ""}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function WorkspaceAccess({
   scope,
+  summary,
   source,
   api,
   disabled,
@@ -1241,6 +1281,7 @@ function WorkspaceAccess({
   currentWorkspace: string;
   addToWorkspace: boolean;
   message: string | undefined;
+  summary: PersonalAccessSummary | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -1283,10 +1324,15 @@ function WorkspaceAccess({
       ).map((grant) => [grant.bindingId, grant]),
     ).values(),
   ];
-  const targets =
-    organizations.data?.pages.flatMap((page) =>
-      page.status === "ok" ? page.value.organizations : [],
-    ) ?? [];
+  const targets = [
+    ...new Map(
+      (
+        organizations.data?.pages.flatMap((page) =>
+          page.status === "ok" ? page.value.organizations : [],
+        ) ?? []
+      ).map((target) => [target.workspaceId, target]),
+    ).values(),
+  ];
   const grantFailure =
     grants.isError || grants.data?.pages.some((page) => page.status !== "ok");
   const targetFailure =
@@ -1296,6 +1342,7 @@ function WorkspaceAccess({
   // grant name from eligible-organization cache, including former memberships.
   const newTargets = targets.filter(
     (target) =>
+      target.workspaceId !== summary?.personalWorkspaceId &&
       !rows.some(
         (grant) =>
           grant.targetWorkspaceId === target.workspaceId &&
@@ -1328,9 +1375,8 @@ function WorkspaceAccess({
             {accountsCopy.access} · {source.label}
           </Dialog.Title>
           <Dialog.Description>
-            Personal access stays permanent. Organization access only covers
-            reviews; it never transfers ownership, credentials, or connection
-            control.
+            Your personal access is permanent. Share review access with other
+            workspaces while keeping ownership and connection control.
           </Dialog.Description>
           {message ? (
             <p role="status" className="mt-3 text-sm text-cyan-100">
@@ -1339,10 +1385,20 @@ function WorkspaceAccess({
           ) : null}
           <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between border-b border-cyan-200/10 py-3">
-              <span>Personal workspace</span>
-              <Badge tone="neutral">Your account</Badge>
+              <AccessWorkspaceIdentity
+                label={
+                  summary?.personalWorkspace?.label ?? "Personal workspace"
+                }
+                avatarUrl={summary?.personalWorkspace?.avatarUrl}
+                kind="Personal workspace"
+                current={Boolean(
+                  summary?.personalWorkspaceId &&
+                  summary.personalWorkspaceId === currentWorkspace,
+                )}
+              />
+              <Badge tone="neutral">Always available</Badge>
             </div>
-            <h4 className="font-medium">Current access</h4>
+            <h4 className="font-medium">Workspace access</h4>
             {grants.isPending ? <p role="status">Loading access...</p> : null}
             {grantFailure ? (
               <p role="status">
@@ -1352,7 +1408,7 @@ function WorkspaceAccess({
             ) : null}
             {!grants.isPending && !grantFailure && !rows.length ? (
               <p className="text-sm text-slate-400">
-                No organization access on the loaded pages.
+                No shared workspace access on the loaded pages.
               </p>
             ) : null}
             {[...(grantFailure ? [] : rows)]
@@ -1378,13 +1434,17 @@ function WorkspaceAccess({
                   className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-200/10 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="break-words">
-                      {grant.organizationLabel ?? "Workspace unavailable"}
-                      {grant.organizationLabel &&
-                      grant.targetWorkspaceId === currentWorkspace
-                        ? " · current workspace"
-                        : ""}
-                    </p>
+                    <AccessWorkspaceIdentity
+                      label={grant.organizationLabel ?? "Workspace unavailable"}
+                      avatarUrl={
+                        grant.organizationLabel ? grant.avatarUrl : null
+                      }
+                      slug={grant.organizationLabel ? grant.slug : null}
+                      current={
+                        Boolean(grant.organizationLabel) &&
+                        grant.targetWorkspaceId === currentWorkspace
+                      }
+                    />
                     <p className="mt-1 text-sm text-slate-400">
                       {grant.remoteFenceDelivery === "remote_pending"
                         ? grant.state === "revoked"
@@ -1456,12 +1516,20 @@ function WorkspaceAccess({
                       key={grant.bindingId}
                       className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-200/10 py-2 text-sm"
                     >
-                      <span>
-                        {grant.organizationLabel ?? "Workspace unavailable"}
+                      <div>
+                        <AccessWorkspaceIdentity
+                          label={
+                            grant.organizationLabel ?? "Workspace unavailable"
+                          }
+                          avatarUrl={
+                            grant.organizationLabel ? grant.avatarUrl : null
+                          }
+                          slug={grant.organizationLabel ? grant.slug : null}
+                        />
                         <span className="block text-xs text-slate-400">
                           Previous access revoked
                         </span>
-                      </span>
+                      </div>
                       {grant.canRevoke ? (
                         <Button
                           variant="ghost"
@@ -1476,20 +1544,18 @@ function WorkspaceAccess({
                   ))}
               </div>
             </details>
-            <h4 className="pt-2 font-medium">Add organization</h4>
+            <h4 className="pt-2 font-medium">Add workspace</h4>
             {organizations.isPending ? (
               <p role="status">Loading eligible organizations...</p>
             ) : null}
             {targetFailure ? (
-              <p role="status">
-                Eligible organizations could not be refreshed.
-              </p>
+              <p role="status">Eligible workspaces could not be refreshed.</p>
             ) : null}
             {!organizations.isPending &&
             !targetFailure &&
             !newTargets.length ? (
               <p className="text-sm text-slate-400">
-                No other eligible organizations.
+                No other eligible workspaces.
               </p>
             ) : null}
             {[...(targetFailure ? [] : newTargets)]
@@ -1503,12 +1569,12 @@ function WorkspaceAccess({
                   key={target.workspaceId}
                   className="flex flex-wrap items-center justify-between gap-3 py-2"
                 >
-                  <span className="min-w-0 break-words">
-                    {target.label}
-                    {target.workspaceId === currentWorkspace
-                      ? " · current workspace"
-                      : ""}
-                  </span>
+                  <AccessWorkspaceIdentity
+                    label={target.label}
+                    avatarUrl={target.avatarUrl}
+                    slug={target.slug}
+                    current={target.workspaceId === currentWorkspace}
+                  />
                   <Button
                     variant="outline"
                     size="sm"
@@ -1546,11 +1612,11 @@ function WorkspaceAccess({
                 access can still be revoked.
               </p>
             ) : null}
-            <p className="text-xs text-slate-400">
-              Load all access pages before adding. Personal workspace is
-              separate from organizations. Request results stay below after the
-              dialog closes.
-            </p>
+            {grants.hasNextPage ? (
+              <p className="text-xs text-slate-400">
+                Load all access pages before adding a workspace.
+              </p>
+            ) : null}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Dialog.Close render={<Button ref={closeRef} variant="outline" />}>

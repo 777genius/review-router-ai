@@ -28,6 +28,8 @@ export type OwnAccountGrant = {
   targetWorkspaceId: string;
   // Null after losing access, even though source-owner revocation remains allowed.
   organizationLabel: string | null;
+  avatarUrl?: string | null;
+  slug?: string | null;
   revision: number;
   state: "active" | "revoked";
   remoteFenceDelivery: "not_required" | "remote_pending" | "remote_applied";
@@ -50,6 +52,7 @@ export type PersonalAccessSummary = {
   }[];
   // The viewer's own personal workspace, identical on every row of one call.
   personalWorkspaceId: string | null;
+  personalWorkspace?: { label: string; avatarUrl: string | null } | null;
   complete: true;
 };
 export type PersonalAccessSummaryPage = {
@@ -58,6 +61,8 @@ export type PersonalAccessSummaryPage = {
 export type PersonalShareOrganization = {
   workspaceId: string;
   label: string;
+  avatarUrl?: string | null;
+  slug?: string | null;
   predecessors?: readonly {
     sourceId: string;
     bindingId: string;

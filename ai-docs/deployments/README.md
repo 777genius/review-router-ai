@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Codex limits and connection UX: [quota-only refresh batch](2026-11-04-codex-limits-refresh.md) — staging `pending`, production `pending`; implementation qualification in progress. Preserve the installed baseline until the coherent paired native/Gateway and SaaS rollout is verified.
+
 Current workflow migration and diagnostic release: [Action230 delivery](2026-11-04-workflow-migration-action230.md). Three legacy installations are confirmed ready; current source/image and channel are below. Live canary verification is recorded in that task. Do not rerun completed migrations or replay old unknown requests.
 
 Workflow and publication ownership: [foundation ownership](2026-11-04-foundation-ownership.md), [PR #810](https://github.com/777genius/review-router-ai/pull/810) — staging `pending`; production code `installed` in d184/image6d8, including #810. No new schema or activation step; remaining verification does not require another deployment.

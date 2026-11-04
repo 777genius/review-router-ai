@@ -9,6 +9,21 @@ export type AccountLimitsRequest = {
   workspaceId?: string | undefined;
 };
 
+/** Explicit, owner-authorized quota metadata refresh; never runs a model. */
+export async function refreshAccountLimits(
+  request: AccountLimitsRequest,
+): Promise<AccountsResult<AccountLimitsView>> {
+  const { refreshAccountLimitsAction } =
+    await import("./account-limits-actions");
+  return refreshAccountLimitsAction({
+    context: request.context,
+    connectionId: request.connectionId,
+    ...(request.workspaceId === undefined
+      ? {}
+      : { workspaceId: request.workspaceId }),
+  });
+}
+
 /** Reads stored observations only. This endpoint never probes the provider. */
 export async function readAccountLimits(
   request: AccountLimitsRequest,

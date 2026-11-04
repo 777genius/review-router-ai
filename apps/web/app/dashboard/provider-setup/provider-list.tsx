@@ -50,6 +50,7 @@ import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agen
 import { dashboardErrorText } from "../dashboard-copy";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
+import { GatewayConnectionTest } from "../gateway-connection-test";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import {
   ProviderModelCatalogStatus,
@@ -617,10 +618,22 @@ function ProviderProfileEditForm({
           }
         />
       ) : null}
-      {catalogProvider ? (
+      {!gateway && catalogProvider ? (
         <ProviderModelCatalogStatus
           status={catalogs.status(catalogProvider)}
           publicSelection={!gateway}
+        />
+      ) : null}
+      {gateway && row.gatewayBindingId ? (
+        <GatewayConnectionTest
+          bindingId={row.gatewayBindingId}
+          account={gatewayAccount}
+          model={trimmedModel}
+          available={
+            !pending &&
+            gatewayAccount !== undefined &&
+            (gatewayProfile?.models ?? []).includes(trimmedModel)
+          }
         />
       ) : null}
       <div className="grid gap-1 border-t border-cyan-200/10 pt-4">

@@ -49,7 +49,7 @@
     "@reviewrouter/platform-locks": "workspace:*",
     "@reviewrouter/features-sdk-growth-authority": "workspace:*",
     "@reviewrouter/features-provider-accounts": "workspace:*",
-    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz",
+    "@agent-teams/account-gateway": "file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz",
     "@reviewrouter/features-review-context-tools": "workspace:*",
     "@reviewrouter/features-provider-usage": "workspace:*",
     "@reviewrouter/features-review-providers": "workspace:*",
