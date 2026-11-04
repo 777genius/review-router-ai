@@ -24,6 +24,7 @@ import type { ActionInputs, ProviderSecretInputs, PullRequestEvent } from "./act
 import { reviewThreadLifecycleResolveTokenEnvKey } from "./action-contract.js";
 import {
   buildFullReviewRuntimeEnv,
+  assertProviderSecretInputsForRuntime,
   forkAgenticSandboxRuntimeEnv,
   codexModelForForkRuntime,
   extractCodexAccessToken,
@@ -41,13 +42,13 @@ import {
   runHostedPoolLeaseFailover,
 } from "./hosted-pool-failover.js";
 import {
-  routeCodexLocalProviderRequest,
   startCodexLocalProviderProxy,
   resolveCodexProxyUpstreamResponsesUrl,
   type LocalProviderProxy,
 } from "./codex-local-provider-proxy.js";
 import {
   fetchWithRetry,
+  networkRetryMaxAttempts,
   networkRetryDelayMs,
   discardResponseBody,
   sleep,
@@ -1212,7 +1213,6 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
 
   try {
     await runHostedPoolLeaseFailover({
-      maxAttempts: hostedPoolMaxLeaseAttempts,
       canRetry: () =>
         hasHostedPoolRetryBudget({
           executionDeadlineEpochMs: input.executionDeadlineEpochMs,

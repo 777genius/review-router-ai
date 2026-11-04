@@ -175,7 +175,7 @@ function buildProviderSecretEnvForRuntime(input: {
   return env;
 }
 
-function assertProviderSecretInputsForRuntime(input: {
+export function assertProviderSecretInputsForRuntime(input: {
   readonly runtimeEnv: Readonly<Record<string, string>>;
   readonly providerSecrets: ProviderSecretInputs;
 }): void {

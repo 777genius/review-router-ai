@@ -1,6 +1,6 @@
 /** Retry and response-disposal policy for Action HTTP transport. */
 type FetchLike = typeof fetch;
-const networkRetryMaxAttempts = 3;
+export const networkRetryMaxAttempts = 3;
 const networkRetryBaseDelayMs = 750;
 
 export async function fetchWithRetry<T = Response>(input: {
