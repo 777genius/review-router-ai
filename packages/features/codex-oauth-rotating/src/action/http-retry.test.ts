@@ -56,6 +56,64 @@ describe("Action HTTP retry boundary", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("cancels retry backoff immediately when a caller aborts after HTTP 429", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const fetchImpl = vi.fn().mockResolvedValueOnce(
+        new Response("rate limited", { status: 429 }),
+      );
+      const result = fetchWithRetry({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        label: "github_request",
+        url: "https://example.invalid/review",
+        init: { signal: controller.signal },
+        timeoutMs: 10_000,
+        maxAttempts: 2,
+      });
+      const assertion = expect(result).rejects.toThrow(
+        "network_request_aborted:github_request",
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      controller.abort();
+      await assertion;
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels retry backoff immediately following a network failure", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const fetchImpl = vi.fn().mockRejectedValueOnce(
+        new Error("connection_lost"),
+      );
+      const result = fetchWithRetry({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        label: "github_request",
+        url: "https://example.invalid/review",
+        init: { signal: controller.signal },
+        timeoutMs: 10_000,
+        maxAttempts: 2,
+      });
+      const assertion = expect(result).rejects.toThrow(
+        "network_request_aborted:github_request",
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      controller.abort();
+      await assertion;
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retains a per-attempt timeout error without leaking the URL", async () => {
     vi.useFakeTimers();
     try {
