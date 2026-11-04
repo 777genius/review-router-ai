@@ -28,9 +28,11 @@ boundaries:
   - id: account-limits.application
     roots:
       - packages/features/provider-accounts/src/account-limits/application/ports/account-limits-reader.ts
+      - packages/features/provider-accounts/src/account-limits/application/ports/account-limits-refresher.ts
       - packages/features/provider-accounts/src/account-limits/application/use-cases/read-account-limits.ts
     entrypoints:
       - packages/features/provider-accounts/src/account-limits/application/ports/account-limits-reader.ts
+      - packages/features/provider-accounts/src/account-limits/application/ports/account-limits-refresher.ts
       - packages/features/provider-accounts/src/account-limits/application/use-cases/read-account-limits.ts
     allow:
       boundaries:

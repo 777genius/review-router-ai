@@ -50,6 +50,7 @@ import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agen
 import { dashboardErrorText } from "../dashboard-copy";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
+import { GatewayConnectionTest } from "../gateway-connection-test";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import {
   ProviderModelCatalogStatus,
@@ -612,15 +613,40 @@ function ProviderProfileEditForm({
           account={gatewayAccount}
           loading={gatewayOptions.loading}
           canRefresh={gatewayOptions.canRefresh}
-          onRefresh={() =>
-            gatewayOptions.refreshModels(row.gatewayBindingId ?? "")
-          }
+          onRefresh={async () => {
+            await Promise.all([
+              gatewayOptions.refreshModels(row.gatewayBindingId ?? ""),
+              catalogProvider
+                ? catalogs.status(catalogProvider)?.refresh()
+                : undefined,
+            ]);
+          }}
         />
       ) : null}
-      {catalogProvider ? (
+      {gateway &&
+      catalogProvider &&
+      (catalogs.status(catalogProvider)?.failed ||
+        catalogs.status(catalogProvider)?.snapshot?.refresh === "failed") ? (
+        <p role="status" className="text-xs text-slate-400">
+          Could not update public model metadata. Showing saved model choices.
+        </p>
+      ) : null}
+      {!gateway && catalogProvider ? (
         <ProviderModelCatalogStatus
           status={catalogs.status(catalogProvider)}
           publicSelection={!gateway}
+        />
+      ) : null}
+      {gateway && row.gatewayBindingId ? (
+        <GatewayConnectionTest
+          bindingId={row.gatewayBindingId}
+          account={gatewayAccount}
+          model={trimmedModel}
+          available={
+            !pending &&
+            gatewayAccount !== undefined &&
+            (gatewayProfile?.models ?? []).includes(trimmedModel)
+          }
         />
       ) : null}
       <div className="grid gap-1 border-t border-cyan-200/10 pt-4">

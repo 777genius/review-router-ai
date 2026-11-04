@@ -1,6 +1,7 @@
 export * from "./domain/provider-account";
 export * from "./account-limits/domain/account-limits";
 export * from "./account-limits/application/ports/account-limits-reader";
+export * from "./account-limits/application/ports/account-limits-refresher";
 export * from "./account-limits/application/use-cases/read-account-limits";
 export * from "./application/ports/provider-account-repository-port";
 export * from "./application/use-cases/workspace-account-bindings";

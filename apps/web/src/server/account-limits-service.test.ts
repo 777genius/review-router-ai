@@ -27,7 +27,11 @@ function account(connectionId: string): AccountView {
     binding: null,
   };
 }
-function fixture() {
+function fixture(withRefresh = false) {
+  const supports = vi.fn().mockResolvedValue(true);
+  const refresh = vi
+    .fn()
+    .mockResolvedValue({ status: "unknown", reason: "missing_snapshot" });
   const read = vi.fn().mockResolvedValue({
     status: "snapshot",
     physicalGeneration: "private-generation",
@@ -52,12 +56,13 @@ function fixture() {
   const service = createAccountLimitsService({
     prisma: { $queryRaw: db } as unknown as PrismaClient,
     reader: { read },
+    ...(withRefresh ? { refresher: { supports, refresh } } : {}),
     secret: "test-only-secret",
     authorize,
     ownerRef,
     now: () => new Date("2026-10-22T10:01:00Z"),
   });
-  return { service, read, db, authorize, ownerRef };
+  return { service, read, db, authorize, ownerRef, supports, refresh };
 }
 afterEach(() => vi.useRealTimers());
 it("derives canonical owner/profile/epoch and returns only safe numeric projection", async () => {
@@ -244,3 +249,88 @@ it.each(["generation change", "database failure"] as const)(
     ]);
   },
 );
+
+it("cached reads advertise explicit capability without refreshing", async () => {
+  const { service, refresh, supports, read } = fixture(true);
+  expect(await service.read("source")).toMatchObject({
+    status: "ok",
+    value: { refreshAvailable: true },
+  });
+  expect(supports).toHaveBeenCalledWith("codex");
+  expect(read).toHaveBeenCalledOnce();
+  expect(refresh).not.toHaveBeenCalled();
+});
+it.each(["recipient", "suspended", "pending", "unsupported"])(
+  "refuses explicit refresh for %s without effects",
+  async (kind) => {
+    const { service, refresh, supports, db } = fixture(true);
+    if (kind === "recipient")
+      db.mockResolvedValue([{ ...source, ownerUserId: "donor" }]);
+    if (kind === "suspended")
+      db.mockResolvedValue([{ ...source, state: "suspended" }]);
+    if (kind === "pending")
+      db.mockResolvedValue([
+        { ...source, pendingSourceOperationId: "operation" },
+      ]);
+    if (kind === "unsupported") supports.mockResolvedValue(false);
+    await service.refresh("source");
+    expect(refresh).not.toHaveBeenCalled();
+    if (kind !== "unsupported") expect(supports).not.toHaveBeenCalled();
+  },
+);
+it("fences authority again after capability negotiation before refresh", async () => {
+  const { service, supports, refresh, db } = fixture(true);
+  supports.mockImplementation(async () => {
+    db.mockResolvedValue([{ ...source, authorizationEpochMirror: 5n }]);
+    return true;
+  });
+  expect(await service.refresh("source")).toEqual({ status: "denied" });
+  expect(refresh).not.toHaveBeenCalled();
+});
+it("explicit refresh derives target and fences authority after the effect", async () => {
+  const { service, refresh, read, db } = fixture(true);
+  expect(await service.refresh("source")).toMatchObject({
+    status: "ok",
+    value: { refreshAvailable: true },
+  });
+  expect(refresh).toHaveBeenCalledWith({
+    ownerRef: "owner",
+    accountRef: "native",
+    profileId: "codex",
+    expectedAuthorizationEpoch: 4,
+  });
+  expect(read).not.toHaveBeenCalled();
+  refresh.mockImplementation(async () => {
+    db.mockResolvedValue([{ ...source, pendingSourceOperationId: "delete" }]);
+    return { status: "unknown", reason: "missing_snapshot" };
+  });
+  expect(await service.refresh("source")).toEqual({ status: "denied" });
+});
+
+it("keeps a valid cached snapshot when optional refresh capability stalls beyond the page deadline", async () => {
+  vi.useFakeTimers();
+  const { service, supports, read, refresh } = fixture(true);
+  supports.mockImplementation(
+    () =>
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(true), 10_000),
+      ),
+  );
+  const pending = service.page([account("source")]);
+  await vi.advanceTimersByTimeAsync(3000);
+  const rows = await pending;
+  expect(rows).toMatchObject([
+    {
+      limits: {
+        status: "snapshot",
+        refreshAvailable: false,
+        windows: [{ usedPercent: 37.5 }],
+      },
+    },
+  ]);
+  expect(read).toHaveBeenCalledOnce();
+  expect(refresh).not.toHaveBeenCalled();
+  // A late optional capability cannot mutate an already released projection.
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(rows[0]!.limits?.refreshAvailable).toBe(false);
+});

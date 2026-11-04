@@ -44,7 +44,15 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
           v = `${prefix}-v`,
           admin = `${prefix}-admin`;
         await db.user.createMany({
-          data: [{ id: u }, { id: v }, { id: admin }],
+          data: [
+            {
+              id: u,
+              githubLogin: "owner-login",
+              avatarUrl: "https://avatars.githubusercontent.com/u/1",
+            },
+            { id: v },
+            { id: admin },
+          ],
         });
         const store = new PrismaPersonalAccountOperations(db);
         const p = await store.resolvePersonalWorkspace(u);
@@ -334,6 +342,8 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
         ).toBe(true);
         expect(Object.keys(all.items[0]!).sort()).toEqual(
           [
+            "avatarUrl",
+            "slug",
             "bindingId",
             "sourceId",
             "targetWorkspaceId",
@@ -375,10 +385,14 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
             organizationCount: 2,
             hasRestrictedAccess: true,
             organizations: [
-              { workspaceId: x.id, label: x.name },
-              { workspaceId: y.id, label: y.name },
+              { workspaceId: x.id, label: x.name, avatarUrl: null },
+              { workspaceId: y.id, label: y.name, avatarUrl: null },
             ],
             personalWorkspaceId: p,
+            personalWorkspace: {
+              label: "owner-login",
+              avatarUrl: "https://avatars.githubusercontent.com/u/1",
+            },
             complete: true,
           },
           {
@@ -387,6 +401,10 @@ describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
             hasRestrictedAccess: false,
             organizations: [],
             personalWorkspaceId: p,
+            personalWorkspace: {
+              label: "owner-login",
+              avatarUrl: "https://avatars.githubusercontent.com/u/1",
+            },
             complete: true,
           },
         ]);

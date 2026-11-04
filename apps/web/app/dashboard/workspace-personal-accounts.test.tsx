@@ -31,6 +31,7 @@ afterEach(() => {
   cleanup();
   context.client?.clear();
   context.client = null;
+  vi.unstubAllGlobals();
 });
 const account = (
   bindingId: string,
@@ -394,6 +395,68 @@ test("retains stale rows without actions on unavailable, then clears them on den
     expect(
       screen.queryByRole("article", { name: "Canonical old-BX" }),
     ).toBeNull(),
+  );
+});
+
+test("restores saved limits when returning to a workspace tab with retained inventory", async () => {
+  const f = fixture();
+  const limits = {
+    status: "snapshot" as const,
+    scope: "account" as const,
+    fetchedAt: "2026-10-22T10:00:00.000Z",
+    displayToken: "current-generation",
+    refreshAvailable: false as const,
+    windows: [
+      {
+        label: "7d",
+        durationSeconds: 604800,
+        usedPercent: 25,
+        remainingPercent: 75,
+        progressPercent: 25,
+        observedAt: "2026-10-22T10:00:00.000Z",
+        resetAt: null,
+        stale: true,
+        reason: "observation_expired" as const,
+      },
+    ],
+  };
+  const initialPage = page([{ ...account("quota-remount"), limits }]);
+  f.api.list.mockResolvedValue(initialPage);
+  const fetch = vi.fn(async (url: RequestInfo | URL) => {
+    void url;
+    return {
+      ok: true,
+      json: async () => ({ status: "ok", value: limits }),
+    };
+  });
+  vi.stubGlobal("fetch", fetch);
+  const props = {
+    scope: "quota-remount-viewer",
+    personalScope: "personal-remount.signature",
+    workspaceId: "org-x",
+    api: f.api,
+    canDetach: true,
+    detach: f.detach,
+    initialPage,
+  };
+  const first = render(<WorkspacePersonalAccounts {...props} />);
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+    "75",
+  );
+  expect(fetch).not.toHaveBeenCalled();
+  first.unmount();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  render(<WorkspacePersonalAccounts {...props} />);
+  await waitFor(() =>
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+      "75",
+    ),
+  );
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(String(fetch.mock.calls[0]?.[0])).toContain(
+    "/api/dashboard/accounts/limits?",
   );
 });
 

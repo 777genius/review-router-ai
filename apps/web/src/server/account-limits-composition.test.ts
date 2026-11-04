@@ -1,7 +1,10 @@
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
 import { afterEach, expect, it } from "vitest";
-import { accountLimitsReader } from "./account-limits-composition";
+import {
+  accountLimitsReader,
+  accountLimitsRefresher,
+} from "./account-limits-composition";
 
 const profileId = "kimi-code-global-responses-apikey-v1";
 const target = {
@@ -237,3 +240,69 @@ it("clears observations on capability authorization loss instead of falling back
   });
   expect(f.calls).toEqual(["GET /v1/provider-connection-capabilities"]);
 });
+
+// This transport test catches accidental read/refresh endpoint mixing and unsafe
+// error retention; service tests own authorization policy coverage.
+it.each([403, 503, 200])(
+  "normalizes explicit quota refresh HTTP %s without legacy reads",
+  async (status) => {
+    const calls: string[] = [];
+    const server = createServer((request, response) => {
+      calls.push(`${request.method} ${request.url}`);
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/v1/capabilities/account-limits-refresh") {
+        response.end(
+          JSON.stringify({
+            contract: "account-limits-refresh/v1",
+            quotaOnlyRefresh: true,
+            profileIds: ["openai-codex-oauth-responses-v1"],
+          }),
+        );
+        return;
+      }
+      response.statusCode = status;
+      response.end(
+        JSON.stringify(
+          status === 200
+            ? { status: "unknown" }
+            : {
+                code: status === 403 ? "forbidden" : "unavailable",
+                traceRef: "test-only",
+                effect: "not_dispatched",
+                retry: { kind: "never" },
+              },
+        ),
+      );
+    });
+    servers.push(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("fixture");
+    const refresher = accountLimitsRefresher({
+      role: "management",
+      origin: `http://127.0.0.1:${address.port}`,
+      token: "test-credential",
+    });
+    expect(await refresher.supports("openai-codex-oauth-responses-v1")).toBe(
+      true,
+    );
+    expect(await refresher.supports("foreign")).toBe(false);
+    expect(
+      await refresher.refresh({
+        ...target,
+        profileId: "openai-codex-oauth-responses-v1",
+      }),
+    ).toMatchObject(
+      status === 403
+        ? { status: "unknown", reason: "generation_changed" }
+        : status === 503
+          ? { status: "unavailable", reason: "source_unavailable" }
+          : { status: "unknown" },
+    );
+    expect(calls).toEqual([
+      "GET /v1/capabilities/account-limits-refresh",
+      "POST /v1/account-limits/refresh",
+    ]);
+  },
+);

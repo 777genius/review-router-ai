@@ -1043,3 +1043,92 @@ test("retains personal sources without sharing authority on outage and clears de
     ).toBeNull(),
   );
 });
+
+test("access distinguishes personal ownership from same-named workspaces and collapses only repeated workspace IDs", async () => {
+  const { bootstrap, api } = fixture();
+  api.listAccessSummaries.mockResolvedValue({
+    status: "ok",
+    value: {
+      summaries: [
+        {
+          sourceId: "source-0",
+          organizationCount: 0,
+          hasRestrictedAccess: false,
+          organizations: [],
+          personalWorkspaceId: "personal-own",
+          personalWorkspace: {
+            label: "777genius",
+            avatarUrl: "https://avatars.githubusercontent.com/u/1",
+          },
+          complete: true,
+        },
+      ],
+    },
+  });
+  api.listEligibleOrganizations.mockResolvedValue({
+    status: "ok",
+    value: {
+      organizations: [
+        {
+          workspaceId: "legacy-a",
+          label: "777genius",
+          avatarUrl: "https://avatars.githubusercontent.com/u/2",
+        },
+        {
+          workspaceId: "legacy-a",
+          label: "777genius",
+          avatarUrl: "https://avatars.githubusercontent.com/u/2",
+        },
+        {
+          workspaceId: "legacy-b",
+          label: "777genius",
+          avatarUrl: "https://avatars.githubusercontent.com/u/3",
+        },
+        {
+          workspaceId: "personal-own",
+          label: "Personal must not become a target",
+        },
+      ],
+      nextCursor: null,
+    },
+  });
+  render(
+    <PersonalAccountControls
+      bootstrap={bootstrap}
+      api={api}
+      currentWorkspaceId="legacy-a"
+    />,
+  );
+  await waitFor(() => expect(api.listAccessSummaries).toHaveBeenCalled());
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Add to workspace: Personal source-0",
+    }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Access · Personal source-0",
+  });
+  await waitFor(() =>
+    expect(
+      within(dialog).getAllByRole("button", {
+        name: "Add access to 777genius",
+      }),
+    ).toHaveLength(2),
+  );
+  expect(
+    within(dialog).queryByText("Personal must not become a target"),
+  ).toBeNull();
+  expect(within(dialog).getByText("Personal workspace")).toBeTruthy();
+  expect(
+    within(dialog).getByText("Workspace · current workspace"),
+  ).toBeTruthy();
+  expect(
+    within(dialog)
+      .getAllByAltText("")
+      .map((image) => image.getAttribute("src")),
+  ).toEqual([
+    "https://avatars.githubusercontent.com/u/1",
+    "https://avatars.githubusercontent.com/u/2",
+    "https://avatars.githubusercontent.com/u/3",
+  ]);
+});
