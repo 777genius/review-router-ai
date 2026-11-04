@@ -67,3 +67,21 @@ A declaration-reference audit found an acyclic extraction boundary when the smal
 - If import graph proves cyclic or CI is ambiguous, revert the slice rather than adding an abstraction container.
 
 **Critic objections considered**: a mere one-file rename would not reduce coupling; reject it. The common contract must not grow into a service locator. This is one domain boundary extraction with two cohesive owners, not a proposed domain framework.
+
+## Review/fix record — 2026-11-05
+
+### Review pass 1 — static ownership, compatibility, concurrency
+
+- Re-read GitHub PR #815 against exact `main` `abe7689025e79ea229ac44e449dbd3e6f8fa381b`; initial PR HEAD `61fc782fbf63fb67ae1bf22defc56d946a425119`, 19 changed files, 5,277 added and 4,485 deleted lines. No main divergence at that point.
+- **Compatibility audit (symbol-level, not typecheck):** all 86 original named exported declarations from the Codex domain file remain represented by the old facade and its workflow/contract owners; all 36 original named GitHub Action exports remain represented in its facade/re-exports. This audit does not establish runtime ABI or TypeScript correctness.
+- **Build-blocking import finding:** `github-action.ts` and `review-runtime-environment.ts` import `reviewThreadLifecycleResolveTokenEnvKey`, but its extracted owner had declared an unexported `const`. Fixed at `1263d3d3975a83889c53d940ff92f402b6a4b51f`; do not claim build green until CI runs.
+- **Abort/concurrency finding:** after an HTTP 429/5xx or a network error, the old `sleep` backoff ignored caller abort until the next attempt. Fixed only the HTTP retry policy with an abort-aware, listener-cleaned wait at `89f630a2ffac61c297666053f43841e71c78709d`, and added two fake-timer regression cases at `ed43bea214a558b95969674d0c02d8a0a4faa4ed`.
+- Consequently the initial **119/119 unchanged moved-function** claim applies to the original relocation at `61fc782` only. After the intentional HTTP retry improvement, **118/119** moved function bodies retain original semantics/text; `fetchWithRetry` is intentionally modified and must be covered by tests.
+- Full CI on original `61fc782`: [run #41935346565](https://github.com/777genius/review-router-ai/actions/runs/41935346565), later superseded/cancelled for multiple jobs by newer pushes; individual completed success jobs do **not** validate later HEADs. Full CI on `1263d3d`: [run #41936521538](https://github.com/777genius/review-router-ai/actions/runs/41936521538), also superseded by subsequent commits. Full CI on `ed43bea`: [run #41936737362](https://github.com/777genius/review-router-ai/actions/runs/41936737362), jobs queued at inspection time; will be superseded by this plan update. Re-run the mandatory workflow on the final exact HEAD.
+
+### Pending review pass 2 — evidence-driven falsification
+
+- Confirm `pnpm` package typecheck, formatting/lint, static architecture and package tests on **exact HEAD**.
+- Inspect the Action bundle artifact as well as integration/source-certification and GitHub-hosted/self-hosted E2E jobs; distinguish skipped/draft gates from actual success.
+- Review secret/credential trust and process-tree/log cleanup under abort/timeout. Do not expand the diff for merely cosmetic decomposition; correct concrete regressions only.
+- Record any failed steps and remediation with exact job IDs and links; leave PR Draft and do not merge/release.
