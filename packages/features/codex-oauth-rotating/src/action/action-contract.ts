@@ -30,7 +30,7 @@ export type PullRequestEvent = {
 };
 
 
-const reviewThreadLifecycleResolveTokenEnvKey =
+export const reviewThreadLifecycleResolveTokenEnvKey =
   "REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN";
 
 export const githubRequestTimeoutMs = 30_000;
