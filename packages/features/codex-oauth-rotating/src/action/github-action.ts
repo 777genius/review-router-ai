@@ -50,8 +50,6 @@ import {
   fetchWithRetry,
   networkRetryDelayMs,
   discardResponseBody,
-  consumeResponseBody,
-  consumeJsonResponse,
   sleep,
 } from "./http-retry.js";
 export {
@@ -75,7 +73,7 @@ import {
   type CertifiedForkReviewBinding,
 } from "./certified-fork-lifecycle.js";
 import { createHash } from "node:crypto";
-import { constants as fsConstants, createReadStream } from "node:fs";
+import { constants as fsConstants } from "node:fs";
 import {
   createSubscriptionRuntime,
   DefaultRedactor,
@@ -112,13 +110,11 @@ import {
   readFile,
   rm,
   writeFile,
-  chmod,
   mkdir,
   access,
   lstat,
   realpath,
   stat,
-  statfs,
   symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
