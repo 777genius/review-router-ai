@@ -82,10 +82,13 @@ export class PrismaWorkflowProvisioningStatusAuthority {
       readonly baseBranch: string;
       /** Captured before the installed Gateway source/authority verification.
        * Allows adoption of that verified caller, never a transport migration. */
-      readonly verifiedPreviousGatewayBinding?: Pick<
-        WorkflowProvisioningRecord,
-        "workflowPath" | "workflowStyle" | "actionVersion"
-      >;
+      readonly verifiedPreviousGatewayBinding?:
+        | Readonly<{
+            workflowPath: string;
+            workflowStyle: string;
+            actionVersion: string;
+          }>
+        | undefined;
       readonly expectedAttempt: Pick<
         WorkflowProvisioningAttempt,
         "attemptId" | "revision"
