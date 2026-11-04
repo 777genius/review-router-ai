@@ -1,13 +1,46 @@
 import {
+  hasHostedPoolRetryBudget,
+  hostedPoolAccountFailureReason,
+  isHostedPoolQuotaFailureText,
+  runHostedPoolLeaseFailover,
+} from "./hosted-pool-failover.js";
+import {
+  routeCodexLocalProviderRequest,
+  startCodexLocalProviderProxy,
+  resolveCodexProxyUpstreamResponsesUrl,
+  type LocalProviderProxy,
+} from "./codex-local-provider-proxy.js";
+import {
+  fetchWithRetry,
+  networkRetryDelayMs,
+  discardResponseBody,
+  consumeResponseBody,
+  consumeJsonResponse,
+  sleep,
+} from "./http-retry.js";
+export {
+  hasHostedPoolRetryBudget,
+  hostedPoolAccountFailureReason,
+  isHostedPoolQuotaFailureText,
+  runHostedPoolLeaseFailover,
+  type HostedPoolFailureReason,
+  type HostedPoolFailoverInput,
+} from "./hosted-pool-failover.js";
+export {
+  routeCodexLocalProviderRequest,
+  startCodexLocalProviderProxy,
+  resolveCodexProxyUpstreamResponsesUrl,
+} from "./codex-local-provider-proxy.js";
+
+import {
   assertCertifiedForkModeSchema,
   captureCertifiedForkInvocation,
   certifiedForkActionMode,
   type CertifiedForkReviewBinding,
 } from "./certified-fork-lifecycle.js";
 import { execFileSync, spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { constants as fsConstants, createReadStream } from "node:fs";
-import http from "node:http";
 import {
   createSubscriptionRuntime,
   DefaultRedactor,
@@ -39,10 +72,6 @@ import {
   withUsageArtifactUploadTimeout,
   type UsageGrant,
 } from "./provider-usage-delivery.js";
-import {
-  createResponsesUsageObserver,
-  createResponsesUsageStreamObserver,
-} from "./provider-usage-responses.js";
 import {
   mkdtemp,
   readFile,
@@ -105,8 +134,6 @@ const preparedSubscriptionActionMode = "prepared-subscription";
 const preparedSubscriptionTransportEnvKey =
   "REVIEWROUTER_PREPARED_MODEL_TRANSPORT";
 const hostedOriginalGrantEnvKey = "REVIEWROUTER_HOSTED_ORIGINAL_GRANT";
-const defaultChatGptCodexResponsesUrl =
-  "https://chatgpt.com/backend-api/codex/responses";
 const bundledCodexPlatform = "linux-x64";
 const bundledCodexVersion = "0.135.0";
 const bundledCodexPackageName = ["@openai", "codex"].join("/");
@@ -115,22 +142,6 @@ const bundledCodexBinaryPathInArchive =
   "package/vendor/x86_64-unknown-linux-musl/bin/codex";
 const maxCommentBytes = 60_000;
 const maxCapturedProcessOutputBytes = 256_000;
-const maxProxyRequestBodyBytes = 2_000_000;
-const maxProxyRequestsPerReview = 16;
-const codexProxyForwardHeaderNames = new Set([
-  "chatgpt-account-id",
-  "openai-beta",
-  "openai-organization",
-  "openai-project",
-  "originator",
-  "session-id",
-  "thread-id",
-  "user-agent",
-  "x-client-request-id",
-  "x-oai-attestation",
-  "x-openai-internal-codex-responses-lite",
-  "x-responsesapi-include-timing-metrics",
-]);
 const minimumRunnerFreeDiskBytes = 4 * 1024 * 1024 * 1024;
 const supportedRunnerOs = "Linux";
 const supportedRunnerArch = "X64";
@@ -139,10 +150,6 @@ const minimumNodeMajor = 20;
 const controlPlaneRequestTimeoutMs = 30_000;
 const oidcRequestTimeoutMs = 20_000;
 const githubRequestTimeoutMs = 30_000;
-const networkRetryMaxAttempts = 3;
-const networkRetryBaseDelayMs = 750;
-const hostedPoolMaxLeaseAttempts = 2;
-const hostedPoolMinimumRetryBudgetMs = 90_000;
 const fullRuntimeProgressCommentMarker =
   "<!-- review-router-progress-tracker -->";
 const providerNeutralReviewFindingsArtifactFileName =
@@ -406,11 +413,6 @@ type ReviewSnapshotRestoreResponse = z.infer<
 type GitHubIssueCommentResponse = {
   readonly id: number;
   readonly body?: string | null;
-};
-
-type LocalProviderProxy = {
-  readonly baseUrl: string;
-  readonly close: () => Promise<void>;
 };
 
 type LocalProviderProxyFactory = (input: {
@@ -1448,95 +1450,6 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
     await removeTree(tempCodexHome);
   }
   notice(input.io, "ReviewRouter hosted pool review completed.");
-}
-
-export type HostedPoolFailureReason =
-  | "quota_exhausted"
-  | "authentication_failed"
-  | undefined;
-
-export type HostedPoolFailoverInput<T> = {
-  readonly maxAttempts?: number | undefined;
-  readonly canRetry: () => boolean;
-  readonly runAttempt: (input: {
-    readonly attempt: number;
-    readonly maxAttempts: number;
-  }) => Promise<T>;
-  readonly onRetry?:
-    | ((input: {
-        readonly attempt: number;
-        readonly maxAttempts: number;
-        readonly reason: Exclude<HostedPoolFailureReason, undefined>;
-      }) => void | Promise<void>)
-    | undefined;
-};
-
-export function hasHostedPoolRetryBudget(input: {
-  readonly executionDeadlineEpochMs: number;
-  readonly nowEpochMs: number;
-}): boolean {
-  return (
-    remainingReviewExecutionBudgetMs(input) >= hostedPoolMinimumRetryBudgetMs
-  );
-}
-
-export async function runHostedPoolLeaseFailover<T>(
-  input: HostedPoolFailoverInput<T>,
-): Promise<T> {
-  const maxAttempts = input.maxAttempts ?? hostedPoolMaxLeaseAttempts;
-  if (
-    !Number.isSafeInteger(maxAttempts) ||
-    maxAttempts < 1 ||
-    maxAttempts > hostedPoolMaxLeaseAttempts
-  ) {
-    throw new Error("hosted_pool_retry_budget_invalid");
-  }
-
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await input.runAttempt({ attempt, maxAttempts });
-    } catch (error) {
-      const reason = hostedPoolAccountFailureReason(error);
-      if (!reason) throw error;
-      lastError = error;
-      if (attempt === maxAttempts || !input.canRetry()) {
-        throw new Error("hosted_pool_capacity_exhausted", { cause: error });
-      }
-      await input.onRetry?.({ attempt, maxAttempts, reason });
-    }
-  }
-  throw new Error("hosted_pool_capacity_exhausted", { cause: lastError });
-}
-
-export function hostedPoolAccountFailureReason(
-  error: unknown,
-): HostedPoolFailureReason {
-  const normalized = String(
-    error instanceof Error ? error.message : error,
-  ).toLowerCase();
-  if (isHostedPoolQuotaFailureText(normalized)) {
-    return "quota_exhausted";
-  }
-  if (
-    normalized === "hosted_pool_authentication_failed" ||
-    normalized === "hosted_relay_grant_failed:401"
-  ) {
-    return "authentication_failed";
-  }
-  return undefined;
-}
-
-export function isHostedPoolQuotaFailureText(text: string): boolean {
-  const normalized = text.toLowerCase();
-  return (
-    normalized === "hosted_pool_quota_exhausted" ||
-    normalized === "hosted_relay_grant_failed:429" ||
-    normalized === "quota_limited" ||
-    normalized.includes("provider_capacity_limited") ||
-    /exceeded retry limit, last status: 429/.test(normalized) ||
-    /you(?:'|’)ve hit your usage limit/.test(normalized)
-  );
 }
 
 export function readActionInputs(env: NodeJS.ProcessEnv): ActionInputs {
@@ -2695,126 +2608,6 @@ async function fetchGitHubRepositoryPublicKey(input: {
   return { key: body.key, key_id: body.key_id };
 }
 
-async function fetchWithRetry<T = Response>(input: {
-  readonly fetchImpl: FetchLike;
-  readonly label: string;
-  readonly url: string;
-  readonly init?: RequestInit;
-  readonly timeoutMs: number;
-  readonly maxAttempts?: number;
-  readonly consume?: ((response: Response) => Promise<T>) | undefined;
-}): Promise<T> {
-  const maxAttempts = input.maxAttempts ?? networkRetryMaxAttempts;
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const controller = new AbortController();
-    const externalSignal = input.init?.signal;
-    if (externalSignal?.aborted) {
-      throw new Error(
-        `network_request_aborted:${safeNetworkLabel(input.label)}`,
-      );
-    }
-    const abortFromExternalSignal = (): void => controller.abort();
-    externalSignal?.addEventListener("abort", abortFromExternalSignal, {
-      once: true,
-    });
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, input.timeoutMs);
-    let cleanedUp = false;
-    const cleanup = (): void => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener("abort", abortFromExternalSignal);
-    };
-
-    try {
-      const response = await input.fetchImpl(input.url, {
-        ...input.init,
-        signal: controller.signal,
-      });
-      if (shouldRetryHttpStatus(response.status) && attempt < maxAttempts) {
-        await discardResponseBody(response);
-        cleanup();
-        await sleep(networkRetryDelayMs(attempt));
-        continue;
-      }
-      const result = input.consume
-        ? await input.consume(response)
-        : (response as T);
-      cleanup();
-      return result;
-    } catch (error) {
-      cleanup();
-      lastError = error;
-      if (externalSignal?.aborted) {
-        throw new Error(
-          `network_request_aborted:${safeNetworkLabel(input.label)}`,
-          { cause: error },
-        );
-      }
-      if (attempt < maxAttempts) {
-        await sleep(networkRetryDelayMs(attempt));
-        continue;
-      }
-      const code = timedOut
-        ? "network_request_timeout"
-        : "network_request_failed";
-      throw new Error(`${code}:${safeNetworkLabel(input.label)}`, {
-        cause: error,
-      });
-    }
-  }
-
-  throw new Error(`network_request_failed:${safeNetworkLabel(input.label)}`, {
-    cause: lastError,
-  });
-}
-
-function shouldRetryHttpStatus(status: number): boolean {
-  return status === 408 || status === 429 || (status >= 500 && status <= 599);
-}
-
-function networkRetryDelayMs(attempt: number): number {
-  return networkRetryBaseDelayMs * 2 ** Math.max(0, attempt - 1);
-}
-
-function safeNetworkLabel(label: string): string {
-  return /^[a-z0-9_:-]{1,80}$/i.test(label) ? label : "unknown";
-}
-
-async function discardResponseBody(response: Response): Promise<void> {
-  try {
-    await response.arrayBuffer();
-  } catch {
-    // Best effort only. The retry path should not fail because body cleanup did.
-  }
-}
-
-async function consumeResponseBody(response: Response): Promise<Response> {
-  await discardResponseBody(response);
-  return response;
-}
-
-async function consumeJsonResponse(response: Response): Promise<{
-  readonly response: Response;
-  readonly body: unknown;
-}> {
-  if (!response.ok) {
-    await discardResponseBody(response);
-    return { response, body: undefined };
-  }
-  return { response, body: await response.json() };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function assertWritebackAccepted(response: WritebackResponse): void {
   if (!response || response.protocolVersion !== 1) {
     throw new Error("unknown_auth_state");
@@ -2829,248 +2622,6 @@ function assertWritebackAccepted(response: WritebackResponse): void {
     throw new Error("security_invariant_failed");
   }
   throw new Error("unknown_auth_state");
-}
-
-export function routeCodexLocalProviderRequest(input: {
-  readonly method: string;
-  readonly path: string;
-  readonly nonce: string;
-  readonly bodyBytes: number;
-}): "responses" | "deny" {
-  if (input.method !== "POST") return "deny";
-  if (input.bodyBytes > maxProxyRequestBodyBytes) return "deny";
-  if (input.path !== `/${input.nonce}/v1/responses`) return "deny";
-  return "responses";
-}
-
-export async function startCodexLocalProviderProxy(input: {
-  readonly fetchImpl: FetchLike;
-  readonly accessToken: string;
-  readonly upstreamResponsesUrl: string;
-  readonly usageDelivery?: UsageDelivery;
-}): Promise<LocalProviderProxy> {
-  const nonce = randomBytes(24).toString("base64url");
-  let requestCount = 0;
-  let closing = false;
-  const activeUpstreamRequests = new Set<AbortController>();
-  const requests = new Set<Promise<void>>();
-  const server = http.createServer((req, res) => {
-    const request = (async () => {
-      try {
-        const body = await readProxyRequestBody(req);
-        const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-        const route = routeCodexLocalProviderRequest({
-          method: req.method ?? "GET",
-          path,
-          nonce,
-          bodyBytes: body.byteLength,
-        });
-        if (route !== "responses") {
-          writeProxyDeny(res);
-          return;
-        }
-        requestCount += 1;
-        if (requestCount > maxProxyRequestsPerReview) {
-          writeProxyError(res, 429, "proxy_request_budget_exceeded");
-          return;
-        }
-        if (closing) {
-          writeProxyError(res, 503, "proxy_closing");
-          return;
-        }
-        const upstreamController = new AbortController();
-        activeUpstreamRequests.add(upstreamController);
-        const usage = input.usageDelivery
-          ? createResponsesUsageObserver(input.usageDelivery, "", "codex")
-          : undefined;
-        let failed = false;
-        try {
-          usage?.dispatched();
-          const upstream = await input.fetchImpl(input.upstreamResponsesUrl, {
-            method: "POST",
-            headers: buildCodexProxyUpstreamHeaders({
-              requestHeaders: req.headers,
-              fallbackAccessToken: input.accessToken,
-            }),
-            body: new Uint8Array(body),
-            signal: upstreamController.signal,
-          });
-          usage?.responseReceived();
-          failed = !upstream.ok;
-          await writeProxyUpstreamResponse(res, upstream, usage);
-        } catch (error) {
-          failed = true;
-          throw error;
-        } finally {
-          usage?.finish(failed, upstreamController.signal.aborted);
-          activeUpstreamRequests.delete(upstreamController);
-        }
-      } catch {
-        writeProxyError(res, 502, "proxy_upstream_failed");
-      }
-    })();
-    requests.add(request);
-    void request.finally(() => requests.delete(request));
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    await closeHttpServer(server);
-    throw new Error("proxy_listener_invalid_address");
-  }
-  let closingPromise: Promise<void> | undefined;
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}/${nonce}/v1`,
-    close: () =>
-      (closingPromise ??= (async () => {
-        closing = true;
-        for (const controller of activeUpstreamRequests)
-          controller.abort(new Error("proxy_closing"));
-        const closePromise = closeHttpServer(server);
-        server.closeAllConnections();
-        await closePromise;
-        await Promise.all([...requests]);
-      })()),
-  };
-}
-
-export function resolveCodexProxyUpstreamResponsesUrl(
-  env: NodeJS.ProcessEnv,
-): string {
-  return (
-    env.REVIEWROUTER_CODEX_RESPONSES_URL ??
-    env.REVIEWROUTER_OPENAI_RESPONSES_URL ??
-    defaultChatGptCodexResponsesUrl
-  );
-}
-
-function buildCodexProxyUpstreamHeaders(input: {
-  readonly requestHeaders: http.IncomingHttpHeaders;
-  readonly fallbackAccessToken: string;
-}): Record<string, string> {
-  const headers: Record<string, string> = {
-    accept:
-      getJoinedRequestHeader(input.requestHeaders, "accept") ??
-      "text/event-stream",
-    "content-type":
-      getJoinedRequestHeader(input.requestHeaders, "content-type") ??
-      "application/json",
-  };
-  const authorization = getJoinedRequestHeader(
-    input.requestHeaders,
-    "authorization",
-  );
-  headers.authorization =
-    authorization && /^Bearer\s+\S+/i.test(authorization)
-      ? authorization
-      : `Bearer ${input.fallbackAccessToken}`;
-
-  for (const name of Object.keys(input.requestHeaders)) {
-    if (!shouldForwardCodexProxyHeader(name)) continue;
-    const value = getJoinedRequestHeader(input.requestHeaders, name);
-    if (value) {
-      headers[name] = value;
-    }
-  }
-  return headers;
-}
-
-function shouldForwardCodexProxyHeader(name: string): boolean {
-  const lowerName = name.toLowerCase();
-  return (
-    codexProxyForwardHeaderNames.has(lowerName) ||
-    lowerName.startsWith("x-codex-")
-  );
-}
-
-function getJoinedRequestHeader(
-  headers: http.IncomingHttpHeaders,
-  name: string,
-): string | undefined {
-  const value = headers[name.toLowerCase()];
-  if (Array.isArray(value)) return value.join(", ");
-  return value;
-}
-
-function readProxyRequestBody(req: http.IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    req.on("data", (chunk) => {
-      const buffer = Buffer.from(chunk);
-      bytes += buffer.byteLength;
-      if (bytes > maxProxyRequestBodyBytes) {
-        req.destroy(new Error("proxy_request_body_too_large"));
-        return;
-      }
-      chunks.push(buffer);
-    });
-    req.on("error", reject);
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-  });
-}
-
-async function writeProxyUpstreamResponse(
-  res: http.ServerResponse,
-  upstream: Response,
-  usage?: ReturnType<typeof createResponsesUsageObserver>,
-): Promise<void> {
-  const headers: Record<string, string> = {};
-  const contentType = upstream.headers.get("content-type");
-  if (contentType) {
-    headers["content-type"] = contentType;
-  }
-  res.writeHead(upstream.status, headers);
-  if (!upstream.body) {
-    res.end();
-    return;
-  }
-  const reader = upstream.body.getReader();
-  const usageStream = usage
-    ? createResponsesUsageStreamObserver(usage, contentType)
-    : undefined;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      usageStream?.chunk(value);
-      res.write(Buffer.from(value));
-    }
-    usageStream?.end();
-    res.end();
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-function writeProxyDeny(res: http.ServerResponse): void {
-  writeProxyError(res, 404, "proxy_route_denied");
-}
-
-function writeProxyError(
-  res: http.ServerResponse,
-  status: number,
-  code: string,
-): void {
-  if (res.headersSent) {
-    res.end();
-    return;
-  }
-  res.writeHead(status, { "content-type": "application/json" });
-  res.end(JSON.stringify({ error: code }));
-}
-
-function closeHttpServer(server: http.Server): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
 }
 
 export async function resolveCodexBinary(
