@@ -1,0 +1,39 @@
+{
+  "schema": "reviewrouter-workflow-action230-delivery.v1",
+  "source": "d184d13e56733586ba65d31aacb076d4eefbee7d",
+  "image": "sha256:6d8d7f2d164877676b55f6a8d2936780d902dae705ed1c3a1878e82af72b57ca",
+  "action": "8328c2e6c3a2a7767a0667a2669982bc6ef71f64",
+  "releaseRun": "41825127619",
+  "promotionRun": "41828717562",
+  "registryRows": 58,
+  "readiness": 200,
+  "rolesVerified": 4,
+  "legacyConfirmationsReady": [
+    "agent-teams-ai/agent-runtime",
+    "777genius/clean_disk",
+    "777genius/agent_teams_orchestrator"
+  ],
+  "live": {
+    "run": "41829266811",
+    "status": "blocked_external_provider_quota",
+    "remaining": 0,
+    "limit": 1000,
+    "resetAt": "2026-11-05T00:00:00Z",
+    "authorizationState": "revoked",
+    "gatewayClose": "applied",
+    "usageUniqueCalls": 1,
+    "usageState": "unknown",
+    "tokens": null,
+    "completedStatisticsFacts": 0,
+    "finalizedArtifacts": 0,
+    "requiredSatisfied": 0,
+    "requiredExhausted": 1,
+    "observedExecutionState": "running",
+    "observedAt": "2026-11-04T12:40:42.411Z",
+    "noReplay": true
+  },
+  "fullPositiveE2E": false,
+  "modelChanged": false,
+  "coveragePolicyChanged": false,
+  "testStandsPreserved": true
+}

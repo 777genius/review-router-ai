@@ -2,7 +2,7 @@
 
 - Task: retire the three remaining managed legacy OAuth callers, confirm their installed Gateway bindings, and deliver clear diagnostics for unknown request outcomes.
 - Source: private [#812](https://github.com/777genius/review-router-ai/pull/812), public [#370](https://github.com/777genius/review-router/pull/370).
-- Production code: `installed`; live verification is linked below. Staging remains unverified.
+- Production code: `installed`; positive live E2E is `blocked` by the external OpenRouter free quota. Staging remains unverified.
 - Last updated: 2026-11-04.
 
 ## Actual installed baseline
@@ -25,7 +25,9 @@ Each confirmation used the actual scoped operator API, source/tenant/installatio
 
 ## Live review and statistics
 
-Final candidate: existing [clean_disk#7](https://github.com/777genius/clean_disk/pull/7), head `fd2b5d7ca610a724948410e02c03841c06dad134`; one eligible documentation file. The earlier GitHub-incident dispatch became terminal `dispatch_outcome_unknown`, with zero authorizations/model calls. It was preserved and not replayed. A normal ready-for-review event after channel activation created a new request and [run41829266811](https://github.com/777genius/clean_disk/actions/runs/41829266811). The linked run is authoritative; dispatch alone does not establish a completed review. Final review, Usage and Statistics readback is recorded in the release-owner verification comment on that PR.
+Final candidate: existing [clean_disk#7](https://github.com/777genius/clean_disk/pull/7), head `fd2b5d7ca610a724948410e02c03841c06dad134`; one eligible documentation file. The earlier GitHub-incident dispatch became terminal `dispatch_outcome_unknown`, with zero authorizations/model calls. It was preserved and not replayed. A normal ready-for-review event after channel activation created a new request and [run41829266811](https://github.com/777genius/clean_disk/actions/runs/41829266811). The run waited approximately13minutes for a GitHub-hosted runner, then authorized the exact230 producer and reached OpenRouter through the installed OCRv5 profile. It failed on a real upstream quota fact: `0 of 1000 requests remaining`, reset `2026-11-05T00:00:00Z`. The Action exposed that specific message; transport returned502 and native outcome remained `effect_unknown`. This is an external provider-quota blocker, not evidence of a completed review or an unknown cause being guessed. No automatic replay or provider/model substitution was attempted.
+
+The installed API revoked the authorization and Gateway close returned `applied`. Readback at12:40:42UTC found one unique Usage call, with native `unknown` state, null tokens/cost and partial completeness; it did not invent zero tokens or successful model usage. No finalized review artifact, completed-review Statistics fact or issue was recorded. Progress correctly showed0/1 satisfied and1 exhausted. The operational execution was still `running` at that observation; later cleanup is not claimed by that receipt. Positive review/publication/statistics verification must resume after the provider reset or an explicitly selected alternative provider, rather than redeploying this unchanged code.
 
 ## Scope and retained work
 
