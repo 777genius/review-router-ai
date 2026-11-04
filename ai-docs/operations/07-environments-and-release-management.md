@@ -428,13 +428,17 @@ completed with the existing owner GitHub CLI session when all of these hold:
   Their source, paired Action, image digest and asset SHA256 values are verified.
 - The owner CLI identity has the required existing permission. No branch/tag
   protection, environment policy or credential configuration is changed.
+- The failed run used `sync_production_action_ref=false`. This recovery does not
+  perform the skipped production Action-ref sync.
 
 Use atomic GitHub ref updates with expected previous OIDs: create the absent
 immutable exact tag and advance `v1` only from its observed prior commit to the
 verified release commit. Require a fast-forward; an existing exact tag with a
 different target or a concurrent ref change stops recovery. This is not the
-rollback procedure. Create a Draft release at that verified tag with the same
-two assets, verify their uploaded digests, then publish it. Record the failed
+rollback procedure. Only if the dispatch requested `create_github_release=true`,
+create a Draft release at that verified tag with the same two assets, verify
+their uploaded digests, then publish it. Otherwise skip GitHub Release creation.
+Record the failed
 workflow and the separate owner-assisted completion honestly; do not relabel
 the failed run as successful or claim later main commits were deployed.
 

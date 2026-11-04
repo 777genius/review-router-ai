@@ -85,11 +85,11 @@ any failed or unfinished step for the affected environment.
 
 ## Execution log
 
-| Time (UTC)   | Environment               | Operator      | Actual version / image | Step and observed result                                                                           | Evidence                           | Next action                                                        |
-| ------------ | ------------------------- | ------------- | ---------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------ |
-| Not verified | staging / Web             | Release owner | Not verified           | No staging completion credited.                                                                    | #798 source record                 | Reconcile staging independently.                                   |
-| 2026-11-04   | production / Web          | Release owner | 8561576c / image 1962  | Final #798 merge 06ab562 is an ancestor of the actual installed application; code is installed.    | Exact source/image and merge above | Verify the live authenticated dashboard journey; no repeat deploy. |
-| Pending      | production / live journey | Release owner | Installeda3            | Workspace/repository isolation and organization plan guidance have no live verification claim yet. | Verification criteria above        | Append actual per-identity observations.                           |
+| Time (UTC)   | Environment               | Operator      | Actual version / image         | Step and observed result                                                                           | Evidence                           | Next action                                                        |
+| ------------ | ------------------------- | ------------- | ------------------------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------ |
+| Not verified | staging / Web             | Release owner | Not verified                   | No staging completion credited.                                                                    | #798 source record                 | Reconcile staging independently.                                   |
+| 2026-11-04   | production / Web          | Release owner | 8561576c / image 1962          | Final #798 merge 06ab562 is an ancestor of the actual installed application; code is installed.    | Exact source/image and merge above | Verify the live authenticated dashboard journey; no repeat deploy. |
+| Pending      | production / live journey | Release owner | Private228 a3db73fd / image0ff | Workspace/repository isolation and organization plan guidance have no live verification claim yet. | Verification criteria above        | Append actual per-identity observations.                           |
 
 Current private228 activation and compatible Action229 adoption are recorded in
 [provider errors and findings](2026-11-04-provider-errors-and-findings.md). All four

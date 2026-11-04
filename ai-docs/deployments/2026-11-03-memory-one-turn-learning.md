@@ -173,7 +173,8 @@ provider/model switch or cleanup authority.
 ## Related links
 
 - [Current-source Memory evidence](2026-11-03-memory-current-source-evidence.md).
-- [Provider errors / Action 228 delivery](2026-11-04-provider-errors-and-findings.md).
+- [Provider errors / Action 228/229 delivery](2026-11-04-provider-errors-and-findings.md).
+- [Retained r2 evidence](evidence/2026-11-04-provider-errors-delivery.json).
 - [Release process](../operations/07-environments-and-release-management.md).
 - [Quality gates](../operations/03-quality-gates.md).
 
