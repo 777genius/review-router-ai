@@ -1,9 +1,13 @@
 # Linux CI runners
 
 Trusted Linux CI jobs use the repository variable `CI_LINUX_CHECKS_RUNNER`, configured
-as `nscloud-ubuntu-24.04-amd64-4x8` (Ubuntu 24.04, x86-64, 4 vCPU, 8 GB RAM).
+as `ubuntu-latest`. Namespace remains enabled for builds, but its Docker 29.9.1
+mount inventory currently fails the strict native-memory E2E sandbox census.
+Keep checks on GitHub-hosted Ubuntu until that runner compatibility is qualified;
+do not relax the sandbox mount allowlist to accommodate a runner.
 Namespace GitHub Actions is already enabled for the account repositories.
-The workspace shares 32 Linux vCPU / 64 GB RAM, allowing eight such jobs at once.
+The Namespace workspace shares 32 Linux vCPU / 64 GB RAM. Its available light
+shape is `nscloud-ubuntu-24.04-amd64-4x8` (4 vCPU, 8 GB RAM).
 Heavy web and OCI builds use `CI_LINUX_BUILD_RUNNER`, configured as
 `nscloud-ubuntu-24.04-amd64-4x16`. Their Next.js builds exceeded Node's
 automatic ~2 GB heap limit on an 8 GB runner. The 16 GB shape retains build
