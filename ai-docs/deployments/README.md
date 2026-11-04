@@ -13,7 +13,7 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-Codex limits and connection UX: [quota-only refresh batch](2026-11-04-codex-limits-refresh.md) — staging `pending`, production `pending`; implementation qualification in progress. Preserve the installed baseline until the coherent paired native/Gateway and SaaS rollout is verified.
+Codex limits and connection UX: [quota-only refresh batch](2026-11-04-codex-limits-refresh.md) — staging `pending`, production `in_progress`; native93/Gateway100 installed and Seventeen quota-only snapshot verified with zero model calls. SaaS #814 final CI, application rollout and successful review remain pending; first test stopped pre-dispatch at retained-session capacity and its prior provider was restored; application baseline below remains current. [Durable sanitized evidence](evidence/2026-11-04-codex-quota-refresh.json).
 
 Current workflow migration and diagnostic release: [Action230 delivery](2026-11-04-workflow-migration-action230.md). Three legacy installations are confirmed ready; current source/image and channel are below. Live canary verification is recorded in that task. Do not rerun completed migrations or replay old unknown requests.
 

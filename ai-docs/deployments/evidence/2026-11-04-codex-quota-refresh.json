@@ -1,0 +1,299 @@
+{
+  "kind": "review-router-quota-refresh-deployment-evidence/v1",
+  "scope": "Paired AccountGateway/native quota-only refresh and exact ingress routes; SaaS delivery remains separate.",
+  "sanitized": true,
+  "host": {
+    "name": "prod-hel1-01",
+    "machineId": "b28fc7b17042414386eb9b114046e50c"
+  },
+  "sources": {
+    "gateway": {
+      "repository": "agent-teams-ai/account-gateway",
+      "pullRequest": 100,
+      "mergeCommit": "2a8379dab18607c61bdfc52852d6b00462797b9f",
+      "testedCommit": "07be3c3225feb667e54b24d7d6feb0d0290a2908",
+      "ciHead": "dee87cb0605c8bbda1761fe74a8b280be17526a3",
+      "tree": "d89e75aaad6d8d1f78979471559ecb9584f18dc8",
+      "testedTreeEqualsMergedTree": true,
+      "canonicalCIRuns": [41852622976, 41852623017],
+      "canonicalCI": "success on Node26.11.1 and Node24.21.0"
+    },
+    "native": {
+      "repository": "agent-teams-ai/sub2api",
+      "pullRequest": 93,
+      "mergeCommit": "da0d89b28aa6bfba563b9b9ff7310687d00c8b30",
+      "compiledCommit": "f7322e3a2408c67cab7e913574bd0fd81816789f",
+      "tree": "9116d5c5cd3b79bfad14fe58d3f1072181824e95",
+      "backendTree": "054939c81ee7eb8dcbd37ba4bf332a21967adaa7",
+      "testedTreeEqualsMergedTree": true,
+      "canonicalCIRun": 41857652673,
+      "canonicalCI": "success",
+      "entry": "backend/cmd/account-gateway",
+      "binarySha256": "3e2d556708e2542514de84769f4a6c0a0c7db3f5178c79f4f6be50c7c1505212",
+      "binaryBytes": 115568614,
+      "buildReusedWithoutRebuild": true
+    },
+    "sdk": {
+      "archiveSha256": "cf08f9e4559a0d727c3bf2924f7b40c35ad10c7d949078c057d61f612a9dab45",
+      "qualifiedArchiveReused": true
+    }
+  },
+  "release": {
+    "path": "/srv/platform/artifacts/review-router/account-gateway/releases/quota-refresh-da0d89b-2a8379d-20261104-r2/release",
+    "manifest": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/releases/quota-refresh-da0d89b-2a8379d-20261104-r2/release/release-manifest.json",
+      "sha256": "1d2a5f2827c03c0ddce9ffef52e639ae518d14e366e7a702598cfabd94b4c00a"
+    },
+    "verifiedFiles": 5957,
+    "verifiedInternalSymlinks": 41,
+    "gatewaySourceFilesMatchedExactArchive": 30,
+    "sdkFilesMatchedExactArchive": 42,
+    "configurationIncludedInRelease": false,
+    "credentialsIncludedInRelease": false
+  },
+  "activation": {
+    "executedBy": "Root",
+    "state": "active",
+    "mainPid": 4111627,
+    "nativePid": 4111685,
+    "nativeChildExecutableSha256Verified": true,
+    "receipt": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/releases/quota-refresh-da0d89b-2a8379d-20261104-r2/recovery-20261104-1/activation-receipt.json",
+      "sha256": "8531ce56a1745055b68cc43a483ce561ef6542c1a41109281d107f7379a9800c"
+    },
+    "candidate": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/releases/quota-refresh-da0d89b-2a8379d-20261104-r2/recovery-20261104-1/candidate-receipt.json",
+      "sha256": "15e439550454096eba6a1358ba913bfcbb932c46f8766e1181e62a5e0da9de3f"
+    },
+    "helperSha256": "cd47c4b6a8ee35dbfaaa632f83a964206a8af871596d734dae45cc3302149f66",
+    "configSha256": "5a8b224062d6795eed40d679f461dc5c5d06a1cf7a75516c1c0107cab4cf5dd2",
+    "overrideSha256": "3c100247a141692896ca56da9f4f428a630c61539fe137db2a0ce451aac23bd8",
+    "pureConfigPreflight": "passed on production Node26.11.1"
+  },
+  "preservedInitialFailureAndRecovery": {
+    "initialActivationIssued": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/releases/quota-refresh-da0d89b-2a8379d-20261104-r2/activation.issued",
+      "sha256": "240299a77b0d0c48e97c2e5646fe2b595eb792e20cd2ea83538fb984d301d7b7"
+    },
+    "initialFailure": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/releases/quota-refresh-da0d89b-2a8379d-20261104-r2/activation-failure.json",
+      "sha256": "3fe1cb890d1f421a279f240ef3e1baa6bc7cc6ead80d64026b88fc8ffa992c4e"
+    },
+    "observedFailure": "startup_denied; unit exited1; activation helper refused at readback",
+    "cause": "Candidate release parent0700 blocked the native launcher re-exec under UID/GID65534. Read-only access check proved new executable inaccessible while old executable and system loader/libc were accessible.",
+    "rollbackIssued": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/releases/quota-refresh-da0d89b-2a8379d-20261104-r2/rollback.issued",
+      "sha256": "01d191f355cec2e28dc866948869a1acb01d3059cf3d9bf5a2b3c6a1d9726940"
+    },
+    "rollbackReadback": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/releases/quota-refresh-da0d89b-2a8379d-20261104-r2/rollback-readback.json",
+      "sha256": "dd3ef293d9fc4515ea305ea8b8d194dfe6af4bb4ff5d81c221e916ac6137fa35"
+    },
+    "rollbackConfirmed": {
+      "oldPairActive": true,
+      "mainPid": 4102744,
+      "restoredConfigSha256": "79fd18fa0dafce85aacf2af648b258d47d68c97c907511fc7264e0f57b5e7f12",
+      "restoredOverrideSha256": "573ee89f92ca995f89267f98d2ed58d92928ecbafda153885c7006ff8027ddd9"
+    },
+    "packagingOnlyRepair": {
+      "releaseParentMode": "0711",
+      "recoveryDirectoryMode": "0700",
+      "privateReceiptAndConfigFilesMode": "0600",
+      "sdkUnpackMode": "0700",
+      "uid65534GroupsEmptyReadAndExecuteAccess": true,
+      "sourceChanges": false,
+      "nativeRebuild": false,
+      "releaseRecopyDuringRecovery": false,
+      "originalMarkersAndEvidencePreserved": true
+    }
+  },
+  "ingress": {
+    "executedBy": "Root",
+    "receipt": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/imports/quota-refresh-ingress-20261104/apply-receipt.json",
+      "sha256": "a802a664b6a9ba70d26aeba847c4ffce5d2336fb2b810a30d66ac53b99a92dcc"
+    },
+    "candidate": {
+      "path": "/srv/platform/artifacts/review-router/account-gateway/imports/quota-refresh-ingress-20261104/candidate-receipt.json",
+      "sha256": "a7a410cd19b5a98d24e3906871426c79bb079b3d7fec4f038684c90dea9a6db8"
+    },
+    "helperSha256": "21aaa101faba34e2f40d4c9edd7a85586f3c14b0b9e22e2ce7569d8e16288d6e",
+    "fullCaddyValidation": "passed",
+    "priorDiskConfigEqualedLiveRuntime": true,
+    "caddyMainPidRetained": 8826,
+    "gracefulReloadCount": 1,
+    "addedExactPaths": [
+      "/v1/capabilities/account-limits-refresh",
+      "/v1/account-limits/refresh"
+    ],
+    "hostBlocks": 2,
+    "existingSDKPathsPreserved": true,
+    "newWildcards": false,
+    "generatorCorrectedToLiveSDKPathUnion": true,
+    "routeSha256": "b827c75050ebeb31b2e203964ce6b8a1a8c18f70596b45396decfa72ff303f1e",
+    "generatorSha256": "24b22dbc9d4e50990fe668ef5f84a6431939964125f8357555b3f5b503ac0cb1",
+    "rollbackBackups": [
+      "/srv/platform/artifacts/review-router/account-gateway/imports/quota-refresh-ingress-20261104/route.before",
+      "/srv/platform/artifacts/review-router/account-gateway/imports/quota-refresh-ingress-20261104/generator.before"
+    ]
+  },
+  "httpCapabilityProof": {
+    "source": "Root-provided observed result; no additional request made by evidence agent",
+    "caller": "WEB via existing management origin",
+    "method": "GET",
+    "path": "/v1/capabilities/account-limits-refresh",
+    "status": 200,
+    "contract": "account-limits-refresh/v1",
+    "quotaOnlyRefresh": true,
+    "codexProfileSupported": true
+  },
+  "effects": {
+    "modelCalls": 0,
+    "initialActivationAttempts": 1,
+    "rollbackAttempts": 1,
+    "recoveryActivationAttempts": 1,
+    "ingressGracefulReloads": 1,
+    "automaticReplay": false,
+    "additionalHostEffectsForThisEvidence": false
+  },
+  "limits": {
+    "cachedV1V2ContractsUnchanged": true,
+    "cachedQuotaOnlyRefreshRemainsFalse": true,
+    "publicCreditsDTOAdded": false,
+    "saasDeploymentIncluded": false,
+    "saasStatus": "PR814 final preparation-lifecycle source awaits exact-head CI and application rollout; no SaaS installation claimed."
+  },
+  "seventeenQuotaOnlyProof": {
+    "ok": true,
+    "target": "Seventeen",
+    "phase": "completed",
+    "status": "snapshot",
+    "windows": [
+      {
+        "id": "primary",
+        "durationSeconds": 18000,
+        "usedPercent": 100,
+        "observedAt": "2026-11-04T16:13:20.665751562Z",
+        "resetAt": "2026-11-04T18:37:23Z"
+      },
+      {
+        "id": "secondary",
+        "durationSeconds": 604800,
+        "usedPercent": 62,
+        "observedAt": "2026-11-04T16:13:20.665751562Z",
+        "resetAt": "2026-11-10T22:03:39Z"
+      }
+    ],
+    "modelCalls": 0
+  },
+  "checkpoint": {
+    "productionStatus": "in_progress",
+    "nativeGateway": "installed_and_quota_verified",
+    "application": {
+      "pullRequest": 814,
+      "status": "final-source-qualification-pending",
+      "installed": false,
+      "previousHead": "cdc078163a0364cbd5820a226e6c502ed6b9e2cd",
+      "previousCIRun": 41868079429,
+      "previousCIStatus": "cancelled-as-superseded-by-preparation-lifecycle-fix"
+    },
+    "review": {
+      "run": 41829266811,
+      "attempt": 3,
+      "status": "failed-before-dispatch",
+      "completed": false,
+      "published": "partial-summary-only",
+      "usageStatisticsVerified": "zero-model-calls-and-zero-successful-review-facts",
+      "testRepositoryOnlyOverride": "restored; workspace default unchanged",
+      "mcpServers": 0,
+      "tools": 0
+    },
+    "previousUnknownAttempts": "preserved without replay"
+  },
+  "seventeenFirstReviewTest": {
+    "runId": "41829266811",
+    "attempt": 3,
+    "apiSource": "d184d13e56733586ba65d31aacb076d4eefbee7d",
+    "result": "failed-before-model-dispatch",
+    "safeCode": "relay_saturated",
+    "effect": "not_dispatched",
+    "retainedSessions": 16,
+    "maxSessions": 16,
+    "usageCalls": 0,
+    "successfulStatisticsReviews": 0,
+    "requiredSatisfied": 0,
+    "requiredTotal": 1,
+    "partialSummaryPublished": true,
+    "priorRepositorySelectionRestored": true,
+    "workspaceDefaultUnchanged": true,
+    "reviewCompletionClaim": false,
+    "metadataReadback": {
+      "authorizations": [
+        {
+          "authorizationId": "review_run_authorization-b5496a09-a3aa-4fd0-95ba-fb437c3d4051",
+          "producerReleaseId": "reviewrouter-action.8328c2e6c3a2a7767a0667a2669982bc6ef71f64",
+          "protocolLimitsProfileId": "review-v2-limits-3c75bf1",
+          "seventeenBindingFrozen": true,
+          "seventeenAccountPrepared": false
+        }
+      ],
+      "executions": [
+        {
+          "executionId": "rr:execution:1ce4059d0e7e64707a0dc0a224f300f02b9e791d",
+          "state": "partial",
+          "finalizedArtifactId": "rr:artifact:ec6dc993d98dda6883a69c5f13a687d83b7c2e7db84fbb0ea41eb47690c2ba33",
+          "producerReleaseId": "reviewrouter-action.8328c2e6c3a2a7767a0667a2669982bc6ef71f64",
+          "createdAt": "2026-11-04T16:48:52.444Z",
+          "updatedAt": "2026-11-04T16:49:18.546Z"
+        }
+      ],
+      "progress": [
+        {
+          "executionId": "rr:execution:1ce4059d0e7e64707a0dc0a224f300f02b9e791d",
+          "phase": "assembling",
+          "requiredTotal": 1,
+          "requiredSatisfied": 0,
+          "requiredExhausted": 1,
+          "eligibleFileCount": 1,
+          "coveredFileCount": 0,
+          "uncoveredFileCount": 0,
+          "terminalOutcome": null
+        }
+      ],
+      "artifacts": [
+        {
+          "executionId": "rr:execution:1ce4059d0e7e64707a0dc0a224f300f02b9e791d",
+          "coverageState": "partial",
+          "findingCount": 0,
+          "reviewedHeadSha": "fd2b5d7ca610a724948410e02c03841c06dad134",
+          "artifactId": "rr:artifact:ec6dc993d98dda6883a69c5f13a687d83b7c2e7db84fbb0ea41eb47690c2ba33"
+        }
+      ],
+      "statistics": {
+        "reviews": 0,
+        "issues": 0,
+        "severities": []
+      },
+      "publication": [
+        {
+          "executionId": "rr:execution:1ce4059d0e7e64707a0dc0a224f300f02b9e791d",
+          "state": "terminal",
+          "terminalOutcome": "succeeded"
+        }
+      ],
+      "operations": [
+        {
+          "publicationKind": "summary",
+          "state": "completed",
+          "required": true,
+          "lastErrorCode": null
+        }
+      ],
+      "usage": {
+        "callCount": 0,
+        "uniqueCallCount": 0,
+        "calls": []
+      }
+    }
+  }
+}

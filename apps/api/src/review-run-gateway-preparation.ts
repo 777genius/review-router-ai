@@ -72,6 +72,7 @@ export function createReviewRunGatewayPreparation(input: {
   let closed = false;
   let closeReason: c.Close["reason"] | undefined;
   let initialAttempted = false;
+  let noExecutionProven = false;
   let inFlight = false;
   let pending: Promise<ReviewRunGatewayPreparationResult> | undefined;
 
@@ -81,7 +82,7 @@ export function createReviewRunGatewayPreparation(input: {
     if (inFlight) return { status: "denied" };
     inFlight = true;
     try {
-      if (closed) return { status: "denied" };
+      if (closed || noExecutionProven) return { status: "denied" };
       const authorization =
         await authorizations.findReviewRunAuthorizationById(authorizationId);
       if (
@@ -170,12 +171,34 @@ export function createReviewRunGatewayPreparation(input: {
         return { status: "denied" };
       const remaining = cutoff - Date.now();
       if (remaining <= 0) return { status: "denied" };
+      const firstAttempt = !initialAttempted && !recovery && !saved.binding;
       initialAttempted = true;
-      // One no-retry HTTP call. Unknown/pending/lost responses throw the existing
-      // sanitized GatewayError; this function never infers a replacement intent.
-      const prepared = await prepareAccess(intent, {
-        signal: AbortSignal.timeout(Math.min(remaining, 2_147_483_647)),
-      });
+      // One no-retry HTTP call. Never erase an earlier uncertain Prepare.
+      let prepared: PreparedRunAccess;
+      try {
+        prepared = await prepareAccess(intent, {
+          signal: AbortSignal.timeout(Math.min(remaining, 2_147_483_647)),
+        });
+      } catch (error) {
+        const refusal =
+          error instanceof GatewayError ? error.diagnostic : undefined;
+        // Only the matching quota-admission rollback attests no allocation was
+        // created. Generic non-dispatch, missing identity and transport failures
+        // cannot release an execution capability or justify another Prepare.
+        noExecutionProven =
+          firstAttempt &&
+          !session &&
+          error instanceof GatewayError &&
+          error.code === "safe_error" &&
+          error.httpStatus === 503 &&
+          error.effect === "not_dispatched" &&
+          error.operationRef === intent.operationId &&
+          refusal?.operationRef === intent.operationId &&
+          refusal.code === "admission_limited" &&
+          refusal.effect === "not_dispatched" &&
+          refusal.retry.kind === "after";
+        throw error;
+      }
       const operation = c.preparationOperation.parse(prepared.operation);
       if (
         operation.state !== "applied" ||
@@ -299,7 +322,7 @@ export function createReviewRunGatewayPreparation(input: {
     return pending;
   }
   async function recoverForCleanup(options: CallOptions = {}): Promise<void> {
-    if (session || allocationId === undefined) return;
+    if (session || noExecutionProven || allocationId === undefined) return;
     initialAttempted = true; // Unknown cleanup never proves absence of a physical effect.
     if (!input.readPreparationOperation || !bindings.readForCleanup) return;
     const authorization =
@@ -420,11 +443,16 @@ export function createReviewRunGatewayPreparation(input: {
     // Private backend capabilities, never part of the preparation result/SQL DTO.
     hasSession: () => session?.attached === true && !closed,
     isPreparing: () => inFlight,
-    // Once denied, absence is conclusive only if no Prepare was ever attempted.
+    // Retain uncertain Prepare custody; only no attempt or a matching rollback
+    // attestation proves no execution capability needs a remote close.
     canReleaseWithoutRemoteClose: () =>
-      closed && !inFlight && !initialAttempted && !session,
+      closed &&
+      !inFlight &&
+      (!initialAttempted || noExecutionProven) &&
+      !session,
     usageBinding: () => (session?.attached ? { ...session.binding } : null),
-    needsRecovery: () => initialAttempted && !session?.attached,
+    needsRecovery: () =>
+      initialAttempted && !session?.attached && !noExecutionProven,
     request: async (
       requestRef: string,
       bytes: Uint8Array,
@@ -513,7 +541,7 @@ export function createReviewRunGatewayPreparation(input: {
           );
         });
       }
-      if (!session) await recoverForCleanup(options);
+      if (!session && !noExecutionProven) await recoverForCleanup(options);
       const current = session;
       if (!current) return { state: "unknown" as const };
       const operation = await current.client.close(
