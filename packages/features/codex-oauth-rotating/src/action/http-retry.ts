@@ -40,22 +40,15 @@ export async function fetchWithRetry<T = Response>(input: {
       externalSignal?.removeEventListener("abort", abortFromExternalSignal);
     };
 
+    // Retry only transport failures and explicit retryable status codes.
+    // The server may have committed a write when response consumption fails:
+    // replaying POST/PATCH here could duplicate a completed operation.
+    let response: Response;
     try {
-      const response = await input.fetchImpl(input.url, {
+      response = await input.fetchImpl(input.url, {
         ...input.init,
         signal: controller.signal,
       });
-      if (shouldRetryHttpStatus(response.status) && attempt < maxAttempts) {
-        await discardResponseBody(response);
-        cleanup();
-        await sleepBeforeRetry(networkRetryDelayMs(attempt), externalSignal, input.label);
-        continue;
-      }
-      const result = input.consume
-        ? await input.consume(response)
-        : (response as T);
-      cleanup();
-      return result;
     } catch (error) {
       cleanup();
       lastError = error;
@@ -66,7 +59,11 @@ export async function fetchWithRetry<T = Response>(input: {
         );
       }
       if (attempt < maxAttempts) {
-        await sleepBeforeRetry(networkRetryDelayMs(attempt), externalSignal, input.label);
+        await sleepBeforeRetry(
+          networkRetryDelayMs(attempt),
+          externalSignal,
+          input.label,
+        );
         continue;
       }
       const code = timedOut
@@ -75,6 +72,32 @@ export async function fetchWithRetry<T = Response>(input: {
       throw new Error(`${code}:${safeNetworkLabel(input.label)}`, {
         cause: error,
       });
+    }
+
+    if (shouldRetryHttpStatus(response.status) && attempt < maxAttempts) {
+      await discardResponseBody(response);
+      cleanup();
+      await sleepBeforeRetry(
+        networkRetryDelayMs(attempt),
+        externalSignal,
+        input.label,
+      );
+      continue;
+    }
+
+    try {
+      return input.consume ? await input.consume(response) : (response as T);
+    } catch (error) {
+      const code = externalSignal?.aborted
+        ? "network_request_aborted"
+        : timedOut
+          ? "network_request_timeout"
+          : "network_request_failed";
+      throw new Error(`${code}:${safeNetworkLabel(input.label)}`, {
+        cause: error,
+      });
+    } finally {
+      cleanup();
     }
   }
 

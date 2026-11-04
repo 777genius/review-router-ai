@@ -144,4 +144,20 @@ describe("Action HTTP retry boundary", () => {
       vi.useRealTimers();
     }
   });
+  it("never repeats a committed HTTP mutation when response decoding fails", async () => {
+    const post = vi.fn(async () => new Response("{bad-json", { status: 201 }));
+    const result = fetchWithRetry({
+      fetchImpl: post as typeof fetch,
+      label: "github_comment_create",
+      url: "https://example.invalid/comments",
+      init: { method: "POST", body: "{}" },
+      timeoutMs: 100,
+      consume: (response) => response.json(),
+    });
+    await expect(result).rejects.toThrow(
+      "network_request_failed:github_comment_create",
+    );
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
 });
