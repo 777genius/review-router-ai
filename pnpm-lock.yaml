@@ -187,8 +187,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -340,8 +340,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -944,8 +944,8 @@ importers:
   packages/features/provider-usage:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz
       '@get-modular/assembly':
         specifier: 0.7.0
         version: 0.7.0
@@ -1468,8 +1468,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz':
-    resolution: {integrity: sha512-2JQuzFXHxT2i0KWUe6XFyk/IUUnxmfuSqRVI4MIpANjCnyuCXcGUba/ijhTKPIHeOZua2oAyw6JBaihObcBgCg==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz':
+    resolution: {integrity: sha512-SKhwIDPayXmiZsoxX62drScmmCw4Nn1s7dvy5OBJ7KhrSJxFALwq1cqWfr5HTCW2IvWzxndceG8y4FNHcfLM/A==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6614,7 +6614,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

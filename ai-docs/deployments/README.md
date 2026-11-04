@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Current provider-error delivery: [2026-11-04 provider errors and findings](2026-11-04-provider-errors-and-findings.md). Gateway/native diagnostics installed; SaaS809 and Action368/228 pending delivery. Live review coverage and fresh Statistics/Usage are established on installed856/227; a confirmed security-finding projection bug is repaired in source and awaits rollout. Memory qualification is separate.
+
 Dashboard extraction awaiting ordinary Web rollout: [dashboard read boundaries](2026-11-03-dashboard-read-boundaries.md), consolidated [PR #798](https://github.com/777genius/review-router-ai/pull/798) from #796 and #797. Staging and production verification are `pending`; select the exact release and verify workspace/repository isolation and organization plan guidance.
 
 Memory source candidate: [One-turn source-fenced learning](2026-11-03-memory-one-turn-learning.md) — staging/production `pending`; one parent request, no new quality/deployment claim. Private227 installed independently; first live tuning failed (precision20/23, three unauthorized effects); evidence-binding repair and fresh qualification pending.

@@ -88,6 +88,29 @@ export function readReviewRunGatewayRelayPolicy(raw: string) {
   }
 }
 export { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
+const providerQuotaSchema = z
+  .object({
+    provider: z.literal("openrouter"),
+    limit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    remaining: z.literal(0),
+    resetAt: z.string().datetime(),
+  })
+  .strict();
+type ProviderQuota = z.infer<typeof providerQuotaSchema>;
+
+function gatewayProviderQuota(error: unknown): ProviderQuota | undefined {
+  if (
+    !(error instanceof GatewayError) ||
+    error.code !== "safe_error" ||
+    error.diagnostic?.code !== "upstream_failure"
+  )
+    return undefined;
+  const parsed = z
+    .object({ providerQuota: providerQuotaSchema })
+    .safeParse(error.diagnostic);
+  return parsed.success ? parsed.data.providerQuota : undefined;
+}
+
 class RelayFailure extends Error {
   constructor(
     readonly code: string,
@@ -97,6 +120,7 @@ class RelayFailure extends Error {
     readonly dispatch?: ReturnType<typeof companionReadback>,
     readonly failureScope?: "reviewer" | "allocation" | "run",
     readonly concurrencyGroupId?: string,
+    readonly providerQuota?: ProviderQuota,
   ) {
     super(code);
   }
@@ -1026,11 +1050,16 @@ export function createReviewRunGatewayRelay(input: {
         }
       } else await unknown();
       dispose();
+      const providerQuota = gatewayProviderQuota(error);
       throw new RelayFailure(
-        "companion_request_failed",
+        providerQuota ? "provider_quota_exhausted" : "companion_request_failed",
         502,
         failureEffect,
         requestRef,
+        undefined,
+        undefined,
+        undefined,
+        providerQuota,
       );
     }
   }
@@ -1611,6 +1640,7 @@ export function createReviewRunGatewayRelay(input: {
           failure.dispatch,
           allocationFailure ? "allocation" : "reviewer",
           lane.reviewer.concurrencyGroupId,
+          failure.providerQuota,
         );
       }
     } catch (error) {
@@ -2062,6 +2092,9 @@ export async function registerReviewRunGatewayRelayRoutes(
                   ? { requestRef: failure.requestRef }
                   : {}),
                 ...(failure.dispatch ? { dispatch: failure.dispatch } : {}),
+                ...(failure.providerQuota
+                  ? { providerQuota: failure.providerQuota }
+                  : {}),
               },
             });
           }
@@ -2199,11 +2232,14 @@ function safeFailure(error: unknown): RelayFailure {
     return new RelayFailure(error.code, 409);
   if (error instanceof z.ZodError || error instanceof SyntaxError)
     return new RelayFailure("invalid_request", 400);
-  if (error instanceof GatewayError)
+  if (error instanceof GatewayError) {
+    const providerQuota = gatewayProviderQuota(error);
     return new RelayFailure(
-      error.code === "safe_error"
-        ? (error.diagnostic?.code ?? "gateway_error")
-        : error.code,
+      providerQuota
+        ? "provider_quota_exhausted"
+        : error.code === "safe_error"
+          ? (error.diagnostic?.code ?? "gateway_error")
+          : error.code,
       error.diagnostic?.code === "admission_limited" &&
         error.effect === "not_dispatched"
         ? 429
@@ -2212,7 +2248,12 @@ function safeFailure(error: unknown): RelayFailure {
           : 502,
       error.effect,
       error.requestRef,
+      undefined,
+      undefined,
+      undefined,
+      providerQuota,
     );
+  }
   return new RelayFailure("relay_unknown", 502, "effect_unknown");
 }
 function captureStreamFailureDiagnostic(
