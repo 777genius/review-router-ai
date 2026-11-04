@@ -1,4 +1,8 @@
-import { reviewRouterWorkflowContract } from "@reviewrouter/protocol-review-workflow";
+import {
+  legacyReviewRouterWorkflowPath,
+  managedCodexWorkflowPath,
+  reviewRouterWorkflowContract,
+} from "@reviewrouter/protocol-review-workflow";
 import type { PrismaClient } from "@prisma/client";
 import type {
   WorkflowProvisioningAttempt,
@@ -76,6 +80,12 @@ export class PrismaWorkflowProvisioningStatusAuthority {
   async confirmInstalledWorkflow(
     input: WorkflowProvisioningRecord & {
       readonly baseBranch: string;
+      /** Captured before the installed Gateway source/authority verification.
+       * Allows adoption of that verified caller, never a transport migration. */
+      readonly verifiedPreviousGatewayBinding?: Pick<
+        WorkflowProvisioningRecord,
+        "workflowPath" | "workflowStyle" | "actionVersion"
+      >;
       readonly expectedAttempt: Pick<
         WorkflowProvisioningAttempt,
         "attemptId" | "revision"
@@ -111,6 +121,57 @@ export class PrismaWorkflowProvisioningStatusAuthority {
             installedWorkflowRequirement: input.workflowRequirement,
           },
         });
+        return;
+      }
+      const previous = input.verifiedPreviousGatewayBinding;
+      if (previous) {
+        if (
+          input.workflowRequirement !== "gateway" ||
+          input.workflowPath !== reviewRouterWorkflowContract.callerPath ||
+          input.workflowStyle !== "reusable" ||
+          input.actionVersion !== reviewRouterWorkflowContract.channel ||
+          ![
+            reviewRouterWorkflowContract.callerPath,
+            legacyReviewRouterWorkflowPath,
+            managedCodexWorkflowPath,
+          ].some((path) => path === previous.workflowPath) ||
+          current.workspaceId !== input.workspaceId ||
+          current.installationId !== input.installationId ||
+          current.attemptId !== input.expectedAttempt?.attemptId ||
+          current.revision !== input.expectedAttempt?.revision ||
+          current.workflowPath !== previous.workflowPath ||
+          current.workflowStyle !== previous.workflowStyle ||
+          current.actionVersion !== previous.actionVersion ||
+          !(
+            current.status === "configured" ||
+            (current.pullRequestUrl === null &&
+              ["not_started", "failed"].includes(current.status))
+          )
+        )
+          throw new Error("workflow_provisioning_match_not_found");
+        const updated = await tx.workflowProvisioning.updateMany({
+          where: {
+            ...provisioningScopeWhere(input),
+            id: current.id,
+            attemptId: current.attemptId,
+            revision: current.revision,
+            status: current.status,
+            workflowPath: previous.workflowPath,
+            workflowStyle: previous.workflowStyle,
+            actionVersion: previous.actionVersion,
+          },
+          data: {
+            status: "configured",
+            workflowPath: input.workflowPath,
+            workflowStyle: input.workflowStyle,
+            actionVersion: input.actionVersion,
+            installedWorkflowRequirement: input.workflowRequirement,
+            errorMessage: null,
+            revision: { increment: 1 },
+          },
+        });
+        if (updated.count !== 1)
+          throw new Error("workflow_provisioning_concurrent_transition");
         return;
       }
       // Records what the verified artifact was rendered for.
