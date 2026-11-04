@@ -1,6 +1,6 @@
 {
   "kind": "review-router-quota-refresh-deployment-evidence/v1",
-  "scope": "Paired AccountGateway/native quota-only refresh and exact ingress routes; SaaS delivery remains separate.",
+  "scope": "Paired native/Gateway refresh, SaaS PR814 installation, fresh owner limits, and one completed Seventeen review with exact restoration.",
   "sanitized": true,
   "host": {
     "name": "prod-hel1-01"
@@ -153,14 +153,15 @@
     "recoveryActivationAttempts": 1,
     "ingressGracefulReloads": 1,
     "automaticReplay": false,
-    "additionalHostEffectsForThisEvidence": false
+    "additionalHostEffectsForThisEvidence": false,
+    "scope": "Historical native/Gateway activation and initial quota-only probe; excludes the separate application and live review below."
   },
   "limits": {
     "cachedV1V2ContractsUnchanged": true,
     "cachedQuotaOnlyRefreshRemainsFalse": true,
     "publicCreditsDTOAdded": false,
-    "saasDeploymentIncluded": false,
-    "saasStatus": "PR814 final preparation-lifecycle source awaits exact-head CI and application rollout; no SaaS installation claimed."
+    "saasDeploymentIncluded": true,
+    "saasStatus": "Installed and verified through PR814; see application and finalReview."
   },
   "seventeenQuotaOnlyProof": {
     "ok": true,
@@ -186,28 +187,17 @@
     "modelCalls": 0
   },
   "checkpoint": {
-    "productionStatus": "in_progress",
+    "productionStatus": "deployed",
     "nativeGateway": "installed_and_quota_verified",
-    "application": {
-      "pullRequest": 814,
-      "status": "final-source-qualification-pending",
-      "installed": false,
-      "previousHead": "cdc078163a0364cbd5820a226e6c502ed6b9e2cd",
-      "previousCIRun": 41868079429,
-      "previousCIStatus": "cancelled-as-superseded-by-preparation-lifecycle-fix"
-    },
-    "review": {
-      "run": 41829266811,
-      "attempt": 3,
-      "status": "failed-before-dispatch",
-      "completed": false,
-      "published": "partial-summary-only",
-      "usageStatisticsVerified": "zero-model-calls-and-zero-successful-review-facts",
-      "testRepositoryOnlyOverride": "restored; workspace default unchanged",
-      "mcpServers": 0,
-      "tools": 0
-    },
-    "previousUnknownAttempts": "preserved without replay"
+    "application": "installed_and_qualified",
+    "reviewAttempt": 4,
+    "reviewStatus": "review_completed_workflow_success",
+    "publication": "summary_and_managed_check_completed",
+    "usageStatisticsVerified": true,
+    "priorTestProviderRestored": true,
+    "previousUnknownAttempts": "preserved without replay",
+    "staging": "pending",
+    "unrelatedTasks": "Memory semantic qualification and GitLab remain separate"
   },
   "seventeenFirstReviewTest": {
     "runId": "41829266811",
@@ -294,5 +284,200 @@
         "calls": []
       }
     }
+  },
+  "application": {
+    "status": "deployed",
+    "reviewVerification": "completed",
+    "compiledSource": "bb077235730d484f1f390a86f2ba9029c2da45f9",
+    "qualifiedSource": "348c97fb796b1e7aae034617b3f887c2294ecf20",
+    "mergeCommit": "4e5cd2133e09da3a9a307d1a2e349b9266f62376",
+    "image": "sha256:5d8783e366fbbdbd7296f79338e3cf9dd72d7ecb30eeccaf7250ae244df969b5",
+    "compiledSourceProvenancePreserved": true,
+    "metadataOnlyDifferences": [
+      ".github/workflows/ci.yml",
+      "docs/CI_RUNNERS.md"
+    ],
+    "ci": {
+      "runId": 41904590738,
+      "result": "success",
+      "applicableChecksSucceeded": 13,
+      "privatePg16Rehearsal": "not applicable to PR; skipped"
+    },
+    "fleetController": "/srv/platform/projects/review-router/releases/fleet-overlay-bb077235-DTAHKtMZ",
+    "rolesHealthy": 4,
+    "restarts": 0,
+    "workerPrivilegesChecked": 7,
+    "readinessHttp": 200,
+    "sqlMigrationRequired": false,
+    "actionRegistryPreserved": true
+  },
+  "checkpointBeforeApplication": {
+    "productionStatus": "in_progress",
+    "nativeGateway": "installed_and_quota_verified",
+    "application": {
+      "pullRequest": 814,
+      "status": "final-source-qualification-pending",
+      "installed": false,
+      "previousHead": "cdc078163a0364cbd5820a226e6c502ed6b9e2cd",
+      "previousCIRun": 41868079429,
+      "previousCIStatus": "cancelled-as-superseded-by-preparation-lifecycle-fix"
+    },
+    "review": {
+      "run": 41829266811,
+      "attempt": 3,
+      "status": "failed-before-dispatch",
+      "completed": false,
+      "published": "partial-summary-only",
+      "usageStatisticsVerified": "zero-model-calls-and-zero-successful-review-facts",
+      "testRepositoryOnlyOverride": "restored; workspace default unchanged",
+      "mcpServers": 0,
+      "tools": 0
+    },
+    "previousUnknownAttempts": "preserved without replay"
+  },
+  "finalReview": {
+    "runId": 41829266811,
+    "attempt": 4,
+    "workflowConclusion": "success",
+    "reviewHead": "fd2b5d7ca610a724948410e02c03841c06dad134",
+    "fixture": "Nine-line installation documentation; not the earlier critical-code fixture.",
+    "executionId": "rr:execution:4a5e502031c92664cba47ccb97169feb6333ffa0",
+    "artifactId": "rr:artifact:d6690edd82e0461e8493023babc6f5297358db0f9be4a14fb4f37c6498d4a6a6",
+    "requiredSatisfied": 1,
+    "requiredTotal": 1,
+    "requiredExhausted": 0,
+    "coveredFiles": 1,
+    "eligibleFiles": 1,
+    "findings": 0,
+    "requestedModel": "gpt-6.1-sol",
+    "actualModel": null,
+    "actualModelObservation": "unreported",
+    "usageCalls": 1,
+    "uniqueUsageCalls": 1,
+    "tokens": {
+      "total": 2887,
+      "cacheRead": 0,
+      "reasoning": 81,
+      "cacheWrite": null,
+      "inputTotal": 2758,
+      "outputTotal": 129
+    },
+    "statisticsReviews": 1,
+    "settledStatisticsReviews": 1,
+    "statisticsIssues": 0,
+    "requiredPublicationOperationsCompleted": ["summary", "managed_check"],
+    "seventeenSourceAndUsageConfirmed": true,
+    "progressTerminalProjectionReported": false,
+    "progressProjectionContract": "Live progress remains assembling/null after execution completion; finalized artifact and publication establish completion.",
+    "triggerCount": 1,
+    "watcherTransportRecovery": "Same queued attempt; fresh policy custody after zero-authorization/execution proof, no trigger replay.",
+    "priorSelectionRestored": true,
+    "fullEffectiveConfigurationExact": true,
+    "workspaceVersionUnchanged": 22,
+    "restoredRepositoryVersion": 6,
+    "testStandPreserved": true,
+    "creditBillingObserved": false
+  },
+  "postReviewQuotaVerification": {
+    "ok": true,
+    "explicitQuotaRefreshCalls": 2,
+    "modelCalls": 0,
+    "recipient": {
+      "mode": "fixture-only",
+      "restricted": true,
+      "nativeCalls": 0,
+      "capabilityCalls": 0
+    },
+    "rows": [
+      {
+        "target": "Seventeen",
+        "context": "personal",
+        "status": "snapshot",
+        "reason": null,
+        "refreshAvailable": true,
+        "fetchedAt": "2026-11-04T21:08:42.884Z",
+        "windows": [
+          {
+            "label": "5h",
+            "usedPercent": 100,
+            "remainingPercent": 0,
+            "observedAt": "2026-11-04T21:08:42.838Z",
+            "resetAt": "2026-11-04T23:37:26.000Z",
+            "stale": false
+          },
+          {
+            "label": "7d",
+            "usedPercent": 78,
+            "remainingPercent": 22,
+            "observedAt": "2026-11-04T21:08:42.838Z",
+            "resetAt": "2026-11-10T22:03:39.000Z",
+            "stale": false
+          }
+        ]
+      },
+      {
+        "target": "Seventeen",
+        "context": "workspace",
+        "status": "snapshot",
+        "reason": null,
+        "refreshAvailable": true,
+        "fetchedAt": "2026-11-04T21:08:42.903Z",
+        "windows": [
+          {
+            "label": "5h",
+            "usedPercent": 100,
+            "remainingPercent": 0,
+            "observedAt": "2026-11-04T21:08:42.838Z",
+            "resetAt": "2026-11-04T23:37:26.000Z",
+            "stale": false
+          },
+          {
+            "label": "7d",
+            "usedPercent": 78,
+            "remainingPercent": 22,
+            "observedAt": "2026-11-04T21:08:42.838Z",
+            "resetAt": "2026-11-10T22:03:39.000Z",
+            "stale": false
+          }
+        ]
+      },
+      {
+        "target": "previous-selected",
+        "context": "personal",
+        "status": "snapshot",
+        "reason": null,
+        "refreshAvailable": true,
+        "fetchedAt": "2026-11-04T21:08:43.418Z",
+        "windows": [
+          {
+            "label": "7d",
+            "usedPercent": 100,
+            "remainingPercent": 0,
+            "observedAt": "2026-11-04T21:08:43.380Z",
+            "resetAt": "2026-11-09T12:10:59.000Z",
+            "stale": false
+          }
+        ]
+      },
+      {
+        "target": "previous-selected",
+        "context": "workspace",
+        "status": "snapshot",
+        "reason": null,
+        "refreshAvailable": true,
+        "fetchedAt": "2026-11-04T21:08:43.436Z",
+        "windows": [
+          {
+            "label": "7d",
+            "usedPercent": 100,
+            "remainingPercent": 0,
+            "observedAt": "2026-11-04T21:08:43.380Z",
+            "resetAt": "2026-11-09T12:10:59.000Z",
+            "stale": false
+          }
+        ]
+      }
+    ],
+    "creditBalanceObserved": false
   }
 }
