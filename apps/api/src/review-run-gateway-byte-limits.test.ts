@@ -841,6 +841,42 @@ it("companion local unpaid admission consumes one reservation and one SDK reques
   }
 });
 
+it("preserves confirmed provider quota without replaying the companion request", async () => {
+  const state = companionReservation();
+  const providerQuota = {
+    provider: "openrouter" as const,
+    limit: 1000,
+    remaining: 0 as const,
+    resetAt: "2026-11-04T00:00:00.000Z",
+  };
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    providerQuota,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "provider_quota_exhausted",
+      statusCode: 502,
+      effect: "effect_unknown",
+      providerQuota,
+    });
+    expect(f.requestRefs).toHaveLength(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
 it.each([403, 503])(
   "ordinary request logs closed SDK refusal fields for HTTP %s without retrying",
   async (httpStatus) => {
@@ -1127,6 +1163,12 @@ async function fixture(
     admission: ReviewRunCompanionDispatchAdmission &
       Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
     unpaid?: boolean;
+    providerQuota?: {
+      provider: "openrouter";
+      limit: number;
+      remaining: 0;
+      resetAt: string;
+    };
     refusalStatus?: number;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
@@ -1504,6 +1546,19 @@ async function fixture(
               retry: { kind: "never" },
             }),
           );
+        return;
+      }
+      if (companionOptions?.providerQuota) {
+        res.writeHead(503, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "upstream_failure",
+            traceRef: "quota-fixture-trace",
+            requestRef: String(req.headers["x-gateway-request-id"]),
+            effect: "effect_unknown",
+            retry: { kind: "readback" },
+            providerQuota: companionOptions.providerQuota,
+          }),
+        );
         return;
       }
       if (companionOptions?.unpaid) {

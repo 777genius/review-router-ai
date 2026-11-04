@@ -859,3 +859,18 @@ ESLint, formatting and 163 existing acceptance/catalog/fixture assertions pass.
 The new head must execute all eight setup cases and the
 remaining required CI successfully; final results and the merge are tracked
 in #810 without treating this earlier failed run as a pass.
+
+During qualification, main advanced to
+`a3db73fd77eda829480f57ffe3f40ed7c9f9da06` through #809. The integration
+preserves its quota-aware Gateway SDK, provenance, paired Action pin and tests.
+The deployment-index conflict retains both task entries. Scope A–F remains
+unchanged. Required acceptance now targets the combined source and current
+main, including the fixture quiescence correction.
+
+Independent integration review verified all imported main blobs and SDK
+provenance, the combined lockfile and the retained eight-case PostgreSQL gate.
+Frozen dependency installation passes all 1,068 supply-chain policy entries.
+Five existing API/worker integration suites pass 178 assertions with zero
+failures and one existing paired-Action conditional skip. Native TypeScript 7
+for API, generated conflict-runtime parity and the secret-write boundary pass.
+The combined head still requires its own complete CI execution before merge.
