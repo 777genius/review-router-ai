@@ -160,7 +160,7 @@ import {
   type DashboardRepositoryReadiness,
 } from "../../src/server/dashboard-repository-readiness";
 import { deriveDashboardProviderSetupReadiness } from "../../src/server/dashboard-codex-rotating-setup-readiness";
-import { PrismaCodexRotatingSetupReadiness } from "../../src/server/prisma-codex-rotating-setup-readiness";
+import { PrismaCodexRotatingSetupReadiness } from "@reviewrouter/features-provider-setup/composition";
 import {
   getReviewModelOptions,
   getProviderModelCatalogs,

@@ -27,3 +27,7 @@ export * from "./domain/review-thread-resolution-history";
 export * from "./application/use-cases/activate-review-resolution-history";
 export * from "./domain/resolution-writer-witness";
 export * from "./application/use-cases/bind-own-publication-resolution-operations";
+export * from "./application/ports/review-publication-execution-ports";
+export * from "./application/ports/review-publication-provider-ports";
+export * from "./application/ports/review-publication-payload-port";
+export { ExecuteReviewV2PublicationOperation } from "./application/use-cases/execute-review-publication-operation";

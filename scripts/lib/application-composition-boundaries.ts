@@ -10,6 +10,7 @@ type BoundaryViolation = Readonly<{
 
 const features = [
   "workflow-provisioning",
+  "provider-setup",
   "review-config",
   "audit-log",
 ] as const;
@@ -31,7 +32,7 @@ const reviewConfigDomainSubpaths = [
   "workspace-provider-profile",
 ];
 
-/** Bounded adoption for three existing owners; external legacy graphs remain out of scope. */
+/** Bounded adoption for the selected owners; external legacy graphs remain out of scope. */
 export async function checkApplicationCompositionBoundaries(
   root: string,
   imports: (source: string) => Iterable<string>,

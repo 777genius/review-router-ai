@@ -12,10 +12,8 @@ import {
   ReviewPublicationOperationIdentityVersion,
   ReviewPublicationOperationState,
 } from "@reviewrouter/features-review-publishing/v2";
-import {
-  CanonicalReviewV2ProjectionAdapter,
-  ReviewV2PublicationPayloadKind,
-} from "./review-v2-publication-payloads";
+import { ReviewV2PublicationPayloadKind } from "@reviewrouter/features-review-publishing/v2";
+import { CanonicalReviewV2ProjectionAdapter } from "./review-v2-publication-payloads";
 
 describe("canonical review v2 projection adapter", () => {
   it("preserves the verification-time artifact and rejects malformed confirmation facts", async () => {

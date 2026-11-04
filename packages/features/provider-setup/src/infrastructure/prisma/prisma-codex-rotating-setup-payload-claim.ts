@@ -1,17 +1,34 @@
+import {
+  findClaim,
+  findClaimForUpdate,
+  findAttemptForUpdate,
+  type ClaimRow,
+  type AttemptRow,
+} from "./codex-rotating-setup-records";
+import { requireProvenWriter } from "./codex-rotating-setup-witness";
+import {
+  retireAttemptAndNamespace,
+  retirePredispatchAttemptAndNamespace,
+} from "./codex-rotating-setup-dispatch-retirement";
+import {
+  admitSetupClaimReplay,
+  setupClaimReplayDeadline,
+  planSetupDispatchOutcome,
+  SetupDispatchOutcomeDecision,
+  classifyAttemptNamespaceState,
+  maximumSetupDispatchAttempts,
+  assertSetupDispatchAllocationOrdinal,
+} from "../../domain/codex-rotating-setup-lifecycle";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   assertCodexRotatingAccountIdentityTransition,
-  assertCodexRotatingWorkflowAlreadyActiveTransition,
-  assertCodexRotatingWorkflowReplacementTransition,
   assertProviderSecretTransitionAuthorized,
-  fingerprintDatabaseRecoveryWitness,
   assertCodexRuntimeMigrationSourceProof,
   codexRuntimeMigrationDispatchKey,
   codexRotatingSetupIdentityBearingClaimStatuses,
   codexRotatingSetupManifestSchema,
   codexRotatingSetupPayloadClaimsMatch,
-  isCodexRotatingSetupLiveClaimStatus,
   isCodexRotatingSetupTerminalClaimStatus,
   reserveCodexRotatingSetupDispatchAuthorityWindow,
   allocateVersionedProviderSecretNamespace,
@@ -20,19 +37,10 @@ import {
   type CodexRotatingSetupClaimAdmissionStatus,
   type CodexRotatingSetupPayloadClaim,
   type CodexRotatingSetupRecoveryFence,
-  type CodexRotatingSetupAttemptStatus,
   type CodexRotatingSetupClaimStatus,
   type CodexRotatingSetupPayloadClaimPort,
-  type CodexRotatingCurrentWorkflowAttestationPort,
-  type CodexRotatingWorkflowReattestationPersistencePort,
-  type CodexRotatingWorkflowReattestationTransition,
   type CodexRotatingSetupStatus,
-} from "@reviewrouter/features-provider-setup";
-import {
-  createVersionedSecretWorkflowSourceAttestation,
-  WorkflowSourceTrust,
-  type VersionedProviderSecretNamespace,
-} from "@reviewrouter/features-workflow-provisioning";
+} from "../../index";
 import {
   PostgresTransactionClock,
   type TransactionClock,
@@ -47,12 +55,7 @@ import { assertCurrentSetupManifestRepositoryIdentity } from "./codex-rotating-s
 import { retirePriorNamespaceGeneration } from "./prisma-codex-rotating-setup-recovery";
 import { assertOriginalCodexRuntimeMigrationSource } from "./codex-runtime-migration-source";
 
-type VersionedSecretWorkflowSourceAttestation = ReturnType<
-  typeof createVersionedSecretWorkflowSourceAttestation
->;
-
 const transactionTimeoutMs = 10_000;
-const maximumAttempts = 3;
 const internalPredispatchRetryPrefix = "rr-internal/predispatch/";
 const expiredDispatchRetired = Symbol("expired_dispatch_retired");
 const failedRemoteDispatchRetired = Symbol("failed_remote_dispatch_retired");
@@ -80,65 +83,6 @@ export type CodexRotatingSetupSecretWriteTarget = Readonly<{
   repo: string;
   secretName: string;
 }>;
-
-export type CodexRotatingWorkflowReattestationErrorCode =
-  | "codex_rotating_workflow_reattestation_stale"
-  | "codex_rotating_workflow_reattestation_invalid"
-  | "codex_rotating_workflow_reattestation_forbidden";
-
-export class CodexRotatingWorkflowReattestationError extends Error {
-  override readonly name = "CodexRotatingWorkflowReattestationError";
-
-  constructor(readonly code: CodexRotatingWorkflowReattestationErrorCode) {
-    super(code);
-  }
-}
-
-export function translateWorkflowReattestationDatabaseError(
-  error: unknown,
-): unknown {
-  if (error instanceof CodexRotatingWorkflowReattestationError) return error;
-  if (typeof error !== "object" || error === null) return error;
-  const candidate = error as {
-    readonly code?: unknown;
-    readonly message?: unknown;
-    readonly meta?: { readonly code?: unknown; readonly message?: unknown };
-  };
-  if (candidate.code !== "P2010") return error;
-  const sqlState =
-    typeof candidate.meta?.code === "string" ? candidate.meta.code : "";
-  const wrappedMessage = [candidate.message, candidate.meta?.message]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-  const mappings = [
-    [
-      "40001",
-      "codex_oauth_active_namespace_reattestation_stale",
-      "codex_rotating_workflow_reattestation_stale",
-    ],
-    [
-      "22023",
-      "codex_oauth_active_namespace_reattestation_invalid",
-      "codex_rotating_workflow_reattestation_invalid",
-    ],
-    [
-      "42501",
-      "codex_oauth_active_namespace_reattestation_role_forbidden",
-      "codex_rotating_workflow_reattestation_forbidden",
-    ],
-  ] as const;
-  const mapping = mappings.find(
-    ([expectedState, databaseCode]) =>
-      sqlState === expectedState &&
-      new RegExp(
-        `(?:^|[^A-Za-z0-9_])${databaseCode}(?:$|[^A-Za-z0-9_])`,
-        "u",
-      ).test(wrappedMessage),
-  );
-  return mapping
-    ? new CodexRotatingWorkflowReattestationError(mapping[2])
-    : error;
-}
 
 async function signDatabaseAuthorityChallenge(input: {
   readonly tx: Prisma.TransactionClient;
@@ -182,55 +126,7 @@ type ManifestRow = {
   recoveryExpiresAt: Date | null;
 };
 
-type ClaimRow = {
-  id: string;
-  providerInstanceRowId: string;
-  githubRepositoryId: string;
-  manifestId: string;
-  manifestDigest: string;
-  recoveryRequestId: string | null;
-  recoveryEpoch: bigint;
-  operationId: string;
-  payloadVersion: number;
-  canonicalizationVersion: number;
-  generationHash: string;
-  accountIdentityHash: string;
-  accountIdentityAlgorithm: string;
-  authByteSize: number;
-  installerVersion: string;
-  installerDigest: string;
-  databaseIncarnation: string;
-  databaseRecoveryWitness: string;
-  status: CodexRotatingSetupClaimStatus;
-  claimVersion: number;
-  prepareReplayExpiresAt: Date;
-  recoveryExpiresAt: Date;
-  confirmedAttemptId: string | null;
-};
-
-type AttemptRow = {
-  claimId: string;
-  attemptId: string;
-  namespaceId: string;
-  namespaceEpoch: bigint;
-  secretName: string;
-  status: CodexRotatingSetupAttemptStatus;
-  idempotencyKey: string;
-  ordinal: number;
-  dispatchExpiresAt: Date;
-  definiteResponseCode: number | null;
-  attemptRetiredAt: Date | null;
-  namespaceStatus: string;
-  namespacePermanentlyRetired: boolean;
-  namespaceRetiredAt: Date | null;
-};
-
-export class PrismaCodexRotatingSetupPayloadClaim
-  implements
-    CodexRotatingSetupPayloadClaimPort,
-    CodexRotatingCurrentWorkflowAttestationPort,
-    CodexRotatingWorkflowReattestationPersistencePort
-{
+export class PrismaCodexRotatingSetupPayloadClaim implements CodexRotatingSetupPayloadClaimPort {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly databaseRecoveryWitness?: string,
@@ -327,18 +223,11 @@ export class PrismaCodexRotatingSetupPayloadClaim
 
         const existing = await findClaimByOperationOrEpoch(tx, input);
         if (existing) {
-          if (!isCodexRotatingSetupLiveClaimStatus(existing.status)) {
-            throw new Error("codex_rotating_setup_recovery_required");
-          }
-          if (existing.status === "active") {
-            throw new Error("codex_rotating_setup_confirmation_stale_epoch");
-          }
-          if (
-            existing.status === "prepared" &&
-            existing.prepareReplayExpiresAt <= now
-          ) {
-            throw new Error("codex_rotating_setup_payload_claim_expired");
-          }
+          const replayStatus = admitSetupClaimReplay({
+            status: existing.status,
+            prepareReplayExpiresAt: existing.prepareReplayExpiresAt,
+            now,
+          });
           if (
             !codexRotatingSetupPayloadClaimsMatch(
               toDomainClaim(existing, input),
@@ -351,9 +240,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
           }
           return claimResult(
             existing,
-            existing.status === "prepared"
-              ? "prepared_replay"
-              : existing.status,
+            replayStatus === "prepared" ? "prepared_replay" : replayStatus,
           );
         }
 
@@ -423,11 +310,9 @@ export class PrismaCodexRotatingSetupPayloadClaim
             },
           );
         }
-        const prepareReplayExpiresAt = new Date(
-          Math.min(
-            manifestRow.recoveryExpiresAt.getTime(),
-            now.getTime() + 15 * 60 * 1000,
-          ),
+        const prepareReplayExpiresAt = setupClaimReplayDeadline(
+          now,
+          manifestRow.recoveryExpiresAt,
         );
         await tx.$executeRaw`
         INSERT INTO "CodexOAuthSetupPayloadClaim" (
@@ -582,7 +467,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
             const latest = chain[chain.length - 1]!;
             const latestState = classifyAttemptNamespaceState(latest);
             if (latestState === "retired_predispatch") {
-              if (chain.length >= maximumAttempts) {
+              if (chain.length >= maximumSetupDispatchAttempts) {
                 throw new Error("codex_rotating_setup_attempt_limit");
               }
               allocationKey = internalPredispatchRetryKey(
@@ -621,11 +506,7 @@ export class PrismaCodexRotatingSetupPayloadClaim
         WHERE "claimId" = ${claim.id}
       `;
         const ordinal = Number(attempts[0]?.count ?? 0n) + 1;
-        if (ordinal > maximumAttempts)
-          throw new Error("codex_rotating_setup_attempt_limit");
-        if (requiredOrdinal !== null && requiredOrdinal !== ordinal) {
-          throw new Error("codex_rotating_setup_retirement_conflict");
-        }
+        assertSetupDispatchAllocationOrdinal(ordinal, requiredOrdinal);
 
         // A previous authorization may already have dispatched. It is therefore
         // terminal before a replacement name is allocated, even if it expired or
@@ -767,13 +648,20 @@ export class PrismaCodexRotatingSetupPayloadClaim
           input.claimId,
           input.attemptId,
         );
-        if (attempt.status === "retired_ambiguous") {
-          if (input.outcome === "unknown")
-            return { status: "retired_ambiguous" as const };
-          throw new Error("codex_rotating_setup_namespace_retired");
+        const decision = planSetupDispatchOutcome({
+          attempt,
+          confirmedAttemptId: claim.confirmedAttemptId,
+          outcome: input.outcome,
+          now,
+        });
+        if (decision === SetupDispatchOutcomeDecision.ReturnRetired) {
+          return { status: "retired_ambiguous" as const };
         }
-        if (attempt.dispatchExpiresAt <= now) {
-          if (attempt.status === "dispatch_authorized") {
+        if (
+          decision === SetupDispatchOutcomeDecision.Expire ||
+          decision === SetupDispatchOutcomeDecision.RetireExpired
+        ) {
+          if (decision === SetupDispatchOutcomeDecision.RetireExpired) {
             await retireAttemptAndNamespace(
               tx,
               attempt.attemptId,
@@ -784,12 +672,10 @@ export class PrismaCodexRotatingSetupPayloadClaim
           }
           return expiredDispatchRetired;
         }
-        if (attempt.status === "confirmed") {
-          if (input.outcome === "definite_success")
-            return { status: "confirmed_candidate" as const };
-          throw new Error("codex_rotating_setup_attempt_already_confirmed");
+        if (decision === SetupDispatchOutcomeDecision.ReturnConfirmed) {
+          return { status: "confirmed_candidate" as const };
         }
-        if (input.outcome === "unknown") {
+        if (decision === SetupDispatchOutcomeDecision.RetireUnknown) {
           await retireAttemptAndNamespace(
             tx,
             attempt.attemptId,
@@ -798,12 +684,6 @@ export class PrismaCodexRotatingSetupPayloadClaim
             setupFenceForClaim(claim),
           );
           return { status: "retired_ambiguous" as const };
-        }
-        if (
-          claim.confirmedAttemptId &&
-          claim.confirmedAttemptId !== attempt.attemptId
-        ) {
-          throw new Error("codex_rotating_setup_confirmation_conflict");
         }
         // The database receipt is transaction-, backend-, role-, owner-, and
         // response-bound. The following guarded updates cannot be reproduced
@@ -1072,350 +952,6 @@ export class PrismaCodexRotatingSetupPayloadClaim
     );
   }
 
-  /**
-   * Re-attests the workflow source for an unchanged active namespace. This is
-   * used when a canonical workflow schema is upgraded without rotating the
-   * provider secret generation.
-   */
-  async readActiveWorkflowAttestation(
-    namespace: VersionedProviderSecretNamespace,
-  ) {
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        githubRepositoryId: string;
-        workflowPath: string | null;
-        workflowSourceCommitSha: string | null;
-        workflowSourceBlobSha: string | null;
-        workflowSourceSha256: string | null;
-        workflowSemanticSha256: string | null;
-        workflowSourceTrust: string | null;
-        workflowSchemaVersion: number | null;
-        attestedRepositoryId: string | null;
-      }>
-    >`
-      SELECT namespace."githubRepositoryId", namespace."workflowPath",
-        namespace."workflowSourceCommitSha", namespace."workflowSourceBlobSha",
-        namespace."workflowSourceSha256", namespace."workflowSemanticSha256",
-        namespace."workflowSourceTrust", namespace."workflowSchemaVersion",
-        namespace."attestedRepositoryId"
-      FROM "CodexOAuthSecretNamespace" namespace
-      JOIN "CodexOAuthProviderInstance" provider
-        ON provider."id" = namespace."providerInstanceRowId"
-      WHERE namespace."id" = ${namespace.namespaceId}
-        AND namespace."providerInstanceRowId" = provider."id"
-        AND namespace."githubRepositoryId" = ${namespace.scope.repositoryId}
-        AND namespace."namespaceEpoch" = ${namespace.epoch}
-        AND namespace."secretName" = ${namespace.name}
-        AND namespace."status" = 'active'
-        AND NOT namespace."permanentlyRetired"
-        AND provider."providerInstanceId" = ${namespace.scope.providerInstanceId}
-        AND provider."state" = 'active'
-        AND provider."activeSecretNamespaceId" = namespace."id"
-        AND provider."activeSecretNamespaceEpoch" = namespace."namespaceEpoch"
-        AND provider."activeSecretNamespaceName" = namespace."secretName"
-    `;
-    const row = rows.length === 1 ? rows[0] : null;
-    if (
-      !row ||
-      row.githubRepositoryId !== namespace.scope.repositoryId ||
-      row.attestedRepositoryId !== namespace.scope.repositoryId ||
-      !row.workflowPath ||
-      !row.workflowSourceCommitSha ||
-      !row.workflowSourceBlobSha ||
-      !row.workflowSourceSha256 ||
-      !row.workflowSemanticSha256 ||
-      row.workflowSourceTrust !==
-        WorkflowSourceTrust.TrustedDefaultBranchRevision ||
-      row.workflowSchemaVersion === null
-    ) {
-      return null;
-    }
-    return createVersionedSecretWorkflowSourceAttestation({
-      repositoryId: row.attestedRepositoryId,
-      workflowPath: row.workflowPath,
-      workflowSourceCommitSha: row.workflowSourceCommitSha,
-      workflowSourceBlobSha: row.workflowSourceBlobSha,
-      workflowSourceSha256: row.workflowSourceSha256,
-      workflowSemanticSha256: row.workflowSemanticSha256,
-      sourceTrust: row.workflowSourceTrust,
-      workflowSchemaVersion: row.workflowSchemaVersion,
-      secretNamespace: namespace,
-    });
-  }
-
-  async validateActiveWorkflowSource(
-    input: Parameters<
-      CodexRotatingWorkflowReattestationPersistencePort["validateActiveWorkflowSource"]
-    >[0],
-  ) {
-    const { target, expectedCurrent, verifiedActive } = input;
-    try {
-      return await this.prisma.$transaction(
-        async (tx) => {
-          const initial = await findClaim(tx, target.claimId);
-          await requireProvenWriter(
-            tx,
-            initial.databaseIncarnation,
-            initial.databaseRecoveryWitness,
-            this.databaseRecoveryWitness,
-          );
-          await lockCodexRotatingProviderRow(tx, initial.providerInstanceRowId);
-          const rows = await tx.$queryRaw<
-            Array<{
-              workflowPath: string;
-              workflowSourceCommitSha: string;
-              workflowSourceBlobSha: string;
-              workflowSourceSha256: string;
-              workflowSemanticSha256: string;
-              workflowSourceTrust: WorkflowSourceTrust;
-              workflowSchemaVersion: number;
-              attestedRepositoryId: string;
-            }>
-          >`
-            SELECT namespace."workflowPath", namespace."workflowSourceCommitSha",
-              namespace."workflowSourceBlobSha", namespace."workflowSourceSha256",
-              namespace."workflowSemanticSha256", namespace."workflowSourceTrust",
-              namespace."workflowSchemaVersion", namespace."attestedRepositoryId"
-            FROM "CodexOAuthProviderInstance" provider
-            JOIN "CodexOAuthSecretNamespace" namespace
-              ON namespace."id" = provider."activeSecretNamespaceId"
-            JOIN "CodexOAuthSetupPayloadClaim" claim
-              ON claim."id" = ${target.claimId}
-            JOIN "CodexOAuthSetupDispatchAttempt" attempt
-              ON attempt."id" = ${target.attemptId}
-            JOIN "CodexOAuthSetupManifest" manifest
-              ON manifest."id" = claim."manifestId"
-            JOIN "RepositoryConnection" repository
-              ON repository."id" = provider."repositoryId"
-            JOIN "ScmRepositoryIdentity" identity
-              ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
-            WHERE provider."id" = ${initial.providerInstanceRowId}
-              AND provider."state" = 'active'
-              AND provider."latestGenerationHash" = ${target.expectedGenerationHash}
-              AND provider."mutationOwner" IS NULL
-              AND provider."mutationOwnerId" IS NULL
-              AND provider."activeLeaseId" IS NULL
-              AND provider."activeSecretNamespaceId" = ${target.namespace.namespaceId}
-              AND provider."activeSecretNamespaceEpoch" = ${target.namespace.epoch}
-              AND provider."activeSecretNamespaceName" = ${target.namespace.name}
-              AND namespace."providerInstanceRowId" = provider."id"
-              AND namespace."githubRepositoryId" = ${target.repositoryId}
-              AND namespace."namespaceEpoch" = ${target.namespace.epoch}
-              AND namespace."secretName" = ${target.namespace.name}
-              AND namespace."status" = 'active'
-              AND NOT namespace."permanentlyRetired"
-              AND namespace."attestedRepositoryId" = ${target.repositoryId}
-              AND claim."providerInstanceRowId" = provider."id"
-              AND claim."githubRepositoryId" = ${target.repositoryId}
-              AND claim."generationHash" = ${target.expectedGenerationHash}
-              AND claim."status" = 'active'
-              AND claim."confirmedAttemptId" = attempt."id"
-              AND manifest."status" = 'consumed'
-              AND manifest."manifestJson"->>'repositoryFullName' = ${target.repositoryFullName}
-              AND manifest."manifestJson"->>'repositoryId' = ${target.repositoryId}
-              AND repository."fullName" = ${target.repositoryFullName}
-              AND repository."externalRepositoryId" = ${target.repositoryId}
-              AND identity."externalRepositoryId" = ${target.repositoryId}
-              AND identity."currentWorkspaceId" = repository."workspaceId"
-              AND identity."currentRepositoryConnectionId" = repository."id"
-              AND identity."version" = (manifest."manifestJson"->>'repositoryIdentityVersion')::integer
-              AND attempt."claimId" = claim."id"
-              AND attempt."namespaceId" = namespace."id"
-              AND attempt."status" = 'confirmed'
-              AND (SELECT count(*) FROM "CodexOAuthSetupPayloadClaim" active_claim
-                   WHERE active_claim."providerInstanceRowId" = provider."id"
-                     AND active_claim."status" = 'active') = 1
-              AND (SELECT count(*) FROM "CodexOAuthSecretNamespace" active_namespace
-                   WHERE active_namespace."providerInstanceRowId" = provider."id"
-                     AND active_namespace."status" = 'active') = 1
-            FOR UPDATE OF provider, namespace, claim, attempt
-          `;
-          const row = rows.length === 1 ? rows[0] : null;
-          if (!row) {
-            throw new Error("codex_rotating_workflow_reattestation_stale");
-          }
-          const persisted = createVersionedSecretWorkflowSourceAttestation({
-            repositoryId: row.attestedRepositoryId,
-            workflowPath: row.workflowPath,
-            workflowSourceCommitSha: row.workflowSourceCommitSha,
-            workflowSourceBlobSha: row.workflowSourceBlobSha,
-            workflowSourceSha256: row.workflowSourceSha256,
-            workflowSemanticSha256: row.workflowSemanticSha256,
-            sourceTrust: row.workflowSourceTrust,
-            workflowSchemaVersion: row.workflowSchemaVersion,
-            secretNamespace: target.namespace,
-          });
-          if (!sameExactWorkflowAttestation(persisted, expectedCurrent)) {
-            throw new Error("codex_rotating_workflow_reattestation_stale");
-          }
-          assertCodexRotatingWorkflowAlreadyActiveTransition({
-            persisted,
-            verified: verifiedActive,
-          });
-          return { status: "active" as const };
-        },
-        { timeout: transactionTimeoutMs },
-      );
-    } catch (error) {
-      throw translateWorkflowReattestationDatabaseError(error);
-    }
-  }
-
-  async replaceActiveWorkflowSource(
-    transition: CodexRotatingWorkflowReattestationTransition,
-  ) {
-    const { target, expectedCurrent, replacement } = transition;
-    assertCodexRotatingWorkflowReplacementTransition({
-      current: expectedCurrent,
-      replacement,
-      compatibilityWindowSeconds: transition.compatibilityWindowSeconds,
-      repositoryFullName: target.repositoryFullName,
-    });
-    try {
-      return await this.prisma.$transaction(
-        async (tx) => {
-          const initial = await findClaim(tx, target.claimId);
-          await requireProvenWriter(
-            tx,
-            initial.databaseIncarnation,
-            initial.databaseRecoveryWitness,
-            this.databaseRecoveryWitness,
-          );
-          await lockCodexRotatingProviderRow(tx, initial.providerInstanceRowId);
-          const mutationFences = await tx.$queryRaw<
-            Array<{
-              mutationOwner: string | null;
-              mutationOwnerId: string | null;
-              activeLeaseId: string | null;
-            }>
-          >`
-            SELECT "mutationOwner", "mutationOwnerId", "activeLeaseId"
-            FROM "CodexOAuthProviderInstance"
-            WHERE "id" = ${initial.providerInstanceRowId}
-          `;
-          const mutationFence = mutationFences[0];
-          if (
-            !mutationFence ||
-            mutationFence.mutationOwner !== null ||
-            mutationFence.mutationOwnerId !== null ||
-            mutationFence.activeLeaseId !== null
-          ) {
-            throw new Error("codex_rotating_workflow_reattestation_stale");
-          }
-          const claim = await findClaimForUpdate(tx, target.claimId);
-          const attempt = await findAttemptForUpdate(
-            tx,
-            target.claimId,
-            target.attemptId,
-          );
-          if (
-            claim.status !== "active" ||
-            attempt.status !== "confirmed" ||
-            attempt.namespaceId !== target.namespace.namespaceId ||
-            claim.githubRepositoryId !== target.repositoryId
-          ) {
-            throw new Error("codex_rotating_setup_activation_mismatch");
-          }
-          if (expectedCurrent.workflowSchemaVersion === 5) {
-            if (
-              claim.generationHash !== target.expectedGenerationHash ||
-              claim.confirmedAttemptId !== attempt.attemptId ||
-              attempt.namespaceEpoch !== target.namespace.epoch ||
-              attempt.secretName !== target.namespace.name
-            ) {
-              throw new Error("codex_rotating_setup_activation_mismatch");
-            }
-            const updated = await tx.$executeRaw`
-              UPDATE "CodexOAuthSecretNamespace" namespace
-              SET "workflowPath" = ${replacement.workflowPath},
-                "workflowSourceCommitSha" = ${replacement.workflowSourceCommitSha},
-                "workflowSourceBlobSha" = ${replacement.workflowSourceBlobSha},
-                "workflowSourceSha256" = ${replacement.workflowSourceSha256},
-                "workflowSemanticSha256" = ${replacement.workflowSemanticSha256}
-              WHERE namespace."id" = ${target.namespace.namespaceId}
-                AND namespace."providerInstanceRowId" = ${initial.providerInstanceRowId}
-                AND namespace."githubRepositoryId" = ${target.repositoryId}
-                AND namespace."workflowPath" = ${expectedCurrent.workflowPath}
-                AND namespace."workflowSchemaVersion" = 5
-                AND namespace."workflowSourceTrust" = ${expectedCurrent.sourceTrust}
-                AND namespace."workflowSourceCommitSha" = ${expectedCurrent.workflowSourceCommitSha}
-                AND namespace."workflowSourceBlobSha" = ${expectedCurrent.workflowSourceBlobSha}
-                AND namespace."workflowSourceSha256" = ${expectedCurrent.workflowSourceSha256}
-                AND namespace."workflowSemanticSha256" = ${expectedCurrent.workflowSemanticSha256}
-                AND namespace."status" = 'active'
-                AND NOT namespace."permanentlyRetired"
-                AND EXISTS (
-                  SELECT 1 FROM "CodexOAuthProviderInstance" provider
-                  WHERE provider."id" = ${initial.providerInstanceRowId}
-                    AND provider."state" = 'active'
-                    AND provider."latestGenerationHash" = ${target.expectedGenerationHash}
-                    AND provider."activeSecretNamespaceId" = namespace."id"
-                    AND provider."mutationOwner" IS NULL
-                    AND provider."mutationOwnerId" IS NULL
-                    AND provider."activeLeaseId" IS NULL
-                )
-                AND EXISTS (
-                  SELECT 1
-                  FROM "CodexOAuthSetupPayloadClaim" active_claim
-                  JOIN "CodexOAuthSetupManifest" manifest
-                    ON manifest."id" = active_claim."manifestId"
-                  JOIN "CodexOAuthProviderInstance" active_provider
-                    ON active_provider."id" = active_claim."providerInstanceRowId"
-                  JOIN "RepositoryConnection" repository
-                    ON repository."id" = active_provider."repositoryId"
-                  JOIN "ScmRepositoryIdentity" identity
-                    ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
-                  WHERE active_claim."id" = ${target.claimId}
-                    AND active_claim."providerInstanceRowId" = ${initial.providerInstanceRowId}
-                    AND active_claim."status" = 'active'
-                    AND manifest."status" = 'consumed'
-                    AND manifest."manifestJson"->>'repositoryFullName' = ${target.repositoryFullName}
-                    AND manifest."manifestJson"->>'repositoryId' = ${target.repositoryId}
-                    AND repository."fullName" = ${target.repositoryFullName}
-                    AND repository."externalRepositoryId" = ${target.repositoryId}
-                    AND identity."externalRepositoryId" = ${target.repositoryId}
-                    AND identity."currentWorkspaceId" = repository."workspaceId"
-                    AND identity."currentRepositoryConnectionId" = repository."id"
-                    AND identity."version" = (manifest."manifestJson"->>'repositoryIdentityVersion')::integer
-                )
-            `;
-            if (updated !== 1) {
-              throw new Error("codex_rotating_workflow_reattestation_stale");
-            }
-            return { status: "active" as const };
-          }
-          await assertV4ReattestationRepositoryIdentity(tx, {
-            providerInstanceRowId: claim.providerInstanceRowId,
-            claimId: claim.id,
-            manifestId: claim.manifestId,
-            repositoryId: target.repositoryId,
-            repositoryFullName: target.repositoryFullName,
-          });
-          await tx.$executeRaw`
-            SELECT "codex_oauth_reattest_active_namespace_v4_to_v5"(
-              ${claim.providerInstanceRowId}, ${claim.id}, ${attempt.attemptId},
-              ${target.namespace.namespaceId}, ${target.namespace.epoch}, ${target.namespace.name},
-              ${target.repositoryId}, ${target.expectedGenerationHash}, ${target.workflowPath},
-              ${replacement.sourceTrust}, ${expectedCurrent.workflowSchemaVersion},
-              ${replacement.workflowSchemaVersion},
-              ${expectedCurrent.workflowSourceCommitSha},
-              ${expectedCurrent.workflowSourceBlobSha},
-              ${expectedCurrent.workflowSourceSha256},
-              ${expectedCurrent.workflowSemanticSha256},
-              ${replacement.workflowSourceCommitSha}, ${replacement.workflowSourceBlobSha},
-              ${replacement.workflowSourceSha256}, ${replacement.workflowSemanticSha256},
-              ${transition.compatibilityWindowSeconds}
-            )
-          `;
-          return { status: "active" as const };
-        },
-        { timeout: transactionTimeoutMs },
-      );
-    } catch (error) {
-      throw translateWorkflowReattestationDatabaseError(error);
-    }
-  }
-
   async retireProviderGeneration(
     input: CodexRotatingSetupRecoveryFence,
   ): Promise<void> {
@@ -1516,59 +1052,6 @@ async function findManifest(
   return rows[0];
 }
 
-async function assertV4ReattestationRepositoryIdentity(
-  tx: Prisma.TransactionClient,
-  input: {
-    readonly providerInstanceRowId: string;
-    readonly claimId: string;
-    readonly manifestId: string;
-    readonly repositoryId: string;
-    readonly repositoryFullName: string;
-  },
-): Promise<void> {
-  const rows = await tx.$queryRaw<readonly { version: number }[]>`
-    SELECT identity."version"
-    FROM "CodexOAuthSetupPayloadClaim" claim
-    JOIN "CodexOAuthSetupManifest" manifest
-      ON manifest."id" = claim."manifestId"
-    JOIN "CodexOAuthProviderInstance" provider
-      ON provider."id" = claim."providerInstanceRowId"
-    JOIN "RepositoryConnection" repository
-      ON repository."id" = provider."repositoryId"
-    JOIN "GitHubInstallation" installation
-      ON installation."id" = repository."installationId"
-    JOIN "ScmRepositoryIdentity" identity
-      ON identity."scmRepositoryIdentityId" = repository."scmRepositoryIdentityId"
-    WHERE claim."id" = ${input.claimId}
-      AND claim."manifestId" = ${input.manifestId}
-      AND claim."providerInstanceRowId" = ${input.providerInstanceRowId}
-      AND claim."status" = 'active'
-      AND manifest."status" = 'consumed'
-      AND manifest."manifestJson"->>'repositoryFullName' = ${input.repositoryFullName}
-      AND manifest."manifestJson"->>'repositoryId' = ${input.repositoryId}
-      AND provider."id" = ${input.providerInstanceRowId}
-      AND repository."workspaceId" = provider."workspaceId"
-      AND repository."provider" = 'github'
-      AND repository."fullName" = ${input.repositoryFullName}
-      AND repository."externalRepositoryId" = ${input.repositoryId}
-      AND repository."selected" = true
-      AND repository."archived" = false
-      AND installation."workspaceId" = repository."workspaceId"
-      AND installation."status" = 'active'
-      AND identity."provider" = 'github'
-      AND identity."externalRepositoryId" = ${input.repositoryId}
-      AND identity."currentWorkspaceId" = repository."workspaceId"
-      AND identity."currentRepositoryConnectionId" = repository."id"
-      AND identity."version" = (manifest."manifestJson"->>'repositoryIdentityVersion')::integer
-      AND identity."boundAt" IS NOT NULL
-      AND identity."unboundAt" IS NULL
-    FOR UPDATE OF identity
-  `;
-  if (rows.length !== 1) {
-    throw new Error("codex_rotating_workflow_reattestation_stale");
-  }
-}
-
 type ManifestRecoveryAssociationRow = {
   readonly recoveryRequestId: string;
   readonly providerInstanceRowId: string;
@@ -1599,36 +1082,6 @@ async function findManifestRecoveryAssociation(
     throw new Error("codex_rotating_setup_recovery_association_conflict");
   }
   return row;
-}
-
-async function findClaim(
-  tx: Prisma.TransactionClient | PrismaClient,
-  id: string,
-): Promise<ClaimRow> {
-  const rows = await tx.$queryRaw<ClaimRow[]>`
-    SELECT "id", "providerInstanceRowId", "githubRepositoryId", "manifestId", "manifestDigest", "recoveryRequestId",
-      "recoveryEpoch", "operationId", "payloadVersion", "canonicalizationVersion", "generationHash",
-      "accountIdentityHash", "accountIdentityAlgorithm", "authByteSize", "installerVersion",
-      "installerDigest", "databaseIncarnation", "databaseRecoveryWitness", "status", "claimVersion", "prepareReplayExpiresAt", "recoveryExpiresAt",
-      "confirmedAttemptId" FROM "CodexOAuthSetupPayloadClaim" WHERE "id" = ${id} LIMIT 1
-  `;
-  if (!rows[0]) throw new Error("codex_rotating_setup_claim_not_found");
-  return rows[0];
-}
-
-async function findClaimForUpdate(
-  tx: Prisma.TransactionClient,
-  id: string,
-): Promise<ClaimRow> {
-  const rows = await tx.$queryRaw<ClaimRow[]>`
-    SELECT "id", "providerInstanceRowId", "githubRepositoryId", "manifestId", "manifestDigest", "recoveryRequestId",
-      "recoveryEpoch", "operationId", "payloadVersion", "canonicalizationVersion", "generationHash",
-      "accountIdentityHash", "accountIdentityAlgorithm", "authByteSize", "installerVersion",
-      "installerDigest", "databaseIncarnation", "databaseRecoveryWitness", "status", "claimVersion", "prepareReplayExpiresAt", "recoveryExpiresAt",
-      "confirmedAttemptId" FROM "CodexOAuthSetupPayloadClaim" WHERE "id" = ${id} LIMIT 1 FOR UPDATE
-  `;
-  if (!rows[0]) throw new Error("codex_rotating_setup_claim_not_found");
-  return rows[0];
 }
 
 async function findClaimByOperationOrEpoch(
@@ -1717,45 +1170,6 @@ function internalPredispatchRetryKey(
   return `${internalPredispatchRetryPrefix}${rootHash}/${retryIndex}`;
 }
 
-function classifyAttemptNamespaceState(
-  row: AttemptRow,
-):
-  | "dispatch_authorized"
-  | "retired_predispatch"
-  | "retired_ambiguous"
-  | "confirmed" {
-  if (
-    row.status === "dispatch_authorized" &&
-    row.namespaceStatus === "dispatch_authorized" &&
-    !row.attemptRetiredAt &&
-    !row.namespacePermanentlyRetired &&
-    !row.namespaceRetiredAt
-  ) {
-    return "dispatch_authorized";
-  }
-  if (
-    row.status === "retired_ambiguous" &&
-    row.attemptRetiredAt &&
-    row.namespacePermanentlyRetired &&
-    row.namespaceRetiredAt &&
-    (row.namespaceStatus === "retired_predispatch" ||
-      row.namespaceStatus === "retired_ambiguous")
-  ) {
-    return row.namespaceStatus;
-  }
-  if (
-    row.status === "confirmed" &&
-    (row.namespaceStatus === "confirmed_candidate" ||
-      row.namespaceStatus === "active") &&
-    !row.attemptRetiredAt &&
-    !row.namespacePermanentlyRetired &&
-    !row.namespaceRetiredAt
-  ) {
-    return "confirmed";
-  }
-  throw new Error("codex_rotating_setup_retirement_conflict");
-}
-
 async function findDispatchAttemptChain(
   tx: Prisma.TransactionClient,
   claimId: string,
@@ -1797,26 +1211,6 @@ async function findDispatchAttemptChain(
   return rows;
 }
 
-async function findAttemptForUpdate(
-  tx: Prisma.TransactionClient,
-  claimId: string,
-  attemptId: string,
-) {
-  const rows = await tx.$queryRaw<AttemptRow[]>`
-    SELECT a."claimId", a."id" AS "attemptId", a."namespaceId", n."namespaceEpoch",
-      n."secretName", a."status", a."idempotencyKey", a."ordinal",
-             a."dispatchExpiresAt", a."definiteResponseCode",
-             a."retiredAt" AS "attemptRetiredAt", n."status" AS "namespaceStatus",
-             n."permanentlyRetired" AS "namespacePermanentlyRetired",
-             n."retiredAt" AS "namespaceRetiredAt"
-    FROM "CodexOAuthSetupDispatchAttempt" a JOIN "CodexOAuthSecretNamespace" n ON n."id" = a."namespaceId"
-    WHERE a."claimId" = ${claimId} AND a."id" = ${attemptId}
-    LIMIT 1 FOR UPDATE OF a, n
-  `;
-  if (!rows[0]) throw new Error("codex_rotating_setup_attempt_not_found");
-  return rows[0];
-}
-
 async function retireAuthorizedAttempts(
   tx: Prisma.TransactionClient,
   claim: ClaimRow,
@@ -1834,156 +1228,6 @@ async function retireAuthorizedAttempts(
       now,
       setupFenceForClaim(claim),
     );
-}
-
-export async function retireAttemptAndNamespace(
-  tx: Prisma.TransactionClient,
-  attemptId: string,
-  namespaceId: string,
-  now: Date,
-  expectedFence: Readonly<{
-    providerInstanceRowId: string;
-    ownerId: string;
-    epoch: bigint;
-  }>,
-) {
-  return retireAttemptAndNamespaceWithStatus(
-    tx,
-    attemptId,
-    namespaceId,
-    now,
-    expectedFence,
-    "retired_ambiguous",
-  );
-}
-
-export async function retirePredispatchAttemptAndNamespace(
-  tx: Prisma.TransactionClient,
-  attemptId: string,
-  namespaceId: string,
-  now: Date,
-  expectedFence: Readonly<{
-    providerInstanceRowId: string;
-    ownerId: string;
-    epoch: bigint;
-  }>,
-) {
-  return retireAttemptAndNamespaceWithStatus(
-    tx,
-    attemptId,
-    namespaceId,
-    now,
-    expectedFence,
-    "retired_predispatch",
-  );
-}
-
-async function retireAttemptAndNamespaceWithStatus(
-  tx: Prisma.TransactionClient,
-  attemptId: string,
-  namespaceId: string,
-  now: Date,
-  expectedFence: Readonly<{
-    providerInstanceRowId: string;
-    ownerId: string;
-    epoch: bigint;
-  }>,
-  namespaceRetirementStatus: "retired_ambiguous" | "retired_predispatch",
-) {
-  const rows = await tx.$queryRaw<
-    Array<{
-      attemptId: string;
-      attemptClaimId: string;
-      attemptNamespaceId: string;
-      attemptStatus: string;
-      attemptRetiredAt: Date | null;
-      namespaceProviderInstanceRowId: string;
-      namespaceEpoch: bigint;
-      namespaceSecretName: string;
-      namespaceStatus: string;
-      namespacePermanentlyRetired: boolean;
-      namespaceRetiredAt: Date | null;
-      claimProviderInstanceRowId: string;
-      claimRecoveryEpoch: bigint;
-      claimManifestId: string;
-      providerMutationOwner: string | null;
-      providerMutationOwnerId: string | null;
-      providerMutationEpoch: bigint;
-    }>
-  >`
-    SELECT attempt."id" AS "attemptId", attempt."claimId" AS "attemptClaimId",
-      attempt."namespaceId" AS "attemptNamespaceId", attempt."status" AS "attemptStatus",
-      attempt."retiredAt" AS "attemptRetiredAt",
-      namespace."providerInstanceRowId" AS "namespaceProviderInstanceRowId",
-      namespace."namespaceEpoch", namespace."secretName" AS "namespaceSecretName",
-      namespace."status" AS "namespaceStatus",
-      namespace."permanentlyRetired" AS "namespacePermanentlyRetired",
-      namespace."retiredAt" AS "namespaceRetiredAt",
-      claim."providerInstanceRowId" AS "claimProviderInstanceRowId",
-      claim."recoveryEpoch" AS "claimRecoveryEpoch", claim."manifestId" AS "claimManifestId",
-      provider."mutationOwner" AS "providerMutationOwner",
-      provider."mutationOwnerId" AS "providerMutationOwnerId",
-      provider."mutationEpoch" AS "providerMutationEpoch"
-    FROM "CodexOAuthSetupDispatchAttempt" attempt
-    JOIN "CodexOAuthSecretNamespace" namespace ON namespace."id" = attempt."namespaceId"
-    JOIN "CodexOAuthSetupPayloadClaim" claim ON claim."id" = attempt."claimId"
-    JOIN "CodexOAuthProviderInstance" provider ON provider."id" = claim."providerInstanceRowId"
-    WHERE attempt."id" = ${attemptId} AND namespace."id" = ${namespaceId}
-    FOR UPDATE OF attempt, namespace, claim, provider
-  `;
-  const row = rows[0];
-  if (
-    !row ||
-    row.attemptId !== attemptId ||
-    row.attemptNamespaceId !== namespaceId ||
-    row.claimProviderInstanceRowId !== expectedFence.providerInstanceRowId ||
-    row.namespaceProviderInstanceRowId !== row.claimProviderInstanceRowId ||
-    row.providerMutationOwner !== "setup" ||
-    row.providerMutationOwnerId !== expectedFence.ownerId ||
-    row.providerMutationEpoch !== expectedFence.epoch ||
-    row.claimRecoveryEpoch > expectedFence.epoch
-  ) {
-    throw new Error("codex_rotating_setup_retirement_conflict");
-  }
-  if (
-    row.attemptStatus === "retired_ambiguous" &&
-    row.attemptRetiredAt &&
-    row.namespaceStatus === namespaceRetirementStatus &&
-    row.namespacePermanentlyRetired &&
-    row.namespaceRetiredAt
-  ) {
-    return;
-  }
-  if (
-    row.attemptStatus !== "dispatch_authorized" ||
-    row.attemptRetiredAt ||
-    row.namespaceStatus !== "dispatch_authorized" ||
-    row.namespacePermanentlyRetired ||
-    row.namespaceRetiredAt
-  ) {
-    throw new Error("codex_rotating_setup_retirement_conflict");
-  }
-  const retiredAttempt = await tx.$executeRaw`
-    UPDATE "CodexOAuthSetupDispatchAttempt"
-    SET "status" = 'retired_ambiguous', "retiredAt" = ${now}, "updatedAt" = ${now}
-    WHERE "id" = ${row.attemptId} AND "claimId" = ${row.attemptClaimId}
-      AND "namespaceId" = ${namespaceId} AND "status" = 'dispatch_authorized'
-      AND "retiredAt" IS NULL
-  `;
-  const retiredNamespace = await tx.$executeRaw`
-    UPDATE "CodexOAuthSecretNamespace"
-    SET "status" = ${namespaceRetirementStatus}, "permanentlyRetired" = true,
-        "retiredAt" = ${now}
-    WHERE "id" = ${namespaceId}
-      AND "providerInstanceRowId" = ${row.namespaceProviderInstanceRowId}
-      AND "namespaceEpoch" = ${row.namespaceEpoch}
-      AND "secretName" = ${row.namespaceSecretName}
-      AND "status" = 'dispatch_authorized'
-      AND NOT "permanentlyRetired" AND "retiredAt" IS NULL
-  `;
-  if (retiredAttempt !== 1 || retiredNamespace !== 1) {
-    throw new Error("codex_rotating_setup_retirement_conflict");
-  }
 }
 
 function setupFenceForClaim(claim: ClaimRow) {
@@ -2244,71 +1488,4 @@ async function assertClaimOwnsSetupFence(
     throw new Error("codex_rotating_setup_confirmation_stale_epoch");
   }
   return canonicalManifest;
-}
-
-async function requireProvenWriter(
-  tx: Prisma.TransactionClient,
-  expectedIncarnation?: string,
-  expectedRecoveryWitness?: string,
-  configuredRecoveryWitness?: string,
-): Promise<{
-  databaseIncarnation: string;
-  databaseRecoveryWitness: string;
-}> {
-  let databaseRecoveryWitness: string;
-  try {
-    databaseRecoveryWitness = fingerprintDatabaseRecoveryWitness(
-      configuredRecoveryWitness ?? "",
-    );
-  } catch {
-    throw new Error("codex_rotating_retryable_uncommitted");
-  }
-  let rows: Array<{ writer: boolean; databaseIncarnation: string }>;
-  try {
-    rows = await tx.$queryRaw`
-      SELECT NOT pg_is_in_recovery() AS "writer",
-             "system_identifier"::text AS "databaseIncarnation"
-      FROM pg_control_system()
-    `;
-  } catch {
-    throw new Error("codex_rotating_retryable_uncommitted");
-  }
-  const proof = rows[0];
-  if (
-    !proof?.writer ||
-    !/^[1-9][0-9]+$/.test(proof.databaseIncarnation) ||
-    (expectedIncarnation !== undefined &&
-      proof.databaseIncarnation !== expectedIncarnation) ||
-    (expectedRecoveryWitness !== undefined &&
-      databaseRecoveryWitness !== expectedRecoveryWitness)
-  ) {
-    throw new Error("codex_rotating_retryable_uncommitted");
-  }
-  return {
-    databaseIncarnation: proof.databaseIncarnation,
-    databaseRecoveryWitness,
-  };
-}
-
-function sameExactWorkflowAttestation(
-  left: VersionedSecretWorkflowSourceAttestation,
-  right: VersionedSecretWorkflowSourceAttestation,
-): boolean {
-  return (
-    left.repositoryId === right.repositoryId &&
-    left.workflowPath === right.workflowPath &&
-    left.workflowSourceCommitSha === right.workflowSourceCommitSha &&
-    left.workflowSourceBlobSha === right.workflowSourceBlobSha &&
-    left.workflowSourceSha256 === right.workflowSourceSha256 &&
-    left.workflowSemanticSha256 === right.workflowSemanticSha256 &&
-    left.workflowSchemaVersion === right.workflowSchemaVersion &&
-    left.sourceTrust === right.sourceTrust &&
-    left.secretNamespace.namespaceId === right.secretNamespace.namespaceId &&
-    left.secretNamespace.epoch === right.secretNamespace.epoch &&
-    left.secretNamespace.name === right.secretNamespace.name &&
-    left.secretNamespace.scope.repositoryId ===
-      right.secretNamespace.scope.repositoryId &&
-    left.secretNamespace.scope.providerInstanceId ===
-      right.secretNamespace.scope.providerInstanceId
-  );
 }

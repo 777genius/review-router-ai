@@ -1,28 +1,30 @@
-import type {
-  BeginReviewPublicationOperationCommand,
-  BeginReviewPublicationOperationResult,
-  ClaimReviewPublicationCommand,
-  ClaimReviewPublicationResult,
-  CompleteReviewPublicationOperationCommand,
-  CompleteReviewPublicationOperationResult,
-  ProveReviewPublicationNoEffectCommand,
-  ProveReviewPublicationNoEffectResult,
-  RecordReviewExternalEffectCommand,
-  RecordReviewExternalEffectResult,
-  RenewReviewPublicationClaimCommand,
-  RenewReviewPublicationClaimResult,
-  ReviewPublicationAttemptQueryPort,
-  ReviewPublicationClaimTerm,
-  ReviewPublicationGatewayObject,
-  ReviewPublicationGatewayPort,
-  ReviewPublicationOperation,
-  ReviewPublicationOperationCapabilityFacts,
-  ReviewPublicationPermitIdentity,
-  ReviewPublicationReceiptStatus,
-  ReviewPublicationTerminalOutcome,
-  TerminalizeUnknownReviewPublicationCommand,
-  TerminalizeUnknownReviewPublicationResult,
-} from "@reviewrouter/features-review-publishing/v2";
+import {
+  type BeginReviewPublicationOperationCommand,
+  type BeginReviewPublicationOperationResult,
+  type ClaimReviewPublicationCommand,
+  type ClaimReviewPublicationResult,
+  type CompleteReviewPublicationOperationCommand,
+  type CompleteReviewPublicationOperationResult,
+  type ProveReviewPublicationNoEffectCommand,
+  type ProveReviewPublicationNoEffectResult,
+  type RecordReviewExternalEffectCommand,
+  type RecordReviewExternalEffectResult,
+  type RenewReviewPublicationClaimCommand,
+  type RenewReviewPublicationClaimResult,
+  type ReviewPublicationAttemptQueryPort,
+  type ReviewPublicationGatewayObject,
+  type ReviewPublicationGatewayPort,
+  type TerminalizeUnknownReviewPublicationCommand,
+  type TerminalizeUnknownReviewPublicationResult,
+} from "./review-publication-ports";
+import {
+  type ReviewPublicationClaimTerm,
+  type ReviewPublicationOperation,
+  type ReviewPublicationOperationCapabilityFacts,
+  type ReviewPublicationPermitIdentity,
+  type ReviewPublicationReceiptStatus,
+  type ReviewPublicationTerminalOutcome,
+} from "../../domain/review-publication-attempt";
 
 export enum ReviewV2ScmProvider {
   GitHub = "github",
@@ -234,6 +236,8 @@ export interface ReviewV2PublicationClockPort {
 }
 
 export type ReviewV2PublicationExecutorDependencies = {
+  /** SHA-256 over UTF-8; composition supplies the implementation for durable identities. */
+  readonly digestUtf8: (value: string) => string;
   readonly attempts: ReviewPublicationAttemptQueryPort;
   readonly application: ReviewV2PublicationApplicationPort;
   readonly freshness: ReviewV2PublicationFreshnessPort;

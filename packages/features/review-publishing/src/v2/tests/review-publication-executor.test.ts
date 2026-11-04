@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   RequestReviewPublicationStatus,
+  ReviewPublicationCapability,
+  ReviewPublicationAdjudicationEvidenceStatus,
   ReviewPublicationEffectStrategy,
   ReviewPublicationExternalEffectKind,
   ReviewPublicationKind,
@@ -10,14 +13,14 @@ import {
   type ReviewPublicationGatewayObject,
   type ReviewPublicationOperationPlan,
   type ReviewPublicationPermitIdentity,
-} from "@reviewrouter/features-review-publishing/v2";
-import { createReviewPublicationV2Application } from "@reviewrouter/features-review-publishing/v2/composition";
+} from "../index";
+import { createReviewPublicationV2Application } from "../composition/index";
 import {
   InMemoryReviewPublicationRepository,
   MutableReviewPublicationClock,
   allowingReviewPublicationDecisionPorts,
-} from "@reviewrouter/features-review-publishing/v2/testing";
-import { ExecuteReviewV2PublicationOperation } from "./review-v2-publication-executor";
+} from "../testing/index";
+import { ExecuteReviewV2PublicationOperation } from "../index";
 import {
   ReviewV2PublicationCompensationDecision,
   ReviewV2PublicationExecutionStatus,
@@ -28,18 +31,101 @@ import {
   ReviewV2ScmMutationFailureOutcome,
   ReviewV2ScmProvider,
   type ReviewV2PublicationFreshnessRead,
-} from "./review-v2-publication-ports";
-import type { ReviewV2ProviderPublicationClientPort } from "./review-v2-publication-gateways";
-import {
-  productionReviewV2AdjudicationEvidence,
-  productionReviewV2PublicationCapabilities,
-} from "./review-v2-production-runtime";
+} from "../index";
+import type { ReviewV2ProviderPublicationClientPort } from "../index";
 
 const initialTime = at("2026-07-23T12:00:00.000Z");
 const ownerIdHash = hash("e");
 
 describe("protocol v2 publication executor", () => {
-  it("completes the publication lifecycle with the production capability set", async () => {
+  it("preserves durable publication command identities for in-flight replay", async () => {
+    const fixture = await createFixture();
+    const claim = vi.spyOn(fixture.application, "claim");
+    const begin = vi.spyOn(fixture.application, "beginOperation");
+    const effect = vi.spyOn(fixture.application, "recordEffect");
+    const complete = vi.spyOn(fixture.application, "completeOperation");
+
+    await fixture.executor.execute(executionCommand());
+
+    expect({
+      claim: commandIdentity(claim.mock.calls[0]?.[0]),
+      begin: commandIdentity(begin.mock.calls[0]?.[0]),
+      effect: commandIdentity(effect.mock.calls[0]?.[0]),
+      complete: commandIdentity(complete.mock.calls[0]?.[0]),
+    }).toMatchInlineSnapshot(`
+      {
+        "begin": {
+          "acquireRequestIdHash": "f8f5b99ca4c4378cfa1f73db9f044fe309b3692ab24eeb4288774c5abd34672a",
+          "capabilitySigningKeyId": "test-signing-key",
+          "claimId": "rr-claim-85971eca8ec6841218667ebc6599bb047822e247cdc207fd6b2f638a2a320a71",
+          "effectReportId": "rr-effect-report-30072d2aabaa7baaab0616c4caa6d1c583bdee37d3c7d281ee87b041d78f8397",
+          "operationAttemptId": "rr-operation-attempt-2a4ec5217ff23b1a1bb45b7fd743a54a2542eeb8efc88110c9ca9b214f662fd8",
+          "operationCapabilityId": "rr-operation-capability-3adbc47da1c8ece51be5357a5ae5d28117df487aabf1861419bbda25044bbfec",
+          "publicationAttemptId": "publication-1",
+          "publicationOperationId": "operation-1",
+          "requestHash": "ca36478545ff04521be6a11cbaa4bbcfd19c1c2edc5aff457c5d13d050b5f584",
+        },
+        "claim": {
+          "acquireRequestIdHash": "26abc4553f8ef531b0207b7facd4845b1202e660c5befb5e6c48de034967c2c1",
+          "capabilitySigningKeyId": "test-signing-key",
+          "claimCapabilityId": "rr-claim-capability-786c72725b023e191e6963aeb93ad4b721d691916fbf142296960e8f62449ec3",
+          "claimId": "rr-claim-85971eca8ec6841218667ebc6599bb047822e247cdc207fd6b2f638a2a320a71",
+          "ownerIdHash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "publicationAttemptId": "publication-1",
+          "requestHash": "073eee47b0fbc8a24ad8255605a4542c11739c4e9528b34d792fa8f6b80a08bb",
+        },
+        "complete": {
+          "canonicalEffectId": "rr-effect-11e7b1ed338f685e261cef3c7872d0ad0ce7bf350ebc852662aa87d3025498b8",
+          "claimId": "rr-claim-85971eca8ec6841218667ebc6599bb047822e247cdc207fd6b2f638a2a320a71",
+          "completionRequestIdHash": "901e17ad2d21ceb5be8c097b32a144c4f8331fec512c249c94f0d9e7b84febac",
+          "publicationAttemptId": "publication-1",
+          "publicationOperationId": "operation-1",
+          "receiptHash": "e66999db2d2c3d2ebce2931e42def98c2c80d474cefca7c805bffc755e9c924c",
+          "receiptId": "rr-receipt-9934b0f65b3f6a649c506058cc37a7ee6e13bc373b965f305a4ae9023cb31e80",
+          "requestHash": "020194b5a02b71d767d5f07cfdee442d2fd792b88e9af5ca5110a9045607dbcd",
+        },
+        "effect": {
+          "effectId": "rr-effect-11e7b1ed338f685e261cef3c7872d0ad0ce7bf350ebc852662aa87d3025498b8",
+          "externalObjectId": "object-1",
+          "observedObjectHash": "3333333333333333333333333333333333333333333333333333333333333333",
+          "reportRequestHash": "1ae9e37066da9ebdd0c2a6ad5f84377f7b208515f217dacb55e732cbe7498bd5",
+        },
+      }
+    `);
+  });
+
+  it("preserves no-effect proof and tombstone identities for in-flight replay", async () => {
+    const fixture = await createFixture();
+    fixture.gateway.applyError = new ReviewV2ScmMutationError(
+      "github_mutation_http_403",
+      ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+      false,
+    );
+    const proof = vi.spyOn(fixture.application, "proveNoEffect");
+    const terminalize = vi.spyOn(fixture.application, "terminalizeUnknown");
+
+    await fixture.executor.execute(executionCommand());
+
+    expect({
+      proof: commandIdentity(proof.mock.calls[0]?.[0]),
+      terminalize: commandIdentity(terminalize.mock.calls[0]?.[0]),
+    }).toMatchInlineSnapshot(`
+      {
+        "proof": {
+          "noEffectProofId": "rr-no-effect-proof-6300dda39828ca975ef2599d1db0c32201d1fa87e95a897b45ca90dd82f00930",
+        },
+        "terminalize": {
+          "claimId": "rr-claim-85971eca8ec6841218667ebc6599bb047822e247cdc207fd6b2f638a2a320a71",
+          "publicationAttemptId": "publication-1",
+          "publicationOperationId": "operation-1",
+          "siblingTombstones": [],
+          "tombstoneId": "rr-tombstone-4ddb2c3ac9d95052c06cac634a35f3a51e69fe392925e7d7ccd89f2e19981133",
+        },
+      }
+    `);
+  });
+
+  it("completes the publication lifecycle with explicit operation capabilities", async () => {
     const fixture = await createFixture();
 
     await expect(fixture.executor.execute(executionCommand())).resolves.toEqual(
@@ -1643,7 +1729,14 @@ async function createFixture(
     decisions: allowingReviewPublicationDecisionPorts(permit),
     attempts: repository,
     idempotency: repository,
-    adjudicationEvidence: productionReviewV2AdjudicationEvidence,
+    adjudicationEvidence: {
+      async resolve() {
+        return {
+          status: ReviewPublicationAdjudicationEvidenceStatus.Unavailable,
+          reason: "operator_adjudication_requires_live_inventory",
+        } as const;
+      },
+    },
     commands: {
       requests: repository,
       claims: repository,
@@ -1654,7 +1747,12 @@ async function createFixture(
       terminalizations: repository,
       adjudications: repository,
     },
-    enabledCapabilities: productionReviewV2PublicationCapabilities(),
+    enabledCapabilities: new Set([
+      ReviewPublicationCapability.Request,
+      ReviewPublicationCapability.Claim,
+      ReviewPublicationCapability.ClaimReconciliation,
+      ReviewPublicationCapability.BeginOperation,
+    ]),
   });
   const requested = await application.request({
     publicationAttemptId: "publication-1",
@@ -1680,6 +1778,8 @@ async function createFixture(
   const effectGate = new MutableEffectGate();
   const executor = new ExecuteReviewV2PublicationOperation(
     {
+      digestUtf8: (value) =>
+        createHash("sha256").update(value, "utf8").digest("hex"),
       attempts: repository,
       application,
       freshness,
@@ -1971,4 +2071,14 @@ function hash(character: string): string {
 
 function at(value: string): Date {
   return new Date(value);
+}
+
+/** Frozen from the pre-extraction worker to protect durable replay preimages. */
+function commandIdentity(command: object | undefined) {
+  if (!command) throw new Error("expected_publication_command");
+  return Object.fromEntries(
+    Object.entries(command).filter(([key]) =>
+      /(?:Id|Hash|Fence|Tombstones)$/.test(key),
+    ),
+  );
 }

@@ -17,7 +17,7 @@ import {
 import {
   assertSetupIssuanceEnabled,
   issueCodexRotatingSetupCommand,
-} from "./codex-rotating-setup-manifest";
+} from "@reviewrouter/features-provider-setup/composition";
 import {
   resolveCodexRotatingPublicWebUrl,
   resolveCodexRotatingSeedScriptDescriptor,

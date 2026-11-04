@@ -362,7 +362,12 @@ describe("usage producer protocol transport boundary", () => {
 });
 
 describe("application and composition boundaries", () => {
-  it.each(["workflow-provisioning", "review-config", "audit-log"])(
+  it.each([
+    "workflow-provisioning",
+    "provider-setup",
+    "review-config",
+    "audit-log",
+  ])(
     "allows %s application exports and a separate production composition entrypoint",
     (feature) => {
       const root = compositionFixture(feature);
@@ -412,6 +417,33 @@ describe("application and composition boundaries", () => {
       root,
       "packages/features/audit-log/src/application/use-case.ts",
       'import type { Adapter } from "../composition";\n',
+    );
+    expect(() => runChecker(root)).toThrow(
+      /core cannot depend on selected composition/,
+    );
+  });
+
+  it("rejects provider setup memory adapters forwarded by the application root", () => {
+    const root = compositionFixture("provider-setup");
+    writeFile(
+      root,
+      "packages/features/provider-setup/src/index.ts",
+      'export * from "./setup-contracts";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/provider-setup/src/setup-contracts.ts",
+      'export * from "./infrastructure/memory/store";\n',
+    );
+    expect(() => runChecker(root)).toThrow(/application root cannot expose/);
+  });
+
+  it("keeps provider setup transaction authority out of application consumers", () => {
+    const root = compositionFixture("provider-setup");
+    writeFile(
+      root,
+      "packages/features/consumer/src/application/setup.ts",
+      'import type { AdmittedOperation } from "@reviewrouter/features-provider-setup/composition";\n',
     );
     expect(() => runChecker(root)).toThrow(
       /core cannot depend on selected composition/,

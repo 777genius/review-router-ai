@@ -3,7 +3,7 @@ import {
   allocateVersionedProviderSecretNamespace,
   fingerprintDatabaseRecoveryWitness,
   type CodexRotatingSetupReadinessEvidence,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 import { PrismaCodexRotatingSetupReadiness } from "./prisma-codex-rotating-setup-readiness";
 
 const databaseRecoveryWitness = "w".repeat(43);

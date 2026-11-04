@@ -265,7 +265,7 @@ vi.mock("../../src/server/github-app-install-url", () => ({
 vi.mock("../../src/server/github-user-repository-access", () => ({
   listGitHubUserRepositoryAccess: fixtures.spies.discovery,
 }));
-vi.mock("../../src/server/prisma-codex-rotating-setup-readiness", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   PrismaCodexRotatingSetupReadiness: fixtures.EmptyStore,
 }));
 vi.mock("../../src/server/dashboard-codex-rotating-setup-readiness", () => ({

@@ -2,14 +2,17 @@
 
 - Task ID: `2026-11-04-foundation-ownership`.
 - Goal: report setup attempt outcomes truthfully and apply the same publication
-  lifecycle admission policy in API and worker.
+  lifecycle admission policy in API and worker; move setup persistence and
+  publication execution into their existing feature owners.
 - Affected services/targets: Web, API, ordinary worker and operator CLI.
 - Implementation PR: [#810](https://github.com/777genius/review-router-ai/pull/810).
 - Source plan: [foundation ownership refactor](../plans/2026-11-04-foundation-ownership-refactor.md).
-- Implementation reference: select the final reviewed head/merge from #810;
-  production source checkpoint `b29d5ba3d7ef5919f08bfaa9ee68ceb8a31fe8e9`
-  plus the final reviewed test/documentation follow-up. Required CI remains
-  pending; none of these references is a deployed version.
+- Implementation reference: select the final reviewed head/merge from #810.
+  The initial A–C checkpoint is `e4327acd50dece733b3e2794497447f08eb10caf`;
+  continuation D–F was authorized and planned at
+  `cdd4037953e88322aca6d19592b18b0b2c274d32` and must be included in final
+  qualification. Required CI remains pending; none of these references is a
+  deployed version.
 - Dependencies: existing workflow authority and resolution-history schema and
   accepted producer contracts; no new schema, configuration or activation step.
 - Last updated: `2026-11-04`.
@@ -39,6 +42,13 @@ resolution guard continues protecting database transitions. Web/API setup
 callers likewise need the new outcome mapping together with the port change.
 Operators using Hosted Pool connect should update the CLI from the same reviewed
 batch so non-2xx responses retain uncertainty and any known committed PR.
+
+The continuation changes package composition ownership without changing stored
+records, signed capability formats or command identities. Ship the migrated
+feature builds and their web/worker/tooling consumers together; do not copy an
+individual host file into an older image. Existing in-flight publication claims,
+receipts, recovery epochs and setup namespace evidence remain valid. Keep normal
+draining and recovery instead of clearing state for the new implementation.
 
 ## Ordered rollout
 
@@ -78,6 +88,12 @@ batch so non-2xx responses retain uncertainty and any known committed PR.
 - Check normal review publication, final status and durable receipt/history
   state in an approved disposable repository. Fault injection and deliberate
   history corruption belong only in disposable fixtures, never production data.
+- Confirm provider setup issuance, replay, recovery and workflow reattestation
+  still honor the same locked repository identity and exact namespace fences.
+  Verify the installer/ledger path through its existing approved setup flow.
+- Verify interrupted publication resumes with the same persisted operation and
+  capability identities, keeps reconciliation-only access restricted, and
+  records the canonical receipt without an extra external publication.
 
 Source tests and CI qualify implementation. Environment completion requires
 observed deployed versions and these environment-specific checks. Synthetic

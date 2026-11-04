@@ -1,382 +1,34 @@
 import { createHash } from "node:crypto";
-import { decodeProtectedHeader } from "jose";
 import { App } from "@octokit/app";
 import {
-  CapabilityAudience,
-  CapabilityKind,
-  JoseRotatingCapabilityCodec,
-  type CapabilityKeyRingPort,
-  type SignedCapabilityCodecPort,
-} from "@reviewrouter/platform-signed-capabilities";
-import {
   ReviewPublicationExternalEffectKind,
-  ReviewPublicationKind,
   ReviewPublicationReceiptStatus,
-  mergeReviewPrDescription,
-  readReviewPrDescriptionBlock,
-  type ReviewPublicationGatewayObject,
   type ReviewPublicationPermitIdentity,
   type ReviewPublicationOperation,
   type ReviewPublicationOperationCapabilityFacts,
-} from "@reviewrouter/features-review-publishing/v2";
+} from "../../domain/review-publication-attempt";
+import {
+  mergeReviewPrDescription,
+  readReviewPrDescriptionBlock,
+} from "../../domain/review-pr-description";
+import { type ReviewPublicationGatewayObject } from "../../application/ports/review-publication-ports";
 import {
   ReviewV2ScmMutationError,
   ReviewV2ScmMutationFailureOutcome,
-  ReviewV2ScmCredentialPurpose,
   ReviewV2ScmProvider,
-  type ReviewV2PublicationClockPort,
-  type ReviewV2OpaqueSignedOperationCapability,
-  type ReviewV2OperationCapabilityIssuerPort,
-  type ReviewV2OperationCapabilityVerifierPort,
-  type ReviewV2ScmCredentialAcquisitionPort,
-  type ReviewV2ScmGatewaySession,
   type ReviewV2ScmLiveRevisionPort,
-} from "./review-v2-publication-ports";
+} from "../../application/ports/review-publication-execution-ports";
 import {
   ReviewV2PublicationPayloadKind,
   type ReviewV2PublicationPayload,
   type ReviewV2PublicationPayloadPort,
-} from "./review-v2-publication-payloads";
-
-export interface ReviewV2ProviderPublicationClientPort {
-  findAllByMarker(input: {
-    readonly operation: ReviewPublicationOperation;
-    readonly cursor: string | null;
-  }): Promise<{
-    readonly objects: readonly ReviewPublicationGatewayObject[];
-    readonly nextCursor: string | null;
-  }>;
-  applyOperation(input: {
-    readonly operation: ReviewPublicationOperation;
-    readonly capability: ReviewPublicationOperationCapabilityFacts;
-  }): Promise<ReviewPublicationGatewayObject>;
-  markStaleOrDelete(input: {
-    readonly operation: ReviewPublicationOperation;
-    readonly canonicalExternalObjectId: string;
-    readonly duplicateExternalObjectIds: readonly string[];
-    readonly compensateCanonical: boolean;
-  }): Promise<ReviewPublicationReceiptStatus>;
-}
-
-export type ReviewV2ProviderPublicationClientSession = {
-  readonly client: ReviewV2ProviderPublicationClientPort;
-  close(): Promise<void>;
-};
-
-/** Production implementations may hold a token internally but never return it. */
-export interface ReviewV2ProviderCredentialPort {
-  readonly provider: ReviewV2ScmProvider;
-  acquireClient(input: {
-    readonly purpose: ReviewV2ScmCredentialPurpose;
-    readonly permit: ReviewPublicationPermitIdentity;
-    readonly capability: ReviewPublicationOperationCapabilityFacts;
-  }): Promise<ReviewV2ProviderPublicationClientSession>;
-}
-
-export class ProviderNeutralReviewV2ScmCredentialRouter implements ReviewV2ScmCredentialAcquisitionPort {
-  private readonly providers: ReadonlyMap<
-    ReviewV2ScmProvider,
-    ReviewV2ProviderCredentialPort
-  >;
-
-  constructor(
-    providers: readonly ReviewV2ProviderCredentialPort[],
-    private readonly capabilityVerifier: ReviewV2OperationCapabilityVerifierPort,
-  ) {
-    const byProvider = new Map<
-      ReviewV2ScmProvider,
-      ReviewV2ProviderCredentialPort
-    >();
-    for (const provider of providers) {
-      if (byProvider.has(provider.provider)) {
-        throw new Error("review_v2_scm_credential_provider_duplicate");
-      }
-      byProvider.set(provider.provider, provider);
-    }
-    this.providers = byProvider;
-  }
-
-  async acquire(
-    input: Parameters<ReviewV2ScmCredentialAcquisitionPort["acquire"]>[0],
-  ): Promise<ReviewV2ScmGatewaySession> {
-    if (
-      input.operation.publicationKind === ReviewPublicationKind.PrDescription &&
-      input.provider !== ReviewV2ScmProvider.GitHub
-    ) {
-      throw new Error("review_v2_pr_description_github_app_required");
-    }
-    const provider = this.providers.get(input.provider);
-    if (!provider) {
-      throw new Error("review_v2_scm_credential_provider_missing");
-    }
-    await this.capabilityVerifier.verify({
-      signedCapability: input.signedCapability,
-      permit: input.permit,
-      operation: input.operation,
-      capability: input.capability,
-      claim: input.claim,
-    });
-    const session = await provider.acquireClient({
-      purpose: input.purpose,
-      permit: input.permit,
-      capability: input.capability,
-    });
-    const gateway = createProviderGateway(input.provider, session.client);
-    if (input.purpose === ReviewV2ScmCredentialPurpose.Mutate) {
-      return {
-        purpose: input.purpose,
-        gateway,
-        close: () => session.close(),
-      };
-    }
-    return {
-      purpose: input.purpose,
-      gateway: {
-        findAllByMarker: (request) => gateway.findAllByMarker(request),
-        markStaleOrDelete: (request) => gateway.markStaleOrDelete(request),
-      },
-      close: () => session.close(),
-    };
-  }
-}
-
-export class RotatingReviewV2OperationCapabilityIssuer implements ReviewV2OperationCapabilityIssuerPort {
-  constructor(
-    private readonly keyRing: CapabilityKeyRingPort,
-    private readonly clock: ReviewV2PublicationClockPort,
-    private readonly issuer = "reviewrouter-review-v2-worker",
-  ) {}
-
-  async issue(
-    input: Parameters<ReviewV2OperationCapabilityIssuerPort["issue"]>[0],
-  ): Promise<ReviewV2OpaqueSignedOperationCapability> {
-    const now = this.clock.now();
-    const signingKey = await this.keyRing.verificationKey(
-      input.capability.capabilitySigningKeyId,
-      now,
-    );
-    if (!signingKey) {
-      throw new Error("review_v2_operation_capability_signing_key_unavailable");
-    }
-    assertOperationCapabilityContext(input);
-    const ownershipExpiresAt = operationCapabilityOwnershipExpiry(input);
-    if (
-      now >= ownershipExpiresAt ||
-      now >= input.capability.effectReportUntil
-    ) {
-      throw new Error("review_v2_operation_capability_expired");
-    }
-    const signer = new JoseRotatingCapabilityCodec({
-      activeSigningKey: async () => signingKey,
-      verificationKey: async (keyId) =>
-        keyId === signingKey.keyId ? signingKey : null,
-    });
-    const payload = operationCapabilityPayload(input);
-    const signed = await signer.sign({
-      capabilityId: input.capability.capabilityId,
-      kind: CapabilityKind.PublicationOperation,
-      audience: CapabilityAudience.ReviewPublicationOperation,
-      issuer: this.issuer,
-      subject: input.operation.publicationOperationId,
-      issuedAt: now,
-      notBefore: now,
-      ownershipExpiresAt,
-      expiresAt: input.capability.effectReportUntil,
-      payload,
-    });
-    if (signed.signingKeyId !== input.capability.capabilitySigningKeyId) {
-      throw new Error("review_v2_operation_capability_key_mismatch");
-    }
-    return signed;
-  }
-}
-
-type SignedCapabilityVerificationPort = Pick<
-  SignedCapabilityCodecPort,
-  "verify"
->;
-
-export class SignedReviewV2OperationCapabilityVerifier implements ReviewV2OperationCapabilityVerifierPort {
-  constructor(
-    private readonly verifier: SignedCapabilityVerificationPort,
-    private readonly clock: ReviewV2PublicationClockPort,
-    private readonly issuer = "reviewrouter-review-v2-worker",
-  ) {}
-
-  async verify(
-    input: Parameters<ReviewV2OperationCapabilityVerifierPort["verify"]>[0],
-  ): Promise<void> {
-    const now = this.clock.now();
-    assertOperationCapabilityContext(input);
-    const header = decodeProtectedHeader(input.signedCapability.token);
-    if (
-      header.kid !== input.signedCapability.signingKeyId ||
-      header.kid !== input.capability.capabilitySigningKeyId
-    ) {
-      throw new Error("review_v2_operation_capability_key_mismatch");
-    }
-    const verified = await this.verifier.verify({
-      token: input.signedCapability.token,
-      expectedIssuer: this.issuer,
-      expectedAudience: CapabilityAudience.ReviewPublicationOperation,
-      expectedKind: CapabilityKind.PublicationOperation,
-      now,
-    });
-    const payload = operationCapabilityPayload(input);
-    const ownershipExpiresAt = operationCapabilityOwnershipExpiry(input);
-    if (
-      verified.capabilityId !== input.capability.capabilityId ||
-      input.signedCapability.capabilityId !== input.capability.capabilityId ||
-      input.signedCapability.signingKeyId !==
-        input.capability.capabilitySigningKeyId ||
-      verified.subject !== input.operation.publicationOperationId ||
-      verified.ownershipExpiresAt?.getTime() !==
-        truncateToSeconds(ownershipExpiresAt).getTime() ||
-      verified.expiresAt.getTime() !==
-        truncateToSeconds(input.capability.effectReportUntil).getTime() ||
-      input.signedCapability.expiresAt.getTime() !==
-        input.capability.effectReportUntil.getTime() ||
-      now >= ownershipExpiresAt ||
-      now >= input.capability.effectReportUntil ||
-      canonicalJson(verified.payload) !== canonicalJson(payload)
-    ) {
-      throw new Error("review_v2_operation_capability_claim_mismatch");
-    }
-  }
-}
-
-function operationCapabilityPayload(
-  input: Parameters<ReviewV2OperationCapabilityIssuerPort["issue"]>[0],
-) {
-  return Object.freeze({
-    signingKeyId: input.capability.capabilitySigningKeyId,
-    publicationAttemptId: input.capability.publicationAttemptId,
-    publicationOperationId: input.operation.publicationOperationId,
-    operationAttemptId: input.capability.operationAttemptId,
-    effectReportId: input.capability.effectReportId,
-    operationClaimId: input.capability.claimId,
-    operationClaimFence: input.capability.claimFencingToken.toString(),
-    claimId: input.claim.claimId,
-    claimFence: input.claim.fencingToken.toString(),
-    claimOwnerIdHash: input.claim.ownerIdHash,
-    permitEpoch: input.permit.permitEpoch.toString(),
-    mutationEpoch: input.capability.mutationEpoch.toString(),
-    publicationSafetyDecisionHash:
-      input.capability.publicationSafetyDecisionHash,
-    bodyHash: input.operation.bodyHash,
-    targetCommitId: input.operation.targetCommitId,
-    targetExternalObjectId: input.capability.targetExternalObjectId ?? "none",
-    reviewRevisionHash: input.permit.reviewRevisionHash,
-  });
-}
-
-function assertOperationCapabilityContext(
-  input: Parameters<ReviewV2OperationCapabilityIssuerPort["issue"]>[0],
-): void {
-  if (
-    input.capability.publicationOperationId !==
-      input.operation.publicationOperationId ||
-    input.capability.publicationAttemptId !==
-      input.operation.publicationAttemptId ||
-    input.claim.publicationAttemptId !==
-      input.capability.publicationAttemptId ||
-    input.capability.mutationEpoch !== input.permit.permitEpoch ||
-    input.capability.reviewRevisionHash !== input.permit.reviewRevisionHash ||
-    input.capability.publicationSafetyDecisionHash !==
-      input.permit.publicationSafetyDecisionHash ||
-    input.operation.targetCommitId !== input.permit.reviewedHeadSha ||
-    input.operation.reviewRevisionHash !== input.permit.reviewRevisionHash ||
-    input.capability.bodyHash !== input.operation.bodyHash ||
-    input.capability.targetCommitId !== input.operation.targetCommitId
-  ) {
-    throw new Error("review_v2_operation_capability_context_mismatch");
-  }
-}
-
-function operationCapabilityOwnershipExpiry(
-  input: Parameters<ReviewV2OperationCapabilityIssuerPort["issue"]>[0],
-): Date {
-  return new Date(
-    Math.min(
-      input.claim.expiresAt.getTime(),
-      input.capability.effectReportUntil.getTime(),
-    ),
-  );
-}
-
-function truncateToSeconds(value: Date): Date {
-  return new Date(Math.floor(value.getTime() / 1_000) * 1_000);
-}
-
-export class GitHubReviewV2PublicationGatewayAdapter {
-  constructor(private readonly client: ReviewV2ProviderPublicationClientPort) {}
-
-  findAllByMarker(
-    input: Parameters<
-      ReviewV2ProviderPublicationClientPort["findAllByMarker"]
-    >[0],
-  ) {
-    return this.client.findAllByMarker(input);
-  }
-
-  applyOperation(
-    input: Parameters<
-      ReviewV2ProviderPublicationClientPort["applyOperation"]
-    >[0],
-  ) {
-    return this.client.applyOperation(input);
-  }
-
-  markStaleOrDelete(
-    input: Parameters<
-      ReviewV2ProviderPublicationClientPort["markStaleOrDelete"]
-    >[0],
-  ) {
-    return this.client.markStaleOrDelete(input);
-  }
-}
-
-export class GitLabReviewV2PublicationGatewayAdapter {
-  constructor(private readonly client: ReviewV2ProviderPublicationClientPort) {}
-
-  findAllByMarker(
-    input: Parameters<
-      ReviewV2ProviderPublicationClientPort["findAllByMarker"]
-    >[0],
-  ) {
-    return this.client.findAllByMarker(input);
-  }
-
-  applyOperation(
-    input: Parameters<
-      ReviewV2ProviderPublicationClientPort["applyOperation"]
-    >[0],
-  ) {
-    return this.client.applyOperation(input);
-  }
-
-  markStaleOrDelete(
-    input: Parameters<
-      ReviewV2ProviderPublicationClientPort["markStaleOrDelete"]
-    >[0],
-  ) {
-    return this.client.markStaleOrDelete(input);
-  }
-}
-
-function createProviderGateway(
-  provider: ReviewV2ScmProvider,
-  client: ReviewV2ProviderPublicationClientPort,
-):
-  | GitHubReviewV2PublicationGatewayAdapter
-  | GitLabReviewV2PublicationGatewayAdapter {
-  switch (provider) {
-    case ReviewV2ScmProvider.GitHub:
-      return new GitHubReviewV2PublicationGatewayAdapter(client);
-    case ReviewV2ScmProvider.GitLab:
-      return new GitLabReviewV2PublicationGatewayAdapter(client);
-  }
-}
+} from "../../application/ports/review-publication-payload-port";
+import {
+  type ReviewV2ProviderPublicationClientPort,
+  type ReviewV2ProviderPublicationClientSession,
+  type ReviewV2ProviderCredentialPort,
+} from "../../application/ports/review-publication-provider-ports";
+import { canonicalReviewPublicationJson } from "../../domain/canonical-review-publication-json";
 
 export type ReviewV2GitHubRepository = {
   readonly githubInstallationId: string;
@@ -525,7 +177,7 @@ export async function readGitHubReviewV2LiveRevision(
     mergeBaseSha,
     headSha: before.headSha,
     reviewRevisionHash: sha256(
-      canonicalJson({
+      canonicalReviewPublicationJson({
         workspaceId: permit.workspaceId,
         repositoryConnectionId: permit.repositoryConnectionId,
         scmRepositoryIdentityId: permit.scmRepositoryIdentityId,
@@ -881,7 +533,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         return [];
       }
       const bodyHash = sha256(
-        canonicalJson({
+        canonicalReviewPublicationJson({
           name: row.name,
           title: output.title,
           summary: output.summary,
@@ -960,7 +612,12 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         gatewayObject(
           `review:${reviewId}`,
           payload,
-          sha256(canonicalJson({ body: row.body, event: "COMMENT" })),
+          sha256(
+            canonicalReviewPublicationJson({
+              body: row.body,
+              event: "COMMENT",
+            }),
+          ),
           reviewObservedObjectHash(row, comments),
         ),
       ],
@@ -982,12 +639,12 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
               `thread:${payload.threadId}`,
               payload,
               sha256(
-                canonicalJson({
+                canonicalReviewPublicationJson({
                   threadId: payload.threadId,
                   resolve: payload.resolve,
                 }),
               ),
-              sha256(canonicalJson(node)),
+              sha256(canonicalReviewPublicationJson(node)),
             ),
           ],
           nextCursor: null,
@@ -1159,7 +816,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       "github_review_commit_id_invalid",
     ).toLowerCase();
     const bodyHash = sha256(
-      canonicalJson({ body: row.body, commitId, comments }),
+      canonicalReviewPublicationJson({ body: row.body, commitId, comments }),
     );
     return gatewayObject(
       `review:${reviewId}`,
@@ -1374,7 +1031,7 @@ function gatewayObject(
   payload: ReviewV2PublicationPayload,
   bodyHash: string,
   observedObjectHash = sha256(
-    canonicalJson({
+    canonicalReviewPublicationJson({
       externalObjectId,
       markerHash: payload.markerHash,
       bodyHash,
@@ -1398,7 +1055,7 @@ function reviewObservedObjectHash(
   const user = isRecord(row.user) ? row.user : null;
   const app = isRecord(row.app) ? row.app : null;
   return sha256(
-    canonicalJson({
+    canonicalReviewPublicationJson({
       commitId: row.commit_id,
       author: user?.login ?? null,
       app: app?.slug ?? null,
@@ -1525,23 +1182,15 @@ function requireRecord(
   return value;
 }
 
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  const record = value as Readonly<Record<string, unknown>>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-    .join(",")}}`;
-}
-
 function prDescriptionVisibleObjectHash(current: {
   readonly body: string;
   readonly headSha: string;
 }): string {
   return sha256(
-    canonicalJson({ bodyHash: sha256(current.body), headSha: current.headSha }),
+    canonicalReviewPublicationJson({
+      bodyHash: sha256(current.body),
+      headSha: current.headSha,
+    }),
   );
 }
 

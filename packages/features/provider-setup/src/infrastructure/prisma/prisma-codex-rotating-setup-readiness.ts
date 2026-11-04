@@ -8,7 +8,7 @@ import {
   type CodexRotatingSetupReadinessEvidence,
   type CodexRotatingSetupReadinessTarget,
   type ConfirmedCodexRotatingSetupReadiness,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 import { lockCodexRotatingProviderRow } from "./codex-rotating-provider-mutation-fence";
 
 const transactionTimeoutMs = 10_000;

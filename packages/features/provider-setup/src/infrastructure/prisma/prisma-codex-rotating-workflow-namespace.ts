@@ -10,7 +10,7 @@ import {
   type CodexRotatingWorkflowCandidateEvidence,
   type CodexRotatingWorkflowNamespaceInspection,
   type CodexRotatingWorkflowNamespacePort,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 import { lockCodexRotatingProviderRow } from "./codex-rotating-provider-mutation-fence";
 import { findCodexRotatingSetupReadinessEvidence } from "./prisma-codex-rotating-setup-readiness";
 

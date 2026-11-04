@@ -1,3 +1,15 @@
+import {
+  assertCodexRotatingSetupRecoveryWitness,
+  fingerprintConfiguredSetupRecoveryWitness,
+} from "./codex-rotating-setup-witness";
+import {
+  CodexRotatingSetupManifestStatus,
+  assertSetupManifestFetchable,
+  assertFetchedRecoveryWindow,
+  evaluateSetupManifestRecoveryAuthority,
+  isReusableIssuedManifest,
+  type SetupRecoveryRequestFacts,
+} from "../../domain/codex-rotating-setup-manifest-policy";
 import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
@@ -13,9 +25,9 @@ import {
   codexRuntimeMigrationBindingSchema,
   type CodexRotatingInstallerArgument,
   type CodexRuntimeMigrationBinding,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 import { isCodexRotatingOAuthAllowedForRepository } from "@reviewrouter/platform-config";
-import type { CodexRotatingSeedScriptDescriptor } from "./codex-rotating-seed-script";
+import type { CodexRotatingSeedScriptDescriptor } from "../../domain/codex-rotating-installer";
 import {
   isCodexRotatingSetupFenceOwner,
   lockCodexRotatingProviderRow,
@@ -36,15 +48,6 @@ export function assertSetupIssuanceEnabled(
   ) {
     throw new Error("codex_rotating_setup_issuance_quiesced");
   }
-}
-
-export enum CodexRotatingSetupManifestStatus {
-  Issued = "issued",
-  Fetched = "fetched",
-  Consumed = "consumed",
-  Expired = "expired",
-  Superseded = "superseded",
-  Recovered = "recovered",
 }
 
 type SetupManifestRow = {
@@ -74,14 +77,6 @@ type SetupManifestQueryClient = Pick<PrismaClient, "$queryRaw">;
 export type CodexRotatingSetupAdmittedOperation = (
   tx: SetupManifestTransaction,
 ) => Promise<void>;
-
-type ForcedRecoveryAuthority = {
-  readonly kind: "allocation" | "replay";
-  readonly requestId: string;
-  readonly epoch: bigint;
-  readonly databaseRecoveryWitness: string | null;
-  readonly manifestDatabaseRecoveryWitness: string | null;
-};
 
 export async function issueCodexRotatingSetupCommand(input: {
   readonly prisma: PrismaClient;
@@ -239,90 +234,13 @@ export async function issueCodexRotatingSetupCommand(input: {
         tx,
         provider.id,
       );
-      if (
-        activeRecoveryRequest &&
-        activeRecoveryRequest.id !== recoveryRequest?.id
-      ) {
-        throw new Error(
-          input.recovery
-            ? "codex_rotating_setup_recovery_request_conflict"
-            : "codex_rotating_setup_recovery_required",
-        );
-      }
-      if (active?.status === CodexRotatingSetupManifestStatus.Fetched) {
-        throw new Error("codex_rotating_setup_recovery_required");
-      }
-      if (provider.mutationOwner === "recovery") {
-        if (
-          !input.recovery ||
-          !recoveryRequest ||
-          input.recovery.epoch !== recoveryRequest.mutationEpoch ||
-          provider.mutationEpoch !== recoveryRequest.mutationEpoch ||
-          provider.mutationOwnerId !==
-            `setup-recovery:${input.recovery.requestId}`
-        ) {
-          throw new Error("codex_rotating_setup_recovery_required");
-        }
-      } else if (input.recovery) {
-        if (
-          !recoveryRequest ||
-          recoveryRequest.mutationEpoch !== input.recovery.epoch ||
-          !isRecoveryRequestMode(recoveryRequest.mode) ||
-          !["active", "manifest_issued"].includes(recoveryRequest.state) ||
-          provider.mutationOwner !== "setup" ||
-          provider.mutationOwnerId !== recoveryRequest.latestManifestId
-        ) {
-          throw new Error("codex_rotating_setup_recovery_already_used");
-        }
-      }
-      if (
-        input.recovery &&
-        (!recoveryRequest ||
-          !isRecoveryRequestMode(recoveryRequest.mode) ||
-          !["active", "manifest_issued"].includes(recoveryRequest.state))
-      ) {
-        throw new Error("codex_rotating_setup_recovery_already_used");
-      }
-      const forcedRecoveryAuthority: ForcedRecoveryAuthority | null =
-        input.recovery &&
-        recoveryRequest &&
-        isRecoveryRequestMode(recoveryRequest.mode) &&
-        recoveryRequest.mutationEpoch === input.recovery.epoch
-          ? recoveryRequest.state === "active" &&
-            recoveryRequest.latestManifestId === null &&
-            provider.mutationOwner === "recovery" &&
-            provider.mutationOwnerId ===
-              `setup-recovery:${input.recovery.requestId}` &&
-            provider.mutationEpoch === input.recovery.epoch
-            ? {
-                kind: "allocation",
-                requestId: input.recovery.requestId,
-                epoch: input.recovery.epoch,
-                databaseRecoveryWitness:
-                  recoveryRequest.databaseRecoveryWitness,
-                manifestDatabaseRecoveryWitness: null,
-              }
-            : recoveryRequest.state === "manifest_issued" &&
-                active?.id === recoveryRequest.latestManifestId &&
-                active.mutationEpoch !== null &&
-                active.mutationEpoch === provider.mutationEpoch &&
-                provider.mutationEpoch === input.recovery.epoch + 1n &&
-                provider.mutationOwner === "setup" &&
-                provider.mutationOwnerId === active.id
-              ? {
-                  kind: "replay",
-                  requestId: input.recovery.requestId,
-                  epoch: input.recovery.epoch,
-                  databaseRecoveryWitness:
-                    recoveryRequest.databaseRecoveryWitness,
-                  manifestDatabaseRecoveryWitness:
-                    active.databaseRecoveryWitness,
-                }
-              : null
-          : null;
-      if (input.recovery && forcedRecoveryAuthority === null) {
-        throw new Error("codex_rotating_setup_recovery_required");
-      }
+      const forcedRecoveryAuthority = evaluateSetupManifestRecoveryAuthority({
+        recovery: input.recovery ?? null,
+        provider,
+        active,
+        recoveryRequest,
+        activeRecoveryRequest,
+      });
       const databaseRecoveryWitness =
         ordinaryDatabaseRecoveryWitness ??
         (!providerExisted && !input.recovery
@@ -600,158 +518,6 @@ export async function lockAndAssertCurrentSetupRepositoryIdentity(
     throw new Error("codex_rotating_setup_repository_identity_changed");
   }
   return current[0];
-}
-
-export async function assertCodexRotatingSetupRecoveryWitness(
-  tx: SetupManifestQueryClient,
-  input: {
-    readonly providerInstanceRowId: string;
-    readonly configuredRecoveryWitness?: string;
-    readonly forcedRecoveryAuthority: ForcedRecoveryAuthority | null;
-  },
-): Promise<string> {
-  const currentFingerprint = fingerprintConfiguredSetupRecoveryWitness(
-    input.configuredRecoveryWitness,
-  );
-  if (
-    input.forcedRecoveryAuthority &&
-    (input.forcedRecoveryAuthority.databaseRecoveryWitness !==
-      currentFingerprint ||
-      (input.forcedRecoveryAuthority.kind === "replay" &&
-        input.forcedRecoveryAuthority.manifestDatabaseRecoveryWitness !==
-          currentFingerprint))
-  ) {
-    throw new Error("codex_rotating_setup_recovery_required");
-  }
-  if (input.forcedRecoveryAuthority) {
-    const recoveryOwnerId = `setup-recovery:${input.forcedRecoveryAuthority.requestId}`;
-    const exactAuthority = await tx.$queryRaw<
-      Array<{ readonly allowed: boolean }>
-    >`
-      SELECT EXISTS (
-        SELECT 1
-        FROM "CodexOAuthSetupRecoveryRequest" recovery
-        JOIN "CodexOAuthProviderInstance" provider
-          ON provider."id" = recovery."providerInstanceRowId"
-        LEFT JOIN "CodexOAuthSetupManifest" manifest
-          ON manifest."id" = recovery."latestManifestId"
-        WHERE provider."id" = ${input.providerInstanceRowId}
-          AND recovery."recoveryRequestId" = ${input.forcedRecoveryAuthority.requestId}
-          AND recovery."mutationEpoch" = ${input.forcedRecoveryAuthority.epoch}
-          AND recovery."databaseRecoveryWitness" = ${currentFingerprint}
-          AND recovery."mode" IN ('forced_reseed', 'forced_reseed_account_switch')
-          AND (
-            (${input.forcedRecoveryAuthority.kind} = 'allocation'
-              AND recovery."state" = 'active'
-              AND recovery."latestManifestId" IS NULL
-              AND provider."mutationEpoch" = recovery."mutationEpoch"
-              AND provider."mutationOwner" = 'recovery'
-              AND provider."mutationOwnerId" = ${recoveryOwnerId})
-            OR
-            (${input.forcedRecoveryAuthority.kind} = 'replay'
-              AND recovery."state" = 'manifest_issued'
-              AND manifest."providerInstanceRowId" = provider."id"
-              AND manifest."status" = 'issued'
-              AND manifest."mutationEpoch" = recovery."mutationEpoch" + 1
-              AND manifest."mutationEpoch" = provider."mutationEpoch"
-              AND manifest."databaseRecoveryWitness" = ${currentFingerprint}
-              AND provider."mutationOwner" = 'setup'
-              AND provider."mutationOwnerId" = manifest."id")
-          )
-      ) AS "allowed"
-    `;
-    if (exactAuthority[0]?.allowed !== true) {
-      throw new Error("codex_rotating_setup_recovery_required");
-    }
-  }
-  const evidence = await tx.$queryRaw<
-    Array<{ readonly databaseRecoveryWitness: string | null }>
-  >`
-    SELECT evidence."databaseRecoveryWitness"
-    FROM (
-      SELECT manifest."databaseRecoveryWitness", manifest."mutationEpoch" AS "authorityEpoch",
-             manifest."createdAt", 1 AS priority, manifest."id"
-      FROM "CodexOAuthSetupManifest" manifest
-      WHERE manifest."providerInstanceRowId" = ${input.providerInstanceRowId}
-        AND manifest."mutationEpoch" IS NOT NULL
-      UNION ALL
-      SELECT claim."databaseRecoveryWitness", claim."recoveryEpoch" AS "authorityEpoch",
-             claim."createdAt", 2 AS priority, claim."id"
-      FROM "CodexOAuthSetupPayloadClaim" claim
-      WHERE claim."providerInstanceRowId" = ${input.providerInstanceRowId}
-      UNION ALL
-      SELECT intent."databaseRecoveryWitness", intent."mutationEpoch" AS "authorityEpoch",
-             intent."createdAt", 3 AS priority, intent."id"
-      FROM "CodexOAuthWritebackIntent" intent
-      WHERE intent."providerInstanceRowId" = ${input.providerInstanceRowId}
-        AND intent."mutationEpoch" IS NOT NULL
-      UNION ALL
-      SELECT namespace."databaseRecoveryWitness",
-             COALESCE(claim."recoveryEpoch", intent."mutationEpoch", 0::bigint) AS "authorityEpoch",
-             namespace."createdAt", 4 AS priority, namespace."id"
-      FROM "CodexOAuthSecretNamespace" namespace
-      LEFT JOIN "CodexOAuthSetupDispatchAttempt" attempt
-        ON attempt."namespaceId" = namespace."id"
-      LEFT JOIN "CodexOAuthSetupPayloadClaim" claim
-        ON claim."id" = attempt."claimId"
-      LEFT JOIN "CodexOAuthWritebackIntent" intent
-        ON intent."secretNamespaceId" = namespace."id"
-      WHERE namespace."providerInstanceRowId" = ${input.providerInstanceRowId}
-    ) evidence
-    ORDER BY evidence."authorityEpoch" DESC, evidence.priority DESC,
-             evidence."createdAt" DESC, evidence."id" DESC
-    LIMIT 1
-  `;
-  if (input.forcedRecoveryAuthority?.kind === "allocation") {
-    const liveAuthority = await tx.$queryRaw<Array<{ readonly count: bigint }>>`
-      SELECT (
-        (SELECT count(*) FROM "CodexOAuthSetupManifest"
-         WHERE "providerInstanceRowId" = ${input.providerInstanceRowId}
-           AND "status" IN ('issued', 'fetched'))
-        +
-        (SELECT count(*) FROM "CodexOAuthSetupPayloadClaim"
-         WHERE "providerInstanceRowId" = ${input.providerInstanceRowId}
-           AND "status" IN ('prepared', 'confirmed_candidate', 'active'))
-        +
-        (SELECT count(*) FROM "CodexOAuthSecretNamespace"
-         WHERE "providerInstanceRowId" = ${input.providerInstanceRowId}
-           AND "status" IN ('dispatch_authorized', 'confirmed_candidate', 'active'))
-        +
-        (SELECT count(*) FROM "CodexOAuthSetupDispatchAttempt" attempt
-         JOIN "CodexOAuthSetupPayloadClaim" claim ON claim."id" = attempt."claimId"
-         WHERE claim."providerInstanceRowId" = ${input.providerInstanceRowId}
-           AND attempt."status" IN ('dispatch_authorized', 'confirmed'))
-        +
-        (SELECT count(*) FROM "CodexOAuthWritebackIntent"
-         WHERE "providerInstanceRowId" = ${input.providerInstanceRowId}
-           AND ("status" = 'pending'
-             OR ("status" = 'remote_outcome_unknown' AND "recoveryResolvedAt" IS NULL)))
-      )::bigint AS count
-    `;
-    if (liveAuthority[0]?.count !== 0n) {
-      throw new Error("codex_rotating_setup_recovery_required");
-    }
-  }
-  const persistedFingerprint = evidence[0]?.databaseRecoveryWitness;
-  if (
-    persistedFingerprint !== undefined &&
-    persistedFingerprint !== currentFingerprint
-  ) {
-    if (input.forcedRecoveryAuthority?.kind !== "allocation") {
-      throw new Error("codex_rotating_setup_recovery_required");
-    }
-  }
-  return currentFingerprint;
-}
-
-function fingerprintConfiguredSetupRecoveryWitness(
-  configuredRecoveryWitness: string | undefined,
-): string {
-  try {
-    return fingerprintDatabaseRecoveryWitness(configuredRecoveryWitness ?? "");
-  } catch {
-    throw new Error("codex_rotating_setup_recovery_required");
-  }
 }
 
 export async function transitionRecoveryRequestToManifestIssued(
@@ -1058,25 +824,12 @@ function assertSetupNonce(setupNonce: string): void {
   }
 }
 
-type SetupRecoveryRequestRow = {
-  readonly id: string;
-  readonly mutationEpoch: bigint;
-  readonly databaseRecoveryWitness: string | null;
-  readonly mode: string;
-  readonly state: string;
-  readonly latestManifestId: string | null;
-};
-
-function isRecoveryRequestMode(mode: string): boolean {
-  return mode === "forced_reseed" || mode === "forced_reseed_account_switch";
-}
-
 async function findSetupRecoveryRequest(
   tx: SetupManifestTransaction,
   providerInstanceRowId: string,
   recoveryRequestId: string,
-): Promise<SetupRecoveryRequestRow | null> {
-  const rows = await tx.$queryRaw<SetupRecoveryRequestRow[]>`
+): Promise<SetupRecoveryRequestFacts | null> {
+  const rows = await tx.$queryRaw<SetupRecoveryRequestFacts[]>`
     SELECT "id", "mutationEpoch", "databaseRecoveryWitness", "mode", "state", "latestManifestId"
     FROM "CodexOAuthSetupRecoveryRequest"
     WHERE "providerInstanceRowId" = ${providerInstanceRowId}
@@ -1097,42 +850,6 @@ async function findActiveSetupRecoveryRequest(
     LIMIT 1
   `;
   return rows[0] ?? null;
-}
-
-function assertSetupManifestFetchable(row: SetupManifestRow, now: Date): void {
-  assertSetupManifestNotExpiredOrConsumed(row, now);
-  if (row.status !== CodexRotatingSetupManifestStatus.Issued) {
-    throw new Error("codex_rotating_setup_manifest_reused");
-  }
-}
-
-function assertSetupManifestNotExpiredOrConsumed(
-  row: SetupManifestRow,
-  now: Date,
-): void {
-  if (
-    row.status === CodexRotatingSetupManifestStatus.Consumed ||
-    row.consumedAt
-  ) {
-    throw new Error("codex_rotating_setup_manifest_reused");
-  }
-  if (
-    row.status === CodexRotatingSetupManifestStatus.Expired ||
-    row.expiresAt <= now
-  ) {
-    throw new Error("codex_rotating_setup_manifest_expired");
-  }
-}
-
-function assertFetchedRecoveryWindow(row: SetupManifestRow, now: Date): void {
-  if (
-    row.status !== CodexRotatingSetupManifestStatus.Fetched ||
-    row.consumedAt ||
-    !row.recoveryExpiresAt ||
-    row.recoveryExpiresAt <= now
-  ) {
-    throw new Error("codex_rotating_setup_manifest_expired");
-  }
 }
 
 async function expireActiveSetupManifests(
@@ -1190,30 +907,6 @@ async function supersedeSetupManifest(
     WHERE "id" = ${id}
       AND "status" = ${CodexRotatingSetupManifestStatus.Issued}
   `;
-}
-
-export function isReusableIssuedManifest(input: {
-  readonly manifest: ReturnType<typeof codexRotatingSetupManifestSchema.parse>;
-  readonly provider: {
-    readonly generationHashSalt: string;
-    readonly accountFingerprintSalt: string;
-  };
-  readonly repositoryFullName: string;
-  readonly githubRepositoryId: string;
-  readonly identityVersion: number;
-  readonly installer: CodexRotatingSeedScriptDescriptor;
-}): boolean {
-  return (
-    input.manifest.repositoryFullName === input.repositoryFullName &&
-    input.manifest.repositoryId === input.githubRepositoryId &&
-    input.manifest.repositoryIdentityVersion === input.identityVersion &&
-    input.manifest.generationHashSalt === input.provider.generationHashSalt &&
-    input.manifest.accountFingerprintSalt ===
-      input.provider.accountFingerprintSalt &&
-    input.manifest.installer.url === input.installer.url &&
-    input.manifest.installer.version === input.installer.version &&
-    input.manifest.installer.sha256 === input.installer.sha256
-  );
 }
 
 function setupCommandResult(input: {

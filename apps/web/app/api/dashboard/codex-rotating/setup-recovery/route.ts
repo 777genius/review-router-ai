@@ -7,7 +7,7 @@ import {
   codexRotatingSetupRecoveryHttpStatus,
   safeCodexRotatingSetupRecoveryErrorCode,
 } from "@reviewrouter/features-provider-setup";
-import { PrismaCodexRotatingSetupRecovery } from "../../../../../src/server/prisma-codex-rotating-setup-recovery";
+import { PrismaCodexRotatingSetupRecovery } from "@reviewrouter/features-provider-setup/composition";
 import { requireReviewRouterDatabaseRecoveryWitness } from "@reviewrouter/platform-config";
 
 export async function GET(request: Request): Promise<NextResponse> {

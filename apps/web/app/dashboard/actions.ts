@@ -144,8 +144,8 @@ import { resolveWorkflowPublicApiUrl } from "../../src/server/workflow-public-ap
 import { isWorkflowSetupAlreadyCurrent } from "../../src/server/workflow-setup-readiness";
 import { activateConfirmedCodexNamespaceAfterWorkflowMerge } from "../../src/server/codex-rotating-workflow-activation";
 import { activateConfirmedHostedPoolBindingAfterWorkflowMerge } from "../../src/server/hosted-pool-workflow-activation";
-import { PrismaCodexRotatingSetupReadiness } from "../../src/server/prisma-codex-rotating-setup-readiness";
-import { PrismaCodexRotatingWorkflowNamespace } from "../../src/server/prisma-codex-rotating-workflow-namespace";
+import { PrismaCodexRotatingSetupReadiness } from "@reviewrouter/features-provider-setup/composition";
+import { PrismaCodexRotatingWorkflowNamespace } from "@reviewrouter/features-provider-setup/composition";
 import type {
   CodexRotatingVersionedWriterSchemaVersion,
   CodexRotatingWriterSchemaPolicy,

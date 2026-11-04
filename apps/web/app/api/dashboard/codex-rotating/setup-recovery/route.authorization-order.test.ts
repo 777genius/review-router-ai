@@ -85,14 +85,11 @@ vi.mock("../../../../../src/server/prisma", () => ({
 vi.mock("../../../../../src/server/codex-rotating-setup-recovery", () => ({
   recoverAndIssueCodexRotatingSetup: mocks.recoverAndIssue,
 }));
-vi.mock(
-  "../../../../../src/server/prisma-codex-rotating-setup-recovery",
-  () => ({
-    PrismaCodexRotatingSetupRecovery: class {
-      inspectStatus = mocks.inspectStatus;
-    },
-  }),
-);
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
+  PrismaCodexRotatingSetupRecovery: class {
+    inspectStatus = mocks.inspectStatus;
+  },
+}));
 
 import { GET, POST } from "./route";
 

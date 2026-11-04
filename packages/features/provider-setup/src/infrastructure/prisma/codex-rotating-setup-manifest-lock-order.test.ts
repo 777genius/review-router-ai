@@ -1,8 +1,9 @@
+import { CodexRotatingSetupManifestStatus } from "../../domain/codex-rotating-setup-manifest-policy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildCodexRotatingSetupManifest,
   fingerprintDatabaseRecoveryWitness,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 
 const mocks = vi.hoisted(() => ({
   events: [] as string[],
@@ -25,10 +26,7 @@ vi.mock("@reviewrouter/platform-config", () => ({
   isCodexRotatingOAuthAllowedForRepository: () => true,
 }));
 
-import {
-  CodexRotatingSetupManifestStatus,
-  resolveCodexRotatingSetupManifestForNonce,
-} from "./codex-rotating-setup-manifest";
+import { resolveCodexRotatingSetupManifestForNonce } from "./codex-rotating-setup-manifest";
 
 const setupNonce = "stp:lock-order-proof";
 const databaseRecoveryWitness = "w".repeat(43);

@@ -1,3 +1,4 @@
+import { InMemoryCodexRotatingSetupPayloadClaim } from "../composition/index";
 import { describe, expect, it } from "vitest";
 import {
   assertCodexRotatingAccountIdentityTransition,
@@ -14,7 +15,6 @@ import {
   codexRotatingActivationSchema,
   authorizeCodexRotatingSetupDispatch,
   getCodexRotatingSetupStatus,
-  InMemoryCodexRotatingSetupPayloadClaim,
   prepareCodexRotatingSetup,
   recordCodexRotatingSetupDispatchOutcome,
 } from "../index";

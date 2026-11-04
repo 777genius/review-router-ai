@@ -130,8 +130,8 @@ import {
   RotatingReviewV2OperationCapabilityIssuer,
   SignedReviewV2OperationCapabilityVerifier,
   type ReviewV2GitHubRepositoryQueryPort,
-} from "./review-v2-publication-gateways";
-import { ExecuteReviewV2PublicationOperation } from "./review-v2-publication-executor";
+} from "@reviewrouter/features-review-publishing/v2/composition";
+import { ExecuteReviewV2PublicationOperation } from "@reviewrouter/features-review-publishing/v2";
 import {
   ReviewV2PublicationMaintenance,
   boundedRetryDelay,
@@ -143,7 +143,7 @@ import {
   type ReviewV2PublicationCompensationPolicyPort,
   type ReviewV2PublicationFreshnessPort,
   type ReviewV2ScmLiveRevisionPort,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 import { createProductionReviewInvestigationPublicationEffectGate } from "./review-v2-production-publication-effect-gate";
 import {
   CanonicalReviewV2ProjectionAdapter,
@@ -598,6 +598,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
   );
   const publicationExecutor = new ExecuteReviewV2PublicationOperation(
     {
+      digestUtf8: sha256,
       attempts,
       application: publicationApplication,
       freshness,

@@ -125,14 +125,22 @@ vi.mock(
 );
 // Run the production ledger/use cases; stop at the namespace persistence port.
 // Generation and provider-transaction qualification belong to the downstream DB lane.
-vi.mock("../../src/server/prisma-codex-rotating-setup-payload-claim", () => ({
-  PrismaCodexRotatingSetupPayloadClaim: class {
-    activate = mocks.ledgerActivate;
-    readActiveWorkflowAttestation = mocks.activeAttestation;
-    validateActiveWorkflowSource = mocks.validateActive;
-    replaceActiveWorkflowSource = mocks.persistReplacement;
-  },
-}));
+vi.mock(
+  "@reviewrouter/features-provider-setup/composition",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@reviewrouter/features-provider-setup/composition")
+    >()),
+    PrismaCodexRotatingSetupPayloadClaim: class {
+      activate = mocks.ledgerActivate;
+    },
+    PrismaCodexRotatingWorkflowAttestation: class {
+      readActiveWorkflowAttestation = mocks.activeAttestation;
+      validateActiveWorkflowSource = mocks.validateActive;
+      replaceActiveWorkflowSource = mocks.persistReplacement;
+    },
+  }),
+);
 // Extract the unchanged production source-switch chain without constructing
 // account, credential or KMS adapters. Only that construction boundary is fake;
 // the dashboard method, use case, Prisma adapters and configuration writes run.

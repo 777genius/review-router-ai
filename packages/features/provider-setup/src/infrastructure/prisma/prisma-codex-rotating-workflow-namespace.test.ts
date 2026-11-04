@@ -4,7 +4,7 @@ import {
   fingerprintDatabaseRecoveryWitness,
   type CodexRotatingSetupReadinessEvidence,
   type CodexRotatingWorkflowCandidateEvidence,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 import { PrismaCodexRotatingWorkflowNamespace } from "./prisma-codex-rotating-workflow-namespace";
 
 const databaseRecoveryWitness = "w".repeat(43);

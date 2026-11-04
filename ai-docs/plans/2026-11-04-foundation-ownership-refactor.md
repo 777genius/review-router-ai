@@ -234,6 +234,14 @@ order. Split private adapter helpers only at a genuine responsibility boundary.
 The installer descriptor becomes a provider-owned value; resolving its local
 file, URL or configuration remains in the web adapter.
 
+The payload-claim adapter currently implements three existing ports. Separate
+current-workflow reading and workflow reattestation persistence into their own
+Prisma adapter, using those existing contracts and the same locked reads and
+database authority. Remove those methods from the claim/dispatch adapter and
+migrate actual host composition directly. Shared witness, record-read and
+paired-retirement helpers remain private infrastructure capabilities. Do not
+retain delegating compatibility methods or introduce an additional port.
+
 ### Preserved guarantees
 
 1. Preserve provider/manifest lock ordering, advisory retry behavior, transaction
@@ -315,6 +323,54 @@ run the same behavioral cases, production runtime/maintenance/payload and
 SDK-growth host tests, strict native TS7 feature/worker/tooling checks and emitted
 exports. Reuse the existing production PostgreSQL review-v2 E2E, including
 restart, expired-claim takeover, moving head and ambiguous marker recovery.
+
+### Further execution responsibility separation
+
+Independent review of the moved implementation identifies one remaining
+substantial responsibility mix: the approximately 1,955-line finite executor
+still owns external reconciliation, effect authority continuation and durable
+settlement. Separate these responsibilities inside the same application owner:
+
+- `PublicationOperationSettlement`: durable effect restoration, canonical
+  receipt/completion, no-effect proof and terminal sibling settlement. It
+  receives only existing attempts, command application, clock and digest
+  capabilities; it cannot acquire SCM credentials.
+- `PublicationExecutionAuthority`: existing freshness reads, effect admission
+  and minimum mutation-lease continuation. It uses the existing narrow ports
+  and the existing claim-renewal command. Renewal writes durable lease state;
+  this collaborator is not pure. It cannot acquire SCM credentials or persist
+  effects or receipts.
+- `ReconcileReviewPublicationOperation`: external inventory, ambiguous-effect
+  reconciliation and compensation through the existing credential, capability
+  and compensation ports, plus the two internal services above.
+- `ExecuteReviewV2PublicationOperation`: the existing public finite operation,
+  command admission, claim acquisition and ordered orchestration. Its public
+  constructor and result contract remain unchanged.
+
+The dependency graph is acyclic: execution calls reconciliation, authority and
+settlement; reconciliation calls authority and settlement. These are concrete
+internal collaborators, not new public ports, a callback registry or a workflow
+framework. Select capabilities explicitly instead of passing the full executor
+dependency object to every service. Existing helper/command modules stay private.
+Constructors perform no I/O. In particular, authority receives only the existing
+`renewClaim` command capability, not all publication write commands.
+
+Preserve every fresh read and renewal at the same effect boundary and in the
+same order. Do not cache authority snapshots across operations. The raw
+freshness read after stale compensation retains its distinct error codes and
+must not be replaced by the general assessment helper. Reconciliation must
+return an updated claim after renewal. Credential sessions remain local to
+their original acquisition/finally scope; no service stores a session. Do not
+add retries, broaden catches, alter hash inputs or transfer an external effect
+into a component without its existing authority check.
+Borrowed gateway helpers do not close their caller's session. Preserve the
+completion path's view reload and expected version at its original position.
+
+This closes a demonstrated responsibility boundary. It reorganizes existing
+logic, not thousands of lines of new behavior. Retain the pre-extraction frozen
+identity regressions, compare moved method bodies and re-run the meaningful
+executor/host cases and production E2E. Two independent critics review the
+seams after extraction, including the call order and uncertain acknowledgements.
 
 ## F. Complete E2E and independent review
 

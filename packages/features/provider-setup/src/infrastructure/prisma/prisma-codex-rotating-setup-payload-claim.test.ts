@@ -1,21 +1,26 @@
+import {
+  PrismaCodexRotatingWorkflowAttestation,
+  CodexRotatingWorkflowReattestationError,
+  translateWorkflowReattestationDatabaseError,
+} from "./prisma-codex-rotating-workflow-attestation";
+import {
+  retireAttemptAndNamespace,
+  retirePredispatchAttemptAndNamespace,
+} from "./codex-rotating-setup-dispatch-retirement";
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   allocateVersionedProviderSecretNamespace,
   codexRotatingSetupTerminalClaimStatuses,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 import {
   createVersionedSecretWorkflowSourceAttestation,
   WorkflowSourceTrust,
-} from "@reviewrouter/features-workflow-provisioning";
+} from "@reviewrouter/features-codex-oauth-rotating";
 import {
   completeSetupRecoveryAssociation,
   CodexRotatingSetupPreDispatchError,
-  CodexRotatingWorkflowReattestationError,
   PrismaCodexRotatingSetupPayloadClaim,
-  retireAttemptAndNamespace,
-  retirePredispatchAttemptAndNamespace,
-  translateWorkflowReattestationDatabaseError,
 } from "./prisma-codex-rotating-setup-payload-claim";
 
 const recoveryWitness = "w".repeat(43);
@@ -112,7 +117,7 @@ function v5ValidationFixture(finalRows: readonly Record<string, unknown>[]) {
       .mockResolvedValueOnce(finalRows),
   };
   const prisma = { $transaction: vi.fn((callback) => callback(tx)) };
-  const ledger = new PrismaCodexRotatingSetupPayloadClaim(
+  const ledger = new PrismaCodexRotatingWorkflowAttestation(
     prisma as never,
     recoveryWitness,
   );
@@ -1545,7 +1550,7 @@ describe("Prisma rotating setup writer proof", () => {
     };
     enqueueTransition();
     const prisma = { $transaction: vi.fn((callback) => callback(tx)) };
-    const ledger = new PrismaCodexRotatingSetupPayloadClaim(
+    const ledger = new PrismaCodexRotatingWorkflowAttestation(
       prisma as never,
       recoveryWitness,
     );
@@ -1645,7 +1650,7 @@ describe("Prisma rotating setup writer proof", () => {
           ]),
       };
       const prisma = { $transaction: vi.fn((callback) => callback(tx)) };
-      const ledger = new PrismaCodexRotatingSetupPayloadClaim(
+      const ledger = new PrismaCodexRotatingWorkflowAttestation(
         prisma as never,
         recoveryWitness,
       );

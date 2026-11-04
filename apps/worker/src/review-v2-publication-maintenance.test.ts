@@ -8,7 +8,7 @@ import {
   ReviewV2ScmProvider,
   type ReviewV2PublicationExecutionCommand,
   type ReviewV2PublicationExecutionResult,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 import {
   ReviewV2PublicationMaintenance,
   publicationWorkProvider,

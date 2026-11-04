@@ -20,12 +20,12 @@ import {
   type CodexRotatingSetupRecoveryPort,
   type CodexRotatingSetupRecoveryResult,
   type CodexRotatingSetupRecoveryStatus,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 import {
   lockCodexRotatingProviderRow,
   lockCodexRotatingSetupProvider,
 } from "./codex-rotating-provider-mutation-fence";
-import { assertCodexRotatingSetupRecoveryWitness } from "./codex-rotating-setup-manifest";
+import { assertCodexRotatingSetupRecoveryWitness } from "./codex-rotating-setup-witness";
 
 const recoveryTransactionTimeoutMs = 10_000;
 

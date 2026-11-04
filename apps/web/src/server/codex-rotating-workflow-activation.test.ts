@@ -53,7 +53,7 @@ vi.mock("./codex-rotating-setup-ledger", () => ({
     replaceActiveWorkflowSource: mocks.replaceActiveWorkflowSource,
   },
 }));
-vi.mock("./prisma-codex-rotating-workflow-namespace", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   PrismaCodexRotatingWorkflowNamespace: class {},
 }));
 vi.mock("./codex-runtime-migration-activation", () => ({

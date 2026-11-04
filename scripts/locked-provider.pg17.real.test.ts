@@ -5,10 +5,10 @@ import {
 } from "../packages/features/codex-oauth-rotating/src/index";
 import { PrismaCodexRotatingOAuthRepository } from "../packages/features/action-control-plane/src/infrastructure/prisma/prisma-codex-rotating-oauth-repository";
 import { createHash } from "node:crypto";
-import { resolveCodexRotatingSetupManifestForNonce } from "../apps/web/src/server/codex-rotating-setup-manifest";
-import { PrismaCodexRotatingSetupPayloadClaim } from "../apps/web/src/server/prisma-codex-rotating-setup-payload-claim";
+import { resolveCodexRotatingSetupManifestForNonce } from "../packages/features/provider-setup/src/composition/index";
+import { PrismaCodexRotatingSetupPayloadClaim } from "../packages/features/provider-setup/src/composition/index";
 import { codexRotatingSetupManifestSchema } from "../packages/features/provider-setup/src/index";
-import { issueCodexRotatingSetupCommand } from "../apps/web/src/server/codex-rotating-setup-manifest";
+import { issueCodexRotatingSetupCommand } from "../packages/features/provider-setup/src/composition/index";
 import { setTimeout as delay } from "node:timers/promises";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";

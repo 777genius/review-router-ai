@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { assertCanonicalCodexRotatingProviderId } from "@reviewrouter/features-provider-setup";
+import { assertCanonicalCodexRotatingProviderId } from "../../index";
 
 type FenceTransaction = Prisma.TransactionClient;
 

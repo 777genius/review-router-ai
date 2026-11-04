@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import type { CodexRuntimeMigrationBinding } from "@reviewrouter/features-provider-setup";
+import type { CodexRuntimeMigrationBinding } from "../../index";
 
 /** Called only while the existing provider mutation row lock is held. */
 export async function assertOriginalCodexRuntimeMigrationSource(input: {

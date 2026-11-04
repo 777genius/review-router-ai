@@ -6,8 +6,8 @@ import {
   codexRotatingForcedRecoveryAttemptTransitions,
   codexRotatingForcedRecoveryClaimTransitions,
   codexRotatingSetupRecoveryAcknowledgement,
-} from "@reviewrouter/features-provider-setup";
-import { fingerprintDatabaseRecoveryWitness } from "@reviewrouter/features-provider-setup";
+} from "../../index";
+import { fingerprintDatabaseRecoveryWitness } from "../../index";
 import {
   canSupersedeUnclaimedRecoveryRequest,
   PrismaCodexRotatingSetupRecovery,

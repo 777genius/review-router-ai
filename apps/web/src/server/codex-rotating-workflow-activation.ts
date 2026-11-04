@@ -30,7 +30,7 @@ import {
   resolveReviewRouterCodexRotatingTrustedActionRefs,
 } from "@reviewrouter/platform-config";
 import { codexRotatingSetupLedger } from "./codex-rotating-setup-ledger";
-import { PrismaCodexRotatingWorkflowNamespace } from "./prisma-codex-rotating-workflow-namespace";
+import { PrismaCodexRotatingWorkflowNamespace } from "@reviewrouter/features-provider-setup/composition";
 import type { CodexRotatingWriterSchemaPolicy } from "./codex-rotating-writer-schema-policy";
 import { completeCodexRuntimeMigrationActivation } from "./codex-runtime-migration-activation";
 

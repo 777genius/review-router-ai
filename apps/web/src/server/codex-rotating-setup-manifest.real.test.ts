@@ -20,9 +20,9 @@ import { issueCodexRotatingSetupForRepository } from "./codex-rotating-setup-com
 import {
   issueCodexRotatingSetupCommand,
   resolveCodexRotatingSetupManifestForNonce,
-} from "./codex-rotating-setup-manifest";
-import { PrismaCodexRotatingSetupRecovery } from "./prisma-codex-rotating-setup-recovery";
-import { PrismaCodexRotatingSetupPayloadClaim } from "./prisma-codex-rotating-setup-payload-claim";
+} from "@reviewrouter/features-provider-setup/composition";
+import { PrismaCodexRotatingSetupRecovery } from "@reviewrouter/features-provider-setup/composition";
+import { PrismaCodexRotatingSetupPayloadClaim } from "@reviewrouter/features-provider-setup/composition";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;

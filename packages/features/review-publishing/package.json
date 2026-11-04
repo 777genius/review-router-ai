@@ -37,7 +37,9 @@
   "dependencies": {
     "@octokit/app": "^16.1.2",
     "@prisma/client": "7.8.0",
-    "@reviewrouter/shared": "workspace:*"
+    "@reviewrouter/shared": "workspace:*",
+    "@reviewrouter/platform-signed-capabilities": "workspace:*",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "@reviewrouter/platform-db": "workspace:*"

@@ -276,7 +276,7 @@ describe("Codex rotating secret write boundary", () => {
     const auditedSources = [
       "apps/api/src/app.ts",
       "apps/web/src/server/codex-rotating-setup-ledger.ts",
-      "apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts",
+      "packages/features/provider-setup/src/infrastructure/prisma/prisma-codex-rotating-setup-payload-claim.ts",
       "packages/features/action-control-plane/src/application/services/codex-rotating-versioned-writeback-dispatcher.ts",
       "packages/features/action-control-plane/src/infrastructure/prisma/prisma-codex-rotating-oauth-repository.ts",
     ];
@@ -288,7 +288,7 @@ describe("Codex rotating secret write boundary", () => {
     }
     const ledgerPath = join(
       root,
-      "apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts",
+      "packages/features/provider-setup/src/infrastructure/prisma/prisma-codex-rotating-setup-payload-claim.ts",
     );
     const ledger = readFileSync(ledgerPath, "utf8");
     expect(ledger).toContain(marker);

@@ -1,13 +1,13 @@
+import { assertCodexRotatingSetupRecoveryWitness } from "./codex-rotating-setup-witness";
+import { isReusableIssuedManifest } from "../../domain/codex-rotating-setup-manifest-policy";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildCodexRotatingSetupManifest,
   fingerprintDatabaseRecoveryWitness,
-} from "@reviewrouter/features-provider-setup";
+} from "../../index";
 import {
-  assertCodexRotatingSetupRecoveryWitness,
   assertSetupManifestRecoveryWitness,
   issueCodexRotatingSetupCommand,
-  isReusableIssuedManifest,
   lockAndAssertCurrentSetupRepositoryIdentity,
   transitionRecoveryRequestToManifestIssued,
 } from "./codex-rotating-setup-manifest";

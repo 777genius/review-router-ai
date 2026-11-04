@@ -1,5 +1,13 @@
-import { WorkflowProvisioningOutcomeError } from "@reviewrouter/features-workflow-provisioning";
-import type { AuditEventInput } from "@reviewrouter/features-audit-log";
+import {
+  WorkflowProvisioningOutcomeError,
+  provisionHostedPoolRepositoryWorkflow,
+  type WorkflowProvisioningRepositoryPort,
+  type WorkflowSetupGatewayPort,
+} from "@reviewrouter/features-workflow-provisioning";
+import type {
+  AuditEventInput,
+  AuditLogRepositoryPort,
+} from "@reviewrouter/features-audit-log";
 import { PostgresLeaseLock } from "@reviewrouter/platform-locks";
 import { WorkflowGitHubFixture } from "../../../../../packages/features/workflow-provisioning/src/tests/workflow-github-fixture";
 import { OctokitWorkflowSetupGateway } from "@reviewrouter/features-workflow-provisioning/composition";
@@ -432,38 +440,69 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
       }),
     ).rejects.toThrow();
   });
-  it("isolates remote writes after A pauses, expires, B finishes and A resumes", async () => {
-    const remote = new WorkflowGitHubFixture();
-    const auditEvents: AuditEventInput[] = [];
-    const entered = deferred();
-    const resume = deferred();
-    let paused = false;
-    remote.beforeWrite = async () => {
-      if (!paused) {
-        paused = true;
-        entered.resolve();
-        await resume.promise;
-      }
+  function provisionForTransport(
+    transport: "ordinary" | "hosted_pool",
+    version: string,
+    dependencies: {
+      provisioning: WorkflowProvisioningRepositoryPort;
+      setupGateway: WorkflowSetupGatewayPort;
+      auditLog: AuditLogRepositoryPort;
+    },
+  ) {
+    const input = {
+      workspaceId,
+      installationId,
+      repositoryId,
+      actionRef: `777genius/review-router@${version}`,
+      apiUrl: "https://api.reviewrouter.test",
     };
-    const lock = new PostgresLeaseLock(prisma);
-    const key = `${prefix}:workflow-provision`;
-    const writer = new PrismaWorkflowProvisioningRepository(prisma);
-    const provision = (version: string) =>
-      lock.withLock(key, 5 * 60_000, () =>
-        provisionReviewRouterWorkflow(
+    return transport === "hosted_pool"
+      ? provisionHostedPoolRepositoryWorkflow(
           {
-            workspaceId,
-            installationId,
-            repositoryId,
+            ...input,
+            providerInstanceId: `hosted-pool:repository:${githubId}`,
+            bindingId: `${prefix}-hosted-binding`,
+            bindingRevision: 1,
+          },
+          {
+            ...dependencies,
+            targets: new PrismaWorkflowProvisioningTarget(prisma),
+          },
+        )
+      : provisionReviewRouterWorkflow(
+          {
+            ...input,
             owner: "acme",
             name: "widget",
             defaultBranch: "main",
-            actionRef: `777genius/review-router@${version}`,
-            apiUrl: "https://api.reviewrouter.test",
             runtimeConfigMode: "oidc",
             codexRotatingProviderInstanceId: "codex-rotating:123456",
           },
-          {
+          dependencies,
+        );
+  }
+
+  it.each(["ordinary", "hosted_pool"] as const)(
+    "%s isolates remote writes after A pauses, expires, B finishes and A resumes",
+    async (transport) => {
+      const remote = new WorkflowGitHubFixture();
+      const auditEvents: AuditEventInput[] = [];
+      const entered = deferred();
+      const resume = deferred();
+      let paused = false;
+      remote.beforeWrite = async () => {
+        if (!paused) {
+          paused = true;
+          entered.resolve();
+          await resume.promise;
+        }
+      };
+      const lock = new PostgresLeaseLock(prisma);
+      const key = `${prefix}:workflow-provision`;
+      const writer = new PrismaWorkflowProvisioningRepository(prisma);
+      const provision = (version: string) =>
+        lock.withLock(key, 5 * 60_000, () =>
+          provisionForTransport(transport, version, {
             provisioning: writer,
             auditLog: {
               append: async (event) => {
@@ -471,81 +510,262 @@ withDatabase("WorkflowProvisioning PostgreSQL concurrency and transfer", () => {
               },
             },
             setupGateway: new OctokitWorkflowSetupGateway(remote),
+          }),
+        );
+      const older = provision("a".repeat(40)).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      try {
+        await Promise.race([
+          entered.promise,
+          older.then(() => {
+            throw new Error("attempt_completed_before_write_pause");
+          }),
+        ]);
+        await prisma.distributedLock.update({
+          where: { key },
+          data: { expiresAt: new Date(0) },
+        });
+        const newer = await provision("b".repeat(40));
+        const before = await prisma.workflowProvisioning.findUniqueOrThrow({
+          where: { repositoryId },
+        });
+        const intendedFiles = remote.commits.get(newer.headSha);
+        expect([...intendedFiles!.values()].join("\n")).toContain(
+          `@${"b".repeat(40)}`,
+        );
+        resume.resolve();
+        const staleOutcome = await older;
+        if (
+          !("error" in staleOutcome) ||
+          !(staleOutcome.error instanceof WorkflowProvisioningOutcomeError)
+        )
+          throw new Error("superseded_attempt_succeeded");
+        expect(staleOutcome.error.code).toBe(
+          "workflow_provisioning_superseded",
+        );
+        expect(staleOutcome.error.mayHaveExternalEffects).toBe(true);
+        const stale = staleOutcome.error.observedPullRequest!;
+        expect(auditEvents.map((event) => event.action)).toEqual([
+          transport === "hosted_pool"
+            ? "workflow.hosted_pool_setup_pr_opened"
+            : "workflow.setup_pr_opened",
+        ]);
+        expect(auditEvents[0]?.metadata).toMatchObject({
+          branch: newer.branch,
+          actionVersion: `777genius/review-router@${"b".repeat(40)}`,
+        });
+        if (transport === "ordinary")
+          expect(auditEvents[0]?.metadata).toMatchObject({
+            pullRequestUrl: newer.url,
+          });
+        expect(stale.branch).not.toBe(newer.branch);
+        expect(remote.branches.get(newer.branch)).toBe(newer.headSha);
+        expect(remote.commits.get(newer.headSha)).toEqual(intendedFiles);
+        expect(
+          await prisma.workflowProvisioning.findUniqueOrThrow({
+            where: { repositoryId },
+          }),
+        ).toEqual(before);
+        const authority = new PrismaWorkflowProvisioningStatusAuthority(prisma);
+        const merged = {
+          ...identity,
+          setupBranch: newer.branch,
+          pullRequestNumber: newer.number,
+          headSha: newer.headSha,
+        };
+        expect(
+          await authority.markConfigured({ ...merged, headSha: stale.headSha }),
+        ).toBe(false);
+        expect(await authority.markConfigured(merged)).toBe(true);
+        expect(
+          await prisma.workflowProvisioning.findUniqueOrThrow({
+            where: { repositoryId },
+          }),
+        ).toMatchObject({
+          status: "configured",
+          actionVersion: `777genius/review-router@${"b".repeat(40)}`,
+          pullRequestHeadSha: newer.headSha,
+        });
+      } finally {
+        resume.resolve();
+        await older;
+      }
+    },
+  );
+
+  it.each(["ordinary", "hosted_pool"] as const)(
+    "%s preserves the committed setup PR when its success audit fails",
+    async (transport) => {
+      const remote = new WorkflowGitHubFixture();
+      const writer = new PrismaWorkflowProvisioningRepository(prisma);
+      const failedWrite = vi.spyOn(writer, "markFailed");
+      const auditEvents: AuditEventInput[] = [];
+      const auditFailure = new Error("audit unavailable after commit");
+      const outcome = await provisionForTransport(transport, "c".repeat(40), {
+        provisioning: writer,
+        setupGateway: new OctokitWorkflowSetupGateway(remote),
+        auditLog: {
+          append: async (event) => {
+            auditEvents.push(event);
+            throw auditFailure;
           },
-        ),
+        },
+      }).then(
+        () => {
+          throw new Error("audit_failure_was_hidden");
+        },
+        (error: unknown) => error,
       );
-    const older = provision("a".repeat(40)).then(
-      (value) => ({ value }),
-      (error: unknown) => ({ error }),
-    );
-    try {
-      await Promise.race([
-        entered.promise,
-        older.then(() => {
-          throw new Error("attempt_completed_before_write_pause");
-        }),
-      ]);
-      await prisma.distributedLock.update({
-        where: { key },
-        data: { expiresAt: new Date(0) },
+      expect(outcome).toBeInstanceOf(WorkflowProvisioningOutcomeError);
+      if (!(outcome instanceof WorkflowProvisioningOutcomeError))
+        throw new Error("expected_workflow_outcome");
+      expect(outcome).toMatchObject({
+        code: "workflow_provisioning_audit_unavailable",
+        stage: "success_audit",
+        mayHaveExternalEffects: true,
+        cause: auditFailure,
       });
-      const newer = await provision("b".repeat(40));
-      const before = await prisma.workflowProvisioning.findUniqueOrThrow({
-        where: { repositoryId },
-      });
-      const intendedFiles = remote.commits.get(newer.headSha);
-      expect([...intendedFiles!.values()].join("\n")).toContain(
-        `@${"b".repeat(40)}`,
-      );
-      resume.resolve();
-      const staleOutcome = await older;
-      if (
-        !("error" in staleOutcome) ||
-        !(staleOutcome.error instanceof WorkflowProvisioningOutcomeError)
-      )
-        throw new Error("superseded_attempt_succeeded");
-      expect(staleOutcome.error.code).toBe("workflow_provisioning_superseded");
-      expect(staleOutcome.error.mayHaveExternalEffects).toBe(true);
-      const stale = staleOutcome.error.observedPullRequest!;
+      expect(outcome.committedPullRequest).not.toBeNull();
+      const committed = outcome.committedPullRequest!;
+      expect(remote.pullRequests.size).toBe(1);
+      expect(remote.branches.get(committed.branch)).toBe(committed.headSha);
+      expect(failedWrite).not.toHaveBeenCalled();
       expect(auditEvents.map((event) => event.action)).toEqual([
-        "workflow.setup_pr_opened",
+        transport === "hosted_pool"
+          ? "workflow.hosted_pool_setup_pr_opened"
+          : "workflow.setup_pr_opened",
       ]);
-      expect(auditEvents[0]?.metadata).toMatchObject({
-        pullRequestUrl: newer.url,
-      });
-      expect(stale.branch).not.toBe(newer.branch);
-      expect(remote.branches.get(newer.branch)).toBe(newer.headSha);
-      expect(remote.commits.get(newer.headSha)).toEqual(intendedFiles);
-      expect(
-        await prisma.workflowProvisioning.findUniqueOrThrow({
+      await expect(
+        prisma.workflowProvisioning.findUniqueOrThrow({
           where: { repositoryId },
         }),
-      ).toEqual(before);
-      const authority = new PrismaWorkflowProvisioningStatusAuthority(prisma);
-      const merged = {
-        ...identity,
-        setupBranch: newer.branch,
-        pullRequestNumber: newer.number,
-        headSha: newer.headSha,
-      };
-      expect(
-        await authority.markConfigured({ ...merged, headSha: stale.headSha }),
-      ).toBe(false);
-      expect(await authority.markConfigured(merged)).toBe(true);
-      expect(
-        await prisma.workflowProvisioning.findUniqueOrThrow({
+      ).resolves.toMatchObject({
+        attemptId: outcome.attempt.attemptId,
+        status: "setup_pr_open",
+        pullRequestUrl: committed.url,
+        pullRequestHeadSha: committed.headSha,
+        errorMessage: null,
+      });
+    },
+  );
+
+  it.each(["ordinary", "hosted_pool"] as const)(
+    "%s retains committed database evidence when the settlement acknowledgement is lost",
+    async (transport) => {
+      const remote = new WorkflowGitHubFixture();
+      const writer = new PrismaWorkflowProvisioningRepository(prisma);
+      const failedWrite = vi.spyOn(writer, "markFailed");
+      const audit = vi.fn(async () => {});
+      const connectionFailure = new Error("settlement acknowledgement lost");
+      const outcome = await provisionForTransport(transport, "d".repeat(40), {
+        provisioning: {
+          beginAttempt: (input) => writer.beginAttempt(input),
+          markFailed: (input) => writer.markFailed(input),
+          async markSetupPullRequestOpen(input) {
+            expect(await writer.markSetupPullRequestOpen(input)).toBe(
+              "applied",
+            );
+            throw connectionFailure;
+          },
+        },
+        setupGateway: new OctokitWorkflowSetupGateway(remote),
+        auditLog: { append: audit },
+      }).then(
+        () => {
+          throw new Error("persistence_uncertainty_was_hidden");
+        },
+        (error: unknown) => error,
+      );
+      expect(outcome).toBeInstanceOf(WorkflowProvisioningOutcomeError);
+      if (!(outcome instanceof WorkflowProvisioningOutcomeError))
+        throw new Error("expected_workflow_outcome");
+      expect(outcome).toMatchObject({
+        code: "workflow_provisioning_persistence_uncertain",
+        stage: "completion",
+        mayHaveExternalEffects: true,
+        committedPullRequest: null,
+        cause: connectionFailure,
+      });
+      expect(outcome.observedPullRequest).not.toBeNull();
+      const observed = outcome.observedPullRequest!;
+      expect(remote.pullRequests.size).toBe(1);
+      expect(failedWrite).not.toHaveBeenCalled();
+      expect(audit).not.toHaveBeenCalled();
+      await expect(
+        prisma.workflowProvisioning.findUniqueOrThrow({
           where: { repositoryId },
         }),
-      ).toMatchObject({
-        status: "configured",
-        actionVersion: `777genius/review-router@${"b".repeat(40)}`,
-        pullRequestHeadSha: newer.headSha,
+      ).resolves.toMatchObject({
+        attemptId: outcome.attempt.attemptId,
+        status: "setup_pr_open",
+        pullRequestUrl: observed.url,
+        pullRequestHeadSha: observed.headSha,
+        errorMessage: null,
       });
-    } finally {
-      resume.resolve();
-      await older;
-    }
-  });
+    },
+  );
+
+  it.each(["ordinary", "hosted_pool"] as const)(
+    "%s records failed settlement without claiming a remote PR was absent after response loss",
+    async (transport) => {
+      const remote = new WorkflowGitHubFixture();
+      const gateway = new OctokitWorkflowSetupGateway(remote);
+      const writer = new PrismaWorkflowProvisioningRepository(prisma);
+      const auditEvents: AuditEventInput[] = [];
+      const providerFailure = new Error(
+        "GitHub response lost after PR creation",
+      );
+      const outcome = await provisionForTransport(transport, "e".repeat(40), {
+        provisioning: writer,
+        setupGateway: {
+          async createOrUpdateSetupPullRequest(input) {
+            await gateway.createOrUpdateSetupPullRequest(input);
+            throw providerFailure;
+          },
+        },
+        auditLog: {
+          append: async (event) => {
+            auditEvents.push(event);
+          },
+        },
+      }).then(
+        () => {
+          throw new Error("external_uncertainty_was_hidden");
+        },
+        (error: unknown) => error,
+      );
+      expect(outcome).toBeInstanceOf(WorkflowProvisioningOutcomeError);
+      if (!(outcome instanceof WorkflowProvisioningOutcomeError))
+        throw new Error("expected_workflow_outcome");
+      expect(outcome).toMatchObject({
+        code: "workflow_provisioning_external_uncertain",
+        stage: "failure",
+        mayHaveExternalEffects: true,
+        observedPullRequest: null,
+        committedPullRequest: null,
+        cause: providerFailure,
+      });
+      expect(remote.pullRequests.size).toBe(1);
+      const created = [...remote.pullRequests.values()][0]!;
+      expect(created.branch).toBe(outcome.attempt.branch);
+      expect(remote.branches.get(created.branch)).toBe(created.head.sha);
+      expect(auditEvents.map((event) => event.action)).toEqual(
+        transport === "hosted_pool" ? [] : ["workflow.setup_pr_failed"],
+      );
+      await expect(
+        prisma.workflowProvisioning.findUniqueOrThrow({
+          where: { repositoryId },
+        }),
+      ).resolves.toMatchObject({
+        attemptId: outcome.attempt.attemptId,
+        status: "failed",
+        pullRequestUrl: null,
+        pullRequestHeadSha: null,
+      });
+    },
+  );
 
   it("atomically fences a two-workspace transfer and replays it idempotently", async () => {
     await prisma.repositoryConnection.update({
