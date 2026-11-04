@@ -25,7 +25,7 @@ describe("Action Codex loopback proxy boundary", () => {
   });
 
   it("serves only its loopback nonce path and filters upstream headers", async () => {
-    const upstream = vi.fn(async () =>
+    const upstream = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
       new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { "content-type": "application/json" },
