@@ -422,10 +422,13 @@ test("restores saved limits when returning to a workspace tab with retained inve
   };
   const initialPage = page([{ ...account("quota-remount"), limits }]);
   f.api.list.mockResolvedValue(initialPage);
-  const fetch = vi.fn(async (_url: RequestInfo | URL) => ({
-    ok: true,
-    json: async () => ({ status: "ok", value: limits }),
-  }));
+  const fetch = vi.fn(async (url: RequestInfo | URL) => {
+    void url;
+    return {
+      ok: true,
+      json: async () => ({ status: "ok", value: limits }),
+    };
+  });
   vi.stubGlobal("fetch", fetch);
   const props = {
     scope: "quota-remount-viewer",

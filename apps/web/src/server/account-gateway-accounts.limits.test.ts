@@ -101,6 +101,7 @@ function fixture() {
     apiKeyProfiles: new Map([["profile", "MiMo"]]),
     limits: async () => ({
       read: vi.fn(),
+      refresh: vi.fn(),
       async page<T extends AccountView>(rows: readonly T[]): Promise<T[]> {
         await page(rows);
         return [...rows];
