@@ -2,10 +2,11 @@
 
 Date: 2026-11-04 (Europe/Kiev)
 Baseline: `f952f7c8e72277c8367a20769db0b8d7bc548219`
-Status: A–C implemented and independently reviewed. The owner requested a larger
-refactor and completion of E2E on 2026-11-04; continuation D–F below is in progress.
-Required CI and complete PostgreSQL qualification remain pending in PR #810. The
-reviewed contracts below govern implementation.
+Status: A–E implemented and independently reviewed, including the owner's
+requested substantial continuation. F's required database and integration gates
+are wired; their exact-head execution and merge state are recorded in PR #810.
+The dated/source-bound evidence below distinguishes completed checks from the
+checks still pending at each checkpoint. The reviewed contracts govern delivery.
 This file is the delivery plan
 and evidence journal, not a claim of completed qualification or deployment.
 
@@ -733,3 +734,88 @@ workspace resolution was corrected at `5a18c8c`; that earlier JSON is retained
 as diagnostic evidence and must not be described as a successful full run.
 The final integrated rerun must include suite-load status, not only assertion
 counts. Logs remain in ignored `tmp/foundation-e2e/recovery/`.
+
+### Completed D–E implementation and continuation critic rounds
+
+The remaining finite publication executor is separated at the reviewed internal
+responsibilities. The public executor is 694 lines (previously 1,955), with
+956 lines in reconciliation, 427 in durable settlement and 99 in execution
+authority. This relocates existing behavior; it is not new publication logic.
+No public constructor, protocol, hash input, command identity, scheduler or
+credential lifecycle contract changes. Authority receives only its claim-renewal
+write capability; settlement cannot acquire SCM credentials. The final fresh
+attempt read and completion version remain at their original execution position.
+
+The author froze and reran the same 83 executor/gateway cases before and after
+extraction, including unchanged in-flight identity snapshots. The larger
+publication/host selection passes 319 assertions; its 15 conditional cases need
+PostgreSQL or the paired Action golden artifact. Native TypeScript 7.0.2 feature
+typecheck/build, worker and tooling checks pass. Root and an independent critic
+read all four resulting files and compared all original method bodies, including
+the separately extracted completion tail, exact effect order, renewal return
+values, raw compensation postcheck and locally owned credential sessions. No
+material extraction regression was found. These reviews retain the existing
+behavior and do not claim a new resource-lifetime guarantee.
+
+An independent D review found two pre-existing disagreements in the memory
+implementation of the same setup lifecycle port: confirmed-plus-unknown was
+accepted, and an expired duplicate confirmation retired a confirmed attempt.
+The adapter now consumes the same domain dispatch decision as Prisma. Expiry
+retires only an authorized unconfirmed attempt; a confirmed candidate survives
+for valid activation within its recovery window. The shared allocation bound,
+replay deadline and exact attestation equality replace their duplicated rules.
+Existing memory-specific recovery admission and synthetic authority remain.
+
+Two strengthened existing ledger scenarios failed against the previous adapter
+(19 passed, two failed) and pass with the correction. The ledger/reattestation/
+policy group passes 46 cases. A second independent critic reviewed all changed
+branches and production parity, then independently ran 35 relevant assertions,
+all passing. No production code instantiates this memory fixture; the change
+improves the fidelity of its executable contract rather than adding authority.
+
+Integrated current-source verification covers 115 existing test files:
+**1,876 passed, zero failed, 81 conditional skips, report success true**.
+The skips are 78 PostgreSQL-dependent cases, two paired Action golden cases and
+one compiled operator CLI smoke. Required database qualification is tracked in
+CI separately; no skip is treated as passing. Native TypeScript 7.0.2 also passes
+the full audit-log, workflow-provisioning, repo-health, provider-setup,
+review-config and review-publishing feature projects including their tests,
+API, worker, web, modular and tooling. The secret-write boundary passes with the
+relocated adapter's exact audited path. The regenerated existing conflict-runtime
+bundle passes its source parity check and existing artifact smoke.
+
+The F review exposed two real coverage gaps: no existing workflow enabled the
+three runtime-migration PostgreSQL cases or the five locked-provider PG17 cases.
+The required DB lane now explicitly selects both, with a small strictly typed
+result gate that rejects missing suites, skipped/todo cases, failures and
+inconsistent totals. Its rejecting cases and the existing affected CI/artifact
+contract suites pass (51 assertions). This is a bounded acceptance gate for the
+selected setup owner, not a new test framework.
+
+Independent F review found and corrected two dormant fixture assumptions before
+their first required execution. The runtime-migration database now clones the
+already-qualified ordinary application database before clients connect; it does
+not replay migration 000079 after the later inert owner role exists. The
+locked-provider fixture retains the exact historical managed92 catalog and
+its non-superuser setup table owners, then verifies the current160 catalog's
+prefix and all 68 extension checksums before applying those extensions through
+the existing isolated container administrator. Its runtime clients retain their
+original identity. Complete ordered migration names and visibility of current
+Workspace fields are asserted; no select list hides schema drift. Shared
+historical helpers and production migrations are unchanged.
+
+The corrected guard/provider-CI/historical-catalog/managed-fixture selection
+passes all 199 assertions. A second source/configuration critic accepted both
+corrections with no remaining material finding. The modified locked-provider
+TypeScript fixture is included in the maintained hosted-pool operations project,
+and the required DB lane runs that entire project with native TypeScript 7.0.2.
+The full project passes. Its inherited JavaScript interop helpers remain under
+the existing `allowJs: true`, `checkJs: false` profile; no full JavaScript typing
+claim is made. Final source-integration review also retraced A–C's terminal
+authority, web/API/CLI projections, exact own-publication proof and composition
+consumers, with no confirmed substantive finding.
+
+At this local continuation checkpoint, final-head PostgreSQL and self-hosted
+container execution are still required. Their actual results must be read from
+the exact-head PR checks and recorded in the PR's final qualification evidence;
+the local assertion counts above do not substitute for those executions.
