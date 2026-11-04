@@ -413,6 +413,39 @@ anywhere else.
 Set `sync_production_action_ref=true` only for a deliberate rollback or smoke
 override.
 
+### Recover a workflow-permission failure in final publication
+
+If the final Git tag push is rejected because `GITHUB_TOKEN` lacks `workflows`
+permission, preserve the failed run. Do not repeat successful CI, image publication
+or attestation, and do not copy an operator token into repository secrets.
+For an already owner-authorized release, its remaining publication step can be
+completed with the existing owner GitHub CLI session when all of these hold:
+
+- The dispatched protected-main commit passed the exact trusted CI and both
+  PostgreSQL gates. The release's validation, immutable image publication and
+  identity attestation jobs succeeded; only final publication failed.
+- Both unchanged installer/runtime identity assets are retained from that run.
+  Their source, paired Action, image digest and asset SHA256 values are verified.
+- The owner CLI identity has the required existing permission. No branch/tag
+  protection, environment policy or credential configuration is changed.
+- The failed run used `sync_production_action_ref=false`. This recovery does not
+  perform the skipped production Action-ref sync.
+
+Use atomic GitHub ref updates with expected previous OIDs: create the absent
+immutable exact tag and advance `v1` only from its observed prior commit to the
+verified release commit. Require a fast-forward; an existing exact tag with a
+different target or a concurrent ref change stops recovery. This is not the
+rollback procedure. Only if the dispatch requested `create_github_release=true`,
+create a Draft release at that verified tag with the same two assets, verify
+their uploaded digests, then publish it. Otherwise skip GitHub Release creation.
+Record the failed
+workflow and the separate owner-assisted completion honestly; do not relabel
+the failed run as successful or claim later main commits were deployed.
+
+Release228 used this bounded recovery after all artifact gates succeeded in
+run41761230654. The deployment registry retains the actual source/image and
+publication evidence. Normal publication continues to use the release workflow.
+
 The two PostgreSQL gates intentionally do not run for pull requests, including
 fork pull requests. They run together on the trusted push to `main`, so an
 ordinary low-risk PR does not duplicate the expensive real-PostgreSQL work.

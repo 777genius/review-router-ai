@@ -1,20 +1,55 @@
-# One-turn source-fenced conversational Memory — source candidate
+# One-turn source-fenced conversational Memory: deployment and qualification
 
-- Scope: one normal selected-account Gateway request emits an independently validated
-  decision and optional observations. Native publication remains the normal command
-  writer. No new provider/model/account, flags, deadline or token allowance.
-- Successor to [current-source evidence](2026-11-03-memory-current-source-evidence.md).
-  The prior9a6 full tuning stopped UNAVAILABLE after2/50; no replacement quality
-  claim, further tuning run or protected checkpoint is credited here.
-- Official private227 was published and installed independently (source dbc).
-  This new one-turn candidate is not in227, is unqualified and is not deployed.
-  Deployment is now assigned to a single release owner; activation remains blocked by the actual tuning failure below.
+- Task ID: `2026-11-03-memory-one-turn-learning`.
+- Goal: qualify one normal selected-account Gateway parent request that emits an
+  independently validated decision and optional observations, preserving the
+  existing native publication writer and source/authority fences.
+- Affected services/targets: API, worker, semantic qualification and later App /
+  genuine self-hosted capability delivery.
+- Implementation: [#804](https://github.com/777genius/review-router-ai/pull/804),
+  [#805](https://github.com/777genius/review-router-ai/pull/805) and
+  [#807](https://github.com/777genius/review-router-ai/pull/807). Their code is
+  included in earlier installed856 and current private228/a3; installation does not qualify
+  the semantic capability.
+- Implementation reference: earlier verified installed application
+  `8561576c61abcead21419520e9bc350446017fc5`; initial tuning source `849f319a2`
+  and the initial source QA roster remain historical evidence below.
+- Dependencies: [current-source evidence](2026-11-03-memory-current-source-evidence.md),
+  actual selected-model semantic qualification and the existing release process.
+  Ordinary [provider/Action delivery](2026-11-04-provider-errors-and-findings.md)
+  proceeds independently of this unqualified capability.
+- Last updated: `2026-11-04`.
 
-| Environment | Status  | Actual version               | Remaining work                                                                  |
-| ----------- | ------- | ---------------------------- | ------------------------------------------------------------------------------- |
-| staging     | pending | Not installed                | Genuine selected-model qualification and App acceptance.                        |
-| production  | pending | Separate official227/dbc     | Separate normal rollout after qualification; no activation from this source PR. |
-| self-hosted | pending | No genuine capability issued | Normal qualified artifact/distribution and stock acceptance remain separate.    |
+## Environment status
+
+| Environment / target               | Status      | Actual deployed version / image                   | Last verified (UTC) | Evidence / next step / blocker                                                                                                   |
+| ---------------------------------- | ----------- | ------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| staging                            | `pending`   | Not verified                                      | Not verified        | No staging installation or semantic/App acceptance is credited.                                                                  |
+| production / ordinary code         | `installed` | Private228 a3db73fd / image0ff; exact tuple below | 2026-11-04          | #804/#805/#807 code is installed. Existing settings/native state preserved; no repeat deploy is required to close qualification. |
+| production / semantic capability   | `blocked`   | Unqualified; no semantic activation               | 2026-11-04          | Latest isolated r2 is UNAVAILABLE, with a missing eligible endorsement and invalid output; no official score.                    |
+| self-hosted / qualified capability | `pending`   | No genuine qualified capability issued            | Not verified        | Qualified artifact/distribution and first-install/update acceptance remain separate.                                             |
+
+The actual production application is
+`a3db73fd77eda829480f57ffe3f40ed7c9f9da06`, image
+`sha256:0ffbaadca4d257d8b9f49c4d9e6292c4683669fcf3477cfa202303442522a3c2`.
+This preserves the earlier verified856 installation and its unqualified capability state.
+The prior statement that this code was not deployed described the initial 227/dbc
+checkpoint. It is superseded first by verified856 installation and now by the installed a3 tuple above. Semantic
+qualification remains unproven and grants no capability/activation claim.
+
+## Applicability and prerequisites
+
+One inferred event uses one normal selected-account Gateway parent request. No
+new provider/model/account, flag, deadline or token allowance is introduced.
+Ordinary code may follow protected source delivery while its semantic capability
+is unqualified. Semantic qualification, App acceptance and genuine-artifact
+capability delivery require their own actual evidence before activation. Preserve
+FREE defaults, MCP configuration, native generations, all retained UNKNOWN work
+and the stand/holdout.
+
+The prior 9a6 full tuning stopped UNAVAILABLE after 2/50. Its historical result
+remains retained; later source installation does not turn it into a quality PASS
+or consume a protected checkpoint.
 
 ## Preserved boundaries
 
@@ -40,9 +75,10 @@ Evaluation reports explicitly identify the parent-observations mechanism and ret
 old child-receipt report compatibility. One-turn receipts bind the real parent
 processing/model/account/candidate identity and completed/closed observation; child
 calls/receipts are forbidden. Semantic/inventory thresholds remain unchanged, and
-reliability runs cannot mix inference mechanisms. No eval run occurred in this task.
+reliability runs cannot mix inference mechanisms. No evaluation occurred in the
+original source-implementation task; later actual runs are recorded below.
 
-## Delivery and rollback
+## Historical source QA
 
 Initial frozen [source QA receipt](evidence/2026-11-03-memory-one-turn-initial-source-qa.json)
 passed all 158 affected PostgreSQL/SDK cases and 52 risk cases,
@@ -50,45 +86,110 @@ strict API/evaluation types, lint, formatting, source stamp and generated verifi
 The initial QA environment failures and targeted failed-phase retries are retained.
 A separate agent [reviewed that frozen implementation](evidence/2026-11-03-memory-one-turn-initial-source-peer.json).
 These receipts describe the initial source roster, not later review corrections.
-Implementation: [PR #804](https://github.com/777genius/review-router-ai/pull/804);
-[initial full CI](https://github.com/777genius/review-router-ai/actions/runs/41634121565)
-passed on 0c9bc38ae; later source revisions require their own final CI. These are source checks,
-not model-quality qualification, App acceptance or deployment evidence.
+Implementation [#804](https://github.com/777genius/review-router-ai/pull/804)
+had [initial full CI](https://github.com/777genius/review-router-ai/actions/runs/41634121565)
+pass on 0c9bc38ae. These are source checks, separate from model-quality
+qualification, App acceptance and installation evidence.
 
-The source-only change may follow normal protected CI and merge while unqualified.
-Future model qualification must use the new source honestly; previous diagnostics
-or unavailable runs do not qualify it. Qualification must precede release
-activation, App and genuine-artifact delivery. Deployment remains deferred. Do not change current production settings,
-FREE defaults/MCP configuration, native generations or any retained UNKNOWN.
+## Preserved first live tuning and evidence repair
 
-There is no migration or automatic activation. Rollback follows the normal release
-[runbook](../operations/07-environments-and-release-management.md); withdrawing an unqualified candidate is not permission to replay inference,
-relabel an old source proof or close unresolved operations. Record actual source QA
-and future delivery evidence before changing environment status.
-
-## Actual first live tuning and evidence repair — 2026-11-03
-
-The merged [PR804](https://github.com/777genius/review-router-ai/pull/804) source
-`849f319a2` completed all 50 tuning events using the selected FREE account and
-one parent request per inferred event. The maintained official scorer returned
-**FAIL** after owner-delegated agent semantic review: retained precision20/23,
-eligible recall20/21 and three unauthorized effects. The
+The merged #804 source `849f319a2` completed all 50 tuning events using the selected
+FREE account and one parent request per inferred event. The maintained official
+scorer returned **FAIL** after owner-delegated agent semantic review: retained
+precision 20/23, eligible recall 20/21 and three unauthorized effects. The
 [sanitized result and retained evidence hashes](evidence/2026-11-03-memory-one-turn-tuning-r1.json)
 record the exact source profile and scope. No protected checkpoint was consumed.
 
 The decoder proved a literal current endorsement quote, but did not bind the
-selected technical proposition to its checked human message. A bot-origin
-quoted referent and two discussion-status statements were retained. The [repair in PR805](https://github.com/777genius/review-router-ai/pull/805) adds
-checked human-message identity and literal technical supporting
-evidence while preserving current-maintainer authority, implicit adoption,
-one parent request and independent action validation. Provenance checks cannot
-prove semantic eligibility by themselves: rejected/unresolved status must still
-be assessed by fresh actual-output qualification. No lexical classifier, corpus
-exception or scoring threshold relaxation is authorized by this repair.
+selected technical proposition to its checked human message. A bot-origin quoted
+referent and two discussion-status statements were retained. The #805 repair adds
+checked human-message identity and literal technical supporting evidence while
+preserving current-maintainer authority, implicit adoption, one parent request
+and independent action validation. Provenance checks cannot prove semantic
+eligibility by themselves: rejected/unresolved status still requires actual-output
+qualification. No lexical classifier, corpus exception or scoring-threshold
+relaxation is authorized by this repair.
 
-Further tuning, protected evaluation and activation of the failed candidate
-stopped. The source repair requires focused regressions, normal source review
-and protected CI, then fresh semantic qualification before release activation.
-Production remains the separately installed227/dbc with prior settings and
-native state preserved; self-hosted genuine capability distribution and
-first-install/update acceptance remain pending.
+Further tuning, protected evaluation and activation stopped at that failed
+checkpoint. The repaired #804/#805/#807 code later reached ordinary installed 856,
+while semantic activation remained withheld. The original failed score and
+preserved stand/holdout remain available for audit.
+
+## Latest isolated candidate observations
+
+Candidate 809 r1 remained **UNAVAILABLE** after 13 complete responses and a provider 502
+at event 14/50. Its request is closed/ACKed and cleanup DONE. This failure is retained;
+a generic 502 does not establish quota exhaustion.
+
+A fresh isolated serial r2 used new request identities and observed all 50 events:
+46 completed/closed model calls, three settled no-call replays and one
+`catalogUnavailable` refusal before dispatch. There were zero unknown effects.
+A missing eligible endorsement and one invalid model output leave r2
+**UNAVAILABLE**, with **no official score**, semantic PASS or activation credited.
+“All events observed” does not mean every model call completed or every output was
+eligible. Preserve the stand and holdout; no automatic rerun or protected checkpoint
+is authorized by this record.
+
+## Ordered rollout
+
+1. Production ordinary code installation is already complete on a3/image0ff.
+   Preserve its actual source/image evidence and settings. Staging remains
+   unverified and requires its own authorized rollout/acceptance record.
+2. Reconcile the missing endorsement and invalid-output evidence against the
+   actual current source before any newly authorized qualification. Retain all
+   prior source/run identities and inference-mechanism boundaries.
+3. Qualify the actual selected model/account through the maintained evaluator
+   without threshold relaxation, fabricated observations or replacement scores.
+   Record the real official outcome before issuing a semantic capability.
+4. Only after qualification passes, complete the existing App and genuine-artifact
+   first-install/update acceptance and capability delivery. Record each target
+   separately under the [release process](../operations/07-environments-and-release-management.md).
+
+## Verification and completion
+
+Code installation is verified separately from qualification. Completion of the
+semantic target requires eligible current-source observations, a genuine official
+score, preserved authority/replay boundaries, and the relevant App/artifact
+acceptance. Source CI, provider transport success and the all 50 observation count
+cannot substitute for those results.
+
+**Pending release-owner updates:** link the final retained r2 evidence/identity and
+any later explicitly authorized qualification result. Until then keep the
+semantic target blocked/UNAVAILABLE and self-hosted capability delivery pending.
+The separate Action228/229 and private228 rollout must not be described as a Memory
+semantic qualification.
+
+## Retry, partial completion, and rollback
+
+There is no migration or automatic semantic activation in this task. Follow the
+normal release [rollback procedure](../operations/07-environments-and-release-management.md#rollback)
+for a confirmed code regression. Inspect installed source and completed steps
+before any retry. Preserve actual outputs, source fences, native state, the
+stand/holdout and retained UNKNOWN operations; reconcile unknown effects through
+existing receipts rather than replaying inference. An unavailable qualification
+result leaves ordinary code installation intact and provides no new activation,
+provider/model switch or cleanup authority.
+
+## Related links
+
+- [Current-source Memory evidence](2026-11-03-memory-current-source-evidence.md).
+- [Provider errors / Action 228/229 delivery](2026-11-04-provider-errors-and-findings.md).
+- [Retained r2 evidence](evidence/2026-11-04-provider-errors-delivery.json).
+- [Release process](../operations/07-environments-and-release-management.md).
+- [Quality gates](../operations/03-quality-gates.md).
+
+## Execution log
+
+| Time (UTC)   | Environment / target       | Operator                  | Actual version / image                  | Step and observed result                                                                                                     | Evidence                                   | Next action                                                      |
+| ------------ | -------------------------- | ------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------- |
+| Not verified | staging                    | Release owner             | Not verified                            | No staging completion credited.                                                                                              | This record                                | Reconcile staging independently.                                 |
+| 2026-11-03   | isolated initial tuning    | Owner-delegated evaluator | #804 source 849f319a2                   | All 50 events completed; official FAIL, precision 20/23, recall 20/21, three unauthorized effects.                           | Retained tuning-r1 evidence                | Preserve failure and repair lineage.                             |
+| 2026-11-04   | production / ordinary code | Release owner             | 8561576c / image 1962                   | #804/#805/#807 code installed; semantic capability remains unqualified.                                                      | Exact installed tuple above                | No repeat deploy merely to close qualification.                  |
+| 2026-11-04   | isolated candidate r1      | Release owner             | Candidate 809                           | 13 complete responses then provider 502 at 14/50; UNAVAILABLE, request closed/ACKed, cleanup DONE.                           | Preserved run evidence                     | Do not replay the settled request.                               |
+| 2026-11-04   | isolated candidate r2      | Release owner             | Candidate 809, fresh request identities | All 50 observed:46 complete, three no-call, one `catalogUnavailable`; missing endorsement/invalid output, no official score. | Retained stand/holdout; final link pending | Keep UNAVAILABLE; require new authorized qualification evidence. |
+
+Current private228 activation and compatible Action229 adoption are recorded in
+[provider errors and findings](2026-11-04-provider-errors-and-findings.md). All four
+roles, seven worker privilege checks and readiness200 passed on selected a3/image0ff.
+Later main87f340 (#810) is outside that image. This installation does not close the
+named live verification or semantic qualification gaps above.
