@@ -425,15 +425,16 @@ export function executionUpdateData(
   };
 }
 
-export function workSlotUpdateData(
-  slot: ReviewWorkSlot,
-): Prisma.ReviewExecutionWorkSlotV2UpdateManyMutationInput {
+export function workSlotUpdateData(slot: ReviewWorkSlot) {
+  // Keep scalar field types for both createMany and updateMany callers.
+  // Widening the return type to Prisma's update input also permits operation
+  // objects, which cannot be spread into a createMany record.
   return {
     state: workSlotStateToPrisma(slot.state),
     nextAttemptOrdinal: slot.nextAttemptOrdinal,
     activeLeaseId: slot.activeLeaseId,
     acceptedObservationRefId: slot.acceptedObservationRefId,
-  };
+  } satisfies Prisma.ReviewExecutionWorkSlotV2UpdateManyMutationInput;
 }
 
 export function leaseUpdateData(
