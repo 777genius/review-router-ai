@@ -97,6 +97,7 @@ await checkRevisionAwareReviewRatchet(violations);
 await checkPrismaTransactionQuerySerialization(violations);
 await checkReleaseRolloutProviderNeutrality(violations);
 await checkCodexRuntimeOwnershipBoundaries(violations);
+await checkReviewExecutionExtractionBoundaries(violations);
 violations.push(
   ...(await checkApplicationCompositionBoundaries(
     root,
@@ -213,6 +214,76 @@ async function checkCodexRuntimeOwnershipBoundaries(violations) {
             "Codex domain/workflow owners must not depend on Action adapters or the OAuth facade",
         });
       }
+    }
+  }
+}
+
+/**
+ * The post-#818 refactor keeps its read/serialization helpers behind the
+ * existing feature store and the pure response mappers behind the API host.
+ * Guard only these concrete seams; broader package policy is owned elsewhere.
+ */
+async function checkReviewExecutionExtractionBoundaries(violations) {
+  const prismaRoot = join(
+    root,
+    "packages",
+    "features",
+    "review-executions",
+    "src",
+    "infrastructure",
+    "prisma",
+  );
+  const adapterFiles = [
+    "prisma-review-execution-mappers.ts",
+    "prisma-review-execution-snapshot.ts",
+  ];
+  for (const name of adapterFiles) {
+    const file = join(prismaRoot, name);
+    if (!existsSync(file)) continue;
+    for (const imported of extractImportSpecifiers(
+      readFileSync(file, "utf8"),
+    )) {
+      if (
+        /^\.\/prisma-review-execution-store(?:\.[cm]?[jt]s)?$/u.test(
+          imported,
+        ) ||
+        /(?:^|\/)apps\/(?:api|web|worker)\//u.test(imported)
+      ) {
+        violations.push({
+          file,
+          imported,
+          reason:
+            "Review-execution private readers and mappers must not import their store or application hosts",
+        });
+      }
+    }
+  }
+
+  const resultMappers = join(
+    root,
+    "apps",
+    "api",
+    "src",
+    "review-action-v2-execution-result-mappers.ts",
+  );
+  if (!existsSync(resultMappers)) return;
+  for (const imported of extractImportSpecifiers(
+    readFileSync(resultMappers, "utf8"),
+  )) {
+    if (
+      /^\.\/review-action-v2-execution-evidence-composition(?:\.[cm]?[jt]s)?$/u.test(
+        imported,
+      ) ||
+      /^@prisma\/client(?:\/.*)?$/u.test(imported) ||
+      /^@octokit(?:\/.*)?$/u.test(imported) ||
+      /^(?:fastify|next)(?:\/.*)?$/u.test(imported)
+    ) {
+      violations.push({
+        file: resultMappers,
+        imported,
+        reason:
+          "Review Action v2 pure result mappers must not import their composition host or infrastructure SDK",
+      });
     }
   }
 }

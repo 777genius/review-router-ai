@@ -107,6 +107,69 @@ describe("nested feature layer coverage", () => {
   );
 });
 
+describe("review-execution private owner boundaries", () => {
+  it("allows one-way pure mapping and transaction read helpers", () => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-mappers.ts",
+      'import type { ReviewExecution } from "../../domain/review-execution";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-snapshot.ts",
+      'import { executionToDomain } from "./prisma-review-execution-mappers";\n',
+    );
+    writeFile(
+      root,
+      "apps/api/src/review-action-v2-execution-result-mappers.ts",
+      'import type { ReviewExecution } from "@reviewrouter/features-review-executions";\n',
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+  });
+
+  it.each([
+    [
+      "prisma-review-execution-mappers.ts",
+      'import type { Store } from "./prisma-review-execution-store";\n',
+    ],
+    [
+      "prisma-review-execution-snapshot.ts",
+      'export { PrismaReviewExecutionStore } from "./prisma-review-execution-store";\n',
+    ],
+    [
+      "prisma-review-execution-snapshot.ts",
+      'export const load = () => import("./prisma-review-execution-store");\n',
+    ],
+  ])("rejects reverse store dependencies from %s", (name, source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      `packages/features/review-executions/src/infrastructure/prisma/${name}`,
+      source,
+    );
+    expect(() => runChecker(root)).toThrow(
+      /private readers and mappers must not import their store/,
+    );
+  });
+
+  it.each([
+    'import type { Handlers } from "./review-action-v2-execution-evidence-composition";\n',
+    'export type { Handlers } from "./review-action-v2-execution-evidence-composition.js";\n',
+    'import { PrismaClient } from "@prisma/client";\n',
+  ])("rejects side effects and reverse dependencies in API result mappers", (source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "apps/api/src/review-action-v2-execution-result-mappers.ts",
+      source,
+    );
+    expect(() => runChecker(root)).toThrow(
+      /pure result mappers must not import their composition host or infrastructure SDK/,
+    );
+  });
+});
+
 describe("review-investigations architecture ratchet", () => {
   it("accepts a strict package with domain-only dependencies", () => {
     const root = createFixture(
