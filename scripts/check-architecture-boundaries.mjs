@@ -293,7 +293,6 @@ async function checkReviewExecutionExtractionBoundaries(violations) {
     }
   }
 }
-}
 
 async function checkReleaseRolloutProviderNeutrality(violations) {
   const sourceRoot = join(
