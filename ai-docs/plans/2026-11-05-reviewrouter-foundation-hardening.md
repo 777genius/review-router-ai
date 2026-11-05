@@ -2,7 +2,7 @@
 
 Date: 2026-11-05  
 Baseline: `main` at `f40a92f07fb06555c11e753348a12ec80118457a`  
-State: **Draft; audit and review plan only, not an implementation or test-success claim**  
+State: **Draft plan; three source-based critical review passes recorded below; no implementation or successful-code-E2E claim**  
 Target for the *eventual implementation in this same Draft PR*: **10,000–20,000 useful changed lines (additions + deletions, including honest moves and tests), not 10,000–20,000 net-new lines**. Do not add code solely to hit a number.
 
 ## Outcome and decision
@@ -120,8 +120,8 @@ All LOC figures refer to the current checked-in source line count; changed-line 
 5. **B1 four-port characterization:** map callers/transactions before edits; add contention, replay, pruning regressions.
 6. **B2 cohesive investigation adapter extraction:** retain public facade and one transaction; push and verify PostgreSQL behavior.
 7. **C1 scoped workflow mutation extraction, only if justified after inspecting #810:** tests for admission and readiness, then move the remaining operation; push and verify.
-8. **Guard + integrated:** add focused negative architecture fixtures; run typecheck, lint, formatting, architecture, feature/API/web/worker tests, SQL integration and appropriate real E2E. Use exact PR HEAD and record URLs/results. Fix review findings in separate pushed commits.
-9. Keep PR Draft until implementation + complete gating. Do **not** merge/deploy automatically as part of writing this plan.
+8. **Guard + integrated:** add focused negative architecture fixtures; run the repository-pinned typecheck, lint, formatting, `pnpm architecture:check`, affected feature/API/web/worker tests, real PostgreSQL integration, and a disposable-repository E2E of the workflow and authorized review path where behavior has changed. Use exact PR HEAD and record URLs/results; explicitly identify any policy-skipped CI jobs (a skipped PostgreSQL release rehearsal is **not** a success). Fix findings in separate pushed commits.
+9. **Go/no-go after each slice:** A cannot proceed to B before transaction tests are green; B cannot proceed to C before real-Postgres lease/prune/restore semantics are verified. C is optional and must be dropped if it duplicates #810 or expands beyond its owner. Keep PR Draft until implementation + complete gating. Do **not** merge/deploy automatically as part of writing this plan.
 
 ### Estimated changed lines, difficulty, reliability
 
@@ -135,7 +135,7 @@ These estimates are a **change budget**, not an instruction to split more code w
 | Targeted architecture fixtures + adjustments | 400–900 | 4/10 | 9/10 | 0.85 |
 | **Potential total** | **9,900–16,900** | **8/10** | **8/10** | **0.65 overall** |
 
-The lower bound can fall below 10k if correct minimal changes require less; **ship the smaller safer diff**. Lines moved in Git show as additions + deletions and are not new product functionality. No generated bundle regeneration is counted unless a changed production Action contract actually requires it.
+The lower bound can fall below 10k if correct minimal changes require less; **ship the smaller safer diff**. Lines moved in Git show as additions + deletions and are not new product functionality. The 10–20k request is a **soft range of meaningful total changed lines, not an acceptance test**; adding filler to meet 10k is forbidden. If the scope would exceed **20k** or needs a new fault domain, stop and split into a separate PR rather than reducing review quality. No generated bundle regeneration is counted unless a changed production Action contract actually requires it.
 
 ## Qualification / acceptance matrix
 
@@ -146,11 +146,11 @@ The lower bound can fall below 10k if correct minimal changes require less; **sh
 | Investigation persistence | Two lease claimants, expired/material batch races, failed commit retry, mismatched command hash, missing certificate, archive/prune continuation | Atomicity and idempotency preserved on real PostgreSQL; retention remains the same |
 | Dashboard setup | Unauthorized actor, provider mismatch, unselected repo, stale merge SHA, invalid namespace, partially failed GitHub call, repeated form submit | No unauthorized GitHub writes, no false completed readiness; audit and UI mapping unchanged |
 | Architecture | One deliberately bad import/transaction shim fixture per selected owner | Checker fails with path and actionable reason; clean fixture passes |
-| Regression | Source/type lint; focused suites; existing Action and workflow compatibility; E2E in disposable repo where needed | All required exact-head checks green and explicit reviewer findings resolved before considering Ready |
+| Regression | Source/type lint; focused suites; existing Action and workflow compatibility; real PostgreSQL; E2E in disposable repo where behavior changed | All applicable exact-head checks green, skipped jobs disclosed, and explicit reviewer findings resolved before considering Ready |
 
 **Evidence policy:** No local E2E claim from the current GitHub-connector-only environment. Source audits are not test passes. Record exact workflow run, commit and eligible jobs when hosted CI becomes available. Maintain `AGENTS.md` deploy registry discipline; merger ≠ deployment.
 
-## Critics' review checklist (to be filled with revisions)
+## Critics' review checklist (recorded in the revisions below)
 
 - **Round 1 — architecture/SOLID/DRY:** Challenge whether each proposed extraction has one owner, whether it introduces new abstractions or duplicates #810/#815, and whether `PrismaInvestigationStore` should stay a facade.
 - **Round 2 — security/concurrency:** Challenge lock order, transaction-scoped safety data, GitHub side effects, idempotency, lease fencing and source witness after moved code.
@@ -180,3 +180,23 @@ The lower bound can fall below 10k if correct minimal changes require less; **sh
 5. **Rejected extra scope:** no attempt to change relay timeout/quota behavior, Action OIDC/publication protocol or worker execution lifecycle during this refactor. Those are distinct fault domains.
 
 **Result:** The safety adapter is *strictly narrower than* the current mutable repository, not just a different place for the same client. Security/concurrency acceptance is now explicit. Round 3 challenges the realism of the size forecast and CI/E2E proof.
+
+## Adversarial review round 3 — acceptance evidence, cost and scope (2026-11-05)
+
+**Independent external review status:** CodeRabbit's initial bot comment explicitly says Draft PRs are **not automatically reviewed**. The following is a third **source-based self-critique**, not independent external approval. The documentation-only CI run cannot certify proposed production changes.
+
+1. **Challenge: the requested 10–20k diff is not itself quality evidence.** **Accepted.** Marked the range soft; moving a file counts in both additions and deletions. Prefer a smaller patch when behavior is safe and measurable. Above 20k, split another fault domain into a future PR; no churn, generated files, or cosmetic splits to hit a number.
+2. **Challenge: a three-slice single PR could create too large a review surface and mix unrelated operational risks.** **Accepted with gates.** Implement A then establish green transaction/fail-closed regressions, implement B then qualify with real PostgreSQL, and only then consider C. C can be deferred entirely if the post-#810 code does not justify moving. Never force a third extraction to reach a line target.
+3. **Challenge: passing unit/source-text tests could still miss the live infrastructure contract.** **Accepted.** Required applicable exact-HEAD CI plus PostgreSQL concurrency/idempotency and a disposable-repository E2E for changed workflow/GitHub effects. Existing tests that slice source text must not be blindly updated merely to keep them passing; replace affected ones with observable behavior and equivalent negative cases.
+4. **Challenge: “CI green” can mask an inapplicable or policy-skipped live migration/rehearsal.** **Accepted.** Record actual job names/conclusions and state skipped gates openly. The `Dedicated Release Authority PG17 contract` and general quality gates cannot substitute for targeted Postgres and external-effect evidence where required. No deployment or release.
+5. **Challenge: base main can move during work, and another PR can land on the same ownership surface.** **Accepted.** Recheck `main`, PR #806 and relevant commits before every implementation slice; record exact HEAD for each test. No blanket rebases or overwriting concurrent changes.
+6. **Challenge: reliability and LOC values look deceptively precise.** **Accepted.** They are comparative planning forecasts only, not measured defect probabilities or proven post-refactor reliability. Update estimates after each actual diff and retain test evidence instead of claiming a score proves success.
+
+**Round 3 disposition:** Plan accepted for a *staged implementation attempt*, not accepted as verified production code. Three review rounds are documented in commits and PR conversation. Required implementation, full reviews of its code, E2E and merge remain **not done**.
+
+### Handoff contract for implementers
+
+- Work only in this Draft PR branch, inspect the latest `main` and open PRs, and preserve all existing Action, OIDC, workflow and persistence contracts.
+- Commit and push meaningful checkpoints immediately with clear evidence (tests run, pass/fail/skipped, exact SHA). Add concise PR comments with the reviewed invariant and decision; never manufacture independent review claims.
+- At every code checkpoint ask: **Does this actually reduce the authority/change radius? Does a negative regression prove it? Does it retain the existing single owner?** If not, revert the extraction instead of introducing a new abstraction.
+- Gate Ready on integrated qualification and code review; a green docs-only check proves only that the plan file is syntactically acceptable.
