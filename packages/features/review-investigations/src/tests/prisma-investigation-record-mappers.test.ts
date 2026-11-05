@@ -5,9 +5,7 @@ import {
   ReviewInvestigationTurnPurpose,
   InvestigationTurnProviderKind,
 } from "../domain/review-investigation-types";
-import {
-  ReviewInvestigationLeaseState,
-} from "../domain/investigation-lease";
+import { ReviewInvestigationLeaseState } from "../domain/investigation-lease";
 import {
   fromPrismaInvestigationState,
   fromPrismaRuntimeProfile,
@@ -52,7 +50,7 @@ describe("investigation persistence projection parity", () => {
     );
   });
 
-  it("admits only terminal provider identities already supported by the domain", () => {
+  it("admits only known terminal provider identities", () => {
     expect(parseTerminalProviderKind(InvestigationTurnProviderKind.Codex)).toBe(
       InvestigationTurnProviderKind.Codex,
     );

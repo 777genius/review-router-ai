@@ -86,7 +86,7 @@ function transactionFixture(input: {
 }
 
 describe("transaction-scoped review safety reader", () => {
-  it("uses only the three delegated reads and retains canonical policy mapping", async () => {
+  it("reads safety using only the transaction delegates", async () => {
     const fixture = transactionFixture();
     const decision = await fixture.resolver.resolveReviewSafetyPolicy({
       decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
@@ -124,9 +124,9 @@ describe("transaction-scoped review safety reader", () => {
   });
 
   it.each([
-    [{ policyReadFails: true }, "policy"],
-    [{ emergencyReadFails: true }, "emergency"],
-  ] as const)("fails closed if the %s read fails", async (input) => {
+    ["policy", { policyReadFails: true }],
+    ["emergency", { emergencyReadFails: true }],
+  ] as const)("fails closed if the %s read fails", async (_label, input) => {
     const fixture = transactionFixture(input);
     const decision = await fixture.resolver.resolveReviewSafetyPolicy({
       decisionKind: ReviewSafetyDecisionKind.RunAuthorization,
@@ -137,7 +137,7 @@ describe("transaction-scoped review safety reader", () => {
     expect(decision.emergencyVersionVector).toContain("global:unreadable");
   });
 
-  it("preserves an emergency stop even when the policy allows authorization", async () => {
+  it("honors an emergency stop despite an allowed policy", async () => {
     const fixture = transactionFixture({ emergencyStopped: true });
     const decision = await fixture.resolver.resolveReviewSafetyPolicy({
       decisionKind: ReviewSafetyDecisionKind.RunAuthorization,

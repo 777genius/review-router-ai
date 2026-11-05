@@ -35,7 +35,9 @@ import { lockReviewRunControlKey } from "./prisma-review-run-control-utils";
 
 type PrismaReviewSafetyReadDelegates = Pick<
   Prisma.TransactionClient,
-  "reviewSafetyPolicy" | "reviewSafetyPolicySelector" | "reviewSafetyEmergencyControl"
+  | "reviewSafetyPolicy"
+  | "reviewSafetyPolicySelector"
+  | "reviewSafetyEmergencyControl"
 >;
 
 /**

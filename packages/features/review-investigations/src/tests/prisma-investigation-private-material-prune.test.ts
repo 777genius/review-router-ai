@@ -1,4 +1,6 @@
-import { ReviewInvestigationStateV1 as PrismaInvestigationState } from "@prisma/client";
+import {
+  ReviewInvestigationStateV1 as PrismaInvestigationState,
+} from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import {
   assertPruneLimit,
@@ -12,7 +14,7 @@ import {
 const cutoff = new Date("2026-11-05T12:00:00.000Z");
 
 describe("investigation private-material prune helper parity", () => {
-  it("groups one investigation without duplicating obligation IDs or changing candidate order within the cursor", () => {
+  it("groups candidates deterministically without duplicate obligations", () => {
     const candidates: readonly ExpiredPrivateMaterialCandidate[] = [
       {
         privateMaterialId: "material-b",
@@ -87,8 +89,14 @@ describe("investigation private-material prune helper parity", () => {
         "investigation_prune_limit_invalid",
       );
     }
-    expect(parseCanonicalCutoff(cutoff.toISOString(), "bad_cutoff")).toEqual(cutoff);
-    for (const value of ["2026-11-05", "2026-11-05T14:00:00+02:00", "invalid"]) {
+    expect(
+      parseCanonicalCutoff(cutoff.toISOString(), "bad_cutoff"),
+    ).toEqual(cutoff);
+    for (const value of [
+      "2026-11-05",
+      "2026-11-05T14:00:00+02:00",
+      "invalid",
+    ]) {
       expect(() => parseCanonicalCutoff(value, "bad_cutoff")).toThrow("bad_cutoff");
     }
     expect(ExpiredPrivateMaterialCursorRange.After).toBe("after");

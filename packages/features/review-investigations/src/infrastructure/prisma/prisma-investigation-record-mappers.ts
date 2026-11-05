@@ -140,7 +140,9 @@ export function toInvestigationLeaseCreate(
   };
 }
 
-export function toInvestigationLeaseTransitionUpdate(lease: ReviewInvestigationLease) {
+export function toInvestigationLeaseTransitionUpdate(
+  lease: ReviewInvestigationLease,
+) {
   return {
     state: toPrismaLeaseState(lease.state),
     lastRenewRequestIdHash: lease.lastRenewRequestIdHash,
