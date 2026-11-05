@@ -33,22 +33,28 @@ import {
 } from "./prisma-review-run-control-mappers";
 import { lockReviewRunControlKey } from "./prisma-review-run-control-utils";
 
-export class PrismaReviewSafetyControlRepository
-  implements
-    ReviewSafetyPolicyQueryPort,
-    ReviewSafetyPolicyCommandPort,
-    ReviewSafetyEmergencyControlQueryPort,
-    ReviewSafetyEmergencyControlCommandPort,
-    ReviewSafetyControlInspectionPort
+type PrismaReviewSafetyReadDelegates = Pick<
+  Prisma.TransactionClient,
+  "reviewSafetyPolicy" | "reviewSafetyPolicySelector" | "reviewSafetyEmergencyControl"
+>;
+
+/**
+ * Transaction-safe read surface. Callers pass the three delegates of the
+ * already-active transaction, never a root Prisma client or a mutable repository.
+ * Both safety decisions use these exact delegates, preserving the existing
+ * policy/selector mappings and read-failure behavior.
+ */
+export class PrismaReviewSafetyQueryRepository
+  implements ReviewSafetyPolicyQueryPort, ReviewSafetyEmergencyControlQueryPort
 {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly safetyReader: PrismaReviewSafetyReadDelegates) {}
 
   async findApplicableReviewSafetyPolicies(input: {
     readonly target: ReviewSafetyResolutionTarget;
     readonly capabilities: readonly ReviewSafetyCapability[];
   }): Promise<readonly ReviewSafetyPolicy[]> {
     if (input.capabilities.length === 0) return [];
-    const rows = await this.prisma.reviewSafetyPolicy.findMany({
+    const rows = await this.safetyReader.reviewSafetyPolicy.findMany({
       where: {
         capability: {
           in: input.capabilities.map(safetyCapabilityToPersistence),
@@ -57,7 +63,7 @@ export class PrismaReviewSafetyControlRepository
       },
       orderBy: [{ policyScope: "asc" }, { policyId: "asc" }],
     });
-    const selectors = await this.prisma.reviewSafetyPolicySelector.findMany({
+    const selectors = await this.safetyReader.reviewSafetyPolicySelector.findMany({
       where: { policyId: { in: rows.map((row) => row.policyId) } },
       orderBy: [{ policyId: "asc" }, { selectorOrdinal: "asc" }],
     });
@@ -72,11 +78,29 @@ export class PrismaReviewSafetyControlRepository
   async findApplicableReviewSafetyEmergencyControls(
     target: ReviewSafetyResolutionTarget,
   ): Promise<readonly ReviewSafetyEmergencyControl[]> {
-    const rows = await this.prisma.reviewSafetyEmergencyControl.findMany({
+    const rows = await this.safetyReader.reviewSafetyEmergencyControl.findMany({
       where: { OR: applicableScopePredicates(target) },
       orderBy: [{ policyScope: "asc" }, { emergencyControlId: "asc" }],
     });
     return rows.map(reviewSafetyEmergencyControlToDomain);
+  }
+
+}
+
+/** Full policy writer/inspector for the existing non-transaction-scoped callers. */
+export class PrismaReviewSafetyControlRepository
+  extends PrismaReviewSafetyQueryRepository
+  implements
+    ReviewSafetyPolicyCommandPort,
+    ReviewSafetyEmergencyControlCommandPort,
+    ReviewSafetyControlInspectionPort
+{
+  constructor(private readonly prisma: PrismaClient) {
+    super({
+      reviewSafetyPolicy: prisma.reviewSafetyPolicy,
+      reviewSafetyPolicySelector: prisma.reviewSafetyPolicySelector,
+      reviewSafetyEmergencyControl: prisma.reviewSafetyEmergencyControl,
+    });
   }
 
   async findReviewSafetyPolicy(input: {
