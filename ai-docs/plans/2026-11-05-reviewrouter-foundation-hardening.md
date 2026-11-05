@@ -481,3 +481,126 @@ Run real PostgreSQL fixture tests, not SQLite/memory-only substitutes. If CI's t
 A **single public adapter plus two or three private cohesive modules** is the preferred compromise: the domain/app contracts remain stable and SQL row-lock ownership stays visible. A critic must reject any change that causes a nested transaction, removes a `FOR UPDATE`/`SKIP LOCKED` condition, changes `ReadCommitted`, returns a false “restored,” or loses partial-failure evidence. Test a deliberately failing group and a concurrent turn to detect these regressions.
 
 **Rollback:** revert the B code commits as a unit; the database shape is unchanged. Do not change stored records, schema or release plumbing to make the refactor easier.
+
+
+## Detailed implementation blueprint — C: dashboard workflow confirmation (conditional)
+
+### What is still in the host after the merged owner refactors
+
+`apps/web/app/dashboard/actions.ts` is a `"use server"` module with public Next.js actions and private orchestration. The checked-in `confirmSetupPullRequestMergedMutation` begins near line 1,713 and runs to ~2,702. It does **not** simply call `createInstalledGatewayReviewConfirmation`: it also verifies selected repository/install state, the saved setup attempt and branch, current workflow blob/commit, provider transport, optional hosted pool bindings, rotating secret namespace, active runtime source and post-provisioning status before responding.
+
+Already existing authorities must be reused:
+- `packages/features/workflow-provisioning` owns provisioning outcomes, candidate/installed workflow checks and canonical source attestation; #810 relocated some of these.
+- `apps/web/src/server/codex-rotating-workflow-activation.ts` already owns rotating namespace activation; do not fork its code.
+- `createInstalledGatewayReviewConfirmation` and `provisionGatewayReviewV2Repository` already revalidate authorization and persisted attempt/source state.
+- The server action validates the current actor/entitlement and rate limits, maps safe error codes, writes the dashboard audit trail and performs redirect/revalidation. That host behavior is a **contract**, not an invitation to bury it behind an opaque “service.”
+
+### Objective split, with exact ownership test
+
+Choose **one bounded workflow confirmation coordinator** only if tests show that its current production responsibility is independent of form/redirect concerns. The coordinator may contain the existing *ordered* verification and activation calls, but it must not reimplement the domain's workflow safety or create a second writer. It accepts already parsed command identifiers and explicit existing adapter dependencies, and returns a **small existing result/status**, not a new protocol or generic error hierarchy.
+
+Keep at the `"use server"` boundary:
+- reading `FormData` and redirect/query-string mapping;
+- `assertDashboardRepositoryMutationAllowed`, current workspace/actor and entitlement/rate preflight (unless the existing delegated writer already performs the same authorization again);
+- current safe error mapping and audit actor/target; the coordinator may return structured evidence for the host to audit;
+- public action names and return shape, unchanged.
+
+Keep in the current feature/server adapters:
+- existing repository-owner and GitHub App installation adapters;
+- source verification at pinned commit and application-level workflow provision/settlement;
+- rotating namespace and hosted binding activation;
+- invariant enforcement **again at the write boundary** after the earlier GitHub/network awaits.
+
+**Do not substitute initial authorization for a late recheck.** A long GitHub call can race against an installation removal, archive, ownership transfer, default-branch change or a newer setup attempt. The final authority must re-read the current source and save only if its exact version/attempt and SCM evidence still match.
+
+### Critic comparison
+
+| Approach | Security correctness (10) | DRY (10) | Complexity (10 = simplest) | Outcome |
+|---|---:|---:|---:|---|
+| C0. No extraction, strengthen behavior tests | 9 | 6 | 10 | Acceptable when no distinct owner can be isolated |
+| **C1. One purpose-named confirmation coordinator delegating existing bounded owners** | **9** | **9** | **7** | **Selected if dependency surface stays bounded** |
+| C2. Rewrite all dashboard server actions as generic dispatchers | 5 | 5 | 2 | Rejected: unrelated scope and fragile auth changes |
+| C3. Duplicate `provisionGatewayReviewV2Repository`/namespace policy in web host | 3 | 2 | 5 | Rejected: drift across owners |
+| C4. Move all setup confirmation into new feature application commands | 6 | 7 | 3 | Rejected unless a specific feature-domain contract is demonstrably missing |
+
+### Preserve these existing cases and branches
+
+1. **No stored setup PR:** handle eligible verified installed Gateway workflows using the existing installed-only production confirmation, not fake a PR or mark readiness from file presence alone.
+2. **Stored PR merged:** verify exact saved `attemptId`/`revision`/`pullRequestHeadSha`/`branch`/`baseBranch`, current repository installation and action source; call existing `PrismaWorkflowProvisioningStatusAuthority.assertConfigured`.
+3. **Installed workflow confirmation:** use existing `confirmInstalledWorkflow` with exact verified artifact/transport requirements, not an assumed latest ref or caller-controlled SHA.
+4. **Gateway vs provider-api vs rotating vs Claude OAuth vs hosted pool:** preserve individual credential custody, generated caller/installed source and selected Action pin rules; no generic catch-all that treats them as equivalent.
+5. **Legacy workflow coexistence:** current flow rejects an allegedly complete setup if incompatible old workflow entries remain. Keep that rejection and diagnostic message.
+6. **Partial/unknown GitHub remote effect:** do not blindly repeat a non-idempotent write after transport uncertainty. Reconcile exact known attempt/branch and source evidence; retain distinct “needs attention,” “ready,” “not merged,” and “blocked” statuses.
+7. **Audit:** success audit only after durable authority confirms configured/ready. Failure diagnostics may be best-effort without suppressing original error; never fabricate success from an audit or a UI redirect.
+8. **Provider secret activation:** remains in its existing function/owner; should not be pulled into workflow confirmation because both happen in `actions.ts`.
+9. **Read-path/UI:** `dashboard-workspace-page.tsx` and #798's read boundary remain outside C. No component/layout behavior changes except testing existing form-submit transitions.
+
+### C — implementation work packets and changed-line budget
+
+| ID | Change | Why / existing owner | Useful diff |
+|---|---|---|---:|
+| C0 | Map command inputs, actor/permission preflight, current installed/PR/hosted branches and 2–3 durable write outcomes; write targeted behavior tests | Existing dashboard/server test suites | 450–750 |
+| C1 | If a real boundary exists, move the **one** cohesive merge-confirmation/activation sequence out of `actions.ts` into one existing server owner or one purpose-named module. Reuse feature use cases and keep order of effects | Existing `apps/web/src/server` | 1,300–2,400 |
+| C2 | Adapt directly affected source-slice tests into behavior/authority tests; keep unaffected static enforcement and require a negative case for each moved guard | `actions-codex-rotating-contract.test.ts` and integration tests | 800–1,350 |
+| C3 | Verify real GitHub/disposable repository setup and reconfirmation, partial-failure recovery, no double post and exact audit/UI return; source and type validation | Existing test harness, no new CI service | 600–1,100 |
+| **C total** | Conditional; a smaller C0-only result is better if no real change owner | | **3,150–5,600** |
+
+### C — adversarial E2E matrix
+
+| Test | Actor/source conditions | Expected durable state, external effects and UI |
+|---|---|---|
+| C-N1 | Repository manager attempts organization secret/ruleset scope | Denied before any GitHub write; only supported repo-scoped operation available |
+| C-N2 | Actor loses workspace permission after initial form load | Re-authorization denies, no writer status transition or unauthorized GitHub side effect |
+| C-N3 | GitHub installation removed, repository transferred/archived/unselected | No setup confirmation; durable repository remains needs-attention or blocked |
+| C-N4 | PR merged but saved attempt/head/base branch no longer match | `workflow_provisioning_match_not_found` / current dedicated error; never sets `configured` |
+| C-N5 | Current source blob differs from expected pinned runtime or namespace | Fail closed, never activate old credential namespace or issue review authority |
+| C-N6 | Concurrent second setup PR supersedes the original during verification | Late version check refuses first attempt; second remains current |
+| C-N7 | GitHub request times out after an uncertain remote create | No automatic blind duplicate; reconcile current attempt/source |
+| C-N8 | Hosted pool switched to repository-owned source mid-check | Existing state version and `assertCurrentBinding` prevent stale activation |
+| C-N9 | Extra legacy workflow remains | Readiness rejected with existing diagnostic, no false success banner |
+| C-N10 | Audit sink fails after operation | Preserve existing safe audit semantics, no retroactive claim that operation rolled back |
+| C-P1 | Valid merged PR with selected provider and exact workflow ref | `configured`/ready is durable, correct actor audit, same redirect/notice |
+| C-P2 | Valid installed-only Gateway caller, no PR | Existing installed confirmation path succeeds without new setup PR |
+| C-P3 | Duplicate confirmation submission | Same terminal state, no duplicate effect or privilege expansion |
+
+Prefer existing `actions-workflow-provisioning-recovery.test.ts`, `actions-hosted-workflow-recovery.test.ts`, `actions-codex-rotating-contract.test.ts`, feature `prisma-workflow-provisioning-real.test.ts` and one isolated hosted/disposable GitHub E2E. A source-slicing test that only searches for a function name is **not** a substitute for C-N1–C-N8.
+
+### C — go/no-go and rollback
+
+**Go:** evidence shows one independent orchestrator; its dependencies have existing interfaces and no duplicate business rules; expected diff fits remaining budget after A+B; simulated and live tests prove preservation.  
+**No-go:** extraction would need a generic workflow manager, move existing provider-owned domain rules back into web, create 15+ constructor dependency inputs, or change installed source semantics. In that case leave C0 tests only, explicitly report reduced changed-line total and propose a *separate* future owner design instead of bloating this PR.
+
+**Rollback:** revert only coordinator/test changes, preserving existing use cases and persisted provisioning state. Never use an environment flag to mask a broken migrated path.
+
+## Full PR scope-budget controller (review after every checkpoint)
+
+This is a working budget for **total additions + deletions**, not net additions. It is not proof of lines already changed. Recount from GitHub's PR diff for every checkpoint.
+
+| Workstream | Target center | Expected range | Mandatory vs conditional |
+|---|---:|---:|---|
+| A — safety query ownership and protected API composition | 4,000 | 3,200–4,900 | Required; API extraction conditional |
+| B — investigation private helpers and real-Postgres tests | 5,700 | 4,300–7,000 | Required only where ownership improves |
+| C — dashboard workflow confirmation and E2E | 4,100 | 3,150–5,600 | Conditional on passing actual owner gate |
+| Architecture ratchet / compatibility integration | 650 | 400–900 | Required for changed boundaries |
+| **Sum** | **14,450** | **11,050–18,400** | Within requested 10–20k as an evidence-based forecast |
+
+**Hard scope ceiling:** roughly 20,000 lines, with a small overrun acceptable only if caused by relevant security/fidelity tests, not unrelated modules. If actual useful work is under 10,000, preserve correctness and report the variance rather than constructing artificial helpers, whitespace churn or unused wrappers. Do **not** redefine useful changes to include generated `action-dist`, lockfile, formatting sweeps, database migrations or unrelated tests.
+
+### No-shortcuts E2E completion gates
+
+**Gate G0:** latest `main` and competing PR conflict scan; exact branch SHA and three scoped owners recorded; no overlapping unmerged work.  
+**Gate G1 (A):** red/green authority negative tests, current-tx confinement, same `Promise.all` semantics, real-checkout/relay test plus project `architecture:check`.  
+**Gate G2 (B):** feature tests, real PostgreSQL lease/retention/prune under contention, partial batch failure and retry; no schema, SQL or lock-order drift.  
+**Gate G3 (C):** only if extracted, verified setup/merge confirmation from both saved-PR and installed-only paths in a disposable GitHub repository; exact source/actor/installation audit.  
+**Gate G4 (integrated):** repository-pinned compiler, lint, format, all affected suites, exact-head GitHub CI with job-level results (including skipped), critic code review rounds and fixes.  
+**Gate G5 (delivery):** mark Ready and squash merge only after implementation goals and all required eligible gates are successful; never equate a Draft PR's aggregate green gate with actual heavy test evidence. No deployment or release unless requested separately.
+
+### Objective final critic summary
+
+- **Clean Architecture:** change code only where the existing feature/application ports remain authority and app hosts merely compose adapters. Score target 9/10 based on dependency graph, not file count.
+- **SOLID/SRP:** prefer one persistent aggregate/transaction owner with cohesive private collaborators; avoid the textbook mistake of turning four interfaces into four data stores. Score target 9/10 based on future edit radius.
+- **DRY:** share actual behavior/mappers; avoid extracting a helper merely because code resembles another module, when the error/authorization contracts differ. Score target 9/10 conditional on green parity tests.
+- **Concurrency:** risk priority higher than elegance; preserve locks, idempotency, recovery and no duplicate external effects. Proof required, no unsupported 10/10 reliability claim.
+- **Complexity:** one narrow query adapter, up to a few internal persistence modules, and at most one conditional dashboard coordinator. No generic DI/service architecture, new feature flags, schema migrations, UI rewrites or product features.
+
+*Reviews must update this document when code proves a prediction wrong. The scores above are comparative quality goals, not measured production reliability.*
