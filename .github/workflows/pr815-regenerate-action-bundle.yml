@@ -41,6 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm exec prettier --write \
+            .github/workflows/pr815-regenerate-action-bundle.yml \
             ai-docs/plans/2026-11-05-action-runtime-ownership-refactor.md \
             ai-docs/deployments/README.md \
             ai-docs/deployments/2026-11-05-action-runtime-ownership.md \
