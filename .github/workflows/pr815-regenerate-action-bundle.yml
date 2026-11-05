@@ -57,7 +57,8 @@ jobs:
           set -euo pipefail
           pnpm action:build
           pnpm action:artifact:check:smoke
-          git diff --exit-code -- action-dist/conflict-runtime.cjs
+          # The reviewed domain boundary move changes both generated runtimes.
+          # action:artifact:check:smoke verifies source parity for both bundles.
           sha256sum action-dist/index.cjs
           pnpm format:check
           git diff --check
@@ -90,6 +91,7 @@ jobs:
           fi
           git add -- \
             action-dist/index.cjs \
+            action-dist/conflict-runtime.cjs \
             ai-docs/plans/2026-11-05-action-runtime-ownership-refactor.md \
             ai-docs/deployments/README.md \
             ai-docs/deployments/2026-11-05-action-runtime-ownership.md \
@@ -100,7 +102,7 @@ jobs:
             packages/features/codex-oauth-rotating/src/domain/codex-workflow.ts
           while IFS= read -r changed; do
             case "$changed" in
-              action-dist/index.cjs|ai-docs/plans/2026-11-05-action-runtime-ownership-refactor.md|ai-docs/deployments/README.md|ai-docs/deployments/2026-11-05-action-runtime-ownership.md|scripts/check-architecture-boundaries.mjs|packages/features/codex-oauth-rotating/src/action/*.ts|packages/features/codex-oauth-rotating/src/domain/codex-contract.ts|packages/features/codex-oauth-rotating/src/domain/codex-oauth-rotating.ts|packages/features/codex-oauth-rotating/src/domain/codex-workflow.ts) ;;
+              action-dist/index.cjs|action-dist/conflict-runtime.cjs|ai-docs/plans/2026-11-05-action-runtime-ownership-refactor.md|ai-docs/deployments/README.md|ai-docs/deployments/2026-11-05-action-runtime-ownership.md|scripts/check-architecture-boundaries.mjs|packages/features/codex-oauth-rotating/src/action/*.ts|packages/features/codex-oauth-rotating/src/domain/codex-contract.ts|packages/features/codex-oauth-rotating/src/domain/codex-oauth-rotating.ts|packages/features/codex-oauth-rotating/src/domain/codex-workflow.ts) ;;
               *) echo "::error::unapproved staged path $changed"; exit 1 ;;
             esac
           done < <(git diff --cached --name-only)
