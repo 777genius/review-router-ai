@@ -14,7 +14,7 @@ Select **three** remaining architectural risk factors, each with a concrete owne
 | Priority | Critical factor | Observed signal | Architectural failure mode | Severity / confidence |
 |---|---|---|---|---|
 | P0 | Review v2 API authority/composition boundary | `apps/api/src/review-action-v2-production-composition.ts` has 3,218 LOC; transaction-bound review safety uses `new Proxy(prisma, …)` to masquerade as a narrowly selected client | A security-sensitive authorization check is coupled to a large composition function and a dynamic DB delegate shim. Changes can accidentally escape a transaction or change lock/read order | 9/10; high that the coupling exists, medium that it will cause an incident |
-| P1 | Review investigation persistence has too many responsibilities | `PrismaInvestigationStore` has 3,438 LOC and implements **four** ports: aggregate, private material, pruning, lease | SRP failure increases the edit radius of authorization, retention, leases and data access. Naive splitting could break atomicity | 9/10; high for coupling, no observed correctness failure asserted |
+| P1 | Review investigation persistence has too many responsibilities | `PrismaInvestigationStore` has 3,438 LOC and implements **four** ports: aggregate, private material, pruning, lease | Cross-cutting edit radius for authorization, retention, leases and data access. The four ports may be a deliberate single transaction authority; splitting them is **not automatically an SRP win** | 8/10; high for coupling, no correctness bug demonstrated |
 | P1 | Dashboard workflow mutation boundary and architectural drift | `apps/web/app/dashboard/actions.ts` is 4,007 LOC, with setup PR creation around lines 1,195–1,712 and merge confirmation around 1,713–2,702; existing architecture checker has bounded owner coverage | Server Action host mixes adapter authorization, workflow policy/verification, external GitHub effects, audit and navigation; source-text-bound tests impede safe extraction | 8/10; high for responsibility mixing |
 
 The rule is **trace one authority / one owner / one observable contract**, not “make all files small.” Architectural checks are the common acceptance guard across these three slices.
@@ -33,6 +33,7 @@ The rule is **trace one authority / one owner / one observable contract**, not �
 10. `apps/web/app/dashboard/dashboard-workspace-page.tsx` (~3,399 LOC) combines page data/load/sections and UI. After #798's read-boundary work, a broad UI rewrite is lower priority than review authorization and persistence; defer.
 11. `apps/api/src/review-run-gateway-relay.ts` (~2,500 LOC) mixes capacity/session/stream handling but has explicit boundedness and cancellation contracts. Do not expand the current scope into upstream relay semantics absent a red regression.
 12. Current `AGENTS.md` forbids new feature flags by default, requires explicit rollout registry and keeping existing App-first/OIDC/workflow authority. No DB schema or deployment should be bundled with this structural PR.
+13. API and worker each validate capability key-ring JSON, base64 secrets and expiration timestamps (API `readCapabilityKeyRingFromEnv` / `parseCapabilityKey`; worker `readCapabilityKeyRing` / `parseCapabilityKey`). This is concrete DRY drift potential, **but errors and env names differ**; do not extract a shared parser without behavioral parity tests, and leave it outside this three-slice PR.
 
 All LOC figures refer to the current checked-in source line count; changed-line forecasts below are rough and exclude generated `action-dist`/lockfile churn. They will be recalculated from actual PR diff.
 
@@ -43,7 +44,7 @@ All LOC figures refer to the current checked-in source line count; changed-line 
 
 1. Characterize the protected `confirmAccountGatewayAuthority` path (valid token; exact original runtime snapshot; selected identity/installation/repository; scope locks; row share; safety policy; producer release; live checkout; expired or superseded work). Record the order as an explicit checklist and regression matrix.
 2. Replace the dynamic `new Proxy(prisma, …)` read shim **only after a red/green regression** with a small explicit *transaction-bound read adapter* owned by existing review-run-control infrastructure. It must accept the active `Prisma.TransactionClient`, expose only the existing query ports, reuse the existing safety policy/selector mapping, and **never** initiate a nested/root transaction. Avoid duplicate policy code.
-3. Extract the local authority-confirmation composition and its immediate prerequisites from the giant API composer into one cohesive API-local module, but keep the current public `composeReviewActionV2ProductionRoutes` entrypoint, request contracts, dependency graph and return type. Separate the gateway/model route wiring only if it removes a demonstrated import cycle or edits across unrelated domains.
+3. Extract **only** the local authority-confirmation composition and its immediate transaction-read prerequisites into one cohesive API-local module *if* this separates a real owner. Preserve `composeReviewActionV2ProductionRoutes` and the existing dependency graph/return type. Do not also recompose the gateway/model relay just to reduce LOC; that is a different behavior-sensitive task.
 4. Ensure no network access while transaction locks are held; keep lock ordering, exact `ReadCommitted` freshness and fail-closed error results. Do not change business semantics, error/status strings, timeouts, quota or capability issuance.
 5. Verify with existing API snapshot/publication and gateway-relay tests plus focused injected-transaction tests for stale identity, revoked authorization, emergency disable and target mismatch. Add a transaction-negative test to fail if the root client is used inside the protected section.
 
@@ -56,7 +57,7 @@ All LOC figures refer to the current checked-in source line count; changed-line 
 **Touched owner:** `packages/features/review-investigations/src/infrastructure/prisma/prisma-investigation-store.ts`.
 
 1. Record the existing four port contracts, all callers, shared `PrismaClient`/transaction use, command idempotency, lock acquisition order and certificate/private-material retention rules before moving lines.
-2. Keep `PrismaInvestigationStore` as the **unchanged public constructor and compatibility facade**. Extract only coherent *private* infrastructure responsibilities (candidate A: private-material pruning; candidate B: lease claim/renew/revoke/read; candidate C: aggregate mapping/persistence helpers). Prefer internal functions / collaborators in the same package, not extra exported ports or new package layers.
+2. Keep `PrismaInvestigationStore` as the **unchanged public constructor and transaction authority**. Extract one cohesive *private* responsibility at a time (first: private-material pruning; second only if useful: lease claim/renew/revoke/read). Keep aggregate hydration and commit persistence together unless an actual independent owner is proven. Prefer local functions / collaborators in the same package, not extra exported ports or a forwarding facade hierarchy. If movement only changes filenames, leave it in place.
 3. Preserve the original transaction in each command. Do **not** dispatch a critical multi-write transition into separate transactions or change eligibility/retention, isolation, DB now, hashes, key custody or repository identity.
 4. Convert directly affected tests to import stable port behavior rather than private implementation positions. Focus on lease racing, idempotent replay, batch prune partial failure, orphan detection, expiration, restoration and PostgreSQL-specific lock behavior.
 5. Use `PrismaReviewExecutionStore` only as a **bounded follow-on** if the first extraction reveals an actual shared invariant/duplication that needs one owner and can be qualified in the planned budget. Otherwise leave that 2,803-LOC store for a separate task.
@@ -71,7 +72,7 @@ All LOC figures refer to the current checked-in source line count; changed-line 
 **Existing core owner:** `packages/features/workflow-provisioning` and existing web/server setup/activation modules.
 
 1. Characterize `createSetupPullRequestMutation` and `confirmSetupPullRequestMergedMutation`, including actor/workspace/repository authorization **before** external GitHub effects, per-repo rate/entitlement guards, exact workflow SHA, installed namespace witness, audit result semantics and idempotent retry.
-2. Keep Next.js `use server` actions, form parsing, redirects and navigational result mapping at the existing entrypoint. Move only *one* cohesive workflow setup/confirmation operation into an existing server-side owner or one purpose-named web/server module. No new general-purpose controller/service/DI framework.
+2. Keep Next.js `use server` actions, form parsing, redirects and navigational result mapping at the existing entrypoint. **Prefer the merge-confirmation/activation path** as the one owned operation; extract only decision/side-effect orchestration that `#810` did not already move. Creation path stays as-is unless a concrete duplicated rule is found. Use an existing server-side owner or one purpose-named web/server module, never a new general-purpose controller/service/DI framework.
 3. Do not duplicate provisioning policy already moved by #810. Use existing feature use cases and adapters; move only orchestration that still lives at the wrong boundary. If no non-host logic remains after examining #810 changes, drop this extraction and strengthen behavior-based tests instead (do **not** manufacture a 10k-line refactor).
 4. Replace only the source-slice tests impacted by the move with behavior-focused tests against fake GitHub/DB adapters and a real auth-scoping test. Verify no GitHub request before access rejection; stale head, mismatched namespace, failures and retry must not publish false readiness.
 5. Keep public server action exports, visible dashboard flow, error strings and provisioning records compatible.
@@ -106,6 +107,7 @@ All LOC figures refer to the current checked-in source line count; changed-line 
 | Dashboard React page decomposition | OUT | Lower production risk than authority writes |
 | Context-attestation/execution-evidence handlers | OUT | Large but independently protected protocol boundaries; evidence not enough for blanket split |
 | Gateway relay retries/capacity protocol | OUT | Behavior and policy change not proven necessary |
+| API/worker capability-key parsing duplicate | OUT (candidate follow-up) | Error strings and producer/consumer security policy must be compared before DRY consolidation |
 | Memory learning/evidence changes | OUT | Active #806 owns this |
 | New flags, service framework, generic repositories, DB migrations | **PROHIBITED** | Complexity without proven value |
 
@@ -154,3 +156,15 @@ The lower bound can fall below 10k if correct minimal changes require less; **sh
 - **Round 2 — security/concurrency:** Challenge lock order, transaction-scoped safety data, GitHub side effects, idempotency, lease fencing and source witness after moved code.
 - **Round 3 — E2E/scope/cost:** Challenge coverage of realistic failures, generated artifacts, total churn, overlap with open work and any code written just to hit 10k.
 - Mark every unresolved risk with an owner and verification gate. A reviewer objection must result in a changed plan or an explicit reason to reject it.
+
+## Adversarial review round 1 — architecture and DRY (2026-11-05)
+
+**Method:** source-based critique against `main` `f40a92f` and historical merged diffs, not a claim of separate autonomous critic agents.
+
+1. **Challenge: “four ports” does not automatically mean four repositories.** The investigation store is also the transaction/idempotency authority. **Accepted.** Reduce severity from 9 to 8 for an architectural edit-radius risk, keep one transaction owner, and limit extraction to private pruning/lease code when behavior-based tests justify it. No extra public façade/DI graph.
+2. **Challenge: PR #810 already changed `apps/web/app/dashboard/actions.ts` and moved provisioning policy into feature use cases.** **Accepted.** Narrow C to remaining merge-confirmation/activation orchestration; do not move previously extracted rules back or change both creation and confirmation by default.
+3. **Challenge: giant API file may be an intentional composition root.** **Accepted.** Only the concrete transaction-read `Proxy` seam is mandatory to characterize. Extraction of unrelated gateway/model wiring based on line count is rejected.
+4. **Challenge: repeated capability-key parsing looks DRY-worthy but may have different compatibility error semantics.** **Deferred.** Logged as a candidate but not part of this PR without direct fault demonstration and exact behavior tests.
+5. **Challenge: architecture checks are not absent globally.** **Accepted.** Existing strict review-context checks are substantial; the gap is *selective adoption* in composition ownership. Only add specific negative fixtures for the changed edges.
+
+**Result:** Three factors retained, scope narrowed. Round 2 must prove the new safety reader cannot accidentally widen authority or leave the existing transaction.
