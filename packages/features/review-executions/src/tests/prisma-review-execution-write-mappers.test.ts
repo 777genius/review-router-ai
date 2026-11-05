@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ReviewCoverageState, type FinalizedReviewProjectionArtifact } from "../domain/review-execution";
+import { requiredSnapshot, sameScope } from "../infrastructure/prisma/prisma-review-execution-snapshot";
 import {
   artifactCreateData,
   finalizedOutboxData,
@@ -54,6 +55,16 @@ describe("Review execution persistence record encoders", () => {
       scmRepositoryIdentityId: "scm-1",
       pullRequestNumber: 42,
     });
+  });
+
+  it("compares exact execution scope and fails closed on a missing snapshot", () => {
+    const scope = scopeWhere(artifact.publicationPermit);
+    expect(sameScope(scope, { ...scope })).toBe(true);
+    expect(sameScope(scope, { ...scope, pullRequestNumber: 43 })).toBe(false);
+    expect(sameScope(scope, { ...scope, repositoryConnectionId: "other" })).toBe(false);
+    expect(() => requiredSnapshot(null)).toThrow(
+      "review_execution_snapshot_missing",
+    );
   });
 
   it("preserves exact finalized outbox identity, payload, timestamps and repository binding", () => {
