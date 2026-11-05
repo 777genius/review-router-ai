@@ -1,0 +1,55 @@
+name: Temporary PR 818 pinned formatter output
+on:
+  pull_request:
+    types: [synchronize]
+permissions:
+  contents: read
+jobs:
+  render:
+    if: ${{ github.event.pull_request.number == 818 && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Install pinned Prettier
+        run: npm install --global --ignore-scripts --no-audit --no-fund prettier@3.8.3
+      - name: Render exact formatter output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(prettier --version)" = 3.8.3
+          prettier --write \
+            ai-docs/plans/2026-11-05-reviewrouter-foundation-hardening.md \
+            packages/features/review-investigations/src/infrastructure/prisma/prisma-investigation-private-material-prune.ts \
+            packages/features/review-investigations/src/infrastructure/prisma/prisma-investigation-record-mappers.ts \
+            packages/features/review-investigations/src/infrastructure/prisma/prisma-investigation-store.ts \
+            packages/features/review-investigations/src/tests/prisma-investigation-private-material-prune.test.ts \
+            packages/features/review-investigations/src/tests/prisma-investigation-record-mappers.test.ts \
+            packages/features/review-run-control/src/tests/prisma-review-safety-query-repository.test.ts
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const files = [
+            'ai-docs/plans/2026-11-05-reviewrouter-foundation-hardening.md',
+            'packages/features/review-investigations/src/infrastructure/prisma/prisma-investigation-private-material-prune.ts',
+            'packages/features/review-investigations/src/infrastructure/prisma/prisma-investigation-record-mappers.ts',
+            'packages/features/review-investigations/src/infrastructure/prisma/prisma-investigation-store.ts',
+            'packages/features/review-investigations/src/tests/prisma-investigation-private-material-prune.test.ts',
+            'packages/features/review-investigations/src/tests/prisma-investigation-record-mappers.test.ts',
+            'packages/features/review-run-control/src/tests/prisma-review-safety-query-repository.test.ts',
+          ];
+          for (const file of files) {
+            const bytes = readFileSync(file);
+            const encoded = bytes.toString('base64');
+            const chunkCount = Math.ceil(encoded.length / 1536);
+            for (let i = 0; i < chunkCount; i++) {
+              console.log(['RR818_FORMAT', file, i, encoded.slice(i * 1536, (i + 1) * 1536)].join('|'));
+            }
+            const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+            console.log(['RR818_DONE', file, chunkCount, bytes.length, createHash('sha256').update(bytes).digest('hex'), blob].join('|'));
+          }
+          NODE
