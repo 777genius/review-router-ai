@@ -25,11 +25,15 @@ describe("Action Codex loopback proxy boundary", () => {
   });
 
   it("serves only its loopback nonce path and filters upstream headers", async () => {
-    const upstream = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const upstream = vi.fn(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toBe("https://example.invalid/responses");
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
     );
     const proxy = await startCodexLocalProviderProxy({
       fetchImpl: upstream as typeof fetch,

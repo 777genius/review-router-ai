@@ -120,17 +120,16 @@ function sleepBeforeRetry(
     new Error(`network_request_aborted:${safeNetworkLabel(label)}`);
   if (signal.aborted) return Promise.reject(aborted());
   return new Promise<void>((resolve, reject) => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const onAbort = (): void => {
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
       reject(aborted());
     };
-    signal.addEventListener("abort", onAbort, { once: true });
-    timer = setTimeout(() => {
+    const timer = setTimeout(() => {
       signal.removeEventListener("abort", onAbort);
       resolve();
     }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) onAbort();
   });
 }

@@ -158,8 +158,6 @@ export {
   startHostedCodexRelayProxy,
 } from "./hosted-codex-relay";
 
-declare const __dirname: string | undefined;
-
 const defaultOidcAudience = "reviewrouter";
 const forkAgenticSandboxActionMode = "fork-agentic-sandbox";
 const preparedSubscriptionActionMode = "prepared-subscription";
