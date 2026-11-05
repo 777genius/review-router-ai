@@ -41,7 +41,6 @@ import {
   createEmptyReviewExecutionStream,
   reviewRevisionsEqual,
   reviewExecutionAbsoluteMaxWorkSlots,
-  type FinalizedReviewProjectionArtifact,
   type ReviewExecution,
   type ReviewExecutionObservationRef,
   type ReviewExecutionScope,
@@ -89,10 +88,16 @@ import {
   type InvocationFlight,
 } from "../../domain/invocation-flight";
 import {
+  artifactCreateData,
   artifactFromRecord,
-  attachmentKindToPrisma,
-  coverageStateToPrisma,
-  executionStateToPrisma,
+  executionCreateData,
+  executionUpdateData,
+  finalizedOutboxData,
+  finalizedOutboxIdentity,
+  leaseCreateData,
+  observationRefCreateData,
+  scopeWhere,
+  workSlotUpdateData,
   executionToDomain,
   leasePurposeToPrisma,
   leaseStateToPrisma,
@@ -101,7 +106,6 @@ import {
   providerKindToPrisma,
   streamToDomain,
   taskKindToPrisma,
-  workSlotStateToPrisma,
 } from "./prisma-review-execution-mappers";
 import {
   databaseRelativeDate,
@@ -1974,13 +1978,13 @@ async function persistExecutionUpdate(
 ): Promise<void> {
   const result = await transaction.reviewExecutionV2.updateMany({
     where: { executionId: current.executionId, version: current.version },
-    data: executionMutableData(next),
+    data: executionUpdateData(next),
   });
   if (result.count !== 1) throw new ConcurrentExecutionMutationError();
   for (const slot of next.workSlots) {
     const updated = await transaction.reviewExecutionWorkSlotV2.updateMany({
       where: { executionId: next.executionId, workSlotId: slot.workSlotId },
-      data: workSlotMutableData(slot),
+      data: workSlotUpdateData(slot),
     });
     if (updated.count !== 1) {
       throw new Error("review_execution_work_slot_missing");
@@ -2007,7 +2011,7 @@ async function createExecution(
       required: slot.required,
       attemptBudget: slot.attemptBudget,
       retryPolicyVersion: slot.retryPolicyVersion,
-      ...workSlotMutableData(slot),
+      ...workSlotUpdateData(slot),
     })),
   });
 }
@@ -2122,194 +2126,6 @@ async function requiredStreamRecord(
   return record;
 }
 
-function executionCreateData(execution: ReviewExecution) {
-  return {
-    executionId: execution.executionId,
-    historyRootRequestId: execution.historyRootRequestId ?? null,
-    historyDispatchAttempt: execution.historyDispatchAttempt ?? null,
-    ...scopeWhere(execution),
-    generation: execution.generation,
-    version: execution.version,
-    baseSha: execution.revision.baseSha,
-    mergeBaseSha: execution.revision.mergeBaseSha,
-    headSha: execution.revision.headSha,
-    reviewRevisionHash: execution.revision.reviewRevisionHash,
-    compatibilityKey: execution.compatibilityKey,
-    planHash: execution.planHash,
-    assignmentManifestVersion: execution.assignmentManifestVersion ?? null,
-    assignmentManifestHash: execution.assignmentManifestHash ?? null,
-    assignmentManifestJson:
-      execution.assignmentManifestCanonicalJson === null ||
-      execution.assignmentManifestCanonicalJson === undefined
-        ? Prisma.DbNull
-        : parseAssignmentManifestJson(
-            execution.assignmentManifestCanonicalJson,
-          ),
-    startIdentityHash: execution.startIdentityHash,
-    canonicalStartHash: execution.canonicalStartHash,
-    state: executionStateToPrisma(execution.state),
-    authorizationId: execution.authorizationId,
-    producerReleaseId: execution.producerReleaseId,
-    mutationEpoch: execution.mutationEpoch,
-    admissionSafetyDecisionHash: execution.admissionSafetyDecisionHash,
-    protocolLimitsProfileId: execution.protocolLimitsProfileId,
-    sourceRunId: execution.sourceRunId,
-    sourceRunAttempt: execution.sourceRunAttempt,
-    supersededByExecutionId: execution.supersededByExecutionId,
-    finalizedArtifactId: execution.finalizedArtifactId,
-    createdAt: execution.createdAt,
-    updatedAt: execution.updatedAt,
-    admissionDeadlineAt: execution.admissionDeadlineAt,
-    admissionCheckedAt: execution.admissionCheckedAt,
-    executionDeadlineAt: execution.executionDeadlineAt,
-    retainUntil: execution.retainUntil,
-  };
-}
-
-function parseAssignmentManifestJson(value: string): Prisma.InputJsonObject {
-  const parsed: unknown = JSON.parse(value);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("review_assignment_manifest_not_object");
-  }
-  return parsed as Prisma.InputJsonObject;
-}
-
-function executionMutableData(execution: ReviewExecution) {
-  return {
-    version: execution.version,
-    state: executionStateToPrisma(execution.state),
-    supersededByExecutionId: execution.supersededByExecutionId,
-    finalizedArtifactId: execution.finalizedArtifactId,
-    updatedAt: execution.updatedAt,
-    admissionCheckedAt: execution.admissionCheckedAt,
-  };
-}
-
-function workSlotMutableData(slot: ReviewWorkSlot) {
-  return {
-    state: workSlotStateToPrisma(slot.state),
-    nextAttemptOrdinal: slot.nextAttemptOrdinal,
-    activeLeaseId: slot.activeLeaseId,
-    acceptedObservationRefId: slot.acceptedObservationRefId,
-  };
-}
-
-function leaseCreateData(lease: ReviewInvocationLease) {
-  return {
-    leaseId: lease.leaseId,
-    ...scopeWhere(lease),
-    executionId: lease.executionId,
-    executionGeneration: lease.executionGeneration,
-    providerInvocationKey: lease.providerInvocationKey,
-    preparedManifestCanonicalJson: lease.preparedManifestCanonicalJson,
-    preparedManifestKey: lease.preparedManifestKey,
-    providerVoteIdentityHash: lease.providerVoteIdentityHash,
-    workSlotId: lease.workSlotId,
-    purpose: leasePurposeToPrisma(lease.purpose),
-    authorizationId: lease.authorizationId,
-    producerReleaseId: lease.producerReleaseId,
-    reviewRevisionHash: lease.reviewRevisionHash,
-    mutationEpoch: lease.mutationEpoch,
-    leaseSafetyDecisionHash: lease.leaseSafetyDecisionHash,
-    attemptId: lease.attemptId,
-    sourceObservationId: lease.sourceObservationId,
-    attemptOrdinal: lease.attemptOrdinal,
-    acquireRequestIdHash: lease.acquireRequestIdHash,
-    acquireRequestHash: lease.acquireRequestHash,
-    lastRenewRequestIdHash: lease.lastRenewRequestIdHash,
-    lastRenewRequestHash: lease.lastRenewRequestHash,
-    ownerIdHash: lease.ownerIdHash,
-    leaseCapabilityId: lease.leaseCapabilityId,
-    capabilitySigningKeyId: lease.capabilitySigningKeyId,
-    fencingToken: lease.fencingToken,
-    state: leaseStateToPrisma(lease.state),
-    acquiredAt: lease.acquiredAt,
-    renewedAt: lease.renewedAt,
-    expiresAt: lease.expiresAt,
-    resultReportUntil: lease.resultReportUntil,
-    retainUntil: lease.retainUntil,
-  };
-}
-
-function observationRefCreateData(ref: ReviewExecutionObservationRef) {
-  return {
-    observationRefId: ref.observationRefId,
-    executionId: ref.executionId,
-    workSlotId: ref.workSlotId,
-    providerInvocationKey: ref.providerInvocationKey,
-    observationId: ref.observationId,
-    providerVoteIdentityHash: ref.providerVoteIdentityHash,
-    attachmentKind: attachmentKindToPrisma(ref.attachmentKind),
-    eligibilityPolicyVersion: ref.eligibilityPolicyVersion,
-    reuseSafetyDecisionHash: ref.reuseSafetyDecisionHash,
-    sourceExecutionId: ref.sourceExecutionId,
-    sourceLeaseId: ref.sourceLeaseId,
-    sourceFencingToken: ref.sourceFencingToken,
-    payloadHash: ref.payloadHash,
-    byteCount: ref.byteCount,
-    findingCount: ref.findingCount,
-    attachedAt: ref.attachedAt,
-  };
-}
-
-function artifactCreateData(
-  artifact: FinalizedReviewProjectionArtifact,
-  artifactHash: string,
-) {
-  const projectionEnvelope = parseProjectionEnvelope(
-    artifact.projectionEnvelopeJson,
-  );
-  return {
-    artifactId: artifact.artifactId,
-    executionId: artifact.executionId,
-    artifactHash,
-    generation: artifact.generation,
-    reviewedHeadSha: artifact.reviewedHeadSha,
-    reviewRevisionHash: artifact.reviewRevisionHash,
-    coverageState: coverageStateToPrisma(artifact.coverageState),
-    projectionEnvelopeVersion: artifact.projectionEnvelopeVersion,
-    projectionEnvelope,
-    projectionEnvelopeCanonicalJson: artifact.projectionEnvelopeJson,
-    projectionHash: artifact.projectionHash,
-    byteCount: artifact.byteCount,
-    findingCount: artifact.findingCount,
-    lifecycleStateHash: artifact.lifecycleStateHash,
-    commandLedgerWatermark: artifact.commandLedgerWatermark,
-    projectionPolicyVersion: artifact.projectionPolicyVersion,
-    authorizationId: artifact.publicationPermit.authorizationId,
-    producerReleaseId: artifact.publicationPermit.producerReleaseId,
-    permitEpoch: artifact.publicationPermit.permitEpoch,
-    publicationSafetyDecisionHash:
-      artifact.publicationPermit.publicationSafetyDecisionHash,
-    publicationNotAfter: artifact.publicationPermit.publicationNotAfter,
-    createdAt: artifact.createdAt,
-    retainUntil: artifact.retainUntil,
-  };
-}
-
-function finalizedOutboxData(
-  artifact: FinalizedReviewProjectionArtifact,
-  artifactHash: string,
-): Prisma.OutboxEventUncheckedCreateInput {
-  return {
-    type: "review.execution.finalized",
-    version: 2,
-    idempotencyKey: finalizedOutboxIdentity(artifact.executionId),
-    workspaceId: artifact.publicationPermit.workspaceId,
-    repositoryId: artifact.publicationPermit.repositoryConnectionId,
-    aggregateId: artifact.executionId,
-    payload: {
-      executionId: artifact.executionId,
-      artifactId: artifact.artifactId,
-      artifactHash,
-      generation: artifact.generation.toString(),
-      reviewRevisionHash: artifact.reviewRevisionHash,
-      projectionHash: artifact.projectionHash,
-    },
-    occurredAt: artifact.createdAt,
-  };
-}
-
 async function assertFinalizedOutbox(
   transaction: Transaction,
   executionId: string,
@@ -2349,18 +2165,6 @@ function sameFinalizedOutboxPayload(
     value.artifactId === artifactId &&
     value.artifactHash === artifactHash
   );
-}
-
-function finalizedOutboxIdentity(executionId: string): string {
-  return `review-execution-finalized:v2:${executionId}`;
-}
-
-function parseProjectionEnvelope(value: string): Prisma.InputJsonObject {
-  const parsed: unknown = JSON.parse(value);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("review_execution_projection_envelope_not_object");
-  }
-  return parsed as Prisma.InputJsonObject;
 }
 
 function observationFacts(
@@ -2466,15 +2270,6 @@ function admissionVerdict(
     case ReviewExecutionAdmissionVerdict.Unavailable:
       return ExecutionAdmissionVerdict.Unavailable;
   }
-}
-
-function scopeWhere(scope: ReviewExecutionScope) {
-  return {
-    workspaceId: scope.workspaceId,
-    repositoryConnectionId: scope.repositoryConnectionId,
-    scmRepositoryIdentityId: scope.scmRepositoryIdentityId,
-    pullRequestNumber: scope.pullRequestNumber,
-  };
 }
 
 function sameScope(
