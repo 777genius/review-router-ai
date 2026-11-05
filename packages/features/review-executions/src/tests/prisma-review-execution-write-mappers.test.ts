@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { ReviewCoverageState, type FinalizedReviewProjectionArtifact } from "../domain/review-execution";
-import { requiredSnapshot, sameScope } from "../infrastructure/prisma/prisma-review-execution-snapshot";
+import {
+  ReviewCoverageState,
+  type FinalizedReviewProjectionArtifact,
+} from "../domain/review-execution";
+import {
+  requiredSnapshot,
+  sameScope,
+} from "../infrastructure/prisma/prisma-review-execution-snapshot";
 import {
   artifactCreateData,
   finalizedOutboxData,
@@ -48,7 +54,7 @@ const artifact: FinalizedReviewProjectionArtifact = {
 };
 
 describe("Review execution persistence record encoders", () => {
-  it("limits the Prisma scope predicate to the four persisted scope coordinates", () => {
+  it("uses the four persisted scope coordinates", () => {
     expect(scopeWhere({ ...artifact.publicationPermit })).toEqual({
       workspaceId: "workspace-1",
       repositoryConnectionId: "repository-1",
@@ -57,17 +63,19 @@ describe("Review execution persistence record encoders", () => {
     });
   });
 
-  it("compares exact execution scope and fails closed on a missing snapshot", () => {
+  it("compares exact scope and rejects a missing snapshot", () => {
     const scope = scopeWhere(artifact.publicationPermit);
     expect(sameScope(scope, { ...scope })).toBe(true);
     expect(sameScope(scope, { ...scope, pullRequestNumber: 43 })).toBe(false);
-    expect(sameScope(scope, { ...scope, repositoryConnectionId: "other" })).toBe(false);
+    expect(
+      sameScope(scope, { ...scope, repositoryConnectionId: "other" }),
+    ).toBe(false);
     expect(() => requiredSnapshot(null)).toThrow(
       "review_execution_snapshot_missing",
     );
   });
 
-  it("preserves exact finalized outbox identity, payload, timestamps and repository binding", () => {
+  it("preserves finalized outbox identity and payload", () => {
     const outbox = finalizedOutboxData(artifact, "artifact-hash-1");
     expect(finalizedOutboxIdentity(artifact.executionId)).toBe(
       "review-execution-finalized:v2:execution-1",
