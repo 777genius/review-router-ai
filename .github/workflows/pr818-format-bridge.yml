@@ -1,12 +1,12 @@
 name: Temporary PR 818 pinned formatter output
 on:
-  pull_request:
-    types: [synchronize]
+  push:
+    branches: [audit/2026-11-05-reviewrouter-foundation-hardening]
 permissions:
   contents: read
 jobs:
   render:
-    if: ${{ github.event.pull_request.number == 818 && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.ref == 'refs/heads/audit/2026-11-05-reviewrouter-foundation-hardening' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -14,7 +14,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
       - name: Install pinned Prettier
         run: npm install --global --ignore-scripts --no-audit --no-fund prettier@3.8.3
       - name: Render exact formatter output
