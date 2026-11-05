@@ -2900,4 +2900,3 @@ async function revokeStaleInvestigationLeases(
     data: { state: PrismaLeaseState.revoked },
   });
 }
-

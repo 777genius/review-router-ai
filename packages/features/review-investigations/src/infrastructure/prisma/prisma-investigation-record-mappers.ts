@@ -308,8 +308,9 @@ const leaseStateFromPrisma = invertEnumMap(leaseStateToPrisma);
 const criticDecisionFromPrisma = invertEnumMap(criticDecisionToPrisma);
 const conclusionFromPrisma = invertEnumMap(conclusionToPrisma);
 
-export const toPrismaRuntimeProfile = (value: ReviewInvestigationRuntimeProfile) =>
-  runtimeProfileToPrisma[value];
+export const toPrismaRuntimeProfile = (
+  value: ReviewInvestigationRuntimeProfile,
+) => runtimeProfileToPrisma[value];
 export const fromPrismaRuntimeProfile = (value: PrismaRuntimeProfile) =>
   runtimeProfileFromPrisma[value];
 export const toPrismaInvestigationState = (value: ReviewInvestigationState) =>
@@ -324,8 +325,9 @@ export const toPrismaObligationKind = (value: InvestigationObligationKind) =>
   obligationKindToPrisma[value];
 export const fromPrismaObligationKind = (value: PrismaObligationKind) =>
   obligationKindFromPrisma[value];
-export const toPrismaObligationOrigin = (value: InvestigationObligationOrigin) =>
-  obligationOriginToPrisma[value];
+export const toPrismaObligationOrigin = (
+  value: InvestigationObligationOrigin,
+) => obligationOriginToPrisma[value];
 export const fromPrismaObligationOrigin = (value: PrismaObligationOrigin) =>
   obligationOriginFromPrisma[value];
 export const toPrismaReceiptKind = (value: InvestigationReceiptKind) =>

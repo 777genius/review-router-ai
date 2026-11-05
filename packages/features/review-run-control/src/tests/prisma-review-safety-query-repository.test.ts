@@ -29,11 +29,13 @@ function persistedRow() {
   };
 }
 
-function transactionFixture(input: {
-  policyReadFails?: boolean;
-  emergencyReadFails?: boolean;
-  emergencyStopped?: boolean;
-} = {}) {
+function transactionFixture(
+  input: {
+    policyReadFails?: boolean;
+    emergencyReadFails?: boolean;
+    emergencyStopped?: boolean;
+  } = {},
+) {
   const events: string[] = [];
   const policy = vi.fn(async () => {
     events.push("policy");

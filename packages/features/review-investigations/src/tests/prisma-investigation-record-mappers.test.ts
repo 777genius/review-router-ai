@@ -22,9 +22,9 @@ describe("investigation persistence projection parity", () => {
   it.each(Object.values(ReviewInvestigationState))(
     "round trips investigation state %s",
     (state) => {
-      expect(fromPrismaInvestigationState(toPrismaInvestigationState(state))).toBe(
-        state,
-      );
+      expect(
+        fromPrismaInvestigationState(toPrismaInvestigationState(state)),
+      ).toBe(state);
     },
   );
 

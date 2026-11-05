@@ -2,9 +2,7 @@ import {
   Prisma,
   ReviewInvestigationStateV1 as PrismaInvestigationState,
 } from "@prisma/client";
-import {
-  InvestigationPrivateMaterialPruneFailureCause,
-} from "../../application/ports/investigation-private-material-ports";
+import { InvestigationPrivateMaterialPruneFailureCause } from "../../application/ports/investigation-private-material-ports";
 
 /**
  * Internal maintenance SQL/cursor boundary. Pruning's aggregate transitions,
@@ -235,4 +233,3 @@ export async function deleteExpiredPrivateMaterialGroup(
   }
   return deleted.count;
 }
-
