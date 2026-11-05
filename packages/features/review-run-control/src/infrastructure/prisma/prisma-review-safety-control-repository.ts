@@ -98,11 +98,9 @@ export class PrismaReviewSafetyControlRepository
     ReviewSafetyControlInspectionPort
 {
   constructor(private readonly prisma: PrismaClient) {
-    super({
-      reviewSafetyPolicy: prisma.reviewSafetyPolicy,
-      reviewSafetyPolicySelector: prisma.reviewSafetyPolicySelector,
-      reviewSafetyEmergencyControl: prisma.reviewSafetyEmergencyControl,
-    });
+    // Keep the original lazy delegate access for legacy composition callers.
+    // Only the API's transaction-scoped query adapter receives a narrowed tx view.
+    super(prisma);
   }
 
   async findReviewSafetyPolicy(input: {
