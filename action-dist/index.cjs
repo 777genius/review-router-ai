@@ -114288,6 +114288,8 @@ async function postPullRequestComment(input) {
     fetchImpl: input.fetchImpl,
     label: "github_comment_create",
     timeoutMs: githubRequestTimeoutMs,
+    // A lost response may follow a committed POST; never replay comment creation.
+    maxAttempts: 1,
     url: commentsUrl,
     init: {
       method: "POST",
