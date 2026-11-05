@@ -1,13 +1,88 @@
+import { githubRequestTimeoutMs } from "./action-contract.js";
+import {
+  deleteStaleCodexRotatingSummaryComments,
+  deleteFullRuntimeProgressCommentsWithTokenRefresh,
+} from "./github-comment-publication.js";
+export {
+  postPullRequestComment,
+  deleteStaleCodexRotatingSummaryComments,
+  deleteFullRuntimeProgressCommentsWithTokenRefresh,
+  deleteFullRuntimeProgressComments,
+} from "./github-comment-publication.js";
+
+import {
+  getAvailableDiskBytes,
+  resolveGitHubActionPath,
+  resolveCodexBinary,
+} from "./bundled-codex-integrity.js";
+export { resolveCodexBinary } from "./bundled-codex-integrity.js";
+
+import {
+  safeCheckoutPullRequest,
+  resolveForkSandboxWorkspace,
+  assertForkSandboxWorkspace,
+  makeGitHubWorkspaceCodexHomeDirectory,
+} from "./git-checkout-custody.js";
+
+import type {
+  ActionInputs,
+  ProviderSecretInputs,
+  PullRequestEvent,
+} from "./action-contract.js";
+import { reviewThreadLifecycleResolveTokenEnvKey } from "./action-contract.js";
+import {
+  buildFullReviewRuntimeEnv,
+  assertProviderSecretInputsForRuntime,
+  forkAgenticSandboxRuntimeEnv,
+  codexModelForForkRuntime,
+  extractCodexAccessToken,
+  runtimeProvidersInclude,
+} from "./review-runtime-environment.js";
+export { buildFullReviewRuntimeEnv } from "./review-runtime-environment.js";
+
+import { runProcess, ProcessExecutionError } from "./process-runner.js";
+export { runProcess, signalProcessTree } from "./process-runner.js";
+
+import {
+  hasHostedPoolRetryBudget,
+  hostedPoolAccountFailureReason,
+  isHostedPoolQuotaFailureText,
+  runHostedPoolLeaseFailover,
+} from "./hosted-pool-failover.js";
+import {
+  startCodexLocalProviderProxy,
+  resolveCodexProxyUpstreamResponsesUrl,
+  type LocalProviderProxy,
+} from "./codex-local-provider-proxy.js";
+import {
+  fetchWithRetry,
+  networkRetryMaxAttempts,
+  networkRetryDelayMs,
+  discardResponseBody,
+  sleep,
+} from "./http-retry.js";
+export {
+  hasHostedPoolRetryBudget,
+  hostedPoolAccountFailureReason,
+  isHostedPoolQuotaFailureText,
+  runHostedPoolLeaseFailover,
+  type HostedPoolFailureReason,
+  type HostedPoolFailoverInput,
+} from "./hosted-pool-failover.js";
+export {
+  routeCodexLocalProviderRequest,
+  startCodexLocalProviderProxy,
+  resolveCodexProxyUpstreamResponsesUrl,
+} from "./codex-local-provider-proxy.js";
+
 import {
   assertCertifiedForkModeSchema,
   captureCertifiedForkInvocation,
   certifiedForkActionMode,
   type CertifiedForkReviewBinding,
 } from "./certified-fork-lifecycle.js";
-import { execFileSync, spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-import { constants as fsConstants, createReadStream } from "node:fs";
-import http from "node:http";
+import { createHash } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import {
   createSubscriptionRuntime,
   DefaultRedactor,
@@ -40,21 +115,15 @@ import {
   type UsageGrant,
 } from "./provider-usage-delivery.js";
 import {
-  createResponsesUsageObserver,
-  createResponsesUsageStreamObserver,
-} from "./provider-usage-responses.js";
-import {
   mkdtemp,
   readFile,
   rm,
   writeFile,
-  chmod,
   mkdir,
   access,
   lstat,
   realpath,
   stat,
-  statfs,
   symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -97,40 +166,13 @@ export {
   startHostedCodexRelayProxy,
 } from "./hosted-codex-relay";
 
-declare const __dirname: string | undefined;
-
 const defaultOidcAudience = "reviewrouter";
 const forkAgenticSandboxActionMode = "fork-agentic-sandbox";
 const preparedSubscriptionActionMode = "prepared-subscription";
 const preparedSubscriptionTransportEnvKey =
   "REVIEWROUTER_PREPARED_MODEL_TRANSPORT";
 const hostedOriginalGrantEnvKey = "REVIEWROUTER_HOSTED_ORIGINAL_GRANT";
-const defaultChatGptCodexResponsesUrl =
-  "https://chatgpt.com/backend-api/codex/responses";
-const bundledCodexPlatform = "linux-x64";
-const bundledCodexVersion = "0.135.0";
-const bundledCodexPackageName = ["@openai", "codex"].join("/");
-const bundledCodexArchiveName = "codex-linux-x64.tgz";
-const bundledCodexBinaryPathInArchive =
-  "package/vendor/x86_64-unknown-linux-musl/bin/codex";
 const maxCommentBytes = 60_000;
-const maxCapturedProcessOutputBytes = 256_000;
-const maxProxyRequestBodyBytes = 2_000_000;
-const maxProxyRequestsPerReview = 16;
-const codexProxyForwardHeaderNames = new Set([
-  "chatgpt-account-id",
-  "openai-beta",
-  "openai-organization",
-  "openai-project",
-  "originator",
-  "session-id",
-  "thread-id",
-  "user-agent",
-  "x-client-request-id",
-  "x-oai-attestation",
-  "x-openai-internal-codex-responses-lite",
-  "x-responsesapi-include-timing-metrics",
-]);
 const minimumRunnerFreeDiskBytes = 4 * 1024 * 1024 * 1024;
 const supportedRunnerOs = "Linux";
 const supportedRunnerArch = "X64";
@@ -138,23 +180,11 @@ const supportedRunnerImageOs = "ubuntu24";
 const minimumNodeMajor = 20;
 const controlPlaneRequestTimeoutMs = 30_000;
 const oidcRequestTimeoutMs = 20_000;
-const githubRequestTimeoutMs = 30_000;
-const networkRetryMaxAttempts = 3;
-const networkRetryBaseDelayMs = 750;
-const hostedPoolMaxLeaseAttempts = 2;
-const hostedPoolMinimumRetryBudgetMs = 90_000;
-const fullRuntimeProgressCommentMarker =
-  "<!-- review-router-progress-tracker -->";
-const providerNeutralReviewFindingsArtifactFileName =
-  "reviewrouter-findings.json";
-const reviewThreadLifecycleResolveTokenEnvKey =
-  "REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN";
 const reviewSnapshotInputFileName = "incremental-snapshot-input.json";
 const reviewSnapshotOutputFileName = "incremental-snapshot-output.json";
 const reviewCheckpointFinalizationFileName =
   "review-checkpoint-finalization.json";
 const maxReviewSnapshotCandidateBytes = 512 * 1024 + 16 * 1024;
-const processTerminationGracePeriodMs = 5_000;
 
 type FetchLike = typeof fetch;
 
@@ -171,36 +201,6 @@ type ActionRuntime = {
   readonly localProviderProxyFactory: LocalProviderProxyFactory;
   readonly fullReviewRuntimeRunner: FullReviewRuntimeRunner;
   readonly now: () => number;
-};
-
-type ActionInputs = {
-  readonly mode: string;
-  readonly apiUrl: string;
-  readonly providerInstanceId: string;
-  readonly workflowSchemaVersion: number;
-  readonly reviewDrafts: boolean;
-  readonly maxChangedLines: number;
-  readonly reviewTimeoutMinutes: number;
-  readonly providerSecrets: ProviderSecretInputs;
-  readonly sessionBindingId?: string | undefined;
-  readonly sessionBindingVersion?: number | undefined;
-};
-
-type ProviderSecretInputs = {
-  readonly claudeCodeOAuthToken?: string;
-  readonly openRouterApiKey?: string;
-  readonly mimoTokenPlanApiKey?: string;
-};
-
-type PullRequestEvent = {
-  readonly number: number;
-  readonly repositoryId?: string | undefined;
-  readonly repository: string;
-  readonly owner: string;
-  readonly repo: string;
-  readonly headSha: string;
-  readonly baseSha: string;
-  readonly changedLines?: number | undefined;
 };
 
 type PreleaseResponse = {
@@ -403,16 +403,6 @@ type ReviewSnapshotRestoreResponse = z.infer<
   typeof reviewSnapshotRestoreResponseSchema
 >;
 
-type GitHubIssueCommentResponse = {
-  readonly id: number;
-  readonly body?: string | null;
-};
-
-type LocalProviderProxy = {
-  readonly baseUrl: string;
-  readonly close: () => Promise<void>;
-};
-
 type LocalProviderProxyFactory = (input: {
   readonly fetchImpl: FetchLike;
   readonly accessToken: string;
@@ -462,20 +452,6 @@ type FullReviewRuntimeInput =
   | LegacyFullReviewRuntimeInput
   | PreparedHostedFullReviewRuntimeInput;
 type FullReviewRuntimeRunner = (input: FullReviewRuntimeInput) => Promise<void>;
-
-type CodexBinaryManifest = {
-  readonly protocolVersion: 1;
-  readonly packageName: string;
-  readonly version: string;
-  readonly platform: string;
-  readonly archive: string;
-  readonly archiveSize: number;
-  readonly archiveSha256: string;
-  readonly binaryPathInArchive: string;
-  readonly binary: string;
-  readonly size: number;
-  readonly sha256: string;
-};
 
 type RunnerEnvironmentCheckOptions = {
   readonly minimumFreeDiskBytes?: number;
@@ -1243,7 +1219,6 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
 
   try {
     await runHostedPoolLeaseFailover({
-      maxAttempts: hostedPoolMaxLeaseAttempts,
       canRetry: () =>
         hasHostedPoolRetryBudget({
           executionDeadlineEpochMs: input.executionDeadlineEpochMs,
@@ -1448,95 +1423,6 @@ async function runHostedForkAgenticSandboxGitHubAction(input: {
     await removeTree(tempCodexHome);
   }
   notice(input.io, "ReviewRouter hosted pool review completed.");
-}
-
-export type HostedPoolFailureReason =
-  | "quota_exhausted"
-  | "authentication_failed"
-  | undefined;
-
-export type HostedPoolFailoverInput<T> = {
-  readonly maxAttempts?: number | undefined;
-  readonly canRetry: () => boolean;
-  readonly runAttempt: (input: {
-    readonly attempt: number;
-    readonly maxAttempts: number;
-  }) => Promise<T>;
-  readonly onRetry?:
-    | ((input: {
-        readonly attempt: number;
-        readonly maxAttempts: number;
-        readonly reason: Exclude<HostedPoolFailureReason, undefined>;
-      }) => void | Promise<void>)
-    | undefined;
-};
-
-export function hasHostedPoolRetryBudget(input: {
-  readonly executionDeadlineEpochMs: number;
-  readonly nowEpochMs: number;
-}): boolean {
-  return (
-    remainingReviewExecutionBudgetMs(input) >= hostedPoolMinimumRetryBudgetMs
-  );
-}
-
-export async function runHostedPoolLeaseFailover<T>(
-  input: HostedPoolFailoverInput<T>,
-): Promise<T> {
-  const maxAttempts = input.maxAttempts ?? hostedPoolMaxLeaseAttempts;
-  if (
-    !Number.isSafeInteger(maxAttempts) ||
-    maxAttempts < 1 ||
-    maxAttempts > hostedPoolMaxLeaseAttempts
-  ) {
-    throw new Error("hosted_pool_retry_budget_invalid");
-  }
-
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await input.runAttempt({ attempt, maxAttempts });
-    } catch (error) {
-      const reason = hostedPoolAccountFailureReason(error);
-      if (!reason) throw error;
-      lastError = error;
-      if (attempt === maxAttempts || !input.canRetry()) {
-        throw new Error("hosted_pool_capacity_exhausted", { cause: error });
-      }
-      await input.onRetry?.({ attempt, maxAttempts, reason });
-    }
-  }
-  throw new Error("hosted_pool_capacity_exhausted", { cause: lastError });
-}
-
-export function hostedPoolAccountFailureReason(
-  error: unknown,
-): HostedPoolFailureReason {
-  const normalized = String(
-    error instanceof Error ? error.message : error,
-  ).toLowerCase();
-  if (isHostedPoolQuotaFailureText(normalized)) {
-    return "quota_exhausted";
-  }
-  if (
-    normalized === "hosted_pool_authentication_failed" ||
-    normalized === "hosted_relay_grant_failed:401"
-  ) {
-    return "authentication_failed";
-  }
-  return undefined;
-}
-
-export function isHostedPoolQuotaFailureText(text: string): boolean {
-  const normalized = text.toLowerCase();
-  return (
-    normalized === "hosted_pool_quota_exhausted" ||
-    normalized === "hosted_relay_grant_failed:429" ||
-    normalized === "quota_limited" ||
-    normalized.includes("provider_capacity_limited") ||
-    /exceeded retry limit, last status: 429/.test(normalized) ||
-    /you(?:'|’)ve hit your usage limit/.test(normalized)
-  );
 }
 
 export function readActionInputs(env: NodeJS.ProcessEnv): ActionInputs {
@@ -2695,126 +2581,6 @@ async function fetchGitHubRepositoryPublicKey(input: {
   return { key: body.key, key_id: body.key_id };
 }
 
-async function fetchWithRetry<T = Response>(input: {
-  readonly fetchImpl: FetchLike;
-  readonly label: string;
-  readonly url: string;
-  readonly init?: RequestInit;
-  readonly timeoutMs: number;
-  readonly maxAttempts?: number;
-  readonly consume?: ((response: Response) => Promise<T>) | undefined;
-}): Promise<T> {
-  const maxAttempts = input.maxAttempts ?? networkRetryMaxAttempts;
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const controller = new AbortController();
-    const externalSignal = input.init?.signal;
-    if (externalSignal?.aborted) {
-      throw new Error(
-        `network_request_aborted:${safeNetworkLabel(input.label)}`,
-      );
-    }
-    const abortFromExternalSignal = (): void => controller.abort();
-    externalSignal?.addEventListener("abort", abortFromExternalSignal, {
-      once: true,
-    });
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, input.timeoutMs);
-    let cleanedUp = false;
-    const cleanup = (): void => {
-      if (cleanedUp) return;
-      cleanedUp = true;
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener("abort", abortFromExternalSignal);
-    };
-
-    try {
-      const response = await input.fetchImpl(input.url, {
-        ...input.init,
-        signal: controller.signal,
-      });
-      if (shouldRetryHttpStatus(response.status) && attempt < maxAttempts) {
-        await discardResponseBody(response);
-        cleanup();
-        await sleep(networkRetryDelayMs(attempt));
-        continue;
-      }
-      const result = input.consume
-        ? await input.consume(response)
-        : (response as T);
-      cleanup();
-      return result;
-    } catch (error) {
-      cleanup();
-      lastError = error;
-      if (externalSignal?.aborted) {
-        throw new Error(
-          `network_request_aborted:${safeNetworkLabel(input.label)}`,
-          { cause: error },
-        );
-      }
-      if (attempt < maxAttempts) {
-        await sleep(networkRetryDelayMs(attempt));
-        continue;
-      }
-      const code = timedOut
-        ? "network_request_timeout"
-        : "network_request_failed";
-      throw new Error(`${code}:${safeNetworkLabel(input.label)}`, {
-        cause: error,
-      });
-    }
-  }
-
-  throw new Error(`network_request_failed:${safeNetworkLabel(input.label)}`, {
-    cause: lastError,
-  });
-}
-
-function shouldRetryHttpStatus(status: number): boolean {
-  return status === 408 || status === 429 || (status >= 500 && status <= 599);
-}
-
-function networkRetryDelayMs(attempt: number): number {
-  return networkRetryBaseDelayMs * 2 ** Math.max(0, attempt - 1);
-}
-
-function safeNetworkLabel(label: string): string {
-  return /^[a-z0-9_:-]{1,80}$/i.test(label) ? label : "unknown";
-}
-
-async function discardResponseBody(response: Response): Promise<void> {
-  try {
-    await response.arrayBuffer();
-  } catch {
-    // Best effort only. The retry path should not fail because body cleanup did.
-  }
-}
-
-async function consumeResponseBody(response: Response): Promise<Response> {
-  await discardResponseBody(response);
-  return response;
-}
-
-async function consumeJsonResponse(response: Response): Promise<{
-  readonly response: Response;
-  readonly body: unknown;
-}> {
-  if (!response.ok) {
-    await discardResponseBody(response);
-    return { response, body: undefined };
-  }
-  return { response, body: await response.json() };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function assertWritebackAccepted(response: WritebackResponse): void {
   if (!response || response.protocolVersion !== 1) {
     throw new Error("unknown_auth_state");
@@ -2829,408 +2595,6 @@ function assertWritebackAccepted(response: WritebackResponse): void {
     throw new Error("security_invariant_failed");
   }
   throw new Error("unknown_auth_state");
-}
-
-export function routeCodexLocalProviderRequest(input: {
-  readonly method: string;
-  readonly path: string;
-  readonly nonce: string;
-  readonly bodyBytes: number;
-}): "responses" | "deny" {
-  if (input.method !== "POST") return "deny";
-  if (input.bodyBytes > maxProxyRequestBodyBytes) return "deny";
-  if (input.path !== `/${input.nonce}/v1/responses`) return "deny";
-  return "responses";
-}
-
-export async function startCodexLocalProviderProxy(input: {
-  readonly fetchImpl: FetchLike;
-  readonly accessToken: string;
-  readonly upstreamResponsesUrl: string;
-  readonly usageDelivery?: UsageDelivery;
-}): Promise<LocalProviderProxy> {
-  const nonce = randomBytes(24).toString("base64url");
-  let requestCount = 0;
-  let closing = false;
-  const activeUpstreamRequests = new Set<AbortController>();
-  const requests = new Set<Promise<void>>();
-  const server = http.createServer((req, res) => {
-    const request = (async () => {
-      try {
-        const body = await readProxyRequestBody(req);
-        const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-        const route = routeCodexLocalProviderRequest({
-          method: req.method ?? "GET",
-          path,
-          nonce,
-          bodyBytes: body.byteLength,
-        });
-        if (route !== "responses") {
-          writeProxyDeny(res);
-          return;
-        }
-        requestCount += 1;
-        if (requestCount > maxProxyRequestsPerReview) {
-          writeProxyError(res, 429, "proxy_request_budget_exceeded");
-          return;
-        }
-        if (closing) {
-          writeProxyError(res, 503, "proxy_closing");
-          return;
-        }
-        const upstreamController = new AbortController();
-        activeUpstreamRequests.add(upstreamController);
-        const usage = input.usageDelivery
-          ? createResponsesUsageObserver(input.usageDelivery, "", "codex")
-          : undefined;
-        let failed = false;
-        try {
-          usage?.dispatched();
-          const upstream = await input.fetchImpl(input.upstreamResponsesUrl, {
-            method: "POST",
-            headers: buildCodexProxyUpstreamHeaders({
-              requestHeaders: req.headers,
-              fallbackAccessToken: input.accessToken,
-            }),
-            body: new Uint8Array(body),
-            signal: upstreamController.signal,
-          });
-          usage?.responseReceived();
-          failed = !upstream.ok;
-          await writeProxyUpstreamResponse(res, upstream, usage);
-        } catch (error) {
-          failed = true;
-          throw error;
-        } finally {
-          usage?.finish(failed, upstreamController.signal.aborted);
-          activeUpstreamRequests.delete(upstreamController);
-        }
-      } catch {
-        writeProxyError(res, 502, "proxy_upstream_failed");
-      }
-    })();
-    requests.add(request);
-    void request.finally(() => requests.delete(request));
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    await closeHttpServer(server);
-    throw new Error("proxy_listener_invalid_address");
-  }
-  let closingPromise: Promise<void> | undefined;
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}/${nonce}/v1`,
-    close: () =>
-      (closingPromise ??= (async () => {
-        closing = true;
-        for (const controller of activeUpstreamRequests)
-          controller.abort(new Error("proxy_closing"));
-        const closePromise = closeHttpServer(server);
-        server.closeAllConnections();
-        await closePromise;
-        await Promise.all([...requests]);
-      })()),
-  };
-}
-
-export function resolveCodexProxyUpstreamResponsesUrl(
-  env: NodeJS.ProcessEnv,
-): string {
-  return (
-    env.REVIEWROUTER_CODEX_RESPONSES_URL ??
-    env.REVIEWROUTER_OPENAI_RESPONSES_URL ??
-    defaultChatGptCodexResponsesUrl
-  );
-}
-
-function buildCodexProxyUpstreamHeaders(input: {
-  readonly requestHeaders: http.IncomingHttpHeaders;
-  readonly fallbackAccessToken: string;
-}): Record<string, string> {
-  const headers: Record<string, string> = {
-    accept:
-      getJoinedRequestHeader(input.requestHeaders, "accept") ??
-      "text/event-stream",
-    "content-type":
-      getJoinedRequestHeader(input.requestHeaders, "content-type") ??
-      "application/json",
-  };
-  const authorization = getJoinedRequestHeader(
-    input.requestHeaders,
-    "authorization",
-  );
-  headers.authorization =
-    authorization && /^Bearer\s+\S+/i.test(authorization)
-      ? authorization
-      : `Bearer ${input.fallbackAccessToken}`;
-
-  for (const name of Object.keys(input.requestHeaders)) {
-    if (!shouldForwardCodexProxyHeader(name)) continue;
-    const value = getJoinedRequestHeader(input.requestHeaders, name);
-    if (value) {
-      headers[name] = value;
-    }
-  }
-  return headers;
-}
-
-function shouldForwardCodexProxyHeader(name: string): boolean {
-  const lowerName = name.toLowerCase();
-  return (
-    codexProxyForwardHeaderNames.has(lowerName) ||
-    lowerName.startsWith("x-codex-")
-  );
-}
-
-function getJoinedRequestHeader(
-  headers: http.IncomingHttpHeaders,
-  name: string,
-): string | undefined {
-  const value = headers[name.toLowerCase()];
-  if (Array.isArray(value)) return value.join(", ");
-  return value;
-}
-
-function readProxyRequestBody(req: http.IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    req.on("data", (chunk) => {
-      const buffer = Buffer.from(chunk);
-      bytes += buffer.byteLength;
-      if (bytes > maxProxyRequestBodyBytes) {
-        req.destroy(new Error("proxy_request_body_too_large"));
-        return;
-      }
-      chunks.push(buffer);
-    });
-    req.on("error", reject);
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-  });
-}
-
-async function writeProxyUpstreamResponse(
-  res: http.ServerResponse,
-  upstream: Response,
-  usage?: ReturnType<typeof createResponsesUsageObserver>,
-): Promise<void> {
-  const headers: Record<string, string> = {};
-  const contentType = upstream.headers.get("content-type");
-  if (contentType) {
-    headers["content-type"] = contentType;
-  }
-  res.writeHead(upstream.status, headers);
-  if (!upstream.body) {
-    res.end();
-    return;
-  }
-  const reader = upstream.body.getReader();
-  const usageStream = usage
-    ? createResponsesUsageStreamObserver(usage, contentType)
-    : undefined;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      usageStream?.chunk(value);
-      res.write(Buffer.from(value));
-    }
-    usageStream?.end();
-    res.end();
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-function writeProxyDeny(res: http.ServerResponse): void {
-  writeProxyError(res, 404, "proxy_route_denied");
-}
-
-function writeProxyError(
-  res: http.ServerResponse,
-  status: number,
-  code: string,
-): void {
-  if (res.headersSent) {
-    res.end();
-    return;
-  }
-  res.writeHead(status, { "content-type": "application/json" });
-  res.end(JSON.stringify({ error: code }));
-}
-
-function closeHttpServer(server: http.Server): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
-}
-
-export async function resolveCodexBinary(
-  env: NodeJS.ProcessEnv,
-): Promise<string> {
-  const actionPath = resolveGitHubActionPath(env);
-
-  const bundleRoot = join(
-    actionPath,
-    "action-dist",
-    "codex",
-    bundledCodexPlatform,
-  );
-  const archivePath = join(bundleRoot, bundledCodexArchiveName);
-  const manifestPath = join(bundleRoot, "manifest.json");
-
-  let resolvedBundleRoot: string;
-  let resolvedArchivePath: string;
-  let resolvedManifestPath: string;
-  try {
-    [resolvedBundleRoot, resolvedArchivePath, resolvedManifestPath] =
-      await Promise.all([
-        realpath(bundleRoot),
-        realpath(archivePath),
-        realpath(manifestPath),
-      ]);
-  } catch (error) {
-    throw new Error("codex_bundled_binary_missing", { cause: error });
-  }
-
-  if (
-    !resolvedArchivePath.startsWith(`${resolvedBundleRoot}/`) ||
-    !resolvedManifestPath.startsWith(`${resolvedBundleRoot}/`)
-  ) {
-    throw new Error("codex_bundled_binary_escape");
-  }
-
-  const [archiveLinkStats, manifestLinkStats, archiveStats, manifest] =
-    await Promise.all([
-      lstat(archivePath),
-      lstat(manifestPath),
-      stat(resolvedArchivePath),
-      readCodexBinaryManifest(resolvedManifestPath),
-    ]);
-  if (archiveLinkStats.isSymbolicLink() || manifestLinkStats.isSymbolicLink()) {
-    throw new Error("codex_bundled_binary_symlink");
-  }
-  if (!archiveStats.isFile()) {
-    throw new Error("codex_bundled_binary_not_file");
-  }
-  validateCodexBinaryManifest(manifest, archiveStats.size);
-  const archiveSha256 = await sha256File(resolvedArchivePath);
-  if (archiveSha256 !== manifest.archiveSha256) {
-    throw new Error("codex_bundled_archive_hash_mismatch");
-  }
-
-  const extractionRoot = await mkdtemp(
-    join(env.RUNNER_TEMP ?? tmpdir(), "reviewrouter-codex-bundle-"),
-  );
-  await runProcess({
-    command: "tar",
-    args: ["-xzf", resolvedArchivePath, "-C", extractionRoot],
-    cwd: extractionRoot,
-    env: {
-      PATH: env.PATH ?? process.env.PATH ?? "",
-    },
-    timeoutMs: 60_000,
-  });
-  const extractedBinaryPath = join(
-    extractionRoot,
-    manifest.binaryPathInArchive,
-  );
-  const resolvedExtractionRoot = await realpath(extractionRoot);
-  const resolvedBinaryPath = await realpath(extractedBinaryPath);
-  if (!resolvedBinaryPath.startsWith(`${resolvedExtractionRoot}/`)) {
-    throw new Error("codex_bundled_binary_escape");
-  }
-  const binaryStats = await stat(resolvedBinaryPath);
-  if (!binaryStats.isFile() || binaryStats.size !== manifest.size) {
-    throw new Error("codex_bundled_binary_manifest_mismatch");
-  }
-  const binarySha256 = await sha256File(resolvedBinaryPath);
-  if (binarySha256 !== manifest.sha256) {
-    throw new Error("codex_bundled_binary_hash_mismatch");
-  }
-  await chmod(resolvedBinaryPath, 0o755);
-  await access(resolvedBinaryPath, fsConstants.X_OK);
-  return resolvedBinaryPath;
-}
-
-function resolveGitHubActionPath(env: NodeJS.ProcessEnv): string {
-  const explicitActionPath = env.GITHUB_ACTION_PATH;
-  if (explicitActionPath) {
-    return explicitActionPath;
-  }
-
-  if (typeof __dirname === "string" && __dirname.endsWith("action-dist")) {
-    return join(__dirname, "..");
-  }
-
-  throw new Error("missing_github_action_path");
-}
-
-async function readCodexBinaryManifest(
-  manifestPath: string,
-): Promise<CodexBinaryManifest> {
-  try {
-    return JSON.parse(
-      await readFile(manifestPath, "utf8"),
-    ) as CodexBinaryManifest;
-  } catch (error) {
-    throw new Error("codex_bundled_binary_manifest_invalid", { cause: error });
-  }
-}
-
-function validateCodexBinaryManifest(
-  manifest: unknown,
-  archiveSize: number,
-): void {
-  if (!manifest || typeof manifest !== "object") {
-    throw new Error("codex_bundled_binary_manifest_mismatch");
-  }
-  const candidate = manifest as Partial<CodexBinaryManifest>;
-  if (
-    candidate.protocolVersion !== 1 ||
-    candidate.packageName !== bundledCodexPackageName ||
-    candidate.version !== bundledCodexVersion ||
-    candidate.platform !== bundledCodexPlatform ||
-    candidate.archive !== bundledCodexArchiveName ||
-    candidate.archiveSize !== archiveSize ||
-    typeof candidate.archiveSha256 !== "string" ||
-    !/^[a-f0-9]{64}$/i.test(candidate.archiveSha256) ||
-    candidate.binaryPathInArchive !== bundledCodexBinaryPathInArchive ||
-    candidate.binary !== "codex" ||
-    typeof candidate.size !== "number" ||
-    candidate.size <= 0 ||
-    typeof candidate.sha256 !== "string" ||
-    !/^[a-f0-9]{64}$/i.test(candidate.sha256)
-  ) {
-    throw new Error("codex_bundled_binary_manifest_mismatch");
-  }
-}
-
-function sha256File(path: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash("sha256");
-    const stream = createReadStream(path);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("error", reject);
-    stream.on("end", () => resolve(hash.digest("hex")));
-  });
-}
-
-async function getAvailableDiskBytes(path: string): Promise<number> {
-  try {
-    const stats = await statfs(path);
-    return stats.bavail * stats.bsize;
-  } catch (error) {
-    throw new Error("runner_disk_budget_unavailable", { cause: error });
-  }
 }
 
 /** Protected Responses callers expose local function/custom tools only.
@@ -3861,251 +3225,6 @@ export function shouldUseSubscriptionRuntimeCodex(
   return value !== "0" && value !== "false";
 }
 
-async function safeCheckoutPullRequest(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly workspace: string;
-  readonly event: PullRequestEvent;
-  readonly checkoutToken: string;
-  readonly previousReviewedHeadSha?: string | undefined;
-}): Promise<boolean> {
-  const askPass = join(input.workspace, ".reviewrouter-askpass.sh");
-  await writeFile(
-    askPass,
-    [
-      "#!/usr/bin/env bash",
-      'case "$1" in',
-      '*Username*) printf "%s\\n" "x-access-token" ;;',
-      '*Password*) printf "%s\\n" "$REVIEWROUTER_CHECKOUT_TOKEN" ;;',
-      '*) printf "\\n" ;;',
-      "esac",
-      "",
-    ].join("\n"),
-    { mode: 0o700 },
-  );
-  await chmod(askPass, 0o700);
-  const gitEnv = buildSafeCheckoutGitEnv({
-    sourceEnv: input.env,
-    workspace: input.workspace,
-    askPass,
-    checkoutToken: input.checkoutToken,
-  });
-  await runGit(["init", "."], input.workspace, gitEnv);
-  await runGit(["config", "--local", "gc.auto", "0"], input.workspace, gitEnv);
-  await runGit(
-    ["config", "--local", "core.hooksPath", "/dev/null"],
-    input.workspace,
-    gitEnv,
-  );
-  await runGit(
-    [
-      "remote",
-      "add",
-      "origin",
-      `https://github.com/${input.event.repository}.git`,
-    ],
-    input.workspace,
-    gitEnv,
-  );
-  let previousHeadFetched = true;
-  if (
-    input.previousReviewedHeadSha &&
-    input.previousReviewedHeadSha !== input.event.headSha &&
-    input.previousReviewedHeadSha !== input.event.baseSha
-  ) {
-    try {
-      await runGit(
-        [
-          "-c",
-          "protocol.file.allow=never",
-          "-c",
-          "protocol.ext.allow=never",
-          "fetch",
-          "--no-tags",
-          "--no-recurse-submodules",
-          "--depth=1",
-          "origin",
-          input.previousReviewedHeadSha,
-        ],
-        input.workspace,
-        gitEnv,
-      );
-    } catch {
-      previousHeadFetched = false;
-    }
-  }
-  await runGit(
-    [
-      "-c",
-      "protocol.file.allow=never",
-      "-c",
-      "protocol.ext.allow=never",
-      "fetch",
-      "--no-tags",
-      "--no-recurse-submodules",
-      "--depth=1",
-      "origin",
-      input.event.baseSha,
-      input.event.headSha,
-    ],
-    input.workspace,
-    gitEnv,
-  );
-  await runGit(
-    [
-      "-c",
-      "protocol.file.allow=never",
-      "-c",
-      "protocol.ext.allow=never",
-      "checkout",
-      "--detach",
-      input.event.headSha,
-    ],
-    input.workspace,
-    gitEnv,
-  );
-  await assertCheckoutConfigDoesNotPersistCredentials({
-    workspace: input.workspace,
-    checkoutToken: input.checkoutToken,
-  });
-  return previousHeadFetched;
-}
-
-function buildSafeCheckoutGitEnv(input: {
-  readonly sourceEnv: NodeJS.ProcessEnv;
-  readonly workspace: string;
-  readonly askPass: string;
-  readonly checkoutToken: string;
-}): Record<string, string> {
-  return {
-    ...pruneCodexRotatingChildEnv(input.sourceEnv),
-    HOME: input.workspace,
-    XDG_CONFIG_HOME: join(input.workspace, ".config"),
-    GIT_ASKPASS: input.askPass,
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    GIT_CONFIG_SYSTEM: "/dev/null",
-    GIT_ATTR_NOSYSTEM: "1",
-    GIT_LFS_SKIP_SMUDGE: "1",
-    GCM_INTERACTIVE: "Never",
-    GIT_CONFIG_COUNT: "7",
-    GIT_CONFIG_KEY_0: "protocol.file.allow",
-    GIT_CONFIG_VALUE_0: "never",
-    GIT_CONFIG_KEY_1: "protocol.ext.allow",
-    GIT_CONFIG_VALUE_1: "never",
-    GIT_CONFIG_KEY_2: "protocol.ssh.allow",
-    GIT_CONFIG_VALUE_2: "never",
-    GIT_CONFIG_KEY_3: "protocol.git.allow",
-    GIT_CONFIG_VALUE_3: "never",
-    GIT_CONFIG_KEY_4: "credential.helper",
-    GIT_CONFIG_VALUE_4: "",
-    GIT_CONFIG_KEY_5: "core.hooksPath",
-    GIT_CONFIG_VALUE_5: "/dev/null",
-    GIT_CONFIG_KEY_6: "advice.detachedHead",
-    GIT_CONFIG_VALUE_6: "false",
-    REVIEWROUTER_CHECKOUT_TOKEN: input.checkoutToken,
-  };
-}
-
-async function assertCheckoutConfigDoesNotPersistCredentials(input: {
-  readonly workspace: string;
-  readonly checkoutToken: string;
-}): Promise<void> {
-  await assertGitConfigDoesNotPersistCredentials(input);
-}
-
-async function assertGitConfigDoesNotPersistCredentials(input: {
-  readonly workspace: string;
-  readonly checkoutToken?: string;
-}): Promise<void> {
-  let gitConfig: string;
-  try {
-    gitConfig = await readFile(join(input.workspace, ".git", "config"), "utf8");
-  } catch (error) {
-    throw new Error("checkout_config_missing", { cause: error });
-  }
-  const normalized = gitConfig.toLowerCase();
-  if (
-    (input.checkoutToken ? gitConfig.includes(input.checkoutToken) : false) ||
-    normalized.includes("extraheader") ||
-    normalized.includes("credential.helper") ||
-    normalized.includes("insteadof") ||
-    normalized.includes("reviewrouter_checkout_token") ||
-    normalized.includes("x-access-token")
-  ) {
-    throw new Error("checkout_persisted_credentials_detected");
-  }
-}
-
-async function resolveForkSandboxWorkspace(
-  env: NodeJS.ProcessEnv,
-): Promise<string> {
-  const workspace = env.REVIEW_ROUTER_PR_WORKSPACE;
-  if (!workspace) {
-    throw new Error("missing_fork_sandbox_workspace");
-  }
-  const githubWorkspace = env.GITHUB_WORKSPACE;
-  if (!githubWorkspace) {
-    throw new Error("missing_github_workspace");
-  }
-  const resolvedWorkspace = await realpath(workspace);
-  const resolvedRoot = await realpath(githubWorkspace);
-  if (
-    resolvedWorkspace !== resolvedRoot &&
-    !resolvedWorkspace.startsWith(`${resolvedRoot}/`)
-  ) {
-    throw new Error("fork_sandbox_workspace_outside_github_workspace");
-  }
-  if (resolvedWorkspace === "/" || resolvedWorkspace === resolvedRoot) {
-    throw new Error("fork_sandbox_workspace_invalid");
-  }
-  return resolvedWorkspace;
-}
-
-async function assertForkSandboxWorkspace(workspace: string): Promise<void> {
-  const stats = await lstat(workspace);
-  if (!stats.isDirectory()) {
-    throw new Error("fork_sandbox_workspace_not_directory");
-  }
-  await assertGitConfigDoesNotPersistCredentials({ workspace });
-}
-
-async function makeGitHubWorkspaceCodexHomeDirectory(
-  env: NodeJS.ProcessEnv,
-): Promise<string> {
-  const githubWorkspace = env.GITHUB_WORKSPACE;
-  if (!githubWorkspace) {
-    throw new Error("missing_github_workspace");
-  }
-
-  const resolvedWorkspaceRoot = await realpath(githubWorkspace);
-  const codexHomeRoot = join(resolvedWorkspaceRoot, ".reviewrouter-codex-home");
-  await mkdir(codexHomeRoot, { recursive: true, mode: 0o700 });
-  const codexHomeRootStats = await lstat(codexHomeRoot);
-  if (
-    !codexHomeRootStats.isDirectory() ||
-    codexHomeRootStats.isSymbolicLink()
-  ) {
-    throw new Error("github_workspace_codex_home_root_invalid");
-  }
-
-  const resolvedCodexHomeRoot = await realpath(codexHomeRoot);
-  if (
-    resolvedCodexHomeRoot !== codexHomeRoot &&
-    !resolvedCodexHomeRoot.startsWith(`${resolvedWorkspaceRoot}/`)
-  ) {
-    throw new Error("github_workspace_codex_home_root_escape");
-  }
-
-  const codexHome = await mkdtemp(join(resolvedCodexHomeRoot, "run-"));
-  await chmod(codexHome, 0o700);
-  const resolvedCodexHome = await realpath(codexHome);
-  if (!resolvedCodexHome.startsWith(`${resolvedCodexHomeRoot}/`)) {
-    throw new Error("github_workspace_codex_home_escape");
-  }
-  return resolvedCodexHome;
-}
-
 export function requireRemainingReviewExecutionBudgetMs(input: {
   readonly executionDeadlineEpochMs: number;
   readonly nowEpochMs: number;
@@ -4355,178 +3474,6 @@ export function buildPreparedHostedReviewRuntimeEnv(
   };
 }
 
-export function buildFullReviewRuntimeEnv(input: {
-  readonly sourceEnv: NodeJS.ProcessEnv;
-  readonly inputs: ActionInputs;
-  readonly leaseId: string;
-  readonly event: PullRequestEvent;
-  readonly workspace: string;
-  readonly tempHome: string;
-  readonly tempCodexHome: string;
-  readonly codexBinDir: string;
-  readonly commentToken: string;
-  readonly commentTokenExpiresAt?: string | undefined;
-  readonly runtimeConfigVersion: number;
-  readonly runtimeEnv: Record<string, string>;
-  readonly reviewThreadLifecycleResolveToken?: string | undefined;
-  readonly reviewSnapshotInputPath?: string | undefined;
-  readonly reviewSnapshotOutputPath?: string | undefined;
-  readonly reviewCheckpointFinalizationPath?: string | undefined;
-  readonly executionDeadlineEpochMs?: number | undefined;
-  readonly commentTokenRefreshUrl?: string | undefined;
-  readonly commentTokenRefreshMode?:
-    | "codex-oauth-rotating"
-    | "hosted-relay"
-    | undefined;
-  readonly sessionBindingId?: string | undefined;
-  readonly sessionBindingVersion?: number | undefined;
-}): Record<string, string> {
-  const inherited = pruneCodexRotatingChildEnv(input.sourceEnv);
-  const runtimeEnv = normalizeFullReviewRuntimeEnv(input.runtimeEnv);
-  if (runtimeEnv.REVIEW_AUTH_MODE === "codex-account-gateway") {
-    // The protected policy owns Gateway settings, including intentional absence.
-    // Workflow defaults cannot reintroduce controls unqualified by the catalog.
-    delete inherited.CODEX_REASONING_EFFORT;
-    delete inherited.CODEX_FAST_MODE;
-  }
-  const reviewAuthMode =
-    runtimeEnv.REVIEW_AUTH_MODE === codexRotatingRuntimeAuthMode
-      ? "codex-oauth"
-      : (runtimeEnv.REVIEW_AUTH_MODE ?? "codex-oauth");
-  const providerSecretEnv = buildProviderSecretEnvForRuntime({
-    runtimeEnv,
-    providerSecrets: input.inputs.providerSecrets,
-  });
-  const reviewThreadLifecycleResolveEnv =
-    input.reviewThreadLifecycleResolveToken
-      ? {
-          [reviewThreadLifecycleResolveTokenEnvKey]:
-            input.reviewThreadLifecycleResolveToken,
-        }
-      : {};
-  const executionDeadlineEpochMs =
-    input.executionDeadlineEpochMs ??
-    createReviewExecutionDeadlineEpochMs({
-      jobTimeoutMinutes: input.inputs.reviewTimeoutMinutes,
-      executionStartedAtEpochMs: Date.now(),
-    });
-  return {
-    ...inherited,
-    ...runtimeEnv,
-    ...providerSecretEnv,
-    ...reviewThreadLifecycleResolveEnv,
-    HOME: input.tempHome,
-    CODEX_HOME: input.tempCodexHome,
-    GITHUB_WORKSPACE: input.workspace,
-    CI: "true",
-    PATH: `${input.codexBinDir}:${join(input.tempHome, ".local", "bin")}:${input.sourceEnv.PATH ?? process.env.PATH ?? ""}`,
-    GITHUB_OUTPUT: join(input.tempHome, "github-output"),
-    GITHUB_TOKEN: input.commentToken,
-    PR_NUMBER: String(input.event.number),
-    REVIEW_AUTH_MODE: reviewAuthMode,
-    CODEX_AGENTIC_AUDIT: runtimeEnv.CODEX_AGENTIC_AUDIT ?? "rerun",
-    FAIL_ON_NO_HEALTHY_PROVIDERS:
-      runtimeEnv.FAIL_ON_NO_HEALTHY_PROVIDERS ?? "true",
-    REVIEWROUTER_RUNTIME_CONFIG_MODE: "static",
-    REVIEWROUTER_STATIC_CONFIG_FALLBACK: "false",
-    REVIEWROUTER_COMMENT_TOKEN_MODE:
-      input.commentTokenRefreshMode ?? "codex-oauth-rotating",
-    REVIEWROUTER_COMMENT_TOKEN_REFRESH_URL:
-      input.commentTokenRefreshUrl ??
-      `${input.inputs.apiUrl}/api/action/v1/codex-oauth/comment-token`,
-    REVIEWROUTER_COMMENT_TOKEN_LEASE_ID: input.leaseId,
-    REVIEWROUTER_COMMENT_TOKEN_PROVIDER_INSTANCE_ID:
-      input.inputs.providerInstanceId,
-    ...(input.sessionBindingId
-      ? { REVIEWROUTER_SESSION_BINDING_ID: input.sessionBindingId }
-      : {}),
-    ...(input.sessionBindingVersion !== undefined
-      ? {
-          REVIEWROUTER_SESSION_BINDING_VERSION: String(
-            input.sessionBindingVersion,
-          ),
-        }
-      : {}),
-    ...(input.commentTokenExpiresAt
-      ? {
-          REVIEWROUTER_COMMENT_TOKEN_EXPIRES_AT: input.commentTokenExpiresAt,
-        }
-      : {}),
-    REVIEWROUTER_SCM_PROVIDER: "github",
-    REVIEWROUTER_FINDINGS_ARTIFACT_PATH:
-      providerNeutralReviewFindingsArtifactFileName,
-    REVIEWROUTER_REPOSITORY_EXTERNAL_ID:
-      input.event.repositoryId ?? input.event.repository,
-    REVIEWROUTER_REPOSITORY_FULL_NAME: input.event.repository,
-    REVIEWROUTER_CHANGE_REQUEST_EXTERNAL_ID: String(input.event.number),
-    REVIEWROUTER_HEAD_SHA: input.event.headSha,
-    REVIEWROUTER_BASE_SHA: input.event.baseSha,
-    REVIEWROUTER_REVIEW_MARKER: `reviewrouter:${
-      input.commentTokenRefreshMode === "hosted-relay"
-        ? "hosted-pool"
-        : "codex-oauth-rotating"
-    } head=${input.event.headSha}`,
-    REVIEWROUTER_API_URL: input.inputs.apiUrl,
-    REVIEWROUTER_CONTROL_PLANE_URL: input.inputs.apiUrl,
-    REVIEWROUTER_CONFIG_VERSION: String(input.runtimeConfigVersion),
-    REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS: String(executionDeadlineEpochMs),
-    REVIEWROUTER_REVIEW_CHECKPOINT_FINALIZATION_PATH:
-      input.reviewCheckpointFinalizationPath ?? "",
-    REVIEWROUTER_INCREMENTAL_SNAPSHOT_REQUIRED: "true",
-    ...(input.reviewSnapshotInputPath
-      ? {
-          REVIEWROUTER_INCREMENTAL_SNAPSHOT_INPUT_PATH:
-            input.reviewSnapshotInputPath,
-        }
-      : {}),
-    ...(input.reviewSnapshotOutputPath
-      ? {
-          REVIEWROUTER_INCREMENTAL_SNAPSHOT_OUTPUT_PATH:
-            input.reviewSnapshotOutputPath,
-        }
-      : {}),
-  };
-}
-
-function buildProviderSecretEnvForRuntime(input: {
-  readonly runtimeEnv: Readonly<Record<string, string>>;
-  readonly providerSecrets: ProviderSecretInputs;
-}): Record<string, string> {
-  assertProviderSecretInputsForRuntime(input);
-  const env: Record<string, string> = {};
-  if (
-    runtimeProvidersInclude(input.runtimeEnv, "claude/") &&
-    input.providerSecrets.claudeCodeOAuthToken
-  ) {
-    env.CLAUDE_CODE_OAUTH_TOKEN = input.providerSecrets.claudeCodeOAuthToken;
-  }
-  if (
-    runtimeProvidersInclude(input.runtimeEnv, "openrouter/") &&
-    input.providerSecrets.openRouterApiKey
-  ) {
-    env.OPENROUTER_API_KEY = input.providerSecrets.openRouterApiKey;
-  }
-  if (
-    runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") &&
-    input.providerSecrets.mimoTokenPlanApiKey
-  ) {
-    env.MIMO_TOKEN_PLAN_API_KEY = input.providerSecrets.mimoTokenPlanApiKey;
-  }
-  return env;
-}
-
-function assertProviderSecretInputsForRuntime(input: {
-  readonly runtimeEnv: Readonly<Record<string, string>>;
-  readonly providerSecrets: ProviderSecretInputs;
-}): void {
-  if (
-    runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") &&
-    !input.providerSecrets.mimoTokenPlanApiKey
-  ) {
-    throw new Error("missing_mimo_token_plan_api_key");
-  }
-}
-
 async function ensureFullReviewRuntimeTools(input: {
   readonly env: Record<string, string>;
   readonly io: ActionIO;
@@ -4573,431 +3520,6 @@ function buildToolInstallEnv(
   };
 }
 
-function runtimeProvidersInclude(
-  runtimeEnv: Readonly<Record<string, string>>,
-  providerPrefix: string,
-): boolean {
-  return (runtimeEnv.REVIEW_PROVIDERS ?? "")
-    .split(",")
-    .some((provider) => provider.trim().startsWith(providerPrefix));
-}
-
-const forkRuntimeEnvAllowedKeys = new Set([
-  "REVIEWROUTER_CONFIG_SCHEMA_VERSION",
-  "REVIEW_AUTH_MODE",
-  "INLINE_MAX_COMMENTS",
-  "INLINE_MIN_SEVERITY",
-  "TARGET_TOKENS_PER_BATCH",
-  "FAIL_ON_SEVERITY",
-  "REVIEW_OUTPUT_LANGUAGE",
-  "CODEX_MODEL",
-  "CODEX_REASONING_EFFORT",
-  "CODEX_AGENTIC_CONTEXT",
-  "CODEX_FAST_MODE",
-  "CODEX_AGENTIC_AUDIT",
-  "CODEX_EVENT_AUDIT",
-  "CLAUDE_MODEL",
-  "CLAUDE_AGENTIC_CONTEXT",
-  "FAIL_ON_NO_HEALTHY_PROVIDERS",
-]);
-
-const certifiedForkAgenticProviderPrefixes = [
-  "codex/",
-  "claude/",
-  "openrouter/",
-  "codex-openrouter/",
-] as const;
-
-function forkAgenticSandboxRuntimeEnv(
-  runtimeEnv: Readonly<Record<string, string>>,
-): Record<string, string> {
-  const normalized = normalizeFullReviewRuntimeEnv(runtimeEnv);
-  const forkProviders = parseRuntimeProviders(
-    normalized.REVIEW_PROVIDERS,
-  ).filter(isCertifiedForkAgenticProvider);
-  if (forkProviders.length === 0) {
-    throw new Error("fork_agentic_sandbox_requires_certified_provider");
-  }
-  const primaryProvider = forkProviders[0]!;
-  const allowedRuntimeEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(normalized)) {
-    if (forkRuntimeEnvAllowedKeys.has(key)) {
-      allowedRuntimeEnv[key] = value;
-    }
-  }
-  const providerLimit = Math.min(
-    forkRuntimePositiveInteger(normalized.PROVIDER_LIMIT, forkProviders.length),
-    forkProviders.length,
-  );
-  const providerMaxParallel = Math.min(
-    forkRuntimePositiveInteger(normalized.PROVIDER_MAX_PARALLEL, providerLimit),
-    providerLimit,
-  );
-  const requiredHealthyProviders = parseRuntimeProviders(
-    normalized.REQUIRED_HEALTHY_PROVIDERS,
-  ).filter((provider) => forkProviders.includes(provider));
-  const synthesisModel = forkProviders.includes(
-    normalized.SYNTHESIS_MODEL ?? "",
-  )
-    ? normalized.SYNTHESIS_MODEL!
-    : primaryProvider;
-  const inlineMinAgreement = Math.min(
-    forkRuntimePositiveInteger(normalized.INLINE_MIN_AGREEMENT, 1),
-    providerLimit,
-  );
-  const forkEnv: Record<string, string> = {
-    ...allowedRuntimeEnv,
-    REVIEW_PROVIDERS: forkProviders.join(","),
-    REQUIRED_HEALTHY_PROVIDERS:
-      requiredHealthyProviders.length > 0
-        ? requiredHealthyProviders.join(",")
-        : primaryProvider,
-    SYNTHESIS_MODEL: synthesisModel,
-    PROVIDER_LIMIT: String(providerLimit),
-    PROVIDER_MAX_PARALLEL: String(providerMaxParallel),
-    INLINE_MIN_AGREEMENT: String(inlineMinAgreement),
-    REVIEWROUTER_FORK_AGENTIC_SANDBOX: "true",
-  };
-  if (forkProviders.some((provider) => provider.startsWith("claude/"))) {
-    forkEnv.CLAUDE_AGENTIC_CONTEXT = "true";
-  }
-  return forkEnv;
-}
-
-function parseRuntimeProviders(value: string | undefined): string[] {
-  return (value ?? "")
-    .split(",")
-    .map((provider) => provider.trim())
-    .filter(Boolean);
-}
-
-function isCertifiedForkAgenticProvider(provider: string): boolean {
-  return certifiedForkAgenticProviderPrefixes.some((prefix) =>
-    provider.startsWith(prefix),
-  );
-}
-
-function forkRuntimePositiveInteger(
-  value: string | undefined,
-  defaultValue: number,
-): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    return defaultValue;
-  }
-  return parsed;
-}
-
-function codexModelForForkRuntime(
-  runtimeEnv: Readonly<Record<string, string>>,
-): string {
-  const provider = (runtimeEnv.REVIEW_PROVIDERS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("codex/"));
-  const modelFromProvider = provider?.slice("codex/".length);
-  return modelFromProvider || runtimeEnv.CODEX_MODEL || "gpt-5.5";
-}
-
-function extractCodexAccessToken(authJson: string): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(authJson);
-  } catch {
-    throw new Error("codex_auth_json_invalid_json");
-  }
-  const accessToken =
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "tokens" in parsed &&
-    typeof parsed.tokens === "object" &&
-    parsed.tokens !== null &&
-    "access_token" in parsed.tokens &&
-    typeof parsed.tokens.access_token === "string"
-      ? parsed.tokens.access_token
-      : "";
-  if (!accessToken) {
-    throw new Error("codex_access_token_missing");
-  }
-  return accessToken;
-}
-
-function normalizeFullReviewRuntimeEnv(
-  runtimeEnv: Readonly<Record<string, string>>,
-): Record<string, string> {
-  const normalized: Record<string, string> = {};
-  for (const [key, value] of Object.entries(runtimeEnv)) {
-    if (!isSafeFullReviewRuntimeEnvKey(key)) {
-      throw new Error(`unsafe_runtime_env_key:${safeEnvKeyLabel(key)}`);
-    }
-    if (typeof value !== "string") {
-      throw new Error(`unsafe_runtime_env_value:${safeEnvKeyLabel(key)}`);
-    }
-    normalized[key] = value;
-  }
-  return normalized;
-}
-
-function isSafeFullReviewRuntimeEnvKey(key: string): boolean {
-  if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) {
-    return false;
-  }
-  if (key === "TARGET_TOKENS_PER_BATCH") {
-    return true;
-  }
-  return !/(TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|AUTH_JSON)/.test(key);
-}
-
-function safeEnvKeyLabel(key: string): string {
-  return /^[A-Z_][A-Z0-9_]{0,80}$/.test(key) ? key : "<invalid-env-key>";
-}
-
-export async function postPullRequestComment(input: {
-  readonly fetchImpl: FetchLike;
-  readonly token: string;
-  readonly owner: string;
-  readonly repo: string;
-  readonly issueNumber: number;
-  readonly marker: string;
-  readonly body: string;
-}): Promise<void> {
-  const commentsUrl = `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.issueNumber}/comments`;
-  const { response: commentsResponse, body: comments } = await fetchWithRetry({
-    fetchImpl: input.fetchImpl,
-    label: "github_comment_lookup",
-    timeoutMs: githubRequestTimeoutMs,
-    url: `${commentsUrl}?per_page=100`,
-    init: {
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Bearer ${input.token}`,
-        "x-github-api-version": "2022-11-28",
-      },
-    },
-    consume: consumeJsonResponse,
-  });
-  if (!commentsResponse.ok) {
-    throw new Error("github_comment_lookup_failed");
-  }
-  if (!Array.isArray(comments)) {
-    throw new Error("github_comment_lookup_invalid");
-  }
-  const existing = comments.find(
-    (comment): comment is GitHubIssueCommentResponse =>
-      typeof comment === "object" &&
-      comment !== null &&
-      typeof (comment as GitHubIssueCommentResponse).id === "number" &&
-      typeof (comment as GitHubIssueCommentResponse).body === "string" &&
-      (comment as GitHubIssueCommentResponse).body!.startsWith(input.marker),
-  );
-  if (existing) {
-    const updateResponse = await fetchWithRetry({
-      fetchImpl: input.fetchImpl,
-      label: "github_comment_update",
-      timeoutMs: githubRequestTimeoutMs,
-      url: `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/comments/${existing.id}`,
-      init: {
-        method: "PATCH",
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${input.token}`,
-          "content-type": "application/json",
-          "x-github-api-version": "2022-11-28",
-        },
-        body: JSON.stringify({ body: input.body }),
-      },
-      consume: consumeResponseBody,
-    });
-    if (!updateResponse.ok) {
-      throw new Error("github_comment_update_failed");
-    }
-    return;
-  }
-
-  const createResponse = await fetchWithRetry({
-    fetchImpl: input.fetchImpl,
-    label: "github_comment_create",
-    timeoutMs: githubRequestTimeoutMs,
-    url: commentsUrl,
-    init: {
-      method: "POST",
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Bearer ${input.token}`,
-        "content-type": "application/json",
-        "x-github-api-version": "2022-11-28",
-      },
-      body: JSON.stringify({ body: input.body }),
-    },
-    consume: consumeResponseBody,
-  });
-  if (!createResponse.ok) {
-    throw new Error("github_comment_post_failed");
-  }
-}
-
-export async function deleteStaleCodexRotatingSummaryComments(input: {
-  readonly fetchImpl: FetchLike;
-  readonly token: string;
-  readonly owner: string;
-  readonly repo: string;
-  readonly issueNumber: number;
-}): Promise<void> {
-  const commentsUrl = `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.issueNumber}/comments`;
-  const { response: commentsResponse, body: comments } = await fetchWithRetry({
-    fetchImpl: input.fetchImpl,
-    label: "github_stale_comment_lookup",
-    timeoutMs: githubRequestTimeoutMs,
-    url: `${commentsUrl}?per_page=100`,
-    init: {
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Bearer ${input.token}`,
-        "x-github-api-version": "2022-11-28",
-      },
-    },
-    consume: consumeJsonResponse,
-  });
-  if (!commentsResponse.ok) {
-    throw new Error("github_stale_comment_lookup_failed");
-  }
-  if (!Array.isArray(comments)) {
-    throw new Error("github_stale_comment_lookup_invalid");
-  }
-  const staleComments = comments.filter(
-    (comment): comment is GitHubIssueCommentResponse =>
-      typeof comment === "object" &&
-      comment !== null &&
-      typeof (comment as GitHubIssueCommentResponse).id === "number" &&
-      typeof (comment as GitHubIssueCommentResponse).body === "string" &&
-      /^<!--\s*reviewrouter:(?:codex-oauth-rotating|hosted-pool)(?:\s|-->)/i.test(
-        (comment as GitHubIssueCommentResponse).body!,
-      ),
-  );
-  for (const comment of staleComments) {
-    const deleteResponse = await fetchWithRetry({
-      fetchImpl: input.fetchImpl,
-      label: "github_stale_comment_delete",
-      timeoutMs: githubRequestTimeoutMs,
-      url: `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/comments/${comment.id}`,
-      init: {
-        method: "DELETE",
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${input.token}`,
-          "x-github-api-version": "2022-11-28",
-        },
-      },
-      consume: consumeResponseBody,
-    });
-    if (!deleteResponse.ok) {
-      throw new Error("github_stale_comment_delete_failed");
-    }
-  }
-}
-
-class GitHubProgressCommentRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
-
-export async function deleteFullRuntimeProgressCommentsWithTokenRefresh(input: {
-  readonly fetchImpl: FetchLike;
-  readonly token: string;
-  readonly owner: string;
-  readonly repo: string;
-  readonly issueNumber: number;
-  readonly refreshToken: () => Promise<string>;
-}): Promise<string> {
-  try {
-    await deleteFullRuntimeProgressComments(input);
-    return input.token;
-  } catch (error) {
-    if (
-      !(error instanceof GitHubProgressCommentRequestError) ||
-      error.status !== 401
-    ) {
-      throw error;
-    }
-    const refreshedToken = await input.refreshToken();
-    await deleteFullRuntimeProgressComments({
-      ...input,
-      token: refreshedToken,
-    });
-    return refreshedToken;
-  }
-}
-
-export async function deleteFullRuntimeProgressComments(input: {
-  readonly fetchImpl: FetchLike;
-  readonly token: string;
-  readonly owner: string;
-  readonly repo: string;
-  readonly issueNumber: number;
-}): Promise<void> {
-  const commentsUrl = `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.issueNumber}/comments`;
-  const { response: commentsResponse, body: comments } = await fetchWithRetry({
-    fetchImpl: input.fetchImpl,
-    label: "github_progress_comment_lookup",
-    timeoutMs: githubRequestTimeoutMs,
-    url: `${commentsUrl}?per_page=100`,
-    init: {
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: `Bearer ${input.token}`,
-        "x-github-api-version": "2022-11-28",
-      },
-    },
-    consume: consumeJsonResponse,
-  });
-  if (!commentsResponse.ok) {
-    throw new GitHubProgressCommentRequestError(
-      "github_progress_comment_lookup_failed",
-      commentsResponse.status,
-    );
-  }
-  if (!Array.isArray(comments)) {
-    throw new Error("github_progress_comment_lookup_invalid");
-  }
-  const progressComments = comments.filter(
-    (comment): comment is GitHubIssueCommentResponse =>
-      typeof comment === "object" &&
-      comment !== null &&
-      typeof (comment as GitHubIssueCommentResponse).id === "number" &&
-      typeof (comment as GitHubIssueCommentResponse).body === "string" &&
-      (comment as GitHubIssueCommentResponse).body!.includes(
-        fullRuntimeProgressCommentMarker,
-      ),
-  );
-  for (const comment of progressComments) {
-    const deleteResponse = await fetchWithRetry({
-      fetchImpl: input.fetchImpl,
-      label: "github_progress_comment_delete",
-      timeoutMs: githubRequestTimeoutMs,
-      url: `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/comments/${comment.id}`,
-      init: {
-        method: "DELETE",
-        headers: {
-          accept: "application/vnd.github+json",
-          authorization: `Bearer ${input.token}`,
-          "x-github-api-version": "2022-11-28",
-        },
-      },
-      consume: consumeResponseBody,
-    });
-    if (!deleteResponse.ok) {
-      throw new GitHubProgressCommentRequestError(
-        "github_progress_comment_delete_failed",
-        deleteResponse.status,
-      );
-    }
-  }
-}
-
 function buildCodexChildEnv(
   sourceEnv: NodeJS.ProcessEnv,
   home: string,
@@ -5011,298 +3533,8 @@ function buildCodexChildEnv(
   };
 }
 
-function runGit(
-  args: readonly string[],
-  cwd: string,
-  env: Record<string, string>,
-): Promise<void> {
-  return runProcess({
-    command: "git",
-    args,
-    cwd,
-    env,
-    timeoutMs: 5 * 60 * 1000,
-  });
-}
-
-class ProcessExecutionError extends Error {
-  constructor(
-    message: string,
-    readonly output: string,
-  ) {
-    super(message);
-  }
-}
-
 class AlreadyReportedRuntimeFailure extends Error {
   readonly alreadyReportedToGitHub = true;
-}
-
-type KillableChildProcess = Pick<ReturnType<typeof spawn>, "pid" | "kill">;
-
-type UnixProcessEntry = {
-  readonly pid: number;
-  readonly parentPid: number;
-  readonly processGroupId: number;
-};
-
-type CapturedUnixProcessTree = {
-  readonly rootPid: number;
-  readonly processGroupIds: readonly number[];
-};
-
-function captureUnixProcessTree(
-  rootPid: number,
-): CapturedUnixProcessTree | null {
-  if (process.platform === "win32") return null;
-  try {
-    const output = execFileSync("/bin/ps", ["-A", "-o", "pid=,ppid=,pgid="], {
-      encoding: "utf8",
-      env: { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin" },
-      timeout: 2_000,
-      maxBuffer: 4 * 1024 * 1024,
-    });
-    const entries = output
-      .split("\n")
-      .map((line): UnixProcessEntry | null => {
-        const [pid, parentPid, processGroupId] = line
-          .trim()
-          .split(/\s+/)
-          .map(Number);
-        if (
-          !Number.isSafeInteger(pid) ||
-          !Number.isSafeInteger(parentPid) ||
-          !Number.isSafeInteger(processGroupId)
-        ) {
-          return null;
-        }
-        return {
-          pid: pid!,
-          parentPid: parentPid!,
-          processGroupId: processGroupId!,
-        };
-      })
-      .filter((entry): entry is UnixProcessEntry => entry !== null);
-    const descendants = new Set<number>([rootPid]);
-    let foundNewDescendant = true;
-    while (foundNewDescendant) {
-      foundNewDescendant = false;
-      for (const entry of entries) {
-        if (descendants.has(entry.parentPid) && !descendants.has(entry.pid)) {
-          descendants.add(entry.pid);
-          foundNewDescendant = true;
-        }
-      }
-    }
-    const ownProcessGroupId = entries.find(
-      (entry) => entry.pid === process.pid,
-    )?.processGroupId;
-    const processGroupIds = new Set<number>();
-    for (const entry of entries) {
-      if (
-        descendants.has(entry.pid) &&
-        entry.processGroupId > 0 &&
-        entry.processGroupId !== ownProcessGroupId
-      ) {
-        processGroupIds.add(entry.processGroupId);
-      }
-    }
-    if (processGroupIds.size === 0 && rootPid > 0) {
-      processGroupIds.add(rootPid);
-    }
-    return {
-      rootPid,
-      processGroupIds: [...processGroupIds].sort((left, right) => {
-        if (left === rootPid) return 1;
-        if (right === rootPid) return -1;
-        return left - right;
-      }),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function signalCapturedUnixProcessTree(
-  tree: CapturedUnixProcessTree,
-  signal: NodeJS.Signals,
-): boolean {
-  let signaled = false;
-  for (const processGroupId of tree.processGroupIds) {
-    try {
-      process.kill(-processGroupId, signal);
-      signaled = true;
-    } catch {
-      // Continue signaling the remaining captured groups; termination is best effort.
-    }
-  }
-  return signaled;
-}
-
-export function signalProcessTree(
-  child: KillableChildProcess,
-  signal: NodeJS.Signals,
-  options: {
-    readonly platform?: NodeJS.Platform;
-    readonly killProcessGroup?: typeof process.kill;
-  } = {},
-): boolean {
-  const platform = options.platform ?? process.platform;
-  if (platform !== "win32" && child.pid !== undefined) {
-    try {
-      (options.killProcessGroup ?? process.kill)(-child.pid, signal);
-      return true;
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ESRCH") {
-        return false;
-      }
-    }
-  }
-  return child.kill(signal);
-}
-
-export function runProcess(input: {
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly cwd?: string;
-  readonly env: Record<string, string>;
-  readonly stdin?: string;
-  readonly streamOutput?: ActionIO;
-  readonly timeoutMs: number;
-  readonly terminationGracePeriodMs?: number;
-  readonly abortSignal?: AbortSignal | undefined;
-}): Promise<void> {
-  if (input.abortSignal?.aborted) {
-    return Promise.reject(processAbortError(input.abortSignal));
-  }
-  return new Promise((resolve, reject) => {
-    const outputChunks: Buffer[] = [];
-    let outputBytes = 0;
-    let settled = false;
-    let terminationError: unknown;
-    let terminationProcessTree: CapturedUnixProcessTree | null = null;
-    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
-    const child = spawn(input.command, input.args, {
-      cwd: input.cwd,
-      env: input.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
-    const settle = (result: { readonly error?: unknown }): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-      input.abortSignal?.removeEventListener("abort", onAbort);
-      if (result.error !== undefined) {
-        reject(result.error);
-      } else {
-        resolve();
-      }
-    };
-    const requestTermination = (error: unknown): void => {
-      if (settled || terminationError !== undefined) return;
-      terminationError = error;
-      terminationProcessTree =
-        child.pid === undefined ? null : captureUnixProcessTree(child.pid);
-      if (terminationProcessTree) {
-        signalCapturedUnixProcessTree(terminationProcessTree, "SIGTERM");
-      } else {
-        signalProcessTree(child, "SIGTERM");
-      }
-      forceKillTimer = setTimeout(() => {
-        if (terminationProcessTree) {
-          signalCapturedUnixProcessTree(terminationProcessTree, "SIGKILL");
-        } else {
-          signalProcessTree(child, "SIGKILL");
-        }
-        settle({ error: terminationError });
-      }, input.terminationGracePeriodMs ?? processTerminationGracePeriodMs);
-    };
-    const onAbort = (): void => {
-      requestTermination(processAbortError(input.abortSignal!));
-    };
-    const timer = setTimeout(
-      () => requestTermination(new Error("process_timeout")),
-      input.timeoutMs,
-    );
-    child.stdout.on("data", (chunk) => {
-      writeProcessLogChunk(input.streamOutput?.stdout, chunk);
-      outputBytes = appendCapturedChunk(
-        outputChunks,
-        outputBytes,
-        Buffer.from(chunk),
-      );
-    });
-    child.stderr.on("data", (chunk) => {
-      writeProcessLogChunk(input.streamOutput?.stderr, chunk);
-      outputBytes = appendCapturedChunk(
-        outputChunks,
-        outputBytes,
-        Buffer.from(chunk),
-      );
-    });
-    child.on("error", (error) => {
-      if (terminationError !== undefined && process.platform !== "win32") {
-        return;
-      }
-      settle({ error: terminationError ?? error });
-    });
-    child.on("close", (code) => {
-      if (terminationError !== undefined) {
-        if (process.platform === "win32") {
-          settle({ error: terminationError });
-        }
-        return;
-      }
-      if (code === 0) {
-        settle({});
-      } else {
-        settle({
-          error: new ProcessExecutionError(
-            `process_failed:${input.command}:${code ?? "signal"}`,
-            Buffer.concat(outputChunks).toString("utf8"),
-          ),
-        });
-      }
-    });
-    input.abortSignal?.addEventListener("abort", onAbort, { once: true });
-    if (input.abortSignal?.aborted) {
-      onAbort();
-    }
-    child.stdin.on("error", () => undefined);
-    child.stdin.end(input.stdin ?? "");
-  });
-}
-
-function processAbortError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new Error("process_aborted");
-}
-
-function writeProcessLogChunk(
-  stream: Pick<NodeJS.WriteStream, "write"> | undefined,
-  chunk: unknown,
-): void {
-  if (!stream) return;
-  const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-  stream.write(sanitizeProcessLogChunk(text));
-}
-
-function appendCapturedChunk(
-  chunks: Buffer[],
-  currentBytes: number,
-  chunk: Buffer,
-): number {
-  const remaining = maxCapturedProcessOutputBytes - currentBytes;
-  if (remaining <= 0) {
-    return currentBytes;
-  }
-  const nextChunk =
-    chunk.byteLength > remaining ? chunk.subarray(0, remaining) : chunk;
-  chunks.push(nextChunk);
-  return currentBytes + nextChunk.byteLength;
 }
 
 function classifyCodexBootstrapFailure(error: unknown): Error {
@@ -5440,17 +3672,6 @@ function sanitizeProcessFailureOutput(output: string): string {
     .replace(/\s+/g, " ")
     .trim();
   return sanitized ? limitUtf8Tail(sanitized, 1_000) : "empty_process_output";
-}
-
-function sanitizeProcessLogChunk(output: string): string {
-  return output
-    .replace(/auth\.json["'\s:=]+[^\s"'`]+/gi, "auth.json: [redacted]")
-    .replace(
-      /\b(refresh_token|access_token|id_token)\b["'\s:=]+[A-Za-z0-9._~+/=-]+/gi,
-      "$1: [redacted]",
-    )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
-    .replace(/[A-Za-z0-9._~+/=-]{120,}/g, "[redacted]");
 }
 
 async function removeTree(path: string): Promise<void> {
