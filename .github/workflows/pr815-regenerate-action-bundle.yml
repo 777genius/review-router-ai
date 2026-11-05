@@ -76,7 +76,7 @@ jobs:
             packages/features/codex-oauth-rotating/src/action/review-runtime-environment.test.ts \
             packages/features/codex-oauth-rotating/src/tests/github-action.test.ts
 
-      - name: Commit only reviewed files, then remove this one-time workflow
+      - name: Commit only reviewed source and generated Action bundle
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -98,10 +98,9 @@ jobs:
             packages/features/codex-oauth-rotating/src/domain/codex-contract.ts \
             packages/features/codex-oauth-rotating/src/domain/codex-oauth-rotating.ts \
             packages/features/codex-oauth-rotating/src/domain/codex-workflow.ts
-          git rm -- .github/workflows/pr815-regenerate-action-bundle.yml
           while IFS= read -r changed; do
             case "$changed" in
-              action-dist/index.cjs|ai-docs/plans/2026-11-05-action-runtime-ownership-refactor.md|ai-docs/deployments/README.md|ai-docs/deployments/2026-11-05-action-runtime-ownership.md|scripts/check-architecture-boundaries.mjs|.github/workflows/pr815-regenerate-action-bundle.yml|packages/features/codex-oauth-rotating/src/action/*.ts|packages/features/codex-oauth-rotating/src/domain/codex-contract.ts|packages/features/codex-oauth-rotating/src/domain/codex-oauth-rotating.ts|packages/features/codex-oauth-rotating/src/domain/codex-workflow.ts) ;;
+              action-dist/index.cjs|ai-docs/plans/2026-11-05-action-runtime-ownership-refactor.md|ai-docs/deployments/README.md|ai-docs/deployments/2026-11-05-action-runtime-ownership.md|scripts/check-architecture-boundaries.mjs|packages/features/codex-oauth-rotating/src/action/*.ts|packages/features/codex-oauth-rotating/src/domain/codex-contract.ts|packages/features/codex-oauth-rotating/src/domain/codex-oauth-rotating.ts|packages/features/codex-oauth-rotating/src/domain/codex-workflow.ts) ;;
               *) echo "::error::unapproved staged path $changed"; exit 1 ;;
             esac
           done < <(git diff --cached --name-only)
