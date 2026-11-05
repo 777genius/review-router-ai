@@ -89,13 +89,15 @@ function transactionFixture(input: {
 }
 
 describe("transaction-scoped review safety reader", () => {
-  it("does not access undeclared root Prisma delegates during legacy composition", () => {
+  it("keeps the legacy Prisma constructor lazy", () => {
     const legacyRoot = new Proxy({} as PrismaClient, {
       get() {
         throw new Error("unexpected_prisma_delegate");
       },
     });
-    expect(() => new PrismaReviewSafetyControlRepository(legacyRoot)).not.toThrow();
+    expect(
+      () => new PrismaReviewSafetyControlRepository(legacyRoot),
+    ).not.toThrow();
   });
 
   it("reads safety using only the transaction delegates", async () => {
@@ -159,7 +161,7 @@ describe("transaction-scoped review safety reader", () => {
     expect(decision.emergencyStopped).toBe(true);
   });
 
-  it("does not read selectors when there are no eligible capabilities", async () => {
+  it("skips policy queries when there are no capabilities", async () => {
     const fixture = transactionFixture();
     await expect(
       fixture.reader.findApplicableReviewSafetyPolicies({
