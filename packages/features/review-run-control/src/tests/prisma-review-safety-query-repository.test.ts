@@ -1,8 +1,11 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ResolveReviewSafetyPolicy } from "../application/use-cases/resolve-review-safety-policy";
-import { PrismaReviewSafetyQueryRepository } from "../infrastructure/prisma/prisma-review-safety-control-repository";
+import {
+  PrismaReviewSafetyControlRepository,
+  PrismaReviewSafetyQueryRepository,
+} from "../infrastructure/prisma/prisma-review-safety-control-repository";
 import {
   ReviewSafetyCapability,
   ReviewSafetyDecisionKind,
@@ -86,6 +89,15 @@ function transactionFixture(input: {
 }
 
 describe("transaction-scoped review safety reader", () => {
+  it("does not access undeclared root Prisma delegates during legacy composition", () => {
+    const legacyRoot = new Proxy({} as PrismaClient, {
+      get() {
+        throw new Error("unexpected_prisma_delegate");
+      },
+    });
+    expect(() => new PrismaReviewSafetyControlRepository(legacyRoot)).not.toThrow();
+  });
+
   it("reads safety using only the transaction delegates", async () => {
     const fixture = transactionFixture();
     const decision = await fixture.resolver.resolveReviewSafetyPolicy({
