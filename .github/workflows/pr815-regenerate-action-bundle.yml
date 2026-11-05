@@ -56,6 +56,22 @@ jobs:
         run: |
           set -euo pipefail
           pnpm action:build
+          # Diagnostic only: preserve the strict artifact check below.
+          node - <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const bundle = readFileSync("action-dist/index.cjs", "utf8");
+          const term = "codex-binary";
+          let at = -1;
+          let hits = 0;
+          while ((at = bundle.indexOf(term, at + 1)) >= 0 && hits < 8) {
+            const excerpt = bundle
+              .slice(Math.max(0, at - 100), Math.min(bundle.length, at + term.length + 100))
+              .replace(/\s+/g, " ");
+            console.error("Forbidden bundle string context:", { index: at, excerpt });
+            hits += 1;
+          }
+          console.log("Forbidden bundle string hits sampled:", hits);
+          NODE
           pnpm action:artifact:check:smoke
           # The reviewed domain boundary move changes both generated runtimes.
           # action:artifact:check:smoke verifies source parity for both bundles.
