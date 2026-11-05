@@ -204,7 +204,7 @@ import {
   composeProductionReviewRunAuthorizationPrerequisites,
   composeReviewRunControl,
   createPrismaReviewRunControlRepositories,
-  PrismaReviewSafetyControlRepository,
+  PrismaReviewSafetyQueryRepository,
 } from "@reviewrouter/features-review-run-control/composition";
 import { reviewActionV2AbsoluteProtocolMaxima } from "./review-action-v2-protocol-policy.js";
 import {
@@ -1294,18 +1294,11 @@ export function composeReviewActionV2ProductionRoutes(input: {
         WHERE "authorizationId" = ${authorization.authorizationId} FOR SHARE`;
         // Existing safety query adapter/resolver, with reads bound to this
         // connection. No root queries or SCM/HTTP while guards are held.
-        const safetyQueries = new PrismaReviewSafetyControlRepository(
-          new Proxy(prisma, {
-            get(_target, key) {
-              if (key === "reviewSafetyPolicy") return tx.reviewSafetyPolicy;
-              if (key === "reviewSafetyPolicySelector")
-                return tx.reviewSafetyPolicySelector;
-              if (key === "reviewSafetyEmergencyControl")
-                return tx.reviewSafetyEmergencyControl;
-              throw new Error("relay_safety_reader_scope_invalid");
-            },
-          }),
-        );
+        const safetyQueries = new PrismaReviewSafetyQueryRepository({
+          reviewSafetyPolicy: tx.reviewSafetyPolicy,
+          reviewSafetyPolicySelector: tx.reviewSafetyPolicySelector,
+          reviewSafetyEmergencyControl: tx.reviewSafetyEmergencyControl,
+        });
         const safety = new ResolveReviewSafetyPolicy({
           clock,
           digest,
