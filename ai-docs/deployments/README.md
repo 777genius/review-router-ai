@@ -14,7 +14,7 @@ They do not grant deployment permission or replace existing operational runbooks
 ## Task index
 
 Action runtime ownership: [critical boundary refactor](2026-11-05-action-runtime-ownership.md), [Draft PR #815](https://github.com/777genius/review-router-ai/pull/815) — staging `pending`, production `pending`. Source-only candidate; no schema/config/activation changes, release and deployment not authorized. Rebuild pinned Action bundle and confirm exact-head CI before selecting a release.
-Action comment-create safety: [uncertain transport response guard](2026-11-05-action-comment-create-no-replay.md), [issue #816](https://github.com/777genius/review-router-ai/issues/816) — staging `pending`, production/public Action `pending`. No release, deployment or workflow pin change is authorized by the source-only fix.
+Action comment-create safety: [uncertain transport response guard](2026-11-05-action-comment-create-no-replay.md), [issue #816](https://github.com/777genius/review-router-ai/issues/816) — staging `pending`, production/public Action `pending`, paired `777genius/review-router` distribution `pending`. No release, deployment or workflow pin change is authorized by the source-only fix.
 
 Codex limits and connection UX: [quota-only refresh batch](2026-11-04-codex-limits-refresh.md) — staging `pending`, production `deployed`; native93/Gateway100 and SaaS #814 installed, CI/E2E green, four roles healthy. Fresh limits match in personal/workspace views; one live Seventeen review completed 1/1 with publication, one settled Statistics review and one unique 2,887-token Usage call. Prior provider restored, stands preserved; do not redeploy/replay. [Durable sanitized evidence](evidence/2026-11-04-codex-quota-refresh.json).
 

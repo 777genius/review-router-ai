@@ -66,7 +66,7 @@ jobs:
             packages/features/codex-oauth-rotating/src/action/http-retry.test.ts \
             packages/features/codex-oauth-rotating/src/tests/github-action.test.ts
 
-      - name: Commit rebuilt bundle, source, tests, docs and remove this workflow
+      - name: Commit rebuilt bundle, source, tests and docs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -78,7 +78,6 @@ jobs:
             echo "::error::Branch changed during regeneration; refusing stale push"
             exit 1
           fi
-          git rm -- .github/workflows/pr816-regenerate-action-bundle.yml
           git add -- \
             action-dist/index.cjs \
             packages/features/codex-oauth-rotating/src/action/github-comment-publication.ts \
@@ -89,6 +88,8 @@ jobs:
           git config user.name "777genius"
           git config user.email "777genius@users.noreply.github.com"
           git commit -m "build(action): regenerate verified comment-create fix bundle"
+          # This GITHUB_TOKEN cannot edit workflow files; the authorized GitHub
+          # connector will remove the temporary workflow in the next commit.
           authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $authorization" \
             push origin "HEAD:refs/heads/fix/action-comment-create-retry-20261105"
