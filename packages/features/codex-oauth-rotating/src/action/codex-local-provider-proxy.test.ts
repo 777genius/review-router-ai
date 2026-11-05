@@ -16,9 +16,9 @@ describe("Action Codex loopback proxy boundary", () => {
     expect(routeCodexLocalProviderRequest({ ...valid, method: "GET" })).toBe(
       "deny",
     );
-    expect(routeCodexLocalProviderRequest({ ...valid, path: "/v1/responses" })).toBe(
-      "deny",
-    );
+    expect(
+      routeCodexLocalProviderRequest({ ...valid, path: "/v1/responses" }),
+    ).toBe("deny");
     expect(
       routeCodexLocalProviderRequest({ ...valid, bodyBytes: 2_000_001 }),
     ).toBe("deny");
@@ -41,7 +41,9 @@ describe("Action Codex loopback proxy boundary", () => {
       upstreamResponsesUrl: "https://example.invalid/responses",
     });
     try {
-      expect(proxy.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/v1$/);
+      expect(proxy.baseUrl).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/v1$/,
+      );
       const rejected = await fetch(proxy.baseUrl + "/other", {
         method: "POST",
         body: "{}",

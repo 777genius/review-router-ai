@@ -1,8 +1,5 @@
 /** Workflow render/scan/attestation policy, independent of OAuth secrets and leases. */
-import {
-  createHash,
-  randomUUID,
-} from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { parseDocument } from "yaml";
 import { isLoopbackHostname } from "@reviewrouter/shared";

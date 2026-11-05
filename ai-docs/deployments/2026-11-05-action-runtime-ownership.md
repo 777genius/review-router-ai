@@ -10,10 +10,10 @@
 
 ## Environment status
 
-| Environment / target | Status | Actual deployed version / image | Last verified (UTC) | Evidence / next step |
-| --- | --- | --- | --- | --- |
-| staging | `pending` | Not verified | Not verified | No deployment requested; confirm release selection and target before rollout. |
-| production / public Action channel | `pending` | Existing installed revisions remain unchanged | Not verified for this change | Do not move Action refs, tags or workflow-v1 based on a Draft PR. |
+| Environment / target               | Status    | Actual deployed version / image               | Last verified (UTC)          | Evidence / next step                                                          |
+| ---------------------------------- | --------- | --------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| staging                            | `pending` | Not verified                                  | Not verified                 | No deployment requested; confirm release selection and target before rollout. |
+| production / public Action channel | `pending` | Existing installed revisions remain unchanged | Not verified for this change | Do not move Action refs, tags or workflow-v1 based on a Draft PR.             |
 
 `pending` records absent proof for this task; it does not assert that a version was observed missing.
 
@@ -21,7 +21,7 @@
 
 This is a source and Action bundle refactor. No Prisma migration, credential rotation, new feature flag, protocol ABI, activation or data conversion is introduced.
 
-Before any *separately authorized* rollout, verify the exact merged source, the bundle rebuilt using the pinned Node/pnpm toolchain, and the release gate evidence under the documented release process. Confirm whether the paired public Action artifact is part of that particular release. Existing immutable Action tags and installed user workflows must not be modified by this task.
+Before any _separately authorized_ rollout, verify the exact merged source, the bundle rebuilt using the pinned Node/pnpm toolchain, and the release gate evidence under the documented release process. Confirm whether the paired public Action artifact is part of that particular release. Existing immutable Action tags and installed user workflows must not be modified by this task.
 
 ## Ordered rollout
 
@@ -49,6 +49,6 @@ Re-read current channel, source SHA and any partially executed release step befo
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Step and observed result | Evidence | Next action |
-| --- | --- | --- | --- | --- | --- | --- |
-| Not executed | staging / production | Unassigned | Not verified | No deploy or release authorized for this Draft refactor | PR #815 source and CI only | Complete exact-head CI, then await release selection |
+| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result                                | Evidence                   | Next action                                          |
+| ------------ | -------------------- | ---------- | ---------------------- | ------------------------------------------------------- | -------------------------- | ---------------------------------------------------- |
+| Not executed | staging / production | Unassigned | Not verified           | No deploy or release authorized for this Draft refactor | PR #815 source and CI only | Complete exact-head CI, then await release selection |

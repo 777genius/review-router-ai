@@ -2,7 +2,8 @@
 import { StringDecoder } from "node:string_decoder";
 
 const maxProcessLogRecordBytes = 64 * 1024;
-const omittedProcessLogRecord = "[ReviewRouter omitted oversized process log record]";
+const omittedProcessLogRecord =
+  "[ReviewRouter omitted oversized process log record]";
 
 export type ProcessOutputRedactor = {
   readonly write: (chunk: Buffer | string) => void;
@@ -33,8 +34,9 @@ export function createProcessOutputRedactor(
 
   const flushRecord = (suffix: string): void => {
     stream?.write(
-      (dropRecord ? omittedProcessLogRecord : sanitizeProcessLogRecord(pending)) +
-        suffix,
+      (dropRecord
+        ? omittedProcessLogRecord
+        : sanitizeProcessLogRecord(pending)) + suffix,
     );
     pending = "";
     pendingBytes = 0;

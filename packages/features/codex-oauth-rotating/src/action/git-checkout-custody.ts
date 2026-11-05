@@ -1,5 +1,13 @@
 /** Trusted Git checkout and fork-workspace custody. Never persist token in git config. */
-import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { pruneCodexRotatingChildEnv } from "../domain/codex-oauth-rotating";
 import type { PullRequestEvent } from "./action-contract.js";
@@ -206,7 +214,9 @@ export async function resolveForkSandboxWorkspace(
   return resolvedWorkspace;
 }
 
-export async function assertForkSandboxWorkspace(workspace: string): Promise<void> {
+export async function assertForkSandboxWorkspace(
+  workspace: string,
+): Promise<void> {
   const stats = await lstat(workspace);
   if (!stats.isDirectory()) {
     throw new Error("fork_sandbox_workspace_not_directory");
@@ -250,7 +260,6 @@ export async function makeGitHubWorkspaceCodexHomeDirectory(
   return resolvedCodexHome;
 }
 
-
 function runGit(
   args: readonly string[],
   cwd: string,
@@ -264,4 +273,3 @@ function runGit(
     timeoutMs: 5 * 60 * 1000,
   });
 }
-

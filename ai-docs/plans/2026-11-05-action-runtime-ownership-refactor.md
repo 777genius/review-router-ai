@@ -15,7 +15,7 @@ The maintained GitHub Action entrypoint `packages/features/codex-oauth-rotating/
 3. Process spawning and process-tree termination (lines ~5014–5306), redaction and capped output capture. This is a cleanup and secret-handling boundary.
 4. Hosted account capacity/retry policy (lines ~1453–1540); it does not need access to the Action entrypoint and is distinct from GitHub transport.
 
-The dashboard server actions and API production compositions are also large, but prior plans already moved feature decisions out of some of them. Size **alone** is not grounds for another generic facade or host extraction. This batch first removes four *specific* Action boundaries whose invariants are observable and testable without rewriting review protocol logic.
+The dashboard server actions and API production compositions are also large, but prior plans already moved feature decisions out of some of them. Size **alone** is not grounds for another generic facade or host extraction. This batch first removes four _specific_ Action boundaries whose invariants are observable and testable without rewriting review protocol logic.
 
 ## Invariants to preserve
 
@@ -33,7 +33,7 @@ A. **Adapter boundaries**: move each of the four cohesive implementations into a
 
 B. **Contract tests**: add focused tests for pure policy, network retry/abort and loopback limits/cleanup; retain existing comprehensive GitHub Action tests. Any discovered defect needs a discriminating regression first.
 
-C. **Second debt slice**: inspect the still-large web dashboard action and API host compositions for *specific* feature decisions still owned by host. Only move a demonstrated owner, with targeted tests; reject cosmetic file splitting and avoid active PR files.
+C. **Second debt slice**: inspect the still-large web dashboard action and API host compositions for _specific_ feature decisions still owned by host. Only move a demonstrated owner, with targeted tests; reject cosmetic file splitting and avoid active PR files.
 
 D. **Verification**: TypeScript build/typecheck, relevant vitest, Action artifact check, architecture boundaries and GitHub Actions on exact PR HEAD. Review the diff for import direction, security and behavioral equivalence; fix findings and recheck. Do not claim green gates without recorded evidence.
 
@@ -55,12 +55,13 @@ Reject a finding if no concrete caller or failure mode exists. A moved line coun
 
 ## Domain owner review — additional selected slice
 
-Source audit on current `main`: `src/domain/codex-oauth-rotating.ts` is 3,292 lines and contains *both* OAuth/session/key material handling and approximately two thousand lines of canonical workflow rendering, YAML scanning, source attestation and Account Gateway workflow documents. These are distinct change axes: new workflow schema or branch permission rules should not require editing the OAuth/authentication/encryption owner.
+Source audit on current `main`: `src/domain/codex-oauth-rotating.ts` is 3,292 lines and contains _both_ OAuth/session/key material handling and approximately two thousand lines of canonical workflow rendering, YAML scanning, source attestation and Account Gateway workflow documents. These are distinct change axes: new workflow schema or branch permission rules should not require editing the OAuth/authentication/encryption owner.
 
 A declaration-reference audit found an acyclic extraction boundary when the small shared workflow/action contract (schema/version constants, input patterns and safe Action references) is owned by `codex-contract.ts`, with `codex-workflow.ts` owning workflow construction/scanning/attestation, and the old domain path retained as a public facade. The OAuth/lease/secret implementation depends only on that contract; the workflow implementation never imports the OAuth implementation.
 
 **Contract for this slice**:
-- Move source *without changing parsing, schema values, YAML layout, action refs, exception strings, source hashes, canonical workflow attestation or workflow text*.
+
+- Move source _without changing parsing, schema values, YAML layout, action refs, exception strings, source hashes, canonical workflow attestation or workflow text_.
 - Preserve all existing exports from `domain/codex-oauth-rotating`, including transitively via `src/index.ts`, and do not make internal regex/escaping helpers available through the existing facade.
 - Keep domain modules free of Action/Next/Prisma/GitHub host dependencies; no runtime import cycles.
 - Existing workflow-scanning and security tests must pass on the exact HEAD. Record the moved-versus-new line counts accurately.

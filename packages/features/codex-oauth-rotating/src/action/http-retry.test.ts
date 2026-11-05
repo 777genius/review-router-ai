@@ -5,7 +5,9 @@ describe("Action HTTP retry boundary", () => {
   it("discards a retryable response before one bounded retry", async () => {
     vi.useFakeTimers();
     try {
-      const temporary = new Response("temporarily unavailable", { status: 429 });
+      const temporary = new Response("temporarily unavailable", {
+        status: 429,
+      });
       const fetchImpl = vi
         .fn()
         .mockResolvedValueOnce(temporary)
@@ -29,7 +31,9 @@ describe("Action HTTP retry boundary", () => {
   });
 
   it("does not retry a non-transient response", async () => {
-    const fetchImpl = vi.fn(async () => new Response("denied", { status: 403 }));
+    const fetchImpl = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
     const result = await fetchWithRetry({
       fetchImpl: fetchImpl as typeof fetch,
       label: "github_forbidden",
@@ -60,9 +64,9 @@ describe("Action HTTP retry boundary", () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
-      const fetchImpl = vi.fn().mockResolvedValueOnce(
-        new Response("rate limited", { status: 429 }),
-      );
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
       const result = fetchWithRetry({
         fetchImpl: fetchImpl as unknown as typeof fetch,
         label: "github_request",
@@ -89,9 +93,9 @@ describe("Action HTTP retry boundary", () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
-      const fetchImpl = vi.fn().mockRejectedValueOnce(
-        new Error("connection_lost"),
-      );
+      const fetchImpl = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("connection_lost"));
       const result = fetchWithRetry({
         fetchImpl: fetchImpl as unknown as typeof fetch,
         label: "github_request",
@@ -159,5 +163,4 @@ describe("Action HTTP retry boundary", () => {
     );
     expect(post).toHaveBeenCalledTimes(1);
   });
-
 });

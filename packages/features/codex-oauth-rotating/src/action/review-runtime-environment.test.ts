@@ -64,9 +64,7 @@ describe("review runtime environment security boundary", () => {
     expect(env.REVIEWROUTER_REPOSITORY_EXTERNAL_ID).toBe("123456");
     expect(env.REVIEWROUTER_REPOSITORY_FULL_NAME).toBe("example/repository");
     expect(env.REVIEWROUTER_HEAD_SHA).toBe("a".repeat(40));
-    expect(env.REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS).toBe(
-      "1800000000000",
-    );
+    expect(env.REVIEWROUTER_EXECUTION_DEADLINE_EPOCH_MS).toBe("1800000000000");
     expect(env.HOME).toBe("/safe/home");
     expect(env.CODEX_HOME).toBe("/safe/codex-home");
     expect(env.GITHUB_TOKEN).toBe("github-comment-token");
@@ -116,9 +114,9 @@ describe("review runtime environment security boundary", () => {
   });
 
   it("rejects missing required mimo-token-plan credentials before launching a runtime", () => {
-    expect(() =>
-      build({ REVIEW_PROVIDERS: "codex-mimo/model" }),
-    ).toThrow("missing_mimo_token_plan_api_key");
+    expect(() => build({ REVIEW_PROVIDERS: "codex-mimo/model" })).toThrow(
+      "missing_mimo_token_plan_api_key",
+    );
   });
 
   it("rejects secret-bearing runtime config keys without exposing their values", () => {
@@ -135,7 +133,10 @@ describe("review runtime environment security boundary", () => {
 
   it("does not reintroduce caller reasoning settings for protected Account Gateway", () => {
     const env = build(
-      { REVIEW_AUTH_MODE: "codex-account-gateway", REVIEW_PROVIDERS: "codex/model" },
+      {
+        REVIEW_AUTH_MODE: "codex-account-gateway",
+        REVIEW_PROVIDERS: "codex/model",
+      },
       {
         sourceEnv: {
           PATH: "/usr/bin",

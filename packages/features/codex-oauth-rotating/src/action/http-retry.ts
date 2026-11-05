@@ -154,7 +154,9 @@ export async function discardResponseBody(response: Response): Promise<void> {
   }
 }
 
-export async function consumeResponseBody(response: Response): Promise<Response> {
+export async function consumeResponseBody(
+  response: Response,
+): Promise<Response> {
   await discardResponseBody(response);
   return response;
 }
@@ -173,4 +175,3 @@ export async function consumeJsonResponse(response: Response): Promise<{
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-

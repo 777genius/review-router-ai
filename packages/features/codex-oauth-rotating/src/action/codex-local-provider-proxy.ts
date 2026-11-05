@@ -32,7 +32,6 @@ export type LocalProviderProxy = {
   readonly close: () => Promise<void>;
 };
 
-
 export function routeCodexLocalProviderRequest(input: {
   readonly method: string;
   readonly path: string;
@@ -274,4 +273,3 @@ function closeHttpServer(server: http.Server): Promise<void> {
     server.close((error) => (error ? reject(error) : resolve()));
   });
 }
-

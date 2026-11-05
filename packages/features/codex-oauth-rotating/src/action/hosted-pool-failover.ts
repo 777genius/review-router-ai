@@ -92,4 +92,3 @@ export function isHostedPoolQuotaFailureText(text: string): boolean {
     /you(?:'|’)ve hit your usage limit/.test(normalized)
   );
 }
-

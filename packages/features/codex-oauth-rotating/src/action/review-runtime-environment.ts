@@ -187,7 +187,6 @@ export function assertProviderSecretInputsForRuntime(input: {
   }
 }
 
-
 export function runtimeProvidersInclude(
   runtimeEnv: Readonly<Record<string, string>>,
   providerPrefix: string,
@@ -366,4 +365,3 @@ function isSafeFullReviewRuntimeEnvKey(key: string): boolean {
 function safeEnvKeyLabel(key: string): string {
   return /^[A-Z_][A-Z0-9_]{0,80}$/.test(key) ? key : "<invalid-env-key>";
 }
-

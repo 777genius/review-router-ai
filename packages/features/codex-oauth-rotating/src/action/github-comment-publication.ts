@@ -1,6 +1,10 @@
 /** GitHub issue-comment upsert and fenced cleanup of our own progress markers. */
 import { githubRequestTimeoutMs } from "./action-contract.js";
-import { fetchWithRetry, consumeJsonResponse, consumeResponseBody } from "./http-retry.js";
+import {
+  fetchWithRetry,
+  consumeJsonResponse,
+  consumeResponseBody,
+} from "./http-retry.js";
 
 type FetchLike = typeof fetch;
 
@@ -11,7 +15,6 @@ type GitHubIssueCommentResponse = {
   readonly id: number;
   readonly body?: string | null;
 };
-
 
 export async function postPullRequestComment(input: {
   readonly fetchImpl: FetchLike;
@@ -258,4 +261,3 @@ export async function deleteFullRuntimeProgressComments(input: {
     }
   }
 }
-

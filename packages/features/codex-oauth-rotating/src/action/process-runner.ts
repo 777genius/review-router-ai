@@ -19,7 +19,6 @@ export class ProcessExecutionError extends Error {
   }
 }
 
-
 type KillableChildProcess = Pick<ReturnType<typeof spawn>, "pid" | "kill">;
 
 type UnixProcessEntry = {

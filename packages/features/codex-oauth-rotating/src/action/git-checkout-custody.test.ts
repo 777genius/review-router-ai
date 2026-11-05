@@ -1,4 +1,11 @@
-import { mkdtemp, mkdir, realpath, rm, writeFile, lstat } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  realpath,
+  rm,
+  writeFile,
+  lstat,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -60,7 +67,9 @@ describe("GitHub Action checkout workspace custody", () => {
   it.skipIf(process.platform === "win32")(
     "creates a private Codex HOME beneath the trusted workspace",
     async () => {
-      const root = await mkdtemp(join(tmpdir(), "reviewrouter-codex-home-test-"));
+      const root = await mkdtemp(
+        join(tmpdir(), "reviewrouter-codex-home-test-"),
+      );
       try {
         const trustedRoot = await realpath(root);
         const home = await makeGitHubWorkspaceCodexHomeDirectory({

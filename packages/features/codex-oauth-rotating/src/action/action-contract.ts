@@ -29,7 +29,6 @@ export type PullRequestEvent = {
   readonly changedLines?: number | undefined;
 };
 
-
 export const reviewThreadLifecycleResolveTokenEnvKey =
   "REVIEW_THREAD_LIFECYCLE_RESOLVE_TOKEN";
 

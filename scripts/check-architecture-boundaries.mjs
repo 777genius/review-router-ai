@@ -154,7 +154,6 @@ function isSourceFile(fileName) {
   );
 }
 
-
 /**
  * The Action entrypoint composes narrowly owned adapters. New adapter sources
  * must never depend on the entrypoint, and the trusted domain must never
@@ -180,7 +179,9 @@ async function checkCodexRuntimeOwnershipBoundaries(violations) {
     ) {
       continue;
     }
-    for (const imported of extractImportSpecifiers(readFileSync(file, "utf8"))) {
+    for (const imported of extractImportSpecifiers(
+      readFileSync(file, "utf8"),
+    )) {
       if (/^\.\/github-action(?:\.(?:js|ts|mts|cts))?$/u.test(imported)) {
         violations.push({
           file,
@@ -197,7 +198,9 @@ async function checkCodexRuntimeOwnershipBoundaries(violations) {
     if (/\.(?:test|spec)\.[cm]?tsx?$/u.test(file)) continue;
     const isExtractedWorkflowOwner =
       /(?:^|[\\/])codex-(?:contract|workflow)\.ts$/u.test(file);
-    for (const imported of extractImportSpecifiers(readFileSync(file, "utf8"))) {
+    for (const imported of extractImportSpecifiers(
+      readFileSync(file, "utf8"),
+    )) {
       if (
         imported.startsWith("../action/") ||
         (isExtractedWorkflowOwner &&

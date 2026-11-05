@@ -1,7 +1,16 @@
 /** Verify bundled pinned Codex manifest and archive before execution. */
 import { createHash } from "node:crypto";
 import { constants as fsConstants, createReadStream } from "node:fs";
-import { access, chmod, lstat, mkdtemp, readFile, realpath, stat, statfs } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  lstat,
+  mkdtemp,
+  readFile,
+  realpath,
+  stat,
+  statfs,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runProcess } from "./process-runner.js";
@@ -28,7 +37,6 @@ type CodexBinaryManifest = {
   readonly size: number;
   readonly sha256: string;
 };
-
 
 export async function resolveCodexBinary(
   env: NodeJS.ProcessEnv,
@@ -189,4 +197,3 @@ export async function getAvailableDiskBytes(path: string): Promise<number> {
     throw new Error("runner_disk_budget_unavailable", { cause: error });
   }
 }
-

@@ -85,10 +85,12 @@ describe("Action hosted pool failover boundary", () => {
   });
 
   it("classifies only the supported quota and authentication signals", () => {
-    expect(isHostedPoolQuotaFailureText("you've hit your usage limit")).toBe(true);
-    expect(hostedPoolAccountFailureReason("hosted_relay_grant_failed:401")).toBe(
-      "authentication_failed",
+    expect(isHostedPoolQuotaFailureText("you've hit your usage limit")).toBe(
+      true,
     );
+    expect(
+      hostedPoolAccountFailureReason("hosted_relay_grant_failed:401"),
+    ).toBe("authentication_failed");
     expect(hostedPoolAccountFailureReason("non_quota_failure")).toBeUndefined();
   });
 });
