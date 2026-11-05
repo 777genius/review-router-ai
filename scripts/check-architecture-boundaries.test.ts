@@ -171,16 +171,6 @@ describe("review-execution private owner boundaries", () => {
       );
     },
   );
-    const root = createFixture("export type Investigation = string;\n");
-    writeFile(
-      root,
-      "apps/api/src/review-action-v2-execution-result-mappers.ts",
-      source,
-    );
-    expect(() => runChecker(root)).toThrow(
-      /pure result mappers must not import their composition host or infrastructure SDK/,
-    );
-  });
 });
 
 describe("review-investigations architecture ratchet", () => {
