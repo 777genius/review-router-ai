@@ -267,3 +267,127 @@ For A-N6, do not require modifications to `ResolveReviewSafetyPolicy` just to ma
 **Decision — ACCEPT.** The restriction now targets the actual risk (queries on root/outside `tx`, nested transactions, HTTP and non-fail-closed handling), not the harmless syntax of `Promise.all`. This simultaneously respects DRY, avoids scope creep and prevents a false regression in the resolver. Source verified in `resolve-review-safety-policy.ts` and `prisma-review-safety-control-repository.ts`. No implemented code is claimed.
 
 **Further adversarial question:** Is a compile-time narrow type *really* safer than the current runtime `Proxy`? Not by itself. The plan now requires an explicit three-delegate object from `tx` and negative tests for runtime confinement. If this cannot be demonstrated, preserve the current proxy as the safer baseline instead of doing a cosmetic replacement.
+
+
+## Detailed implementation blueprint — B: investigation persistence without transaction drift
+
+### Current ownership map (rechecked at original `main`)
+
+`PrismaInvestigationStore` (3,438 lines) is both a compatibility entrypoint and a single source of database consistency. Its methods do **not** all share one transaction; each command owns its explicit boundary. Never replace this with “one giant transaction” or a networked service. Current code units:
+
+| Region | Observed responsibility | Contract to preserve |
+|---|---|---|
+| ~216–318 | Command receipts, aggregate loading/replay search, expired-turn candidates | Command hash/version, repository/revision identity, expiry/read isolation |
+| ~319–550 | `findLease`, `acquireLease`, `renewLease`, `releaseLease`; renew/release delegate to `transitionLease` | Optional `inputAdmission.lock` before investigation row; idempotent `Restored/Conflict`; `Busy`; fencing token; row-lock order |
+| ~550–768 | `adopt` and aggregate `commit` | Execution authority verdict inside existing lock, optimistic version/CAS and command receipt identity |
+| ~769–819 | Private material save/read | Ciphertext only, exact active/expiry identity, duplicate and conflict outcomes |
+| ~820–1027 | `reconcileExpiredPrivateMaterial` | **Two-level transaction**: checkpoint/page selection followed by a separate transaction per investigation group; aggregate is reconciled before material delete; partial batch failure is observable |
+| ~1028–1179 | `pruneRetainedInvestigations` | Terminal states only; SQL `NOT EXISTS` prevents deleting live receipt, certificate, checkpoint, private material, turn or lease references |
+| ~1180–1974 | Aggregate create/update, loads, transitions, obligations/certificate/checkpoint writes | Shared optimistic version, canonical policy, custody, material retention, persist ordering |
+| ~1975–3438 | Domain ↔ Prisma mapping, normalization, group/cursor, lock and lease helpers | Canonical hashes, enums, error mappings, DB clock and stable saved representation |
+
+**Risk correction:** the 820–1027 expiry path deliberately persists an `Inconclusive` domain transition, revokes stale leases and writes a command receipt **inside the same per-group transaction** as the removal. Calling a helper after that transaction commits would be wrong. Partial failure for one investigation must not erase successful groups nor lose the known removed count.
+
+### Chosen design and rejected alternatives
+
+| Candidate | Atomicity (10) | Complexity (10 = low effort) | Separation (10) | Decision |
+|---|---:|---:|---:|---|
+| B0. Leave entire file and add tests | 9 | 10 | 4 | Acceptable fallback if extraction has high coupling |
+| **B1. Keep the existing class as sole transaction owner; extract pure mappings + private cohesive operations** | **9** | **7** | **9** | **Chosen**, gated on acyclic dependencies |
+| B2. Split into four public repositories / new service packages, each starting transactions | 3 | 2 | 6 | Reject: breaks shared locks, no added value |
+| B3. Generic repository/transaction-unit-of-work framework | 5 | 2 | 4 | Reject: introduces abstractions and production behavior risk |
+
+**Implementation preference:** first move *pure* Prisma-domain mapping and cursor normalization functions into narrow `infrastructure/prisma` files with no new exports at package root; their direction is infrastructure → domain. Only then isolate expiry or lease operation behind **one internal function** with a small bounded input (current Prisma + existing options/collaborator), while leaving the original public method call and transaction control in the class **or** moving the complete intact transaction callback. Never split a transaction *across* module ownership, never invoke a callback after a connection has been released.
+
+If the extraction requires a “bag of 20 dependencies”, barrel indirection or a circular import back into `prisma-investigation-store.ts`, **reject the extraction**. Improving SRP means reducing which invariants must be edited together, not hiding the same monolith behind forwarding files.
+
+### B — concrete work packets
+
+| ID | Exact useful work | Gate | Expected changed lines |
+|---|---|---|---:|
+| B0 | Write a one-page mapping of four ports and active callsites; capture lease/prune/restore fault behavior on baseline | Real-PG existing tests green | 700–1,100 |
+| B1 | Move coherent pure Prisma mappers, timestamps and canonical enum converters to internal infra files; keep import direction, return representations and hashes | No behavior change; real-PG regression unchanged | 1,300–1,700 |
+| B2 | Isolate expired-private-material group/prune logic as one internal owner **only if** checkpoint + per-group transaction structure remains identical | Checkpoint resume, SKIP LOCKED, partial success/error tests | 1,300–1,700 |
+| B3 | Isolate lease claim/transition mapping with no new port/transaction and no extra state; retain order and existing admission hooks | 2 concurrent claimants, stale fence, renewal/release replay | 800–1,100 |
+| B4 | Add direct regression evidence, architecture negative fixtures and targeted existing-test adjustments from moved private functions | Changed source contract tests replaced, SQL proof on actual PG | 700–1,000 |
+| **B subtotal** | **Additions + deletions, mostly meaningful movement and tests** | | **4,800–6,600** |
+
+B2/B3 can be omitted if profiling import graph reveals excessive callbacks. The previous code's behavior tests are more important than a file-size target. Never turn a previously successful private-material expiry into a single all-or-nothing batch.
+
+### B — adversarial test matrix and rollback
+
+| Case | Setup | Must be true after change |
+|---|---|---|
+| B-N1 simultaneous lease claim | Two workers choose same investigation + turn, different request identities | At most one active unexpired lease; loser gets `Busy`; no duplicate fence |
+| B-N2 idempotent replay | Same `acquireRequestIdHash` and identical candidate vs same ID with changed candidate | Exact `Restored` / `IdempotencyConflict`; no accidental new lease |
+| B-N3 stale aggregate during renewal | Change scope/revision or aggregate after initial lease lookup, before locks | Binding-stale revocation; cannot renew outdated lease |
+| B-N4 active memory admission | Candidate contains memory bundle; reject `inputAdmission` after row lock | Fail-closed `BindingStale` without creating a lease |
+| B-N5 cursor wraps | Expire more material than batch limit, resume after checkpoint and wrap around | Fair progression without duplicate/lost processed groups; monotonic known result |
+| B-N6 partial group failure | One parent missing/incompatible/raced, another valid | Other group remains successful; exact `removedCount` and first error cause survive |
+| B-N7 active turn and certificate | Same investigation has active turn or unexpired certificate/receipt/checkpoint | No unsafe prune; retained evidence remains intact |
+| B-N8 command crash/retry | Simulate failure just before/after command receipt, rerun same command | Atomic rollback or exact restored result, no half-persisted state |
+| B-N9 mixed expiry/renewal | Competing expiry prune and lease renew in separate connections | Existing lock order, no deadlock or deleted active evidence |
+| B-P1 representative roundtrip | Previously persisted aggregate/lease/certificate + rehydrate | Identical canonical domain and storage shape, status and version |
+
+**Verification files known to exist:** `packages/features/review-investigations/src/tests/prisma-investigation-store-real.test.ts`, `prisma-investigation-retention.test.ts`, `investigation-lease.test.ts`, `investigation-private-material-lifecycle.test.ts` and `in-memory-investigation-store-contract.test.ts`. Add cases to these rather than making a second overlapping harness. SQL-containing regressions require a real PostgreSQL runtime; unit fakes alone are not acceptance.
+
+**Rollback:** a structural revert must not delete audit/command receipts or try to reverse a migration (none is permitted). If a new helper changes ordering/hash/retention, revert the helper extraction and retain the new discriminating regression test.
+
+## Detailed implementation blueprint — C: dashboard setup confirmation (conditional final slice)
+
+### Proven boundaries in the web host
+
+`apps/web/app/dashboard/actions.ts` is a `"use server"` module. The public actions parse form input, call mutations, revalidate/redirect or return client params. The private `confirmSetupPullRequestMergedMutation` (roughly lines 1,713–2,702) is the actual candidate: it reads a saved attempt and live GitHub workflow evidence, validates active repository/installation, resolves managed Gateway/provider API/rotating/Claude/hosted paths, invokes existing provisioning/activation use cases, checks the current source again and only then records success.
+
+There are multiple *intentionally repeated* calls to `assertCurrentSetup`, `assertCurrentBinding` and `assertCurrentGatewaySource` before distinct write paths. **Do not DRY them into one early check**: the rereads prevent a stale source/writer race. The existing `provisionGatewayReviewV2Repository`, `PrismaWorkflowProvisioningStatusAuthority` and `createInstalledGatewayReviewConfirmation` already own substantive writes. PRs #787 and #810 touched this path; their implementation must not be recreated.
+
+### Options and decision
+
+| Candidate | Safety (10) | Simplicity (10) | Ownership (10) | Decision |
+|---|---:|---:|---:|---|
+| C0. Keep host mutations and only strengthen tests | 9 | 9 | 5 | Accept if post-#810 orchestration is already minimal |
+| **C1. Extract one bounded confirmation coordinator using existing feature adapters** | **9** | **7** | **9** | **Preferred**, conditional on proven non-host responsibility |
+| C2. Split all web actions and all transport modes into new services/strategies | 6 | 2 | 5 | Reject; unrelated surface and extra indirection |
+| C3. Collapse repeated readiness/current-source checks into cached result | 2 | 8 | 4 | Reject; TOCTOU and false success risk |
+
+The permitted output is **one purpose-named internal web/server function/module** coordinating existing reads/writes, plus unchanged server-action façades. It can accept the existing repository/actor facts and concrete factories; do not introduce a new generic dependency injection layer, a routing rewrite or a second provisioning authority. Keep `createSetupPullRequestMutation` untouched unless review discovers one actually duplicated ownership check that existing #810 logic does not cover.
+
+### C — work packets
+
+| ID | Delivery | Guard | Expected changed lines |
+|---|---|---|---:|
+| C0 | Record the original action's authorization, transport modes, exact GitHub source evidence, audit/redirect/error variants; pin #787/#810 overlap | Plan/test baseline | 500–800 |
+| C1 | Move only remaining confirmation side-effect orchestration to one owned server helper; keep every mutation's current freshness rereads and existing feature writers | No duplicate policy, no extra API/feature module | 1,100–1,600 |
+| C2 | Replace impacted `actions-codex-rotating-contract.test.ts` source-location checks with behavior tests **before** removing them; retain other static contract coverage | Idempotency + access + source identity tested | 700–1,100 |
+| C3 | Add one real DB/scoped-GitHub E2E + targeted rendering/status smoke without changing visible UI | Discriminating before/after outcome; inspect screenshots only if UI changed | 700–900 |
+| **C subtotal** | **Additions + deletions** | | **3,000–4,400** |
+
+**Go/no-go for C1:** if the existing feature use cases already completely own the write and the host only maps form/auth/navigation, do **C0 + C2 only if tests are independently valuable**, and mark C extraction not needed. This may reduce the PR below 10k. Do not reverse the decision just to satisfy LOC.
+
+### C — exact failure modes
+
+| Case | Evidence to perturb | Must not happen |
+|---|---|---|
+| C-N1 no access | Wrong actor, repository/workspace mismatch, repo-manager scope or entitlement failure | No GitHub read/write with privileged installation token and no state advance |
+| C-N2 stale setup | Change `attemptId/revision` or stored head after initial read | No activation of replaced request |
+| C-N3 changed installation | Transfer/remove installation, unselect/archive repo, change default branch | No readiness using old authorization |
+| C-N4 mismatched workflow | Wrong caller path, SHA/action ref, namespace witness, runtime schema or old workflow still installed | No false configured status or secret activation |
+| C-N5 provisional/unknown response | Rate limit, network error, GitHub 404/5xx, not-yet-merged PR | Preserve known state; no speculative success; unknown create outcome reconciled by existing attempt |
+| C-N6 redundant submit | Same form submitted twice or writer restarts | Idempotent result or explicit conflict; no second setup PR or duplicate activation |
+| C-N7 switching transports | Gateway, direct provider API, rotating Codex, Claude subscription, hosted fallback | Same exact route-specific checks, errors and audit semantics |
+| C-P1 valid merged PR | Verified installed source matches persisted attempt and active identity | Configured status, correct audit `workflow.setup_pr_merged_confirmed` and existing dashboard notice |
+
+**Verification files known to exist:** `apps/web/app/dashboard/actions-workflow-provisioning-recovery.test.ts`, `actions-hosted-workflow-recovery.test.ts`, `actions-codex-rotating-contract.test.ts`, and `packages/features/workflow-provisioning/src/tests/*`. Preserve meaningful static checks that capture writer callsites not touched; move only a check whose original anchored function legitimately moved. Gate a real-GitHub disposable-repository path if C changes external effects.
+
+**Rollback:** revert the moved coordinator, preserving existing persisted attempt records. Do not install, uninstall or replace workflow files automatically as a “rollback” of the source refactor.
+
+## Detailed critic pass 5 — transactional ownership vs DRY and TOCTOU (2026-11-05)
+
+1. **Prune split as ordinary file move?** Rejected. `reconcileExpiredPrivateMaterial` has checkpoint selection and per-group transactions, partial success and a domain transition; splitting the callback would change consistency. The plan now requires preserving both tiers and testing its observable failure result.
+2. **Four ports imply four repos?** Rejected. The original class coordinates one persistence authority; use private functions only after a real boundary can be traced.
+3. **Lease extraction risks weaker input admission and fencing.** Accepted. Pin `inputAdmission.lock`, investigation-then-lease locking, `Restored/Busy/BindingStale` outcomes and concurrent-writer real-PG tests before any move.
+4. **Dashboard repeated current-source checks are duplicated code.** Rejected as a DRY refactor target: they prevent stale-write races after async GitHub reads. Keep every recheck at the same side-effect boundary.
+5. **Source-slice tests can be brittle, but replacing them blindly loses protocol coverage.** Accepted. Record what each source marker protects; replace only moved callsites with observable behavior tests while retaining untouched writer-location coverage.
+6. **Potential scope collision with #787/#810 and open #806.** Accepted. Confirmation may be conditional or dropped. No Memory path, provider UI or Action runtime changes.
+
+**Result:** B and C now have explicit transaction/side-effect boundaries, narrow implementation options, failure tests and stop conditions. No prod code changed.
