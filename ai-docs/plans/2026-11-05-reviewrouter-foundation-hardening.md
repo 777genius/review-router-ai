@@ -46,7 +46,7 @@ All LOC figures refer to the current checked-in source line count; changed-line 
 2. Replace the dynamic `new Proxy(prisma, …)` read shim **only after a red/green regression** with an explicit *transaction-bound, read-only* adapter owned by existing review-run-control infrastructure. `PrismaReviewSafetyControlRepository` currently implements **five read/write/inspection ports** and expects a full `PrismaClient`: **do not pass the transaction to that mutable class or cast it to a full client**. Instead provide the exact two policy/emergency *query* interfaces required by `ResolveReviewSafetyPolicy`; share the canonical persistence mappers/query builder with the existing class, preserve policy/selector ordering, and accept only the active `Prisma.TransactionClient`. No nested/root transaction, no command port, no extra policy implementation.
 3. Extract **only** the local authority-confirmation composition and its immediate transaction-read prerequisites into one cohesive API-local module *if* this separates a real owner. Preserve `composeReviewActionV2ProductionRoutes` and the existing dependency graph/return type. Do not also recompose the gateway/model relay just to reduce LOC; that is a different behavior-sensitive task.
 4. Ensure no network access while transaction locks are held; keep lock ordering, exact `ReadCommitted` freshness and fail-closed error results. Do not change business semantics, error/status strings, timeouts, quota or capability issuance.
-5. Verify with existing API snapshot/publication and gateway-relay tests plus focused injected-transaction tests for stale identity, revoked authorization, emergency disable and target mismatch. Add a transaction-negative test that rejects root-client/nested-transaction access and a test that deliberately changes the current repository/authorization while waiting for the outer scope lock; the transaction must reread the fresh row. Do not parallelize Prisma queries within the transaction. Test **both** reviewer tool and shared memory authorization callers of this guard, not only gateway checkout.
+5. Verify with existing API snapshot/publication and gateway-relay tests plus focused injected-transaction tests for stale identity, revoked authorization, emergency disable and target mismatch. Add a transaction-negative test that rejects root-client/nested-transaction access and a test that deliberately changes the current repository/authorization while waiting for the outer scope lock; the transaction must reread the fresh row. Preserve the existing resolver's `Promise.all`: both safety queries must use the **same active interactive-transaction client** (Prisma ORM 7 executes them sequentially on one transaction connection). Prohibit root-client reads, new/nested transactions and HTTP while locks are held; preserve `unreadable` fail-closed on either read failure. Test **both** reviewer tool and shared memory authorization callers of this guard, not only gateway checkout.
 
 **Done means:** same public API and immutable protocol, no masked client, transaction-scoped query owner enforced, focused and integrated tests green, architecture gate accepts only the intended import graph.
 
@@ -141,7 +141,7 @@ The lower bound can fall below 10k if correct minimal changes require less; **sh
 
 | Boundary | Negative / adversarial case | Success gate |
 |---|---|---|
-| API safety | Stale/revoked token, current scope reassignment **while lock is contended**, changed repository/installation, unsafe emergency policy, token/DB time divergence, reviewer vs shared-memory caller | Fail closed; ordered locks and `ReadCommitted` rereads preserved; no root/nested DB transaction, parallel query or HTTP inside protected transaction |
+| API safety | Stale/revoked token, current scope reassignment **while lock is contended**, changed repository/installation, unsafe emergency policy, token/DB time divergence, reviewer vs shared-memory caller | Fail closed; ordered locks and `ReadCommitted` rereads preserved; no root/nested DB transaction or HTTP inside protected transaction; the resolver's same-client `Promise.all` is allowed |
 | API compatibility | Same permitted authorization, model dispatch/relay/checkout, production route shape | Same result/type/schema/error contract and same externally observed effects |
 | Investigation persistence | Two lease claimants, expired/material batch races, failed commit retry, mismatched command hash, missing certificate, archive/prune continuation | Atomicity and idempotency preserved on real PostgreSQL; retention remains the same |
 | Dashboard setup | Unauthorized actor, provider mismatch, unselected repo, stale merge SHA, invalid namespace, partially failed GitHub call, repeated form submit | No unauthorized GitHub writes, no false completed readiness; audit and UI mapping unchanged |
@@ -183,7 +183,7 @@ The lower bound can fall below 10k if correct minimal changes require less; **sh
 
 ## Adversarial review round 3 — acceptance evidence, cost and scope (2026-11-05)
 
-**Independent external review status:** CodeRabbit's initial bot comment explicitly says Draft PRs are **not automatically reviewed**. The following is a third **source-based self-critique**, not independent external approval. The documentation-only CI run cannot certify proposed production changes.
+**Independent external review status (updated):** An explicit manual CodeRabbit review **completed** on `c9894c1b` with one actionable wording correction about `Promise.all` inside the current Prisma transaction. That correction is accepted below. The documentation-only CI success cannot certify proposed production changes.
 
 1. **Challenge: the requested 10–20k diff is not itself quality evidence.** **Accepted.** Marked the range soft; moving a file counts in both additions and deletions. Prefer a smaller patch when behavior is safe and measurable. Above 20k, split another fault domain into a future PR; no churn, generated files, or cosmetic splits to hit a number.
 2. **Challenge: a three-slice single PR could create too large a review surface and mix unrelated operational risks.** **Accepted with gates.** Implement A then establish green transaction/fail-closed regressions, implement B then qualify with real PostgreSQL, and only then consider C. C can be deferred entirely if the post-#810 code does not justify moving. Never force a third extraction to reach a line target.
@@ -200,3 +200,70 @@ The lower bound can fall below 10k if correct minimal changes require less; **sh
 - Commit and push meaningful checkpoints immediately with clear evidence (tests run, pass/fail/skipped, exact SHA). Add concise PR comments with the reviewed invariant and decision; never manufacture independent review claims.
 - At every code checkpoint ask: **Does this actually reduce the authority/change radius? Does a negative regression prove it? Does it retain the existing single owner?** If not, revert the extraction instead of introducing a new abstraction.
 - Gate Ready on integrated qualification and code review; a green docs-only check proves only that the plan file is syntactically acceptable.
+
+
+## Detailed implementation blueprint — A: current-transaction review authority
+
+### Exact call path and separation rule
+
+The current implementation lives in `apps/api/src/review-action-v2-production-composition.ts`, within `composeReviewActionV2ProductionRoutes`. It creates `confirmAccountGatewayAuthority` and wires the same confirmation into gateway checkout, context tools and shared run memory; reviewer allocations have additional snapshot-v4 constraints. This code is **application composition** and is allowed to depend on adapters. Its *business decision* remains owned by `ResolveReviewSafetyPolicy`, not a new API policy service.
+
+The current check runs inside `prisma.$transaction(..., { isolationLevel: "ReadCommitted" })` after verifying the signed token. It locks current scope, repository/installation and authorization rows, uses only the three safety delegates through a temporary `Proxy`, then reads authorization, mutation authority and producer release. The resolver calls `Promise.all` on safety policy and emergency-control query ports. Official Prisma 7 documentation confirms queries on the same interactive-transaction connection run serially: https://www.prisma.io/docs/orm/v7/prisma-client/queries/transactions#using-transaction-within-promiseall .
+
+**Required invariant:** all affected reads must remain on the *same transaction object*, with no Prisma root-client escape, new transaction, HTTP call, or deferred async use after the transaction closes. Avoid changing the resolver's `Promise.all`: rejecting it would require unnecessary business-logic churn. Preserve its current fail-closed `controlReadState = "unreadable"` when either query throws.
+
+### Chosen design and rejected alternatives
+
+| Candidate | Correctness (10) | Complexity (10 = low effort) | Architecture (10) | Decision |
+|---|---:|---:|---:|---|
+| A0. Retain dynamic `Proxy` and add tests only | 7 | 9 | 5 | Baseline/fallback if a replacement cannot preserve runtime confinement |
+| **A1. Existing feature owns a narrow safety-read adapter; API composes active `tx`** | **9** | **7** | **9** | **Chosen**, subject to equivalence proofs |
+| A2. Cast `Prisma.TransactionClient` to `PrismaClient` for the existing mutable repository | 3 | 9 | 2 | Rejected: hides write methods and transaction/root ownership |
+| A3. New shared transaction framework, context-wide policy abstraction or RPC service | 6 | 2 | 4 | Rejected: larger fault domain, no proven new capability |
+
+The feature's current `PrismaReviewSafetyControlRepository` is a multiport adapter implementing policy query, policy command, emergency query, emergency command and inspection. Its constructor takes full `PrismaClient`; do not retrofit write operations into the new path. **Preferred minimum:** one small transaction-only query factory in the existing `review-run-control` infrastructure, returning just the two existing read-port shapes and consuming a compile-time narrowed `Pick` of `Prisma.TransactionClient`'s three safety delegates. Reuse existing `applicableScopePredicates`, `safetyCapabilityToPersistence` and Prisma-domain mappers by moving or reusing small pure helpers inside the same folder. Do not fork the SQL/policy algorithm or issue extra queries.
+
+**Runtime confinement nuance:** a TypeScript `Pick` alone is not a security sandbox. Pass an object literal holding only the actual `tx` delegates to the factory, not the full Prisma root; make sure the factory exposes no `$transaction`/`$queryRaw`/mutation command. Preserve/strengthen the existing negative test against additional delegate names. Do not make promises about compile-time types enforcing authorization at runtime.
+
+### A — bounded work packets (complete only in order)
+
+| ID | Exact required change | Guard/owner | Planned changed lines |
+|---|---|---|---:|
+| A0 | Characterize authorization route with current fixtures; enumerate all production callsites and map exact lock/read order | API test + existing run-control use case | 450–750 |
+| A1 | Factor *shared existing* safety read mappings; add active-tx narrow policy+emergency reader; remove `Proxy` only after equivalent behavior | `review-run-control` infrastructure; API retains composition | 900–1,400 |
+| A2 | If actual edit radius drops, move protected confirmation closure and its directly bound source readers to **one** API-local module; keep public export and existing exact result | `apps/api/src`; no new feature package | 1,000–1,500 |
+| A3 | Exact authority, race, memory/tools and regression tests; prohibit root-client escapes and unexpected write methods | Existing API + feature test directories | 850–1,250 |
+| **A subtotal** | **All useful additions + deletions** | | **3,200–4,900** |
+
+**Stop/extract gate:** if A2 requires passing more than the existing local context, creates circular imports or changes relay/model lifecycle, leave the composition in place and stop at A1 + test improvements. The target line budget then becomes a forecast, not a mandate to invent another A2.
+
+### A — distinct negative cases and expected outcome
+
+| Case | Injection/fixture | What must not occur |
+|---|---|---|
+| A-N1 revoked/superseded token | Token refers to revoked/expired authorization or changed version; exercise `ReadCommitted` after a lock wait | No run/tool/memory authorization and no stale allow |
+| A-N2 scope moved | Change repository's workspace/installation/selected/archived identity while checkout waits | No access on formerly authorized repository |
+| A-N3 producer retired | Release transitions away from `Registered` or authority epoch differs | No execution or publication authority |
+| A-N4 emergency stopped/DB read fails | Switch emergency control to stopped; make policy/selector reader fail | `effectAllowed` false; no permissive default |
+| A-N5 broken projection | Run snapshot does not match authorization; v4 reviewer/allocation not live | No reviewer tool or shared-memory grant |
+| A-N6 transaction escape | Fake root client's safety delegate / `$transaction` throws; query adapter given only `tx` delegates | No root query, nested transaction or after-commit use |
+| A-N7 ordering drift | Instrument lock acquisition + row-share/safety reads; block concurrent writers | Same order, post-lock freshness; no hang from inverted order |
+| A-P1 valid path | Same token, policy, release, scope and snapshot as existing baseline | Same safety-decision hash, allowed decision and checkout behavior |
+
+For A-N6, do not require modifications to `ResolveReviewSafetyPolicy` just to make a fake test work. Its two Promise-returning queries are permitted in `Promise.all` because both delegate calls bind to `tx`. Explicitly test the **failure of one of the two** so the resolver stays fail-closed.
+
+### A — objective implementation acceptance
+
+- Same route registration, accepted protocol version, response mapping and exact public errors; no changed capabilities or new environment keys.
+- No extra DB connection inside protected policy resolution. Keep current `ReadCommitted`; don't secretly promote to `Serializable` or add a retry loop.
+- No broad import of feature's Prisma write adapter into the narrow reader; exported types are the already existing two query ports.
+- Evidence: focused red-before/green-after test, targeted GitHub checkout + reviewer tool + memory tests, architecture check, full affected API test groups, exact-head CI link.
+- Rollback: revert only new adapter/extraction commit(s), never disable safety gates or keep a partial migration. No schema change means rollback is a source revert.
+ 
+## Detailed critic pass 4 — external review correction and strict authority (2026-11-05)
+
+**External CodeRabbit finding:** the old plan said “Do not parallelize Prisma queries within the transaction,” but the existing `ResolveReviewSafetyPolicy` explicitly performs `Promise.all` for two queries. Prisma 7 documents sequential execution through the same connection, so the old instruction would force unnecessary refactoring, potentially changing failure behavior.
+
+**Decision — ACCEPT.** The restriction now targets the actual risk (queries on root/outside `tx`, nested transactions, HTTP and non-fail-closed handling), not the harmless syntax of `Promise.all`. This simultaneously respects DRY, avoids scope creep and prevents a false regression in the resolver. Source verified in `resolve-review-safety-policy.ts` and `prisma-review-safety-control-repository.ts`. No implemented code is claimed.
+
+**Further adversarial question:** Is a compile-time narrow type *really* safer than the current runtime `Proxy`? Not by itself. The plan now requires an explicit three-delegate object from `tx` and negative tests for runtime confinement. If this cannot be demonstrated, preserve the current proxy as the safer baseline instead of doing a cosmetic replacement.
