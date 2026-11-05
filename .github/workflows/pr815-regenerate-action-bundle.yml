@@ -51,7 +51,7 @@ jobs:
             packages/features/codex-oauth-rotating/src/domain/codex-oauth-rotating.ts \
             packages/features/codex-oauth-rotating/src/domain/codex-workflow.ts
 
-      - name: Generate and verify deterministic checked-in Action
+      - name: Generate Action and enforce strict source and bundle invariants
         shell: bash
         run: |
           set -euo pipefail
