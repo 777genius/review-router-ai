@@ -63,10 +63,11 @@ export class PrismaReviewSafetyQueryRepository
       },
       orderBy: [{ policyScope: "asc" }, { policyId: "asc" }],
     });
-    const selectors = await this.safetyReader.reviewSafetyPolicySelector.findMany({
-      where: { policyId: { in: rows.map((row) => row.policyId) } },
-      orderBy: [{ policyId: "asc" }, { selectorOrdinal: "asc" }],
-    });
+    const selectors =
+      await this.safetyReader.reviewSafetyPolicySelector.findMany({
+        where: { policyId: { in: rows.map((row) => row.policyId) } },
+        orderBy: [{ policyId: "asc" }, { selectorOrdinal: "asc" }],
+      });
     return rows.map((row) =>
       reviewSafetyPolicyToDomain(
         row,
@@ -84,7 +85,6 @@ export class PrismaReviewSafetyQueryRepository
     });
     return rows.map(reviewSafetyEmergencyControlToDomain);
   }
-
 }
 
 /** Full policy writer/inspector for the existing non-transaction-scoped callers. */
