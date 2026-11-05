@@ -14,7 +14,7 @@ jobs:
   regenerate:
     name: Rebuild checked-in Action bundle and format reviewed sources
     if: ${{ github.repository == '777genius/review-router-ai' && github.actor == '777genius' && github.ref == 'refs/heads/refactor/action-runtime-critical-boundaries-20261105' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 35
     permissions:
       contents: write
