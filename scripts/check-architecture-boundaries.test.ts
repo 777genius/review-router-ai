@@ -171,6 +171,21 @@ describe("review-execution private owner boundaries", () => {
       );
     },
   );
+  it.each([
+    'import type { Handlers } from "./review-action-v2-context-attestation-composition";\n',
+    'export type { Handlers } from "./review-action-v2-context-attestation-composition.js";\n',
+    'import { PrismaClient } from "@prisma/client";\n',
+  ])("rejects side effects in context response mapping", (source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "apps/api/src/review-action-v2-context-result-mappers.ts",
+      source,
+    );
+    expect(() => runChecker(root)).toThrow(
+      /pure result mappers must not import their composition host or infrastructure SDK/,
+    );
+  });
 });
 
 describe("review-investigations architecture ratchet", () => {

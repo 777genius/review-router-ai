@@ -259,33 +259,40 @@ async function checkReviewExecutionExtractionBoundaries(violations) {
     }
   }
 
-  const resultMappers = join(
-    root,
-    "apps",
-    "api",
-    "src",
-    "review-action-v2-execution-result-mappers.ts",
-  );
-  if (!existsSync(resultMappers)) return;
-  for (const imported of extractImportSpecifiers(
-    readFileSync(resultMappers, "utf8"),
-  )) {
-    if (
-      /^\.\/review-action-v2-execution-evidence-composition(?:\.[cm]?[jt]s)?$/u.test(
-        imported,
-      ) ||
-      /^@prisma\/client(?:\/.*)?$/u.test(imported) ||
-      /^@octokit(?:\/.*)?$/u.test(imported) ||
-      /^(?:fastify|next)(?:\/.*)?$/u.test(imported)
-    ) {
-      violations.push({
-        file: resultMappers,
-        imported,
-        reason:
-          "Review Action v2 pure result mappers must not import their composition host or infrastructure SDK",
-      });
+  const apiMappers = [
+    {
+      name: "review-action-v2-execution-result-mappers.ts",
+      host: "review-action-v2-execution-evidence-composition",
+    },
+    {
+      name: "review-action-v2-context-result-mappers.ts",
+      host: "review-action-v2-context-attestation-composition",
+    },
+  ];
+  for (const mapper of apiMappers) {
+    const file = join(root, "apps", "api", "src", mapper.name);
+    if (!existsSync(file)) continue;
+    for (const imported of extractImportSpecifiers(
+      readFileSync(file, "utf8"),
+    )) {
+      if (
+        imported === `./${mapper.host}` ||
+        imported === `./${mapper.host}.js` ||
+        imported === `./${mapper.host}.ts` ||
+        /^@prisma\/client(?:\/.*)?$/u.test(imported) ||
+        /^@octokit(?:\/.*)?$/u.test(imported) ||
+        /^(?:fastify|next)(?:\/.*)?$/u.test(imported)
+      ) {
+        violations.push({
+          file,
+          imported,
+          reason:
+            "Review Action v2 pure result mappers must not import their composition host or infrastructure SDK",
+        });
+      }
     }
   }
+}
 }
 
 async function checkReleaseRolloutProviderNeutrality(violations) {
