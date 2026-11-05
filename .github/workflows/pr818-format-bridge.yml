@@ -7,7 +7,7 @@ permissions:
 jobs:
   render:
     if: ${{ github.ref == 'refs/heads/audit/2026-11-05-reviewrouter-foundation-hardening' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - name: Checkout exact source
