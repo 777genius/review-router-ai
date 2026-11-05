@@ -1,5 +1,6 @@
 /** Child-process lifetime, process-tree termination and bounded redacted output. */
 import { execFileSync, spawn } from "node:child_process";
+import { createProcessOutputRedactor } from "./process-output-redactor.js";
 
 const maxCapturedProcessOutputBytes = 256_000;
 const processTerminationGracePeriodMs = 5_000;
@@ -163,6 +164,8 @@ export function runProcess(input: {
     let terminationError: unknown;
     let terminationProcessTree: CapturedUnixProcessTree | null = null;
     let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+    const stdoutLog = createProcessOutputRedactor(input.streamOutput?.stdout);
+    const stderrLog = createProcessOutputRedactor(input.streamOutput?.stderr);
     const child = spawn(input.command, input.args, {
       cwd: input.cwd,
       env: input.env,
@@ -175,6 +178,8 @@ export function runProcess(input: {
       clearTimeout(timer);
       if (forceKillTimer) clearTimeout(forceKillTimer);
       input.abortSignal?.removeEventListener("abort", onAbort);
+      stdoutLog.finish();
+      stderrLog.finish();
       if (result.error !== undefined) {
         reject(result.error);
       } else {
@@ -208,7 +213,7 @@ export function runProcess(input: {
       input.timeoutMs,
     );
     child.stdout.on("data", (chunk) => {
-      writeProcessLogChunk(input.streamOutput?.stdout, chunk);
+      stdoutLog.write(chunk);
       outputBytes = appendCapturedChunk(
         outputChunks,
         outputBytes,
@@ -216,7 +221,7 @@ export function runProcess(input: {
       );
     });
     child.stderr.on("data", (chunk) => {
-      writeProcessLogChunk(input.streamOutput?.stderr, chunk);
+      stderrLog.write(chunk);
       outputBytes = appendCapturedChunk(
         outputChunks,
         outputBytes,
@@ -262,15 +267,6 @@ function processAbortError(signal: AbortSignal): Error {
     : new Error("process_aborted");
 }
 
-function writeProcessLogChunk(
-  stream: Pick<NodeJS.WriteStream, "write"> | undefined,
-  chunk: unknown,
-): void {
-  if (!stream) return;
-  const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-  stream.write(sanitizeProcessLogChunk(text));
-}
-
 function appendCapturedChunk(
   chunks: Buffer[],
   currentBytes: number,
@@ -285,16 +281,3 @@ function appendCapturedChunk(
   chunks.push(nextChunk);
   return currentBytes + nextChunk.byteLength;
 }
-
-
-function sanitizeProcessLogChunk(output: string): string {
-  return output
-    .replace(/auth\.json["'\s:=]+[^\s"'`]+/gi, "auth.json: [redacted]")
-    .replace(
-      /\b(refresh_token|access_token|id_token)\b["'\s:=]+[A-Za-z0-9._~+/=-]+/gi,
-      "$1: [redacted]",
-    )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
-    .replace(/[A-Za-z0-9._~+/=-]{120,}/g, "[redacted]");
-}
-
