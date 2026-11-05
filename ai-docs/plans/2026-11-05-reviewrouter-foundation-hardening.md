@@ -391,3 +391,93 @@ The permitted output is **one purpose-named internal web/server function/module*
 6. **Potential scope collision with #787/#810 and open #806.** Accepted. Confirmation may be conditional or dropped. No Memory path, provider UI or Action runtime changes.
 
 **Result:** B and C now have explicit transaction/side-effect boundaries, narrow implementation options, failure tests and stop conditions. No prod code changed.
+
+
+## Detailed implementation blueprint — B: investigation store ownership
+
+### Decision: keep one transaction authority, split private implementation by concern
+
+`PrismaInvestigationStore` is an existing concrete adapter implementing four application-facing ports; they participate in a common investigation aggregate, not four unrelated bounded contexts. A new repository hierarchy or one PrismaClient per port would **increase** the number of transaction owners. The desired refactor is **private function/module separation while maintaining the same constructor, caller, transaction boundary and public exports**. Review after each move; stop if the new dependency graph is more complex than the existing one.
+
+Actual source inspection:
+- `findLease` starts around 319, `acquireLease` around 326, `renewLease` / `releaseLease` around 447/455 and the shared `transitionLease` around 463;
+- `savePrivateMaterial` around 769, `findActivePrivateMaterial` around 803, `reconcileExpiredPrivateMaterial` around 820, `pruneRetainedInvestigations` around 1,028;
+- `createAggregate` around 1,180; `loadAggregate` and `persistTransition`, `persistObligations`, `persistPrivateMaterials`, `persistCertificate`, and `persistReplayEvidenceCheckpoint` are separate existing helpers;
+- `prisma-investigation-store-real.test.ts`, `prisma-investigation-retention.test.ts`, `investigation-lease.test.ts` and `investigation-private-material-lifecycle.test.ts` already test portions of those contracts.
+
+**Important correction to a simplistic SRP claim:** the adapter has four interface obligations, but many are legitimately grouped around one aggregate. The risk is excessive *editing and review scope*, not proof of a runtime defect. Prefer the least intrusive separation that genuinely reduces the blast radius.
+
+### Existing transaction contracts that cannot change
+
+**Lease claim and transitions**
+1. `acquireLease` starts an interactive `ReadCommitted` transaction, optionally runs the current `inputAdmission.lock` hook, and locks the `ReviewInvestigation` parent row `FOR UPDATE` before aggregate hydration.
+2. It compares current binding against exact investigation revision and rejects stale candidates; on a stale binding it revokes the previous active lease(s) in the same transaction. Retain that side effect.
+3. Idempotency is derived from `(investigationId, turnId, acquireRequestIdHash)` and restored only when the original candidate matches; changed request content must conflict instead of returning the first lease.
+4. For memory-bound manifests, `inputAdmission.admit` runs under the active transaction before a lease is issued, using DB time. Do not relocate it outside the lock to “reduce latency.”
+5. Only a truly expired active lease can be replaced; subsequent owner/fencing token semantics are strictly preserved.
+6. `transitionLease` first identifies investigation identity, locks the parent investigation and then the lease row, re-reads the lease and aggregate *inside* that transaction, revokes on stale binding, otherwise applies domain `renewReviewInvestigationLease` / `releaseReviewInvestigationLease`. Maintain this order to avoid a lock inversion.
+
+**Expiry and private-material cleanup**
+1. `reconcileExpiredPrivateMaterial` bounds `limit`, validates a canonical cutoff and calculates `effectiveCutoff = min(requestedCutoff, DB now)`; it must never expire future material based on caller time.
+2. The **first transaction** holds the pruning cursor/checkpoint lock, selects candidate IDs using ordered paging with wraparound, and persists the next checkpoint. It **does not** delete the material.
+3. Each investigation group then runs a **separate `ReadCommitted` transaction**. It locks eligible `ReviewInvestigation` + `ReviewInvestigationPrivateMaterial` rows with `FOR UPDATE ... SKIP LOCKED`. A concurrent active turn defers expiry rather than destroying in-use material.
+4. For terminal investigations, only eligible expired material is deleted. For nonterminal investigations, existing domain `ReconcileExpiredInvestigationPrivateMaterial` may determine a safe transition, enforce CAS version, persist transition/obligations, revoke stale leases and write an exact command receipt before the material is removed. All these writes are in **that group's** single transaction.
+5. Known per-group errors aggregate `removedCount`, `failedInvestigationCount` and a typed first cause into `InvestigationPrivateMaterialPruneBatchError`. Unknown errors still propagate. A new helper must not accidentally make the *whole multi-group batch* atomic or suppress unknown failures.
+6. `pruneRetainedInvestigations` must retain existing `NOT EXISTS` guards for live receipts, certificates, replay-evidence checkpoints, private material, turns, leases and command receipts; do not replace those guards with a broader timestamp heuristic.
+
+**Aggregate writes**
+- `adopt`/`commit` keep command receipt identity and hash, expected version/CAS, exact execution authority and lease-fence guard semantics. No root-client query while holding critical locks.
+- Continue using canonical domain transition validation and mappers. Avoid JSON shape normalization, enum renaming, timestamp conversion changes, migration or silent “repair” of inconsistent records.
+- Keep the existing private-material encryption and attestation/publication authority outside any extracted persistence helper.
+
+### Implementation alternatives, scored for this codebase
+
+| Approach | Reliability (10) | Maintainability (10) | Complexity (10 = simplest) | Decision |
+|---|---:|---:|---:|---|
+| B0. Leave single 3,438-line store untouched; add more tests | 8 | 5 | 10 | Safe fallback if extraction has no real owner |
+| **B1. Extract private prune query/cursor helpers and lease mapping/helpers; preserve `PrismaInvestigationStore` as owner** | **9** | **9** | **8** | **Preferred** |
+| B2. Four new public repositories and new DI facade | 6 | 6 | 3 | Rejected, scatters commit/locking authority |
+| B3. Generic Prisma UnitOfWork/transaction abstraction | 5 | 5 | 2 | Rejected, adds a framework and obscures row locks |
+| B4. Move all aggregate persistence, pruning and lease SQL in a single huge rewrite | 4 | 7 | 2 | Rejected, too much undifferentiated risk |
+
+### B — exact work packets and expected line budget
+
+| ID | Scope of actual edits | Owner / invariant | Useful diff |
+|---|---|---|---:|
+| B0 | Expand regression fixtures at the existing four ports, capture current SQL effects/error taxonomy and transaction counts | Existing `src/tests` | 650–1,100 |
+| B1 | Extract **private-material prune candidate paging, checkpoint and eligibility SQL helpers**, retaining the existing group transaction and shared aggregate policy | One purpose-named `infrastructure/prisma` module with internal exports | 900–1,400 |
+| B2 | Extract **lease record mapping, state update construction and bounded lease persistence helpers** without relocating public commands or changing row locks | Same feature's internal Prisma infrastructure | 650–1,100 |
+| B3 | Where direct extraction reveals self-contained aggregate mappers (not transaction callbacks), move them to one internal mapper module; leave `commit`, `adopt` and certificate/obligation atomic writes in the original owner | Existing internal types, no public API changes | 950–1,500 |
+| B4 | Focused PostgreSQL lease/prune/recovery tests including real contention, rollback and multiple-groups partial failure; existing feature tests retained | `src/tests` plus existing real DB harness | 1,150–1,900 |
+| **B total** | Useful adds + deletes; stop if B3 yields cycles/more wrappers than removed coupling | | **4,300–7,000** |
+
+A module may be skipped when the owning helpers cannot be moved without expanding the object graph. **Never compensate by inflating the other modules.** Do not count changes in `node_modules`, generated Prisma, SQL migrations, Action bundle or lockfile toward this budget.
+
+### B — adversarial regression checklist
+
+| ID | Scenario | Expected result and evidence |
+|---|---|---|
+| B-L1 | Two lease claimants, same turn, same request ID and same contents | One acquired, one restored; never two active owners |
+| B-L2 | Same request ID but different material, owner or binding | `IdempotencyConflict`, not silent restoration |
+| B-L3 | Previous active lease expired; two contenders race | Exactly one fresh lease wins; no stale writer resumes |
+| B-L4 | Turn/owner/lease fencing token changed during renew or release | `BindingStale` / domain refusal, no release of new owner's lease |
+| B-L5 | Memory-bound manifest admission fails while parent locked | No new lease, current namespace/scope guard unaffected |
+| B-L6 | A racing commit/abort meets lease transition | Parent-before-lease lock preserved; no deadlock or stale write |
+| B-P1 | Expiry selection with cursor wrap and batch limit | No starvation, exact deterministic eligible page |
+| B-P2 | Caller cutoff beyond DB now | Never deletes future material |
+| B-P3 | Active turn or locked parent; concurrent worker | Skip or defer safely; no busy-loop or premature deletion |
+| B-P4 | Terminal and nonterminal investigations in same batch | Correct per-group transactions, no accidental cross-group rollback |
+| B-P5 | One group has an incompatible aggregate | Correct partial removal count, typed failure and continuation for other groups |
+| B-P6 | CAS version changes between candidate selection and group write | Guarded failure; no orphan private material or broken receipt |
+| B-P7 | Retention deadline passes but live certificate/receipt/checkpoint/lease remains | Investigation retained; all `NOT EXISTS` gates still effective |
+| B-P8 | Recovery after process interruption between cursor update and group processing | Candidates revisited safely by existing wraparound; no lost cleanup |
+| B-C1 | `adopt`/`commit` retries with same/different command hash | Existing `Restored` / `IdempotencyConflict` exact semantics |
+| B-C2 | Corrupt projection or absent required record | Same fail-closed error/exception, never partial silent write |
+
+Run real PostgreSQL fixture tests, not SQLite/memory-only substitutes. If CI's test prerequisites are policy-skipped, mark the E2E evidence **incomplete** instead of writing a success statement.
+
+### B — implementation critic decision
+
+A **single public adapter plus two or three private cohesive modules** is the preferred compromise: the domain/app contracts remain stable and SQL row-lock ownership stays visible. A critic must reject any change that causes a nested transaction, removes a `FOR UPDATE`/`SKIP LOCKED` condition, changes `ReadCommitted`, returns a false “restored,” or loses partial-failure evidence. Test a deliberately failing group and a concurrent turn to detect these regressions.
+
+**Rollback:** revert the B code commits as a unit; the database shape is unchanged. Do not change stored records, schema or release plumbing to make the refactor easier.
