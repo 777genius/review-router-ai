@@ -10,8 +10,8 @@ export {
   deleteFullRuntimeProgressComments,
 } from "./github-comment-publication.js";
 
-import { getAvailableDiskBytes, resolveGitHubActionPath, resolveCodexBinary } from "./codex-binary.js";
-export { resolveCodexBinary } from "./codex-binary.js";
+import { getAvailableDiskBytes, resolveGitHubActionPath, resolveCodexBinary } from "./bundled-codex-integrity.js";
+export { resolveCodexBinary } from "./bundled-codex-integrity.js";
 
 import {
   safeCheckoutPullRequest,
