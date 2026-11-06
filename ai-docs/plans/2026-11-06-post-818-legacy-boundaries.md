@@ -27,12 +27,12 @@ Clean Architecture dependency direction is `domain <- application -> ports <- ad
 
 ## 3. Scope and architecture choice
 
-| Option | Boundaries /10 | Reliability potential /10 | Complexity (10=hard) | Estimated new code | Decision |
-| --- | ---: | ---: | ---: | ---: | --- |
-| A. Bounded extraction into existing feature/adapters + typed, tested host edges | 9 | 9 | 5 | 300–900 production helper/guard LOC plus moved code and focused tests | **Choose** |
-| B. Full Get Modular migration of API, worker and dashboard | 8 | 5 until qualified | 10 | >8,000 extra infrastructure/adapter LOC before behavior proof | **Reject: scope and lifecycle risk** |
-| C. Split every large file into many forwarding classes | 5 | 5 | 8 | >2,000 glue LOC | **Reject: cosmetic and DRY regression** |
-| D. Delete suspected legacy directly | 3 | 2 | 6 | potentially negative but unqualified | **Reject until call-site and runtime proof** |
+| Option                                                                          | Boundaries /10 | Reliability potential /10 | Complexity (10=hard) |                                                    Estimated new code | Decision                                     |
+| ------------------------------------------------------------------------------- | -------------: | ------------------------: | -------------------: | --------------------------------------------------------------------: | -------------------------------------------- |
+| A. Bounded extraction into existing feature/adapters + typed, tested host edges |              9 |                         9 |                    5 | 300–900 production helper/guard LOC plus moved code and focused tests | **Choose**                                   |
+| B. Full Get Modular migration of API, worker and dashboard                      |              8 |         5 until qualified |                   10 |         >8,000 extra infrastructure/adapter LOC before behavior proof | **Reject: scope and lifecycle risk**         |
+| C. Split every large file into many forwarding classes                          |              5 |                         5 |                    8 |                                                       >2,000 glue LOC | **Reject: cosmetic and DRY regression**      |
+| D. Delete suspected legacy directly                                             |              3 |                         2 |                    6 |                                  potentially negative but unqualified | **Reject until call-site and runtime proof** |
 
 The adopted target is three connected but independently revertible **vertical slices**, with one architecture ratchet. Each extraction must have an owner, no new cycles, a smaller responsibility-edit radius, tests that fail on a meaningful regression, and preserved public API. No generic "service manager" or hidden compat framework.
 
@@ -91,13 +91,13 @@ Minimum contract cases if C proceeds: unauthorized actor (zero GitHub calls), re
 
 ### Line budget and evidence ledger
 
-| Phase | Estimated meaningful changed lines | Real qualification |
-| --- | ---: | --- |
-| A: review execution persistence | 3,000–5,000 | unit + real PG + concurrent CAS/lease |
-| B: Review Action v2 host helpers | 4,000–7,000 | protocol/canonical fixtures + paired E2E |
-| C: workflow mutation if warranted | 1,000–3,000 | authorization + existing UI recovery |
-| D: architecture/tests/docs | 1,000–2,000 | negative fixtures + full CI |
-| **Projected** | **9,000–17,000** (rough, not quota) | actual diff determines scope |
+| Phase                             |  Estimated meaningful changed lines | Real qualification                       |
+| --------------------------------- | ----------------------------------: | ---------------------------------------- |
+| A: review execution persistence   |                         3,000–5,000 | unit + real PG + concurrent CAS/lease    |
+| B: Review Action v2 host helpers  |                         4,000–7,000 | protocol/canonical fixtures + paired E2E |
+| C: workflow mutation if warranted |                         1,000–3,000 | authorization + existing UI recovery     |
+| D: architecture/tests/docs        |                         1,000–2,000 | negative fixtures + full CI              |
+| **Projected**                     | **9,000–17,000** (rough, not quota) | actual diff determines scope             |
 
 Move-only changes are counted as file-diff additions/deletions but separately reported. Format-only and generated code are not counted toward the meaningful target. We will reassess after A; do not reach for riskier areas merely to increase this table.
 
@@ -129,13 +129,13 @@ Decision: **GO for A1 characterization and smallest mechanical mapping extractio
 
 ## 11. Live progress / review evidence
 
-| Packet | Commit | Checks | Review | State |
-| --- | --- | --- | --- | --- |
-| Baseline + plan | Initial Draft PR | Repo/PR/source audit only | Three internal adversarial plan rounds above | Planned |
-| A1 | Pending | Pending | Pending | Not started |
-| A2/A3 | Pending | Pending | Pending | Conditional |
-| B1/B2 | Pending | Pending | Pending | Conditional |
-| C | Pending | Pending | Pending | Conditional |
-| Full E2E + final review | Pending | Pending | Pending | Not claimed |
+| Packet                  | Commit           | Checks                    | Review                                       | State       |
+| ----------------------- | ---------------- | ------------------------- | -------------------------------------------- | ----------- |
+| Baseline + plan         | Initial Draft PR | Repo/PR/source audit only | Three internal adversarial plan rounds above | Planned     |
+| A1                      | Pending          | Pending                   | Pending                                      | Not started |
+| A2/A3                   | Pending          | Pending                   | Pending                                      | Conditional |
+| B1/B2                   | Pending          | Pending                   | Pending                                      | Conditional |
+| C                       | Pending          | Pending                   | Pending                                      | Conditional |
+| Full E2E + final review | Pending          | Pending                   | Pending                                      | Not claimed |
 
 No success or autonomous external model run is implied by planning.

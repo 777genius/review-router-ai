@@ -230,4 +230,3 @@ export function leaseTransitionResult(
     expiresAt: lease?.expiresAt.toISOString() ?? null,
   };
 }
-

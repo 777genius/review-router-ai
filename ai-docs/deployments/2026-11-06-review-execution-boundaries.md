@@ -11,10 +11,10 @@
 
 ## Environment status
 
-| Environment / target | Status | Actual deployed version / image | Last verified (UTC) | Evidence / next step |
-| --- | --- | --- | --- | --- |
-| staging API/worker (+ Web only if in scope) | `pending` | Not verified | Not verified | Qualify source and select release after separate authorization |
-| production API/worker (+ Web only if in scope) | `pending` | Not verified | Not verified | Do not assume main or the PR commit is installed |
+| Environment / target                           | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                           |
+| ---------------------------------------------- | --------- | ------------------------------- | ------------------- | -------------------------------------------------------------- |
+| staging API/worker (+ Web only if in scope)    | `pending` | Not verified                    | Not verified        | Qualify source and select release after separate authorization |
+| production API/worker (+ Web only if in scope) | `pending` | Not verified                    | Not verified        | Do not assume main or the PR commit is installed               |
 
 `pending` does not assert absence. An implementation PR or green tests never amount to an installed version.
 
@@ -33,7 +33,7 @@
 
 ## Verification and completion
 
-- Required code evidence: full applicable exact-HEAD GitHub Actions CI, TS/lint/format/architecture checks, Review Action v2 protocol qualification, Review Execution real PostgreSQL contracts, API paired gateway and self-hosted E2E when touched. A policy-skipped job is *not* a passing run.
+- Required code evidence: full applicable exact-HEAD GitHub Actions CI, TS/lint/format/architecture checks, Review Action v2 protocol qualification, Review Execution real PostgreSQL contracts, API paired gateway and self-hosted E2E when touched. A policy-skipped job is _not_ a passing run.
 - Required deployed evidence: actual target image/commit, environment health/readiness, a safe fresh disposable test review when permitted and exact App identity for any new comments, audit/usage consistency, and absent duplicate publication.
 - Never mark `deployed` on source CI alone. Deployment status updated only after independent release authorization and verification.
 
@@ -52,6 +52,6 @@
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Actual version / image | Observation | Next |
-| --- | --- | --- | --- | --- | --- |
-| Not executed | staging / production | Unassigned | Not verified | Code not released or deployed by this PR | Full E2E and separate release decision |
+| Time (UTC)   | Environment          | Operator   | Actual version / image | Observation                              | Next                                   |
+| ------------ | -------------------- | ---------- | ---------------------- | ---------------------------------------- | -------------------------------------- |
+| Not executed | staging / production | Unassigned | Not verified           | Code not released or deployed by this PR | Full E2E and separate release decision |

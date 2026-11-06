@@ -186,4 +186,3 @@ function assertBoundedAggregateCollection(
     throw new Error(`review_execution_unbounded_${kind}`);
   }
 }
-

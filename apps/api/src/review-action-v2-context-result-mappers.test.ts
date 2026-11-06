@@ -32,12 +32,12 @@ describe("Context attestation protocol results", () => {
     expect(mapSealStatus(AcceptSealedContextAttestationStatus.Denied)).toBe(
       ReviewContextGatewaySealResultStatus.Denied,
     );
-    expect(mapFailedSealStatus(AbandonContextGatewaySessionStatus.Expired)).toBe(
-      ReviewContextGatewaySealResultStatus.Idempotent,
-    );
-    expect(mapFailedSealStatus(AbandonContextGatewaySessionStatus.Conflict)).toBe(
-      ReviewContextGatewaySealResultStatus.Conflict,
-    );
+    expect(
+      mapFailedSealStatus(AbandonContextGatewaySessionStatus.Expired),
+    ).toBe(ReviewContextGatewaySealResultStatus.Idempotent);
+    expect(
+      mapFailedSealStatus(AbandonContextGatewaySessionStatus.Conflict),
+    ).toBe(ReviewContextGatewaySealResultStatus.Conflict);
   });
 
   it("preserves receipt and ordinary replay status mapping", () => {
@@ -47,9 +47,9 @@ describe("Context attestation protocol results", () => {
     expect(mapReplayStatus(ReplayContextAttestationStatus.Idempotent)).toBe(
       ReviewContextReplayCommitResultStatus.Idempotent,
     );
-    expect(mapReceiptReplayStatus(ReplayContextAttestationStatus.Conflict)).toBe(
-      ReviewContextReceiptReplayCommitResultStatus.Conflict,
-    );
+    expect(
+      mapReceiptReplayStatus(ReplayContextAttestationStatus.Conflict),
+    ).toBe(ReviewContextReceiptReplayCommitResultStatus.Conflict);
   });
 
   it("denies without issuing proof or attachment capabilities", () => {

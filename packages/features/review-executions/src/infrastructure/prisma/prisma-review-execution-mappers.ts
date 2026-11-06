@@ -639,7 +639,6 @@ export function scopeWhere(scope: ReviewExecutionScope) {
   };
 }
 
-
 export function triggerKindToPrisma(
   value: ReviewRequestedTriggerKind,
 ): PrismaTriggerKind {

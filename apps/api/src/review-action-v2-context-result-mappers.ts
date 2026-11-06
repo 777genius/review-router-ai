@@ -39,7 +39,9 @@ export function mapSealStatus(status: AcceptSealedContextAttestationStatus) {
   }
 }
 
-export function mapFailedSealStatus(status: AbandonContextGatewaySessionStatus) {
+export function mapFailedSealStatus(
+  status: AbandonContextGatewaySessionStatus,
+) {
   switch (status) {
     case AbandonContextGatewaySessionStatus.Abandoned:
       return ReviewContextGatewaySealResultStatus.Accepted;
@@ -102,4 +104,3 @@ export function receiptReplayDenied() {
     },
   };
 }
-
