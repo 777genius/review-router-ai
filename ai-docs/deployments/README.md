@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Release-gate rerun proof: [attempt-bound evidence reconciliation](2026-11-06-release-gate-rerun-evidence.md) — GitHub Actions verifier candidate; staging/production `pending`. Requires successful exact-main CI and publication-gate verification before release.
+
 Review execution architecture: [post-#818 legacy boundary cleanup](2026-11-06-review-execution-boundaries.md), [Draft PR #819](https://github.com/777genius/review-router-ai/pull/819) — staging `pending`, production `pending`. Source-only refactor, no schema or activation; exact-head CI and release qualification outstanding. Do not deploy as part of this PR.
 
 Action runtime ownership: [critical boundary refactor](2026-11-05-action-runtime-ownership.md), [Draft PR #815](https://github.com/777genius/review-router-ai/pull/815) — staging `pending`, production `pending`. Source-only candidate; no schema/config/activation changes, release and deployment not authorized. Rebuild pinned Action bundle and confirm exact-head CI before selecting a release.
