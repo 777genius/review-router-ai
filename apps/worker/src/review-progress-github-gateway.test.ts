@@ -517,7 +517,7 @@ function githubFixture(
     }
     if (route === "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}") {
       const comment = comments.find(({ id }) => id === parameters.comment_id)!;
-      if (options.throwBeforePatch) throw new Error("socket_closed_before_write");
+      if (options.throwBeforePatch) throw new Error("pre_write_failure");
       comment.body = parameters.body as string;
       if (options.throwAfterPatch) throw new Error("socket_closed_after_write");
       return { data: toResponseComment(comment) };
