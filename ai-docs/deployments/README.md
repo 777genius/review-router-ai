@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Review execution architecture: [post-#818 legacy boundary cleanup](2026-11-06-review-execution-boundaries.md), [Draft PR #819](https://github.com/777genius/review-router-ai/pull/819) — staging `pending`, production `pending`. Source-only refactor, no schema or activation; exact-head CI and release qualification outstanding. Do not deploy as part of this PR.
+
 Action runtime ownership: [critical boundary refactor](2026-11-05-action-runtime-ownership.md), [Draft PR #815](https://github.com/777genius/review-router-ai/pull/815) — staging `pending`, production `pending`. Source-only candidate; no schema/config/activation changes, release and deployment not authorized. Rebuild pinned Action bundle and confirm exact-head CI before selecting a release.
 Action comment-create safety: [uncertain transport response guard](2026-11-05-action-comment-create-no-replay.md), [issue #816](https://github.com/777genius/review-router-ai/issues/816) — staging `pending`, production/public Action `pending`, paired `777genius/review-router` distribution `pending`. No release, deployment or workflow pin change is authorized by the source-only fix.
 
