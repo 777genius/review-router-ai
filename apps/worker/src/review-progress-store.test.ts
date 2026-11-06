@@ -32,6 +32,75 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
+  it("fences every progress mutation to the same claim identity", async () => {
+    const publication = claimed();
+    const whereClauses: unknown[] = [];
+    const updateMany = vi.fn(async ({ where }: { readonly where: unknown }) => {
+      whereClauses.push(where);
+      return { count: 1 };
+    });
+    const count = vi.fn(async ({ where }: { readonly where: unknown }) => {
+      whereClauses.push(where);
+      return 1;
+    });
+    const prisma = {
+      reviewProgressPublicationV1: { updateMany },
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async () => 1,
+          $queryRaw: async () => [],
+          reviewProgressPublicationV1: { updateMany, count },
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: async () => ({
+              nextMutationAt: now,
+              cooldownUntil: null,
+            }),
+            update: async () => ({}),
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        publication,
+        now,
+        minimumIntervalMs: 1_000,
+      }),
+    ).resolves.toEqual({ allowed: true });
+    await store.complete({
+      publication,
+      commentId: 42n,
+      bodyHash: "c".repeat(64),
+      now,
+    });
+    await store.retry({
+      publication,
+      safeCode: "retryable",
+      retryAt: new Date(now.getTime() + 1_000),
+      now,
+      maxFailures: 3,
+    });
+    await store.suppress({ publication, safeCode: "suppressed", now });
+
+    const fence = {
+      ...publication.scope,
+      activeExecutionId: publication.executionId,
+      activeGeneration: publication.generation,
+      activeHeadSha: publication.headSha,
+      activePlanHash: publication.planHash,
+      desiredVersion: publication.desiredVersion,
+      claimId: publication.claim.claimId,
+      claimOwnerIdHash: publication.claim.ownerIdHash,
+    };
+    expect(whereClauses).toEqual([
+      { ...fence, claimUntil: { gt: now } },
+      fence,
+      fence,
+      fence,
+    ]);
+  });
+
   it("persists installation cooldown with monotonic database GREATEST", async () => {
     const rawQueries: unknown[] = [];
     const prisma = {
