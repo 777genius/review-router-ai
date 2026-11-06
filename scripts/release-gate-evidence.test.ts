@@ -180,7 +180,8 @@ function rewriteArtifactAttempt(
     Buffer.from(JSON.stringify(manifest)),
   );
   value.archives.set(artifact.id, archive);
-  artifact.digest = "sha256:" + createHash("sha256").update(archive).digest("hex");
+  artifact.digest =
+    "sha256:" + createHash("sha256").update(archive).digest("hex");
 }
 
 describe("production release-gate evidence", () => {
