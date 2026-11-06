@@ -76,6 +76,29 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
+  it("rejects a failed PATCH when only a duplicate has the desired body", async () => {
+    const fixture = githubFixture(
+      [
+        { id: 4, body: `old\n${marker}` },
+        { id: 7, body: formatReviewProgressComment("working", marker) },
+      ],
+      { throwBeforePatch: true },
+    );
+
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 4 }),
+      }),
+    ]);
+  });
+
   it("patches only the canonical comment and defers every duplicate", async () => {
     const fixture = githubFixture(
       [
@@ -443,6 +466,7 @@ function githubFixture(
     readonly currentHead?: string;
     readonly currentState?: string;
     readonly throwAfterPost?: boolean;
+    readonly throwBeforePatch?: boolean;
     readonly throwAfterPatch?: boolean;
     readonly deleteFailureId?: number;
     readonly listedComments?: Array<{
@@ -493,6 +517,7 @@ function githubFixture(
     }
     if (route === "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}") {
       const comment = comments.find(({ id }) => id === parameters.comment_id)!;
+      if (options.throwBeforePatch) throw new Error("socket_closed_before_write");
       comment.body = parameters.body as string;
       if (options.throwAfterPatch) throw new Error("socket_closed_after_write");
       return { data: toResponseComment(comment) };
