@@ -220,6 +220,52 @@ describe("ReviewProgressGitHubGateway", () => {
     );
   });
 
+  it("prioritizes a verified known comment over an earlier match", async () => {
+    const fixture = githubFixture([
+      { id: 4, body: `older\n${marker}` },
+      { id: 9, body: `known\n${marker}` },
+    ]);
+
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 9 }),
+    ).resolves.toEqual({
+      commentId: 9,
+      operation: "updated",
+      duplicateCommentIds: [4],
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 9 }),
+      }),
+    ]);
+  });
+
+  it("does not continue duplicate cleanup after an ambiguous DELETE", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture(
+      [
+        { id: 4, body: desired },
+        { id: 7, body: `duplicate one\n${marker}` },
+        { id: 9, body: `duplicate two\n${marker}` },
+      ],
+      { deleteFailureId: 7 },
+    );
+
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 7 }),
+      }),
+    ]);
+  });
+
   it("rechecks the PR head after discovery and before mutation", async () => {
     const fixture = githubFixture([], { staleHeadAfterFirstRead: true });
 
