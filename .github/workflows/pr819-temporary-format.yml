@@ -1,0 +1,53 @@
+name: PR819 temporary formatting (remove before merge)
+
+on:
+  push:
+    branches:
+      - refactor/2026-11-06-post-818-legacy-boundaries
+    paths:
+      - .github/workflows/pr819-temporary-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    name: Format only PR819 changed files
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact branch HEAD
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Setup Node 26
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Apply pinned formatter to seven selected files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          files=(
+            ai-docs/deployments/2026-11-06-review-execution-boundaries.md
+            ai-docs/plans/2026-11-06-post-818-legacy-boundaries.md
+            apps/api/src/review-action-v2-context-result-mappers.test.ts
+            apps/api/src/review-action-v2-context-result-mappers.ts
+            apps/api/src/review-action-v2-execution-result-mappers.ts
+            packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-mappers.ts
+            packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-snapshot.ts
+          )
+          npx --yes prettier@3.8.3 --write "${files[@]}"
+          npx --yes prettier@3.8.3 --check "${files[@]}"
+          git diff --check
+          git add -- "${files[@]}"
+          if git diff --cached --quiet; then
+            echo "No formatting changes necessary"
+            exit 0
+          fi
+          remote="$(git ls-remote origin refs/heads/refactor/2026-11-06-post-818-legacy-boundaries | cut -f1)"
+          test "$remote" = "$GITHUB_SHA"
+          git -c user.name=777genius -c user.email=777genius@users.noreply.github.com commit -m "style(refactor): apply pinned Prettier 3.8.3"
+          git push origin HEAD:refs/heads/refactor/2026-11-06-post-818-legacy-boundaries
