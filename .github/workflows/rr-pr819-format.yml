@@ -1,0 +1,54 @@
+name: Temporary PR819 format correction
+
+on:
+  push:
+    branches:
+      - refactor/2026-11-06-post-818-legacy-boundaries
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact source branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: refactor/2026-11-06-post-818-legacy-boundaries
+          fetch-depth: 2
+          persist-credentials: true
+      - name: Setup pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '26.11.1'
+      - name: Format seven confirmed files and remove this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(git log -1 --format=%s)" != "chore(ci): temporary bounded PR819 formatter" ]; then
+            echo "Not the formatter trigger commit, no changes"
+            exit 0
+          fi
+          test "$(git rev-parse HEAD^)" = "7676cd64e856bf5ab44bea62217b8fb59f6e05a2"
+          npm install --global --ignore-scripts --no-audit --no-fund prettier@3.8.3
+          files=(
+            ai-docs/deployments/2026-11-06-review-execution-boundaries.md
+            ai-docs/plans/2026-11-06-post-818-legacy-boundaries.md
+            apps/api/src/review-action-v2-context-result-mappers.test.ts
+            apps/api/src/review-action-v2-context-result-mappers.ts
+            apps/api/src/review-action-v2-execution-result-mappers.ts
+            packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-mappers.ts
+            packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-snapshot.ts
+          )
+          prettier --write "${files[@]}"
+          prettier --check "${files[@]}"
+          git add -- "${files[@]}"
+          git rm -- .github/workflows/rr-pr819-format.yml
+          git diff --cached --check
+          git config user.name "777genius"
+          git config user.email "$(git log -1 --format=%ae)"
+          git commit -m "style(refactor): apply pinned Prettier and remove temporary helper"
+          git push origin HEAD:refs/heads/refactor/2026-11-06-post-818-legacy-boundaries
