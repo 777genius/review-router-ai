@@ -195,7 +195,6 @@ export class ReviewProgressGitHubGateway {
       operation: "duplicate_deleted",
       duplicateCommentIds: duplicates.slice(1).map(({ id }) => id),
     };
-
   }
 
   private async createComment(
