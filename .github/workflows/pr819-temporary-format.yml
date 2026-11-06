@@ -13,7 +13,7 @@ permissions:
 jobs:
   format:
     name: Format only PR819 changed files
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - name: Checkout exact branch HEAD
