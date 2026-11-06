@@ -49,6 +49,8 @@ function fixture() {
   const repository = "777genius/review-router-ai";
   const runId = 101;
   const runAttempt = 2;
+  const startedAt = "2026-11-06T02:30:00Z";
+  const completedAt = "2026-11-06T02:31:00Z";
   const archives = new Map<number, Buffer>();
   const jobs = releaseGateContract.jobs.map((contract, index) => ({
     id: 201 + index,
@@ -58,6 +60,8 @@ function fixture() {
     head_sha: commit,
     status: "completed",
     conclusion: "success",
+    started_at: startedAt,
+    completed_at: completedAt,
   }));
   const artifacts = releaseGateContract.jobs.map((contract, index) => {
     const artifactId = 301 + index;
@@ -82,6 +86,7 @@ function fixture() {
       name: artifactName,
       workflow_run: { id: runId, head_sha: commit },
       expired: false,
+      created_at: "2026-11-06T02:30:30Z",
       digest: `sha256:${createHash("sha256").update(archive).digest("hex")}`,
     };
   });
@@ -100,6 +105,7 @@ function fixture() {
       conclusion: "success",
     },
     jobs: { total_count: jobs.length, jobs },
+    historicalJobs: { total_count: 0, jobs: [] as typeof jobs },
     artifacts: { total_count: artifacts.length, artifacts },
     inventory: {
       total_count: 1,
@@ -127,13 +133,15 @@ function fixture() {
     }
     const body = url.includes("/workflows/ci.yml/runs?")
       ? bodies.inventory
-      : url.includes("/jobs?")
-        ? bodies.jobs
-        : url.includes("/artifacts?")
-          ? bodies.artifacts
-          : url.includes("/actions/runs/")
-            ? bodies.run
-            : bodies.repository;
+      : url.includes("/attempts/1/jobs?")
+        ? bodies.historicalJobs
+        : url.includes("/jobs?")
+          ? bodies.jobs
+          : url.includes("/artifacts?")
+            ? bodies.artifacts
+            : url.includes("/actions/runs/")
+              ? bodies.run
+              : bodies.repository;
     return {
       ok: true,
       status: 200,
@@ -142,11 +150,37 @@ function fixture() {
     };
   });
   return {
+    archives,
     artifacts,
     bodies,
     configuration: { repository, token: "token", commit, runId },
     fetchImpl,
   };
+}
+
+function rewriteArtifactAttempt(
+  value: ReturnType<typeof fixture>,
+  index: number,
+  runAttempt: number,
+) {
+  const contract = releaseGateContract.jobs[index]!;
+  const artifact = value.artifacts[index]!;
+  const manifest = {
+    schemaVersion: releaseGateContract.schemaVersion,
+    gate: contract.gate,
+    repository: value.configuration.repository,
+    commit: value.configuration.commit,
+    runId: String(value.configuration.runId),
+    runAttempt,
+    jobName: contract.jobName,
+    artifactName: artifact.name,
+  };
+  const archive = zip(
+    "release-gate-evidence.json",
+    Buffer.from(JSON.stringify(manifest)),
+  );
+  value.archives.set(artifact.id, archive);
+  artifact.digest = "sha256:" + createHash("sha256").update(archive).digest("hex");
 }
 
 describe("production release-gate evidence", () => {
@@ -176,6 +210,110 @@ describe("production release-gate evidence", () => {
       runId: String(value.configuration.runId),
       receipts: [{ artifactId: "301" }, { artifactId: "302" }],
     });
+  });
+
+  it("accepts earlier evidence only for the same carried-forward successful job", async () => {
+    const value = fixture();
+    rewriteArtifactAttempt(value, 0, 1);
+    value.bodies.historicalJobs.jobs = [
+      { ...value.bodies.jobs.jobs[0]!, run_attempt: 1 },
+    ];
+    value.bodies.historicalJobs.total_count = 1;
+    await expect(
+      verifyReleaseGateRun(value.configuration, value.fetchImpl as never),
+    ).resolves.toMatchObject({
+      runAttempt: 2,
+      receipts: [{ artifactId: "301" }, { artifactId: "302" }],
+    });
+  });
+
+  it("discovers a partial rerun with fresh proof and an ignored stale duplicate", async () => {
+    const value = fixture();
+    rewriteArtifactAttempt(value, 0, 1);
+    value.bodies.historicalJobs.jobs = [
+      { ...value.bodies.jobs.jobs[0]!, run_attempt: 1 },
+    ];
+    value.bodies.historicalJobs.total_count = 1;
+    value.artifacts.push({
+      ...value.artifacts[1]!,
+      id: 999,
+      created_at: "2026-11-06T01:00:30Z",
+    });
+    value.bodies.artifacts.total_count = value.artifacts.length;
+    await expect(
+      findAndVerifyReleaseGate(
+        {
+          repository: value.configuration.repository,
+          token: value.configuration.token,
+          commit: value.configuration.commit,
+        },
+        value.fetchImpl as never,
+      ),
+    ).resolves.toMatchObject({
+      receipts: [{ artifactId: "301" }, { artifactId: "302" }],
+    });
+  });
+
+  it("rejects an earlier artifact when its originating job failed", async () => {
+    const value = fixture();
+    rewriteArtifactAttempt(value, 0, 1);
+    value.bodies.historicalJobs.jobs = [
+      { ...value.bodies.jobs.jobs[0]!, run_attempt: 1, conclusion: "failure" },
+    ];
+    value.bodies.historicalJobs.total_count = 1;
+    await expect(
+      verifyReleaseGateRun(value.configuration, value.fetchImpl as never),
+    ).rejects.toThrow("evidence job attempt mismatch");
+  });
+
+  it("rejects earlier evidence when the mandatory job actually reran", async () => {
+    const value = fixture();
+    rewriteArtifactAttempt(value, 0, 1);
+    value.bodies.historicalJobs.jobs = [
+      {
+        ...value.bodies.jobs.jobs[0]!,
+        run_attempt: 1,
+        started_at: "2026-11-06T01:00:00Z",
+        completed_at: "2026-11-06T01:01:00Z",
+      },
+    ];
+    value.bodies.historicalJobs.total_count = 1;
+    await expect(
+      verifyReleaseGateRun(value.configuration, value.fetchImpl as never),
+    ).rejects.toThrow("evidence job attempt mismatch");
+  });
+
+  it("rejects evidence without a successful historical job", async () => {
+    const value = fixture();
+    rewriteArtifactAttempt(value, 0, 1);
+    await expect(
+      verifyReleaseGateRun(value.configuration, value.fetchImpl as never),
+    ).rejects.toThrow("evidence job attempt mismatch");
+  });
+
+  it("rejects artifacts uploaded outside the successful job interval", async () => {
+    const value = fixture();
+    value.artifacts[0]!.created_at = "2026-11-06T01:00:30Z";
+    await expect(
+      verifyReleaseGateRun(value.configuration, value.fetchImpl as never),
+    ).rejects.toThrow("exact artifact is missing");
+  });
+
+  it("rejects a future run attempt even with a correct archive digest", async () => {
+    const value = fixture();
+    rewriteArtifactAttempt(value, 0, 3);
+    await expect(
+      verifyReleaseGateRun(value.configuration, value.fetchImpl as never),
+    ).rejects.toThrow("artifact manifest runAttempt mismatch");
+  });
+
+  it("rejects two artifacts from the same successful job as ambiguous", async () => {
+    const value = fixture();
+    value.artifacts.push({ ...value.artifacts[0]!, id: 999 });
+    value.bodies.artifacts.total_count = value.artifacts.length;
+    await expect(
+      verifyReleaseGateRun(value.configuration, value.fetchImpl as never),
+    ).rejects.toThrow("exact artifact is missing");
   });
 
   it("rejects a CI run whose mandatory job was skipped", async () => {
