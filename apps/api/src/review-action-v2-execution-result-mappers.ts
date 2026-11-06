@@ -65,7 +65,7 @@ export function attachmentResult(
     streamVersion: snapshot.stream.version.toString(10),
   };
 }
-function mapAttachmentStatus(status: ReviewObservationAttachmentStatus) {
+export function mapAttachmentStatus(status: ReviewObservationAttachmentStatus) {
   return status === ReviewObservationAttachmentStatus.Attached
     ? ReviewExecutionMutationResultStatus.Applied
     : status === ReviewObservationAttachmentStatus.Restored

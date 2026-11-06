@@ -108,6 +108,7 @@ import {
   canonicalPayload,
   mutationResult,
   attachmentResult,
+  mapAttachmentStatus,
   adoptionResult,
   mapFinalize,
   mapStart,
