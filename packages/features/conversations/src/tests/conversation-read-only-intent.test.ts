@@ -21,6 +21,10 @@ describe("read-only explanations", () => {
   it.each([
     "Identifiers are opaque strings.",
     "The interface prefers short labels.",
+    "Мы считаем, что ID непрозрачны.",
+    "Это как мы сохраняем данные.",
+    "This is how identifiers are handled.",
+    "I think that is what users expect.",
     "Thanks for the update.",
     "Remember observation: The build verifies IDs.",
     "Запомни правило: Use pnpm.",
