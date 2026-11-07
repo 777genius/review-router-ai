@@ -47,7 +47,7 @@ describe("single-finding safe suggestion", () => {
       before: "const x = 2;\nconst y = 3;",
       replacement: "const x = 4;\nconst y = 5;",
     }), source, head, head);
-    expect(result).toContain("suggestion\nconst x = 4;");
+    expect(result).toContain("suggestion:-0+1\nconst x = 4;");
   });
   it.each([
     ["no source", output(), null, head, head],
