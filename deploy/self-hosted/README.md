@@ -7,15 +7,17 @@ webhook state, sessions, outbox jobs, and health data in Postgres.
 
 ## Agent-first installation (default)
 
-A coding agent with shell access to your Linux x64 host can run setup without
-interactive prompts, providing your actual DNS names and first repository:
+A coding agent with shell access to a Linux x64 host can run setup without
+interactive prompts. Prepare Docker Compose v2, Git, curl, Node.js 24.21+ or
+26.10+, and two public DNS names (web and `api.<web hostname>`) first:
 
 ```bash
 bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' -- \
-  --web-url https://review.example.com --api-url https://api.review.example.com \
+  --web-url https://review.example.com \
   --repo OWNER/REPOSITORY
 ```
 
+The API URL defaults to `https://api.review.example.com` for this example.
 The script returns a JSON state and safe next-step arguments on stdout.
 If an approval is needed, let the agent carry out the allowed preparation and
 request GitHub App/provider authorization or workflow PR approval from the

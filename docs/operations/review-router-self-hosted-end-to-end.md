@@ -26,7 +26,6 @@ repository you own (the values below are placeholders):
 ```bash
 bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' -- \
   --web-url https://review.example.com \
-  --api-url https://api.review.example.com \
   --repo OWNER/REPOSITORY
 ```
 
@@ -46,8 +45,10 @@ bash scripts/install-self-hosted.sh \
 ```
 
 The first, shorter command above is for new evaluations that intentionally use
-the current default branch. Both routes have the same agent-first JSON contract
-and require you to replace the example domains and repository.
+the current default branch. Without `--api-url`, the API domain defaults to
+`https://api.<web hostname>`; both DNS names must already point to the server.
+Both routes use the same agent-first JSON contract. Replace the example
+domains and repository before starting.
 
 The installer auto-generates private credentials, installs pinned dependencies,
 prepares database roles and migrations, deploys Compose/Memory/HTTPS, verifies
@@ -72,6 +73,9 @@ App profile, key material or provider credentials in chat logs.
 | `repository_setup_required`        | Install App, connect provider in the dashboard and merge the generated workflow PR. Once these actions have actually happened, resume with `--repository-setup-complete`. |
 | `verification_required`            | Review authority is initialized. Open a small disposable PR and confirm actual App-authored review plus a second-revision review. **No first review is claimed yet.**     |
 | `failed`                           | Read stderr, correct the issue and resume at the pinned revision. The installer preserves private credentials and does not silently upgrade.                              |
+
+With `--review-only`, no workflow setup PR is created. An authorized user must
+install and verify the canonical workflow manually using the section below.
 
 Agent mode deliberately does **not** auto-approve GitHub App permissions,
 authorize an AI subscription, merge a workflow PR, change existing emergency
