@@ -650,22 +650,23 @@ describe.skipIf(!databaseUrl)(
       }
     });
 
-    it.each([
-      ".npmrc",
-      "config/.aws/credentials",
-      "src/.hidden.ts",
-    ])("refuses to read hidden current-HEAD files: %s", async (focusedFilename) => {
-      const f = await fixture({ sourceBody: "/rr fixed", focusedFilename });
-      try {
-        const first = await f.processor.execute(input, controls());
-        expect(first.status).toBe("ready");
-        expect(first.reply?.body).toContain("Cannot verify");
-        expect(f.sourceCalls.some((call) => call.route.includes("/contents/"))).toBe(false);
-        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
-      } finally {
-        await f.app.close();
-      }
-    });
+    it.each([".npmrc", "config/.aws/credentials", "src/.hidden.ts"])(
+      "refuses to read hidden current-HEAD files: %s",
+      async (focusedFilename) => {
+        const f = await fixture({ sourceBody: "/rr fixed", focusedFilename });
+        try {
+          const first = await f.processor.execute(input, controls());
+          expect(first.status).toBe("ready");
+          expect(first.reply?.body).toContain("Cannot verify");
+          expect(
+            f.sourceCalls.some((call) => call.route.includes("/contents/")),
+          ).toBe(false);
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
 
     it.each([
       ["fixed", "fixed", 0.97, "Fixed (revalidated)"],
