@@ -481,6 +481,23 @@ async function main(): Promise<void> {
     const savedStatus = await readPrivate(statusPath);
     previous = savedStatus ? parseAgentInstallStatus(savedStatus) : undefined;
     statusReadable = true;
+    // Commit the exact approved repository before lengthy health/release checks.
+    // An interrupted retry must not invalidate an earlier human approval.
+    const approvalPath = join(directory, "repository-setup-acknowledged");
+    if (machineOutput && values["repository-setup-complete"]) {
+      const confirmedRepository = repositoryName(
+        values.repo ?? previous?.repository ?? "",
+      );
+      if (
+        repositorySetupGate(
+          await readPrivate(approvalPath),
+          previous,
+          confirmedRepository,
+          true,
+        ) === "save_acknowledgment"
+      )
+        await writePrivate(approvalPath, confirmedRepository);
+    }
     const statePath = join(directory, "installation.json"),
       envFile = join(directory, ".env");
     if (
@@ -497,7 +514,7 @@ async function main(): Promise<void> {
         next: {
           action: "provide_configuration",
           requiredOptions: ["--web-url"],
-          argv: resumeCommand(),
+          resume: resumeCommand(),
         },
       });
       return;
@@ -1246,7 +1263,6 @@ async function main(): Promise<void> {
       await record(previous);
       return;
     }
-    const approvalPath = join(directory, "repository-setup-acknowledged");
     const approvalGate = machineOutput
       ? repositorySetupGate(
           await readPrivate(approvalPath),

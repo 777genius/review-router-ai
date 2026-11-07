@@ -65,13 +65,13 @@ test(
       assert.equal(status.state, "input_required");
       assert.equal(status.phase, "configuration");
       assert.deepEqual(status.next?.requiredOptions, ["--web-url"]);
-      assert.deepEqual(status.next?.argv?.slice(0, 4), [
+      assert.deepEqual(status.next?.resume?.slice(0, 4), [
         "bash",
         "scripts/install-self-hosted.sh",
         "--directory",
         directory,
       ]);
-      assert.deepEqual(status.next?.argv?.slice(-2), [
+      assert.deepEqual(status.next?.resume?.slice(-2), [
         "--repo",
         "example/review-target",
       ]);
@@ -149,7 +149,7 @@ test(
       assert.equal(result.status, 0, result.stderr);
       const status: AgentInstallStatus = JSON.parse(result.stdout);
       assert.equal(status.state, "input_required");
-      const argv = status.next?.argv ?? [];
+      const argv = status.next?.resume ?? [];
       for (const flag of [
         "--repo",
         "--api-url",
@@ -241,7 +241,7 @@ test(
         '  "info "*) echo "27.0.0" ;;',
         '  "compose version --short") echo "v2.39.0" ;;',
         '  *"ps --format json worker") echo \'{"State":"running"}\' ;;',
-        '  *"review-v2:admin env-preflight") echo \'{"ready":true}\' ;;',
+        '  *"review-v2:admin env-preflight") if [ "$RR_TEST_FAIL_PREFLIGHT" = "1" ]; then exit 18; fi; echo \'{"ready":true}\' ;;',
         '  *"review-v2:admin release inspect "*) echo \'' + installed + '\' ;;',
         '  *"review-v2:admin status --repo "*) echo \'{"authority":{"mode":"v2_active"},"emergencyControls":{"global":{"stopped":false},"repository":{"stopped":false}}}\' ;;',
         '  *"up -d --no-build "*) exit 0 ;;',
@@ -300,6 +300,7 @@ test(
             ...process.env, CI: "true",
             PATH: bin + ":" + process.env.PATH,
             RR_TEST_DOCKER_LOG: dockerLog,
+            RR_TEST_FAIL_PREFLIGHT: args.includes("--repository-setup-complete") ? "1" : "0",
             NODE_OPTIONS: (process.env.NODE_OPTIONS ?? "") + " --import=" + fetchPatch,
           },
         },
@@ -307,18 +308,22 @@ test(
       const cases: { args: string[]; state: string }[] = [
         { args: [], state: "server_ready" },
         { args: ["--repo", "example/review-target"], state: "repository_setup_required" },
-        { args: ["--repo", "example/review-target", "--repository-setup-complete"], state: "verification_required" },
+        { args: ["--repo", "example/review-target", "--repository-setup-complete"], state: "failed" },
         { args: [], state: "verification_required" },
       ];
       for (const { args, state } of cases) {
         const result = invokeResumed(...args);
         assert.equal(result.error, undefined);
-        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.status, state === "failed" ? 1 : 0, result.stderr);
         assert.equal(JSON.parse(result.stdout).state, state);
         assert.equal(result.stdout.trim().split("\n").length, 1);
       }
       assert.equal(await readFile(join(directory, "operator-credential"), "utf8"), credential);
       assert.equal(await readFile(join(directory, "server-ready.json"), "utf8"), marker);
+      assert.equal(
+        await readFile(join(directory, "repository-setup-acknowledged"), "utf8"),
+        "example/review-target",
+      );
       const calls = await readFile(dockerLog, "utf8");
       assert(!calls.includes("--build --wait"));
       assert(!calls.includes("release register"));
