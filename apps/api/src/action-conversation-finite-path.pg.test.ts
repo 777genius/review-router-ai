@@ -187,6 +187,7 @@ describe.skipIf(!databaseUrl)(
         modelText?: string;
         requireConfirmation?: boolean;
         sourceBody?: string;
+        focusedFilename?: string;
         outputTokens?: number;
         policyOutputTokens?: number;
         contextWindowTokens?: number;
@@ -213,7 +214,7 @@ describe.skipIf(!databaseUrl)(
         updated_at: time,
         ...(index === 0 ? {} : { in_reply_to_id: 1 }),
         pull_request_url: "https://api.github.com/repos/acme/project/pulls/7",
-        path: "src/ids.ts",
+        path: options.focusedFilename ?? "src/ids.ts",
         side: "RIGHT",
         line: 5,
         original_line: 5,
@@ -238,7 +239,7 @@ describe.skipIf(!databaseUrl)(
           const data = route.endsWith("/files")
             ? [
                 {
-                  filename: "src/ids.ts",
+                  filename: options.focusedFilename ?? "src/ids.ts",
                   status: "modified",
                   patch:
                     "@@ -1,2 +1,3 @@\n+export function validateId(id: string) {\n+  return id.length > 0;\n+}\n",
@@ -643,6 +644,23 @@ describe.skipIf(!databaseUrl)(
         const first = await f.processor.execute(input, controls());
         expect(first.status).toBe("output_unavailable");
         expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
+        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+      } finally {
+        await f.app.close();
+      }
+    });
+
+    it.each([
+      ".npmrc",
+      "config/.aws/credentials",
+      "src/.hidden.ts",
+    ])("refuses to read hidden current-HEAD files: %s", async (focusedFilename) => {
+      const f = await fixture({ sourceBody: "/rr fixed", focusedFilename });
+      try {
+        const first = await f.processor.execute(input, controls());
+        expect(first.status).toBe("ready");
+        expect(first.reply?.body).toContain("Cannot verify");
+        expect(f.sourceCalls.some((call) => call.route.includes("/contents/"))).toBe(false);
         expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
       } finally {
         await f.app.close();

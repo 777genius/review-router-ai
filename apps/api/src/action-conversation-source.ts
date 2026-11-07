@@ -408,7 +408,7 @@ export class GitHubConversationSource
       original.includes("\0") ||
       original
         .split("/")
-        .some((segment) => !segment || segment === "." || segment === "..") ||
+        .some((segment) => !segment || segment.startsWith(".")) ||
       /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(
         original,
       ) ||
@@ -455,7 +455,7 @@ export class GitHubConversationSource
         targetPath.includes("\\") ||
         targetPath
           .split("/")
-          .some((segment) => !segment || segment === "." || segment === "..") ||
+          .some((segment) => !segment || segment.startsWith(".")) ||
         /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(
           targetPath,
         ) ||
