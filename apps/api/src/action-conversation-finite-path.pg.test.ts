@@ -724,6 +724,77 @@ describe.skipIf(!databaseUrl)(
       }
     });
 
+    it.each([
+      ["applicable", "  return id.trim().length > 0;", false, "suggestion"],
+      ["outdated anchor", "  return id.trim().length > 0;", true, "Cannot suggest"],
+      ["identical proposal", "  return id.length > 0;", false, "Cannot suggest"],
+    ] as const)(
+      "accepts only a current-head anchored GitHub suggestion: %s",
+      async (_, replacement, outdated, expected) => {
+        const f = await fixture({
+          sourceBody: "/rr suggest fix",
+          modelText: JSON.stringify({
+            kind: "answer",
+            answer: JSON.stringify({
+              startLine: 2,
+              endLine: 2,
+              before: "  return id.length > 0;",
+              replacement,
+            }),
+            action: null,
+          }),
+        });
+        f.comments[0]!.line = 2;
+        f.comments[0]!.original_line = 2;
+        if (outdated) f.comments[0]!.commit_id = "d".repeat(40);
+        let prepared = 0;
+        f.memory.prepareLearning = async () => {
+          prepared++;
+          throw new Error("suggest_request_must_not_prepare_learning");
+        };
+        try {
+          const first = await f.processor.execute(input, controls());
+          expect(first.status).toBe("ready");
+          expect(first.reply?.body).toContain(expected);
+          expect(first.reply?.body).toContain("c".repeat(12));
+          if (!outdated && replacement !== "  return id.length > 0;")
+            expect(first.reply?.body).toContain("suggestion\n  return id.trim().length > 0;");
+          else
+            expect(first.reply?.body).not.toContain("suggestion\n");
+          expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+          expect(prepared).toBe(0);
+          expect(f.sourceCalls.some((entry) => entry.route.includes("/contents/"))).toBe(true);
+          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
+          expect(await f.processor.execute(input, controls())).toEqual(first);
+          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
+    it("rejects model-suggested memory edits during a code suggestion", async () => {
+      const f = await fixture({
+        sourceBody: "/rr suggest fix",
+        modelAction: {
+          kind: "create",
+          knowledgeKind: "observation",
+          body: "Unrequested model knowledge.",
+          intentQuote: "/rr suggest fix",
+        },
+      });
+      f.comments[0]!.line = 2;
+      f.comments[0]!.original_line = 2;
+      try {
+        const first = await f.processor.execute(input, controls());
+        expect(first.status).toBe("output_unavailable");
+        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+      } finally {
+        await f.app.close();
+      }
+    });
+
     it.each([false, true])(
       "isolates failed learning preparation without a child and preserves dispatch authority: revoked=%s",
       async (revoked) => {
