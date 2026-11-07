@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Inline reviewer agreement wording: [dashboard tooltip and managed v2 contract](2026-11-07-inline-agreement-dashboard.md), [Draft PR #830](https://github.com/777genius/review-router-ai/pull/830) and [Action PR #375](https://github.com/777genius/review-router/pull/375) — staging/production `pending`; source changes do not activate or release the Action.
+
 Self-hosted agent-first installation: [non-interactive JSON and safe resume](2026-11-07-self-hosted-agent-first.md), [PR #826](https://github.com/777genius/review-router-ai/pull/826) — disposable CI and a first public-host review remain `pending`. No hosted rollout, credential rotation or release is authorized; source checks do not establish a live provider result.
 
 Self-hosted onboarding: [guided installer and documentation scope correction](2026-11-07-self-hosted-guided-install.md), [PR #822](https://github.com/777genius/review-router-ai/pull/822) — fresh installation and managed target resume `pending`. Corrected implementation `c02350a` passed [real disposable self-hosted E2E](https://github.com/777genius/review-router-ai/actions/runs/42366967793/job/128386952114) at 2026-11-07 11:21:32 UTC (PR merge checkout `956c98c`): production PostgreSQL guard/reuse, runtime-owned bundle and real Memory lifecycle verified. The first SQL failure remains historical. Fresh-host HTTPS/GitHub App/provider onboarding, guided resume and first-review qualification remain pending. Follow [current PR checks](https://github.com/777genius/review-router-ai/pull/822/checks) for source distribution; no hosted deployment or production flag change is claimed.
