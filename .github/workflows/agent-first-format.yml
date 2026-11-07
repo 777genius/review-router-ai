@@ -1,4 +1,4 @@
-# Run once after the branch is synchronized with the protected main.
+# Temporary formatter for agent-first follow-up, removed before merge.
 name: Agent-first format (temporary)
 on:
   push:

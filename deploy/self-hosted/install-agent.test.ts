@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import type { AgentInstallStatus } from "./install.ts";
+import { repositorySetupGate, type AgentInstallStatus } from "./install.ts";
 
 const root = resolve(import.meta.dirname, "../..");
 const entrypoint = join(root, "deploy/self-hosted/install.ts");
@@ -189,4 +189,36 @@ test("malformed or forged saved agent status is rejected before any deployment w
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+
+test("repository approval is scoped, explicit and survives an interrupted activation", () => {
+  const repository = "example/review-target";
+  const waiting: AgentInstallStatus = {
+    schemaVersion: 1,
+    state: "repository_setup_required",
+    phase: "repository",
+    message: "Approve the workflow",
+    repository,
+  };
+  const failed: AgentInstallStatus = {
+    ...waiting,
+    state: "failed",
+  };
+  assert.equal(repositorySetupGate(undefined, waiting, repository, false), "request_approval");
+  assert.equal(repositorySetupGate(undefined, waiting, repository, true), "save_acknowledgment");
+  assert.equal(repositorySetupGate(repository, failed, repository, false), "approved");
+  assert.equal(repositorySetupGate(repository, failed, repository, true), "approved");
+  assert.throws(
+    () => repositorySetupGate(undefined, failed, repository, true),
+    /First receive repository_setup_required/,
+  );
+  assert.throws(
+    () => repositorySetupGate(undefined, waiting, "another/repo", true),
+    /First receive repository_setup_required/,
+  );
+  assert.throws(
+    () => repositorySetupGate(repository, waiting, "another/repo", false),
+    /refuse to widen/,
+  );
 });

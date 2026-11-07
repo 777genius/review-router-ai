@@ -248,6 +248,27 @@ export function repositoryName(value: string): string {
   return value;
 }
 
+/** Persist explicit setup acknowledgment before actions that may fail or be retried. */
+export function repositorySetupGate(
+  acknowledgedRepository: string | undefined,
+  previous: AgentInstallStatus | undefined,
+  repository: string,
+  confirmed: boolean,
+): "request_approval" | "save_acknowledgment" | "approved" {
+  assert(
+    !acknowledgedRepository || acknowledgedRepository === repository,
+    "Repository approval belongs to another repository; refuse to widen the approved scope",
+  );
+  if (acknowledgedRepository === repository) return "approved";
+  if (!confirmed) return "request_approval";
+  assert(
+    previous?.state === "repository_setup_required" &&
+      previous.repository === repository,
+    "First receive repository_setup_required and complete App/provider/workflow approval before confirming",
+  );
+  return "save_acknowledgment";
+}
+
 export function repositoryActivation(status: unknown): "initialize" | "ready" {
   assert(status && typeof status === "object", "Invalid repository status");
   const value = status as {
@@ -1098,7 +1119,16 @@ async function main(): Promise<void> {
       await record(previous);
       return;
     }
-    if (machineOutput && !values["repository-setup-complete"]) {
+    const approvalPath = join(directory, "repository-setup-acknowledged");
+    const approvalGate = machineOutput
+      ? repositorySetupGate(
+          await readPrivate(approvalPath),
+          previous,
+          repository,
+          Boolean(values["repository-setup-complete"]),
+        )
+      : undefined;
+    if (machineOutput && approvalGate === "request_approval") {
       await record({
         schemaVersion: 1,
         state: "repository_setup_required",
@@ -1121,12 +1151,8 @@ async function main(): Promise<void> {
       return;
     }
     if (machineOutput) {
-      assert(
-        (previous?.state === "repository_setup_required" ||
-          previous?.state === "verification_required") &&
-          previous.repository === repository,
-        "First receive repository_setup_required, complete App/provider/workflow approval, then resume with --repository-setup-complete",
-      );
+      if (approvalGate === "save_acknowledgment")
+        await writePrivate(approvalPath, repository);
     } else {
       await ask(
         `Press Enter after ${repository} is connected and its setup PR is merged`,
