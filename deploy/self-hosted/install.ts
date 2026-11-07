@@ -23,6 +23,7 @@ import {
   type InstallSettings,
 } from "./install-config.ts";
 import { buildSelfHostedDatabasePlan } from "./install-database.ts";
+import type { SelfHostedRelease } from "./install-release.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const help = `ReviewRouter guided self-hosted installation
@@ -616,6 +617,24 @@ async function main(): Promise<void> {
       await writePrivate(statePath, JSON.stringify(settings, null, 2) + "\n");
     }
 
+    // This marker is written only after successful service and release verification.
+    // Its existence alone is never enough to trust a resumed deployment.
+    const readyMarker = await readPrivate(join(directory, "server-ready.json"));
+    const reuseReadyServer = readyMarker !== undefined;
+    if (readyMarker !== undefined) {
+      const marker = JSON.parse(readyMarker) as Record<string, unknown>;
+      assert(
+        marker &&
+          typeof marker === "object" &&
+          !Array.isArray(marker) &&
+          marker.sourceCommit === sourceCommit &&
+          marker.actionCommit === settings.actionCommit &&
+          marker.webUrl === settings.webUrl &&
+          typeof marker.checkedAt === "string",
+        "Saved server readiness does not match this pinned installation; reconcile before retrying",
+      );
+    }
+
     phase = "dependencies";
     await record(
       {
@@ -626,18 +645,22 @@ async function main(): Promise<void> {
       },
       false,
     );
-    log("\n1/6 Installing the pinned workspace dependencies.");
-    await run(process.execPath, [
-      "scripts/install-private-dependencies.mjs",
-      "--frozen-lockfile",
-    ]);
-    await run(process.execPath, [
-      "scripts/local-checks/compiler-cli.ts",
-      "--native",
-      "-p",
-      "packages/shared/tsconfig.build.json",
-    ]);
-    await run(process.execPath, ["scripts/rewrite-dist-esm-imports.mjs"]);
+    if (!reuseReadyServer) {
+      log("\n1/6 Installing the pinned workspace dependencies.");
+      await run(process.execPath, [
+        "scripts/install-private-dependencies.mjs",
+        "--frozen-lockfile",
+      ]);
+      await run(process.execPath, [
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "-p",
+        "packages/shared/tsconfig.build.json",
+      ]);
+      await run(process.execPath, ["scripts/rewrite-dist-esm-imports.mjs"]);
+    } else {
+      log("Skipping installed dependencies and compiler build; checking live server readiness.");
+    }
 
     const credentialPath = join(directory, "operator-credential");
     let credential = await readPrivate(credentialPath);
@@ -798,6 +821,10 @@ async function main(): Promise<void> {
     }
     let env = parseEnvironment(envText);
     assertEnvironmentBinding(env, settings, credential);
+    assert(
+      !reuseReadyServer || (envText && credential),
+      "Saved ready installation is missing its credentials; recover rather than recreate",
+    );
 
     phase = "release";
     await record(
@@ -812,6 +839,8 @@ async function main(): Promise<void> {
     log(
       "\n3/6 Verifying the pinned reviewer and preparing its release configuration.",
     );
+    let release: SelfHostedRelease | undefined;
+    if (!reuseReadyServer) {
     const actionRepo = join(directory, "action"),
       actionBranch = `selfhost-${settings.actionCommit.slice(0, 12)}`;
     if (!(await exists(join(actionRepo, ".git")))) {
@@ -854,7 +883,7 @@ async function main(): Promise<void> {
       ]);
     }
     const { generateSelfHostedRelease } = await import("./install-release.ts");
-    const release = await generateSelfHostedRelease({
+    release = await generateSelfHostedRelease({
       repoRoot: root,
       actionRepo,
       expectedActionSha: settings.actionCommit,
@@ -870,6 +899,7 @@ async function main(): Promise<void> {
     await run(process.execPath, [
       "scripts/check-self-hosted-compose-contract.mjs",
     ]);
+    }
 
     const composeArgs = [
       "compose",
@@ -900,37 +930,56 @@ async function main(): Promise<void> {
     log(
       "\n4/6 Starting the database, Memory and application services. First builds can take several minutes.",
     );
-    await compose(["up", "-d", "--wait", "postgres"]);
-    const database = buildSelfHostedDatabasePlan(env);
-    const psql = [
-      "exec",
-      "-T",
-      "postgres",
-      "psql",
-      "-XqAt",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-v",
-      "VERBOSITY=terse",
-      "-U",
-      env.POSTGRES_USER!,
-      "-d",
-      env.POSTGRES_DB!,
-    ];
-    await compose(psql, {
-      input: database.preMigrationSql,
-      privateInput: true,
-    });
-    await run(process.execPath, [
-      "deploy/self-hosted/setup-memory.ts",
-      envFile,
-      join(directory, "memory"),
-    ]);
-    await compose(["up", "-d", "--build", "--wait", "--wait-timeout", "300"]);
-    await compose(psql, {
-      input: database.postMigrationSql,
-      privateInput: true,
-    });
+    if (!reuseReadyServer) {
+      await compose(["up", "-d", "--wait", "postgres"]);
+      const database = buildSelfHostedDatabasePlan(env);
+      const psql = [
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-XqAt",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-v",
+        "VERBOSITY=terse",
+        "-U",
+        env.POSTGRES_USER!,
+        "-d",
+        env.POSTGRES_DB!,
+      ];
+      await compose(psql, {
+        input: database.preMigrationSql,
+        privateInput: true,
+      });
+      await run(process.execPath, [
+        "deploy/self-hosted/setup-memory.ts",
+        envFile,
+        join(directory, "memory"),
+      ]);
+      await compose(["up", "-d", "--build", "--wait", "--wait-timeout", "300"]);
+      await compose(psql, {
+        input: database.postMigrationSql,
+        privateInput: true,
+      });
+    } else if (settings.memory === "hindsight") {
+      const memoryEnvironment = await readPrivate(join(directory, "memory/router.env"));
+      assert(memoryEnvironment, "Saved Memory backend is missing; follow recovery runbook");
+      const expectedMemory = parseEnvironment(memoryEnvironment);
+      for (const [key, value] of Object.entries(expectedMemory)) {
+        if (key.startsWith("REVIEW_ROUTER_MEMORY_"))
+          assert(env[key] === value, "Saved Memory backend binding differs; no automatic rebuild");
+      }
+      const status = JSON.parse(
+        await run(process.execPath, ["deploy/hindsight/bootstrap.ts", "status", join(directory, "memory/bootstrap.json")], { capture: true }),
+      ) as { phase?: string; states?: Record<string, string> };
+      assert(
+        status.phase === "running" && status.states &&
+        Object.values(status.states).length > 0 &&
+        Object.values(status.states).every((value) => value === "running"),
+        "Saved Memory backend is not running; repair it explicitly before resuming",
+      );
+    }
     if (settings.proxy === "external") {
       log(
         `Route ${settings.webUrl} to 127.0.0.1:3000 and ${settings.apiUrl} to 127.0.0.1:4000 with your HTTPS proxy.`,
@@ -986,52 +1035,93 @@ async function main(): Promise<void> {
         },
       );
     assertRuntimePreflight(JSON.parse(await admin(["env-preflight"], true)));
-    // Write as the API runtime user: docker cp would make this mode0600 file root-owned.
-    const containerBundlePath = await compose(
-      ["exec", "-T", "api", "node", "deploy/self-hosted/install-bundle.ts"],
-      { input: JSON.stringify(release.bundle), capture: true },
-    );
-    try {
-      assertReleaseRegistered(
-        JSON.parse(
-          await admin(
-            [
-              "release",
-              "register",
-              "--bundle",
-              containerBundlePath,
-              "--confirm",
-              "release",
-            ],
-            true,
-          ),
-        ),
-        release.runtimeAttestation,
+    if (!reuseReadyServer) {
+      assert(release, "Fresh installation must produce a verified release");
+      // Write as the API runtime user: docker cp would make this mode0600 file root-owned.
+      const containerBundlePath = await compose(
+        ["exec", "-T", "api", "node", "deploy/self-hosted/install-bundle.ts"],
+        { input: JSON.stringify(release.bundle), capture: true },
       );
-    } finally {
-      await compose([
-        "exec",
-        "-T",
-        "api",
-        "node",
-        "deploy/self-hosted/install-bundle.ts",
-        "cleanup",
-        containerBundlePath,
-      ]);
+      try {
+        assertReleaseRegistered(
+          JSON.parse(
+            await admin(
+              [
+                "release",
+                "register",
+                "--bundle",
+                containerBundlePath,
+                "--confirm",
+                "release",
+              ],
+              true,
+            ),
+          ),
+          release.runtimeAttestation,
+        );
+      } finally {
+        await compose([
+          "exec",
+          "-T",
+          "api",
+          "node",
+          "deploy/self-hosted/install-bundle.ts",
+          "cleanup",
+          containerBundlePath,
+        ]);
+      }
+      await writePrivate(
+        join(directory, "server-ready.json"),
+        JSON.stringify(
+          {
+            sourceCommit,
+            actionCommit: settings.actionCommit,
+            webUrl: settings.webUrl,
+            checkedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+    } else {
+      const rows: unknown = JSON.parse(
+        env.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON ?? "null",
+      );
+      assert(
+        Array.isArray(rows) && rows.length === 1,
+        "Saved deployment is missing its immutable release attestation",
+      );
+      const attestation = rows[0] as {
+        producerReleaseId?: string;
+        actionCommitSha?: string;
+        protocolLimitsProfileId?: string;
+        operationalSloProfileId?: string;
+      };
+      assert(
+        attestation.producerReleaseId === `self-hosted-action-${settings.actionCommit}` &&
+        attestation.actionCommitSha === settings.actionCommit,
+        "Saved release does not match pinned Action source",
+      );
+      const installed = JSON.parse(
+        await admin(["release", "inspect", "--release", attestation.producerReleaseId], true),
+      ) as {
+        producerReleaseId?: string;
+        actionCommitSha?: string;
+        protocolLimitsProfileId?: string;
+        operationalSloProfileId?: string;
+        state?: string;
+        revokedAt?: string | null;
+      };
+      assert(
+        installed.producerReleaseId === attestation.producerReleaseId &&
+        installed.actionCommitSha === settings.actionCommit &&
+        installed.protocolLimitsProfileId === attestation.protocolLimitsProfileId &&
+        installed.operationalSloProfileId === attestation.operationalSloProfileId &&
+        installed.state === "registered" &&
+        installed.revokedAt === null,
+        "Previously registered reviewer release is missing, revoked or mismatched; reconcile explicitly",
+      );
     }
-    await writePrivate(
-      join(directory, "server-ready.json"),
-      JSON.stringify(
-        {
-          sourceCommit,
-          actionCommit: settings.actionCommit,
-          webUrl: settings.webUrl,
-          checkedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ) + "\n",
-    );
 
     log(
       `\n5/6 Server ready: ${settings.webUrl}\nInstall your GitHub App: https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`,
