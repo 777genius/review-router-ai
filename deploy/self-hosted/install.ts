@@ -46,6 +46,7 @@ resume. Existing credentials and data are preserved; this is not an upgrader.
   --without-memory                      Explicitly omit the Memory backend
   --repo OWNER/REPO                      First repository to initialize
   --repository-setup-complete           Resume after App/provider/workflow approval
+  --external-proxy-ready                Resume after HTTPS proxy routing is configured
   --status                             Print last agent status (no changes)
   --interactive                        Opt in to the human prompt-based wizard
   --help                               Show this help
@@ -303,6 +304,7 @@ async function main(): Promise<void> {
       "without-memory": { type: "boolean" },
       repo: { type: "string" },
       "repository-setup-complete": { type: "boolean" },
+      "external-proxy-ready": { type: "boolean" },
       status: { type: "boolean" },
       interactive: { type: "boolean" },
       help: { type: "boolean" },
@@ -371,6 +373,7 @@ async function main(): Promise<void> {
     "scripts/install-self-hosted.sh",
     "--directory",
     directory,
+    ...(values.repo && !args.includes("--repo") ? ["--repo", values.repo] : []),
     ...args,
   ];
   const record = async (report: AgentInstallStatus, print = true) => {
@@ -809,7 +812,7 @@ async function main(): Promise<void> {
       log(
         `Route ${settings.webUrl} to 127.0.0.1:3000 and ${settings.apiUrl} to 127.0.0.1:4000 with your HTTPS proxy.`,
       );
-      if (machineOutput) {
+      if (machineOutput && !values["external-proxy-ready"]) {
         await record({
           schemaVersion: 1,
           state: "approval_required",
@@ -818,13 +821,25 @@ async function main(): Promise<void> {
           message: "Configure your external HTTPS proxy and DNS routing, then rerun the installer. The wizard does not own external proxy settings.",
           next: {
             action: "configure_external_https",
-            resume: resumeCommand(),
+            resume: resumeCommand(["--external-proxy-ready"]),
             requiresUserApproval: true,
           },
         });
         return;
       }
-      await ask("Press Enter when HTTPS routing is ready");
+      if (machineOutput) {
+        const previous = previousStatus
+          ? (JSON.parse(previousStatus) as AgentInstallStatus)
+          : undefined;
+        assert(
+          previous?.state === "approval_required" &&
+            previous.phase === "https" &&
+            settings.proxy === "external",
+          "Configure your external HTTPS proxy, receive its approval_required status, then resume with --external-proxy-ready",
+        );
+      } else {
+        await ask("Press Enter when HTTPS routing is ready");
+      }
     }
     log("Checking public HTTPS endpoints.");
     await waitForHealth(`${settings.apiUrl}/health`);
@@ -977,6 +992,19 @@ async function main(): Promise<void> {
       `Open ${settings.webUrl}/setup, select ${repository} and connect your provider using GitHub Secrets setup. Merge the generated workflow pull request.`,
     );
     phase = "repository";
+    const previous = previousStatus
+      ? (JSON.parse(previousStatus) as AgentInstallStatus)
+      : undefined;
+    if (machineOutput && !values["repository-setup-complete"] &&
+        previous?.state === "verification_required" &&
+        previous.repository === repository) {
+      assert(
+        repositoryActivation(JSON.parse(await admin(["status", "--repo", repository], true))) === "ready",
+        "Saved reviewer authority is no longer active",
+      );
+      await record(previous);
+      return;
+    }
     if (machineOutput && !values["repository-setup-complete"]) {
       await record({
         schemaVersion: 1,
@@ -999,11 +1027,9 @@ async function main(): Promise<void> {
       return;
     }
     if (machineOutput) {
-      const previous = previousStatus
-        ? (JSON.parse(previousStatus) as AgentInstallStatus)
-        : undefined;
       assert(
-        previous?.state === "repository_setup_required" &&
+        (previous?.state === "repository_setup_required" ||
+          previous?.state === "verification_required") &&
           previous.repository === repository,
         "First receive repository_setup_required, complete App/provider/workflow approval, then resume with --repository-setup-complete",
       );
