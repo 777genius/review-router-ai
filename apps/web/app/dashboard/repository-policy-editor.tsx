@@ -74,7 +74,7 @@ const fieldHelp = {
   providerMaxParallel:
     "Maximum number of selected providers ReviewRouter may run at the same time.",
   inlineMinAgreement:
-    "Number of providers that should agree before an inline finding is treated as agreed.",
+    "Minimum independent reviewer votes required for inline PR comments. Findings below this threshold stay in the review summary and can still fail severity checks. Deterministic static findings are exempt.",
   updatePrDescription:
     "Adds an AI-generated summary through a supported review runtime while preserving the author's text.",
   reviewLanguage:
