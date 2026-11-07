@@ -41,8 +41,6 @@ jobs:
             packages/features/conversations/src/domain/focused-finding.ts \
             packages/features/conversations/src/tests/focused-finding.test.ts \
             packages/features/conversations/src/domain/focused-suggestion.ts \
-            packages/features/conversations/src/tests/focused-suggestion.test.ts \
-            packages/features/conversations/src/domain/focused-suggestion.ts \
             packages/features/conversations/src/tests/focused-suggestion.test.ts
           node scripts/check-conversation-source-stamp.ts --write
           node scripts/check-conversation-release-verifier.ts --write
@@ -57,6 +55,8 @@ jobs:
             packages/features/conversations/src/domain/conversation.ts \
             packages/features/conversations/src/domain/focused-finding.ts \
             packages/features/conversations/src/tests/focused-finding.test.ts \
+            packages/features/conversations/src/domain/focused-suggestion.ts \
+            packages/features/conversations/src/tests/focused-suggestion.test.ts \
             packages/platform/config/src/conversation-source-stamp.json \
             deploy/self-hosted/conversation-verifier.mjs \
             deploy/self-hosted/conversation-verifier.d.mts \
