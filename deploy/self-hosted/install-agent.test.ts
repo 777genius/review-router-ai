@@ -324,6 +324,13 @@ test(
       assert(!calls.includes("release register"));
       assert(!calls.includes("up -d --wait postgres"));
       assert(calls.includes("release inspect"));
+      await rm(join(directory, "operator-credential"));
+      const unsafeResume = invokeResumed();
+      assert.notEqual(unsafeResume.status, 0);
+      assert.match(unsafeResume.stderr, /Ready marker exists but saved credentials are missing/);
+      await assert.rejects(readFile(join(directory, "operator-credential"), "utf8"), {
+        code: "ENOENT",
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
