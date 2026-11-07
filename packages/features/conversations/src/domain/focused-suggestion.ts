@@ -11,8 +11,14 @@ export function isSuggestFixCommand(body: string): boolean {
 
 /** Validate that every requested line belongs to one RIGHT-side hunk. */
 function inOneRightHunk(patch: string, start: number, end: number): boolean {
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start ||
-    start < 1 || end - start >= 50) return false;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    end < start ||
+    start < 1 ||
+    end - start >= 50
+  )
+    return false;
   let hunk = 0;
   let line = 0;
   const right = new Map<number, number>();
@@ -49,7 +55,8 @@ export function renderFocusedSuggestion(
   headSha: string,
   anchoredCommitSha: string,
 ): string {
-  const unavailable = "**Cannot suggest a safe fix** on this PR revision. A current RIGHT-side diff hunk, exact original text, and a bounded proposal are required. Nothing was changed.";
+  const unavailable =
+    "**Cannot suggest a safe fix** on this PR revision. A current RIGHT-side diff hunk, exact original text, and a bounded proposal are required. Nothing was changed.";
   if (
     !source ||
     source.headSha !== headSha ||
@@ -59,25 +66,39 @@ export function renderFocusedSuggestion(
     source.patch.length > 24_000 ||
     !Number.isSafeInteger(source.originalLine) ||
     (source.originalLine ?? 0) < 1
-  ) return unavailable;
+  )
+    return unavailable;
   let raw: unknown;
-  try { raw = JSON.parse(answer); } catch { return unavailable; }
+  try {
+    raw = JSON.parse(answer);
+  } catch {
+    return unavailable;
+  }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return unavailable;
   const result = raw as Record<string, unknown>;
   if (
-    Object.keys(result).sort().join(",") !== "before,endLine,replacement,startLine" ||
+    Object.keys(result).sort().join(",") !==
+      "before,endLine,replacement,startLine" ||
     !Number.isSafeInteger(result.startLine) ||
     !Number.isSafeInteger(result.endLine) ||
     typeof result.before !== "string" ||
     typeof result.replacement !== "string"
-  ) return unavailable;
-  const start = result.startLine as number, end = result.endLine as number;
+  )
+    return unavailable;
+  const start = result.startLine as number,
+    end = result.endLine as number;
   const anchor = source.originalLine!;
   if (
-    start < 1 || end !== start || anchor !== start ||
+    start < 1 ||
+    end !== start ||
+    anchor !== start ||
     !inOneRightHunk(source.patch, start, end)
-  ) return unavailable;
-  const original = source.content.split("\n").slice(start - 1, end).join("\n");
+  )
+    return unavailable;
+  const original = source.content
+    .split("\n")
+    .slice(start - 1, end)
+    .join("\n");
   const before = result.before as string;
   const replacement = result.replacement as string;
   if (
@@ -87,16 +108,31 @@ export function renderFocusedSuggestion(
     !replacement.trim() ||
     replacement.length > 4_000 ||
     replacement.split("\n").length > 50 ||
-    Array.from(replacement).some((char) => { const code = char.charCodeAt(0); return code === 13 || code < 9 || (code > 10 && code < 32) || code === 127; })
-  ) return unavailable;
+    Array.from(replacement).some((char) => {
+      const code = char.charCodeAt(0);
+      return (
+        code === 13 || code < 9 || (code > 10 && code < 32) || code === 127
+      );
+    })
+  )
+    return unavailable;
   const tick = String.fromCharCode(96);
   const runs = replacement.match(new RegExp(tick + "+", "gu")) ?? [];
   const fence = tick.repeat(Math.max(3, ...runs.map((run) => run.length + 1)));
 
   return [
-    "**Suggested fix** for " + tick + source.path.replace(/[^\w./-]/gu, "") +
-      ":" + start + (start === end ? "" : "-" + end) + tick +
-      " at HEAD " + tick + headSha.slice(0, 12) + tick + ".",
+    "**Suggested fix** for " +
+      tick +
+      source.path.replace(/[^\w./-]/gu, "") +
+      ":" +
+      start +
+      (start === end ? "" : "-" + end) +
+      tick +
+      " at HEAD " +
+      tick +
+      headSha.slice(0, 12) +
+      tick +
+      ".",
     fence + "suggestion\n" + replacement + "\n" + fence,
     "_Apply this suggestion manually in GitHub. No code or review state was changed._",
   ].join("\n\n");

@@ -726,8 +726,18 @@ describe.skipIf(!databaseUrl)(
 
     it.each([
       ["applicable", "  return id.trim().length > 0;", false, "suggestion"],
-      ["outdated anchor", "  return id.trim().length > 0;", true, "Cannot suggest"],
-      ["identical proposal", "  return id.length > 0;", false, "Cannot suggest"],
+      [
+        "outdated anchor",
+        "  return id.trim().length > 0;",
+        true,
+        "Cannot suggest",
+      ],
+      [
+        "identical proposal",
+        "  return id.length > 0;",
+        false,
+        "Cannot suggest",
+      ],
     ] as const)(
       "accepts only a current-head anchored GitHub suggestion: %s",
       async (_, replacement, outdated, expected) => {
@@ -758,16 +768,23 @@ describe.skipIf(!databaseUrl)(
           expect(first.reply?.body).toContain(expected);
           expect(first.reply?.body).toContain("c".repeat(12));
           if (!outdated && replacement !== "  return id.length > 0;")
-            expect(first.reply?.body).toContain("suggestion\n  return id.trim().length > 0;");
-          else
-            expect(first.reply?.body).not.toContain("suggestion\n");
+            expect(first.reply?.body).toContain(
+              "suggestion\n  return id.trim().length > 0;",
+            );
+          else expect(first.reply?.body).not.toContain("suggestion\n");
           expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
           expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
           expect(prepared).toBe(0);
-          expect(f.sourceCalls.some((entry) => entry.route.includes("/contents/"))).toBe(true);
-          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
+          expect(
+            f.sourceCalls.some((entry) => entry.route.includes("/contents/")),
+          ).toBe(true);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
           expect(await f.processor.execute(input, controls())).toEqual(first);
-          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
         } finally {
           await f.app.close();
         }
