@@ -72,6 +72,15 @@ export type ConversationMessage = {
   readonly body: string;
   readonly bodyDigest: string;
 };
+export type FocusedFindingSource = Readonly<{
+  readonly headSha: string;
+  readonly path: string;
+  readonly blobOid: string;
+  readonly content: string;
+  readonly patch: string | null;
+  readonly originalLine: number | null;
+}>;
+
 export type ConversationSnapshot = ConversationIdentity & {
   readonly messages: readonly ConversationMessage[];
   readonly visibility: "public" | "private" | "internal";
