@@ -23,7 +23,12 @@ export function renderFixedFindingAnswer(
   const unavailable = "**Cannot verify** this finding on HEAD " +
     inline(headSha.slice(0, 12)) +
     ". The checked source, model evidence or confidence was insufficient. The finding remains open.";
-  if (!source || source.headSha !== headSha || !/^[0-9a-f]{40}$/.test(headSha))
+  if (
+    !source ||
+    source.headSha !== headSha ||
+    !/^[0-9a-f]{40}$/.test(headSha) ||
+    !/^[0-9a-f]{40,64}$/.test(source.blobOid)
+  )
     return unavailable;
   let raw: unknown;
   try { raw = JSON.parse(generatedAnswer); } catch { return unavailable; }
