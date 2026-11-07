@@ -17,16 +17,72 @@ review on github.com.
 - Have a GitHub account that can create and install an App, a supported AI
   provider account and a disposable repository for the first review.
 
-Run this in a Bash shell on the **server**:
+### Agent-first installation (default)
+
+Run this command from an agent with shell access to the **Linux x64 server**.
+No interactive terminal is required. Supply real, public DNS hostnames and a
+repository you own (the values below are placeholders):
 
 ```bash
-bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' -- \
+  --web-url https://review.example.com \
+  --repo OWNER/REPOSITORY
 ```
 
-Enter the web and API domains when prompted. The installer guides GitHub App
-creation, creates private configuration, prepares the review runtime, provisions
-the default memory backend, starts the services with HTTPS and checks readiness.
-The first build and memory-model downloads can take time.
+For production, **pin the control-plane source commit**, rather than deploying
+the current moving `main` checkout. For example, on the same server:
+
+```bash
+SOURCE_SHA=PASTE_APPROVED_40_CHARACTER_COMMIT_SHA
+git clone https://github.com/777genius/review-router-ai.git reviewrouter
+git -C reviewrouter fetch origin "$SOURCE_SHA"
+git -C reviewrouter checkout --detach "$SOURCE_SHA"
+cd reviewrouter
+bash scripts/install-self-hosted.sh \
+  --web-url https://review.example.com \
+  --api-url https://api.review.example.com \
+  --repo OWNER/REPOSITORY
+```
+
+The first, shorter command above is for new evaluations that intentionally use
+the current default branch. Without `--api-url`, the API domain defaults to
+`https://api.<web hostname>`; both DNS names must already point to the server.
+Both routes use the same agent-first JSON contract. Replace the example
+domains and repository before starting.
+
+The installer auto-generates private credentials, installs pinned dependencies,
+prepares database roles and migrations, deploys Compose/Memory/HTTPS, verifies
+server readiness and registers the exact Action release. By default it returns
+**one JSON object on stdout** and progress on stderr. Every returned state is
+explicit; a successful process exit with `approval_required` means the installer
+is waiting for authorized action, **not** that the deployment is complete.
+
+An agent should follow the `next` object and rerun `next.resume` from the saved
+checkout (default `./reviewrouter`). `next.argv` is an argument array, never a
+shell string to interpolate. Use `bash scripts/install-self-hosted.sh --status`
+in that checkout to read the last private status without modifying services.
+Keep the whole installation directory private and do not print its `.env`,
+App profile, key material or provider credentials in chat logs.
+
+| JSON state                         | Meaning / next step                                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input_required`                   | Agent must supply the public dashboard URL; API URL defaults to `api.<dashboard hostname>`. Configure DNS first.                                                          |
+| `approval_required` (`github_app`) | Run the provided manifest-helper command, obtain authorized GitHub browser approval, then resume. The helper keeps the App profile in a private directory.                |
+| `approval_required` (`https`)      | Only with `--external-proxy`: set up HTTPS routing and resume with `--external-proxy-ready`; public TLS health is still checked. Bundled Caddy normally avoids this step. |
+| `server_ready`                     | Services respond, but no repository has been selected. Resume with `--repo OWNER/REPOSITORY`.                                                                             |
+| `repository_setup_required`        | Install App, connect provider in the dashboard and merge the generated workflow PR. Once these actions have actually happened, resume with `--repository-setup-complete`. |
+| `verification_required`            | Review authority is initialized. Open a small disposable PR and confirm actual App-authored review plus a second-revision review. **No first review is claimed yet.**     |
+| `failed`                           | Read stderr, correct the issue and resume at the pinned revision. The installer preserves private credentials and does not silently upgrade.                              |
+
+With `--review-only`, no workflow setup PR is created. An authorized user must
+install and verify the canonical workflow manually using the section below.
+
+Agent mode deliberately does **not** auto-approve GitHub App permissions,
+authorize an AI subscription, merge a workflow PR, change existing emergency
+stops or claim review success without evidence. An agent with the appropriate
+GitHub/browser permissions may guide these tasks, but must obtain any required
+human authorization. For manual prompts, pass `--interactive` to the same
+entrypoint. The manual wizard uses exactly the same installation state.
 
 ### Complete the browser steps
 
@@ -41,22 +97,25 @@ The App creation helper uses a local callback on port 45731. Follow the browser
 link printed by the installer. With an existing App profile, use
 `--app-profile /secure/github-app.env` instead.
 
-When the installer asks you to finish repository setup:
+After the agent reports `repository_setup_required` (or when the interactive wizard prompts):
 
 1. Install the App on the test repository using the printed GitHub link.
-2. Enter `OWNER/REPOSITORY` in the installer. It enables provider setup and
-   review admission for that repository, applies the configuration and checks
-   service readiness before provider onboarding.
+2. If the agent already supplied `--repo OWNER/REPOSITORY`, keep that selection;
+   otherwise resume with `--repo OWNER/REPOSITORY`. The installer enables
+   provider setup and review admission only for that repository.
 3. Open the printed dashboard setup URL, sign in with GitHub and select the same
    repository. Choose **GitHub Secrets** for provider setup and follow the
    generated instructions.
 4. Review and merge the generated workflow setup PR.
-5. Return to the installer and press Enter. It verifies the current repository
-   setup and initializes review authority through the operator CLI.
+5. In agent mode, resume using the exact `next.resume` arguments (including
+   `--repository-setup-complete`). In interactive mode, return to the installer
+   and press Enter. It verifies setup and initializes review authority through
+   the operator CLI.
 
 The default App profile permits dashboard setup PRs. The installer does not
-complete the provider's sign-in or merge a PR on your behalf. Press Enter at
-the repository prompt to finish server setup and connect a repository later.
+complete the provider's sign-in or merge a PR on your behalf. Omit `--repo` in
+agent mode (or press Enter at the interactive repository prompt) to finish
+server setup and connect a repository later.
 This path uses credentials in GitHub Secrets. Account Gateway is a separately
 provisioned service and is not installed by this wizard.
 
@@ -76,6 +135,10 @@ from its saved checkout:
 | Option                                 | Purpose                                                                              |
 | -------------------------------------- | ------------------------------------------------------------------------------------ |
 | `--repo OWNER/REPOSITORY`              | Select the first repository before provider onboarding.                              |
+| `--status`                             | Read the saved machine status without starting services.                             |
+| `--interactive`                        | Opt in to prompts; the default mode is non-interactive JSON.                         |
+| `--repository-setup-complete`          | Resume only after the App/provider/workflow approvals actually happened.             |
+| `--external-proxy-ready`               | Resume external proxy setup after configuring public HTTPS routing.                  |
 | `--app-profile /secure/github-app.env` | Import an existing GitHub App profile.                                               |
 | `--directory /private/install`         | Select the private state directory; reuse it when resuming.                          |
 | `--external-proxy`                     | Use an existing HTTPS reverse proxy instead of bundled Caddy.                        |

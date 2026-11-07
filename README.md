@@ -92,17 +92,34 @@ against your own subscription or API billing.
 
 ## Self-host
 
-Start the guided installer on your Linux x64 server:
+**Agent-first is the default.** On a Linux x64 server, prepare Docker
+Compose v2, Git, curl, and Node.js 24.21+ or 26.10+. Point two DNS names
+(e.g., `review.example.com` and `api.review.example.com`) to the server
+and allow inbound ports 80/443. Default Memory also requires Python 3 and tar.
+
+Give your coding agent shell access to that server and run:
 
 ```bash
-bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' -- \
+  --web-url https://review.example.com \
+  --repo OWNER/REPOSITORY
 ```
 
-Prepare two public DNS names, Docker Compose v2, Git and a supported Node.js
-release. The installer handles service setup and HTTPS, then guides you through
-GitHub App creation and repository activation. Complete provider onboarding and
-merge the workflow setup PR in your browser; verify the first review with a test
-pull request. See [prerequisites and installation steps](./docs/operations/review-router-self-hosted-end-to-end.md#guided-installation).
+Replace the example domain and repository. The API domain defaults to
+`https://api.review.example.com`; configure its DNS record too.
+The installer generates private credentials, starts services and HTTPS,
+and returns **one JSON status** with the next action. It resumes without
+rebuilding a healthy installation. Agent mode needs no interactive terminal;
+to follow prompts yourself, add `--interactive` to the same command.
+
+You still approve the GitHub App, connect the provider through **GitHub Secrets**,
+and approve the workflow setup PR. In `--review-only` mode, install the canonical
+workflow manually instead. Subscription-account Gateway is a separate service.
+A running server is **not** proof of a completed AI review.
+
+This moving-branch command is for evaluation. For production,
+[pin an approved source commit](./docs/operations/review-router-self-hosted-end-to-end.md#agent-first-installation-default).
+See [installation, resume and first-review steps](./docs/operations/review-router-self-hosted-end-to-end.md#guided-installation).
 
 ## Review engine
 

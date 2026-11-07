@@ -33,4 +33,5 @@ cd -- "$installer_root"
 package_manager="$(node -p 'const p=require("./package.json").packageManager; if (!/^pnpm@[0-9]+\.[0-9]+\.[0-9]+$/.test(p)) throw Error("Invalid pinned package manager"); p')"
 # npm exec supplies this exact pnpm to the wizard and all child commands without
 # replacing a globally installed package manager.
-exec npm exec --yes --package "$package_manager" -- node deploy/self-hosted/install.ts "$@"
+# Keep machine-readable output owned by the installer, not npm progress.
+exec npm --silent exec --yes --package "$package_manager" -- node deploy/self-hosted/install.ts "$@"

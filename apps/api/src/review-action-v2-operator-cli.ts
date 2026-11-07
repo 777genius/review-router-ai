@@ -330,6 +330,24 @@ async function main() {
       printJson(await registerRelease(parsed, runtime));
       return;
     }
+    if (command === "release inspect") {
+      const runtime = composeReviewActionV2ReleaseRegistry(prisma);
+      await authenticateOperator(runtime.digest, process.env);
+      const release = await prisma.producerRelease.findUnique({
+        where: { producerReleaseId: requireOption(parsed, "release") },
+        select: {
+          producerReleaseId: true,
+          actionCommitSha: true,
+          protocolLimitsProfileId: true,
+          operationalSloProfileId: true,
+          state: true,
+          revokedAt: true,
+        },
+      });
+      if (!release) throw new Error("review_v2_release_not_found");
+      printJson(release);
+      return;
+    }
     if (command === "release revoke") {
       const runtime = composeReviewActionV2ReleaseRegistry(prisma);
       await authenticateOperator(runtime.digest, process.env);
@@ -1597,6 +1615,7 @@ function printUsage() {
     `  release selection-preflight --repository OWNER/REPO --action-sha SHA\n`,
   );
   process.stdout.write(`  release register --bundle FILE --confirm release\n`);
+  process.stdout.write(`  release inspect --release RELEASE_ID\n`);
   process.stdout.write(
     `  release revoke --release RELEASE_ID --confirm RELEASE_ID\n`,
   );

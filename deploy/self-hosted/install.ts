@@ -23,6 +23,7 @@ import {
   type InstallSettings,
 } from "./install-config.ts";
 import { buildSelfHostedDatabasePlan } from "./install-database.ts";
+import type { SelfHostedRelease } from "./install-release.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const help = `ReviewRouter guided self-hosted installation
@@ -45,8 +46,16 @@ resume. Existing credentials and data are preserved; this is not an upgrader.
   --review-only                         Manage repository workflows manually
   --without-memory                      Explicitly omit the Memory backend
   --repo OWNER/REPO                      First repository to initialize
+  --repository-setup-complete           Resume after App/provider/workflow approval
+  --external-proxy-ready                Resume after HTTPS proxy routing is configured
+  --status                             Print last agent status (no changes)
+  --interactive                        Opt in to the human prompt-based wizard
   --help                               Show this help
 
+Agent mode is the default (no TTY required). It returns a single JSON result on
+stdout and sends progress to stderr. States such as approval_required and
+verification_required do NOT mean a completed review; perform the indicated
+action and resume with the saved checkout.
 Remote App creation uses a loopback callback. Connect with:
   ssh -L 45731:127.0.0.1:45731 USER@SERVER
 Then open the printed localhost URL in your workstation browser.
@@ -60,6 +69,90 @@ type RunOptions = {
   privateInput?: boolean;
 };
 
+export type AgentInstallStatus = {
+  schemaVersion: 1;
+  state:
+    | "not_started"
+    | "running"
+    | "input_required"
+    | "approval_required"
+    | "repository_setup_required"
+    | "server_ready"
+    | "verification_required"
+    | "failed";
+  phase: string;
+  message: string;
+  repository?: string;
+  webUrl?: string;
+  next?: {
+    action: string;
+    argv?: string[];
+    resume?: string[];
+    url?: string;
+    requiredOptions?: string[];
+    requiresUserApproval?: boolean;
+  };
+};
+
+export function parseAgentInstallStatus(raw: string): AgentInstallStatus {
+  const value: unknown = JSON.parse(raw);
+  assert(
+    value !== null && typeof value === "object" && !Array.isArray(value),
+    "Saved agent status must be a JSON object",
+  );
+  const record = value as Record<string, unknown>;
+  assert(
+    record.schemaVersion === 1 &&
+      typeof record.phase === "string" &&
+      typeof record.message === "string" &&
+      [
+        "not_started",
+        "running",
+        "input_required",
+        "approval_required",
+        "repository_setup_required",
+        "server_ready",
+        "verification_required",
+        "failed",
+      ].includes(String(record.state)),
+    "Saved agent status has an invalid schema or state",
+  );
+  assert(
+    (record.repository === undefined ||
+      typeof record.repository === "string") &&
+      (record.webUrl === undefined || typeof record.webUrl === "string"),
+    "Saved agent status has invalid metadata",
+  );
+  if (record.next !== undefined) {
+    assert(
+      record.next !== null &&
+        typeof record.next === "object" &&
+        !Array.isArray(record.next),
+      "Saved agent next action is invalid",
+    );
+    const next = record.next as Record<string, unknown>;
+    assert(
+      typeof next.action === "string" &&
+        ["argv", "resume", "requiredOptions"].every(
+          (field) =>
+            next[field] === undefined ||
+            (Array.isArray(next[field]) &&
+              next[field].every((entry: unknown) => typeof entry === "string")),
+        ) &&
+        (next.url === undefined || typeof next.url === "string") &&
+        (next.requiresUserApproval === undefined ||
+          typeof next.requiresUserApproval === "boolean"),
+      "Saved agent next action has invalid arguments",
+    );
+  }
+  return record as AgentInstallStatus;
+}
+
+let machineOutput = false;
+function log(message: string): void {
+  (machineOutput ? process.stderr : process.stdout).write(message + "\n");
+}
+
 async function run(
   command: string,
   args: string[],
@@ -69,11 +162,19 @@ async function run(
     const capture = options.capture || options.privateInput;
     const child = spawn(command, args, {
       cwd: options.cwd ?? root,
-      env: { ...process.env, ...options.env },
+      env: {
+        ...process.env,
+        ...(machineOutput ? { GIT_TERMINAL_PROMPT: "0" } : {}),
+        ...options.env,
+      },
       stdio: [
-        options.input === undefined ? "inherit" : "pipe",
-        capture ? "pipe" : "inherit",
-        capture ? "pipe" : "inherit",
+        options.input === undefined
+          ? machineOutput
+            ? "ignore"
+            : "inherit"
+          : "pipe",
+        capture ? "pipe" : machineOutput ? 2 : "inherit",
+        capture ? "pipe" : machineOutput ? 2 : "inherit",
       ],
     });
     let output = "",
@@ -146,6 +247,27 @@ export function repositoryName(value: string): string {
     "Repository must be OWNER/REPO",
   );
   return value;
+}
+
+/** Persist explicit setup acknowledgment before actions that may fail or be retried. */
+export function repositorySetupGate(
+  acknowledgedRepository: string | undefined,
+  previous: AgentInstallStatus | undefined,
+  repository: string,
+  confirmed: boolean,
+): "request_approval" | "save_acknowledgment" | "approved" {
+  assert(
+    !acknowledgedRepository || acknowledgedRepository === repository,
+    "Repository approval belongs to another repository; refuse to widen the approved scope",
+  );
+  if (acknowledgedRepository === repository) return "approved";
+  if (!confirmed) return "request_approval";
+  assert(
+    previous?.state === "repository_setup_required" &&
+      previous.repository === repository,
+    "First receive repository_setup_required and complete App/provider/workflow approval before confirming",
+  );
+  return "save_acknowledgment";
 }
 
 export function repositoryActivation(status: unknown): "initialize" | "ready" {
@@ -266,6 +388,10 @@ async function main(): Promise<void> {
       "review-only": { type: "boolean" },
       "without-memory": { type: "boolean" },
       repo: { type: "string" },
+      "repository-setup-complete": { type: "boolean" },
+      "external-proxy-ready": { type: "boolean" },
+      status: { type: "boolean" },
+      interactive: { type: "boolean" },
       help: { type: "boolean" },
     },
   });
@@ -273,15 +399,36 @@ async function main(): Promise<void> {
     process.stdout.write(help);
     return;
   }
+  machineOutput = !values.interactive;
+  const directory = resolve(
+    values.directory ?? join(root, "deploy/self-hosted/secrets/install"),
+  );
+  assertPrivateInstallLocation(root, directory);
+  const statusPath = join(directory, "agent-status.json");
+  if (values.status) {
+    const saved = await readPrivate(statusPath);
+    const status: AgentInstallStatus = saved
+      ? parseAgentInstallStatus(saved)
+      : {
+          schemaVersion: 1,
+          state: "not_started",
+          phase: "configuration",
+          message: "Provide --web-url (and optionally --api-url) to begin.",
+        };
+    process.stdout.write(JSON.stringify(status) + "\n");
+    return;
+  }
   assert(
     process.platform === "linux" && process.arch === "x64",
     "Guided installation requires a Linux x64 host",
   );
-  assert(
-    process.stdin.isTTY,
-    "Run setup in an interactive terminal. Use --help for options",
-  );
+  if (values.interactive)
+    assert(
+      process.stdin.isTTY,
+      "Interactive setup requires a terminal; omit --interactive for agent mode",
+    );
   const ask = async (question: string, fallback = "") => {
+    assert(!machineOutput, "Agent mode must not wait for terminal input");
     const terminal = createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -302,15 +449,88 @@ async function main(): Promise<void> {
       terminal.close();
     }
   };
-  const directory = resolve(
-    values.directory ?? join(root, "deploy/self-hosted/secrets/install"),
-  );
-  assertPrivateInstallLocation(root, directory);
   await privateDirectory(directory);
   assertPrivateInstallLocation(await realpath(root), await realpath(directory));
   const lock = await acquireDeploymentLock(join(directory, "install.lock"));
+  let previous: AgentInstallStatus | undefined;
+  let statusReadable = false;
+  const resumeCommand = (args: string[] = []) => [
+    "bash",
+    "scripts/install-self-hosted.sh",
+    "--directory",
+    directory,
+    ...(values.repo && !args.includes("--repo") ? ["--repo", values.repo] : []),
+    ...(values["web-url"] ? ["--web-url", values["web-url"]] : []),
+    ...(values["api-url"] ? ["--api-url", values["api-url"]] : []),
+    ...(values["external-proxy"] ? ["--external-proxy"] : []),
+    ...(values["review-only"] ? ["--review-only"] : []),
+    ...(values["without-memory"] ? ["--without-memory"] : []),
+    ...(values["github-org"] ? ["--github-org", values["github-org"]] : []),
+    ...(values["app-name"] ? ["--app-name", values["app-name"]] : []),
+    ...(values["app-profile"] ? ["--app-profile", values["app-profile"]] : []),
+    ...(values["external-proxy-ready"] ? ["--external-proxy-ready"] : []),
+    ...args,
+  ];
+  const record = async (report: AgentInstallStatus, print = true) => {
+    await writePrivate(statusPath, JSON.stringify(report, null, 2) + "\n");
+    if (machineOutput && print)
+      process.stdout.write(JSON.stringify(report) + "\n");
+  };
+  let phase = "configuration";
   try {
-    console.log(
+    const savedStatus = await readPrivate(statusPath);
+    previous = savedStatus ? parseAgentInstallStatus(savedStatus) : undefined;
+    statusReadable = true;
+    // Commit the exact approved repository before lengthy health/release checks.
+    // An interrupted retry must not invalidate an earlier human approval.
+    const approvalPath = join(directory, "repository-setup-acknowledged");
+    if (machineOutput && values["repository-setup-complete"]) {
+      const confirmedRepository = repositoryName(
+        values.repo ?? previous?.repository ?? "",
+      );
+      if (
+        repositorySetupGate(
+          await readPrivate(approvalPath),
+          previous,
+          confirmedRepository,
+          true,
+        ) === "save_acknowledgment"
+      ) {
+        await writePrivate(approvalPath, confirmedRepository);
+      }
+    }
+    const statePath = join(directory, "installation.json"),
+      envFile = join(directory, ".env");
+    if (
+      machineOutput &&
+      !(await readPrivate(statePath)) &&
+      !values["web-url"]
+    ) {
+      await record({
+        schemaVersion: 1,
+        state: "input_required",
+        phase,
+        message:
+          "Supply the public dashboard hostname with --web-url; --api-url defaults to api.<dashboard-hostname>. Configure both DNS records first.",
+        next: {
+          action: "provide_configuration",
+          requiredOptions: ["--web-url"],
+          resume: resumeCommand(),
+        },
+      });
+      return;
+    }
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase: "prerequisites",
+        message: "Verifying pinned source and local Docker host.",
+      },
+      false,
+    );
+    phase = "prerequisites";
+    log(
       "ReviewRouter self-hosted setup\nCredentials and progress stay in your private installation directory.",
     );
     const sourceCommit = await run("git", ["rev-parse", "HEAD"], {
@@ -350,8 +570,6 @@ async function main(): Promise<void> {
       { capture: true },
     );
     assert(/^v?2\./.test(composeVersion), "Docker Compose v2 is required");
-    const statePath = join(directory, "installation.json"),
-      envFile = join(directory, ".env");
     const savedState = await readPrivate(statePath);
     let settings: InstallSettings;
     if (savedState) {
@@ -378,7 +596,7 @@ async function main(): Promise<void> {
         !values["review-only"] || settings.permissionProfile === "review-only",
         "App permissions cannot change during resume",
       );
-      console.log(
+      log(
         `Resuming ${settings.webUrl} at source ${settings.sourceCommit.slice(0, 12)}.`,
       );
     } else {
@@ -391,10 +609,12 @@ async function main(): Promise<void> {
       );
       const apiUrl = publicOrigin(
         values["api-url"] ??
-          (await ask(
-            "API HTTPS domain",
-            `https://api.${new URL(webUrl).hostname}`,
-          )),
+          (machineOutput
+            ? `https://api.${new URL(webUrl).hostname}`
+            : await ask(
+                "API HTTPS domain",
+                `https://api.${new URL(webUrl).hostname}`,
+              )),
       );
       settings = readSettings(
         {
@@ -415,18 +635,59 @@ async function main(): Promise<void> {
       await writePrivate(statePath, JSON.stringify(settings, null, 2) + "\n");
     }
 
-    console.log("\n1/6 Installing the pinned workspace dependencies.");
-    await run(process.execPath, [
-      "scripts/install-private-dependencies.mjs",
-      "--frozen-lockfile",
-    ]);
-    await run(process.execPath, [
-      "scripts/local-checks/compiler-cli.ts",
-      "--native",
-      "-p",
-      "packages/shared/tsconfig.build.json",
-    ]);
-    await run(process.execPath, ["scripts/rewrite-dist-esm-imports.mjs"]);
+    // This marker is written only after successful service and release verification.
+    // Its existence alone is never enough to trust a resumed deployment.
+    const readyMarker = await readPrivate(join(directory, "server-ready.json"));
+    const reuseReadyServer = readyMarker !== undefined;
+    if (readyMarker !== undefined) {
+      const marker = JSON.parse(readyMarker) as Record<string, unknown>;
+      assert(
+        marker &&
+          typeof marker === "object" &&
+          !Array.isArray(marker) &&
+          marker.sourceCommit === sourceCommit &&
+          marker.actionCommit === settings.actionCommit &&
+          marker.webUrl === settings.webUrl &&
+          typeof marker.checkedAt === "string",
+        "Saved server readiness does not match this pinned installation; reconcile before retrying",
+      );
+      assert(
+        (await readPrivate(envFile)) &&
+          (await readPrivate(join(directory, "operator-credential"))),
+        "Ready marker exists but saved credentials are missing; recover them instead of re-creating installation state",
+      );
+    }
+
+    phase = "dependencies";
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: reuseReadyServer
+          ? "Checking previously installed dependencies and live runtime."
+          : "Preparing pinned dependencies and compiler output.",
+      },
+      false,
+    );
+    if (!reuseReadyServer) {
+      log("\n1/6 Installing the pinned workspace dependencies.");
+      await run(process.execPath, [
+        "scripts/install-private-dependencies.mjs",
+        "--frozen-lockfile",
+      ]);
+      await run(process.execPath, [
+        "scripts/local-checks/compiler-cli.ts",
+        "--native",
+        "-p",
+        "packages/shared/tsconfig.build.json",
+      ]);
+      await run(process.execPath, ["scripts/rewrite-dist-esm-imports.mjs"]);
+    } else {
+      log(
+        "Skipping installed dependencies and compiler build; checking live server readiness.",
+      );
+    }
 
     const credentialPath = join(directory, "operator-credential");
     let credential = await readPrivate(credentialPath);
@@ -439,7 +700,17 @@ async function main(): Promise<void> {
       credential = randomBytes(32).toString("base64url");
       await writePrivate(credentialPath, credential);
     }
-    console.log("\n2/6 Connecting your GitHub App.");
+    phase = "github_app";
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Checking GitHub App profile and private credentials.",
+      },
+      false,
+    );
+    log("\n2/6 Connecting your GitHub App.");
     if (!envText) {
       const profilesDirectory = join(directory, "github-app");
       await privateDirectory(profilesDirectory);
@@ -458,8 +729,47 @@ async function main(): Promise<void> {
           ? join(profilesDirectory, profiles[0])
           : undefined;
       }
+      if (!profilePath && machineOutput) {
+        const name =
+          values["app-name"] ?? `ReviewRouter ${settings.installationId}`;
+        assert(
+          name.length > 0 && name.length <= 34,
+          "GitHub App names must contain 1–34 characters",
+        );
+        const appArgs = [
+          process.execPath,
+          "scripts/create-github-app-manifest.mjs",
+          "--web-url",
+          settings.webUrl,
+          "--api-url",
+          settings.apiUrl,
+          "--name",
+          name,
+          "--permission-profile",
+          settings.permissionProfile,
+          "--output-dir",
+          profilesDirectory,
+          "--no-open",
+        ];
+        if (values["github-org"]) appArgs.push("--owner", values["github-org"]);
+        await record({
+          schemaVersion: 1,
+          state: "approval_required",
+          phase,
+          webUrl: settings.webUrl,
+          message:
+            "Create and approve the GitHub App using the existing manifest helper (SSH tunnel port 45731 for remote hosts). Its credentials remain in the private installation directory. Then resume; no secrets are needed as CLI arguments.",
+          next: {
+            action: "approve_github_app",
+            argv: appArgs,
+            resume: resumeCommand(),
+            requiresUserApproval: true,
+          },
+        });
+        return;
+      }
       if (!profilePath) {
-        console.log(
+        log(
           "Approve your App's permissions in GitHub. On a remote host, keep the SSH tunnel from --help open.",
         );
         const name =
@@ -538,68 +848,85 @@ async function main(): Promise<void> {
     }
     let env = parseEnvironment(envText);
     assertEnvironmentBinding(env, settings, credential);
+    assert(
+      !reuseReadyServer || (envText && credential),
+      "Saved ready installation is missing its credentials; recover rather than recreate",
+    );
 
-    console.log(
+    phase = "release";
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Verifying immutable review Action and release configuration.",
+      },
+      false,
+    );
+    log(
       "\n3/6 Verifying the pinned reviewer and preparing its release configuration.",
     );
-    const actionRepo = join(directory, "action"),
-      actionBranch = `selfhost-${settings.actionCommit.slice(0, 12)}`;
-    if (!(await exists(join(actionRepo, ".git")))) {
-      await run("git", [
-        "clone",
-        "--no-checkout",
-        "https://github.com/777genius/review-router.git",
-        actionRepo,
-      ]);
-      await run("git", ["switch", "-c", actionBranch, settings.actionCommit], {
-        cwd: actionRepo,
-      });
-    }
-    const handoff = JSON.parse(
-      await readFile(
-        join(
+    let release: SelfHostedRelease | undefined;
+    if (!reuseReadyServer) {
+      const actionRepo = join(directory, "action"),
+        actionBranch = `selfhost-${settings.actionCommit.slice(0, 12)}`;
+      if (!(await exists(join(actionRepo, ".git")))) {
+        await run("git", [
+          "clone",
+          "--no-checkout",
+          "https://github.com/777genius/review-router.git",
           actionRepo,
-          "src/control-plane/generated/review-action-v2/handoff-manifest.json",
+        ]);
+        await run("git", ["switch", "-c", actionBranch, settings.actionCommit], {
+          cwd: actionRepo,
+        });
+      }
+      const handoff = JSON.parse(
+        await readFile(
+          join(
+            actionRepo,
+            "src/control-plane/generated/review-action-v2/handoff-manifest.json",
+          ),
+          "utf8",
         ),
-        "utf8",
-      ),
-    ) as { saasSourceCommit?: string };
-    assert(
-      handoff.saasSourceCommit &&
-        /^[a-f0-9]{40}$/.test(handoff.saasSourceCommit),
-      "Invalid reviewer source handoff",
-    );
-    try {
-      await run(
-        "git",
-        ["cat-file", "-e", `${handoff.saasSourceCommit}^{commit}`],
-        { capture: true },
+      ) as { saasSourceCommit?: string };
+      assert(
+        handoff.saasSourceCommit &&
+          /^[a-f0-9]{40}$/.test(handoff.saasSourceCommit),
+        "Invalid reviewer source handoff",
       );
-    } catch {
-      await run("git", [
-        "fetch",
-        "--no-tags",
-        "origin",
-        handoff.saasSourceCommit,
+      try {
+        await run(
+          "git",
+          ["cat-file", "-e", `${handoff.saasSourceCommit}^{commit}`],
+          { capture: true },
+        );
+      } catch {
+        await run("git", [
+          "fetch",
+          "--no-tags",
+          "origin",
+          handoff.saasSourceCommit,
+        ]);
+      }
+      const { generateSelfHostedRelease } = await import("./install-release.ts");
+      release = await generateSelfHostedRelease({
+        repoRoot: root,
+        actionRepo,
+        expectedActionSha: settings.actionCommit,
+        actionBranch,
+        outputDir: join(directory, "release"),
+        ownerRef: `self-hosted:${new URL(settings.webUrl).hostname}`,
+      });
+      env = { ...env, ...release.environment };
+      await writePrivate(envFile, renderEnvironment(env));
+      await run(process.execPath, ["scripts/check-self-hosted-readiness.mjs"], {
+        env: { REVIEW_ROUTER_SELF_HOSTED_ENV_FILE: envFile },
+      });
+      await run(process.execPath, [
+        "scripts/check-self-hosted-compose-contract.mjs",
       ]);
     }
-    const { generateSelfHostedRelease } = await import("./install-release.ts");
-    const release = await generateSelfHostedRelease({
-      repoRoot: root,
-      actionRepo,
-      expectedActionSha: settings.actionCommit,
-      actionBranch,
-      outputDir: join(directory, "release"),
-      ownerRef: `self-hosted:${new URL(settings.webUrl).hostname}`,
-    });
-    env = { ...env, ...release.environment };
-    await writePrivate(envFile, renderEnvironment(env));
-    await run(process.execPath, ["scripts/check-self-hosted-readiness.mjs"], {
-      env: { REVIEW_ROUTER_SELF_HOSTED_ENV_FILE: envFile },
-    });
-    await run(process.execPath, [
-      "scripts/check-self-hosted-compose-contract.mjs",
-    ]);
 
     const composeArgs = [
       "compose",
@@ -617,47 +944,113 @@ async function main(): Promise<void> {
         ...options,
         env: { ...options.env, REVIEW_ROUTER_SELF_HOSTED_ENV_FILE: envFile },
       });
-    console.log(
+    phase = "services";
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Applying migrations, preparing Memory and starting services.",
+      },
+      false,
+    );
+    log(
       "\n4/6 Starting the database, Memory and application services. First builds can take several minutes.",
     );
-    await compose(["up", "-d", "--wait", "postgres"]);
-    const database = buildSelfHostedDatabasePlan(env);
-    const psql = [
-      "exec",
-      "-T",
-      "postgres",
-      "psql",
-      "-XqAt",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-v",
-      "VERBOSITY=terse",
-      "-U",
-      env.POSTGRES_USER!,
-      "-d",
-      env.POSTGRES_DB!,
-    ];
-    await compose(psql, {
-      input: database.preMigrationSql,
-      privateInput: true,
-    });
-    await run(process.execPath, [
-      "deploy/self-hosted/setup-memory.ts",
-      envFile,
-      join(directory, "memory"),
-    ]);
-    await compose(["up", "-d", "--build", "--wait", "--wait-timeout", "300"]);
-    await compose(psql, {
-      input: database.postMigrationSql,
-      privateInput: true,
-    });
+    if (!reuseReadyServer) {
+      await compose(["up", "-d", "--wait", "postgres"]);
+      const database = buildSelfHostedDatabasePlan(env);
+      const psql = [
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-XqAt",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-v",
+        "VERBOSITY=terse",
+        "-U",
+        env.POSTGRES_USER!,
+        "-d",
+        env.POSTGRES_DB!,
+      ];
+      await compose(psql, {
+        input: database.preMigrationSql,
+        privateInput: true,
+      });
+      await run(process.execPath, [
+        "deploy/self-hosted/setup-memory.ts",
+        envFile,
+        join(directory, "memory"),
+      ]);
+      await compose(["up", "-d", "--build", "--wait", "--wait-timeout", "300"]);
+      await compose(psql, {
+        input: database.postMigrationSql,
+        privateInput: true,
+      });
+    } else if (settings.memory === "hindsight") {
+      const memoryEnvironment = await readPrivate(
+        join(directory, "memory/router.env"),
+      );
+      assert(
+        memoryEnvironment,
+        "Saved Memory backend is missing; follow recovery runbook",
+      );
+      const expectedMemory = parseEnvironment(memoryEnvironment);
+      for (const [key, value] of Object.entries(expectedMemory)) {
+        if (key.startsWith("REVIEW_ROUTER_MEMORY_"))
+          assert(
+            env[key] === value,
+            "Saved Memory backend binding differs; no automatic rebuild",
+          );
+      }
+      const status = JSON.parse(
+        await run(
+          process.execPath,
+          [
+            "deploy/hindsight/bootstrap.ts",
+            "status",
+            join(directory, "memory/bootstrap.json"),
+          ],
+          { capture: true },
+        ),
+      ) as { phase?: string; states?: Record<string, string> };
+      assert(
+        status.phase === "running" &&
+          status.states &&
+          Object.values(status.states).length > 0 &&
+          Object.values(status.states).every((value) => value === "running"),
+        "Saved Memory backend is not running; repair it explicitly before resuming",
+      );
+    }
     if (settings.proxy === "external") {
-      console.log(
+      log(
         `Route ${settings.webUrl} to 127.0.0.1:3000 and ${settings.apiUrl} to 127.0.0.1:4000 with your HTTPS proxy.`,
       );
-      await ask("Press Enter when HTTPS routing is ready");
+      if (
+        machineOutput &&
+        !values["external-proxy-ready"] &&
+        !(await readPrivate(join(directory, "server-ready.json")))
+      ) {
+        await record({
+          schemaVersion: 1,
+          state: "approval_required",
+          phase: "https",
+          webUrl: settings.webUrl,
+          message:
+            "Configure the external HTTPS proxy and DNS routing, then resume with --external-proxy-ready. The next stage still verifies public TLS health.",
+          next: {
+            action: "configure_external_https",
+            resume: resumeCommand(["--external-proxy-ready"]),
+            requiresUserApproval: true,
+          },
+        });
+        return;
+      }
+      if (!machineOutput) await ask("Press Enter when HTTPS routing is ready");
     }
-    console.log("Checking public HTTPS endpoints.");
+    log("Checking public HTTPS endpoints.");
     await waitForHealth(`${settings.apiUrl}/health`);
     await waitForHealth(`${settings.webUrl}/api/health`);
     const worker = JSON.parse(
@@ -686,61 +1079,108 @@ async function main(): Promise<void> {
         },
       );
     assertRuntimePreflight(JSON.parse(await admin(["env-preflight"], true)));
-    // Write as the API runtime user: docker cp would make this mode0600 file root-owned.
-    const containerBundlePath = await compose(
-      ["exec", "-T", "api", "node", "deploy/self-hosted/install-bundle.ts"],
-      { input: JSON.stringify(release.bundle), capture: true },
-    );
-    try {
-      assertReleaseRegistered(
-        JSON.parse(
-          await admin(
-            [
-              "release",
-              "register",
-              "--bundle",
-              containerBundlePath,
-              "--confirm",
-              "release",
-            ],
-            true,
-          ),
-        ),
-        release.runtimeAttestation,
+    if (!reuseReadyServer) {
+      assert(release, "Fresh installation must produce a verified release");
+      // Write as the API runtime user: docker cp would make this mode0600 file root-owned.
+      const containerBundlePath = await compose(
+        ["exec", "-T", "api", "node", "deploy/self-hosted/install-bundle.ts"],
+        { input: JSON.stringify(release.bundle), capture: true },
       );
-    } finally {
-      await compose([
-        "exec",
-        "-T",
-        "api",
-        "node",
-        "deploy/self-hosted/install-bundle.ts",
-        "cleanup",
-        containerBundlePath,
-      ]);
+      try {
+        assertReleaseRegistered(
+          JSON.parse(
+            await admin(
+              [
+                "release",
+                "register",
+                "--bundle",
+                containerBundlePath,
+                "--confirm",
+                "release",
+              ],
+              true,
+            ),
+          ),
+          release.runtimeAttestation,
+        );
+      } finally {
+        await compose([
+          "exec",
+          "-T",
+          "api",
+          "node",
+          "deploy/self-hosted/install-bundle.ts",
+          "cleanup",
+          containerBundlePath,
+        ]);
+      }
+      await writePrivate(
+        join(directory, "server-ready.json"),
+        JSON.stringify(
+          {
+            sourceCommit,
+            actionCommit: settings.actionCommit,
+            webUrl: settings.webUrl,
+            checkedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+    } else {
+      const rows: unknown = JSON.parse(
+        env.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON ?? "null",
+      );
+      assert(
+        Array.isArray(rows) && rows.length === 1,
+        "Saved deployment is missing its immutable release attestation",
+      );
+      const attestation = rows[0] as {
+        producerReleaseId?: string;
+        actionCommitSha?: string;
+        protocolLimitsProfileId?: string;
+        operationalSloProfileId?: string;
+      };
+      assert(
+        attestation.producerReleaseId ===
+          `self-hosted-action-${settings.actionCommit}` &&
+          attestation.actionCommitSha === settings.actionCommit,
+        "Saved release does not match pinned Action source",
+      );
+      const installed = JSON.parse(
+        await admin(
+          ["release", "inspect", "--release", attestation.producerReleaseId],
+          true,
+        ),
+      ) as {
+        producerReleaseId?: string;
+        actionCommitSha?: string;
+        protocolLimitsProfileId?: string;
+        operationalSloProfileId?: string;
+        state?: string;
+        revokedAt?: string | null;
+      };
+      assert(
+        installed.producerReleaseId === attestation.producerReleaseId &&
+          installed.actionCommitSha === settings.actionCommit &&
+          installed.protocolLimitsProfileId ===
+            attestation.protocolLimitsProfileId &&
+          installed.operationalSloProfileId ===
+            attestation.operationalSloProfileId &&
+          installed.state === "registered" &&
+          installed.revokedAt === null,
+        "Previously registered reviewer release is missing, revoked or mismatched; reconcile explicitly",
+      );
     }
-    await writePrivate(
-      join(directory, "server-ready.json"),
-      JSON.stringify(
-        {
-          sourceCommit,
-          actionCommit: settings.actionCommit,
-          webUrl: settings.webUrl,
-          checkedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ) + "\n",
-    );
 
-    console.log(
+    log(
       `\n5/6 Server ready: ${settings.webUrl}\nInstall your GitHub App: https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`,
     );
     if (settings.permissionProfile === "review-only")
-      console.log(
+      log(
         "Your review-only App cannot create workflow PRs. Follow the manual workflow section of the self-hosted guide.",
       );
-    console.log(
+    log(
       "Provider authentication stays in the existing provider onboarding flow; never paste provider secrets into this terminal.",
     );
     const activationPath = join(directory, "first-repository");
@@ -748,13 +1188,30 @@ async function main(): Promise<void> {
     const requested =
       values.repo ??
       firstRepository ??
-      (await ask(
-        "Repository to connect (OWNER/REPO), or Enter to finish later",
-      ));
+      (machineOutput
+        ? ""
+        : await ask(
+            "Repository to connect (OWNER/REPO), or Enter to finish later",
+          ));
     if (!requested) {
-      console.log(
-        "Server installation complete. Repository connection and first review are pending. Repeat this command with --repo OWNER/REPO to continue.",
-      );
+      if (machineOutput)
+        await record({
+          schemaVersion: 1,
+          state: "server_ready",
+          phase: "repository",
+          webUrl: settings.webUrl,
+          message:
+            "Server is ready. Select the first repository with --repo OWNER/REPO; no live review has run.",
+          next: {
+            action: "select_repository",
+            requiredOptions: ["--repo"],
+            resume: resumeCommand(),
+          },
+        });
+      else
+        log(
+          "Server installation complete. Repository connection and first review are pending. Repeat this command with --repo OWNER/REPO to continue.",
+        );
       return;
     }
     const repository = repositoryName(requested);
@@ -788,13 +1245,66 @@ async function main(): Promise<void> {
       assertRuntimePreflight(JSON.parse(await admin(["env-preflight"], true)));
     }
     await writePrivate(activationPath, repository);
-    console.log(
+    log(
       `Open ${settings.webUrl}/setup, select ${repository} and connect your provider using GitHub Secrets setup. Merge the generated workflow pull request.`,
     );
-    await ask(
-      `Press Enter after ${repository} is connected and its setup PR is merged`,
-    );
-    console.log("\n6/6 Verifying and initializing this repository.");
+    phase = "repository";
+    if (
+      machineOutput &&
+      !values["repository-setup-complete"] &&
+      previous?.state === "verification_required" &&
+      previous.repository === repository
+    ) {
+      assert(
+        repositoryActivation(
+          JSON.parse(await admin(["status", "--repo", repository], true)),
+        ) === "ready",
+        "Saved reviewer authority is no longer active",
+      );
+      await record(previous);
+      return;
+    }
+    const approvalGate = machineOutput
+      ? repositorySetupGate(
+          await readPrivate(approvalPath),
+          previous,
+          repository,
+          Boolean(values["repository-setup-complete"]),
+        )
+      : undefined;
+    if (machineOutput && approvalGate === "request_approval") {
+      await record({
+        schemaVersion: 1,
+        state: "repository_setup_required",
+        phase,
+        repository,
+        webUrl: settings.webUrl,
+        message:
+          settings.permissionProfile === "review-only"
+            ? "Install/approve the GitHub App, connect your provider and manually install the canonical workflow from the self-hosted runbook. Only after verifying these actions, resume with --repository-setup-complete. This is not a live-review approval."
+            : "Install/approve the GitHub App, connect your provider and merge its generated workflow PR. Only after verifying these actions, resume with --repository-setup-complete. This is not a live-review approval.",
+        next: {
+          action: "complete_repository_setup",
+          url: `${settings.webUrl}/setup`,
+          resume: resumeCommand([
+            "--repo",
+            repository,
+            "--repository-setup-complete",
+          ]),
+          requiresUserApproval: true,
+        },
+      });
+      return;
+    }
+    if (machineOutput) {
+      if (approvalGate === "save_acknowledgment")
+        await writePrivate(approvalPath, repository);
+    } else {
+      await ask(
+        `Press Enter after ${repository} is connected and its setup PR is merged`,
+      );
+    }
+    log("\n6/6 Verifying and initializing this repository.");
     const before: unknown = JSON.parse(
       await admin(["status", "--repo", repository], true),
     );
@@ -838,9 +1348,41 @@ async function main(): Promise<void> {
       "Repository initialization did not reach ready state",
     );
     await writePrivate(activationPath, repository);
-    console.log(
-      `\nRepository ready: ${repository}. Open a small pull request to verify the first review.\nFirst review: pending (setup does not claim a live review has passed).\nPrivate installation files: ${directory}\nKeep a backup of these files and the database. Use the upgrade runbook when changing versions.`,
-    );
+    if (machineOutput) {
+      await record({
+        schemaVersion: 1,
+        state: "verification_required",
+        phase: "first_review",
+        repository,
+        webUrl: settings.webUrl,
+        message:
+          "Repository authority is active. Open a disposable PR, verify a completed provider review and App-authored comments, then push a second commit to verify revision fencing. This step has not been proven by the installer.",
+        next: {
+          action: "verify_first_live_review",
+          url: `https://github.com/${repository}/pulls`,
+          requiresUserApproval: false,
+        },
+      });
+    } else
+      log(
+        `\nRepository ready: ${repository}. Open a small pull request to verify the first review.\nFirst review: pending (setup does not claim a live review has passed).\nPrivate installation files: ${directory}\nKeep a backup of these files and the database. Use the upgrade runbook when changing versions.`,
+      );
+  } catch (error) {
+    if (machineOutput && statusReadable) {
+      try {
+        await record({
+          schemaVersion: 1,
+          state: "failed",
+          phase,
+          message:
+            "Installation did not finish. Inspect the error on stderr and safely resume from the pinned checkout. No live review is claimed.",
+          next: { action: "resume_after_fix", resume: resumeCommand() },
+        });
+      } catch {
+        // Preserve the original error if the private status file is unavailable.
+      }
+    }
+    throw error;
   } finally {
     await lock.close();
   }

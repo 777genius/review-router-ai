@@ -5,20 +5,30 @@ github.com. Customer code review still runs inside the customer's GitHub
 Actions workflow. The self-hosted server stores metadata, configuration,
 webhook state, sessions, outbox jobs, and health data in Postgres.
 
-## Guided installation
+## Agent-first installation (default)
 
-On a Linux x64 server, start the guided installer:
+A coding agent with shell access to a Linux x64 host can run setup without
+interactive prompts. Prepare Docker Compose v2, Git, curl, Node.js 24.21+ or
+26.10+, and two public DNS names (web and `api.<web hostname>`) first:
 
 ```bash
-bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' -- \
+  --web-url https://review.example.com \
+  --repo OWNER/REPOSITORY
 ```
 
+The API URL defaults to `https://api.review.example.com` for this example.
+The script returns a JSON state and safe next-step arguments on stdout.
+If an approval is needed, let the agent carry out the allowed preparation and
+request GitHub App/provider authorization or workflow PR approval from the
+authorized user. Resume from the saved checkout; private credentials and
+versions are preserved. Passing `--interactive` opts in to manual prompts.
+`--status` prints the saved status without touching services.
+
 Prepare two public DNS names, Docker Compose v2, Git and a supported Node.js
-release. The installer configures services, private credentials, default memory
-and HTTPS. Create and install the GitHub App, then select the first repository
-in the installer before connecting a provider through the dashboard's
-**GitHub Secrets** setup. Complete the provider steps and workflow setup PR in
-your browser, return to the installer, then verify a real pull-request review.
+release. The installer configures services, private credentials, default
+Memory and HTTPS. It does **not** claim a completed review until a genuine
+provider run and GitHub App-authored comments have been observed in a test PR.
 
 See the [guided installation steps](../../docs/operations/review-router-self-hosted-end-to-end.md#guided-installation)
 for exact prerequisites, the SSH callback tunnel, options and resume behavior.
