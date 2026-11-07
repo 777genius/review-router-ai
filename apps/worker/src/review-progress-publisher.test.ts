@@ -182,12 +182,14 @@ describe("ReviewProgressPublisher", () => {
       body: "<!-- review-router-live-progress -->",
       user: { login: "review-router[bot]" },
     };
+    const firstComment = { ...comment, id: 77 };
+    const secondComment = { ...comment, id: 78 };
     const publisher = createPublisher(store, async () => ({
       botLogin: "review-router[bot]",
       request: async (route) => {
         if (route.includes("/pulls/")) return pull();
         if (route.startsWith("GET")) {
-          return { data: [{ ...comment, id: 77 }, { ...comment, id: 78 }] };
+          return { data: [firstComment, secondComment] };
         }
         if (route.startsWith("PATCH")) return { data: {} };
         throw new Error(`unexpected:${route}`);
