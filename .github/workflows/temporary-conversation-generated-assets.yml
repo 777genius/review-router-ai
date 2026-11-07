@@ -52,3 +52,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "build(conversation): synchronize source stamp and verifier"
           git push origin HEAD:refs/heads/feat/read-only-inline-explain-20261107
+# regen after Cyrillic-boundary fix
