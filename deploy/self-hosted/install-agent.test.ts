@@ -191,7 +191,6 @@ test("malformed or forged saved agent status is rejected before any deployment w
   }
 });
 
-
 test("repository approval is scoped, explicit and survives an interrupted activation", () => {
   const repository = "example/review-target";
   const waiting: AgentInstallStatus = {
@@ -205,10 +204,22 @@ test("repository approval is scoped, explicit and survives an interrupted activa
     ...waiting,
     state: "failed",
   };
-  assert.equal(repositorySetupGate(undefined, waiting, repository, false), "request_approval");
-  assert.equal(repositorySetupGate(undefined, waiting, repository, true), "save_acknowledgment");
-  assert.equal(repositorySetupGate(repository, failed, repository, false), "approved");
-  assert.equal(repositorySetupGate(repository, failed, repository, true), "approved");
+  assert.equal(
+    repositorySetupGate(undefined, waiting, repository, false),
+    "request_approval",
+  );
+  assert.equal(
+    repositorySetupGate(undefined, waiting, repository, true),
+    "save_acknowledgment",
+  );
+  assert.equal(
+    repositorySetupGate(repository, failed, repository, false),
+    "approved",
+  );
+  assert.equal(
+    repositorySetupGate(repository, failed, repository, true),
+    "approved",
+  );
   assert.throws(
     () => repositorySetupGate(undefined, failed, repository, true),
     /First receive repository_setup_required/,
