@@ -117,7 +117,8 @@ export function parseAgentInstallStatus(raw: string): AgentInstallStatus {
     "Saved agent status has an invalid schema or state",
   );
   assert(
-    (record.repository === undefined || typeof record.repository === "string") &&
+    (record.repository === undefined ||
+      typeof record.repository === "string") &&
       (record.webUrl === undefined || typeof record.webUrl === "string"),
     "Saved agent status has invalid metadata",
   );
@@ -455,18 +456,21 @@ async function main(): Promise<void> {
   let phase = "configuration";
   try {
     const savedStatus = await readPrivate(statusPath);
-    previous = savedStatus
-      ? parseAgentInstallStatus(savedStatus)
-      : undefined;
+    previous = savedStatus ? parseAgentInstallStatus(savedStatus) : undefined;
     statusReadable = true;
     const statePath = join(directory, "installation.json"),
       envFile = join(directory, ".env");
-    if (machineOutput && !(await readPrivate(statePath)) && !values["web-url"]) {
+    if (
+      machineOutput &&
+      !(await readPrivate(statePath)) &&
+      !values["web-url"]
+    ) {
       await record({
         schemaVersion: 1,
         state: "input_required",
         phase,
-        message: "Supply the public dashboard hostname with --web-url; --api-url defaults to api.<dashboard-hostname>. Configure both DNS records first.",
+        message:
+          "Supply the public dashboard hostname with --web-url; --api-url defaults to api.<dashboard-hostname>. Configure both DNS records first.",
         next: {
           action: "provide_configuration",
           requiredOptions: ["--web-url"],
@@ -475,12 +479,15 @@ async function main(): Promise<void> {
       });
       return;
     }
-    await record({
-      schemaVersion: 1,
-      state: "running",
-      phase: "prerequisites",
-      message: "Verifying pinned source and local Docker host.",
-    }, false);
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase: "prerequisites",
+        message: "Verifying pinned source and local Docker host.",
+      },
+      false,
+    );
     phase = "prerequisites";
     log(
       "ReviewRouter self-hosted setup\nCredentials and progress stay in your private installation directory.",
@@ -588,12 +595,15 @@ async function main(): Promise<void> {
     }
 
     phase = "dependencies";
-    await record({
-      schemaVersion: 1,
-      state: "running",
-      phase,
-      message: "Preparing pinned dependencies and compiler output.",
-    }, false);
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Preparing pinned dependencies and compiler output.",
+      },
+      false,
+    );
     log("\n1/6 Installing the pinned workspace dependencies.");
     await run(process.execPath, [
       "scripts/install-private-dependencies.mjs",
@@ -619,12 +629,15 @@ async function main(): Promise<void> {
       await writePrivate(credentialPath, credential);
     }
     phase = "github_app";
-    await record({
-      schemaVersion: 1,
-      state: "running",
-      phase,
-      message: "Checking GitHub App profile and private credentials.",
-    }, false);
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Checking GitHub App profile and private credentials.",
+      },
+      false,
+    );
     log("\n2/6 Connecting your GitHub App.");
     if (!envText) {
       const profilesDirectory = join(directory, "github-app");
@@ -645,7 +658,8 @@ async function main(): Promise<void> {
           : undefined;
       }
       if (!profilePath && machineOutput) {
-        const name = values["app-name"] ?? `ReviewRouter ${settings.installationId}`;
+        const name =
+          values["app-name"] ?? `ReviewRouter ${settings.installationId}`;
         const appArgs = [
           process.execPath,
           "scripts/create-github-app-manifest.mjs",
@@ -667,7 +681,8 @@ async function main(): Promise<void> {
           state: "approval_required",
           phase,
           webUrl: settings.webUrl,
-          message: "Create and approve the GitHub App using the existing manifest helper (SSH tunnel port 45731 for remote hosts). Its credentials remain in the private installation directory. Then resume; no secrets are needed as CLI arguments.",
+          message:
+            "Create and approve the GitHub App using the existing manifest helper (SSH tunnel port 45731 for remote hosts). Its credentials remain in the private installation directory. Then resume; no secrets are needed as CLI arguments.",
           next: {
             action: "approve_github_app",
             argv: appArgs,
@@ -759,12 +774,15 @@ async function main(): Promise<void> {
     assertEnvironmentBinding(env, settings, credential);
 
     phase = "release";
-    await record({
-      schemaVersion: 1,
-      state: "running",
-      phase,
-      message: "Verifying immutable review Action and release configuration.",
-    }, false);
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Verifying immutable review Action and release configuration.",
+      },
+      false,
+    );
     log(
       "\n3/6 Verifying the pinned reviewer and preparing its release configuration.",
     );
@@ -844,12 +862,15 @@ async function main(): Promise<void> {
         env: { ...options.env, REVIEW_ROUTER_SELF_HOSTED_ENV_FILE: envFile },
       });
     phase = "services";
-    await record({
-      schemaVersion: 1,
-      state: "running",
-      phase,
-      message: "Applying migrations, preparing Memory and starting services.",
-    }, false);
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Applying migrations, preparing Memory and starting services.",
+      },
+      false,
+    );
     log(
       "\n4/6 Starting the database, Memory and application services. First builds can take several minutes.",
     );
@@ -888,15 +909,18 @@ async function main(): Promise<void> {
       log(
         `Route ${settings.webUrl} to 127.0.0.1:3000 and ${settings.apiUrl} to 127.0.0.1:4000 with your HTTPS proxy.`,
       );
-      if (machineOutput &&
-          !values["external-proxy-ready"] &&
-          !(await readPrivate(join(directory, "server-ready.json")))) {
+      if (
+        machineOutput &&
+        !values["external-proxy-ready"] &&
+        !(await readPrivate(join(directory, "server-ready.json")))
+      ) {
         await record({
           schemaVersion: 1,
           state: "approval_required",
           phase: "https",
           webUrl: settings.webUrl,
-          message: "Configure the external HTTPS proxy and DNS routing, then resume with --external-proxy-ready. The next stage still verifies public TLS health.",
+          message:
+            "Configure the external HTTPS proxy and DNS routing, then resume with --external-proxy-ready. The next stage still verifies public TLS health.",
           next: {
             action: "configure_external_https",
             resume: resumeCommand(["--external-proxy-ready"]),
@@ -905,8 +929,7 @@ async function main(): Promise<void> {
         });
         return;
       }
-      if (!machineOutput)
-        await ask("Press Enter when HTTPS routing is ready");
+      if (!machineOutput) await ask("Press Enter when HTTPS routing is ready");
     }
     log("Checking public HTTPS endpoints.");
     await waitForHealth(`${settings.apiUrl}/health`);
@@ -1011,7 +1034,8 @@ async function main(): Promise<void> {
           state: "server_ready",
           phase: "repository",
           webUrl: settings.webUrl,
-          message: "Server is ready. Select the first repository with --repo OWNER/REPO; no live review has run.",
+          message:
+            "Server is ready. Select the first repository with --repo OWNER/REPO; no live review has run.",
           next: {
             action: "select_repository",
             requiredOptions: ["--repo"],
@@ -1059,11 +1083,16 @@ async function main(): Promise<void> {
       `Open ${settings.webUrl}/setup, select ${repository} and connect your provider using GitHub Secrets setup. Merge the generated workflow pull request.`,
     );
     phase = "repository";
-    if (machineOutput && !values["repository-setup-complete"] &&
-        previous?.state === "verification_required" &&
-        previous.repository === repository) {
+    if (
+      machineOutput &&
+      !values["repository-setup-complete"] &&
+      previous?.state === "verification_required" &&
+      previous.repository === repository
+    ) {
       assert(
-        repositoryActivation(JSON.parse(await admin(["status", "--repo", repository], true))) === "ready",
+        repositoryActivation(
+          JSON.parse(await admin(["status", "--repo", repository], true)),
+        ) === "ready",
         "Saved reviewer authority is no longer active",
       );
       await record(previous);
@@ -1076,7 +1105,8 @@ async function main(): Promise<void> {
         phase,
         repository,
         webUrl: settings.webUrl,
-        message: "Install/approve the GitHub App for this repository, finish provider sign-in in the dashboard and merge its generated workflow PR. Only after verifying those actions, rerun with --repository-setup-complete. This is not a live-review approval.",
+        message:
+          "Install/approve the GitHub App for this repository, finish provider sign-in in the dashboard and merge its generated workflow PR. Only after verifying those actions, rerun with --repository-setup-complete. This is not a live-review approval.",
         next: {
           action: "complete_repository_setup",
           url: `${settings.webUrl}/setup`,
@@ -1153,7 +1183,8 @@ async function main(): Promise<void> {
         phase: "first_review",
         repository,
         webUrl: settings.webUrl,
-        message: "Repository authority is active. Open a disposable PR, verify a completed provider review and App-authored comments, then push a second commit to verify revision fencing. This step has not been proven by the installer.",
+        message:
+          "Repository authority is active. Open a disposable PR, verify a completed provider review and App-authored comments, then push a second commit to verify revision fencing. This step has not been proven by the installer.",
         next: {
           action: "verify_first_live_review",
           url: `https://github.com/${repository}/pulls`,
@@ -1171,7 +1202,8 @@ async function main(): Promise<void> {
           schemaVersion: 1,
           state: "failed",
           phase,
-          message: "Installation did not finish. Inspect the error on stderr and safely resume from the pinned checkout. No live review is claimed.",
+          message:
+            "Installation did not finish. Inspect the error on stderr and safely resume from the pinned checkout. No live review is claimed.",
           next: { action: "resume_after_fix", resume: resumeCommand() },
         });
       } catch {

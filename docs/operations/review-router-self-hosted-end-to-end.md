@@ -44,15 +44,15 @@ in that checkout to read the last private status without modifying services.
 Keep the whole installation directory private and do not print its `.env`,
 App profile, key material or provider credentials in chat logs.
 
-| JSON state | Meaning / next step |
-| --- | --- |
-| `input_required` | Agent must supply the public dashboard URL; API URL defaults to `api.<dashboard hostname>`. Configure DNS first. |
-| `approval_required` (`github_app`) | Run the provided manifest-helper command, obtain authorized GitHub browser approval, then resume. The helper keeps the App profile in a private directory. |
-| `approval_required` (`https`) | Only with `--external-proxy`: set up HTTPS routing and resume with `--external-proxy-ready`; public TLS health is still checked. Bundled Caddy normally avoids this step. |
-| `server_ready` | Services respond, but no repository has been selected. Resume with `--repo OWNER/REPOSITORY`. |
-| `repository_setup_required` | Install App, connect provider in the dashboard and merge the generated workflow PR. Once these actions have actually happened, resume with `--repository-setup-complete`. |
-| `verification_required` | Review authority is initialized. Open a small disposable PR and confirm actual App-authored review plus a second-revision review. **No first review is claimed yet.** |
-| `failed` | Read stderr, correct the issue and resume at the pinned revision. The installer preserves private credentials and does not silently upgrade. |
+| JSON state                         | Meaning / next step                                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `input_required`                   | Agent must supply the public dashboard URL; API URL defaults to `api.<dashboard hostname>`. Configure DNS first.                                                          |
+| `approval_required` (`github_app`) | Run the provided manifest-helper command, obtain authorized GitHub browser approval, then resume. The helper keeps the App profile in a private directory.                |
+| `approval_required` (`https`)      | Only with `--external-proxy`: set up HTTPS routing and resume with `--external-proxy-ready`; public TLS health is still checked. Bundled Caddy normally avoids this step. |
+| `server_ready`                     | Services respond, but no repository has been selected. Resume with `--repo OWNER/REPOSITORY`.                                                                             |
+| `repository_setup_required`        | Install App, connect provider in the dashboard and merge the generated workflow PR. Once these actions have actually happened, resume with `--repository-setup-complete`. |
+| `verification_required`            | Review authority is initialized. Open a small disposable PR and confirm actual App-authored review plus a second-revision review. **No first review is claimed yet.**     |
+| `failed`                           | Read stderr, correct the issue and resume at the pinned revision. The installer preserves private credentials and does not silently upgrade.                              |
 
 Agent mode deliberately does **not** auto-approve GitHub App permissions,
 authorize an AI subscription, merge a workflow PR, change existing emergency
@@ -112,9 +112,9 @@ from its saved checkout:
 | Option                                 | Purpose                                                                              |
 | -------------------------------------- | ------------------------------------------------------------------------------------ |
 | `--repo OWNER/REPOSITORY`              | Select the first repository before provider onboarding.                              |
-| `--status`                             | Read the saved machine status without starting services.                            |
-| `--interactive`                        | Opt in to prompts; the default mode is non-interactive JSON.                        |
-| `--repository-setup-complete`          | Resume only after the App/provider/workflow approvals actually happened.            |
+| `--status`                             | Read the saved machine status without starting services.                             |
+| `--interactive`                        | Opt in to prompts; the default mode is non-interactive JSON.                         |
+| `--repository-setup-complete`          | Resume only after the App/provider/workflow approvals actually happened.             |
 | `--external-proxy-ready`               | Resume external proxy setup after configuring public HTTPS routing.                  |
 | `--app-profile /secure/github-app.env` | Import an existing GitHub App profile.                                               |
 | `--directory /private/install`         | Select the private state directory; reuse it when resuming.                          |

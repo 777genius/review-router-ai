@@ -9,11 +9,11 @@
 
 ## Environment status
 
-| Target | Status | Evidence / remaining work |
-| --- | --- | --- |
-| Disposable CI | `pending` | Run installer contract checks and stock Compose/PostgreSQL/Memory E2E on exact PR head. Verify non-TTY JSON output, private state, failure states and resumed entrypoint. |
-| New public self-hosted server | `pending` | Requires a specified Linux host, DNS/TLS, authorized GitHub App, provider login and disposable test repository. The first actual provider review, App-owned comments, second-commit revision and complete interrupted install resume are not proven by CI fixtures. |
-| Existing hosted staging/production | `pending` | Not selected for deployment. Do not change hosted configuration or publish releases for this scope. |
+| Target                             | Status    | Evidence / remaining work                                                                                                                                                                                                                                           |
+| ---------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Disposable CI                      | `pending` | Run installer contract checks and stock Compose/PostgreSQL/Memory E2E on exact PR head. Verify non-TTY JSON output, private state, failure states and resumed entrypoint.                                                                                           |
+| New public self-hosted server      | `pending` | Requires a specified Linux host, DNS/TLS, authorized GitHub App, provider login and disposable test repository. The first actual provider review, App-owned comments, second-commit revision and complete interrupted install resume are not proven by CI fixtures. |
+| Existing hosted staging/production | `pending` | Not selected for deployment. Do not change hosted configuration or publish releases for this scope.                                                                                                                                                                 |
 
 ## Installation / rollout order
 
