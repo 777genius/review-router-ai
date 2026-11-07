@@ -41,13 +41,19 @@ describe("single-finding safe suggestion", () => {
     expect(result).toContain("suggestion\nconst x = 4;");
     expect(result).toContain("Apply this suggestion manually");
   });
-  it("permits a contiguous multi-line RIGHT-side hunk", () => {
+  it("does not fabricate a multiline GitHub Apply suggestion from a single-line parent anchor", () => {
     const result = renderFocusedSuggestion(output({
       endLine: 2,
       before: "const x = 2;\nconst y = 3;",
       replacement: "const x = 4;\nconst y = 5;",
     }), source, head, head);
-    expect(result).toContain("suggestion:-0+1\nconst x = 4;");
+    expect(result).toContain("Cannot suggest a safe fix");
+  });
+  it("can replace one anchored line with bounded multi-line content", () => {
+    const result = renderFocusedSuggestion(output({
+      replacement: "if (true) {\n  const x = 4;\n}",
+    }), source, head, head);
+    expect(result).toContain("suggestion\nif (true)");
   });
   it.each([
     ["no source", output(), null, head, head],
