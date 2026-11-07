@@ -241,6 +241,10 @@ describe("review settings forms", () => {
       />,
     );
     expect(
+      screen.getByText(/Minimum independent reviewer votes required for inline PR comments/)
+        .textContent,
+    ).toContain("can still fail severity checks");
+    expect(
       readWorkspaceReviewSettingsForm(new FormData(form())).execution,
     ).toEqual({ providerMaxParallel: 2, inlineMinAgreement: 2 });
   });
