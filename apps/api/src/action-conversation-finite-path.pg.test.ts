@@ -221,7 +221,8 @@ describe.skipIf(!databaseUrl)(
         original_commit_id: "c".repeat(40),
         diff_hunk: "@@ -1 +1 @@\n+const id = input;",
       }));
-      const focusedText = "export function validateId(id: string) {\n  return id.length > 0;\n}\n";
+      const focusedText =
+        "export function validateId(id: string) {\n  return id.length > 0;\n}\n";
       const sourceCalls: { route: string; page?: number }[] = [];
       const sourceClient: ConversationGitHubClient = {
         async request<T>(
@@ -235,11 +236,14 @@ describe.skipIf(!databaseUrl)(
               : {}),
           });
           const data = route.endsWith("/files")
-            ? [{
-                filename: "src/ids.ts",
-                status: "modified",
-                patch: "@@ -1,2 +1,3 @@\n+export function validateId(id: string) {\n+  return id.length > 0;\n+}\n",
-              }]
+            ? [
+                {
+                  filename: "src/ids.ts",
+                  status: "modified",
+                  patch:
+                    "@@ -1,2 +1,3 @@\n+export function validateId(id: string) {\n+  return id.length > 0;\n+}\n",
+                },
+              ]
             : route.includes("/contents/")
               ? {
                   type: "file",
@@ -250,31 +254,31 @@ describe.skipIf(!databaseUrl)(
                 }
               : route.includes("/users/")
                 ? bot
-            : route.endsWith("/permission")
-              ? { permission: "maintain", user: human }
-              : route.includes("/pulls/comments/")
-                ? comments.find(
-                    (comment) =>
-                      String(comment.id) === String(parameters.comment_id),
-                  )
-                : route.endsWith("/comments")
-                  ? comments.slice(
-                      (Number(parameters.page) - 1) * 100,
-                      Number(parameters.page) * 100,
-                    )
-                  : {
-                      number: 7,
-                      state: "open",
-                      head: { sha: "c".repeat(40), repo: { id: 1234 } },
-                      base: {
-                        sha: "d".repeat(40),
-                        repo: {
-                          id: 1234,
-                          full_name: "acme/project",
-                          private: false,
-                        },
-                      },
-                    };
+                : route.endsWith("/permission")
+                  ? { permission: "maintain", user: human }
+                  : route.includes("/pulls/comments/")
+                    ? comments.find(
+                        (comment) =>
+                          String(comment.id) === String(parameters.comment_id),
+                      )
+                    : route.endsWith("/comments")
+                      ? comments.slice(
+                          (Number(parameters.page) - 1) * 100,
+                          Number(parameters.page) * 100,
+                        )
+                      : {
+                          number: 7,
+                          state: "open",
+                          head: { sha: "c".repeat(40), repo: { id: 1234 } },
+                          base: {
+                            sha: "d".repeat(40),
+                            repo: {
+                              id: 1234,
+                              full_name: "acme/project",
+                              private: false,
+                            },
+                          },
+                        };
           return { data: data as T };
         },
       };
@@ -661,7 +665,8 @@ describe.skipIf(!databaseUrl)(
               verdict,
               confidence,
               scopeSufficient: true,
-              reason: "The source now checks the identifier length before returning its validation result.",
+              reason:
+                "The source now checks the identifier length before returning its validation result.",
               evidence: [{ line: 2, quote: quoted }],
             }),
             action: null,
@@ -677,14 +682,23 @@ describe.skipIf(!databaseUrl)(
           expect(result.status).toBe("ready");
           expect(result.reply?.body).toContain(expected);
           expect(result.reply?.body).toContain("c".repeat(12));
-          expect(result.learning).toEqual({ status: "disabled", effectIds: [] });
+          expect(result.learning).toEqual({
+            status: "disabled",
+            effectIds: [],
+          });
           expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
           expect(prepared).toBe(0);
-          expect(f.sourceCalls.some((entry) => entry.route.includes("/contents/"))).toBe(true);
-          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
+          expect(
+            f.sourceCalls.some((entry) => entry.route.includes("/contents/")),
+          ).toBe(true);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
           const replay = await f.processor.execute(input, controls());
           expect(replay).toEqual(result);
-          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
         } finally {
           await f.app.close();
         }

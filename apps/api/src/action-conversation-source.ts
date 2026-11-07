@@ -406,22 +406,33 @@ export class GitHubConversationSource
       original.startsWith("/") ||
       original.includes("\\") ||
       original.includes("\0") ||
-      original.split("/").some((segment) => !segment || segment === "." || segment === "..") ||
-      /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(original) ||
+      original
+        .split("/")
+        .some((segment) => !segment || segment === "." || segment === "..") ||
+      /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(
+        original,
+      ) ||
       /\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock)$/iu.test(original)
     )
       return null;
     try {
       const client = await this.client(controls);
-      let matched: {
-        filename: string;
-        previous_filename?: string;
-        status: string;
-        patch?: string;
-      } | undefined;
+      let matched:
+        | {
+            filename: string;
+            previous_filename?: string;
+            status: string;
+            patch?: string;
+          }
+        | undefined;
       for (let page = 1; page <= 30; page++) {
         const { data: files } = await client.request<
-          { filename: string; previous_filename?: string; status: string; patch?: string }[]
+          {
+            filename: string;
+            previous_filename?: string;
+            status: string;
+            patch?: string;
+          }[]
         >("GET /repos/{owner}/{repo}/pulls/{pull_number}/files", {
           ...this.parameters(controls),
           pull_number: snapshot.pullRequestNumber,
@@ -430,7 +441,8 @@ export class GitHubConversationSource
         });
         if (!Array.isArray(files) || files.length > 100) return null;
         matched = files.find(
-          (item) => item.filename === original ||
+          (item) =>
+            item.filename === original ||
             (item.status === "renamed" && item.previous_filename === original),
         );
         if (matched || files.length < 100) break;
@@ -441,10 +453,15 @@ export class GitHubConversationSource
         !targetPath ||
         targetPath.startsWith("/") ||
         targetPath.includes("\\") ||
-        targetPath.split("/").some((segment) => !segment || segment === "." || segment === "..") ||
-        /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(targetPath) ||
+        targetPath
+          .split("/")
+          .some((segment) => !segment || segment === "." || segment === "..") ||
+        /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(
+          targetPath,
+        ) ||
         /\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock)$/iu.test(targetPath)
-      ) return null;
+      )
+        return null;
       const { data: file } = await client.request<{
         type: string;
         sha: string;
@@ -464,7 +481,8 @@ export class GitHubConversationSource
         !Number.isInteger(file.size) ||
         file.size < 1 ||
         file.size > 16_384
-      ) return null;
+      )
+        return null;
       const bytes = Buffer.from(file.content, "base64");
       if (bytes.byteLength !== file.size || bytes.includes(0)) return null;
       const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -476,7 +494,8 @@ export class GitHubConversationSource
         content,
         patch:
           typeof matched.patch === "string" && matched.patch.length <= 24_000
-            ? matched.patch : null,
+            ? matched.patch
+            : null,
         originalLine: snapshot.anchor.line,
       };
     } catch {
