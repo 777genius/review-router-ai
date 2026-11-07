@@ -125,62 +125,82 @@ export class ReviewProgressGitHubGateway {
     const desiredBody = formatReviewProgressComment(input.body, input.marker);
 
     if (canonical) {
-      if (canonical.body !== desiredBody) {
-        await this.assertCurrentPullRequest(input);
-        try {
-          await this.request(
-            "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
-            repositoryParameters(input, {
-              comment_id: canonical.id,
-              body: desiredBody,
-            }),
-          );
-        } catch (error) {
-          const reconciled = await this.reconcileMutation(
-            input,
-            desiredBody,
-            error,
-            canonical.id,
-          );
-          return {
-            commentId: canonical.id,
-            operation: "reconciled",
-            duplicateCommentIds: reconciled
-              .filter(({ id }) => id !== canonical.id)
-              .map(({ id }) => id),
-          };
-        }
-        return {
-          commentId: canonical.id,
-          operation: "updated",
-          duplicateCommentIds: duplicates.map(({ id }) => id),
-        };
-      }
+      return this.updateExistingComment(
+        input,
+        canonical,
+        duplicates,
+        desiredBody,
+      );
+    }
+    return this.createComment(input, desiredBody);
+  }
 
-      const duplicate = duplicates[0];
-      if (!duplicate) {
-        return {
-          commentId: canonical.id,
-          operation: "unchanged",
-          duplicateCommentIds: [],
-        };
-      }
+  private async updateExistingComment(
+    input: UpsertReviewProgressCommentInput,
+    canonical: ReviewProgressComment,
+    duplicates: readonly ReviewProgressComment[],
+    desiredBody: string,
+  ): Promise<UpsertReviewProgressCommentResult> {
+    if (canonical.body !== desiredBody) {
       await this.assertCurrentPullRequest(input);
       try {
         await this.request(
-          "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
-          repositoryParameters(input, { comment_id: duplicate.id }),
+          "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+          repositoryParameters(input, {
+            comment_id: canonical.id,
+            body: desiredBody,
+          }),
         );
       } catch (error) {
-        throw this.classify(error, "ambiguous_mutation");
+        const reconciled = await this.reconcileMutation(
+          input,
+          desiredBody,
+          error,
+          canonical.id,
+        );
+        return {
+          commentId: canonical.id,
+          operation: "reconciled",
+          duplicateCommentIds: reconciled
+            .filter(({ id }) => id !== canonical.id)
+            .map(({ id }) => id),
+        };
       }
       return {
         commentId: canonical.id,
-        operation: "duplicate_deleted",
-        duplicateCommentIds: duplicates.slice(1).map(({ id }) => id),
+        operation: "updated",
+        duplicateCommentIds: duplicates.map(({ id }) => id),
       };
     }
 
+    const duplicate = duplicates[0];
+    if (!duplicate) {
+      return {
+        commentId: canonical.id,
+        operation: "unchanged",
+        duplicateCommentIds: [],
+      };
+    }
+    await this.assertCurrentPullRequest(input);
+    try {
+      await this.request(
+        "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        repositoryParameters(input, { comment_id: duplicate.id }),
+      );
+    } catch (error) {
+      throw this.classify(error, "ambiguous_mutation");
+    }
+    return {
+      commentId: canonical.id,
+      operation: "duplicate_deleted",
+      duplicateCommentIds: duplicates.slice(1).map(({ id }) => id),
+    };
+  }
+
+  private async createComment(
+    input: UpsertReviewProgressCommentInput,
+    desiredBody: string,
+  ): Promise<UpsertReviewProgressCommentResult> {
     await this.assertCurrentPullRequest(input);
     try {
       const response = await this.request(

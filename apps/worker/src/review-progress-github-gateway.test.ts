@@ -76,6 +76,29 @@ describe("ReviewProgressGitHubGateway", () => {
     });
   });
 
+  it("rejects a failed PATCH when only a duplicate has the desired body", async () => {
+    const fixture = githubFixture(
+      [
+        { id: 4, body: `old\n${marker}` },
+        { id: 7, body: formatReviewProgressComment("working", marker) },
+      ],
+      { throwBeforePatch: true },
+    );
+
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 4 }),
+      }),
+    ]);
+  });
+
   it("patches only the canonical comment and defers every duplicate", async () => {
     const fixture = githubFixture(
       [
@@ -218,6 +241,80 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(fixture.calls.some(({ route }) => route.startsWith("POST "))).toBe(
       false,
     );
+  });
+
+  it("prioritizes a verified known comment over an earlier match", async () => {
+    const fixture = githubFixture([
+      { id: 4, body: `older\n${marker}` },
+      { id: 9, body: `known\n${marker}` },
+    ]);
+
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 9 }),
+    ).resolves.toEqual({
+      commentId: 9,
+      operation: "updated",
+      duplicateCommentIds: [4],
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 9 }),
+      }),
+    ]);
+  });
+
+  it("keeps the verified known comment when deleting an earlier duplicate", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: `older\n${marker}` },
+      { id: 9, body: desired },
+    ]);
+
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 9 }),
+    ).resolves.toEqual({
+      commentId: 9,
+      operation: "duplicate_deleted",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 4 }),
+      }),
+    ]);
+    await expect(
+      fixture.request(
+        "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        { comment_id: 9 },
+      ),
+    ).resolves.toMatchObject({ data: { id: 9, body: desired } });
+  });
+
+  it("does not continue duplicate cleanup after an ambiguous DELETE", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture(
+      [
+        { id: 4, body: desired },
+        { id: 7, body: `duplicate one\n${marker}` },
+        { id: 9, body: `duplicate two\n${marker}` },
+      ],
+      { deleteFailureId: 7 },
+    );
+
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 7 }),
+      }),
+    ]);
   });
 
   it("rechecks the PR head after discovery and before mutation", async () => {
@@ -397,6 +494,7 @@ function githubFixture(
     readonly currentHead?: string;
     readonly currentState?: string;
     readonly throwAfterPost?: boolean;
+    readonly throwBeforePatch?: boolean;
     readonly throwAfterPatch?: boolean;
     readonly deleteFailureId?: number;
     readonly listedComments?: Array<{
@@ -447,6 +545,7 @@ function githubFixture(
     }
     if (route === "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}") {
       const comment = comments.find(({ id }) => id === parameters.comment_id)!;
+      if (options.throwBeforePatch) throw new Error("pre_write_failure");
       comment.body = parameters.body as string;
       if (options.throwAfterPatch) throw new Error("socket_closed_after_write");
       return { data: toResponseComment(comment) };

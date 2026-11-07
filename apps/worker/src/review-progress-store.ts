@@ -213,14 +213,7 @@ export class PrismaReviewProgressPublicationStore {
         const stillClaimed =
           await transaction.reviewProgressPublicationV1.count({
             where: {
-              ...input.publication.scope,
-              activeExecutionId: input.publication.executionId,
-              activeGeneration: input.publication.generation,
-              activeHeadSha: input.publication.headSha,
-              activePlanHash: input.publication.planHash,
-              desiredVersion: input.publication.desiredVersion,
-              claimId: input.publication.claim.claimId,
-              claimOwnerIdHash: input.publication.claim.ownerIdHash,
+              ...claimedPublicationFence(input.publication),
               claimUntil: { gt: input.now },
             },
           });
@@ -261,14 +254,7 @@ export class PrismaReviewProgressPublicationStore {
       : new Date(input.now.getTime() + 60_000);
     const result = await this.prisma.reviewProgressPublicationV1.updateMany({
       where: {
-        ...input.publication.scope,
-        activeExecutionId: input.publication.executionId,
-        activeGeneration: input.publication.generation,
-        activeHeadSha: input.publication.headSha,
-        activePlanHash: input.publication.planHash,
-        desiredVersion: input.publication.desiredVersion,
-        claimId: input.publication.claim.claimId,
-        claimOwnerIdHash: input.publication.claim.ownerIdHash,
+        ...claimedPublicationFence(input.publication),
       },
       data: {
         publishedVersion: input.publication.desiredVersion,
@@ -304,14 +290,7 @@ export class PrismaReviewProgressPublicationStore {
         input.publication.failureCount + 1 >= input.maxFailures;
       await transaction.reviewProgressPublicationV1.updateMany({
         where: {
-          ...input.publication.scope,
-          activeExecutionId: input.publication.executionId,
-          activeGeneration: input.publication.generation,
-          activeHeadSha: input.publication.headSha,
-          activePlanHash: input.publication.planHash,
-          desiredVersion: input.publication.desiredVersion,
-          claimId: input.publication.claim.claimId,
-          claimOwnerIdHash: input.publication.claim.ownerIdHash,
+          ...claimedPublicationFence(input.publication),
         },
         data: {
           ...(reachesLimit
@@ -364,14 +343,7 @@ export class PrismaReviewProgressPublicationStore {
   }): Promise<boolean> {
     const result = await this.prisma.reviewProgressPublicationV1.updateMany({
       where: {
-        ...input.publication.scope,
-        activeExecutionId: input.publication.executionId,
-        activeGeneration: input.publication.generation,
-        activeHeadSha: input.publication.headSha,
-        activePlanHash: input.publication.planHash,
-        desiredVersion: input.publication.desiredVersion,
-        claimId: input.publication.claim.claimId,
-        claimOwnerIdHash: input.publication.claim.ownerIdHash,
+        ...claimedPublicationFence(input.publication),
       },
       data: {
         publishedVersion: input.publication.desiredVersion,
@@ -481,6 +453,20 @@ export class PrismaReviewProgressPublicationStore {
     }
     return promoted;
   }
+}
+
+/** Keep the optimistic claim fence identical across progress mutations. */
+function claimedPublicationFence(publication: ClaimedReviewProgress) {
+  return {
+    ...publication.scope,
+    activeExecutionId: publication.executionId,
+    activeGeneration: publication.generation,
+    activeHeadSha: publication.headSha,
+    activePlanHash: publication.planHash,
+    desiredVersion: publication.desiredVersion,
+    claimId: publication.claim.claimId,
+    claimOwnerIdHash: publication.claim.ownerIdHash,
+  };
 }
 
 async function deferUnavailablePublication(
