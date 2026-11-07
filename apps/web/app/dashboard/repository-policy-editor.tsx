@@ -74,7 +74,7 @@ const fieldHelp = {
   providerMaxParallel:
     "Maximum number of selected providers ReviewRouter may run at the same time.",
   inlineMinAgreement:
-    "Minimum independent AI reviewer votes required for inline PR comments. Findings below this threshold stay in the review summary and can still fail severity checks. Deterministic-only static/AST findings are exempt; static/AST do not add AI reviewer votes when mixed.",
+    "Minimum independent AI reviewer votes required for inline PR comments. Findings below this threshold stay in the review summary and can still fail severity checks. Deterministic-only static/AST findings are exempt; static/AST do not add AI reviewer votes when mixed. Requires an updated managed v2 Action release with the #375 fix; older installations may behave differently.",
   updatePrDescription:
     "Adds an AI-generated summary through a supported review runtime while preserving the author's text.",
   reviewLanguage:

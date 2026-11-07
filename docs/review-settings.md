@@ -23,8 +23,12 @@ AI reviewer votes in mixed findings. The default threshold of one keeps
 the normal single-reviewer workflow. Historical discussion thread resolution
 has a separate, stricter confirmation policy.
 
-This contract requires the managed v2 Action runtime. Older direct Action
-entrypoints may have different summary and publication behavior.
+This contract requires a managed v2 Action release containing the one-vote
+threshold fix from [Action PR #375](https://github.com/777genius/review-router/pull/375).
+Merging the source does not activate it: existing installations must update
+their pinned Action runtime to a release that includes the fix. Older managed
+v2 releases and direct Action entrypoints may have different summary and
+publication behavior.
 
 Operators can also use the [configuration CLI](./operations/review-configuration-operator-cli.md):
 

@@ -13,7 +13,7 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-Inline reviewer agreement wording: [dashboard tooltip and managed v2 contract](2026-11-07-inline-agreement-dashboard.md), [Draft PR #830](https://github.com/777genius/review-router-ai/pull/830) and [Action PR #375](https://github.com/777genius/review-router/pull/375) — staging/production `pending`; source changes do not activate or release the Action.
+Inline reviewer agreement wording: [dashboard tooltip and managed v2 contract](2026-11-07-inline-agreement-dashboard.md), [PR #830](https://github.com/777genius/review-router-ai/pull/830) and [Action PR #375](https://github.com/777genius/review-router/pull/375) — staging/production `pending`; source changes do not activate or release the Action.
 
 Self-hosted agent-first installation: [non-interactive JSON and safe resume](2026-11-07-self-hosted-agent-first.md), [PR #826](https://github.com/777genius/review-router-ai/pull/826) — disposable CI and a first public-host review remain `pending`. No hosted rollout, credential rotation or release is authorized; source checks do not establish a live provider result.
 

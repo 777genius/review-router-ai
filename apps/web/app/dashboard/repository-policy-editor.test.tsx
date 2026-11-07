@@ -253,6 +253,9 @@ describe("review settings forms", () => {
     expect(agreementHelp.textContent).toContain(
       "static/AST do not add AI reviewer votes when mixed",
     );
+    expect(agreementHelp.textContent).toContain(
+      "Requires an updated managed v2 Action release with the #375 fix",
+    );
     expect(
       readWorkspaceReviewSettingsForm(new FormData(form())).execution,
     ).toEqual({ providerMaxParallel: 2, inlineMinAgreement: 2 });
