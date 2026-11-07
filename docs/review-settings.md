@@ -14,8 +14,8 @@ Provider capabilities differ; not every model supports every setting.
 **Inline agreement** sets the minimum number of independent reviewer votes
 required to publish an AI finding as an inline PR comment. Repeated work
 slots with one vote identity count once; separately configured reviewer
-identities can count independently even when using the same model. Findings below the
-threshold remain visible in the PR review summary instead of appearing as
+identities can count independently even when using the same model.
+Findings below the threshold remain visible in the PR review summary instead of appearing as
 agreed inline comments. They can still fail the configured severity check, so
 an unconfirmed serious finding does not become an all-clear. Deterministic
 static-analysis findings are exempt, and the default threshold of one keeps
