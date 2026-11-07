@@ -244,11 +244,12 @@ describe("review settings forms", () => {
       screen.getByRole("button", { name: "Inline agreement help" }),
     );
     const agreementHelp = await screen.findByText(
-      /Minimum independent reviewer votes required for inline PR comments/,
+      /Minimum independent AI reviewer votes required for inline PR comments/,
     );
     expect(agreementHelp.textContent).toContain(
       "can still fail severity checks",
     );
+    expect(agreementHelp.textContent).toContain("static/AST do not add AI reviewer votes when mixed");
     expect(
       readWorkspaceReviewSettingsForm(new FormData(form())).execution,
     ).toEqual({ providerMaxParallel: 2, inlineMinAgreement: 2 });
