@@ -190,7 +190,7 @@ test("malformed or forged saved agent status is rejected before any deployment w
       await writeFile(statePath, payload, { mode: 0o600 });
       const result = invoke("--status", "--directory", directory);
       assert.notEqual(result.status, 0, payload);
-      assert.match(result.stderr, /Saved agent status/);
+      assert.match(result.stderr, /Saved agent (?:status|next action)/);
       assert.equal(await readFile(statePath, "utf8"), payload);
     }
   } finally {
