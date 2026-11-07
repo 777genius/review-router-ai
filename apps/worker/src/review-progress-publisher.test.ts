@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProgressSnapshot } from "@reviewrouter/features-review-progress";
+import { ReviewProgressGitHubError } from "./review-progress-github-gateway";
 import { ReviewProgressPublisher } from "./review-progress-publisher";
 import type { ClaimedReviewProgress } from "./review-progress-store";
 
@@ -190,6 +191,53 @@ describe("ReviewProgressPublisher", () => {
     expect(store.retry).toHaveBeenCalledWith(
       expect.objectContaining({ maxFailures: 3 }),
     );
+  });
+
+  it("uses the GitHub rate-limit retry boundary as installation cooldown", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const retryAt = new Date(now.getTime() + 60_000);
+    const factory = vi.fn(async () => {
+      throw new ReviewProgressGitHubError("rate_limited", "limited", {
+        retryable: true,
+        retryAt,
+      });
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toMatchObject({ claimed: 1, failed: 1, suppressed: 0 });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_rate_limited",
+        retryAt,
+        installationCooldownUntil: retryAt,
+        maxFailures: 3,
+      }),
+    );
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a non-retryable GitHub error without scheduling retry", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const factory = vi.fn(async () => {
+      throw new ReviewProgressGitHubError("revoked_app", "revoked", {
+        retryable: false,
+      });
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toMatchObject({ claimed: 1, suppressed: 1, failed: 0 });
+    expect(store.suppress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_revoked_app",
+      }),
+    );
+    expect(store.retry).not.toHaveBeenCalled();
   });
 });
 

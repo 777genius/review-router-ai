@@ -180,38 +180,46 @@ export class ReviewProgressPublisher {
       });
       result.published += 1;
     } catch (error) {
-      if (
-        error instanceof ReviewProgressGitHubError &&
-        !error.metadata.retryable
-      ) {
-        await this.store.suppress({
-          publication,
-          safeCode: `review_progress_${error.kind}`,
-          now: this.clock.now(),
-        });
-        result.suppressed += 1;
-        return;
-      }
-      const githubError =
-        error instanceof ReviewProgressGitHubError ? error : null;
-      const retryAt =
-        githubError?.metadata.retryAt ??
-        new Date(this.clock.now().getTime() + this.options.retryDelayMs);
-      const retryOutcome = await this.store.retry({
-        publication,
-        safeCode: githubError
-          ? `review_progress_${githubError.kind}`
-          : "review_progress_publish_failed",
-        retryAt,
-        ...(githubError?.kind === "rate_limited"
-          ? { installationCooldownUntil: retryAt }
-          : {}),
-        now: this.clock.now(),
-        maxFailures: this.options.maxFailures,
-      });
-      if (retryOutcome === "suppressed") result.suppressed += 1;
-      else result.failed += 1;
+      await this.handlePublishFailure(publication, error, result);
     }
+  }
+
+  private async handlePublishFailure(
+    publication: ClaimedReviewProgress,
+    error: unknown,
+    result: { suppressed: number; failed: number },
+  ): Promise<void> {
+    if (
+      error instanceof ReviewProgressGitHubError &&
+      !error.metadata.retryable
+    ) {
+      await this.store.suppress({
+        publication,
+        safeCode: `review_progress_${error.kind}`,
+        now: this.clock.now(),
+      });
+      result.suppressed += 1;
+      return;
+    }
+    const githubError =
+      error instanceof ReviewProgressGitHubError ? error : null;
+    const retryAt =
+      githubError?.metadata.retryAt ??
+      new Date(this.clock.now().getTime() + this.options.retryDelayMs);
+    const retryOutcome = await this.store.retry({
+      publication,
+      safeCode: githubError
+        ? `review_progress_${githubError.kind}`
+        : "review_progress_publish_failed",
+      retryAt,
+      ...(githubError?.kind === "rate_limited"
+        ? { installationCooldownUntil: retryAt }
+        : {}),
+      now: this.clock.now(),
+      maxFailures: this.options.maxFailures,
+    });
+    if (retryOutcome === "suppressed") result.suppressed += 1;
+    else result.failed += 1;
   }
 }
 
