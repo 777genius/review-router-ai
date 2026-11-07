@@ -264,6 +264,34 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("keeps the verified known comment when deleting an earlier duplicate", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([
+      { id: 4, body: `older\n${marker}` },
+      { id: 9, body: desired },
+    ]);
+
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 9 }),
+    ).resolves.toEqual({
+      commentId: 9,
+      operation: "duplicate_deleted",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 4 }),
+      }),
+    ]);
+    await expect(
+      fixture.request(
+        "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        { comment_id: 9 },
+      ),
+    ).resolves.toMatchObject({ data: { id: 9, body: desired } });
+  });
+
   it("does not continue duplicate cleanup after an ambiguous DELETE", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const fixture = githubFixture(
