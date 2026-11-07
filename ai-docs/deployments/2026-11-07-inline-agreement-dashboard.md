@@ -8,10 +8,10 @@
 
 ## Environment status
 
-| Target | Status | Actual image | Evidence |
-| --- | --- | --- | --- |
-| Staging | `pending` | Not verified | Web rollout and screenshot/tooltip verification pending |
-| Production | `pending` | Not verified | No deployment authorized by source merge |
+| Target     | Status    | Actual image | Evidence                                                |
+| ---------- | --------- | ------------ | ------------------------------------------------------- |
+| Staging    | `pending` | Not verified | Web rollout and screenshot/tooltip verification pending |
+| Production | `pending` | Not verified | No deployment authorized by source merge                |
 
 ## Applicability and rollout
 
@@ -26,6 +26,6 @@ Inspect current deployed web/Action identities before retrying. Do not replay re
 
 ## Execution log
 
-| Time | Target | Actual version | Result |
-| --- | --- | --- | --- |
-| Not executed | Staging/Production | Not verified | Pending; no environment mutation claimed |
+| Time         | Target             | Actual version | Result                                   |
+| ------------ | ------------------ | -------------- | ---------------------------------------- |
+| Not executed | Staging/Production | Not verified   | Pending; no environment mutation claimed |

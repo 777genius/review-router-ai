@@ -243,8 +243,9 @@ describe("review settings forms", () => {
     fireEvent.focus(
       screen.getByRole("button", { name: "Inline agreement help" }),
     );
-    const agreementHelp = await screen.findByText(
-      /Minimum independent AI reviewer votes required for inline PR comments/,
+    const agreementHelp = await screen.findByRole("tooltip");
+    expect(agreementHelp.textContent).toContain(
+      "Minimum independent AI reviewer votes required for inline PR comments",
     );
     expect(agreementHelp.textContent).toContain(
       "can still fail severity checks",
