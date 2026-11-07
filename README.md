@@ -101,8 +101,9 @@ bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777
   --repo OWNER/REPOSITORY
 ```
 
-Substitute real DNS names and your repository. The installer returns a JSON
-status with exact next actions and resumes without losing credentials. It sets up
+Substitute real DNS names and your repository. This moving-branch quickstart
+is for first-time evaluation; for production, [pin an approved source commit](./docs/operations/review-router-self-hosted-end-to-end.md#agent-first-installation-default).
+The installer returns a JSON status with exact next actions and resumes without losing credentials. It sets up
 services and HTTPS automatically; GitHub App authorization, AI provider sign-in
 and workflow PR approval still require authorized user actions. A running server
 is **not** a verified AI review. Humans can use `--interactive` for prompts.

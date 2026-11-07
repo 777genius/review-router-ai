@@ -30,6 +30,25 @@ bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777
   --repo OWNER/REPOSITORY
 ```
 
+For production, **pin the control-plane source commit**, rather than deploying
+the current moving `main` checkout. For example, on the same server:
+
+```bash
+SOURCE_SHA=PASTE_APPROVED_40_CHARACTER_COMMIT_SHA
+git clone https://github.com/777genius/review-router-ai.git reviewrouter
+git -C reviewrouter fetch origin "$SOURCE_SHA"
+git -C reviewrouter checkout --detach "$SOURCE_SHA"
+cd reviewrouter
+bash scripts/install-self-hosted.sh \
+  --web-url https://review.example.com \
+  --api-url https://api.review.example.com \
+  --repo OWNER/REPOSITORY
+```
+
+The first, shorter command above is for new evaluations that intentionally use
+the current default branch. Both routes have the same agent-first JSON contract
+and require you to replace the example domains and repository.
+
 The installer auto-generates private credentials, installs pinned dependencies,
 prepares database roles and migrations, deploys Compose/Memory/HTTPS, verifies
 server readiness and registers the exact Action release. By default it returns
@@ -77,9 +96,9 @@ link printed by the installer. With an existing App profile, use
 After the agent reports `repository_setup_required` (or when the interactive wizard prompts):
 
 1. Install the App on the test repository using the printed GitHub link.
-2. Enter `OWNER/REPOSITORY` in the installer. It enables provider setup and
-   review admission for that repository, applies the configuration and checks
-   service readiness before provider onboarding.
+2. If the agent already supplied `--repo OWNER/REPOSITORY`, keep that selection;
+   otherwise resume with `--repo OWNER/REPOSITORY`. The installer enables
+   provider setup and review admission only for that repository.
 3. Open the printed dashboard setup URL, sign in with GitHub and select the same
    repository. Choose **GitHub Secrets** for provider setup and follow the
    generated instructions.
