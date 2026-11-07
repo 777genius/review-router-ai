@@ -208,7 +208,7 @@ describe("review settings forms", () => {
     expect(readRepositoryReviewSettingsForm(new FormData(form()))).toEqual({});
   });
 
-  it("offers execution limits only where more than one provider runs", () => {
+  it("offers execution limits only where more than one provider runs", async () => {
     const view = render(
       <ReviewSettingsForm
         action={vi.fn()}
@@ -240,10 +240,11 @@ describe("review settings forms", () => {
         submitLabel="Save"
       />,
     );
-    expect(
-      screen.getByText(/Minimum independent reviewer votes required for inline PR comments/)
-        .textContent,
-    ).toContain("can still fail severity checks");
+    fireEvent.focus(screen.getByRole("button", { name: "Inline agreement help" }));
+    const agreementHelp = await screen.findByText(
+      /Minimum independent reviewer votes required for inline PR comments/,
+    );
+    expect(agreementHelp.textContent).toContain("can still fail severity checks");
     expect(
       readWorkspaceReviewSettingsForm(new FormData(form())).execution,
     ).toEqual({ providerMaxParallel: 2, inlineMinAgreement: 2 });
