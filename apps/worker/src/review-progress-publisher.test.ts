@@ -175,6 +175,44 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("defers completion while marked duplicates remain for cleanup", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const comment = {
+      body: "<!-- review-router-live-progress -->",
+      user: { login: "review-router[bot]" },
+    };
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) {
+          return { data: [{ ...comment, id: 77 }, { ...comment, id: 78 }] };
+        }
+        if (route.startsWith("PATCH")) return { data: {} };
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_duplicate_cleanup_pending",
+        retryAt: new Date(now.getTime() + 1_000),
+        countFailure: false,
+        maxFailures: 3,
+      }),
+    );
+  });
+
   it("suppresses a poison publication at the retry bound", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);

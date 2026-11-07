@@ -9,6 +9,7 @@ import {
   ReviewProgressGitHubError,
   ReviewProgressGitHubGateway,
   type ReviewProgressGitHubRequester,
+  type UpsertReviewProgressCommentResult,
 } from "./review-progress-github-gateway";
 import {
   PrismaReviewProgressPublicationStore,
@@ -157,31 +158,45 @@ export class ReviewProgressPublisher {
         marker: githubProgressCommentMarker,
         body,
       });
-      if (published.duplicateCommentIds.length > 0) {
-        await this.store.retry({
-          publication,
-          safeCode: "review_progress_duplicate_cleanup_pending",
-          retryAt: new Date(
-            this.clock.now().getTime() +
-              Math.max(1_000, this.options.minimumMutationIntervalMs),
-          ),
-          now: this.clock.now(),
-          maxFailures: this.options.maxFailures,
-          countFailure: false,
-        });
-        result.deferred += 1;
-        return;
-      }
-      await this.store.complete({
+      await this.settlePublishedMutation(
         publication,
-        commentId: BigInt(published.commentId),
+        published,
         bodyHash,
-        now: this.clock.now(),
-      });
-      result.published += 1;
+        result,
+      );
     } catch (error) {
       await this.handlePublishFailure(publication, error, result);
     }
+  }
+
+  private async settlePublishedMutation(
+    publication: ClaimedReviewProgress,
+    published: UpsertReviewProgressCommentResult,
+    bodyHash: string,
+    result: { published: number; deferred: number },
+  ): Promise<void> {
+    if (published.duplicateCommentIds.length > 0) {
+      await this.store.retry({
+        publication,
+        safeCode: "review_progress_duplicate_cleanup_pending",
+        retryAt: new Date(
+          this.clock.now().getTime() +
+            Math.max(1_000, this.options.minimumMutationIntervalMs),
+        ),
+        now: this.clock.now(),
+        maxFailures: this.options.maxFailures,
+        countFailure: false,
+      });
+      result.deferred += 1;
+      return;
+    }
+    await this.store.complete({
+      publication,
+      commentId: BigInt(published.commentId),
+      bodyHash,
+      now: this.clock.now(),
+    });
+    result.published += 1;
   }
 
   private async handlePublishFailure(
