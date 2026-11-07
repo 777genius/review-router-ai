@@ -16,7 +16,6 @@ and review rules in one dashboard.
 <img width="1135" height="737" alt="ReviewRouter usage" src="https://github.com/user-attachments/assets/447a4f0c-5527-41bd-a08e-6bb540eb3943" />
 <img width="1135" height="737" alt="ReviewRouter statistics" src="https://github.com/user-attachments/assets/9a6d86ae-1884-45f4-9c89-3c5851bd2ccf" />
 
-
 ## Features
 
 ### Memory, Skills and MCP
