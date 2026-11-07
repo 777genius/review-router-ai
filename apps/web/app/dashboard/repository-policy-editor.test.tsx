@@ -249,7 +249,9 @@ describe("review settings forms", () => {
     expect(agreementHelp.textContent).toContain(
       "can still fail severity checks",
     );
-    expect(agreementHelp.textContent).toContain("static/AST do not add AI reviewer votes when mixed");
+    expect(agreementHelp.textContent).toContain(
+      "static/AST do not add AI reviewer votes when mixed",
+    );
     expect(
       readWorkspaceReviewSettingsForm(new FormData(form())).execution,
     ).toEqual({ providerMaxParallel: 2, inlineMinAgreement: 2 });
