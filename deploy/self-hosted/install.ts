@@ -659,7 +659,9 @@ async function main(): Promise<void> {
       ]);
       await run(process.execPath, ["scripts/rewrite-dist-esm-imports.mjs"]);
     } else {
-      log("Skipping installed dependencies and compiler build; checking live server readiness.");
+      log(
+        "Skipping installed dependencies and compiler build; checking live server readiness.",
+      );
     }
 
     const credentialPath = join(directory, "operator-credential");
@@ -841,64 +843,64 @@ async function main(): Promise<void> {
     );
     let release: SelfHostedRelease | undefined;
     if (!reuseReadyServer) {
-    const actionRepo = join(directory, "action"),
-      actionBranch = `selfhost-${settings.actionCommit.slice(0, 12)}`;
-    if (!(await exists(join(actionRepo, ".git")))) {
-      await run("git", [
-        "clone",
-        "--no-checkout",
-        "https://github.com/777genius/review-router.git",
-        actionRepo,
-      ]);
-      await run("git", ["switch", "-c", actionBranch, settings.actionCommit], {
-        cwd: actionRepo,
-      });
-    }
-    const handoff = JSON.parse(
-      await readFile(
-        join(
+      const actionRepo = join(directory, "action"),
+        actionBranch = `selfhost-${settings.actionCommit.slice(0, 12)}`;
+      if (!(await exists(join(actionRepo, ".git")))) {
+        await run("git", [
+          "clone",
+          "--no-checkout",
+          "https://github.com/777genius/review-router.git",
           actionRepo,
-          "src/control-plane/generated/review-action-v2/handoff-manifest.json",
+        ]);
+        await run("git", ["switch", "-c", actionBranch, settings.actionCommit], {
+          cwd: actionRepo,
+        });
+      }
+      const handoff = JSON.parse(
+        await readFile(
+          join(
+            actionRepo,
+            "src/control-plane/generated/review-action-v2/handoff-manifest.json",
+          ),
+          "utf8",
         ),
-        "utf8",
-      ),
-    ) as { saasSourceCommit?: string };
-    assert(
-      handoff.saasSourceCommit &&
-        /^[a-f0-9]{40}$/.test(handoff.saasSourceCommit),
-      "Invalid reviewer source handoff",
-    );
-    try {
-      await run(
-        "git",
-        ["cat-file", "-e", `${handoff.saasSourceCommit}^{commit}`],
-        { capture: true },
+      ) as { saasSourceCommit?: string };
+      assert(
+        handoff.saasSourceCommit &&
+          /^[a-f0-9]{40}$/.test(handoff.saasSourceCommit),
+        "Invalid reviewer source handoff",
       );
-    } catch {
-      await run("git", [
-        "fetch",
-        "--no-tags",
-        "origin",
-        handoff.saasSourceCommit,
+      try {
+        await run(
+          "git",
+          ["cat-file", "-e", `${handoff.saasSourceCommit}^{commit}`],
+          { capture: true },
+        );
+      } catch {
+        await run("git", [
+          "fetch",
+          "--no-tags",
+          "origin",
+          handoff.saasSourceCommit,
+        ]);
+      }
+      const { generateSelfHostedRelease } = await import("./install-release.ts");
+      release = await generateSelfHostedRelease({
+        repoRoot: root,
+        actionRepo,
+        expectedActionSha: settings.actionCommit,
+        actionBranch,
+        outputDir: join(directory, "release"),
+        ownerRef: `self-hosted:${new URL(settings.webUrl).hostname}`,
+      });
+      env = { ...env, ...release.environment };
+      await writePrivate(envFile, renderEnvironment(env));
+      await run(process.execPath, ["scripts/check-self-hosted-readiness.mjs"], {
+        env: { REVIEW_ROUTER_SELF_HOSTED_ENV_FILE: envFile },
+      });
+      await run(process.execPath, [
+        "scripts/check-self-hosted-compose-contract.mjs",
       ]);
-    }
-    const { generateSelfHostedRelease } = await import("./install-release.ts");
-    release = await generateSelfHostedRelease({
-      repoRoot: root,
-      actionRepo,
-      expectedActionSha: settings.actionCommit,
-      actionBranch,
-      outputDir: join(directory, "release"),
-      ownerRef: `self-hosted:${new URL(settings.webUrl).hostname}`,
-    });
-    env = { ...env, ...release.environment };
-    await writePrivate(envFile, renderEnvironment(env));
-    await run(process.execPath, ["scripts/check-self-hosted-readiness.mjs"], {
-      env: { REVIEW_ROUTER_SELF_HOSTED_ENV_FILE: envFile },
-    });
-    await run(process.execPath, [
-      "scripts/check-self-hosted-compose-contract.mjs",
-    ]);
     }
 
     const composeArgs = [
@@ -963,20 +965,37 @@ async function main(): Promise<void> {
         privateInput: true,
       });
     } else if (settings.memory === "hindsight") {
-      const memoryEnvironment = await readPrivate(join(directory, "memory/router.env"));
-      assert(memoryEnvironment, "Saved Memory backend is missing; follow recovery runbook");
+      const memoryEnvironment = await readPrivate(
+        join(directory, "memory/router.env"),
+      );
+      assert(
+        memoryEnvironment,
+        "Saved Memory backend is missing; follow recovery runbook",
+      );
       const expectedMemory = parseEnvironment(memoryEnvironment);
       for (const [key, value] of Object.entries(expectedMemory)) {
         if (key.startsWith("REVIEW_ROUTER_MEMORY_"))
-          assert(env[key] === value, "Saved Memory backend binding differs; no automatic rebuild");
+          assert(
+            env[key] === value,
+            "Saved Memory backend binding differs; no automatic rebuild",
+          );
       }
       const status = JSON.parse(
-        await run(process.execPath, ["deploy/hindsight/bootstrap.ts", "status", join(directory, "memory/bootstrap.json")], { capture: true }),
+        await run(
+          process.execPath,
+          [
+            "deploy/hindsight/bootstrap.ts",
+            "status",
+            join(directory, "memory/bootstrap.json"),
+          ],
+          { capture: true },
+        ),
       ) as { phase?: string; states?: Record<string, string> };
       assert(
-        status.phase === "running" && status.states &&
-        Object.values(status.states).length > 0 &&
-        Object.values(status.states).every((value) => value === "running"),
+        status.phase === "running" &&
+          status.states &&
+          Object.values(status.states).length > 0 &&
+          Object.values(status.states).every((value) => value === "running"),
         "Saved Memory backend is not running; repair it explicitly before resuming",
       );
     }
@@ -1098,12 +1117,16 @@ async function main(): Promise<void> {
         operationalSloProfileId?: string;
       };
       assert(
-        attestation.producerReleaseId === `self-hosted-action-${settings.actionCommit}` &&
-        attestation.actionCommitSha === settings.actionCommit,
+        attestation.producerReleaseId ===
+          `self-hosted-action-${settings.actionCommit}` &&
+          attestation.actionCommitSha === settings.actionCommit,
         "Saved release does not match pinned Action source",
       );
       const installed = JSON.parse(
-        await admin(["release", "inspect", "--release", attestation.producerReleaseId], true),
+        await admin(
+          ["release", "inspect", "--release", attestation.producerReleaseId],
+          true,
+        ),
       ) as {
         producerReleaseId?: string;
         actionCommitSha?: string;
@@ -1114,11 +1137,13 @@ async function main(): Promise<void> {
       };
       assert(
         installed.producerReleaseId === attestation.producerReleaseId &&
-        installed.actionCommitSha === settings.actionCommit &&
-        installed.protocolLimitsProfileId === attestation.protocolLimitsProfileId &&
-        installed.operationalSloProfileId === attestation.operationalSloProfileId &&
-        installed.state === "registered" &&
-        installed.revokedAt === null,
+          installed.actionCommitSha === settings.actionCommit &&
+          installed.protocolLimitsProfileId ===
+            attestation.protocolLimitsProfileId &&
+          installed.operationalSloProfileId ===
+            attestation.operationalSloProfileId &&
+          installed.state === "registered" &&
+          installed.revokedAt === null,
         "Previously registered reviewer release is missing, revoked or mismatched; reconcile explicitly",
       );
     }
