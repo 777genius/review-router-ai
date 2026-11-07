@@ -1,0 +1,39 @@
+name: Agent-first format (temporary)
+on:
+  push:
+    branches:
+      - feat/self-hosted-agent-first
+    paths:
+      - .github/workflows/agent-first-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Install pinned formatter
+        run: npm install --global --ignore-scripts --no-audit --no-fund prettier@3.8.3
+      - name: Format exactly the failing files
+        run: |
+          prettier --write \
+            ai-docs/deployments/2026-11-07-self-hosted-agent-first.md \
+            ai-docs/plans/2026-11-07-lean-pr-interaction-commands.md \
+            deploy/self-hosted/install-agent.test.ts \
+            deploy/self-hosted/install.ts \
+            docs/operations/review-router-self-hosted-end-to-end.md
+      - name: Commit and push only formatting changes
+        run: |
+          git config user.name 'reviewrouter-format-ci[bot]'
+          git config user.email 'reviewrouter-format-ci[bot]@users.noreply.github.com'
+          git add -- ai-docs/deployments/2026-11-07-self-hosted-agent-first.md ai-docs/plans/2026-11-07-lean-pr-interaction-commands.md deploy/self-hosted/install-agent.test.ts deploy/self-hosted/install.ts docs/operations/review-router-self-hosted-end-to-end.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'style(self-hosted): format agent-first installer and CI docs'
+            git push origin HEAD:refs/heads/feat/self-hosted-agent-first
+          fi
