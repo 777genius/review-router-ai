@@ -74,8 +74,7 @@ export function renderFocusedSuggestion(
   const start = result.startLine as number, end = result.endLine as number;
   const anchor = source.originalLine!;
   if (
-    start < 1 || end < start || end - start >= 50 ||
-    anchor < start || anchor > end ||
+    start < 1 || end !== start || anchor !== start ||
     !inOneRightHunk(source.patch, start, end)
   ) return unavailable;
   const original = source.content.split("\n").slice(start - 1, end).join("\n");
@@ -92,13 +91,12 @@ export function renderFocusedSuggestion(
   const tick = String.fromCharCode(96);
   const runs = replacement.match(new RegExp(tick + "+", "gu")) ?? [];
   const fence = tick.repeat(Math.max(3, ...runs.map((run) => run.length + 1)));
-  const range = start === anchor && end === anchor
-    ? "" : ":-" + (anchor - start) + "+" + (end - anchor);
+
   return [
     "**Suggested fix** for " + tick + source.path.replace(/[^\w./-]/gu, "") +
       ":" + start + (start === end ? "" : "-" + end) + tick +
       " at HEAD " + tick + headSha.slice(0, 12) + tick + ".",
-    fence + "suggestion" + range + "\n" + replacement + "\n" + fence,
+    fence + "suggestion\n" + replacement + "\n" + fence,
     "_Apply this suggestion manually in GitHub. No code or review state was changed._",
   ].join("\n\n");
 }
