@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  AccountDiagnosisError,
+  accountDiagnosisMessage,
+} from "../../src/features/account-gateway/account-diagnosis";
+
 import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
 import { Button } from "@reviewrouter/ui";
@@ -353,7 +358,12 @@ export function AccountLimitsLine({
         ) : null}
         {refresh.isError ? (
           <p role="status">
-            Could not refresh current limits. Saved observations are unchanged.
+            {accountDiagnosisMessage(
+              refresh.error instanceof AccountDiagnosisError
+                ? refresh.error.diagnosis
+                : undefined,
+            )}{" "}
+            Saved observations are unchanged.
           </p>
         ) : null}
       </div>

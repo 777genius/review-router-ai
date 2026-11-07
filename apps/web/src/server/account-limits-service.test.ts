@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import type { AccountView } from "./account-gateway-accounts";
+import { AccountDiagnosisError } from "../features/account-gateway/account-diagnosis";
 import { createAccountLimitsService } from "./account-limits-service";
 const source = {
   id: "source",
@@ -333,4 +334,23 @@ it("keeps a valid cached snapshot when optional refresh capability stalls beyond
   // A late optional capability cannot mutate an already released projection.
   await vi.advanceTimersByTimeAsync(10_000);
   expect(rows[0]!.limits?.refreshAvailable).toBe(false);
+});
+
+it("releases a safe refresh diagnosis only while the same owner generation remains authorized", async () => {
+  const { service, refresh, db } = fixture(true);
+  const diagnosis = {
+    code: "rate_limited" as const,
+    source: "provider" as const,
+    httpStatus: 429,
+  };
+  refresh.mockRejectedValue(new AccountDiagnosisError(diagnosis));
+  expect(await service.refresh("source")).toEqual({
+    status: "unavailable",
+    diagnosis,
+  });
+  refresh.mockImplementation(async () => {
+    db.mockResolvedValue([{ ...source, authorizationEpochMirror: 5n }]);
+    throw new AccountDiagnosisError(diagnosis);
+  });
+  expect(await service.refresh("source")).toEqual({ status: "denied" });
 });

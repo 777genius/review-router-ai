@@ -104,7 +104,7 @@ test("a failed explicit refresh keeps the old observation and does not retry", a
   expect(refreshAccountLimitsAction).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Refresh limits" }));
   expect(
-    await screen.findByText(/Could not refresh current limits/),
+    await screen.findByText(/service is temporarily unavailable/),
   ).toBeTruthy();
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
     "62.5",
@@ -574,4 +574,27 @@ test("an authenticated client observation newer than SSR crosses the bootstrap t
   expect(html).toContain("62.5% left");
   expect(html).toContain("37.5% used");
   expect(html).toContain("progressbar");
+});
+
+test("shows a closed provider retry diagnosis without replacing the stale quota", async () => {
+  vi.mocked(refreshAccountLimitsAction).mockResolvedValue({
+    status: "unavailable",
+    diagnosis: {
+      code: "rate_limited",
+      source: "provider",
+      httpStatus: 429,
+      retryAt: "2026-11-05T12:05:00.000Z",
+    },
+  });
+  const { props } = fixture({ ...snapshot(), refreshAvailable: true });
+  render(<AccountLimitsLine {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh limits" }));
+  expect(
+    await screen.findByText(/Requests are temporarily limited/),
+  ).toBeTruthy();
+  expect(screen.getByText(/2026-11-05 12:05:00 UTC/)).toBeTruthy();
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+    "62.5",
+  );
+  expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
 });

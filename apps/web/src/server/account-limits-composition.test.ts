@@ -288,18 +288,20 @@ it.each([403, 503, 200])(
       true,
     );
     expect(await refresher.supports("foreign")).toBe(false);
-    expect(
-      await refresher.refresh({
-        ...target,
-        profileId: "openai-codex-oauth-responses-v1",
-      }),
-    ).toMatchObject(
-      status === 403
-        ? { status: "unknown", reason: "generation_changed" }
-        : status === 503
-          ? { status: "unavailable", reason: "source_unavailable" }
+    const result = refresher.refresh({
+      ...target,
+      profileId: "openai-codex-oauth-responses-v1",
+    });
+    if (status === 503)
+      await expect(result).rejects.toMatchObject({
+        diagnosis: { code: "unavailable" },
+      });
+    else
+      await expect(result).resolves.toMatchObject(
+        status === 403
+          ? { status: "unknown", reason: "generation_changed" }
           : { status: "unknown" },
-    );
+      );
     expect(calls).toEqual([
       "GET /v1/capabilities/account-limits-refresh",
       "POST /v1/account-limits/refresh",

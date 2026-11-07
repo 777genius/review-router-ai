@@ -1,3 +1,5 @@
+import { AccountDiagnosisError } from "../features/account-gateway/account-diagnosis";
+import { diagnoseAccountGatewayFailure } from "./account-gateway-diagnosis";
 import type {
   AccountLimitsReader,
   AccountLimitsRefresher,
@@ -214,7 +216,7 @@ export function accountLimitsRefresher(
           )
         )
           return { status: "unknown", reason: "generation_changed" };
-        return { status: "unavailable", reason: "source_unavailable" };
+        throw new AccountDiagnosisError(diagnoseAccountGatewayFailure(error));
       }
     },
   };

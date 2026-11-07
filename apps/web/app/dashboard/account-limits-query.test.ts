@@ -5,6 +5,11 @@ import {
   accountLimitsKey,
   accountLimitsRefreshOptions,
 } from "./account-limits-query";
+import {
+  AccountDiagnosisError,
+  type AccountDiagnosis,
+  accountDiagnosisMessage,
+} from "../../src/features/account-gateway/account-diagnosis";
 import { refreshAccountLimits } from "./account-limits-api";
 
 vi.mock("./account-limits-api", () => ({
@@ -63,9 +68,11 @@ test.each(["unavailable", "conflict", "invalid"] as const)(
   "keeps the saved quota and rejects a %s refresh",
   async (status) => {
     const f = fixture();
-    vi.mocked(refreshAccountLimits).mockResolvedValue({ status });
+    const code = status === "invalid" ? "invalid_request" : status;
+    const diagnosis: AccountDiagnosis = { code, source: "application" };
+    vi.mocked(refreshAccountLimits).mockResolvedValue({ status, diagnosis });
     await expect(f.refresh()).rejects.toThrow(
-      "Could not refresh current limits",
+      accountDiagnosisMessage(diagnosis),
     );
     expect(f.client.getQueryData(f.key)).toEqual(f.saved);
     expect(refreshAccountLimits).toHaveBeenCalledTimes(1);
@@ -76,4 +83,21 @@ test("evicts numeric quota on actual refresh authorization denial", async () => 
   vi.mocked(refreshAccountLimits).mockResolvedValue({ status: "denied" });
   await f.refresh();
   expect(f.client.getQueryData(f.key)).toEqual({ status: "denied" });
+});
+
+test("preserves a stale observation while exposing a closed provider diagnosis", async () => {
+  const f = fixture();
+  const diagnosis = {
+    code: "rate_limited" as const,
+    source: "provider" as const,
+    httpStatus: 429,
+    retryAt: "2026-11-05T12:05:00.000Z",
+  };
+  vi.mocked(refreshAccountLimits).mockResolvedValue({
+    status: "unavailable",
+    diagnosis,
+  });
+  await expect(f.refresh()).rejects.toMatchObject({ diagnosis });
+  expect(f.client.getQueryData(f.key)).toEqual(f.saved);
+  expect(new AccountDiagnosisError(diagnosis).message).not.toContain("429");
 });

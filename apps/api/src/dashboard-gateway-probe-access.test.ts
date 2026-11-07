@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
-import type { ConsumerControlClient } from "@agent-teams/account-gateway/http";
+import {
+  GatewayError,
+  type ConsumerControlClient,
+} from "@agent-teams/account-gateway/http";
 import {
   PrismaProviderAccountRepository,
   type BindingSelection,
@@ -249,5 +252,41 @@ it.each(["foreignOwner", "revoke"] as const)(
       (await f.issuer(body, signGatewayProbeAccess(body, secret))).status,
     ).toBe(403);
     expect(f.runAccess).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["matching", "foreign", "malformed"] as const)(
+  "preserves only a %s bounded preparation refusal",
+  async (mode) => {
+    const f = authorizedProbeFixture("fixed-profile");
+    f.runAccess.mockImplementationOnce(async (intent) => {
+      const diagnostic: c.SafeError = {
+        code: "admission_limited",
+        traceRef: "fixture",
+        operationRef:
+          mode === "foreign" ? "foreign-operation" : intent.operationId,
+        effect: "not_dispatched",
+        retry: { kind: "after", milliseconds: 1000 },
+      };
+      if (mode === "malformed")
+        Reflect.set(diagnostic, "rawProviderError", "private-secret");
+      throw new GatewayError(
+        "safe_error",
+        "not_dispatched",
+        intent.operationId,
+        undefined,
+        diagnostic,
+        503,
+      );
+    });
+    const body = { ...request(), model: "frozen-anchor" };
+    const result = await f.issuer(body, signGatewayProbeAccess(body, secret));
+    expect(result.status).toBe(mode === "matching" ? 503 : 403);
+    expect(result.body).toMatchObject(
+      mode === "matching"
+        ? { code: "admission_limited", effect: "not_dispatched" }
+        : { error: "denied" },
+    );
+    expect(JSON.stringify(result)).not.toContain("private-secret");
   },
 );

@@ -5,6 +5,11 @@ import {
   type ConnectionProbeRequest,
 } from "../../src/features/account-gateway/connection-probe";
 
+import {
+  accountDiagnosisSchema,
+  AccountDiagnosisError,
+} from "../../src/features/account-gateway/account-diagnosis";
+
 const eventSchema = z.union([
   z.strictObject({
     type: z.literal("progress"),
@@ -20,6 +25,7 @@ const eventSchema = z.union([
     z.strictObject({
       type: z.literal("result"),
       ok: z.literal(false),
+      diagnosis: accountDiagnosisSchema.optional(),
       code: z.enum([
         "denied",
         "unavailable",
@@ -55,7 +61,18 @@ export async function testGatewayConnection(
     !response.body ||
     !response.headers.get("content-type")?.startsWith("application/x-ndjson")
   )
-    throw new Error("probe_unavailable");
+    throw new AccountDiagnosisError({
+      code:
+        response.status === 401 || response.status === 403
+          ? "access_denied"
+          : response.status === 429
+            ? "rate_limited"
+            : "unavailable",
+      source: "application",
+      ...(response.status >= 400 && response.status <= 599
+        ? { httpStatus: response.status }
+        : {}),
+    });
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let pending = "",
