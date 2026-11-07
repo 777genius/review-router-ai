@@ -1,3 +1,4 @@
+# Run once after the branch is synchronized with the protected main.
 name: Agent-first format (temporary)
 on:
   push:
