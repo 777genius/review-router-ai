@@ -206,5 +206,6 @@ export function isInformationOnlyConversation(body: string): boolean {
   // "this is how ..." and "мы считаем, что ..." are factual statements.
   if (/^(?:(?:please|could\s+you)\s+)?(?:why|how|what|explain|clarify)\b/iu.test(text))
     return true;
-  return /^(?:почему|зачем|как|что|объясни|поясни|расскажи)\b/iu.test(text);
+  // JS \b is ASCII-oriented and does not recognize a Cyrillic word boundary.
+  return /^(?:почему|зачем|как|что|объясни|поясни|расскажи)(?=$|[\s.,!?;:])/iu.test(text);
 }
