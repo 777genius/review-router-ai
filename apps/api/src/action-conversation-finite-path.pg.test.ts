@@ -582,26 +582,33 @@ describe.skipIf(!databaseUrl)(
       "/rr explain",
       "Identifiers use leading zeroes. Почему это считается ошибкой?",
       "Explain why this finding is dangerous",
-    ])("answers without learning or changing memory: %s", async (sourceBody) => {
-      const f = await fixture({ sourceBody });
-      let prepared = 0;
-      f.memory.prepareLearning = async () => {
-        prepared++;
-        throw new Error("read_only_must_not_prepare_learning");
-      };
-      try {
-        const first = await f.processor.execute(input, controls());
-        expect(first.status).toBe("ready");
-        expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
-        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
-        expect(prepared).toBe(0);
-        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
-        expect(await f.processor.execute(input, controls())).toEqual(first);
-        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
-      } finally {
-        await f.app.close();
-      }
-    });
+    ])(
+      "answers without learning or changing memory: %s",
+      async (sourceBody) => {
+        const f = await fixture({ sourceBody });
+        let prepared = 0;
+        f.memory.prepareLearning = async () => {
+          prepared++;
+          throw new Error("read_only_must_not_prepare_learning");
+        };
+        try {
+          const first = await f.processor.execute(input, controls());
+          expect(first.status).toBe("ready");
+          expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+          expect(prepared).toBe(0);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          expect(await f.processor.execute(input, controls())).toEqual(first);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
 
     it("rejects a model-suggested memory mutation on a mixed question", async () => {
       const f = await fixture({

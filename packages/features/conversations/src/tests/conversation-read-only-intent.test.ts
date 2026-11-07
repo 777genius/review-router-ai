@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isInformationOnlyConversation, parseConversationActionCommand } from "../domain/conversation-action-authority.js";
+import {
+  isInformationOnlyConversation,
+  parseConversationActionCommand,
+} from "../domain/conversation-action-authority.js";
 
 describe("read-only explanations", () => {
   it.each([

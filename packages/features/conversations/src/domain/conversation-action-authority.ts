@@ -197,15 +197,25 @@ export function isInformationOnlyConversation(body: string): boolean {
   const text = body.replaceAll("\r\n", "\n").trim();
   if (!text || parseConversationActionCommand(text)) return false;
   if (/^\/rr\s+explain(?:\s|$)/i.test(text)) return true;
-  if (/^@(?:reviewrouter(?:-ai)?|review-router-ai(?:\[bot\])?)\s+explain(?:\s|$)/i.test(text))
+  if (
+    /^@(?:reviewrouter(?:-ai)?|review-router-ai(?:\[bot\])?)\s+explain(?:\s|$)/i.test(
+      text,
+    )
+  )
     return true;
   // Mixed statements/questions are read-only. Even a quoted question must
   // not accidentally grant authority to update a user's memory.
   if (/[?？]/u.test(text)) return true;
   // Bare interrogatives are only questions when leading the source text;
   // "this is how ..." and "мы считаем, что ..." are factual statements.
-  if (/^(?:(?:please|could\s+you)\s+)?(?:why|how|what|explain|clarify)\b/iu.test(text))
+  if (
+    /^(?:(?:please|could\s+you)\s+)?(?:why|how|what|explain|clarify)\b/iu.test(
+      text,
+    )
+  )
     return true;
   // JS \b is ASCII-oriented and does not recognize a Cyrillic word boundary.
-  return /^(?:почему|зачем|как|что|объясни|поясни|расскажи)(?=$|[\s.,!?;:])/iu.test(text);
+  return /^(?:почему|зачем|как|что|объясни|поясни|расскажи)(?=$|[\s.,!?;:])/iu.test(
+    text,
+  );
 }

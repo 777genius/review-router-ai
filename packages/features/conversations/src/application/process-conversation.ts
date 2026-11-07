@@ -534,7 +534,11 @@ export class ProcessConversation {
       }
       // Learning follows the one paid grant, so its own scope-epoch transition
       // cannot invalidate the already frozen model input. New facts help the next turn.
-      if (!answerOnly && policy.automaticLearning && snapshot.sourceMaintainer) {
+      if (
+        !answerOnly &&
+        policy.automaticLearning &&
+        snapshot.sourceMaintainer
+      ) {
         if (
           !(await this.dependencies.sources.isCurrent(snapshot, budget)) ||
           !(await policy.isCurrent(budget))
