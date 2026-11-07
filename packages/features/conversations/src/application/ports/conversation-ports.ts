@@ -9,6 +9,7 @@ import type {
   ConversationIdentity,
   ConversationRecord,
   ConversationSnapshot,
+  FocusedFindingSource,
   RequestControls,
 } from "../../domain/conversation.js";
 import type { TextInferencePort } from "./text-inference-port.js";
@@ -26,6 +27,11 @@ export interface ConversationSourcePort {
     snapshot: ConversationSnapshot,
     controls: RequestControls,
   ): Promise<boolean>;
+  /** Optional one-file current-HEAD read, authorized in the GitHub source adapter. */
+  readFocusedSource?(
+    snapshot: ConversationSnapshot,
+    controls: RequestControls,
+  ): Promise<FocusedFindingSource | null>;
   revokeDeleted?(
     input: ConversationProcessRequest,
     controls: RequestControls,
