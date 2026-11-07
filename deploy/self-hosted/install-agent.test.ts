@@ -135,6 +135,8 @@ test(
         "https://api.review.example.com",
         "--app-name",
         "ReviewRouter Example",
+        "--app-profile",
+        "/private/initial-app.env",
         "--github-org",
         "example",
         "--without-memory",
@@ -149,6 +151,7 @@ test(
         "--repo",
         "--api-url",
         "--app-name",
+        "--app-profile",
         "--github-org",
         "--without-memory",
         "--review-only",
@@ -162,6 +165,10 @@ test(
       assert.equal(
         argv[argv.indexOf("--api-url") + 1],
         "https://api.review.example.com",
+      );
+      assert.equal(
+        argv[argv.indexOf("--app-profile") + 1],
+        "/private/initial-app.env",
       );
     } finally {
       await rm(directory, { recursive: true, force: true });

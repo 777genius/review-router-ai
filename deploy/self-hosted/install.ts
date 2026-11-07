@@ -466,6 +466,7 @@ async function main(): Promise<void> {
     ...(values["without-memory"] ? ["--without-memory"] : []),
     ...(values["github-org"] ? ["--github-org", values["github-org"]] : []),
     ...(values["app-name"] ? ["--app-name", values["app-name"]] : []),
+    ...(values["app-profile"] ? ["--app-profile", values["app-profile"]] : []),
     ...(values["external-proxy-ready"] ? ["--external-proxy-ready"] : []),
     ...args,
   ];
@@ -681,6 +682,10 @@ async function main(): Promise<void> {
       if (!profilePath && machineOutput) {
         const name =
           values["app-name"] ?? `ReviewRouter ${settings.installationId}`;
+        assert(
+          name.length > 0 && name.length <= 34,
+          "GitHub App names must contain 1–34 characters",
+        );
         const appArgs = [
           process.execPath,
           "scripts/create-github-app-manifest.mjs",
