@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  chmod,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -12,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { repositorySetupGate, type AgentInstallStatus } from "./install.ts";
+import { defaultActionCommit, renderEnvironment, sha256 } from "./install-config.ts";
 
 const root = resolve(import.meta.dirname, "../..");
 const entrypoint = join(root, "deploy/self-hosted/install.ts");
@@ -197,6 +200,135 @@ test("malformed or forged saved agent status is rejected before any deployment w
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test(
+  "agent reuses a live-ready fixture across four non-TTY invocations without rebuilding",
+  { skip: !supportedHost },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rr-resume-"));
+    const bin = join(directory, "bin");
+    const sourceCommit = "a".repeat(40);
+    const releaseId = "self-hosted-action-" + defaultActionCommit;
+    const credential = "fixture-only-credential";
+    const dockerLog = join(directory, "docker.log");
+    try {
+      await mkdir(bin, { mode: 0o700 });
+      const git = join(bin, "git");
+      await writeFile(git, [
+        "#!/bin/sh",
+        'case "$*" in',
+        '  "rev-parse HEAD") echo "' + sourceCommit + '" ;;',
+        '  "status --porcelain --untracked-files=normal") exit 0 ;;',
+        '  *) exit 17 ;;',
+        "esac",
+        "",
+      ].join("\n"));
+      await chmod(git, 0o700);
+      const installed = JSON.stringify({
+        producerReleaseId: releaseId,
+        actionCommitSha: defaultActionCommit,
+        protocolLimitsProfileId: "limits-fixture",
+        operationalSloProfileId: "slo-fixture",
+        state: "registered",
+        revokedAt: null,
+      });
+      const docker = join(bin, "docker");
+      await writeFile(docker, [
+        "#!/bin/sh",
+        "echo \"$*\" >> \"$RR_TEST_DOCKER_LOG\"",
+        'case "$*" in',
+        '  "context inspect "*) echo "unix:///var/run/docker.sock" ;;',
+        '  "info "*) echo "27.0.0" ;;',
+        '  "compose version --short") echo "v2.39.0" ;;',
+        '  *"ps --format json worker") echo \'{"State":"running"}\' ;;',
+        '  *"review-v2:admin env-preflight") echo \'{"ready":true}\' ;;',
+        '  *"review-v2:admin release inspect "*) echo \'' + installed + '\' ;;',
+        '  *"review-v2:admin status --repo "*) echo \'{"authority":{"mode":"v2_active"},"emergencyControls":{"global":{"stopped":false},"repository":{"stopped":false}}}\' ;;',
+        '  *"up -d --no-build "*) exit 0 ;;',
+        '  *) echo "Unexpected docker command: $*" >&2; exit 17 ;;',
+        "esac",
+        "",
+      ].join("\n"));
+      await chmod(docker, 0o700);
+      const fetchPatch = join(directory, "mock-health.mjs");
+      await writeFile(
+        fetchPatch,
+        "globalThis.fetch = async () => ({ status: 200, body: { cancel: async () => undefined } });\n",
+      );
+      const settings = {
+        version: 1,
+        sourceCommit,
+        actionCommit: defaultActionCommit,
+        installationId: "1234567890abcdef",
+        webUrl: "https://review.example.com",
+        apiUrl: "https://api.review.example.com",
+        proxy: "caddy",
+        memory: "disabled",
+        permissionProfile: "provisioning",
+      };
+      const environment = renderEnvironment({
+        REVIEW_ROUTER_WEB_URL: settings.webUrl,
+        REVIEW_ROUTER_API_URL: settings.apiUrl,
+        REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF:
+          "777genius/review-router@" + defaultActionCommit,
+        REVIEW_ROUTER_REVIEW_V2_OPERATOR_CREDENTIAL_SHA256: sha256(credential),
+        REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON: JSON.stringify([
+          {
+            producerReleaseId: releaseId,
+            actionCommitSha: defaultActionCommit,
+            protocolLimitsProfileId: "limits-fixture",
+            operationalSloProfileId: "slo-fixture",
+          },
+        ]),
+        GITHUB_APP_SLUG: "reviewrouter-fixture",
+      });
+      const marker = JSON.stringify({
+        sourceCommit, actionCommit: defaultActionCommit,
+        webUrl: settings.webUrl, checkedAt: "2026-11-07T00:00:00Z",
+      });
+      for (const [name, value] of [
+        ["installation.json", JSON.stringify(settings)],
+        ["operator-credential", credential],
+        [".env", environment],
+        ["server-ready.json", marker],
+      ]) await writeFile(join(directory, name), value, { mode: 0o600 });
+      const invokeResumed = (...args: string[]) => spawnSync(
+        process.execPath, [entrypoint, "--directory", directory, ...args],
+        {
+          cwd: root, encoding: "utf8", timeout: 10_000, input: "",
+          env: {
+            ...process.env, CI: "true",
+            PATH: bin + ":" + process.env.PATH,
+            RR_TEST_DOCKER_LOG: dockerLog,
+            NODE_OPTIONS: (process.env.NODE_OPTIONS ?? "") + " --import=" + fetchPatch,
+          },
+        },
+      );
+      const cases: { args: string[]; state: string }[] = [
+        { args: [], state: "server_ready" },
+        { args: ["--repo", "example/review-target"], state: "repository_setup_required" },
+        { args: ["--repo", "example/review-target", "--repository-setup-complete"], state: "verification_required" },
+        { args: [], state: "verification_required" },
+      ];
+      for (const { args, state } of cases) {
+        const result = invokeResumed(...args);
+        assert.equal(result.error, undefined);
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(JSON.parse(result.stdout).state, state);
+        assert.equal(result.stdout.trim().split("\n").length, 1);
+      }
+      assert.equal(await readFile(join(directory, "operator-credential"), "utf8"), credential);
+      assert.equal(await readFile(join(directory, "server-ready.json"), "utf8"), marker);
+      const calls = await readFile(dockerLog, "utf8");
+      assert(!calls.includes("--build --wait"));
+      assert(!calls.includes("release register"));
+      assert(!calls.includes("up -d --wait postgres"));
+      assert(calls.includes("release inspect"));
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test("repository approval is scoped, explicit and survives an interrupted activation", () => {
   const repository = "example/review-target";
