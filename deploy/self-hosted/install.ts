@@ -52,8 +52,9 @@ resume. Existing credentials and data are preserved; this is not an upgrader.
   --help                               Show this help
 
 Agent mode is the default (no TTY required). It returns a single JSON result on
-stdout and sends progress to stderr. A needs_action result is NOT installation
-success; perform the indicated action and resume with the saved checkout.
+stdout and sends progress to stderr. States such as approval_required and
+verification_required do NOT mean a completed review; perform the indicated
+action and resume with the saved checkout.
 Remote App creation uses a loopback callback. Connect with:
   ssh -L 45731:127.0.0.1:45731 USER@SERVER
 Then open the printed localhost URL in your workstation browser.
@@ -92,6 +93,59 @@ export type AgentInstallStatus = {
   };
 };
 
+export function parseAgentInstallStatus(raw: string): AgentInstallStatus {
+  const value: unknown = JSON.parse(raw);
+  assert(
+    value !== null && typeof value === "object" && !Array.isArray(value),
+    "Saved agent status must be a JSON object",
+  );
+  const record = value as Record<string, unknown>;
+  assert(
+    record.schemaVersion === 1 &&
+      typeof record.phase === "string" &&
+      typeof record.message === "string" &&
+      [
+        "not_started",
+        "running",
+        "input_required",
+        "approval_required",
+        "repository_setup_required",
+        "server_ready",
+        "verification_required",
+        "failed",
+      ].includes(String(record.state)),
+    "Saved agent status has an invalid schema or state",
+  );
+  assert(
+    (record.repository === undefined || typeof record.repository === "string") &&
+      (record.webUrl === undefined || typeof record.webUrl === "string"),
+    "Saved agent status has invalid metadata",
+  );
+  if (record.next !== undefined) {
+    assert(
+      record.next !== null &&
+        typeof record.next === "object" &&
+        !Array.isArray(record.next),
+      "Saved agent next action is invalid",
+    );
+    const next = record.next as Record<string, unknown>;
+    assert(
+      typeof next.action === "string" &&
+        ["argv", "resume", "requiredOptions"].every(
+          (field) =>
+            next[field] === undefined ||
+            (Array.isArray(next[field]) &&
+              next[field].every((entry: unknown) => typeof entry === "string")),
+        ) &&
+        (next.url === undefined || typeof next.url === "string") &&
+        (next.requiresUserApproval === undefined ||
+          typeof next.requiresUserApproval === "boolean"),
+      "Saved agent next action has invalid arguments",
+    );
+  }
+  return record as AgentInstallStatus;
+}
+
 let machineOutput = false;
 function log(message: string): void {
   (machineOutput ? process.stderr : process.stdout).write(message + "\n");
@@ -106,9 +160,17 @@ async function run(
     const capture = options.capture || options.privateInput;
     const child = spawn(command, args, {
       cwd: options.cwd ?? root,
-      env: { ...process.env, ...options.env },
+      env: {
+        ...process.env,
+        ...(machineOutput ? { GIT_TERMINAL_PROMPT: "0" } : {}),
+        ...options.env,
+      },
       stdio: [
-        options.input === undefined ? "inherit" : "pipe",
+        options.input === undefined
+          ? machineOutput
+            ? "ignore"
+            : "inherit"
+          : "pipe",
         capture ? "pipe" : machineOutput ? 2 : "inherit",
         capture ? "pipe" : machineOutput ? 2 : "inherit",
       ],
@@ -323,7 +385,7 @@ async function main(): Promise<void> {
   if (values.status) {
     const saved = await readPrivate(statusPath);
     const status: AgentInstallStatus = saved
-      ? (JSON.parse(saved) as AgentInstallStatus)
+      ? parseAgentInstallStatus(saved)
       : {
           schemaVersion: 1,
           state: "not_started",
@@ -367,13 +429,22 @@ async function main(): Promise<void> {
   await privateDirectory(directory);
   assertPrivateInstallLocation(await realpath(root), await realpath(directory));
   const lock = await acquireDeploymentLock(join(directory, "install.lock"));
-  let previousStatus: string | undefined;
+  let previous: AgentInstallStatus | undefined;
+  let statusReadable = false;
   const resumeCommand = (args: string[] = []) => [
     "bash",
     "scripts/install-self-hosted.sh",
     "--directory",
     directory,
     ...(values.repo && !args.includes("--repo") ? ["--repo", values.repo] : []),
+    ...(values["web-url"] ? ["--web-url", values["web-url"]] : []),
+    ...(values["api-url"] ? ["--api-url", values["api-url"]] : []),
+    ...(values["external-proxy"] ? ["--external-proxy"] : []),
+    ...(values["review-only"] ? ["--review-only"] : []),
+    ...(values["without-memory"] ? ["--without-memory"] : []),
+    ...(values["github-org"] ? ["--github-org", values["github-org"]] : []),
+    ...(values["app-name"] ? ["--app-name", values["app-name"]] : []),
+    ...(values["external-proxy-ready"] ? ["--external-proxy-ready"] : []),
     ...args,
   ];
   const record = async (report: AgentInstallStatus, print = true) => {
@@ -383,7 +454,11 @@ async function main(): Promise<void> {
   };
   let phase = "configuration";
   try {
-    previousStatus = await readPrivate(statusPath);
+    const savedStatus = await readPrivate(statusPath);
+    previous = savedStatus
+      ? parseAgentInstallStatus(savedStatus)
+      : undefined;
+    statusReadable = true;
     const statePath = join(directory, "installation.json"),
       envFile = join(directory, ".env");
     if (machineOutput && !(await readPrivate(statePath)) && !values["web-url"]) {
@@ -984,9 +1059,6 @@ async function main(): Promise<void> {
       `Open ${settings.webUrl}/setup, select ${repository} and connect your provider using GitHub Secrets setup. Merge the generated workflow pull request.`,
     );
     phase = "repository";
-    const previous = previousStatus
-      ? (JSON.parse(previousStatus) as AgentInstallStatus)
-      : undefined;
     if (machineOutput && !values["repository-setup-complete"] &&
         previous?.state === "verification_required" &&
         previous.repository === repository) {
@@ -1093,7 +1165,7 @@ async function main(): Promise<void> {
         `\nRepository ready: ${repository}. Open a small pull request to verify the first review.\nFirst review: pending (setup does not claim a live review has passed).\nPrivate installation files: ${directory}\nKeep a backup of these files and the database. Use the upgrade runbook when changing versions.`,
       );
   } catch (error) {
-    if (machineOutput) {
+    if (machineOutput && statusReadable) {
       try {
         await record({
           schemaVersion: 1,

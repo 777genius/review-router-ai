@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -8,6 +8,7 @@ import type { AgentInstallStatus } from "./install.ts";
 
 const root = resolve(import.meta.dirname, "../..");
 const entrypoint = join(root, "deploy/self-hosted/install.ts");
+const supportedHost = process.platform === "linux" && process.arch === "x64";
 
 function invoke(...args: string[]) {
   const result = spawnSync(process.execPath, [entrypoint, ...args], {
@@ -36,7 +37,7 @@ test("agent status works without a TTY and without starting Docker or GitHub", a
   }
 });
 
-test("default installer returns one machine-readable input request, with private durable status and no credentials", async () => {
+test("default installer returns one machine-readable input request, with private durable status and no credentials", { skip: !supportedHost }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "rr-agent-input-"));
   try {
     const result = invoke("--directory", directory, "--repo", "example/review-target");
@@ -66,7 +67,7 @@ test("default installer returns one machine-readable input request, with private
   }
 });
 
-test("explicit human mode still requires a terminal, but agent mode does not", async () => {
+test("explicit human mode still requires a terminal, but agent mode does not", { skip: !supportedHost }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "rr-agent-interactive-"));
   try {
     const result = invoke("--directory", directory, "--interactive");
@@ -86,6 +87,61 @@ test("status refuses to follow a private state symlink", async () => {
     const result = invoke("--status", "--directory", directory);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /symlinks are not accepted/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("agent resume includes explicit first-run choices without losing security defaults", { skip: !supportedHost }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rr-agent-options-"));
+  try {
+    const result = invoke(
+      "--directory", directory,
+      "--repo", "example/target",
+      "--api-url", "https://api.review.example.com",
+      "--app-name", "ReviewRouter Example",
+      "--github-org", "example",
+      "--without-memory",
+      "--review-only",
+      "--external-proxy",
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const status: AgentInstallStatus = JSON.parse(result.stdout);
+    assert.equal(status.state, "input_required");
+    const argv = status.next?.argv ?? [];
+    for (const flag of [
+      "--repo",
+      "--api-url",
+      "--app-name",
+      "--github-org",
+      "--without-memory",
+      "--review-only",
+      "--external-proxy",
+    ]) assert(argv.includes(flag), `Missing resume option: ${flag}`);
+    assert.equal(argv[argv.indexOf("--app-name") + 1], "ReviewRouter Example");
+    assert.equal(argv[argv.indexOf("--api-url") + 1], "https://api.review.example.com");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("malformed or forged saved agent status is rejected before any deployment work", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rr-agent-invalid-"));
+  const statePath = join(directory, "agent-status.json");
+  try {
+    for (const payload of [
+      "null",
+      "[]",
+      '"unexpected"',
+      '{"schemaVersion":1,"state":"verified","phase":"first_review","message":"fake"}',
+      '{"schemaVersion":1,"state":"running","phase":"test","message":"x","next":{"action":"run","argv":"rm -rf"}}',
+    ]) {
+      await writeFile(statePath, payload, { mode: 0o600 });
+      const result = invoke("--status", "--directory", directory);
+      assert.notEqual(result.status, 0, payload);
+      assert.match(result.stderr, /Saved agent status/);
+      assert.equal(await readFile(statePath, "utf8"), payload);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

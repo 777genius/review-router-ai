@@ -17,12 +17,12 @@
 
 ## Installation / rollout order
 
-1. Select an approved source commit from the main release process and inspect any currently unfinished target-specific tasks; do not use a mutable branch to upgrade a live installation.
+1. Select an approved source commit from the main release process and inspect any currently unfinished target-specific tasks. On a fresh target, clone, fetch and checkout that exact reviewed commit before running the installer **from the checkout** (rather than downloading the moving `main` bootstrap script). Do not use a mutable branch to upgrade a live installation. The public one-command launcher in the quickstart is for fresh evaluations, not an immutable production release pin.
 2. On a fresh Linux x64 server prepare Docker Compose v2, Node.js, Git and two public DNS names. Start the agent-first command from the [runbook](../../docs/operations/review-router-self-hosted-end-to-end.md#guided-installation).
 3. Handle `input_required`, `approval_required` and `repository_setup_required` states explicitly. An authorized user must approve GitHub App creation, provider sign-in and the generated workflow PR. A bot must not invent or reuse credentials or infer approval.
 4. Resume using saved state. Verify exact pinned Action/release registration, API/web/worker health, database roles, Memory lifecycle, and repository v2 authority.
 5. Run a disposable test PR with a supported provider. Confirm required coverage is complete, App-authored review comments appear, then push an additional commit and confirm revision fencing.
-6. Mark this target `deployed` only after the actual installation and first-review evidence, otherwise retain `pending`. Do not claim source CI is a live provider test.
+6. Record actual state separately for each target: `pending` before installation, `in_progress` when the rollout has started, `installed` once code/services are present but live review remains unverified, `blocked` for a specific unresolved prerequisite, and `deployed` only after the actual installation and first-review evidence. Preserve completed steps and exact version on partial attempts; do not repeat deployment just to verify. Source CI is not a live provider test.
 
 ## Failure / rollback
 
