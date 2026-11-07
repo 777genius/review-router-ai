@@ -812,13 +812,15 @@ async function main(): Promise<void> {
       log(
         `Route ${settings.webUrl} to 127.0.0.1:3000 and ${settings.apiUrl} to 127.0.0.1:4000 with your HTTPS proxy.`,
       );
-      if (machineOutput && !values["external-proxy-ready"]) {
+      if (machineOutput &&
+          !values["external-proxy-ready"] &&
+          !(await readPrivate(join(directory, "server-ready.json")))) {
         await record({
           schemaVersion: 1,
           state: "approval_required",
           phase: "https",
           webUrl: settings.webUrl,
-          message: "Configure your external HTTPS proxy and DNS routing, then rerun the installer. The wizard does not own external proxy settings.",
+          message: "Configure the external HTTPS proxy and DNS routing, then resume with --external-proxy-ready. The next stage still verifies public TLS health.",
           next: {
             action: "configure_external_https",
             resume: resumeCommand(["--external-proxy-ready"]),
@@ -827,19 +829,8 @@ async function main(): Promise<void> {
         });
         return;
       }
-      if (machineOutput) {
-        const previous = previousStatus
-          ? (JSON.parse(previousStatus) as AgentInstallStatus)
-          : undefined;
-        assert(
-          previous?.state === "approval_required" &&
-            previous.phase === "https" &&
-            settings.proxy === "external",
-          "Configure your external HTTPS proxy, receive its approval_required status, then resume with --external-proxy-ready",
-        );
-      } else {
+      if (!machineOutput)
         await ask("Press Enter when HTTPS routing is ready");
-      }
     }
     log("Checking public HTTPS endpoints.");
     await waitForHealth(`${settings.apiUrl}/health`);
