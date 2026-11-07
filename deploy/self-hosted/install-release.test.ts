@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import {
   cp,
   mkdir,
@@ -20,6 +20,11 @@ import {
   parseSelfHostedProducerAttestation,
   type SelfHostedReleaseInput,
 } from "./install-release.ts";
+import {
+  createEnvironment,
+  parseEnvironment,
+  renderEnvironment,
+} from "./install-config.ts";
 import type { ReviewModelDispatchProfile } from "../../packages/shared/src/review-model-dispatch-contract.ts";
 
 const execute = promisify(execFile);
@@ -135,6 +140,64 @@ test("real committed verifier outputs become separate, complete runtime and regi
     ),
     false,
   );
+
+  await t.test(
+    "generated provisioning configuration passes the real readiness checker",
+    async () => {
+      const template = parseEnvironment(
+        await readFile(
+          join(sourceRoot, "deploy/self-hosted/.env.example"),
+          "utf8",
+        ),
+      );
+      const privateKey = generateKeyPairSync("rsa", { modulusLength: 2048 })
+        .privateKey.export({ type: "pkcs8", format: "pem" })
+        .toString();
+      const environment = {
+        ...createEnvironment(
+          template,
+          {
+            version: 1,
+            sourceCommit: f.sourceCommit,
+            actionCommit: f.input.expectedActionSha,
+            installationId: "0123456789abcdef",
+            webUrl: "https://selfhost.reviewrouter.test",
+            apiUrl: "https://api.selfhost.reviewrouter.test",
+            proxy: "caddy",
+            memory: "hindsight",
+            permissionProfile: "provisioning",
+          },
+          {
+            GITHUB_APP_ID: "123456",
+            GITHUB_APP_SLUG: "reviewrouter-readiness-fixture",
+            GITHUB_APP_CLIENT_ID: "Iv1.readinessfixture",
+            GITHUB_APP_CLIENT_SECRET: "fixture-client-secret-$literal-value",
+            GITHUB_WEBHOOK_SECRET: "fixture-webhook-secret-for-readiness",
+          },
+          privateKey,
+          "fixture-operator-credential-for-readiness",
+        ),
+        ...release.environment,
+      };
+      const environmentFile = join(f.root, "generated-install.env");
+      await writeFile(environmentFile, renderEnvironment(environment), {
+        mode: 0o600,
+        flag: "wx",
+      });
+      const result = await execute(
+        process.execPath,
+        [join(sourceRoot, "scripts/check-self-hosted-readiness.mjs")],
+        {
+          cwd: sourceRoot,
+          env: { REVIEW_ROUTER_SELF_HOSTED_ENV_FILE: environmentFile },
+          timeout: 30_000,
+          maxBuffer: 1024 * 1024,
+        },
+      );
+      assert.match(result.stdout, /self-hosted readiness checks passed\./u);
+      assert.equal(result.stderr, "");
+    },
+  );
 });
 
 test("a retry preserves bytes and rejects a changed operator policy instead of overwriting registration material", async (t) => {
@@ -245,6 +308,20 @@ test("an output symlink cannot replace an existing file", async (t) => {
 
 test("readiness validates optional profiles while retaining the complete current capability shape", async () => {
   const base = attestationFixture();
+  for (const codePoint of [...Array(32).keys(), 0x7f])
+    assert.throws(() =>
+      parseSelfHostedProducerAttestation({
+        ...base,
+        producerReleaseId: `release${String.fromCodePoint(codePoint)}id`,
+      }),
+    );
+  assert.equal(
+    parseSelfHostedProducerAttestation({
+      ...base,
+      producerReleaseId: "release\u0080id",
+    }).producerReleaseId,
+    "release\u0080id",
+  );
   assert.equal(
     parseSelfHostedProducerAttestation(base).actionCommitSha,
     base.actionCommitSha,
@@ -449,8 +526,8 @@ function attestationFixture() {
 async function initializeRepository(path: string, branch: string) {
   await mkdir(path, { recursive: true });
   await git(path, ["init", "-b", branch]);
-  await git(path, ["config", "user.name", "iliya"]);
-  await git(path, ["config", "user.email", "iliyazelenkog@gmail.com"]);
+  await git(path, ["config", "user.name", "ReviewRouter Test"]);
+  await git(path, ["config", "user.email", "test@example.invalid"]);
   await git(path, ["config", "commit.gpgSign", "false"]);
 }
 

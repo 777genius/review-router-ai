@@ -6,7 +6,7 @@ import {
   randomUUID,
 } from "node:crypto";
 import { lstat, mkdir, open, readFile, rename } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 export type Environment = Record<string, string>;
 export type InstallSettings = {
@@ -25,6 +25,25 @@ export type InstallSettings = {
 export const defaultActionCommit = "8328c2e6c3a2a7767a0667a2669982bc6ef71f64";
 export const sha256 = (value: string) =>
   createHash("sha256").update(value).digest("hex");
+
+export function assertPrivateInstallLocation(
+  repoRoot: string,
+  path: string,
+): void {
+  const relativePath = relative(resolve(repoRoot), resolve(path));
+  const outside =
+    isAbsolute(relativePath) ||
+    relativePath === ".." ||
+    relativePath.startsWith("../");
+  const ignored = ["deploy/self-hosted/secrets", ".local-secrets"].some(
+    (prefix) =>
+      relativePath === prefix || relativePath.startsWith(`${prefix}/`),
+  );
+  assert(
+    outside || ignored,
+    "Keep installation state and imported App credentials outside the source checkout or under deploy/self-hosted/secrets; they must never enter the Docker build context",
+  );
+}
 
 export function publicOrigin(value: string): string {
   const url = new URL(value.includes("://") ? value : `https://${value}`);

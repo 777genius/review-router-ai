@@ -118,8 +118,10 @@ function roleGuard(configuration: DatabaseConfiguration): string {
      OR authority.rolsuper OR authority.rolcreatedb OR authority.rolcreaterole
      OR authority.rolreplication OR authority.rolbypassrls
      OR authority.rolconnlimit <> -1 OR authority.rolvaliduntil IS NOT NULL
-     OR authority.rolconfig IS NOT NULL OR authority.rolpassword IS NULL
+     OR authority.rolpassword IS NULL
      OR authority.rolpassword NOT LIKE 'SCRAM-SHA-256$%'
+     OR EXISTS (SELECT 1 FROM pg_catalog.pg_db_role_setting
+       WHERE setrole=authority.oid)
      OR pg_catalog.has_schema_privilege(authority.oid, 'public', 'CREATE')
      OR pg_catalog.has_database_privilege(authority.oid, current_database(), 'CREATE')
      OR pg_catalog.shobj_description(authority.oid, 'pg_authid') IS DISTINCT FROM

@@ -6,6 +6,7 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSelfHostedDatabasePlan } from "../deploy/self-hosted/install-database.ts";
+import { verifyDatabaseRoleConfigurationGuard } from "./self-hosted-e2e/database-role-guard.ts";
 import {
   installSelfHostedMemory,
   resumeSelfHostedMemory,
@@ -157,6 +158,7 @@ export async function runSelfHostedE2E(options = {}) {
     if (networkSubnet !== undefined)
       verifyOwnedNetworkSubnet(projectName, networkSubnet);
     prepareSelfHostedDatabase("prepare");
+    verifyDatabaseRoleConfigurationGuard(testEnv, runSelfHostedDatabaseSql);
     prepareSelfHostedDatabase("prepare");
     runCompose(["build", "api"]);
     runCompose(["up", "-d", "--wait", "--wait-timeout", "300"]);
@@ -172,6 +174,7 @@ export async function runSelfHostedE2E(options = {}) {
       `http://127.0.0.1:${ports.api}/health`,
       "review-router-api",
     );
+    verifyRuntimeOwnedInstallerBundle();
 
     if (options.afterComposeHealthy) {
       const binding = await collectSelfHostedOwnedBinding(
@@ -812,7 +815,64 @@ function runComposeWithSanitizedOutput(args) {
 
 function prepareSelfHostedDatabase(phase) {
   const plan = buildSelfHostedDatabasePlan(testEnv);
-  runComposeWithInput(
+  runSelfHostedDatabaseSql(
+    phase === "prepare" ? plan.preMigrationSql : plan.postMigrationSql,
+    `self_hosted_database_${phase}`,
+  );
+}
+
+function verifyRuntimeOwnedInstallerBundle() {
+  const helper = "deploy/self-hosted/install-bundle.ts";
+  const bytes = JSON.stringify({
+    candidate: { marker: "runtime-owned-$-bundle" },
+  });
+  const { output } = runComposeWithInput(
+    ["exec", "-T", "api", "node", helper],
+    bytes,
+    "installer_bundle_stream",
+  );
+  const path = output.trim();
+  try {
+    runComposeWithSanitizedOutput([
+      "exec",
+      "-T",
+      "api",
+      "node",
+      "--input-type=module",
+      "-e",
+      `import assert from "node:assert/strict";
+       import { lstatSync, readFileSync } from "node:fs";
+       import { dirname } from "node:path";
+       const [path, expected] = process.argv.slice(1);
+       const uid = process.getuid();
+       assert.notEqual(uid, 0);
+       const file = lstatSync(path), folder = lstatSync(dirname(path));
+       assert(file.isFile() && folder.isDirectory());
+       assert.equal(file.uid, uid); assert.equal(folder.uid, uid);
+       assert.equal(file.mode & 0o777, 0o600);
+       assert.equal(folder.mode & 0o777, 0o700);
+       assert.equal(readFileSync(path, "utf8"), expected);`,
+      path,
+      bytes,
+    ]);
+  } finally {
+    runComposeWithSanitizedOutput([
+      "exec",
+      "-T",
+      "api",
+      "node",
+      helper,
+      "cleanup",
+      path,
+    ]);
+  }
+  console.log(
+    "installer-bundle=runtime-owned mode0600 readable cleanup=passed",
+  );
+}
+
+function runSelfHostedDatabaseSql(sql, label, allowFailure = false) {
+  return runComposeWithInput(
     [
       "exec",
       "-T",
@@ -828,8 +888,9 @@ function prepareSelfHostedDatabase(phase) {
       "-d",
       testEnv.POSTGRES_DB,
     ],
-    phase === "prepare" ? plan.preMigrationSql : plan.postMigrationSql,
-    `self_hosted_database_${phase}`,
+    sql,
+    label,
+    allowFailure,
   );
 }
 
@@ -925,7 +986,7 @@ function assertDisposableComposeResourcesAbsent() {
   }
 }
 
-function runComposeWithInput(args, input, label) {
+function runComposeWithInput(args, input, label, allowFailure = false) {
   const result = spawnSync("docker", composeArguments(args), {
     cwd: repoRoot,
     env: testEnv,
@@ -936,9 +997,10 @@ function runComposeWithInput(args, input, label) {
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   assertCredentialMaterialAbsent(output, label);
   if (output) process.stdout.write(output);
-  if (result.status !== 0) {
+  if (result.status !== 0 && !allowFailure) {
     throw new Error(`${label}_failed:${result.status ?? result.signal}`);
   }
+  return { status: result.status, output };
 }
 
 function setGlobalReviewV2EmergencyStop(stopped) {

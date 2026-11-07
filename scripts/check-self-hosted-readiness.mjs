@@ -452,15 +452,6 @@ function isIsoTimestamp(value) {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
 }
 
-function isIdentifier(value) {
-  return (
-    typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= 255 &&
-    value.trim() === value
-  );
-}
-
 function isSha256(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }

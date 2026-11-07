@@ -20,7 +20,7 @@ review on github.com.
 Run this in a Bash shell on the **server**:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh)
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
 ```
 
 Enter the web and API domains when prompted. The installer guides GitHub App
@@ -428,15 +428,8 @@ The validated release manifest proves the Action artifacts. The Review v2
 release bundle also binds protocol limits, operational SLOs, owner references,
 and runbook references. Build the bundle described in the
 [cutover runbook](./review-action-v2-cutover.md) from the validated manifest,
-then copy it into the API container:
-
-```bash
-docker compose \
-  --env-file deploy/self-hosted/.env \
-  -f deploy/self-hosted/compose.yml \
-  cp /secure/path/review-v2-release-bundle.json \
-  api:/tmp/review-v2-release-bundle.json
-```
+then use the streaming helper below to write a private temporary file owned by
+the API runtime user.
 
 Operator commands must run against the Compose database and runtime env. Export
 the plaintext credential only in the operator shell and use this helper:
@@ -454,13 +447,27 @@ rr_admin() {
 }
 ```
 
-Check the runtime env and register the release:
+Check the runtime env and register the release. The cleanup trap removes the
+temporary bundle when registration finishes or fails:
 
 ```bash
-rr_admin env-preflight
-rr_admin release register \
-  --bundle /tmp/review-v2-release-bundle.json \
-  --confirm release
+(
+  set -e
+  rr_admin env-preflight
+  release_bundle_path="$(docker compose \
+    --env-file deploy/self-hosted/.env \
+    -f deploy/self-hosted/compose.yml \
+    exec -T api node deploy/self-hosted/install-bundle.ts \
+    < /secure/path/review-v2-release-bundle.json)"
+  trap 'docker compose \
+    --env-file deploy/self-hosted/.env \
+    -f deploy/self-hosted/compose.yml \
+    exec -T api node deploy/self-hosted/install-bundle.ts \
+    cleanup "$release_bundle_path"' EXIT
+  rr_admin release register \
+    --bundle "$release_bundle_path" \
+    --confirm release
+)
 ```
 
 Do not run the admin CLI directly on the host unless the host process has the

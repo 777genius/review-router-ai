@@ -7,11 +7,11 @@
   optional Caddy proxy; the existing global emergency operator command gains an
   optional expected-version check. Public documentation is corrected separately
   from runtime activation.
-- Implementation PR: pending; attach the actual PR before delivery.
-- Implementation reference: candidate working tree on
-  `feat/self-hosted-guided-install`, based on
-  `9a416dfb876d78253612e87aa89561d48bf35633`. The base is not the implementation
-  commit, a release selection or an installed version.
+- Implementation PR: [PR #822](https://github.com/777genius/review-router-ai/pull/822).
+- First tested candidate: `0c5af53f13ea6be1ccd4f8041c8bdd532dbc74c4` on
+  `feat/self-hosted-guided-install`. Its real self-hosted E2E failed as recorded
+  below. The catalog correction is written; its combined commit and exact-source
+  CI are pending. Neither source candidate is an installed version.
 - Dependencies: the [release process](../operations/07-environments-and-release-management.md),
   a supported Node.js version, Git, Docker Compose v2, public DNS and GitHub App
   setup. Optional Memory uses the existing qualified backend bootstrap.
@@ -19,14 +19,15 @@
 
 ## Environment status
 
-| Environment / target           | Status    | Actual version / image                        | Last verified (UTC) | Evidence / next step                                                                                       |
-| ------------------------------ | --------- | --------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Fresh self-hosted installation | `pending` | Not installed by this task                    | Not verified        | Exact-source CI, real Compose/database provisioning, HTTPS and GitHub App acceptance remain required.      |
-| Managed self-hosted resume     | `pending` | Not installed by this task                    | Not verified        | Verify saved credentials, role identity, release material and data preservation on an interrupted install. |
-| Hosted staging / production    | `pending` | Existing baseline is not changed by this task | No new observation  | Not selected for rollout. No hosted deployment, migration, flag change or model request was performed.     |
+| Environment / target           | Status    | Actual version / image                                                     | Last verified (UTC) | Evidence / next step                                                                                                                              |
+| ------------------------------ | --------- | -------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh self-hosted installation | `blocked` | Candidate `0c5af53f13ea6be1ccd4f8041c8bdd532dbc74c4`; no completed install | 2026-11-07 10:44:29 | PostgreSQL 18 rejected the first role-preparation SQL; written catalog correction requires exact-source CI. HTTPS/App acceptance remains pending. |
+| Managed self-hosted resume     | `pending` | Not installed by this task                                                 | Not verified        | Verify saved credentials, role identity, release material and data preservation on an interrupted install.                                        |
+| Hosted staging / production    | `pending` | Existing baseline is not changed by this task                              | No new observation  | Not selected for rollout. No hosted deployment, migration, flag change or model request was performed.                                            |
 
-`pending` records a missing verified completion for this change. It does not
-relabel the separately recorded hosted baseline or imply that its reviewer is off.
+`pending` records a missing verified completion for this change; the fresh-install
+`blocked` status records the observed CI failure. Neither status changes the
+separately recorded hosted baseline or implies that its reviewer is off.
 
 ## Scope and applicability
 
@@ -98,15 +99,42 @@ Local candidate checks observed on 2026-11-07:
 
 - `node scripts/local-checks/compiler-cli.ts --native --noEmit -p deploy/self-hosted/tsconfig.install.json`: passed with the pinned TypeScript 7.0.2 compiler.
 - `node scripts/local-checks/compiler-cli.ts --native --noEmit -p apps/api/tsconfig.json`: passed.
+- `pnpm self-hosted:install:check`: passed all 28 installer tests, strict native types and shell syntax.
 - `node --test deploy/self-hosted/install-database.test.ts scripts/self-hosted-e2e/runner-lifecycle.test.ts`: 10 passed, zero skipped.
 - `node node_modules/vitest/vitest.mjs run apps/api/src/review-action-v2-operator-cli.test.ts`: 26 passed, including stale-version and concurrent-stop rejection.
 - Focused formatting and `git diff --check` for those implementation files passed.
 
-These checks concern the local working tree, not a committed CI run or deployment.
-Docker and psql were unavailable in that environment. Actual SQL/Compose,
-certificate issuance, GitHub App onboarding and first-review acceptance remain
-pending. Attach final exact-head CI and durable target evidence; do not infer
-those outcomes from unit tests or the presence of an installer command.
+These initial checks concern the local source candidate, not a deployment. Docker
+and psql were unavailable locally. The real self-hosted E2E on candidate
+`0c5af53f13ea6be1ccd4f8041c8bdd532dbc74c4` subsequently failed at the first
+pre-migration SQL on PostgreSQL 18: `record "authority" has no field "rolconfig"`
+([run 42364819517, job 128380549445](https://github.com/777genius/review-router-ai/actions/runs/42364819517/job/128380549445),
+2026-11-07 10:44:29 UTC). It did not verify a completed installation.
+
+The written correction queries `pg_catalog.pg_db_role_setting` by the role OID,
+without a database filter. PostgreSQL 18 documents role configuration there;
+`pg_authid` has no `rolconfig` field. All existing role, credential, membership,
+ownership and grant checks remain. The real E2E now also sets and resets role
+configuration in global, current-database and other-database scopes. Each must
+produce the specific authority-guard error, and preparation must succeed again
+after reset. This regression executes the production SQL, rather than checking
+its text. Local correction checks passed: the installer and
+`scripts/self-hosted-e2e/tsconfig.memory.json` compile with pinned TypeScript
+7.0.2, and the same database/lifecycle suite passes 10 tests with zero skips.
+Corrected SQL/Compose CI, certificate issuance, GitHub App onboarding
+and first-review acceptance remain pending. Attach the combined corrected commit,
+final exact-head CI and durable target evidence before claiming completion.
+
+The corrected candidate also writes the registration bundle through the API
+runtime user, preserving private ownership and mode `0600`; the disposable E2E
+checks its owner, bytes, permissions and cleanup in the real container. Imported
+App credentials and installation state must remain outside the Docker build
+context. The guided prompt releases terminal input before foreground child
+commands, and the documented bootstrap executes only a successfully downloaded
+script. Scoped ESLint passes without rule suppressions.
+
+Catalog reference: PostgreSQL 18 [pg_authid](https://www.postgresql.org/docs/18/catalog-pg-authid.html)
+and [pg_db_role_setting](https://www.postgresql.org/docs/18/catalog-pg-db-role-setting.html).
 
 ## Retry, partial completion, and rollback
 
@@ -137,8 +165,10 @@ not a general upgrade or database-restore tool.
 
 ## Execution log
 
-| Time (UTC)   | Target                      | Operator            | Actual version / image   | Step and observed result                                              | Evidence                                | Next action                                     |
-| ------------ | --------------------------- | ------------------- | ------------------------ | --------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------- |
-| 2026-11-07   | Local source candidate      | Implementation task | Uncommitted branch above | Focused types, contracts, CLI concurrency tests and formatting passed | Commands above; no target receipt       | Attach candidate commit/PR and run required CI. |
-| Not executed | Self-hosted test host       | Unassigned          | Not verified             | No Docker/HTTPS/App/live-review result claimed                        | None                                    | Perform authorized target acceptance.           |
-| Not executed | Hosted staging / production | Unassigned          | Baseline retained        | No rollout or flag change performed                                   | Existing registry remains authoritative | No hosted action is part of this task.          |
+| Time (UTC)          | Target                      | Operator            | Actual version / image                                        | Step and observed result                                                                           | Evidence                                                                                                                      | Next action                                                |
+| ------------------- | --------------------------- | ------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 2026-11-07          | Local source candidate      | Implementation task | Uncommitted branch above                                      | Focused types, contracts, CLI concurrency tests and formatting passed                              | Commands above; no target receipt                                                                                             | Attach candidate commit/PR and run required CI.            |
+| 2026-11-07 10:44:29 | Disposable self-hosted CI   | GitHub Actions      | `0c5af53f13ea6be1ccd4f8041c8bdd532dbc74c4`                    | First role-preparation SQL failed on nonexistent `pg_authid.rolconfig`; no successful installation | [Run 42364819517 / job 128380549445](https://github.com/777genius/review-router-ai/actions/runs/42364819517/job/128380549445) | Commit the catalog correction and run its exact-source CI. |
+| 2026-11-07          | Local correction            | Implementation task | Working tree after `0c5af53f13ea6be1ccd4f8041c8bdd532dbc74c4` | Catalog query corrected; actual SQL regression added for three role-setting scopes                 | PR #822 source; no corrected CI receipt yet                                                                                   | Attach the combined corrected commit and observed result.  |
+| Not executed        | Self-hosted test host       | Unassigned          | Not verified                                                  | No Docker/HTTPS/App/live-review result claimed                                                     | None                                                                                                                          | Perform authorized target acceptance.                      |
+| Not executed        | Hosted staging / production | Unassigned          | Baseline retained                                             | No rollout or flag change performed                                                                | Existing registry remains authoritative                                                                                       | No hosted action is part of this task.                     |

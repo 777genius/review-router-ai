@@ -10,7 +10,7 @@ webhook state, sessions, outbox jobs, and health data in Postgres.
 On a Linux x64 server, start the guided installer:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh)
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
 ```
 
 Prepare two public DNS names, Docker Compose v2, Git and a supported Node.js

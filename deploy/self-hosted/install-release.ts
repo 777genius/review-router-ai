@@ -498,7 +498,12 @@ function identifier(value: unknown, name: string): string {
     value.length < 1 ||
     value.length > 255 ||
     value.trim() !== value ||
-    /[\u0000-\u001f\u007f]/u.test(value)
+    [...value].some((character) => {
+      const codePoint = character.codePointAt(0);
+      return (
+        codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)
+      );
+    })
   )
     throw new Error(`self_hosted_release_identifier_invalid:${name}`);
   return value;
@@ -597,7 +602,9 @@ async function run(
       typeof error.stderr === "string"
         ? error.stderr.trim().slice(0, 1500)
         : "command could not complete";
-    throw new Error(`self_hosted_release_verification_failed: ${detail}`);
+    throw new Error(`self_hosted_release_verification_failed: ${detail}`, {
+      cause: error,
+    });
   }
 }
 
@@ -669,7 +676,9 @@ async function writeImmutable(path: string, contents: string): Promise<void> {
         throw error;
       await requireRegularPath(path);
       if ((await readFile(path, "utf8")) !== contents)
-        throw new Error("self_hosted_release_refuses_changed_artifact");
+        throw new Error("self_hosted_release_refuses_changed_artifact", {
+          cause: error,
+        });
     }
   } finally {
     await rm(staging, { recursive: true, force: true });

@@ -95,7 +95,7 @@ against your own subscription or API billing.
 Start the guided installer on your Linux x64 server:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh)
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
 ```
 
 Prepare two public DNS names, Docker Compose v2, Git and a supported Node.js

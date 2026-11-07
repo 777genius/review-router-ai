@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   assertEnvironmentBinding,
+  assertPrivateInstallLocation,
   createEnvironment,
   defaultActionCommit,
   parseEnvironment,
@@ -238,6 +239,29 @@ test("private state survives atomic replacement and refuses symlink targets", as
     assert.equal(await readFile(file, "utf8"), "second");
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("custom state and imported credentials cannot enter the application Docker build context", () => {
+  assertPrivateInstallLocation("/source/reviewrouter", "/private/install");
+  assertPrivateInstallLocation(
+    "/source/reviewrouter",
+    "/source/reviewrouter/deploy/self-hosted/secrets/install",
+  );
+  assertPrivateInstallLocation(
+    "/source/reviewrouter",
+    "/source/reviewrouter/.local-secrets/app.env",
+  );
+  for (const path of [
+    "/source/reviewrouter",
+    "/source/reviewrouter/private/app.env",
+    "/source/reviewrouter/deploy/self-hosted/secrets-lookalike",
+    "/source/reviewrouter/.local-secrets/../leaked.env",
+  ]) {
+    assert.throws(
+      () => assertPrivateInstallLocation("/source/reviewrouter", path),
+      /Docker build context/,
+    );
   }
 });
 

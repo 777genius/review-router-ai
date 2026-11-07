@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import { acquireDeploymentLock } from "../../scripts/hindsight-e2e/deployment-lock.ts";
 import {
   assertEnvironmentBinding,
+  assertPrivateInstallLocation,
   createEnvironment,
   defaultActionCommit,
   parseEnvironment,
@@ -19,7 +20,6 @@ import {
   readSettings,
   renderEnvironment,
   writePrivate,
-  type Environment,
   type InstallSettings,
 } from "./install-config.ts";
 import { buildSelfHostedDatabasePlan } from "./install-database.ts";
@@ -281,20 +281,33 @@ async function main(): Promise<void> {
     process.stdin.isTTY,
     "Run setup in an interactive terminal. Use --help for options",
   );
-  const terminal = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  const ask = async (question: string, fallback = "") =>
-    (
-      await terminal.question(
-        `${question}${fallback ? ` [${fallback}]` : ""}: `,
-      )
-    ).trim() || fallback;
+  const ask = async (question: string, fallback = "") => {
+    const terminal = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    const abort = new AbortController();
+    terminal.once("SIGINT", () => abort.abort());
+    try {
+      return (
+        (
+          await terminal.question(
+            `${question}${fallback ? ` [${fallback}]` : ""}: `,
+            { signal: abort.signal },
+          )
+        ).trim() || fallback
+      );
+    } finally {
+      // Release raw-mode input before a child command owns the foreground terminal.
+      terminal.close();
+    }
+  };
   const directory = resolve(
     values.directory ?? join(root, "deploy/self-hosted/secrets/install"),
   );
+  assertPrivateInstallLocation(root, directory);
   await privateDirectory(directory);
+  assertPrivateInstallLocation(await realpath(root), await realpath(directory));
   const lock = await acquireDeploymentLock(join(directory, "install.lock"));
   try {
     console.log(
@@ -308,10 +321,14 @@ async function main(): Promise<void> {
       "Expected an immutable source commit",
     );
     assert(
-      !(await run("git", ["status", "--porcelain", "--untracked-files=no"], {
-        capture: true,
-      })),
-      "Commit or restore tracked source changes before installing; setup must build the recorded source revision",
+      !(await run(
+        "git",
+        ["status", "--porcelain", "--untracked-files=normal"],
+        {
+          capture: true,
+        },
+      )),
+      "Commit or remove source changes before installing; setup must build a clean recorded revision",
     );
     const endpoint = await run(
       "docker",
@@ -449,8 +466,12 @@ async function main(): Promise<void> {
           values["app-name"] ??
           (await ask(
             "GitHub App name",
-            `ReviewRouter ${new URL(settings.webUrl).hostname}`,
+            `ReviewRouter ${settings.installationId}`,
           ));
+        assert(
+          name.length > 0 && name.length <= 34,
+          "GitHub App names must contain 1–34 characters",
+        );
         const args = [
           "scripts/create-github-app-manifest.mjs",
           "--web-url",
@@ -477,6 +498,10 @@ async function main(): Promise<void> {
         );
         profilePath = join(profilesDirectory, profiles[0]!);
       }
+      assertPrivateInstallLocation(
+        await realpath(root),
+        await realpath(profilePath),
+      );
       const profile = await readPrivate(profilePath);
       assert(profile, "GitHub App profile was not found");
       const app = parseEnvironment(profile);
@@ -490,6 +515,13 @@ async function main(): Promise<void> {
           app.REVIEW_ROUTER_API_URL === settings.apiUrl,
         "App webhook domain does not match this installation",
       );
+      if (app.GITHUB_APP_PRIVATE_KEY_FILE)
+        assertPrivateInstallLocation(
+          await realpath(root),
+          await realpath(
+            resolve(dirname(profilePath), app.GITHUB_APP_PRIVATE_KEY_FILE),
+          ),
+        );
       const privateKey = app.GITHUB_APP_PRIVATE_KEY_FILE
         ? await readPrivate(
             resolve(dirname(profilePath), app.GITHUB_APP_PRIVATE_KEY_FILE),
@@ -654,27 +686,39 @@ async function main(): Promise<void> {
         },
       );
     assertRuntimePreflight(JSON.parse(await admin(["env-preflight"], true)));
-    await compose([
-      "cp",
-      release.bundlePath,
-      "api:/tmp/reviewrouter-install-release.json",
-    ]);
-    assertReleaseRegistered(
-      JSON.parse(
-        await admin(
-          [
-            "release",
-            "register",
-            "--bundle",
-            "/tmp/reviewrouter-install-release.json",
-            "--confirm",
-            "release",
-          ],
-          true,
-        ),
-      ),
-      release.runtimeAttestation,
+    // Write as the API runtime user: docker cp would make this mode0600 file root-owned.
+    const containerBundlePath = await compose(
+      ["exec", "-T", "api", "node", "deploy/self-hosted/install-bundle.ts"],
+      { input: JSON.stringify(release.bundle), capture: true },
     );
+    try {
+      assertReleaseRegistered(
+        JSON.parse(
+          await admin(
+            [
+              "release",
+              "register",
+              "--bundle",
+              containerBundlePath,
+              "--confirm",
+              "release",
+            ],
+            true,
+          ),
+        ),
+        release.runtimeAttestation,
+      );
+    } finally {
+      await compose([
+        "exec",
+        "-T",
+        "api",
+        "node",
+        "deploy/self-hosted/install-bundle.ts",
+        "cleanup",
+        containerBundlePath,
+      ]);
+    }
     await writePrivate(
       join(directory, "server-ready.json"),
       JSON.stringify(
@@ -798,7 +842,6 @@ async function main(): Promise<void> {
       `\nRepository ready: ${repository}. Open a small pull request to verify the first review.\nFirst review: pending (setup does not claim a live review has passed).\nPrivate installation files: ${directory}\nKeep a backup of these files and the database. Use the upgrade runbook when changing versions.`,
     );
   } finally {
-    terminal.close();
     await lock.close();
   }
 }
