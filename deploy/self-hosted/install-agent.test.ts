@@ -306,7 +306,7 @@ test(
         ["operator-credential", credential],
         [".env", environment],
         ["server-ready.json", marker],
-      ]) {
+      ] as const) {
         await writeFile(join(directory, name), value, { mode: 0o600 });
       }
       const invokeResumed = (...args: string[]) => {
