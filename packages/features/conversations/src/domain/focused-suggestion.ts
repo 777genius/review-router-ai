@@ -16,7 +16,9 @@ function inOneRightHunk(patch: string, start: number, end: number): boolean {
   let hunk = 0;
   let line = 0;
   const right = new Map<number, number>();
-  for (const row of patch.split("\n")) {
+  const rows = patch.split("\n");
+  for (const [index, row] of rows.entries()) {
+    if (!row && index === rows.length - 1) break;
     const header = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(row);
     if (header) {
       const begin = Number(header[1]);
@@ -27,9 +29,9 @@ function inOneRightHunk(patch: string, start: number, end: number): boolean {
     }
     if (hunk === 0) continue;
     if (row.startsWith("\\ No newline")) continue;
-    if (row.startsWith("+") && !row.startsWith("+++")) right.set(line++, hunk);
+    if (row.startsWith("+")) right.set(line++, hunk);
     else if (row.startsWith(" ")) right.set(line++, hunk);
-    else if (row.startsWith("-") && !row.startsWith("---")) continue;
+    else if (row.startsWith("-")) continue;
     else return false;
   }
   const expectedHunk = right.get(start);
@@ -90,11 +92,13 @@ export function renderFocusedSuggestion(
   const tick = String.fromCharCode(96);
   const runs = replacement.match(new RegExp(tick + "+", "gu")) ?? [];
   const fence = tick.repeat(Math.max(3, ...runs.map((run) => run.length + 1)));
+  const range = start === anchor && end === anchor
+    ? "" : ":-" + (anchor - start) + "+" + (end - anchor);
   return [
     "**Suggested fix** for " + tick + source.path.replace(/[^\w./-]/gu, "") +
       ":" + start + (start === end ? "" : "-" + end) + tick +
       " at HEAD " + tick + headSha.slice(0, 12) + tick + ".",
-    fence + "suggestion\n" + replacement + "\n" + fence,
+    fence + "suggestion" + range + "\n" + replacement + "\n" + fence,
     "_Apply this suggestion manually in GitHub. No code or review state was changed._",
   ].join("\n\n");
 }
