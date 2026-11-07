@@ -9,6 +9,21 @@ models, reasoning effort, review language, severity thresholds, comment limits,
 provider parallelism and the agreement required for inline findings.
 Provider capabilities differ; not every model supports every setting.
 
+### Inline reviewer agreement (managed v2)
+
+**Inline agreement** sets the minimum number of independent reviewer votes
+required to publish an AI finding as an inline PR comment. Repeated instances
+of the same model do not count as independent votes. Findings below the
+threshold remain visible in the PR review summary instead of appearing as
+agreed inline comments. They can still fail the configured severity check, so
+an unconfirmed serious finding does not become an all-clear. Deterministic
+static-analysis findings are exempt, and the default threshold of one keeps
+the normal single-reviewer workflow. Historical discussion thread resolution
+has a separate, stricter confirmation policy.
+
+This contract requires the managed v2 Action runtime. Older direct Action
+entrypoints may have different summary and publication behavior.
+
 Operators can also use the [configuration CLI](./operations/review-configuration-operator-cli.md):
 
 ```bash
