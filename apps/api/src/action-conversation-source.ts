@@ -441,7 +441,9 @@ export class GitHubConversationSource
         !targetPath ||
         targetPath.startsWith("/") ||
         targetPath.includes("\\") ||
-        targetPath.split("/").some((segment) => !segment || segment === "." || segment === "..")
+        targetPath.split("/").some((segment) => !segment || segment === "." || segment === "..") ||
+        /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(targetPath) ||
+        /\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock)$/iu.test(targetPath)
       ) return null;
       const { data: file } = await client.request<{
         type: string;
