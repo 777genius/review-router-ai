@@ -633,6 +633,11 @@ async function main(): Promise<void> {
           typeof marker.checkedAt === "string",
         "Saved server readiness does not match this pinned installation; reconcile before retrying",
       );
+      assert(
+        (await readPrivate(envFile)) &&
+          (await readPrivate(join(directory, "operator-credential"))),
+        "Ready marker exists but saved credentials are missing; recover them instead of re-creating installation state",
+      );
     }
 
     phase = "dependencies";
@@ -641,7 +646,9 @@ async function main(): Promise<void> {
         schemaVersion: 1,
         state: "running",
         phase,
-        message: "Preparing pinned dependencies and compiler output.",
+        message: reuseReadyServer
+          ? "Checking previously installed dependencies and live runtime."
+          : "Preparing pinned dependencies and compiler output.",
       },
       false,
     );
