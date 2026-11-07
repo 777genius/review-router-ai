@@ -495,8 +495,9 @@ async function main(): Promise<void> {
           confirmedRepository,
           true,
         ) === "save_acknowledgment"
-      )
+      ) {
         await writePrivate(approvalPath, confirmedRepository);
+      }
     }
     const statePath = join(directory, "installation.json"),
       envFile = join(directory, ".env");
