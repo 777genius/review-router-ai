@@ -12,8 +12,9 @@ Provider capabilities differ; not every model supports every setting.
 ### Inline reviewer agreement (managed v2)
 
 **Inline agreement** sets the minimum number of independent reviewer votes
-required to publish an AI finding as an inline PR comment. Repeated instances
-of the same model do not count as independent votes. Findings below the
+required to publish an AI finding as an inline PR comment. Repeated work
+slots with one vote identity count once; separately configured reviewer
+identities can count independently even when using the same model. Findings below the
 threshold remain visible in the PR review summary instead of appearing as
 agreed inline comments. They can still fail the configured severity check, so
 an unconfirmed serious finding does not become an all-clear. Deterministic
