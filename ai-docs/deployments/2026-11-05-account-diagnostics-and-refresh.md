@@ -3,7 +3,7 @@
 - Task ID: `2026-11-05-account-diagnostics-and-refresh`
 - Goal: workspace quota refresh reaches the authorized server action, and connection tests explain validated source failures through one neutral diagnosis contract.
 - Affected targets: SaaS Web, the API probe-access endpoint and their existing Gateway adapters. No SQL migration or new Native/Gateway deployment is planned.
-- Implementation: current scoped PR, to be linked after creation.
+- Implementation: [PR #831](https://github.com/777genius/review-router-ai/pull/831).
 - Owner instruction: merge only; **do not deploy this batch** until separately authorized.
 - Last updated: `2026-11-07`.
 
@@ -34,3 +34,7 @@ No Brave or heavy local Mac processes. Existing test stands, prior reports and u
 ## Retained qualification
 
 Hosted fixtures passed: 47 probe/diagnosis tests across six files and the quota adapter/action regression plus service/cache privacy checks. These are fixture and adapter checks, not a new production model request or authenticated browser acceptance. Production Web image was read back unchanged on November 7. Final exact-head qualification and PR link remain pending.
+
+Final Web source and tests passed TypeScript 7.0.2; the affected API suite passed 10/10. The repository-pinned ESLint parser resolves TypeScript 6.0.3, so its old result is not current-standard qualification. The owning toolchain gap and exact-head CI remain open; do not bypass this gate or claim merge/deployment completion.
+
+November 7 read-only follow-up could not attribute the new UI failure to a source: Web and Gateway have no recent diagnostic lines. Separately, API reports review relay session saturation (16/16 retained sessions); this is not an account quota and the dashboard probe does not use that relay. No inference request was repeated.
