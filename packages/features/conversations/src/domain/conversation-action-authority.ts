@@ -202,7 +202,9 @@ export function isInformationOnlyConversation(body: string): boolean {
   // Mixed statements/questions are read-only. Even a quoted question must
   // not accidentally grant authority to update a user's memory.
   if (/[?？]/u.test(text)) return true;
-  if (/(?:^|[\s.,!;:])(?:why|how|what|explain|clarify|please\s+explain|could\s+you\s+explain)(?=$|[\s.,!;:])/iu.test(text))
+  // Bare interrogatives are only questions when leading the source text;
+  // "this is how ..." and "мы считаем, что ..." are factual statements.
+  if (/^(?:(?:please|could\s+you)\s+)?(?:why|how|what|explain|clarify)\b/iu.test(text))
     return true;
-  return /(?:^|[\s.,!;:])(?:почему|зачем|как|что|объясни|поясни|расскажи|можешь\s+объяснить)(?=$|[\s.,!;:])/iu.test(text);
+  return /^(?:почему|зачем|как|что|объясни|поясни|расскажи)\b/iu.test(text);
 }
