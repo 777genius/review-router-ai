@@ -16,7 +16,12 @@ const safeExplanation = (text: string) =>
   text
     .replace(/<[^>]*>/gu, "")
     .replace(/@/gu, "@\u200b")
-    .split("").map((char) => { const code = char.charCodeAt(0); return code < 32 || code === 127 ? " " : char; }).join("")
+    .split("")
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return code < 32 || code === 127 ? " " : char;
+    })
+    .join("")
     .trim()
     .slice(0, 550);
 
