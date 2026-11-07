@@ -1,0 +1,72 @@
+name: Temporary focused finding source formatting and verifier
+
+on:
+  push:
+    branches: [feat/conversation-suggest-fix-20261107]
+    paths:
+      - .github/workflows/temporary-suggest-fix-assets.yml
+
+permissions: {}
+
+jobs:
+  generate:
+    if: ${{ github.repository == '777genius/review-router-ai' && github.ref == 'refs/heads/feat/conversation-suggest-fix-20261107' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '26.11.1'
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install exact dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Format changed sources and regenerate signed verifier inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec prettier --write \
+            ai-docs/plans/2026-11-07-inline-suggest-fix-implementation.md \
+            apps/api/src/action-conversation-source.ts \
+            apps/api/src/action-conversation-finite-path.pg.test.ts \
+            packages/features/conversations/src/application/process-conversation.ts \
+            packages/features/conversations/src/application/ports/conversation-ports.ts \
+            packages/features/conversations/src/domain/conversation.ts \
+            packages/features/conversations/src/domain/focused-finding.ts \
+            packages/features/conversations/src/tests/focused-finding.test.ts \
+            packages/features/conversations/src/domain/focused-suggestion.ts \
+            packages/features/conversations/src/tests/focused-suggestion.test.ts \
+            packages/features/conversations/src/domain/focused-suggestion.ts \
+            packages/features/conversations/src/tests/focused-suggestion.test.ts
+          node scripts/check-conversation-source-stamp.ts --write
+          node scripts/check-conversation-release-verifier.ts --write
+          node scripts/check-conversation-source-stamp.ts --check
+          node scripts/check-conversation-release-verifier.ts --check
+          git add -- \
+            ai-docs/plans/2026-11-07-inline-suggest-fix-implementation.md \
+            apps/api/src/action-conversation-source.ts \
+            apps/api/src/action-conversation-finite-path.pg.test.ts \
+            packages/features/conversations/src/application/process-conversation.ts \
+            packages/features/conversations/src/application/ports/conversation-ports.ts \
+            packages/features/conversations/src/domain/conversation.ts \
+            packages/features/conversations/src/domain/focused-finding.ts \
+            packages/features/conversations/src/tests/focused-finding.test.ts \
+            packages/platform/config/src/conversation-source-stamp.json \
+            deploy/self-hosted/conversation-verifier.mjs \
+            deploy/self-hosted/conversation-verifier.d.mts \
+            deploy/self-hosted/conversation-verifier.inputs.json \
+            deploy/self-hosted/conversation-verifier.NOTICE
+          if git diff --cached --quiet; then
+            echo 'Sources already synchronized.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style(conversation): synchronize targeted finding source and verifier'
+          git push origin HEAD:refs/heads/feat/conversation-suggest-fix-20261107
