@@ -208,7 +208,7 @@ describe("review settings forms", () => {
     expect(readRepositoryReviewSettingsForm(new FormData(form()))).toEqual({});
   });
 
-  it("offers execution limits only where more than one provider runs", () => {
+  it("offers execution limits only where more than one provider runs", async () => {
     const view = render(
       <ReviewSettingsForm
         action={vi.fn()}
@@ -239,6 +239,22 @@ describe("review settings forms", () => {
         mutationsEnabled
         submitLabel="Save"
       />,
+    );
+    fireEvent.focus(
+      screen.getByRole("button", { name: "Inline agreement help" }),
+    );
+    const agreementHelp = await screen.findByRole("tooltip");
+    expect(agreementHelp.textContent).toContain(
+      "Minimum independent AI reviewer votes required for inline PR comments",
+    );
+    expect(agreementHelp.textContent).toContain(
+      "can still fail severity checks",
+    );
+    expect(agreementHelp.textContent).toContain(
+      "static/AST do not add AI reviewer votes when mixed",
+    );
+    expect(agreementHelp.textContent).toContain(
+      "Requires an updated managed v2 Action release with the #375 fix",
     );
     expect(
       readWorkspaceReviewSettingsForm(new FormData(form())).execution,

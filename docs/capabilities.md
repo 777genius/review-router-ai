@@ -30,17 +30,18 @@ Sources: [provider catalog](../packages/features/review-providers/src/domain/pro
 
 ## Feature availability
 
-| Feature           | Availability and limits                                                                                                      | Rollout              |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| Memory            | Full-thread replies and learning, scoped knowledge, optional confirmation; live model/App rollout still needs qualification. | [status][memory]     |
-| PR conversations  | Authorized full-thread replies and contextual learning; requires qualified interaction Action, Gateway and account.          | [status][memory]     |
-| Skills            | Versioned text instructions, sharing, assignments and checked imports; production text-only E2E verified.                    | [status][skills]     |
-| MCP context tools | Approved remote HTTPS tools for compatible OCR/Gateway; two-reviewer canary verified.                                        | [status][mcp]        |
-| Statistics        | PRs, reviews, issues and trends; completeness requires verified capture and reconciliation.                                  | [status][statistics] |
-| Review history    | GitHub v2 review runs, filters and reruns; production capture since activation, no historical backfill.                      | [status][history]    |
-| Usage             | Provider/model/run attempts, known tokens and costs; coverage-aware, rollout verification ongoing.                           | [status][usage]      |
+| Feature           | Availability and limits                                                                                                    | Rollout                 |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Memory            | Approved scoped knowledge; enabled with a configured, qualified Hindsight backend unless explicitly disabled.              | [setup][memory]         |
+| PR conversations  | Full-thread replies and automatic learning require a separately qualified interaction runtime, Gateway, account and model. | [status][conversations] |
+| Skills            | Versioned text instructions, sharing, assignments and checked imports; production text-only E2E verified.                  | [status][skills]        |
+| MCP context tools | Approved remote HTTPS tools for compatible OCR/Gateway; two-reviewer canary verified.                                      | [status][mcp]           |
+| Statistics        | PRs, reviews, issues and trends; completeness requires verified capture and reconciliation.                                | [status][statistics]    |
+| Review history    | GitHub v2 review runs, filters and reruns; production capture since activation, no historical backfill.                    | [status][history]       |
+| Usage             | Provider/model/run attempts, known tokens and costs; coverage-aware, rollout verification ongoing.                         | [status][usage]         |
 
-[memory]: ../ai-docs/deployments/2026-10-29-conversational-memory.md
+[memory]: ../packages/features/memory/README.md#default-enablement
+[conversations]: ../ai-docs/deployments/2026-10-29-conversational-memory.md
 [skills]: ../ai-docs/deployments/2026-10-28-skills-catalog.md
 [mcp]: ../ai-docs/deployments/2026-11-01-reviewer-v4-mcp.md
 [statistics]: ../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md
@@ -57,21 +58,12 @@ handles identities, revisions, findings, summaries, publication and operational
 metadata; it does not receive raw source files or provider credentials by default.
 See the [privacy boundary](./privacy-self-hosted.md).
 
-**Self-hosted:** Compose includes web, API, worker, PostgreSQL and migrations.
-Operators still configure the GitHub App, HTTPS, signing/release material and
-repository activation. It is not a one-click installer.
-See the [complete deployment guide](./operations/review-router-self-hosted-end-to-end.md).
-
-**Hosted Codex pool:** an opt-in, operator-managed mode centralizes accounts,
-encrypted credential generations and repository bindings. Entitled workspace
-admins enroll a ChatGPT session from the dashboard by signing in with device
-auth or by uploading a local `auth.json`. Checkout and tools stay
-in Actions, but model requests, tool outputs and responses pass through the SaaS
-relay. Relay bodies must not be retained. This is a different trust boundary,
-not the default mode where provider secrets stay in CI. The checked-in operator guide retains
-Production HOLD pending release and disposable provider-canary evidence.
-See the [pool decision](../ai-docs/decisions/029-opt-in-hosted-workspace-account-pool.md)
-and [operator guide](../ai-docs/operations/hosted-pool-operator.md).
+**Self-hosted:** The guided installer configures web, API, worker, PostgreSQL,
+migrations, HTTPS and release registration. Operators prepare DNS, complete
+GitHub App and provider onboarding, and merge the repository's workflow setup PR.
+The installer checks readiness and repository activation; verify the first live
+review with a test pull request.
+See the [installation guide](./operations/review-router-self-hosted-end-to-end.md#guided-installation).
 
 ## GitLab
 
@@ -86,21 +78,24 @@ not apply unchanged to GitLab.
 See the [setup implementation](../apps/web/app/setup/gitlab/gitlab-connect-wizard.tsx)
 and [GitLab runtime reference](../deploy/gitlab/README.md).
 
-## Gated and unfinished work
+## Deployment-specific and legacy capabilities
 
 Optional GitHub live-progress comments require explicit capture, publisher
 and repository-cohort configuration. The defaults are off; failed progress
 publication must not block a final review. See the
 [progress rollout guide](./operations/live-review-progress-rollout.md).
 
-Advanced investigations, independent critics and selective cross-revision replay
-are implemented behind rollout controls that default to off. Reuse requires
-compatible dependencies, configuration and fresh revision authority; it is not
-an unconditional skip for unchanged files. See the
-[investigation status](./architecture/review-investigation-implementation-status.md)
+The default OpenCodeReview path runs separately from the earlier
+ReviewRouter/Codex investigation runtime. ReviewRouter's independent critics
+and dependency-attested cross-revision replay belong to that earlier runtime
+and retain its activation requirements. See the
+[runtime selection](https://github.com/777genius/review-router/blob/main/src/review-orchestration/infrastructure/production-t0-review-runner.ts),
+[earlier investigation status](./architecture/review-investigation-implementation-status.md)
 and [reuse contract](./architecture/dependency-attested-review-reuse.md).
-Historical deployment observations in those documents are dated evidence.
+Those historical rollout controls do not govern ordinary OpenCodeReview reviews
+or approved-memory retrieval. Dated deployment observations describe the
+environment recorded at that time.
 
-One-click self-hosting, payments, enterprise SSO and broader support/admin tooling
-remain product work. This repository documents a local development environment
-and an operator CLI, not a general local-code-review command.
+Payments, enterprise SSO and broader support/admin tooling remain product work.
+This repository documents a local development environment and an operator CLI,
+not a general local-code-review command.

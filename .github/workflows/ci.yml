@@ -511,6 +511,9 @@ jobs:
           node --test deploy/self-hosted/setup-memory.test.ts
           node --test deploy/hetzner/fleet-overlay/fleet-overlay.node-test.mjs
 
+      - name: Guided self-hosted installer types and contracts
+        run: pnpm self-hosted:install:check
+
   quality:
     name: Quality Checks
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}

@@ -76,8 +76,7 @@ and review rules in one dashboard.
   repository credentials stay in CI, and the chosen AI provider receives review
   context. ReviewRouter stores results and operational metadata, not raw source files.
 - **Hosting options.** Use the hosted service or
-  [self-host with Docker Compose](./docs/operations/review-router-self-hosted-end-to-end.md).
-  The opt-in encrypted hosted account pool uses a separate model-relay privacy boundary.
+  [self-host with the guided Docker Compose installer](./docs/operations/review-router-self-hosted-end-to-end.md).
 
 Availability varies by provider, installed workflows and deployment. See
 [capabilities and limits](./docs/capabilities.md).
@@ -91,6 +90,37 @@ Availability varies by provider, installed workflows and deployment. See
 You approve the workflow changes before reviews begin. Provider usage counts
 against your own subscription or API billing.
 
+## Self-host
+
+**Agent-first is the default.** On a Linux x64 server, prepare Docker
+Compose v2, Git, curl, and Node.js 24.21+ or 26.10+. Point two DNS names
+(e.g., `review.example.com` and `api.review.example.com`) to the server
+and allow inbound ports 80/443. Default Memory also requires Python 3 and tar.
+
+Give your coding agent shell access to that server and run:
+
+```bash
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' -- \
+  --web-url https://review.example.com \
+  --repo OWNER/REPOSITORY
+```
+
+Replace the example domain and repository. The API domain defaults to
+`https://api.review.example.com`; configure its DNS record too.
+The installer generates private credentials, starts services and HTTPS,
+and returns **one JSON status** with the next action. It resumes without
+rebuilding a healthy installation. Agent mode needs no interactive terminal;
+to follow prompts yourself, add `--interactive` to the same command.
+
+You still approve the GitHub App, connect the provider through **GitHub Secrets**,
+and approve the workflow setup PR. In `--review-only` mode, install the canonical
+workflow manually instead. Subscription-account Gateway is a separate service.
+A running server is **not** proof of a completed AI review.
+
+This moving-branch command is for evaluation. For production,
+[pin an approved source commit](./docs/operations/review-router-self-hosted-end-to-end.md#agent-first-installation-default).
+See [installation, resume and first-review steps](./docs/operations/review-router-self-hosted-end-to-end.md#guided-installation).
+
 ## Review engine
 
 ReviewRouter uses [OpenCodeReview](https://github.com/alibaba/open-code-review).
@@ -103,11 +133,11 @@ are upstream results, not independent ReviewRouter measurements.
 | ----------- | ------------------------------------------------------------------ |
 | GitHub      | App installation, setup PRs, inline review and a shared dashboard. |
 | GitLab      | In development.                                                    |
-| Self-hosted | Docker Compose deployment on your infrastructure.                  |
+| Self-hosted | Guided Docker Compose installation on your infrastructure.         |
 
-Advanced investigations, cross-revision replay and live PR progress comments
-require explicit rollout. See [capabilities and limits](./docs/capabilities.md)
-for availability and privacy details.
+Live PR progress comments require deployment-specific rollout. See
+[capabilities and limits](./docs/capabilities.md) for availability, the review
+runtime boundaries and privacy details.
 
 ## Learn more
 
