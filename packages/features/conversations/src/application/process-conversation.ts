@@ -377,9 +377,11 @@ export class ProcessConversation {
           },
           conversation: JSON.parse(renderConversation(snapshot)) as unknown,
           memory: context.text,
-          memoryChanges: policy.requireConfirmation
-            ? "Propose useful changes. The server will request exact author confirmation unless this message already contains it."
-            : "Apply only memory operations requested or specifically approved by the current verified maintainer; no separate confirmation turn is required. Plain factual agreement is not a request for a memory action. Ambiguity still requires clarification.",
+          memoryChanges: answerOnly
+            ? "Answer only: no memory proposals, automatic observations, project rule changes, or memory actions."
+            : policy.requireConfirmation
+              ? "Propose useful changes. The server will request exact author confirmation unless this message already contains it."
+              : "Apply only memory operations requested or specifically approved by the current verified maintainer; no separate confirmation turn is required. Plain factual agreement is not a request for a memory action. Ambiguity still requires clarification.",
           ...(answerOnly ? { requestedPurpose: "answer_only" } : {}),
         });
         const bytes =
@@ -522,7 +524,8 @@ export class ProcessConversation {
           }
         }
         // Fail closed if inference proposes a write despite an answer-only purpose.
-        if (answerOnly && output.action) throw new ConversationError("unavailable");
+        if (answerOnly && (output.action || output.kind === "effect_notice"))
+          throw new ConversationError("unavailable");
         if (!(await this.dependencies.records.freezeOutput(id, output)))
           throw new ConversationError("conflict");
         selected = output;
