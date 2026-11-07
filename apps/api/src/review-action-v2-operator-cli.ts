@@ -37,6 +37,7 @@ import {
   ProducerReleaseState,
   ReviewCapabilityProfile,
   ReviewSafetyCapability,
+  ReviewSafetyControlWriteStatus,
   ReviewSafetyPolicyScope,
   ReviewSafetyRolloutMode,
   ReviewTrustDomain,
@@ -48,6 +49,8 @@ import {
   type ProducerReleaseCandidate,
   type ReviewOperationalSloThresholds,
   type ReviewProtocolLimits,
+  type ReviewSafetyControlInspectionPort,
+  type ManageReviewSafetyControls,
   type Sha256DigestPort,
 } from "@reviewrouter/features-review-run-control";
 import {
@@ -346,7 +349,11 @@ async function main() {
       await authenticateOperator(runtime.digest, process.env);
       requireConfirmation(parsed, "global");
       printJson(
-        await updateGlobalEmergencyControl(runtime, globalEmergencyTransition),
+        await updateGlobalEmergencyControl(
+          runtime,
+          globalEmergencyTransition,
+          parseReviewV2ExpectedEmergencyVersion(parsed),
+        ),
       );
       return;
     }
@@ -653,12 +660,28 @@ async function updateRepositoryCohortPolicies(
   return { repository: target.repository.fullName, operation, results };
 }
 
-async function updateGlobalEmergencyControl(
-  runtime: ReturnType<typeof composeReviewActionV2SafetyControlRuntime>,
+type GlobalEmergencyControlRuntime = {
+  readonly repositories: {
+    readonly safetyControls: Pick<
+      ReviewSafetyControlInspectionPort,
+      "findReviewSafetyEmergencyControl"
+    >;
+  };
+  readonly runControl: {
+    readonly safetyControls: Pick<
+      ManageReviewSafetyControls,
+      "setReviewSafetyEmergencyStop"
+    >;
+  };
+};
+
+export async function updateGlobalEmergencyControl(
+  runtime: GlobalEmergencyControlRuntime,
   transition: {
     readonly stopped: boolean;
     readonly reason: string;
   },
+  expectedVersion?: number,
 ) {
   const scope = { scope: ReviewSafetyPolicyScope.Global } as const;
   const existing =
@@ -668,12 +691,23 @@ async function updateGlobalEmergencyControl(
   if (!existing) {
     throw new Error("review_v2_global_emergency_control_missing");
   }
-  return runtime.runControl.safetyControls.setReviewSafetyEmergencyStop({
-    expectedVersion: existing.version,
-    scope,
-    ...transition,
-    updatedBy: "review-v2-operator",
-  });
+  if (expectedVersion !== undefined && existing.version !== expectedVersion) {
+    throw new Error("review_v2_global_emergency_control_version_conflict");
+  }
+  const result =
+    await runtime.runControl.safetyControls.setReviewSafetyEmergencyStop({
+      expectedVersion: expectedVersion ?? existing.version,
+      scope,
+      ...transition,
+      updatedBy: "review-v2-operator",
+    });
+  if (
+    expectedVersion !== undefined &&
+    result.status === ReviewSafetyControlWriteStatus.Conflict
+  ) {
+    throw new Error("review_v2_global_emergency_control_version_conflict");
+  }
+  return result;
 }
 
 async function updateRepositoryEmergencyControl(
@@ -1246,6 +1280,28 @@ export function requireConfirmation(parsed: ParsedArguments, expected: string) {
   }
 }
 
+export function parseReviewV2ExpectedEmergencyVersion(
+  parsed: ParsedArguments,
+): number | undefined {
+  if (
+    Object.keys(parsed.options).some((key) =>
+      key.startsWith("expected-version="),
+    )
+  ) {
+    throw new Error("review_v2_option_invalid:expected-version");
+  }
+  const value = parsed.options["expected-version"];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/u.test(value)) {
+    throw new Error("review_v2_option_invalid:expected-version");
+  }
+  const version = Number(value);
+  if (!Number.isSafeInteger(version)) {
+    throw new Error("review_v2_option_invalid:expected-version");
+  }
+  return version;
+}
+
 function requireOption(parsed: ParsedArguments, name: string): string {
   const value = parsed.options[name];
   if (typeof value !== "string" || value.length === 0) {
@@ -1547,7 +1603,9 @@ function printUsage() {
   process.stdout.write(
     `  rollback protocol-preflight --channel-manifest FILE\n`,
   );
-  process.stdout.write(`  emergency global open|stop --confirm global\n`);
+  process.stdout.write(
+    `  emergency global open|stop --confirm global [--expected-version N]\n`,
+  );
   process.stdout.write(
     `  emergency workspace open|stop --workspace WORKSPACE_ID --confirm WORKSPACE_ID\n`,
   );

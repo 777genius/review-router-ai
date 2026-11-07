@@ -80,6 +80,3 @@ gh run rerun RUN_ID --repo OWNER/REPOSITORY --failed
 
 If the head changed, use the new PR run. Reconnecting does not update the
 workflow's pinned Action version.
-
-Hosted pool accounts use a different lifecycle. Follow the
-[pool operator guide](../ai-docs/operations/hosted-pool-operator.md).

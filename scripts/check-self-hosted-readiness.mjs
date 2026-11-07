@@ -5,7 +5,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnvFile } from "./lib/env-file.mjs";
 import { normalizeGitHubAppPermissionProfile } from "./lib/github-app-permission-profiles.mjs";
-import { parseReviewAgentProfiles } from "../packages/shared/src/review-agent-profile.ts";
+import { parseSelfHostedProducerAttestation } from "../deploy/self-hosted/install-release.ts";
 import { reviewV2ProjectionPolicyVersion } from "./review-v2-render-env.mjs";
 import { isLoopbackHostname } from "../packages/shared/src/validation/loopback-hostname.mjs";
 import { resolveCodexRotatingInstallerDescriptor } from "../packages/shared/src/validation/codex-rotating-installer-descriptor.mjs";
@@ -389,69 +389,12 @@ function requireProviderVoteLanes(name) {
 }
 
 function isProducerReleaseAttestation(value) {
-  const legacyKeys = [
-    "producerReleaseId",
-    "distributionKind",
-    "actionCommitSha",
-    "runtimeCommitSha",
-    "wrapperEntrypointDigest",
-    "runtimeEntrypointDigest",
-    "schemaDigest",
-    "canonicalizerDigest",
-    "capabilityProfile",
-    "protocolLimitsProfileId",
-    "operationalSloProfileId",
-  ];
-  const currentKeys = [
-    ...legacyKeys,
-    "contextGatewayPolicyVersion",
-    "contextGatewayEntrypointDigest",
-  ];
-  const investigationKeys = [
-    ...currentKeys,
-    "reviewInvestigationCapability",
-    "reviewInvestigationCoverageProfileHash",
-    "reviewInvestigationPolicyHash",
-  ];
-  const investigation = isExactRecord(value, [
-    ...investigationKeys,
-    "agentProfiles",
-  ]);
-  if (!investigation) return false;
   try {
-    parseReviewAgentProfiles(value.agentProfiles);
+    parseSelfHostedProducerAttestation(value);
+    return true;
   } catch {
     return false;
   }
-  const contextGatewayPolicyVersion = value.contextGatewayPolicyVersion ?? null;
-  const contextGatewayEntrypointDigest =
-    value.contextGatewayEntrypointDigest ?? null;
-  const investigationProfileValid =
-    !investigation ||
-    (value.reviewInvestigationCapability === "review_investigation_v1" &&
-      isSha256(value.reviewInvestigationCoverageProfileHash) &&
-      isSha256(value.reviewInvestigationPolicyHash) &&
-      isIdentifier(contextGatewayPolicyVersion) &&
-      isSha256(contextGatewayEntrypointDigest));
-  return (
-    isIdentifier(value.producerReleaseId) &&
-    ["hosted_composite", "public_reusable"].includes(value.distributionKind) &&
-    isCommitSha(value.actionCommitSha) &&
-    isCommitSha(value.runtimeCommitSha) &&
-    (value.wrapperEntrypointDigest === null ||
-      isSha256(value.wrapperEntrypointDigest)) &&
-    isSha256(value.runtimeEntrypointDigest) &&
-    ((contextGatewayPolicyVersion === null &&
-      contextGatewayEntrypointDigest === null) ||
-      (isIdentifier(contextGatewayPolicyVersion) &&
-        isSha256(contextGatewayEntrypointDigest))) &&
-    investigationProfileValid &&
-    isSha256(value.schemaDigest) &&
-    isSha256(value.canonicalizerDigest) &&
-    value.capabilityProfile === "exact_revision_v2" &&
-    isIdentifier(value.protocolLimitsProfileId) &&
-    isIdentifier(value.operationalSloProfileId)
-  );
 }
 
 function requireBase64Key(name, byteLength) {
@@ -516,10 +459,6 @@ function isIdentifier(value) {
     value.length <= 255 &&
     value.trim() === value
   );
-}
-
-function isCommitSha(value) {
-  return typeof value === "string" && /^[a-f0-9]{40}$/u.test(value);
 }
 
 function isSha256(value) {

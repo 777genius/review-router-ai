@@ -5,10 +5,24 @@ github.com. Customer code review still runs inside the customer's GitHub
 Actions workflow. The self-hosted server stores metadata, configuration,
 webhook state, sessions, outbox jobs, and health data in Postgres.
 
-For the sequential path from a clean host to the first real review, start with
-the
-[end-to-end self-hosting guide](../../docs/operations/review-router-self-hosted-end-to-end.md).
-This document is the detailed configuration and operations reference.
+## Guided installation
+
+On a Linux x64 server, start the guided installer:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh)
+```
+
+Prepare two public DNS names, Docker Compose v2, Git and a supported Node.js
+release. The installer configures services, private credentials, default memory
+and HTTPS. Create and install the GitHub App, then select the first repository
+in the installer before connecting a provider through the dashboard's
+**GitHub Secrets** setup. Complete the provider steps and workflow setup PR in
+your browser, return to the installer, then verify a real pull-request review.
+
+See the [guided installation steps](../../docs/operations/review-router-self-hosted-end-to-end.md#guided-installation)
+for exact prerequisites, the SSH callback tunnel, options and resume behavior.
+The sections below are the detailed manual configuration and operations reference.
 
 This guide does not cover GitHub Enterprise Server, air-gapped deployments, or
 cloud review execution.
@@ -60,18 +74,17 @@ sign-in, account limits, and gateway-routed execution.
   `REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY` are set. The web and API need
   further `REVIEW_ROUTER_ACCOUNT_GATEWAY_*` settings that this guide does not
   document; set any of them only if you run a gateway yourself.
-- Not verified in this guide: which review flows keep working with API-key
-  providers and no gateway. Treat account sign-in as unavailable on a fresh
-  self-hosted install until a compatible gateway is separately provisioned and
-  configured.
+- Gateway account sign-in requires that separate service. The guided install
+  uses the repository's GitHub Secrets provider setup; its first live review
+  still needs to be verified as described in the end-to-end guide.
 
 ## Services
 
 ### Complete memory provider
 
-The first-install command below builds and qualifies the pinned private Hindsight
-backend, downloads pinned multilingual local models, starts its database/API/
-worker and configures the shared env automatically. The native services run
+The guided installer and standalone memory command below build and qualify the
+pinned private Hindsight backend, download pinned multilingual local models,
+start its database/API/worker and configure the shared env automatically. The native services run
 separately from Compose, preserving the existing physical-Forget cleanup profile.
 Ordinary approved memory uses local embeddings and reranking with no generative
 account. Normal setup also consumes a qualified conversation capability when the
@@ -98,7 +111,8 @@ separate tool container.
 
 - Docker with Compose v2.
 - Public DNS for the web and API hosts.
-- Public HTTPS termination in front of the exposed web/API ports.
+- Inbound ports 80 and 443 for bundled Caddy, or existing HTTPS termination in
+  front of the exposed web/API ports.
 - A GitHub App owned by the operator of this self-hosted instance.
 - Outbound access from the host to `github.com`, `api.github.com`, and GitHub
   OIDC/JWKS endpoints.
@@ -193,10 +207,10 @@ provisioning   Dashboard setup PRs, workflow file updates, and GitHub Actions
 org-ruleset    provisioning plus organization ruleset administration.
 ```
 
-Use `review-only` for the client-triggered Direct V2 mode documented here. Use
-`managed-review` only for a separate server-dispatched mode, and use
-`provisioning` only when the dashboard must create setup PRs or repository
-secrets.
+The manual examples below use `review-only` with a manually installed workflow.
+The guided installer defaults to `provisioning` so the dashboard can create
+setup PRs. Both use client-triggered Direct V2. Use `managed-review` only for
+a separate server-dispatched mode.
 
 Create a manifest with the matching profile:
 
@@ -298,6 +312,12 @@ The canonical client-triggered workflow is schema 2. It runs only for same-repo
 only `contents: read`, `pull-requests: read`, and `id-token: write`, and pins the
 reusable workflow to the full Action commit. Direct initialization rejects any
 other executable workflow inventory.
+
+For Codex through GitHub Secrets, keep the template's setup issuance and new-work
+admission controls closed until an exact repository is selected. The guided
+installer configures that selection before provider onboarding. For manual
+installation, follow [Connect a Repository](../../docs/operations/review-router-self-hosted-end-to-end.md#9-connect-a-repository)
+to set both controls, apply the configuration and complete the provider setup.
 
 Pin `REVIEW_ROUTER_ACTION_REF` to the exact 40-character Action commit. Populate
 the authorization, Review V2 capability, and investigation lease capability key
@@ -521,6 +541,11 @@ rr_admin() {
 Run `rr_admin env-preflight` before a mutation.
 
 ## 7. Upgrade
+
+Guided installations use a saved private env, a named Compose project and an
+optional TLS overlay. Apply those same settings to the commands below, as
+described in [Manual installation and operations](../../docs/operations/review-router-self-hosted-end-to-end.md#manual-installation-and-operations).
+The installer resumes its recorded source revision and does not perform upgrades.
 
 ```bash
 git fetch --tags origin

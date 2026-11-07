@@ -12,10 +12,16 @@ import {
   canonicalReviewProtocolLimits,
   producerReleaseImmutableKey,
   type ProducerRelease,
-  type ReviewOperationalSloThresholds,
-  type ReviewProtocolLimits,
 } from "../domain/producer-release";
 import { ProducerReleaseState } from "../domain/review-run-control-types";
+import {
+  trustedProducerReleaseMaterializationLimits,
+  trustedProducerReleaseMaterializationOwnerRefs,
+  trustedProducerReleaseMaterializationRunbookRefs,
+  trustedProducerReleaseMaterializationThresholds,
+} from "../producer-release-defaults";
+
+export { trustedProducerReleaseMaterializationLimits } from "../producer-release-defaults";
 
 export type { TrustedProducerReleaseMaterializerPort } from "../application/ports/producer-release-ports";
 
@@ -149,39 +155,3 @@ function assertTrustedMaterializationResult(
     throw new Error(issue);
   }
 }
-
-export const trustedProducerReleaseMaterializationLimits: ReviewProtocolLimits =
-  Object.freeze({
-    maxWorkSlots: 200,
-    maxAttemptsPerSlot: 4,
-    maxObservationBytes: 1_000_000,
-    maxObservationFindings: 1_000,
-    maxProjectionBytes: 2_000_000,
-    maxProjectionFindings: 2_000,
-    maxPublicationOperations: 500,
-    maxPublicationChunks: 500,
-    maxPublicationBodyBytes: 2_000_000,
-    maxRequestBatchSize: 100,
-    maxLeaseDurationMs: 600_000,
-    maxResultReportDurationMs: 1_200_000,
-    maxReconciliationDurationMs: 3_600_000,
-  });
-
-const trustedProducerReleaseMaterializationThresholds: ReviewOperationalSloThresholds =
-  Object.freeze({
-    integrationEventDeliveryMs: 60_000,
-    outboxClaimAgeMs: 120_000,
-    missingCompletionProcessMs: 300_000,
-    dueCompletionProcessMs: 300_000,
-    publicationReconciliationMs: 600_000,
-    v1DrainMs: 3_600_000,
-    admissionMs: 30_000,
-    pruningBacklogAgeMs: 86_400_000,
-  });
-
-const trustedProducerReleaseMaterializationOwnerRefs = [
-  "team-reviewrouter",
-] as const;
-const trustedProducerReleaseMaterializationRunbookRefs = [
-  "docs/operations/review-action-v2-cutover.md",
-] as const;

@@ -511,6 +511,13 @@ jobs:
           node --test deploy/self-hosted/setup-memory.test.ts
           node --test deploy/hetzner/fleet-overlay/fleet-overlay.node-test.mjs
 
+      - name: Guided self-hosted installer types and contracts
+        run: |
+          node scripts/local-checks/compiler-cli.ts --native --noEmit -p deploy/self-hosted/tsconfig.install.json
+          node --test deploy/self-hosted/install*.test.ts
+          bash -n scripts/install-self-hosted.sh
+          node deploy/self-hosted/install.ts --help
+
   quality:
     name: Quality Checks
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}

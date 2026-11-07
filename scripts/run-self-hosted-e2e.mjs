@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildSelfHostedDatabasePlan } from "../deploy/self-hosted/install-database.ts";
 import {
   installSelfHostedMemory,
   resumeSelfHostedMemory,
@@ -155,9 +156,11 @@ export async function runSelfHostedE2E(options = {}) {
     runCompose(["up", "-d", "--wait", "--wait-timeout", "120", "postgres"]);
     if (networkSubnet !== undefined)
       verifyOwnedNetworkSubnet(projectName, networkSubnet);
-    provisionEffectAuthorityRole();
+    prepareSelfHostedDatabase("prepare");
+    prepareSelfHostedDatabase("prepare");
     runCompose(["build", "api"]);
     runCompose(["up", "-d", "--wait", "--wait-timeout", "300"]);
+    prepareSelfHostedDatabase("verify");
     assertComposeState(installedMemory.values);
     if (networkSubnet !== undefined)
       verifyOwnedNetworkSubnet(projectName, networkSubnet);
@@ -259,6 +262,8 @@ export async function runSelfHostedE2E(options = {}) {
     ]);
 
     runComposeWithSanitizedOutput(["run", "--rm", "migrate"]);
+    prepareSelfHostedDatabase("prepare");
+    prepareSelfHostedDatabase("verify");
     setGlobalReviewV2EmergencyStop(false);
     runComposeWithSanitizedOutput(["run", "--rm", "migrate"]);
     setGlobalReviewV2EmergencyStop(true);
@@ -805,23 +810,26 @@ function runComposeWithSanitizedOutput(args) {
   return result;
 }
 
-function provisionEffectAuthorityRole() {
-  const password = secrets.effectAuthority.replaceAll("'", "''");
+function prepareSelfHostedDatabase(phase) {
+  const plan = buildSelfHostedDatabasePlan(testEnv);
   runComposeWithInput(
     [
       "exec",
       "-T",
       "postgres",
       "psql",
+      "-XqAt",
       "-v",
       "ON_ERROR_STOP=1",
+      "-v",
+      "VERBOSITY=terse",
       "-U",
       testEnv.POSTGRES_USER,
       "-d",
       testEnv.POSTGRES_DB,
     ],
-    `CREATE ROLE reviewrouter_codex_effect_authority LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '${password}';\n`,
-    "effect_authority_role_provisioning",
+    phase === "prepare" ? plan.preMigrationSql : plan.postMigrationSql,
+    `self_hosted_database_${phase}`,
   );
 }
 

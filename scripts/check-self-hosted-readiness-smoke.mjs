@@ -354,6 +354,25 @@ const cases = [
     },
   },
   {
+    name: "T0 accepts and validates optional producer compatibility profiles",
+    expectSuccess: true,
+    env: {
+      REVIEW_ROUTER_GITHUB_APP_PERMISSION_PROFILE: "review-only",
+      REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "0",
+      REVIEW_ROUTER_DISABLE_WORKFLOW_PROVISIONING: "1",
+      REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
+        JSON.stringify([
+          {
+            ...JSON.parse(producerReleaseAttestations)[0],
+            contextToolsProfile: {
+              extensionId: "context-tools.v1",
+              descriptorDigest: `sha256:${"a".repeat(64)}`,
+            },
+          },
+        ]),
+    },
+  },
+  {
     name: "T0 rejects a partial investigation producer profile",
     expectSuccess: false,
     expectedError:

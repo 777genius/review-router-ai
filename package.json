@@ -37,6 +37,8 @@
     "hosted:check:smoke": "node scripts/check-hosted-readiness-smoke.mjs",
     "hosted:web:check": "node scripts/check-hosted-web.mjs",
     "self-hosted:check": "node scripts/check-self-hosted-readiness.mjs && node scripts/check-self-hosted-compose-contract.mjs",
+    "self-hosted:install": "bash scripts/install-self-hosted.sh",
+    "self-hosted:install:check": "node scripts/local-checks/compiler-cli.ts --native --noEmit -p deploy/self-hosted/tsconfig.install.json && node --test deploy/self-hosted/install*.test.ts && bash -n scripts/install-self-hosted.sh",
     "self-hosted:check:smoke": "node scripts/check-self-hosted-readiness-smoke.mjs && node scripts/check-self-hosted-compose-contract.mjs",
     "self-hosted:compose:check": "node scripts/check-self-hosted-compose-contract.mjs",
     "self-hosted:e2e": "node scripts/run-self-hosted-e2e.mjs",

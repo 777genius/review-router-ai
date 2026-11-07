@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Self-hosted onboarding: [guided installer and documentation scope correction](2026-11-07-self-hosted-guided-install.md) — source candidate; fresh installation and resume `pending`. Local strict types and focused contracts passed; actual Compose/HTTPS/GitHub App and first-review acceptance remain pending. No hosted rollout or production flag change is part of this task.
+
 Release-gate rerun proof: [attempt-bound evidence reconciliation](2026-11-06-release-gate-rerun-evidence.md) — GitHub Actions verifier candidate; staging/production `pending`. Requires successful exact-main CI and publication-gate verification before release.
 
 Review execution architecture: [post-#818 legacy boundary cleanup](2026-11-06-review-execution-boundaries.md), [Draft PR #819](https://github.com/777genius/review-router-ai/pull/819) — staging `pending`, production `pending`. Source-only refactor, no schema or activation; exact-head CI and release qualification outstanding. Do not deploy as part of this PR.
