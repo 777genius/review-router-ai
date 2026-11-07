@@ -45,8 +45,16 @@ resume. Existing credentials and data are preserved; this is not an upgrader.
   --review-only                         Manage repository workflows manually
   --without-memory                      Explicitly omit the Memory backend
   --repo OWNER/REPO                      First repository to initialize
+  --repository-setup-complete           Resume after App/provider/workflow approval
+  --external-proxy-ready                Resume after HTTPS proxy routing is configured
+  --status                             Print last agent status (no changes)
+  --interactive                        Opt in to the human prompt-based wizard
   --help                               Show this help
 
+Agent mode is the default (no TTY required). It returns a single JSON result on
+stdout and sends progress to stderr. States such as approval_required and
+verification_required do NOT mean a completed review; perform the indicated
+action and resume with the saved checkout.
 Remote App creation uses a loopback callback. Connect with:
   ssh -L 45731:127.0.0.1:45731 USER@SERVER
 Then open the printed localhost URL in your workstation browser.
@@ -60,6 +68,90 @@ type RunOptions = {
   privateInput?: boolean;
 };
 
+export type AgentInstallStatus = {
+  schemaVersion: 1;
+  state:
+    | "not_started"
+    | "running"
+    | "input_required"
+    | "approval_required"
+    | "repository_setup_required"
+    | "server_ready"
+    | "verification_required"
+    | "failed";
+  phase: string;
+  message: string;
+  repository?: string;
+  webUrl?: string;
+  next?: {
+    action: string;
+    argv?: string[];
+    resume?: string[];
+    url?: string;
+    requiredOptions?: string[];
+    requiresUserApproval?: boolean;
+  };
+};
+
+export function parseAgentInstallStatus(raw: string): AgentInstallStatus {
+  const value: unknown = JSON.parse(raw);
+  assert(
+    value !== null && typeof value === "object" && !Array.isArray(value),
+    "Saved agent status must be a JSON object",
+  );
+  const record = value as Record<string, unknown>;
+  assert(
+    record.schemaVersion === 1 &&
+      typeof record.phase === "string" &&
+      typeof record.message === "string" &&
+      [
+        "not_started",
+        "running",
+        "input_required",
+        "approval_required",
+        "repository_setup_required",
+        "server_ready",
+        "verification_required",
+        "failed",
+      ].includes(String(record.state)),
+    "Saved agent status has an invalid schema or state",
+  );
+  assert(
+    (record.repository === undefined ||
+      typeof record.repository === "string") &&
+      (record.webUrl === undefined || typeof record.webUrl === "string"),
+    "Saved agent status has invalid metadata",
+  );
+  if (record.next !== undefined) {
+    assert(
+      record.next !== null &&
+        typeof record.next === "object" &&
+        !Array.isArray(record.next),
+      "Saved agent next action is invalid",
+    );
+    const next = record.next as Record<string, unknown>;
+    assert(
+      typeof next.action === "string" &&
+        ["argv", "resume", "requiredOptions"].every(
+          (field) =>
+            next[field] === undefined ||
+            (Array.isArray(next[field]) &&
+              next[field].every((entry: unknown) => typeof entry === "string")),
+        ) &&
+        (next.url === undefined || typeof next.url === "string") &&
+        (next.requiresUserApproval === undefined ||
+          typeof next.requiresUserApproval === "boolean"),
+      "Saved agent next action has invalid arguments",
+    );
+  }
+  return record as AgentInstallStatus;
+}
+
+let machineOutput = false;
+function log(message: string): void {
+  (machineOutput ? process.stderr : process.stdout).write(message + "\n");
+}
+
 async function run(
   command: string,
   args: string[],
@@ -69,11 +161,19 @@ async function run(
     const capture = options.capture || options.privateInput;
     const child = spawn(command, args, {
       cwd: options.cwd ?? root,
-      env: { ...process.env, ...options.env },
+      env: {
+        ...process.env,
+        ...(machineOutput ? { GIT_TERMINAL_PROMPT: "0" } : {}),
+        ...options.env,
+      },
       stdio: [
-        options.input === undefined ? "inherit" : "pipe",
-        capture ? "pipe" : "inherit",
-        capture ? "pipe" : "inherit",
+        options.input === undefined
+          ? machineOutput
+            ? "ignore"
+            : "inherit"
+          : "pipe",
+        capture ? "pipe" : machineOutput ? 2 : "inherit",
+        capture ? "pipe" : machineOutput ? 2 : "inherit",
       ],
     });
     let output = "",
@@ -146,6 +246,27 @@ export function repositoryName(value: string): string {
     "Repository must be OWNER/REPO",
   );
   return value;
+}
+
+/** Persist explicit setup acknowledgment before actions that may fail or be retried. */
+export function repositorySetupGate(
+  acknowledgedRepository: string | undefined,
+  previous: AgentInstallStatus | undefined,
+  repository: string,
+  confirmed: boolean,
+): "request_approval" | "save_acknowledgment" | "approved" {
+  assert(
+    !acknowledgedRepository || acknowledgedRepository === repository,
+    "Repository approval belongs to another repository; refuse to widen the approved scope",
+  );
+  if (acknowledgedRepository === repository) return "approved";
+  if (!confirmed) return "request_approval";
+  assert(
+    previous?.state === "repository_setup_required" &&
+      previous.repository === repository,
+    "First receive repository_setup_required and complete App/provider/workflow approval before confirming",
+  );
+  return "save_acknowledgment";
 }
 
 export function repositoryActivation(status: unknown): "initialize" | "ready" {
@@ -266,6 +387,10 @@ async function main(): Promise<void> {
       "review-only": { type: "boolean" },
       "without-memory": { type: "boolean" },
       repo: { type: "string" },
+      "repository-setup-complete": { type: "boolean" },
+      "external-proxy-ready": { type: "boolean" },
+      status: { type: "boolean" },
+      interactive: { type: "boolean" },
       help: { type: "boolean" },
     },
   });
@@ -273,15 +398,36 @@ async function main(): Promise<void> {
     process.stdout.write(help);
     return;
   }
+  machineOutput = !values.interactive;
+  const directory = resolve(
+    values.directory ?? join(root, "deploy/self-hosted/secrets/install"),
+  );
+  assertPrivateInstallLocation(root, directory);
+  const statusPath = join(directory, "agent-status.json");
+  if (values.status) {
+    const saved = await readPrivate(statusPath);
+    const status: AgentInstallStatus = saved
+      ? parseAgentInstallStatus(saved)
+      : {
+          schemaVersion: 1,
+          state: "not_started",
+          phase: "configuration",
+          message: "Provide --web-url (and optionally --api-url) to begin.",
+        };
+    process.stdout.write(JSON.stringify(status) + "\n");
+    return;
+  }
   assert(
     process.platform === "linux" && process.arch === "x64",
     "Guided installation requires a Linux x64 host",
   );
-  assert(
-    process.stdin.isTTY,
-    "Run setup in an interactive terminal. Use --help for options",
-  );
+  if (values.interactive)
+    assert(
+      process.stdin.isTTY,
+      "Interactive setup requires a terminal; omit --interactive for agent mode",
+    );
   const ask = async (question: string, fallback = "") => {
+    assert(!machineOutput, "Agent mode must not wait for terminal input");
     const terminal = createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -302,15 +448,70 @@ async function main(): Promise<void> {
       terminal.close();
     }
   };
-  const directory = resolve(
-    values.directory ?? join(root, "deploy/self-hosted/secrets/install"),
-  );
-  assertPrivateInstallLocation(root, directory);
   await privateDirectory(directory);
   assertPrivateInstallLocation(await realpath(root), await realpath(directory));
   const lock = await acquireDeploymentLock(join(directory, "install.lock"));
+  let previous: AgentInstallStatus | undefined;
+  let statusReadable = false;
+  const resumeCommand = (args: string[] = []) => [
+    "bash",
+    "scripts/install-self-hosted.sh",
+    "--directory",
+    directory,
+    ...(values.repo && !args.includes("--repo") ? ["--repo", values.repo] : []),
+    ...(values["web-url"] ? ["--web-url", values["web-url"]] : []),
+    ...(values["api-url"] ? ["--api-url", values["api-url"]] : []),
+    ...(values["external-proxy"] ? ["--external-proxy"] : []),
+    ...(values["review-only"] ? ["--review-only"] : []),
+    ...(values["without-memory"] ? ["--without-memory"] : []),
+    ...(values["github-org"] ? ["--github-org", values["github-org"]] : []),
+    ...(values["app-name"] ? ["--app-name", values["app-name"]] : []),
+    ...(values["app-profile"] ? ["--app-profile", values["app-profile"]] : []),
+    ...(values["external-proxy-ready"] ? ["--external-proxy-ready"] : []),
+    ...args,
+  ];
+  const record = async (report: AgentInstallStatus, print = true) => {
+    await writePrivate(statusPath, JSON.stringify(report, null, 2) + "\n");
+    if (machineOutput && print)
+      process.stdout.write(JSON.stringify(report) + "\n");
+  };
+  let phase = "configuration";
   try {
-    console.log(
+    const savedStatus = await readPrivate(statusPath);
+    previous = savedStatus ? parseAgentInstallStatus(savedStatus) : undefined;
+    statusReadable = true;
+    const statePath = join(directory, "installation.json"),
+      envFile = join(directory, ".env");
+    if (
+      machineOutput &&
+      !(await readPrivate(statePath)) &&
+      !values["web-url"]
+    ) {
+      await record({
+        schemaVersion: 1,
+        state: "input_required",
+        phase,
+        message:
+          "Supply the public dashboard hostname with --web-url; --api-url defaults to api.<dashboard-hostname>. Configure both DNS records first.",
+        next: {
+          action: "provide_configuration",
+          requiredOptions: ["--web-url"],
+          argv: resumeCommand(),
+        },
+      });
+      return;
+    }
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase: "prerequisites",
+        message: "Verifying pinned source and local Docker host.",
+      },
+      false,
+    );
+    phase = "prerequisites";
+    log(
       "ReviewRouter self-hosted setup\nCredentials and progress stay in your private installation directory.",
     );
     const sourceCommit = await run("git", ["rev-parse", "HEAD"], {
@@ -350,8 +551,6 @@ async function main(): Promise<void> {
       { capture: true },
     );
     assert(/^v?2\./.test(composeVersion), "Docker Compose v2 is required");
-    const statePath = join(directory, "installation.json"),
-      envFile = join(directory, ".env");
     const savedState = await readPrivate(statePath);
     let settings: InstallSettings;
     if (savedState) {
@@ -378,7 +577,7 @@ async function main(): Promise<void> {
         !values["review-only"] || settings.permissionProfile === "review-only",
         "App permissions cannot change during resume",
       );
-      console.log(
+      log(
         `Resuming ${settings.webUrl} at source ${settings.sourceCommit.slice(0, 12)}.`,
       );
     } else {
@@ -391,10 +590,12 @@ async function main(): Promise<void> {
       );
       const apiUrl = publicOrigin(
         values["api-url"] ??
-          (await ask(
-            "API HTTPS domain",
-            `https://api.${new URL(webUrl).hostname}`,
-          )),
+          (machineOutput
+            ? `https://api.${new URL(webUrl).hostname}`
+            : await ask(
+                "API HTTPS domain",
+                `https://api.${new URL(webUrl).hostname}`,
+              )),
       );
       settings = readSettings(
         {
@@ -415,7 +616,17 @@ async function main(): Promise<void> {
       await writePrivate(statePath, JSON.stringify(settings, null, 2) + "\n");
     }
 
-    console.log("\n1/6 Installing the pinned workspace dependencies.");
+    phase = "dependencies";
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Preparing pinned dependencies and compiler output.",
+      },
+      false,
+    );
+    log("\n1/6 Installing the pinned workspace dependencies.");
     await run(process.execPath, [
       "scripts/install-private-dependencies.mjs",
       "--frozen-lockfile",
@@ -439,7 +650,17 @@ async function main(): Promise<void> {
       credential = randomBytes(32).toString("base64url");
       await writePrivate(credentialPath, credential);
     }
-    console.log("\n2/6 Connecting your GitHub App.");
+    phase = "github_app";
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Checking GitHub App profile and private credentials.",
+      },
+      false,
+    );
+    log("\n2/6 Connecting your GitHub App.");
     if (!envText) {
       const profilesDirectory = join(directory, "github-app");
       await privateDirectory(profilesDirectory);
@@ -458,8 +679,47 @@ async function main(): Promise<void> {
           ? join(profilesDirectory, profiles[0])
           : undefined;
       }
+      if (!profilePath && machineOutput) {
+        const name =
+          values["app-name"] ?? `ReviewRouter ${settings.installationId}`;
+        assert(
+          name.length > 0 && name.length <= 34,
+          "GitHub App names must contain 1–34 characters",
+        );
+        const appArgs = [
+          process.execPath,
+          "scripts/create-github-app-manifest.mjs",
+          "--web-url",
+          settings.webUrl,
+          "--api-url",
+          settings.apiUrl,
+          "--name",
+          name,
+          "--permission-profile",
+          settings.permissionProfile,
+          "--output-dir",
+          profilesDirectory,
+          "--no-open",
+        ];
+        if (values["github-org"]) appArgs.push("--owner", values["github-org"]);
+        await record({
+          schemaVersion: 1,
+          state: "approval_required",
+          phase,
+          webUrl: settings.webUrl,
+          message:
+            "Create and approve the GitHub App using the existing manifest helper (SSH tunnel port 45731 for remote hosts). Its credentials remain in the private installation directory. Then resume; no secrets are needed as CLI arguments.",
+          next: {
+            action: "approve_github_app",
+            argv: appArgs,
+            resume: resumeCommand(),
+            requiresUserApproval: true,
+          },
+        });
+        return;
+      }
       if (!profilePath) {
-        console.log(
+        log(
           "Approve your App's permissions in GitHub. On a remote host, keep the SSH tunnel from --help open.",
         );
         const name =
@@ -539,7 +799,17 @@ async function main(): Promise<void> {
     let env = parseEnvironment(envText);
     assertEnvironmentBinding(env, settings, credential);
 
-    console.log(
+    phase = "release";
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Verifying immutable review Action and release configuration.",
+      },
+      false,
+    );
+    log(
       "\n3/6 Verifying the pinned reviewer and preparing its release configuration.",
     );
     const actionRepo = join(directory, "action"),
@@ -617,7 +887,17 @@ async function main(): Promise<void> {
         ...options,
         env: { ...options.env, REVIEW_ROUTER_SELF_HOSTED_ENV_FILE: envFile },
       });
-    console.log(
+    phase = "services";
+    await record(
+      {
+        schemaVersion: 1,
+        state: "running",
+        phase,
+        message: "Applying migrations, preparing Memory and starting services.",
+      },
+      false,
+    );
+    log(
       "\n4/6 Starting the database, Memory and application services. First builds can take several minutes.",
     );
     await compose(["up", "-d", "--wait", "postgres"]);
@@ -652,12 +932,32 @@ async function main(): Promise<void> {
       privateInput: true,
     });
     if (settings.proxy === "external") {
-      console.log(
+      log(
         `Route ${settings.webUrl} to 127.0.0.1:3000 and ${settings.apiUrl} to 127.0.0.1:4000 with your HTTPS proxy.`,
       );
-      await ask("Press Enter when HTTPS routing is ready");
+      if (
+        machineOutput &&
+        !values["external-proxy-ready"] &&
+        !(await readPrivate(join(directory, "server-ready.json")))
+      ) {
+        await record({
+          schemaVersion: 1,
+          state: "approval_required",
+          phase: "https",
+          webUrl: settings.webUrl,
+          message:
+            "Configure the external HTTPS proxy and DNS routing, then resume with --external-proxy-ready. The next stage still verifies public TLS health.",
+          next: {
+            action: "configure_external_https",
+            resume: resumeCommand(["--external-proxy-ready"]),
+            requiresUserApproval: true,
+          },
+        });
+        return;
+      }
+      if (!machineOutput) await ask("Press Enter when HTTPS routing is ready");
     }
-    console.log("Checking public HTTPS endpoints.");
+    log("Checking public HTTPS endpoints.");
     await waitForHealth(`${settings.apiUrl}/health`);
     await waitForHealth(`${settings.webUrl}/api/health`);
     const worker = JSON.parse(
@@ -733,14 +1033,14 @@ async function main(): Promise<void> {
       ) + "\n",
     );
 
-    console.log(
+    log(
       `\n5/6 Server ready: ${settings.webUrl}\nInstall your GitHub App: https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`,
     );
     if (settings.permissionProfile === "review-only")
-      console.log(
+      log(
         "Your review-only App cannot create workflow PRs. Follow the manual workflow section of the self-hosted guide.",
       );
-    console.log(
+    log(
       "Provider authentication stays in the existing provider onboarding flow; never paste provider secrets into this terminal.",
     );
     const activationPath = join(directory, "first-repository");
@@ -748,13 +1048,30 @@ async function main(): Promise<void> {
     const requested =
       values.repo ??
       firstRepository ??
-      (await ask(
-        "Repository to connect (OWNER/REPO), or Enter to finish later",
-      ));
+      (machineOutput
+        ? ""
+        : await ask(
+            "Repository to connect (OWNER/REPO), or Enter to finish later",
+          ));
     if (!requested) {
-      console.log(
-        "Server installation complete. Repository connection and first review are pending. Repeat this command with --repo OWNER/REPO to continue.",
-      );
+      if (machineOutput)
+        await record({
+          schemaVersion: 1,
+          state: "server_ready",
+          phase: "repository",
+          webUrl: settings.webUrl,
+          message:
+            "Server is ready. Select the first repository with --repo OWNER/REPO; no live review has run.",
+          next: {
+            action: "select_repository",
+            requiredOptions: ["--repo"],
+            resume: resumeCommand(),
+          },
+        });
+      else
+        log(
+          "Server installation complete. Repository connection and first review are pending. Repeat this command with --repo OWNER/REPO to continue.",
+        );
       return;
     }
     const repository = repositoryName(requested);
@@ -788,13 +1105,65 @@ async function main(): Promise<void> {
       assertRuntimePreflight(JSON.parse(await admin(["env-preflight"], true)));
     }
     await writePrivate(activationPath, repository);
-    console.log(
+    log(
       `Open ${settings.webUrl}/setup, select ${repository} and connect your provider using GitHub Secrets setup. Merge the generated workflow pull request.`,
     );
-    await ask(
-      `Press Enter after ${repository} is connected and its setup PR is merged`,
-    );
-    console.log("\n6/6 Verifying and initializing this repository.");
+    phase = "repository";
+    if (
+      machineOutput &&
+      !values["repository-setup-complete"] &&
+      previous?.state === "verification_required" &&
+      previous.repository === repository
+    ) {
+      assert(
+        repositoryActivation(
+          JSON.parse(await admin(["status", "--repo", repository], true)),
+        ) === "ready",
+        "Saved reviewer authority is no longer active",
+      );
+      await record(previous);
+      return;
+    }
+    const approvalPath = join(directory, "repository-setup-acknowledged");
+    const approvalGate = machineOutput
+      ? repositorySetupGate(
+          await readPrivate(approvalPath),
+          previous,
+          repository,
+          Boolean(values["repository-setup-complete"]),
+        )
+      : undefined;
+    if (machineOutput && approvalGate === "request_approval") {
+      await record({
+        schemaVersion: 1,
+        state: "repository_setup_required",
+        phase,
+        repository,
+        webUrl: settings.webUrl,
+        message:
+          "Install/approve the GitHub App for this repository, finish provider sign-in in the dashboard and merge its generated workflow PR. Only after verifying those actions, rerun with --repository-setup-complete. This is not a live-review approval.",
+        next: {
+          action: "complete_repository_setup",
+          url: `${settings.webUrl}/setup`,
+          resume: resumeCommand([
+            "--repo",
+            repository,
+            "--repository-setup-complete",
+          ]),
+          requiresUserApproval: true,
+        },
+      });
+      return;
+    }
+    if (machineOutput) {
+      if (approvalGate === "save_acknowledgment")
+        await writePrivate(approvalPath, repository);
+    } else {
+      await ask(
+        `Press Enter after ${repository} is connected and its setup PR is merged`,
+      );
+    }
+    log("\n6/6 Verifying and initializing this repository.");
     const before: unknown = JSON.parse(
       await admin(["status", "--repo", repository], true),
     );
@@ -838,9 +1207,41 @@ async function main(): Promise<void> {
       "Repository initialization did not reach ready state",
     );
     await writePrivate(activationPath, repository);
-    console.log(
-      `\nRepository ready: ${repository}. Open a small pull request to verify the first review.\nFirst review: pending (setup does not claim a live review has passed).\nPrivate installation files: ${directory}\nKeep a backup of these files and the database. Use the upgrade runbook when changing versions.`,
-    );
+    if (machineOutput) {
+      await record({
+        schemaVersion: 1,
+        state: "verification_required",
+        phase: "first_review",
+        repository,
+        webUrl: settings.webUrl,
+        message:
+          "Repository authority is active. Open a disposable PR, verify a completed provider review and App-authored comments, then push a second commit to verify revision fencing. This step has not been proven by the installer.",
+        next: {
+          action: "verify_first_live_review",
+          url: `https://github.com/${repository}/pulls`,
+          requiresUserApproval: false,
+        },
+      });
+    } else
+      log(
+        `\nRepository ready: ${repository}. Open a small pull request to verify the first review.\nFirst review: pending (setup does not claim a live review has passed).\nPrivate installation files: ${directory}\nKeep a backup of these files and the database. Use the upgrade runbook when changing versions.`,
+      );
+  } catch (error) {
+    if (machineOutput && statusReadable) {
+      try {
+        await record({
+          schemaVersion: 1,
+          state: "failed",
+          phase,
+          message:
+            "Installation did not finish. Inspect the error on stderr and safely resume from the pinned checkout. No live review is claimed.",
+          next: { action: "resume_after_fix", resume: resumeCommand() },
+        });
+      } catch {
+        // Preserve the original error if the private status file is unavailable.
+      }
+    }
+    throw error;
   } finally {
     await lock.close();
   }

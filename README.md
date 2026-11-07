@@ -92,17 +92,21 @@ against your own subscription or API billing.
 
 ## Self-host
 
-Start the guided installer on your Linux x64 server:
+**Agent-first is the default.** Give your coding agent shell access to a Linux x64
+server and run the installer without a TTY:
 
 ```bash
-bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' -- \
+  --web-url https://review.example.com --api-url https://api.review.example.com \
+  --repo OWNER/REPOSITORY
 ```
 
-Prepare two public DNS names, Docker Compose v2, Git and a supported Node.js
-release. The installer handles service setup and HTTPS, then guides you through
-GitHub App creation and repository activation. Complete provider onboarding and
-merge the workflow setup PR in your browser; verify the first review with a test
-pull request. See [prerequisites and installation steps](./docs/operations/review-router-self-hosted-end-to-end.md#guided-installation).
+Substitute real DNS names and your repository. The installer returns a JSON
+status with exact next actions and resumes without losing credentials. It sets up
+services and HTTPS automatically; GitHub App authorization, AI provider sign-in
+and workflow PR approval still require authorized user actions. A running server
+is **not** a verified AI review. Humans can use `--interactive` for prompts.
+See [agent setup, resume, and first-review verification](./docs/operations/review-router-self-hosted-end-to-end.md#guided-installation).
 
 ## Review engine
 
