@@ -1141,7 +1141,9 @@ async function main(): Promise<void> {
         repository,
         webUrl: settings.webUrl,
         message:
-          "Install/approve the GitHub App for this repository, finish provider sign-in in the dashboard and merge its generated workflow PR. Only after verifying those actions, rerun with --repository-setup-complete. This is not a live-review approval.",
+          settings.permissionProfile === "review-only"
+            ? "Install/approve the GitHub App, connect your provider and manually install the canonical workflow from the self-hosted runbook. Only after verifying these actions, resume with --repository-setup-complete. This is not a live-review approval."
+            : "Install/approve the GitHub App, connect your provider and merge its generated workflow PR. Only after verifying these actions, resume with --repository-setup-complete. This is not a live-review approval.",
         next: {
           action: "complete_repository_setup",
           url: `${settings.webUrl}/setup`,
