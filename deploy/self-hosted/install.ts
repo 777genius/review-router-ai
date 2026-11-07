@@ -877,9 +877,13 @@ async function main(): Promise<void> {
           "https://github.com/777genius/review-router.git",
           actionRepo,
         ]);
-        await run("git", ["switch", "-c", actionBranch, settings.actionCommit], {
-          cwd: actionRepo,
-        });
+        await run(
+          "git",
+          ["switch", "-c", actionBranch, settings.actionCommit],
+          {
+            cwd: actionRepo,
+          },
+        );
       }
       const handoff = JSON.parse(
         await readFile(
@@ -909,7 +913,8 @@ async function main(): Promise<void> {
           handoff.saasSourceCommit,
         ]);
       }
-      const { generateSelfHostedRelease } = await import("./install-release.ts");
+      const { generateSelfHostedRelease } =
+        await import("./install-release.ts");
       release = await generateSelfHostedRelease({
         repoRoot: root,
         actionRepo,
@@ -1129,7 +1134,8 @@ async function main(): Promise<void> {
       );
     } else {
       const rows: unknown = JSON.parse(
-        env.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON ?? "null",
+        env.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON ??
+          "null",
       );
       assert(
         Array.isArray(rows) && rows.length === 1,
