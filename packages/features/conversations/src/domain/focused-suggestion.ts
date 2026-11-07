@@ -82,11 +82,12 @@ export function renderFocusedSuggestion(
   const replacement = result.replacement as string;
   if (
     before !== original ||
+    before === replacement ||
     !before.trim() ||
     !replacement.trim() ||
     replacement.length > 4_000 ||
     replacement.split("\n").length > 50 ||
-    /[\r\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(replacement)
+    Array.from(replacement).some((char) => { const code = char.charCodeAt(0); return code === 13 || code < 9 || (code > 10 && code < 32) || code === 127; })
   ) return unavailable;
   const tick = String.fromCharCode(96);
   const runs = replacement.match(new RegExp(tick + "+", "gu")) ?? [];
