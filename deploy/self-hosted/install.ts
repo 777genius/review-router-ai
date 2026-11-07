@@ -367,7 +367,7 @@ async function main(): Promise<void> {
   await privateDirectory(directory);
   assertPrivateInstallLocation(await realpath(root), await realpath(directory));
   const lock = await acquireDeploymentLock(join(directory, "install.lock"));
-  const previousStatus = await readPrivate(statusPath);
+  let previousStatus: string | undefined;
   const resumeCommand = (args: string[] = []) => [
     "bash",
     "scripts/install-self-hosted.sh",
@@ -383,6 +383,7 @@ async function main(): Promise<void> {
   };
   let phase = "configuration";
   try {
+    previousStatus = await readPrivate(statusPath);
     const statePath = join(directory, "installation.json"),
       envFile = join(directory, ".env");
     if (machineOutput && !(await readPrivate(statePath)) && !values["web-url"]) {
