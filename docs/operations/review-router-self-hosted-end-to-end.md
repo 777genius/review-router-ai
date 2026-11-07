@@ -3,9 +3,109 @@
 This runbook takes an operator from a clean host to the first real ReviewRouter
 review on github.com.
 
-Use a disposable test organization and repository for the first rollout. Do
-not make a production repository the first proof of a new control-plane
-deployment.
+## Guided installation
+
+### Before you start
+
+- Use a Linux x64 server with Docker Compose v2, Git, curl and Node.js
+  24.21+ (24.x) or 26.10+ (26.x), including npm. Default memory setup also uses
+  Python 3 and tar. The installer uses the repository's pinned pnpm version.
+- Point two public DNS names at the server, for example
+  `reviewrouter.example.com` and `api.reviewrouter.example.com`. Their A/AAAA
+  records must reach this host, with inbound ports 80 and 443 available for
+  automatic HTTPS.
+- Have a GitHub account that can create and install an App, a supported AI
+  provider account and a disposable repository for the first review.
+
+Run this in a Bash shell on the **server**:
+
+```bash
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
+```
+
+Enter the web and API domains when prompted. The installer guides GitHub App
+creation, creates private configuration, prepares the review runtime, provisions
+the default memory backend, starts the services with HTTPS and checks readiness.
+The first build and memory-model downloads can take time.
+
+### Complete the browser steps
+
+If you connect to the server over SSH, open a second terminal on your
+**workstation** and keep this tunnel running during GitHub App creation:
+
+```bash
+ssh -N -L 45731:127.0.0.1:45731 user@server
+```
+
+The App creation helper uses a local callback on port 45731. Follow the browser
+link printed by the installer. With an existing App profile, use
+`--app-profile /secure/github-app.env` instead.
+
+When the installer asks you to finish repository setup:
+
+1. Install the App on the test repository using the printed GitHub link.
+2. Enter `OWNER/REPOSITORY` in the installer. It enables provider setup and
+   review admission for that repository, applies the configuration and checks
+   service readiness before provider onboarding.
+3. Open the printed dashboard setup URL, sign in with GitHub and select the same
+   repository. Choose **GitHub Secrets** for provider setup and follow the
+   generated instructions.
+4. Review and merge the generated workflow setup PR.
+5. Return to the installer and press Enter. It verifies the current repository
+   setup and initializes review authority through the operator CLI.
+
+The default App profile permits dashboard setup PRs. The installer does not
+complete the provider's sign-in or merge a PR on your behalf. Press Enter at
+the repository prompt to finish server setup and connect a repository later.
+This path uses credentials in GitHub Secrets. Account Gateway is a separately
+provisioned service and is not installed by this wizard.
+
+### Verify the first review
+
+Open a small PR in the test repository and follow
+[Prove the First Review](#11-prove-the-first-review). Service readiness and
+repository activation are installation checks; the first live provider review
+remains pending until that PR completes. Inspect the ReviewRouter check and
+App-authored comments, then push another commit to verify the new revision.
+
+### Options and resume
+
+Pass options after the launcher command, or run `bash scripts/install-self-hosted.sh`
+from its saved checkout:
+
+| Option                                 | Purpose                                                                              |
+| -------------------------------------- | ------------------------------------------------------------------------------------ |
+| `--repo OWNER/REPOSITORY`              | Select the first repository before provider onboarding.                              |
+| `--app-profile /secure/github-app.env` | Import an existing GitHub App profile.                                               |
+| `--directory /private/install`         | Select the private state directory; reuse it when resuming.                          |
+| `--external-proxy`                     | Use an existing HTTPS reverse proxy instead of bundled Caddy.                        |
+| `--without-memory`                     | Explicitly install without the Hindsight memory backend.                             |
+| `--review-only`                        | Use the narrower App profile and install the canonical repository workflow manually. |
+
+The first installation records its source revision and exact Action commit.
+Resume from that saved checkout to reuse the same versions and existing
+credentials. Configuration and secret files are private to the operator
+(`0600`). Resume does not upgrade the installation; use the
+[upgrade procedure](#12-operate-and-upgrade) for a deliberate version change.
+
+The default checkout is `./reviewrouter`. Inside it, the installer saves
+`installation.json`, `.env` and the operator credential under
+`deploy/self-hosted/secrets/install`, unless you select `--directory`.
+
+## Manual installation and operations
+
+The sections below retain the detailed setup and recovery path. Guided
+installation performs the service, release-registration and initial activation
+steps for you. Use a disposable repository to verify either path before
+connecting production repositories.
+
+The manual examples use `deploy/self-hosted/.env` and the default Compose
+project. For a guided installation, use the saved `.env`, set
+`REVIEW_ROUTER_SELF_HOSTED_ENV_FILE` to that same absolute path, and pass
+`--project-name reviewrouter-<installationId>` using the ID in
+`installation.json`. Include `-f deploy/self-hosted/compose.tls.yml` when the
+saved proxy mode is `caddy`. Preserve these choices for backups, operator
+commands and upgrades so they address the existing services and volumes.
 
 ## Target Architecture
 
@@ -25,7 +125,7 @@ This guide uses the recommended client-triggered Direct V2 path:
 
 ```text
 pull_request event
-  -> canonical schema-3 workflow
+  -> canonical schema-2 workflow
   -> GitHub OIDC
   -> self-hosted control plane authorization
   -> provider work on the GitHub runner
@@ -39,8 +139,8 @@ Prepare:
 - a Linux host with Docker and Docker Compose v2
 - public HTTPS web and API names, for example
   `reviewrouter.example.com` and `api.reviewrouter.example.com`
-- Node.js 26.11.1 (supports the repository's `>=24` engines range), npm, Git, `gh`, `curl`, and OpenSSL on the operator
-  machine
+- Node.js 24.21+ (24.x) or 26.10+ (26.x), npm, Git, `gh`, `curl`, and
+  OpenSSL on the operator machine
 - a GitHub organization or account that can create and install a GitHub App
 - a disposable repository for the first live review
 - an exact 40-character commit from the public
@@ -57,7 +157,7 @@ On the **host**, clone and install:
 ```bash
 git clone https://github.com/777genius/review-router-ai.git
 cd review-router-ai
-npm install --global pnpm@10.33.0
+npm install --global pnpm@11.28.7
 pnpm install --frozen-lockfile
 cp deploy/self-hosted/.env.example deploy/self-hosted/.env
 chmod 600 deploy/self-hosted/.env
@@ -101,9 +201,11 @@ pnpm github-app:create -- \
   --name "ReviewRouter Self-Hosted"
 ```
 
-For the client-triggered flow in this guide, `review-only` is the least
-privilege profile. Use `managed-review` only when server-side dispatch and
-cancellation are intentionally enabled in a different deployment mode.
+The manual flow uses the least-privilege `review-only` profile and requires a
+manually installed canonical workflow. Guided installation defaults to
+`provisioning` so the dashboard can create the setup PR. Use `managed-review`
+only when server-side dispatch and cancellation are intentionally enabled in a
+different deployment mode.
 
 Configure the App:
 
@@ -211,11 +313,11 @@ using the exact shapes documented in
 [`deploy/self-hosted/.env.example`](../../deploy/self-hosted/.env.example).
 Do not invent release digests or copy the synthetic values from tests.
 
-The repository does not yet generate a production policy bundle from the Action
-manifest automatically. If you are not the release maintainer, use the
-maintainer-approved bundle for the pinned Action commit and do not reconstruct
-its digests manually. Automated release-material distribution remains tracked
-as product work.
+The guided installer generates and validates the release bundle from its pinned
+Action checkout, then registers it during setup. For a fully manual installation,
+use the maintainer-approved bundle for the same Action commit and retain its
+validated manifest. Do not reconstruct artifact digests or substitute test
+fixtures.
 
 Create an operator credential, store only its hash in the shared env, and keep
 the plaintext outside Compose:
@@ -326,15 +428,8 @@ The validated release manifest proves the Action artifacts. The Review v2
 release bundle also binds protocol limits, operational SLOs, owner references,
 and runbook references. Build the bundle described in the
 [cutover runbook](./review-action-v2-cutover.md) from the validated manifest,
-then copy it into the API container:
-
-```bash
-docker compose \
-  --env-file deploy/self-hosted/.env \
-  -f deploy/self-hosted/compose.yml \
-  cp /secure/path/review-v2-release-bundle.json \
-  api:/tmp/review-v2-release-bundle.json
-```
+then use the streaming helper below to write a private temporary file owned by
+the API runtime user.
 
 Operator commands must run against the Compose database and runtime env. Export
 the plaintext credential only in the operator shell and use this helper:
@@ -352,13 +447,27 @@ rr_admin() {
 }
 ```
 
-Check the runtime env and register the release:
+Check the runtime env and register the release. The cleanup trap removes the
+temporary bundle when registration finishes or fails:
 
 ```bash
-rr_admin env-preflight
-rr_admin release register \
-  --bundle /tmp/review-v2-release-bundle.json \
-  --confirm release
+(
+  set -e
+  rr_admin env-preflight
+  release_bundle_path="$(docker compose \
+    --env-file deploy/self-hosted/.env \
+    -f deploy/self-hosted/compose.yml \
+    exec -T api node deploy/self-hosted/install-bundle.ts \
+    < /secure/path/review-v2-release-bundle.json)"
+  trap 'docker compose \
+    --env-file deploy/self-hosted/.env \
+    -f deploy/self-hosted/compose.yml \
+    exec -T api node deploy/self-hosted/install-bundle.ts \
+    cleanup "$release_bundle_path"' EXIT
+  rr_admin release register \
+    --bundle "$release_bundle_path" \
+    --confirm release
+)
 ```
 
 Do not run the admin CLI directly on the host unless the host process has the
@@ -372,6 +481,33 @@ credential as the Compose API.
 3. Return to the setup flow and wait for repository sync.
 4. Confirm the repository is selected, active, and reports a healthy App
    installation.
+
+Before Codex provider onboarding, set the following in the server's saved
+`.env`, replacing `OWNER/REPOSITORY` with that exact repository. The template
+keeps setup issuance and new review admission closed until a repository is
+explicitly selected:
+
+```dotenv
+REVIEW_ROUTER_ENABLE_CODEX_ROTATING_OAUTH=1
+REVIEW_ROUTER_CODEX_ROTATING_OAUTH_REPOSITORIES=OWNER/REPOSITORY
+REVIEW_ROUTER_CODEX_ROTATING_SETUP_ISSUANCE_ENABLED=1
+REVIEW_ROUTER_CODEX_ROTATING_NEW_WORK_ADMISSION_ENABLED=1
+```
+
+Apply this configuration before requesting a setup command. With the manual
+guide's default paths:
+
+```bash
+docker compose --env-file deploy/self-hosted/.env \
+  -f deploy/self-hosted/compose.yml \
+  up -d --no-build --wait web api worker
+```
+
+For an existing guided installation, preserve its saved env, project name and
+TLS overlay as described above. The wizard performs this step for its first
+selected repository; it does not widen an existing repository selection or
+reopen an operator pause. Use the dashboard's **GitHub Secrets** provider setup
+for this path.
 
 On the **workstation**, point the Codex rotating OAuth reseed command at the
 self-hosted web app:
@@ -486,6 +622,11 @@ quota-limited account does not prove the ReviewRouter auth contract is broken.
 
 ## 12. Operate and Upgrade
 
+For guided installations, apply the saved env, Compose project and proxy
+settings described under [Manual installation and operations](#manual-installation-and-operations)
+to every command below. The installer itself resumes only its recorded source
+revision; it is not an upgrade command.
+
 Create a database backup before every upgrade:
 
 ```bash
@@ -537,7 +678,7 @@ Do not delete or rewrite authority rows to recover a repository.
   startup failures
 - public HTTPS endpoints and GitHub webhooks work
 - GitHub App permissions match the configured profile
-- the repository workflow is canonical schema 3 at the exact Action SHA
+- the repository workflow is canonical schema 2 at the exact Action SHA
 - rotating auth was installed through the reseed flow
 - repository authority is initialized through the correct path
 - a disposable PR and a follow-up revision both complete correctly

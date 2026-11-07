@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Self-hosted onboarding: [guided installer and documentation scope correction](2026-11-07-self-hosted-guided-install.md), [PR #822](https://github.com/777genius/review-router-ai/pull/822) — fresh installation and managed target resume `pending`. Corrected implementation `c02350a` passed [real disposable self-hosted E2E](https://github.com/777genius/review-router-ai/actions/runs/42366967793/job/128386952114) at 2026-11-07 11:21:32 UTC (PR merge checkout `956c98c`): production PostgreSQL guard/reuse, runtime-owned bundle and real Memory lifecycle verified. The first SQL failure remains historical. Fresh-host HTTPS/GitHub App/provider onboarding, guided resume and first-review qualification remain pending. Follow [current PR checks](https://github.com/777genius/review-router-ai/pull/822/checks) for source distribution; no hosted deployment or production flag change is claimed.
+
 Release-gate rerun proof: [attempt-bound evidence reconciliation](2026-11-06-release-gate-rerun-evidence.md) — GitHub Actions verifier candidate; staging/production `pending`. Requires successful exact-main CI and publication-gate verification before release.
 
 Review execution architecture: [post-#818 legacy boundary cleanup](2026-11-06-review-execution-boundaries.md), [Draft PR #819](https://github.com/777genius/review-router-ai/pull/819) — staging `pending`, production `pending`. Source-only refactor, no schema or activation; exact-head CI and release qualification outstanding. Do not deploy as part of this PR.

@@ -76,8 +76,7 @@ and review rules in one dashboard.
   repository credentials stay in CI, and the chosen AI provider receives review
   context. ReviewRouter stores results and operational metadata, not raw source files.
 - **Hosting options.** Use the hosted service or
-  [self-host with Docker Compose](./docs/operations/review-router-self-hosted-end-to-end.md).
-  The opt-in encrypted hosted account pool uses a separate model-relay privacy boundary.
+  [self-host with the guided Docker Compose installer](./docs/operations/review-router-self-hosted-end-to-end.md).
 
 Availability varies by provider, installed workflows and deployment. See
 [capabilities and limits](./docs/capabilities.md).
@@ -91,6 +90,20 @@ Availability varies by provider, installed workflows and deployment. See
 You approve the workflow changes before reviews begin. Provider usage counts
 against your own subscription or API billing.
 
+## Self-host
+
+Start the guided installer on your Linux x64 server:
+
+```bash
+bash -c 'installer=$(mktemp) && curl -fsSL https://raw.githubusercontent.com/777genius/review-router-ai/main/scripts/install-self-hosted.sh -o "$installer" && bash "$installer" "$@"; result=$?; rm -f "$installer"; exit "$result"' --
+```
+
+Prepare two public DNS names, Docker Compose v2, Git and a supported Node.js
+release. The installer handles service setup and HTTPS, then guides you through
+GitHub App creation and repository activation. Complete provider onboarding and
+merge the workflow setup PR in your browser; verify the first review with a test
+pull request. See [prerequisites and installation steps](./docs/operations/review-router-self-hosted-end-to-end.md#guided-installation).
+
 ## Review engine
 
 ReviewRouter uses [OpenCodeReview](https://github.com/alibaba/open-code-review).
@@ -103,11 +116,11 @@ are upstream results, not independent ReviewRouter measurements.
 | ----------- | ------------------------------------------------------------------ |
 | GitHub      | App installation, setup PRs, inline review and a shared dashboard. |
 | GitLab      | In development.                                                    |
-| Self-hosted | Docker Compose deployment on your infrastructure.                  |
+| Self-hosted | Guided Docker Compose installation on your infrastructure.         |
 
-Advanced investigations, cross-revision replay and live PR progress comments
-require explicit rollout. See [capabilities and limits](./docs/capabilities.md)
-for availability and privacy details.
+Live PR progress comments require deployment-specific rollout. See
+[capabilities and limits](./docs/capabilities.md) for availability, the review
+runtime boundaries and privacy details.
 
 ## Learn more
 
