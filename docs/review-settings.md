@@ -17,8 +17,9 @@ slots with one vote identity count once; separately configured reviewer
 identities can count independently even when using the same model.
 Findings below the threshold remain visible in the PR review summary instead of appearing as
 agreed inline comments. They can still fail the configured severity check, so
-an unconfirmed serious finding does not become an all-clear. Deterministic
-static-analysis findings are exempt, and the default threshold of one keeps
+an unconfirmed serious finding does not become an all-clear. Deterministic-only
+`static`/`ast` findings are exempt, but those keys do not count as additional
+AI reviewer votes in mixed findings. The default threshold of one keeps
 the normal single-reviewer workflow. Historical discussion thread resolution
 has a separate, stricter confirmation policy.
 
