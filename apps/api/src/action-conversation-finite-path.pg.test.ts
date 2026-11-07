@@ -221,6 +221,7 @@ describe.skipIf(!databaseUrl)(
         original_commit_id: "c".repeat(40),
         diff_hunk: "@@ -1 +1 @@\n+const id = input;",
       }));
+      const focusedText = "export function validateId(id: string) {\n  return id.length > 0;\n}\n";
       const sourceCalls: { route: string; page?: number }[] = [];
       const sourceClient: ConversationGitHubClient = {
         async request<T>(
@@ -233,8 +234,22 @@ describe.skipIf(!databaseUrl)(
               ? { page: parameters.page }
               : {}),
           });
-          const data = route.includes("/users/")
-            ? bot
+          const data = route.endsWith("/files")
+            ? [{
+                filename: "src/ids.ts",
+                status: "modified",
+                patch: "@@ -1,2 +1,3 @@\n+export function validateId(id: string) {\n+  return id.length > 0;\n+}\n",
+              }]
+            : route.includes("/contents/")
+              ? {
+                  type: "file",
+                  sha: "e".repeat(40),
+                  encoding: "base64",
+                  content: Buffer.from(focusedText).toString("base64"),
+                  size: Buffer.byteLength(focusedText),
+                }
+              : route.includes("/users/")
+                ? bot
             : route.endsWith("/permission")
               ? { permission: "maintain", user: human }
               : route.includes("/pulls/comments/")
@@ -624,6 +639,71 @@ describe.skipIf(!databaseUrl)(
         const first = await f.processor.execute(input, controls());
         expect(first.status).toBe("output_unavailable");
         expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
+        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+      } finally {
+        await f.app.close();
+      }
+    });
+
+    it.each([
+      ["fixed", "fixed", 0.97, "Fixed (revalidated)"],
+      ["still_present", "still_present", 0.91, "Still present (revalidated)"],
+      ["weak fixed", "fixed", 0.4, "Cannot verify"],
+    ] as const)(
+      "checks a single current GitHub finding without memory writes: %s",
+      async (_, verdict, confidence, expected) => {
+        const quoted = "return id.length > 0;";
+        const f = await fixture({
+          sourceBody: "/rr fixed",
+          modelText: JSON.stringify({
+            kind: "answer",
+            answer: JSON.stringify({
+              verdict,
+              confidence,
+              scopeSufficient: true,
+              reason: "The source now checks the identifier length before returning its validation result.",
+              evidence: [{ line: 2, quote: quoted }],
+            }),
+            action: null,
+          }),
+        });
+        let prepared = 0;
+        f.memory.prepareLearning = async () => {
+          prepared++;
+          throw new Error("fixed_request_must_not_prepare_learning");
+        };
+        try {
+          const result = await f.processor.execute(input, controls());
+          expect(result.status).toBe("ready");
+          expect(result.reply?.body).toContain(expected);
+          expect(result.reply?.body).toContain("c".repeat(12));
+          expect(result.learning).toEqual({ status: "disabled", effectIds: [] });
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+          expect(prepared).toBe(0);
+          expect(f.sourceCalls.some((entry) => entry.route.includes("/contents/"))).toBe(true);
+          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
+          const replay = await f.processor.execute(input, controls());
+          expect(replay).toEqual(result);
+          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
+    it("rejects a memory-command model output during /rr fixed", async () => {
+      const f = await fixture({
+        sourceBody: "/rr fixed",
+        modelAction: {
+          kind: "create",
+          knowledgeKind: "observation",
+          body: "A model-generated unrequested fact.",
+          intentQuote: "/rr fixed",
+        },
+      });
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("output_unavailable");
         expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
       } finally {
         await f.app.close();
