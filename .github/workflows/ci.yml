@@ -95,7 +95,22 @@ jobs:
         id: select
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
-        run: node scripts/ci-impact.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            echo "tier=full" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+             git cat-file -e "${CI_BASE_SHA}:scripts/ci-impact.mjs"; then
+            # Never execute policy code supplied by the PR being classified.
+            git show "${CI_BASE_SHA}:scripts/ci-impact.mjs" > "$RUNNER_TEMP/ci-impact-trusted.mjs"
+            node "$RUNNER_TEMP/ci-impact-trusted.mjs"
+          else
+            echo "CI impact classifier unavailable in trusted base; running full CI"
+            echo "tier=full" >> "$GITHUB_OUTPUT"
+          fi
 
   release-authority-pg17-contract:
     name: Dedicated Release Authority PG17 contract
