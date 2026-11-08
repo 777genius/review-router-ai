@@ -1,3 +1,4 @@
+import { redactSensitiveText } from "@reviewrouter/features-review-evidence";
 import { createGitHubAutomaticMemorySourceCurrent } from "@reviewrouter/features-memory/composition";
 import type { ActionSessionClaims } from "@reviewrouter/features-action-control-plane";
 import {
@@ -9,6 +10,7 @@ import {
   type ConversationProcessRequest,
   type ConversationProcessResult,
   type ConversationSnapshot,
+  type FocusedFindingSource,
   type ConversationSourcePort,
   type RequestControls,
 } from "@reviewrouter/features-conversations";
@@ -116,6 +118,26 @@ function message(comment: ReviewComment): ConversationMessage {
     body: comment.body,
     bodyDigest: conversationDigest(comment.body),
   };
+}
+
+/** Keep the same denial policy for original anchors and renamed target paths. */
+function isAllowedFocusedPath(value: string): boolean {
+  return (
+    !!value &&
+    !value.startsWith("/") &&
+    !value.includes("\\") &&
+    !value.includes("\0") &&
+    !value.split("/").some((segment) => !segment || segment.startsWith(".")) &&
+    !/(^|\/)(?:\.git(?:hub)?|node_modules|secrets?|credentials?|keys?|\.ssh|\.aws|\.kube)(?:\/|$)/iu.test(
+      value,
+    ) &&
+    !/(^|\/)(?:\.env[^/]*|\.npmrc|\.pypirc|\.netrc|id_rsa(?:\.pub)?|id_ed25519(?:\.pub)?)$/iu.test(
+      value,
+    ) &&
+    !/\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock|tfstate(?:\.[^/]*)?|tfvars(?:\.json)?)$/iu.test(
+      value,
+    )
+  );
 }
 
 /** App-only source reader. No client body, body hash, pagination claim or actor role is trusted. */
@@ -388,6 +410,96 @@ export class GitHubConversationSource
       return false;
     }
   }
+  /** Read at most one App-verified finding file from a pinned PR HEAD. */
+  async readFocusedSource(
+    snapshot: ConversationSnapshot,
+    controls: RequestControls,
+  ): Promise<FocusedFindingSource | null> {
+    const root = snapshot.messages.find(
+      (item) => item.commentId === snapshot.parentCommentId,
+    );
+    if (!snapshot.sourceMaintainer || !root || !this.isFinding(root.body))
+      return null;
+    const original = snapshot.anchor.path;
+    if (!isAllowedFocusedPath(original)) return null;
+    try {
+      const client = await this.client(controls);
+      let matched:
+        | {
+            filename: string;
+            previous_filename?: string;
+            status: string;
+            patch?: string;
+          }
+        | undefined;
+      for (let page = 1; page <= 30; page++) {
+        const { data: files } = await client.request<
+          {
+            filename: string;
+            previous_filename?: string;
+            status: string;
+            patch?: string;
+          }[]
+        >("GET /repos/{owner}/{repo}/pulls/{pull_number}/files", {
+          ...this.parameters(controls),
+          pull_number: snapshot.pullRequestNumber,
+          per_page: 100,
+          page,
+        });
+        if (!Array.isArray(files) || files.length > 100) return null;
+        matched = files.find((item) => item.filename === original);
+        if (matched || files.length < 100) break;
+      }
+      // Renames and unsupported file states cannot yield an applicable
+      // suggestion on the original GitHub comment anchor.
+      if (
+        !matched ||
+        (matched.status !== "modified" && matched.status !== "added")
+      )
+        return null;
+      const targetPath = matched.filename;
+      if (!isAllowedFocusedPath(targetPath)) return null;
+      const { data: file } = await client.request<{
+        type: string;
+        sha: string;
+        encoding: string;
+        content: string;
+        size: number;
+      }>("GET /repos/{owner}/{repo}/contents/{path}", {
+        ...this.parameters(controls),
+        path: targetPath,
+        ref: snapshot.headSha,
+      });
+      if (
+        file.type !== "file" ||
+        !/^[a-f0-9]{40,64}$/u.test(file.sha) ||
+        file.encoding !== "base64" ||
+        typeof file.content !== "string" ||
+        !Number.isInteger(file.size) ||
+        file.size < 1 ||
+        file.size > 16_384
+      )
+        return null;
+      const bytes = Buffer.from(file.content, "base64");
+      if (bytes.byteLength !== file.size || bytes.includes(0)) return null;
+      const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      if (redactSensitiveText(content) !== content) return null;
+      return {
+        headSha: snapshot.headSha,
+        path: targetPath,
+        blobOid: file.sha,
+        content,
+        patch:
+          typeof matched.patch === "string" && matched.patch.length <= 24_000
+            ? matched.patch
+            : null,
+        originalLine: snapshot.anchor.line,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async current(
     input: Parameters<MemoryAutomaticSourceCurrentPort["current"]>[0],
     controls: RequestControls,
