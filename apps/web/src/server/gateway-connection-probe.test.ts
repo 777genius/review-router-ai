@@ -532,7 +532,7 @@ it("does not release a prepared provider quota if the user cancels during close"
     type: "result",
     ok: false,
     code: "cancelled",
-    diagnosis: { code: "cancelled", source: "network" },
+    diagnosis: { code: "cancelled", source: "application" },
   });
   expect(JSON.stringify(events)).not.toContain("quota_exhausted");
   expect(
