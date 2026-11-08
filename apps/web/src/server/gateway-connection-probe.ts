@@ -79,13 +79,13 @@ export function createGatewayConnectionProbe(input: {
     try {
       progress("authorizing");
       const original = await input.resolve(request.bindingId, request.model);
-      const check = async () => {
-        abort.throwIfAborted();
+      const check = async (ignoreTimeout = false) => {
+        if (!ignoreTimeout) abort.throwIfAborted();
         const live = await input.resolve(request.bindingId, request.model);
         if (JSON.stringify(live) !== JSON.stringify(original))
           throw new ProbeFailure("denied");
       };
-      checkAuthority = check;
+      checkAuthority = () => check(true);
       await input.admit();
       await check();
       progress("connecting");
@@ -322,7 +322,7 @@ export function createGatewayConnectionProbe(input: {
     }
     // Close can await another ten seconds. A revocation during that window
     // must not release an earlier provider diagnosis or a now-private success.
-    if (!abort.aborted && checkAuthority) {
+    if (!signal.aborted && checkAuthority) {
       try {
         await checkAuthority();
       } catch {
