@@ -101,3 +101,19 @@ test("preserves a stale observation while exposing a closed provider diagnosis",
   expect(f.client.getQueryData(f.key)).toEqual(f.saved);
   expect(new AccountDiagnosisError(diagnosis).message).not.toContain("429");
 });
+
+test.each(["conflict", "invalid", "unavailable"] as const)(
+  "uses a safe %s fallback when an older producer omits diagnosis",
+  async (status) => {
+    const f = fixture();
+    vi.mocked(refreshAccountLimits).mockResolvedValue({ status });
+    const expected: AccountDiagnosis = {
+      code: status === "invalid" ? "invalid_request" : status,
+      source: "application",
+    };
+    await expect(f.refresh()).rejects.toThrow(
+      accountDiagnosisMessage(expected),
+    );
+    expect(f.client.getQueryData(f.key)).toEqual(f.saved);
+  },
+);
