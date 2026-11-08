@@ -88,8 +88,11 @@ export async function checkConversationReleaseVerifier(
     } catch {
       throw new Error("conversation_verifier_missing");
     }
-    if (!actual.equals(Buffer.from(expected)))
+    if (!actual.equals(Buffer.from(expected))) {
+      if (path.endsWith("conversation-verifier.inputs.json"))
+        console.error("VERIFIER_EXPECTED_INPUTS_METADATA", Buffer.from(expected).toString("utf8"));
       throw new Error("conversation_verifier_stale");
+    }
   }
 }
 
