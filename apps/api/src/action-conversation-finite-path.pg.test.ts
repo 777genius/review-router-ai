@@ -705,6 +705,28 @@ describe.skipIf(!databaseUrl)(
       },
     );
 
+
+    it.each([
+      ["/rr fixed", ".env.local"],
+      ["/rr fixed", "deploy/terraform.tfstate"],
+      ["/rr suggest fix", ".npmrc"],
+      ["/rr suggest fix", "src/.hidden/file.ts"],
+    ] as const)(
+      "rejects protected focused path without a paid model call: %s %s",
+      async (sourceBody, focusedFilename) => {
+        const f = await fixture({ sourceBody, focusedFilename });
+        try {
+          const result = await f.processor.execute(input, controls());
+          expect(result.status).toBe("unavailable");
+          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(0);
+          expect(f.sourceCalls.some((call) => call.route.includes("/contents/"))).toBe(false);
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
     it("rejects a memory-command model output during /rr fixed", async () => {
       const f = await fixture({
         sourceBody: "/rr fixed",
