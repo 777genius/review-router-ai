@@ -90,7 +90,10 @@ export async function checkConversationReleaseVerifier(
     }
     if (!actual.equals(Buffer.from(expected))) {
       if (path.endsWith("conversation-verifier.inputs.json"))
-        console.error("VERIFIER_EXPECTED_INPUTS_METADATA", Buffer.from(expected).toString("utf8"));
+        console.error(
+          "VERIFIER_EXPECTED_INPUTS_METADATA",
+          Buffer.from(expected).toString("utf8"),
+        );
       throw new Error("conversation_verifier_stale");
     }
   }
