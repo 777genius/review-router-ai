@@ -217,6 +217,8 @@ describe.skipIf(!databaseUrl)(
         side: "RIGHT",
         line: 5,
         original_line: 5,
+        start_line: null as number | null,
+        start_side: null as string | null,
         commit_id: "c".repeat(40),
         original_commit_id: "c".repeat(40),
         diff_hunk: "@@ -1 +1 @@\n+const id = input;",
@@ -818,6 +820,21 @@ describe.skipIf(!databaseUrl)(
         }
       },
     );
+
+    it("rejects multi-line finding anchors before a paid suggestion request", async () => {
+      const f = await fixture({ sourceBody: "/rr suggest fix" });
+      f.comments[0]!.line = 2;
+      f.comments[0]!.original_line = 2;
+      f.comments[0]!.start_line = 1;
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("unavailable");
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(0);
+        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+      } finally {
+        await f.app.close();
+      }
+    });
 
     it("rejects model-suggested memory edits during a code suggestion", async () => {
       const f = await fixture({
