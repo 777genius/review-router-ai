@@ -7,9 +7,7 @@ import {
   gatewayProbeLimits,
 } from "@reviewrouter/features-provider-accounts/gateway-probe";
 import { gatewayProbeAccessClient } from "./gateway-probe-access-client";
-import {
-  AccountDiagnosisError,
-} from "../features/account-gateway/account-diagnosis";
+import { AccountDiagnosisError } from "../features/account-gateway/account-diagnosis";
 const stops: (() => void)[] = [];
 afterEach(() => {
   for (const stop of stops.splice(0)) stop();
