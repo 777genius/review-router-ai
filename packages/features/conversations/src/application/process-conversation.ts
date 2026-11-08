@@ -342,7 +342,9 @@ export class ProcessConversation {
         // Invalid focused requests, including same-line suffixes, must never
         // acquire ordinary discussion inference or automatic learning authority.
         const reservedFocusedPrefix =
-          /^(?:\/rr\s+(?:fixed|suggest\s+fix)|@(?:reviewrouter(?:-ai)?|review-router-ai(?:\[bot\])?)\s+(?:fixed|suggest\s+fix)|исправил[,!.\s]*проверь|предложи\s+исправление)(?=$|[\s.,!?;:])/iu.test(focusedFirstLine);
+          /^(?:\/rr\s+(?:fixed|suggest\s+fix)|@(?:reviewrouter(?:-ai)?|review-router-ai(?:\[bot\])?)\s+(?:fixed|suggest\s+fix)|исправил[,!.\s]*проверь|предложи\s+исправление)(?=$|[\s.,!?;:])/iu.test(
+            focusedFirstLine,
+          );
         if (!fixedCommand && !suggestCommand && reservedFocusedPrefix)
           throw new ConversationError("forbidden");
         if ((fixedCommand || suggestCommand) && !snapshot.sourceMaintainer)
