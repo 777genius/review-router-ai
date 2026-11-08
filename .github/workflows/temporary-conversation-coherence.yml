@@ -1,0 +1,63 @@
+# TEMPORARY: regenerate exact conversation stamps/verifier; delete before merge.
+name: Conversation source coherence (temporary)
+
+on:
+  pull_request:
+    types: [synchronize]
+    paths:
+      - .github/workflows/temporary-conversation-coherence.yml
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/conversation-suggest-fix-20261107' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout same-repository PR branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install frozen project dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Format touched conversation files
+        run: |
+          pnpm exec prettier --write apps/api/src/action-conversation-source.ts apps/api/src/action-conversation-finite-path.pg.test.ts packages/features/conversations/src/application/process-conversation.ts
+      - name: Regenerate and check source/verifier artifacts
+        run: |
+          node scripts/check-conversation-source-stamp.ts --write
+          node scripts/check-conversation-release-verifier.ts --write
+          node scripts/check-conversation-source-stamp.ts --check
+          node scripts/check-conversation-release-verifier.ts --check
+      - name: Commit tracked artifacts to PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -u -- \
+            apps/api/src/action-conversation-source.ts \
+            apps/api/src/action-conversation-finite-path.pg.test.ts \
+            packages/features/conversations/src/application/process-conversation.ts \
+            packages/platform/config/src/conversation-source-stamp.json \
+            deploy/self-hosted/conversation-verifier.mjs \
+            deploy/self-hosted/conversation-verifier.inputs.json
+          git diff --cached --stat
+          if git diff --cached --quiet; then
+            echo "Conversation artifacts already coherent."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build(conversations): regenerate source stamp and verifier"
+          git push origin HEAD:refs/heads/feat/conversation-suggest-fix-20261107
