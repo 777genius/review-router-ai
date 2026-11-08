@@ -657,8 +657,11 @@ describe.skipIf(!databaseUrl)(
         const f = await fixture({ sourceBody: "/rr fixed", focusedFilename });
         try {
           const first = await f.processor.execute(input, controls());
-          expect(first.status).toBe("ready");
-          expect(first.reply?.body).toContain("Cannot verify");
+          expect(first.status).toBe("unavailable");
+          expect(first.reply).toBeUndefined();
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(0);
           expect(
             f.sourceCalls.some((call) => call.route.includes("/contents/")),
           ).toBe(false);
