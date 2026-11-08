@@ -120,6 +120,27 @@ function message(comment: ReviewComment): ConversationMessage {
   };
 }
 
+
+/** Keep the same denial policy for original anchors and renamed target paths. */
+function isAllowedFocusedPath(value: string): boolean {
+  return (
+    !!value &&
+    !value.startsWith("/") &&
+    !value.includes("\\") &&
+    !value.includes("\0") &&
+    !value
+      .split("/")
+      .some((segment) => !segment || segment.startsWith(".")) &&
+    !/(^|\/)(?:\.git(?:hub)?|node_modules|secrets?|credentials?|keys?|\.ssh|\.aws|\.kube)(?:\/|$)/iu.test(
+      value,
+    ) &&
+    !/(^|\/)(?:\.env[^/]*|\.npmrc|\.pypirc|\.netrc|id_rsa(?:\.pub)?|id_ed25519(?:\.pub)?)$/iu.test(
+      value,
+    ) &&
+    !/\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock|tfstate(?:\.[^/]*)?|tfvars(?:\.json)?)$/iu.test(value)
+  );
+}
+
 /** App-only source reader. No client body, body hash, pagination claim or actor role is trusted. */
 export class GitHubConversationSource
   implements ConversationSourcePort, MemoryAutomaticSourceCurrentPort
@@ -401,20 +422,7 @@ export class GitHubConversationSource
     if (!snapshot.sourceMaintainer || !root || !this.isFinding(root.body))
       return null;
     const original = snapshot.anchor.path;
-    if (
-      !original ||
-      original.startsWith("/") ||
-      original.includes("\\") ||
-      original.includes("\0") ||
-      original
-        .split("/")
-        .some((segment) => !segment || segment.startsWith(".")) ||
-      /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(
-        original,
-      ) ||
-      /\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock)$/iu.test(original)
-    )
-      return null;
+    if (!isAllowedFocusedPath(original)) return null;
     try {
       const client = await this.client(controls);
       let matched:
@@ -449,19 +457,7 @@ export class GitHubConversationSource
       }
       if (!matched || matched.status === "removed") return null;
       const targetPath = matched.filename;
-      if (
-        !targetPath ||
-        targetPath.startsWith("/") ||
-        targetPath.includes("\\") ||
-        targetPath
-          .split("/")
-          .some((segment) => !segment || segment.startsWith(".")) ||
-        /(^|\/)(?:\.git(?:hub)?|\.env[^/]*|node_modules|secrets?|credentials?|keys?)(?:\/|$)/iu.test(
-          targetPath,
-        ) ||
-        /\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock)$/iu.test(targetPath)
-      )
-        return null;
+      if (!isAllowedFocusedPath(targetPath)) return null;
       const { data: file } = await client.request<{
         type: string;
         sha: string;
