@@ -17,14 +17,22 @@ const cases = [
   ],
   ["scripts in docs are executable", ["docs/example.sh"], "full"],
   ["repo instructions change is not docs-only", ["AGENTS.md"], "full"],
-  ["Next Server Component is full", ["apps/web/app/dashboard/limits.tsx"], "full"],
+  [
+    "Next Server Component is full",
+    ["apps/web/app/dashboard/limits.tsx"],
+    "full",
+  ],
   ["shared visual component", ["packages/ui/src/button/button.tsx"], "ui"],
   [
     "CSS and images",
     ["apps/web/app/theme.css", "apps/web/public/logo.svg"],
     "ui",
   ],
-  ["visual plus docs", ["docs/guide.md", "packages/ui/src/badge/badge.tsx"], "ui"],
+  [
+    "visual plus docs",
+    ["docs/guide.md", "packages/ui/src/badge/badge.tsx"],
+    "ui",
+  ],
   ["API route must be full", ["apps/web/app/api/session/route.tsx"], "full"],
   [
     "server rendering implementation must be full",
