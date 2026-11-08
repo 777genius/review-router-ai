@@ -334,6 +334,18 @@ export function createGatewayConnectionProbe(input: {
         };
       }
     }
+    // Cancellation may arrive during close or the final authority read. Never
+    // release a previously prepared success or account-owned diagnosis then.
+    if (signal.aborted) {
+      const code =
+        outcome?.code === "cleanup_pending" ? "cleanup_pending" : "cancelled";
+      outcome = {
+        type: "result",
+        ok: false,
+        code,
+        diagnosis: connectionProbeDiagnosis(code),
+      };
+    }
     emit(outcome ?? { type: "result", ok: false, code: "unavailable" });
   };
 }
