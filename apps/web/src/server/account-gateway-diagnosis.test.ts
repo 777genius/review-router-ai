@@ -34,13 +34,13 @@ it("uses typed provider evidence rather than outer Gateway status or error text"
     httpStatus: 429,
     retryAt: "2026-11-05T00:00:00.000Z",
   });
-  const nonExhausted = {
+  // Deliberately mutate the untrusted wire object: the typed contract
+  // requires exhausted quota to have remaining === 0.
+  const nonExhausted: c.SafeError = {
     ...diagnostic,
-    providerQuota: {
-      ...diagnostic.providerQuota!,
-      remaining: 4,
-    },
+    providerQuota: { ...diagnostic.providerQuota! },
   };
+  Reflect.set(nonExhausted.providerQuota!, "remaining", 4);
   expect(
     diagnoseAccountGatewayFailure(
       new GatewayError(
