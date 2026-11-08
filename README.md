@@ -153,7 +153,6 @@ This repository contains the dashboard, API, worker and review orchestration.
 The public GitHub Action entrypoint lives in
 [777genius/review-router](https://github.com/777genius/review-router).
 
-
 ## Licensing
 
 ReviewRouter original contributions are distributed under [Apache License 2.0](LICENSE). It uses [OpenCodeReview](https://github.com/alibaba/open-code-review) (also Apache-2.0); third-party components keep their separate notices. See [`NOTICE`](NOTICE), the bundled font license and the action's third-party license inventory.

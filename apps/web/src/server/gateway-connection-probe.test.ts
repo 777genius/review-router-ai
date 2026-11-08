@@ -91,28 +91,25 @@ async function fixture(
       expect(admitted.accountRef).toBe("shared-test-account");
       const quotaLike = mode === "quota" || mode === "quota_slow_close";
       if (quotaLike || mode === "opaque") {
+        const payload = quotaLike
+          ? {
+              code: "upstream_failure",
+              traceRef: "quota-test",
+              effect: "effect_unknown",
+              retry: { kind: "readback" },
+              providerQuota: {
+                provider: "openrouter",
+                limit: 1000,
+                remaining: 0,
+                resetAt: quotaResetAt,
+              },
+            }
+          : {
+              error: "private-provider-secret",
+              claimedProviderStatus: 429,
+            };
         res.statusCode = 502;
-        res.end(
-          JSON.stringify(
-            quotaLike
-              ? {
-                  code: "upstream_failure",
-                  traceRef: "quota-test",
-                  effect: "effect_unknown",
-                  retry: { kind: "readback" },
-                  providerQuota: {
-                    provider: "openrouter",
-                    limit: 1000,
-                    remaining: 0,
-                    resetAt: quotaResetAt,
-                  },
-                }
-              : {
-                  error: "private-provider-secret",
-                  claimedProviderStatus: 429,
-                },
-          ),
-        );
+        res.end(JSON.stringify(payload));
         return;
       }
       if (mode === "busy") {
