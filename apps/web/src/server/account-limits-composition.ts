@@ -141,7 +141,12 @@ export async function accountLimitsReader(
                     .filter((item) => item.availability === "enabled")
                     .map((item) => [item.profileId, item.limitsContract]),
                 ),
-            );
+            )
+            .catch((error) => {
+              // A transient discovery outage must not poison subsequent reads.
+              contracts = undefined;
+              throw error;
+            });
           if ((await contracts).get(target.profileId) !== "account-limits/v2")
             return { status: "unsupported", reason: "unsupported_profile" };
           return subscriptions.read(target);
@@ -198,7 +203,12 @@ export function accountLimitsRefresher(
                   ? value.profileIds
                   : [],
               ),
-          );
+          )
+          .catch((error) => {
+            // Retain in-flight sharing, but retry discovery on a later click.
+            profiles = undefined;
+            throw error;
+          });
         return (await profiles).has(profileId);
       } catch {
         return false;
