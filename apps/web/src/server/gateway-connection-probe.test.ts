@@ -89,15 +89,12 @@ async function fixture(
       const admitted = JSON.parse(String(req.headers["x-gateway-admission"]));
       expect(admitted.limits.requests).toBe(1);
       expect(admitted.accountRef).toBe("shared-test-account");
-      if (
-        mode === "quota" ||
-        mode === "quota_slow_close" ||
-        mode === "opaque"
-      ) {
+      const quotaLike = mode === "quota" || mode === "quota_slow_close";
+      if (quotaLike || mode === "opaque") {
         res.statusCode = 502;
         res.end(
           JSON.stringify(
-            mode === "quota" || mode === "quota_slow_close"
+            quotaLike
               ? {
                   code: "upstream_failure",
                   traceRef: "quota-test",
@@ -421,8 +418,12 @@ it.each(["quota", "opaque"] as const)(
             }
           : { code: "unavailable", source: "gateway" },
     });
-    expect(f.calls.filter((c) => c.path.endsWith("/requests"))).toHaveLength(1);
-    expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(1);
+    expect(
+      f.calls.filter((c) => c.path.endsWith("/requests")),
+    ).toHaveLength(1);
+    expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(
+      1,
+    );
     expect(JSON.stringify(events)).not.toContain("private-provider-secret");
   },
 );
@@ -446,7 +447,9 @@ it("does not reveal provider quota after account authority is lost during the fa
     diagnosis: { code: "access_denied", source: "application" },
   });
   expect(JSON.stringify(events)).not.toContain("quota_exhausted");
-  expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(1);
+  expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(
+    1,
+  );
 });
 
 it.each(["ok", "quota", "cleanup"] as const)(

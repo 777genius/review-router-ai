@@ -1,4 +1,6 @@
-import { AccountDiagnosisError } from "../../src/features/account-gateway/account-diagnosis";
+import {
+  AccountDiagnosisError,
+} from "../../src/features/account-gateway/account-diagnosis";
 import {
   type QueryClient,
   queryOptions,
