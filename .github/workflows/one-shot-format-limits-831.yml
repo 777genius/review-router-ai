@@ -1,0 +1,29 @@
+name: One-shot quota formatting diagnostic
+on:
+  push:
+    branches: [fix/account-refresh-and-test-errors-20261105]
+permissions:
+  contents: read
+jobs:
+  show-pinned-prettier-diff:
+    if: github.event.head_commit.message == 'ci(temp): capture exact Prettier format diff'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.21.0
+      - name: Obtain exact locked formatter without application install
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pinned-formatter" --no-package-lock --ignore-scripts --no-audit --no-fund prettier@3.8.3
+      - name: Print only the two affected source formatting deltas
+        run: |
+          node "$RUNNER_TEMP/pinned-formatter/node_modules/prettier/bin/prettier.cjs" --write \
+            apps/web/app/dashboard/account-limits-query.ts \
+            apps/web/src/server/gateway-connection-probe.test.ts
+          echo "PRETTIER_FORMAT_PATCH_BEGIN"
+          git diff -- apps/web/app/dashboard/account-limits-query.ts apps/web/src/server/gateway-connection-probe.test.ts
+          echo "PRETTIER_FORMAT_PATCH_END"
