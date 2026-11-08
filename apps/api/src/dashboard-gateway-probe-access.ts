@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
   createConsumerControlClient,
+  GatewayError,
   createExecutionClient,
   type ConsumerControlClient,
 } from "@agent-teams/account-gateway/http";
@@ -59,6 +60,7 @@ export function createDashboardGatewayProbeAccess(input: {
       | Awaited<ReturnType<ConsumerControlClient["runAccess"]>>
       | undefined;
     let closeId: string | undefined;
+    let prepareId: string | undefined;
     try {
       const request = captureGatewayProbeAccessRequest(raw);
       if (!verifyGatewayProbeAccess(request, signature, input.secret))
@@ -165,6 +167,7 @@ export function createDashboardGatewayProbeAccess(input: {
         limits: gatewayProbeLimits,
         deadline: request.deadline,
       });
+      prepareId = intent.operationId;
       minted = await input.control.runAccess(intent, {
         signal: AbortSignal.timeout(10000),
       });
@@ -223,6 +226,24 @@ export function createDashboardGatewayProbeAccess(input: {
         } catch {
           /* Deadline remains the bounded cleanup fallback; no inference was sent. */
         }
+      }
+      if (
+        !minted &&
+        prepareId &&
+        error instanceof GatewayError &&
+        error.code === "safe_error"
+      ) {
+        const diagnostic = c.safeError.safeParse(error.diagnostic);
+        if (
+          diagnostic.success &&
+          diagnostic.data.operationRef === prepareId &&
+          error.operationRef === prepareId &&
+          error.httpStatus !== undefined &&
+          Number.isInteger(error.httpStatus) &&
+          error.httpStatus >= 400 &&
+          error.httpStatus <= 599
+        )
+          return { status: error.httpStatus, body: diagnostic.data };
       }
       return {
         status: error instanceof RateLimitExceededError ? 429 : 403,

@@ -1,3 +1,4 @@
+import { AccountDiagnosisError } from "../../src/features/account-gateway/account-diagnosis";
 import type {
   AccountLimitsView,
   AccountsResult,
@@ -13,15 +14,20 @@ export type AccountLimitsRequest = {
 export async function refreshAccountLimits(
   request: AccountLimitsRequest,
 ): Promise<AccountsResult<AccountLimitsView>> {
-  const { refreshAccountLimitsAction } =
-    await import("./account-limits-actions");
-  return refreshAccountLimitsAction({
-    context: request.context,
-    connectionId: request.connectionId,
-    ...(request.workspaceId === undefined
-      ? {}
-      : { workspaceId: request.workspaceId }),
-  });
+  try {
+    const { refreshAccountLimitsAction } =
+      await import("./account-limits-actions");
+    return await refreshAccountLimitsAction({
+      context: request.context,
+      connectionId: request.connectionId,
+      ...(request.workspaceId && request.context.startsWith("personal-")
+        ? { workspaceId: request.workspaceId }
+        : {}),
+    });
+  } catch {
+    // Server Action transport exceptions are not trusted product messages.
+    throw new AccountDiagnosisError({ code: "unavailable", source: "network" });
+  }
 }
 
 /** Reads stored observations only. This endpoint never probes the provider. */

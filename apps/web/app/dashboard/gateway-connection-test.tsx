@@ -8,6 +8,7 @@ import { useGatewayModelAccountScope } from "./gateway-model-account-options";
 import { testGatewayConnection } from "./gateway-connection-probe-api";
 import {
   connectionProbeStages,
+  connectionProbeDiagnosis,
   type ConnectionProbeEvent,
   type ConnectionProbeStage,
 } from "../../src/features/account-gateway/connection-probe";
@@ -20,20 +21,10 @@ const labels: Record<ConnectionProbeStage, string> = {
   validating: "Validating the response",
   closing: "Closing the test session",
 };
-const errors = {
-  denied:
-    "Account access changed or the model is unavailable. Refresh account options.",
-  unavailable:
-    "The connection could not be tested. Check the gateway and account, then try again.",
-  invalid_response: "The provider did not return a complete text response.",
-  timeout:
-    "The request timed out. Completion is unconfirmed; it was not retried.",
-  cancelled: "Test cancelled. A request already sent may still consume quota.",
-  busy: "The account is currently busy. Wait for its active request to finish, then test again.",
-  rate_limited: "Too many tests. Wait a minute before trying again.",
-  cleanup_pending:
-    "The test session could not be confirmed closed. Wait for it to expire before testing again.",
-};
+import {
+  AccountDiagnosisError,
+  accountDiagnosisMessage,
+} from "../../src/features/account-gateway/account-diagnosis";
 
 /** Already-public account metadata is used only to discard stale UI results.
  * It is never sent as diagnostic authority or as a Gateway request parameter. */
@@ -151,13 +142,16 @@ function ConnectionTest({
         },
         controller.signal,
       );
-    } catch {
+    } catch (error) {
       if (active.current === controller)
         setCompleted({
           result: {
             type: "result",
             ok: false,
             code: controller.signal.aborted ? "cancelled" : "unavailable",
+            ...(error instanceof AccountDiagnosisError
+              ? { diagnosis: error.diagnosis }
+              : {}),
           },
           at: Date.now(),
         });
@@ -247,8 +241,19 @@ function ConnectionTest({
           <p>
             {result.ok
               ? `Model answered · ${result.model} · ${(result.elapsedMs / 1000).toFixed(1)}s.`
-              : errors[result.code]}
+              : accountDiagnosisMessage(
+                  result.diagnosis ?? connectionProbeDiagnosis(result.code),
+                )}
           </p>
+          {!result.ok &&
+          result.code === "cleanup_pending" &&
+          result.diagnosis?.code !== "cleanup_pending" ? (
+            <p>
+              {accountDiagnosisMessage(
+                connectionProbeDiagnosis("cleanup_pending"),
+              )}
+            </p>
+          ) : null}
           {result.ok && completed ? (
             <p className="mt-1 text-xs leading-5 text-slate-400">
               Tested at{" "}

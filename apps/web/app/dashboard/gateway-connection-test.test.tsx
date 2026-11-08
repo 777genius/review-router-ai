@@ -183,3 +183,30 @@ it.each(["timeout", "cleanup_pending", "denied"] as const)(
     expect(document.querySelector("time")).toBeNull();
   },
 );
+
+it("shows the shared attested quota cause and retry time without a provider-specific UI branch", async () => {
+  fetchMock.mockResolvedValueOnce(
+    response([
+      {
+        type: "result",
+        ok: false,
+        code: "unavailable",
+        diagnosis: {
+          code: "quota_exhausted",
+          source: "provider",
+          httpStatus: 429,
+          retryAt: "2026-11-05T00:00:00.000Z",
+        },
+      },
+    ]),
+  );
+  render(<View />);
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "provider's quota is exhausted",
+  );
+  expect(screen.getByRole("alert").textContent).toContain(
+    "2026-11-05 00:00:00 UTC",
+  );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});

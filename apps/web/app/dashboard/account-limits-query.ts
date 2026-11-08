@@ -1,3 +1,4 @@
+import { AccountDiagnosisError } from "../../src/features/account-gateway/account-diagnosis";
 import {
   type QueryClient,
   queryOptions,
@@ -37,7 +38,10 @@ export function accountLimitsRefreshOptions(
       const before =
         client.getQueryData<AccountsResult<AccountLimitsView>>(key);
       if (before?.status !== "ok" || !before.value.refreshAvailable)
-        throw new Error("Limits refresh unavailable");
+        throw new AccountDiagnosisError({
+          code: "unsupported",
+          source: "application",
+        });
       await client.cancelQueries({ queryKey: key, exact: true });
       const result = await refreshAccountLimits(request);
       const current =
@@ -54,8 +58,24 @@ export function accountLimitsRefreshOptions(
         client.setQueryData(key, result);
         return;
       }
-      if (result.status !== "ok" || result.value.status === "unavailable")
-        throw new Error("Could not refresh current limits");
+      if (result.status !== "ok")
+        throw new AccountDiagnosisError(
+          result.diagnosis ?? {
+            code:
+              result.status === "invalid" ? "invalid_request" : result.status,
+            source: "application",
+          },
+        );
+      if (result.value.status === "unavailable")
+        throw new AccountDiagnosisError({
+          code: "unavailable",
+          source: "gateway",
+        });
+      if (result.value.status === "unsupported")
+        throw new AccountDiagnosisError({
+          code: "unsupported",
+          source: "gateway",
+        });
       if (result.value.fetchedAt < current.value.fetchedAt) return;
       client.setQueryData(key, result);
     },

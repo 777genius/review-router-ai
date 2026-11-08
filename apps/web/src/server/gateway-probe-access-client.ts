@@ -10,6 +10,8 @@ import {
   type GatewayProbeAccessRequest,
 } from "@reviewrouter/features-provider-accounts/gateway-probe";
 import { z } from "zod";
+import { AccountDiagnosisError } from "../features/account-gateway/account-diagnosis";
+
 const envelope = z.strictObject({
   operation: c.preparationOperation,
   bearer: z.string().regex(/^[A-Za-z0-9._~-]{16,1024}$/),
@@ -50,11 +52,17 @@ export function gatewayProbeAccessClient(
         body: JSON.stringify(request),
         signal: options?.signal ?? AbortSignal.timeout(15000),
       });
-      if (!response.ok || !response.body)
+      if (
+        !response.body ||
+        !response.headers.get("content-type")?.startsWith("application/json")
+      )
         throw new GatewayError(
-          "safe_error",
-          "not_dispatched",
+          "invalid_response",
+          "effect_unknown",
           intent.operationId,
+          undefined,
+          undefined,
+          response.status,
         );
       const reader = response.body.getReader();
       let body = "",
@@ -73,7 +81,74 @@ export function gatewayProbeAccessClient(
         await reader.cancel().catch(() => {});
         reader.releaseLock();
       }
-      return envelope.parse(JSON.parse(body));
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        throw new GatewayError(
+          "invalid_response",
+          "effect_unknown",
+          intent.operationId,
+          undefined,
+          undefined,
+          response.status,
+        );
+      }
+      if (!response.ok) {
+        const diagnostic = c.safeError.safeParse(parsed);
+        if (
+          response.status >= 400 &&
+          response.status <= 599 &&
+          diagnostic.success &&
+          diagnostic.data.operationRef === intent.operationId
+        )
+          throw new GatewayError(
+            "safe_error",
+            diagnostic.data.effect,
+            intent.operationId,
+            undefined,
+            diagnostic.data,
+            response.status,
+          );
+        const local = z
+          .strictObject({
+            error: z.enum(["denied", "rate_limited", "unavailable"]),
+          })
+          .safeParse(parsed);
+        if (
+          local.success &&
+          ((response.status === 403 && local.data.error === "denied") ||
+            (response.status === 429 && local.data.error === "rate_limited") ||
+            (response.status === 503 && local.data.error === "unavailable"))
+        )
+          throw new AccountDiagnosisError({
+            code:
+              local.data.error === "denied"
+                ? "access_denied"
+                : local.data.error,
+            source: "application",
+            httpStatus: response.status,
+          });
+        throw new GatewayError(
+          "invalid_response",
+          "effect_unknown",
+          intent.operationId,
+          undefined,
+          undefined,
+          response.status,
+        );
+      }
+      const validated = envelope.safeParse(parsed);
+      if (!validated.success)
+        throw new GatewayError(
+          "invalid_response",
+          "effect_unknown",
+          intent.operationId,
+          undefined,
+          undefined,
+          response.status,
+        );
+      return validated.data;
     },
   };
 }

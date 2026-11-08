@@ -288,21 +288,86 @@ it.each([403, 503, 200])(
       true,
     );
     expect(await refresher.supports("foreign")).toBe(false);
-    expect(
-      await refresher.refresh({
-        ...target,
-        profileId: "openai-codex-oauth-responses-v1",
-      }),
-    ).toMatchObject(
-      status === 403
-        ? { status: "unknown", reason: "generation_changed" }
-        : status === 503
-          ? { status: "unavailable", reason: "source_unavailable" }
+    const result = refresher.refresh({
+      ...target,
+      profileId: "openai-codex-oauth-responses-v1",
+    });
+    if (status === 503)
+      await expect(result).rejects.toMatchObject({
+        diagnosis: { code: "unavailable" },
+      });
+    else
+      await expect(result).resolves.toMatchObject(
+        status === 403
+          ? { status: "unknown", reason: "generation_changed" }
           : { status: "unknown" },
-    );
+      );
     expect(calls).toEqual([
       "GET /v1/capabilities/account-limits-refresh",
       "POST /v1/account-limits/refresh",
     ]);
   },
 );
+
+it("retries a failed capability read instead of permanently caching an outage", async () => {
+  const options = { denied: true };
+  const f = await fixture(options);
+  expect(await f.reader.read(target)).toEqual({
+    status: "unknown",
+    reason: "generation_changed",
+  });
+  options.denied = false;
+  expect(await f.reader.read(target)).toMatchObject({
+    status: "snapshot",
+  });
+  expect(
+    f.calls.filter(
+      (call) => call === "GET /v1/provider-connection-capabilities",
+    ),
+  ).toHaveLength(2);
+});
+
+it("retries quota refresh capability discovery after one transport failure", async () => {
+  const calls: string[] = [];
+  const server = createServer((request, response) => {
+    calls.push(`${request.method} ${request.url}`);
+    response.setHeader("content-type", "application/json");
+    if (calls.length === 1) {
+      response.statusCode = 503;
+      response.end(
+        JSON.stringify({
+          code: "unavailable",
+          traceRef: "transient-discovery",
+          effect: "not_dispatched",
+          retry: { kind: "never" },
+        }),
+      );
+      return;
+    }
+    response.end(
+      JSON.stringify({
+        contract: "account-limits-refresh/v1",
+        quotaOnlyRefresh: true,
+        profileIds: ["openai-codex-oauth-responses-v1"],
+      }),
+    );
+  });
+  servers.push(server);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture");
+  const refresher = accountLimitsRefresher({
+    role: "management",
+    origin: `http://127.0.0.1:${address.port}`,
+    token: "test-credential",
+  });
+  const id = "openai-codex-oauth-responses-v1";
+  await expect(refresher.supports(id)).rejects.toThrow();
+  expect(await refresher.supports(id)).toBe(true);
+  expect(await refresher.supports(id)).toBe(true);
+  expect(calls).toEqual([
+    "GET /v1/capabilities/account-limits-refresh",
+    "GET /v1/capabilities/account-limits-refresh",
+  ]);
+});

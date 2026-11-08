@@ -66,6 +66,7 @@ export type AccountsResult<T> =
   | { status: "ok"; value: T }
   | {
       status: "denied" | "conflict" | "invalid" | "unavailable";
+      diagnosis?: import("../features/account-gateway/account-diagnosis").AccountDiagnosis;
     };
 
 export type AccountProfileView = {

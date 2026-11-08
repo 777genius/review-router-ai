@@ -1,3 +1,5 @@
+import { AccountDiagnosisError } from "../features/account-gateway/account-diagnosis";
+import { diagnoseAccountGatewayFailure } from "./account-gateway-diagnosis";
 import type {
   AccountLimitsReader,
   AccountLimitsRefresher,
@@ -139,7 +141,12 @@ export async function accountLimitsReader(
                     .filter((item) => item.availability === "enabled")
                     .map((item) => [item.profileId, item.limitsContract]),
                 ),
-            );
+            )
+            .catch((error) => {
+              // A transient discovery outage must not poison subsequent reads.
+              contracts = undefined;
+              throw error;
+            });
           if ((await contracts).get(target.profileId) !== "account-limits/v2")
             return { status: "unsupported", reason: "unsupported_profile" };
           return subscriptions.read(target);
@@ -185,22 +192,24 @@ export function accountLimitsRefresher(
     }));
   return {
     async supports(profileId) {
-      try {
-        profiles ??= getClient()
-          .getAccountLimitsRefreshCapabilities()
-          .then(
-            (value) =>
-              new Set(
-                value.contract === "account-limits-refresh/v1" &&
-                  value.quotaOnlyRefresh
-                  ? value.profileIds
-                  : [],
-              ),
-          );
-        return (await profiles).has(profileId);
-      } catch {
-        return false;
-      }
+      profiles ??= getClient()
+        .getAccountLimitsRefreshCapabilities()
+        .then(
+          (value) =>
+            new Set(
+              value.contract === "account-limits-refresh/v1" &&
+                value.quotaOnlyRefresh
+                ? value.profileIds
+                : [],
+            ),
+        )
+        .catch((error) => {
+          // Failed discovery is not evidence of unsupported profile. The
+          // caller converts it to a safe unavailable result and may retry.
+          profiles = undefined;
+          throw error;
+        });
+      return (await profiles).has(profileId);
     },
     async refresh(target) {
       try {
@@ -214,7 +223,7 @@ export function accountLimitsRefresher(
           )
         )
           return { status: "unknown", reason: "generation_changed" };
-        return { status: "unavailable", reason: "source_unavailable" };
+        throw new AccountDiagnosisError(diagnoseAccountGatewayFailure(error));
       }
     },
   };
