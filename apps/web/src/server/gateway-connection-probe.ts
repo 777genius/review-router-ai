@@ -320,6 +320,20 @@ export function createGatewayConnectionProbe(input: {
         }
       }
     }
+    // Close can await another ten seconds. A revocation during that window
+    // must not release an earlier provider diagnosis or a now-private success.
+    if (!abort.aborted && checkAuthority) {
+      try {
+        await checkAuthority();
+      } catch {
+        outcome = {
+          type: "result",
+          ok: false,
+          code: "denied",
+          diagnosis: connectionProbeDiagnosis("denied"),
+        };
+      }
+    }
     emit(outcome ?? { type: "result", ok: false, code: "unavailable" });
   };
 }
