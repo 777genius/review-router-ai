@@ -2,11 +2,11 @@
 
 Normal pull requests run a conservative change-based subset of the core CI. The `CI impact selection` job computes a complete, NUL-delimited Git diff against the current PR merge commit (not GitHub's limited changed-file API). Unavailable ancestry, unknown paths, executable scripts, toolchains, workflow edits, or mixed backend changes fall back to `full`.
 
-| Tier | Eligible changes | Core required checks |
-| --- | --- | --- |
-| `docs` | Markdown/text/images in `docs/` or `ai-docs/`, or named root documents | Static Checks, CI impact, Quality Gates |
-| `ui` | The above plus visual `.tsx`, CSS or image files in `apps/web/` or `packages/ui/`; server/API/auth paths excluded | Static Checks, Quality Checks, CI impact, Quality Gates |
-| `full` | Everything else | All existing core jobs, including PostgreSQL 17, certification, runtime image, and Self-hosted E2E |
+**`docs`:** Markdown/text/images in `docs/` or `ai-docs/`, or named root documents. Runs Static Checks, CI impact and Quality Gates.
+
+**`ui`:** The above plus visual `.tsx`, CSS or image files in `apps/web/` or `packages/ui/`; server/API/auth paths excluded. Runs Static Checks, Quality Checks, CI impact and Quality Gates.
+
+**`full`:** Everything else. Runs all existing core jobs, including PostgreSQL 17, certification, runtime image and Self-hosted E2E.
 
 Draft PRs retain their current skip policy. Workflow dispatch and every push to `main` always use `full`; this preserves the exact-source CI/release evidence required by the public Action sync and GitLab runtime image workflows. Separately path-scoped UI/OCR/Memory/Skills workflows keep their own triggers.
 
