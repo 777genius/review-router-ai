@@ -2,7 +2,7 @@
   "kind": "reviewrouter-conversation-verifier-inputs/v1",
   "esbuild": "0.28.1",
   "zod": "4.4.2",
-  "inputsDigest": "8471f9d67a09fdeb92d064cadbcf807353da7afb498b07412676f3c83b380dda",
+  "inputsDigest": "07a0028c9bfd11cb02781d22f66dbbf11b028ec28dd24717c5c73d9315745fd6",
   "bundleDigest": "bbe4c122f3f0931aa588fe144cc13b9b2a84e9fde2d33eeac995f2cfdafab676",
   "noticeDigest": "d0660917c3d630115143af43cdb50568ab432198f6f2e13d7822826b42c883ef"
 }
