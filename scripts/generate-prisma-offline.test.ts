@@ -523,4 +523,5 @@ describe("offline Prisma generate", () => {
         ).toBe(1);
       }
     }
-  });});
+  });
+});
