@@ -106,20 +106,8 @@ export class ReviewProgressGitHubGateway {
     validateInput(input);
     await this.assertCurrentPullRequest(input);
     const known = await this.readKnownComment(input);
-    let existing: ReviewProgressComment[];
-    try {
-      existing = await this.findMarkedComments(input);
-    } catch (error) {
-      if (
-        known &&
-        error instanceof ReviewProgressGitHubError &&
-        error.kind === "pagination_inconclusive"
-      ) {
-        existing = [];
-      } else {
-        throw error;
-      }
-    }
+    // A known canonical comment does not prove that hidden duplicates are absent.
+    const existing = await this.findMarkedComments(input);
     const canonical = known ?? existing[0];
     const duplicates = existing.filter(({ id }) => id !== canonical?.id);
     const desiredBody = formatReviewProgressComment(input.body, input.marker);
