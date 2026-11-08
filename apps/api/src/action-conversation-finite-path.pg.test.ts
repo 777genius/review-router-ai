@@ -756,18 +756,25 @@ describe.skipIf(!databaseUrl)(
     it.each([
       "/rr fixed\nPlease check this finding",
       "@review-router-ai fixed\nHere is the edited source",
-    ])("does not infer or learn from an appended focused command: %s", async (sourceBody) => {
-      const f = await fixture({ sourceBody });
-      try {
-        const result = await f.processor.execute(input, controls());
-        expect(result.status).toBe("unavailable");
-        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(0);
-        expect(f.sourceCalls.some((call) => call.route.includes("/contents/"))).toBe(false);
-        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
-      } finally {
-        await f.app.close();
-      }
-    });
+    ])(
+      "does not infer or learn from an appended focused command: %s",
+      async (sourceBody) => {
+        const f = await fixture({ sourceBody });
+        try {
+          const result = await f.processor.execute(input, controls());
+          expect(result.status).toBe("unavailable");
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(0);
+          expect(
+            f.sourceCalls.some((call) => call.route.includes("/contents/")),
+          ).toBe(false);
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
 
     it("rejects a renamed finding before paid verification", async () => {
       const f = await fixture({
@@ -777,7 +784,9 @@ describe.skipIf(!databaseUrl)(
       try {
         const result = await f.processor.execute(input, controls());
         expect(result.status).toBe("unavailable");
-        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(0);
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          0,
+        );
         expect(
           f.sourceCalls.some((call) => call.route.includes("/contents/")),
         ).toBe(false);
