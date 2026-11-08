@@ -337,6 +337,16 @@ export class ProcessConversation {
         if (!currentMessage) throw new ConversationError("context_incomplete");
         fixedCommand = isFixedFindingCommand(currentMessage.body);
         suggestCommand = isSuggestFixCommand(currentMessage.body);
+        const focusedFirstLine =
+          currentMessage.body.trim().split(/\r\n?|\n/u, 1)[0] ?? "";
+        // Malformed focused requests never gain legacy discussion or memory authority.
+        if (
+          !fixedCommand &&
+          !suggestCommand &&
+          (isFixedFindingCommand(focusedFirstLine) ||
+            isSuggestFixCommand(focusedFirstLine))
+        )
+          throw new ConversationError("forbidden");
         if ((fixedCommand || suggestCommand) && !snapshot.sourceMaintainer)
           throw new ConversationError("forbidden");
         focusedSource =
