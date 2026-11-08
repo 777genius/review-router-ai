@@ -192,27 +192,24 @@ export function accountLimitsRefresher(
     }));
   return {
     async supports(profileId) {
-      try {
-        profiles ??= getClient()
-          .getAccountLimitsRefreshCapabilities()
-          .then(
-            (value) =>
-              new Set(
-                value.contract === "account-limits-refresh/v1" &&
-                  value.quotaOnlyRefresh
-                  ? value.profileIds
-                  : [],
-              ),
-          )
-          .catch((error) => {
-            // Retain in-flight sharing, but retry discovery on a later click.
-            profiles = undefined;
-            throw error;
-          });
-        return (await profiles).has(profileId);
-      } catch {
-        return false;
-      }
+      profiles ??= getClient()
+        .getAccountLimitsRefreshCapabilities()
+        .then(
+          (value) =>
+            new Set(
+              value.contract === "account-limits-refresh/v1" &&
+                value.quotaOnlyRefresh
+                ? value.profileIds
+                : [],
+            ),
+        )
+        .catch((error) => {
+          // Failed discovery is not evidence of unsupported profile. The
+          // caller converts it to a safe unavailable result and may retry.
+          profiles = undefined;
+          throw error;
+        });
+      return (await profiles).has(profileId);
     },
     async refresh(target) {
       try {
