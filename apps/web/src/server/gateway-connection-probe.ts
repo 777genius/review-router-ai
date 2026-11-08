@@ -338,7 +338,9 @@ export function createGatewayConnectionProbe(input: {
     // release a previously prepared success or account-owned diagnosis then.
     if (signal.aborted) {
       const code =
-        outcome?.code === "cleanup_pending" ? "cleanup_pending" : "cancelled";
+        outcome?.ok === false && outcome.code === "cleanup_pending"
+          ? "cleanup_pending"
+          : "cancelled";
       outcome = {
         type: "result",
         ok: false,
