@@ -12,6 +12,9 @@ and review rules in one dashboard.
 
 <img width="1136" height="681" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/18b8e7bd-88a3-4235-bfb2-2110ae284ce7" />
 <img width="721" height="630" alt="ReviewRouter review comment" src="https://github.com/user-attachments/assets/3def12b4-ad47-4b85-95b7-5cc585e4ff72" />
+<img width="1145" height="737" alt="ReviewRouter Accounts" src="https://github.com/user-attachments/assets/5b7b1383-683b-4266-9da5-74c48f1d94c9" />
+<img width="1135" height="737" alt="ReviewRouter usage" src="https://github.com/user-attachments/assets/447a4f0c-5527-41bd-a08e-6bb540eb3943" />
+<img width="1135" height="737" alt="ReviewRouter statistics" src="https://github.com/user-attachments/assets/9a6d86ae-1884-45f4-9c89-3c5851bd2ccf" />
 
 ## Features
 
@@ -149,3 +152,8 @@ runtime boundaries and privacy details.
 This repository contains the dashboard, API, worker and review orchestration.
 The public GitHub Action entrypoint lives in
 [777genius/review-router](https://github.com/777genius/review-router).
+
+
+## Licensing
+
+ReviewRouter original contributions are distributed under [Apache License 2.0](LICENSE). It uses [OpenCodeReview](https://github.com/alibaba/open-code-review) (also Apache-2.0); third-party components keep their separate notices. See [`NOTICE`](NOTICE), the bundled font license and the action's third-party license inventory.
