@@ -339,6 +339,9 @@ export class ProcessConversation {
               budget,
             )) ?? null)
           : null;
+        // No trusted current source means no verifiable verdict: never charge a model call.
+        if (fixedCommand && !focusedSource)
+          throw new ConversationError("unavailable");
         answerOnly =
           fixedCommand || isInformationOnlyConversation(currentMessage.body);
         modelInstructions = fixedCommand
