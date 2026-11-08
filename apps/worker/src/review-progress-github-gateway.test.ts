@@ -416,6 +416,19 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(fixture.calls).toHaveLength(1);
   });
 
+  it("rejects repository mismatch before reading or mutating comments", async () => {
+    const fixture = githubFixture([], { repositoryFullName: "acme/other" });
+
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "repository_mismatch",
+      message: "github_pull_request_repository_mismatch",
+      metadata: { retryable: false },
+    });
+    expect(fixture.calls).toHaveLength(1);
+  });
+
   it("classifies revoked GitHub App access as terminal", async () => {
     const request: ReviewProgressGitHubRequester = vi.fn(async () => {
       throw { status: 403, response: { headers: {} } };
@@ -554,6 +567,7 @@ function githubFixture(
   options: {
     readonly currentHead?: string;
     readonly currentState?: string;
+    readonly repositoryFullName?: string;
     readonly throwAfterPost?: boolean;
     readonly throwBeforePatch?: boolean;
     readonly throwAfterPatch?: boolean;
@@ -588,7 +602,9 @@ function githubFixture(
                 ? "b".repeat(40)
                 : (options.currentHead ?? head),
           },
-          base: { repo: { full_name: "acme/rocket" } },
+          base: {
+            repo: { full_name: options.repositoryFullName ?? "acme/rocket" },
+          },
         },
       };
     }

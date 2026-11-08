@@ -259,33 +259,7 @@ export class ReviewProgressGitHubGateway {
     } catch (error) {
       throw this.classify(error);
     }
-    const row = record(response.data);
-    const head = record(row?.head);
-    const base = record(row?.base);
-    const repository = record(base?.repo);
-    if (
-      !row ||
-      typeof head?.sha !== "string" ||
-      typeof repository?.full_name !== "string"
-    ) {
-      throw failure("invalid_response", "github_pull_request_invalid", false);
-    }
-    if (row.state !== "open") {
-      throw failure("stale_head", "github_pull_request_not_open", false);
-    }
-    if (
-      repository.full_name.toLowerCase() !==
-      `${input.owner}/${input.repo}`.toLowerCase()
-    ) {
-      throw failure(
-        "repository_mismatch",
-        "github_pull_request_repository_mismatch",
-        false,
-      );
-    }
-    if (head.sha !== input.expectedHeadSha) {
-      throw failure("stale_head", "github_pull_request_head_stale", false);
-    }
+    assertCurrentPullRequestData(response.data, input);
   }
 
   private async findMarkedComments(
@@ -435,6 +409,43 @@ export class ReviewProgressGitHubGateway {
 
   private fallbackRetryAt(): Date {
     return jitterAfter(new Date(this.now().getTime() + 1_000), this.random);
+  }
+}
+
+/** Validate the remote pull identity independently of the GitHub request. */
+function assertCurrentPullRequestData(
+  value: unknown,
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "expectedHeadSha"
+  >,
+): void {
+  const row = record(value);
+  const head = record(row?.head);
+  const base = record(row?.base);
+  const repository = record(base?.repo);
+  if (
+    !row ||
+    typeof head?.sha !== "string" ||
+    typeof repository?.full_name !== "string"
+  ) {
+    throw failure("invalid_response", "github_pull_request_invalid", false);
+  }
+  if (row.state !== "open") {
+    throw failure("stale_head", "github_pull_request_not_open", false);
+  }
+  if (
+    repository.full_name.toLowerCase() !==
+    `${input.owner}/${input.repo}`.toLowerCase()
+  ) {
+    throw failure(
+      "repository_mismatch",
+      "github_pull_request_repository_mismatch",
+      false,
+    );
+  }
+  if (head.sha !== input.expectedHeadSha) {
+    throw failure("stale_head", "github_pull_request_head_stale", false);
   }
 }
 
