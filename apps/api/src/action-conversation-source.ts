@@ -120,7 +120,6 @@ function message(comment: ReviewComment): ConversationMessage {
   };
 }
 
-
 /** Keep the same denial policy for original anchors and renamed target paths. */
 function isAllowedFocusedPath(value: string): boolean {
   return (
