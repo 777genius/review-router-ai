@@ -25,7 +25,11 @@
     "closureAckAt": "2026-11-03T18:17:54.03073Z",
     "cleanupDoneAt": "2026-11-03T18:17:54.949558Z",
     "replayed": false,
-    "evidenceOwner": "sole release operator, native read-only receipt"
+    "evidenceOwner": "sole release operator, native read-only receipt",
+    "closureReceiptUrl": null,
+    "receiptVisibility": "private_operator_only",
+    "verificationStatus": "not_independently_audited",
+    "nextEvidenceStep": "Release owner must publish an immutable secret-free closure receipt URL before independent validation; do not expose private data."
   },
   "evidenceSha256": {
     "tuning-r1.json": "80ac46548bf03cc77569de3320602681e2f872ce4c259c98a0532de72c527ce8",
