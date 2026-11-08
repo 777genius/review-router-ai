@@ -441,3 +441,32 @@ it("does not reveal provider quota after account authority is lost during the fa
   expect(JSON.stringify(events)).not.toContain("quota_exhausted");
   expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(1);
 });
+
+it.each(["ok", "quota", "cleanup"] as const)(
+  "does not disclose %s probe results after revocation during close",
+  async (mode) => {
+    const fixtureMode = mode === "ok" ? "ok" : mode;
+    const f = await fixture(fixtureMode);
+    const events: ConnectionProbeEvent[] = [];
+    await createGatewayConnectionProbe({
+      resolve: async () => {
+        if (f.calls.some((call) => call.path.endsWith("/close")))
+          throw new ProviderAccountError("binding_unavailable");
+        return f.tuple;
+      },
+      admit: async () => {},
+      control: f.control,
+      executionOrigin: f.origin,
+    })(request(), (event) => events.push(event), new AbortController().signal);
+    expect(events.at(-1)).toEqual({
+      type: "result",
+      ok: false,
+      code: "denied",
+      diagnosis: { code: "access_denied", source: "application" },
+    });
+    expect(JSON.stringify(events)).not.toContain("quota_exhausted");
+    expect(events.filter((event) => event.type === "result")).toHaveLength(1);
+    expect(f.calls.filter((call) => call.path.endsWith("/requests"))).toHaveLength(1);
+    expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(1);
+  },
+);
