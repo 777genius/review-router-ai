@@ -337,9 +337,10 @@ test("account limits restrict shared rows before native reads and fence a delaye
     ).toBeDisabled();
     await page.getByRole("tab", { name: /RR E2E Org Bravo/ }).click();
     await expect(
-      page.getByText("Connections available for RR E2E Org Bravo.", {
-        exact: false,
-      }),
+      page.getByRole("tab", { name: /RR E2E Org Bravo/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("region", { name: "Available connections" }),
     ).toBeVisible();
   } finally {
     releaseResponse();
@@ -453,11 +454,11 @@ test("Claude account limits distinguish all-model and model windows on desktop a
   const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
   await expect(row).toContainText(/Claude\s*·\s*OAuth/);
   const limits = limitsFor(row);
+  // The compact line intentionally renders only the first two windows.
+  // Per-model windows are present in the keyboard-accessible Details view.
   for (const [label, remaining] of [
     ["5h", "62.5"],
     ["7d", "12"],
-    ["7d Sonnet", "27.75"],
-    ["7d Fable", "0"],
   ] as const) {
     await expect(
       limits.getByRole("progressbar", {
@@ -478,6 +479,9 @@ test("Claude account limits distinguish all-model and model windows on desktop a
   await summary.focus();
   await summary.press("Enter");
   await expect(limits.locator("details")).toHaveAttribute("open", "");
+  await expect(limits.getByRole("progressbar")).toHaveCount(2);
+  await expect(limits).toContainText("7d Sonnet");
+  await expect(limits).toContainText("7d Fable");
   await expect(limits).toContainText("72.25% used");
   await expect(limits).toContainText("125% used");
   await expect(limits.getByText(/^As of:/).first()).toBeVisible();
@@ -546,6 +550,9 @@ test("Claude account limits preserve unknown and stale observations on mobile wi
   await installLoopbackOnlyNetworkGuard(page, violations);
   for (const mode of ["unknown", "stale"] as const) {
     await configure(request, mode);
+    // A fresh navigation isolates the mode from the previous Next client cache
+    // while preserving the same authenticated browser and network guard.
+    if (mode === "stale") await page.goto("about:blank");
     await openAccounts(page, "rr-e2e-personal-viewer");
     const row = sourceRow(page, FIXTURES.sourceLabels.viewerClaude);
     await expect(row).toContainText(/Claude\s*·\s*OAuth/);
@@ -599,12 +606,10 @@ test("Claude account limits follow the personal owner across workspace sharing",
     sourceRow(page, FIXTURES.sourceLabels.viewerClaude),
   );
   await expect(ownLimits).toContainText("62.5% left");
-  await expect(
-    ownLimits.getByRole("progressbar", {
-      name: "7d Sonnet remaining",
-      exact: true,
-    }),
-  ).toHaveAttribute("aria-valuenow", "27.75");
+  // Per-model windows belong to the full Details view, not the two-window compact bar.
+  await ownLimits.getByText("Details", { exact: true }).click();
+  await expect(ownLimits).toContainText("7d Sonnet");
+  await expect(ownLimits).toContainText("72.25% used");
   await expect(ownLimits).not.toContainText("visible to the owner");
   await page.waitForLoadState("networkidle");
   expect((await stats(request)).readAccounts).toContain(
