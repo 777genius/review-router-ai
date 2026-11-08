@@ -459,7 +459,9 @@ describe("offline Prisma generate", () => {
     );
     expect(enforcement?.run).toBeDefined();
     expect(enforcement?.env?.IMPACT_RESULT).toBe("${{ needs.impact.result }}");
-    expect(enforcement?.env?.IMPACT_TIER).toBe("${{ needs.impact.outputs.tier }}");
+    expect(enforcement?.env?.IMPACT_TIER).toBe(
+      "${{ needs.impact.outputs.tier }}",
+    );
     const variables = required.map((jobId) => {
       expect(workflow.jobs[jobId], `${jobId}: required job`).toBeDefined();
       expect(workflow.jobs[jobId]?.needs).toContain("impact");
@@ -494,7 +496,10 @@ describe("offline Prisma generate", () => {
       const success = Object.fromEntries(
         variables.map((name, i) => [name, expected[i]]),
       );
-      expect(runGate(success, tier).status, `${tier}: expected lane set`).toBe(0);
+      expect(
+        runGate(success, tier).status,
+        `${tier}: expected lane set`,
+      ).toBe(0);
       for (const [i, variable] of variables.entries()) {
         const unexpected = expected[i] === "success" ? "skipped" : "success";
         for (const result of ["failure", "cancelled", unexpected, ""]) {
@@ -513,7 +518,9 @@ describe("offline Prisma generate", () => {
       expect(runGate(full, "full", false, impact).status).toBe(1);
     }
     // Draft PRs may skip heavy jobs but never accept failure or cancellation.
-    const skipped = Object.fromEntries(variables.map((name) => [name, "skipped"]));
+    const skipped = Object.fromEntries(
+      variables.map((name) => [name, "skipped"]),
+    );
     expect(runGate(skipped, "full", true).status).toBe(0);
     for (const variable of variables) {
       for (const result of ["failure", "cancelled", ""]) {
