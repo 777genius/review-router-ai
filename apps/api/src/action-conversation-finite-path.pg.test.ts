@@ -766,12 +766,15 @@ describe.skipIf(!databaseUrl)(
           const first = await f.processor.execute(input, controls());
           expect(first.status).toBe("ready");
           expect(first.reply?.body).toContain(expected);
-          expect(first.reply?.body).toContain("c".repeat(12));
-          if (!outdated && replacement !== "  return id.length > 0;")
+          if (!outdated && replacement !== "  return id.length > 0;") {
+            expect(first.reply?.body).toContain("c".repeat(12));
             expect(first.reply?.body).toContain(
               "suggestion\n  return id.trim().length > 0;",
             );
-          else expect(first.reply?.body).not.toContain("suggestion\n");
+          } else {
+            expect(first.reply?.body).not.toContain("suggestion\n");
+            expect(first.reply?.body).not.toContain("c".repeat(12));
+          }
           expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
           expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
           expect(prepared).toBe(0);
