@@ -13,6 +13,12 @@ const documentation = new Set([
 ]);
 
 function isDocumentation(path) {
+  // These architecture decisions are executable assertions in history:architecture.
+  if (
+    path === "ai-docs/decisions/README.md" ||
+    path === "ai-docs/decisions/032-review-history-scoped-composition.md"
+  )
+    return false;
   return (
     documentation.has(path) ||
     ((path.startsWith("docs/") || path.startsWith("ai-docs/")) &&

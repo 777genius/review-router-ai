@@ -11,6 +11,21 @@ const cases = [
   ["docs only", ["README.md", "docs/guide.md"], "docs"],
   ["deployment Markdown only", ["ai-docs/deployments/rollout.md"], "docs"],
   [
+    "review history decision index must run full architecture checks",
+    ["ai-docs/decisions/README.md"],
+    "full",
+  ],
+  [
+    "review history scoped decision must run full architecture checks",
+    ["ai-docs/decisions/032-review-history-scoped-composition.md"],
+    "full",
+  ],
+  [
+    "review history decision mixed with ordinary documentation is full",
+    ["README.md", "ai-docs/decisions/README.md"],
+    "full",
+  ],
+  [
     "evidence JSON is not documentation",
     ["ai-docs/evidence/receipt.json"],
     "full",
