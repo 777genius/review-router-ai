@@ -398,10 +398,9 @@ describe("ReviewProgressGitHubGateway", () => {
   });
 
   it("rechecks the PR head before patching a changed canonical comment", async () => {
-    const fixture = githubFixture(
-      [{ id: 4, body: `old\n${marker}` }],
-      { staleHeadAfterFirstRead: true },
-    );
+    const fixture = githubFixture([{ id: 4, body: `old\n${marker}` }], {
+      staleHeadAfterFirstRead: true,
+    });
 
     await expect(
       gateway(fixture.request).upsert(input()),
