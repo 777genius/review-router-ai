@@ -4,7 +4,7 @@ Normal pull requests run a conservative change-based subset of the core CI. The 
 
 **`docs`:** Markdown/text/images in `docs/` or `ai-docs/`, or named root documents. Runs Static Checks, CI impact and Quality Gates.
 
-**`ui`:** The above plus visual `.tsx`, CSS or image files in `apps/web/` or `packages/ui/`; server/API/auth paths excluded. Runs Static Checks, Quality Checks, CI impact and Quality Gates.
+**`ui`:** Documentation plus shared presentational components in `packages/ui/src/`, CSS in `apps/web/`, and images in `apps/web/public/`. Next.js page `.tsx`, API, server and authorization changes always use full CI. Runs Static Checks, Quality Checks, CI impact and Quality Gates.
 
 **`full`:** Everything else. Runs all existing core jobs, including PostgreSQL 17, certification, runtime image and Self-hosted E2E.
 

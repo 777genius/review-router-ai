@@ -17,14 +17,14 @@ const cases = [
   ],
   ["scripts in docs are executable", ["docs/example.sh"], "full"],
   ["repo instructions change is not docs-only", ["AGENTS.md"], "full"],
-  ["visual component", ["apps/web/app/dashboard/limits.tsx"], "ui"],
-  ["shared visual component", ["packages/ui/src/button.tsx"], "ui"],
+  ["Next Server Component is full", ["apps/web/app/dashboard/limits.tsx"], "full"],
+  ["shared visual component", ["packages/ui/src/button/button.tsx"], "ui"],
   [
     "CSS and images",
     ["apps/web/app/theme.css", "apps/web/public/logo.svg"],
     "ui",
   ],
-  ["visual plus docs", ["docs/guide.md", "apps/web/app/landing.tsx"], "ui"],
+  ["visual plus docs", ["docs/guide.md", "packages/ui/src/badge/badge.tsx"], "ui"],
   ["API route must be full", ["apps/web/app/api/session/route.tsx"], "full"],
   [
     "server rendering implementation must be full",
@@ -32,6 +32,11 @@ const cases = [
     "full",
   ],
   ["auth implementation must be full", ["apps/web/app/auth/page.tsx"], "full"],
+  [
+    "client component in account pages is full",
+    ["apps/web/app/dashboard/account-limits-line.tsx"],
+    "full",
+  ],
   ["backend code must be full", ["apps/api/src/index.ts"], "full"],
   [
     "backend plus visual must be full",

@@ -21,21 +21,18 @@ function isDocumentation(path) {
 }
 
 function isVisualUI(path) {
-  if (!path.startsWith("apps/web/") && !path.startsWith("packages/ui/"))
-    return false;
-  // Auth, API and server code must never enter the cheaper visual-only lane.
-  if (
-    path.startsWith("apps/web/app/api/") ||
-    path.startsWith("apps/web/src/server/") ||
-    path.startsWith("apps/web/app/auth/") ||
-    path.startsWith("apps/web/src/auth/") ||
-    path.startsWith("apps/web/src/private-")
-  )
-    return false;
-  return /\.(?:tsx|css|scss|sass|svg|png|jpe?g|webp|gif)$/.test(path);
+  // Next.js TSX files may be Server Components and enforce access controls.
+  if (path.startsWith("packages/ui/src/"))
+    return /\.(?:tsx|css|scss|sass|svg|png|jpe?g|webp|gif)$/.test(path);
+  if (!path.startsWith("apps/web/")) return false;
+  if (/\.(?:css|scss|sass)$/.test(path)) return true;
+  return (
+    path.startsWith("apps/web/public/") &&
+    /\.(?:svg|png|jpe?g|webp|gif)$/.test(path)
+  );
 }
 
-/** Unknown or mixed executable changes always require the complete CI matrix. */
+/** Unknown or mixed executable changes always require full CI. */
 export function classifyChangedPaths(paths) {
   if (!Array.isArray(paths) || paths.length === 0) return "full";
   let visual = false;
@@ -68,7 +65,7 @@ function git(args, cwd) {
   return result.error || result.status !== 0 ? null : result.stdout;
 }
 
-/** Use the checked-out merge commit, never an untrusted PR branch or an API file cap. */
+/** Inspect the reviewed merge checkout, not an API-limited file list. */
 export function changedPaths(base, head, cwd = process.cwd()) {
   if (!sha.test(base) || !sha.test(head)) return null;
   const actual = git(["rev-parse", "HEAD"], cwd);
