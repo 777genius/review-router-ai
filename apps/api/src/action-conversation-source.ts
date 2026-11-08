@@ -136,7 +136,9 @@ function isAllowedFocusedPath(value: string): boolean {
     !/(^|\/)(?:\.env[^/]*|\.npmrc|\.pypirc|\.netrc|id_rsa(?:\.pub)?|id_ed25519(?:\.pub)?)$/iu.test(
       value,
     ) &&
-    !/\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock|tfstate(?:\.[^/]*)?|tfvars(?:\.json)?)$/iu.test(value)
+    !/\.(?:pem|p12|pfx|key|bin|png|jpg|zip|lock|tfstate(?:\.[^/]*)?|tfvars(?:\.json)?)$/iu.test(
+      value,
+    )
   );
 }
 
