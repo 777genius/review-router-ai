@@ -153,7 +153,9 @@ describe("ReviewProgressGitHubGateway", () => {
       { staleHeadAfterFirstRead: true },
     );
 
-    await expect(gateway(fixture.request).upsert(input())).rejects.toMatchObject({
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
       kind: "stale_head",
       metadata: { retryable: false },
     });
