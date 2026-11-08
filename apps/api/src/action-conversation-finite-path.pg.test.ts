@@ -215,7 +215,7 @@ describe.skipIf(!databaseUrl)(
         updated_at: time,
         ...(index === 0 ? {} : { in_reply_to_id: 1 }),
         pull_request_url: "https://api.github.com/repos/acme/project/pulls/7",
-        path: "src/ids.ts",
+        path: options.focusedFilename ?? "src/ids.ts",
         side: "RIGHT",
         line: 5,
         original_line: 5,
@@ -712,6 +712,8 @@ describe.skipIf(!databaseUrl)(
     it.each([
       ["/rr fixed", ".env.local"],
       ["/rr fixed", "deploy/terraform.tfstate"],
+      ["/rr fixed", "config/.aws/credentials"],
+      ["/rr fixed", "src/.hidden.ts"],
       ["/rr suggest fix", ".npmrc"],
       ["/rr suggest fix", "src/.hidden/file.ts"],
     ] as const)(
