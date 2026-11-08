@@ -242,8 +242,7 @@ function publicationRetryPlan(
   readonly retryAt: Date;
   readonly installationCooldownUntil?: Date;
 } {
-  const githubError =
-    error instanceof ReviewProgressGitHubError ? error : null;
+  const githubError = error instanceof ReviewProgressGitHubError ? error : null;
   let retryAt = githubError?.metadata.retryAt;
   if (!retryAt) {
     retryAt = new Date(now().getTime() + retryDelayMs);
