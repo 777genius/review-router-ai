@@ -187,6 +187,39 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
+  it("does not exhaust a claim or increment failures for budget deferrals", async () => {
+    const recorded: Record<string, unknown>[] = [];
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewProgressPublicationV1: {
+            updateMany: async (input: { data: Record<string, unknown> }) => {
+              recorded.push(input.data);
+              return { count: 1 };
+            },
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.retry({
+        publication: { ...claimed(), failureCount: 2 },
+        safeCode: "review_progress_installation_budget_wait",
+        retryAt: new Date(now.getTime() + 5_000),
+        now,
+        maxFailures: 3,
+        countFailure: false,
+      }),
+    ).resolves.toBe("retried");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      lastErrorCode: "review_progress_installation_budget_wait",
+    });
+    expect(recorded[0]).not.toHaveProperty("publishedVersion");
+    expect(recorded[0]).not.toHaveProperty("failureCount");
+  });
+
   it("limits hosted claims to the explicit repository cohort", async () => {
     const rawQueries: unknown[] = [];
     const prisma = {

@@ -285,31 +285,14 @@ export class PrismaReviewProgressPublicationStore {
     assertDuration(input.maxFailures);
     let outcome: "retried" | "suppressed" = "retried";
     await this.prisma.$transaction(async (transaction) => {
-      const reachesLimit =
-        input.countFailure !== false &&
-        input.publication.failureCount + 1 >= input.maxFailures;
+      const mutation = retryMutationData(input);
       await transaction.reviewProgressPublicationV1.updateMany({
         where: {
           ...claimedPublicationFence(input.publication),
         },
-        data: {
-          ...(reachesLimit
-            ? { publishedVersion: input.publication.desiredVersion }
-            : {}),
-          claimId: null,
-          claimOwnerIdHash: null,
-          claimUntil: null,
-          ...(input.countFailure === false
-            ? {}
-            : { failureCount: { increment: 1 } }),
-          lastErrorCode: reachesLimit
-            ? "review_progress_retry_limit_reached"
-            : safeCode(input.safeCode),
-          nextPublishAt: input.retryAt,
-          updatedAt: input.now,
-        },
+        data: mutation.data,
       });
-      if (reachesLimit) outcome = "suppressed";
+      if (mutation.reachesLimit) outcome = "suppressed";
       if (input.installationCooldownUntil) {
         await transaction.$executeRaw(Prisma.sql`
           INSERT INTO "ReviewProgressInstallationBudgetV1"
@@ -453,6 +436,34 @@ export class PrismaReviewProgressPublicationStore {
     }
     return promoted;
   }
+}
+
+/** Keep retry exhaustion and error-code policy outside persistence effects. */
+function retryMutationData(
+  input: Parameters<PrismaReviewProgressPublicationStore["retry"]>[0],
+) {
+  const reachesLimit =
+    input.countFailure !== false &&
+    input.publication.failureCount + 1 >= input.maxFailures;
+  return {
+    reachesLimit,
+    data: {
+      ...(reachesLimit
+        ? { publishedVersion: input.publication.desiredVersion }
+        : {}),
+      claimId: null,
+      claimOwnerIdHash: null,
+      claimUntil: null,
+      ...(input.countFailure === false
+        ? {}
+        : { failureCount: { increment: 1 } }),
+      lastErrorCode: reachesLimit
+        ? "review_progress_retry_limit_reached"
+        : safeCode(input.safeCode),
+      nextPublishAt: input.retryAt,
+      updatedAt: input.now,
+    },
+  };
 }
 
 /** Keep the optimistic claim fence identical across progress mutations. */
