@@ -346,6 +346,9 @@ export class ProcessConversation {
                 budget,
               )) ?? null)
             : null;
+        // No trusted current source means no applicable finding: never charge a model call.
+        if ((fixedCommand || suggestCommand) && !focusedSource)
+          throw new ConversationError("unavailable");
         answerOnly =
           fixedCommand ||
           suggestCommand ||
