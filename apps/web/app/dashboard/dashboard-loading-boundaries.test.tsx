@@ -265,7 +265,7 @@ vi.mock("../../src/server/github-app-install-url", () => ({
 vi.mock("../../src/server/github-user-repository-access", () => ({
   listGitHubUserRepositoryAccess: fixtures.spies.discovery,
 }));
-vi.mock("../../src/server/prisma-codex-rotating-setup-readiness", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   PrismaCodexRotatingSetupReadiness: fixtures.EmptyStore,
 }));
 vi.mock("../../src/server/dashboard-codex-rotating-setup-readiness", () => ({
@@ -303,9 +303,17 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@reviewrouter/features-review-config")
   >()),
-  PrismaReviewPolicyHeadReader: fixtures.EmptyStore,
   resolveEffectiveReviewConfigurations: fixtures.spies.policies,
 }));
+vi.mock(
+  "@reviewrouter/features-review-config/composition",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@reviewrouter/features-review-config/composition")
+    >()),
+    PrismaReviewPolicyHeadReader: fixtures.EmptyStore,
+  }),
+);
 vi.mock("@reviewrouter/features-outbox", () => ({
   PrismaOutboxEventRepository: fixtures.EmptyStore,
   listWorkspaceOutboxFailures: fixtures.spies.outbox,
@@ -319,11 +327,13 @@ vi.mock("@reviewrouter/features-org-ruleset-provisioning", () => ({
     findByWorkspaceId = fixtures.spies.ruleset;
   },
 }));
-vi.mock("@reviewrouter/features-workflow-provisioning", () => ({
+vi.mock("@reviewrouter/features-workflow-provisioning/composition", () => ({
   PrismaWorkflowProvisioningQuery: fixtures.EmptyStore,
+}));
+vi.mock("@reviewrouter/features-workflow-provisioning", () => ({
   listRepositoryWorkflowProvisioning: fixtures.spies.provisioning,
 }));
-vi.mock("@reviewrouter/features-audit-log", () => ({
+vi.mock("@reviewrouter/features-audit-log/composition", () => ({
   PrismaAuditLogRepository: fixtures.EmptyStore,
 }));
 vi.mock("@reviewrouter/features-hosted-account-pool", () => ({

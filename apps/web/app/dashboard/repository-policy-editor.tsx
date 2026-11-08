@@ -74,7 +74,7 @@ const fieldHelp = {
   providerMaxParallel:
     "Maximum number of selected providers ReviewRouter may run at the same time.",
   inlineMinAgreement:
-    "Number of providers that should agree before an inline finding is treated as agreed.",
+    "Minimum independent AI reviewer votes required for inline PR comments. Findings below this threshold stay in the review summary and can still fail severity checks. Deterministic-only static/AST findings are exempt; static/AST do not add AI reviewer votes when mixed. Requires an updated managed v2 Action release with the #375 fix; older installations may behave differently.",
   updatePrDescription:
     "Adds an AI-generated summary through a supported review runtime while preserving the author's text.",
   reviewLanguage:
@@ -715,7 +715,15 @@ function replaceDashboardContextUrl(params: ReviewConfigActionParams): void {
   const url = new URL(window.location.href);
   let changed = false;
 
-  for (const key of ["notice", "error", "pr", "version"]) {
+  for (const key of [
+    "notice",
+    "error",
+    "pr",
+    "setupOutcome",
+    "recoveryError",
+    "workflowPath",
+    "version",
+  ]) {
     if (url.searchParams.has(key)) {
       url.searchParams.delete(key);
       changed = true;

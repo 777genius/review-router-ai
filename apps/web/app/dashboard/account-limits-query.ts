@@ -1,4 +1,8 @@
-import { type QueryClient, queryOptions } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  queryOptions,
+  mutationOptions,
+} from "@tanstack/react-query";
 import type {
   AccountLimitsView,
   AccountsResult,
@@ -6,6 +10,7 @@ import type {
 } from "../../src/server/account-gateway-accounts";
 import {
   readAccountLimits,
+  refreshAccountLimits,
   type AccountLimitsRequest,
 } from "./account-limits-api";
 
@@ -13,6 +18,49 @@ export const accountLimitsKey = (scope: string, connectionId: string) =>
   ["account-limits", scope, connectionId] as const;
 export const accountLimitsScope = (context: string, workspaceId?: string) =>
   `${workspaceId ? `workspace:${workspaceId}` : "personal"}:${context.split(".")[0] ?? ""}`;
+
+export function accountLimitsRefreshOptions(
+  scope: string,
+  request: AccountLimitsRequest,
+  client: QueryClient,
+) {
+  return mutationOptions({
+    mutationKey: [
+      "account-limits-refresh",
+      scope,
+      request.connectionId,
+    ] as const,
+    retry: false,
+    gcTime: 0,
+    mutationFn: async () => {
+      const key = accountLimitsKey(scope, request.connectionId);
+      const before =
+        client.getQueryData<AccountsResult<AccountLimitsView>>(key);
+      if (before?.status !== "ok" || !before.value.refreshAvailable)
+        throw new Error("Limits refresh unavailable");
+      await client.cancelQueries({ queryKey: key, exact: true });
+      const result = await refreshAccountLimits(request);
+      const current =
+        client.getQueryData<AccountsResult<AccountLimitsView>>(key);
+      // A detached/reconnected account or a discarded view cannot be resurrected
+      // by a late result from the previous lifetime.
+      if (
+        current?.status !== "ok" ||
+        current.value.displayToken !== before.value.displayToken
+      )
+        return;
+      // A real authorization loss must erase the prior numeric observation.
+      if (result.status === "denied") {
+        client.setQueryData(key, result);
+        return;
+      }
+      if (result.status !== "ok" || result.value.status === "unavailable")
+        throw new Error("Could not refresh current limits");
+      if (result.value.fetchedAt < current.value.fetchedAt) return;
+      client.setQueryData(key, result);
+    },
+  });
+}
 
 export function accountLimitsOptions(
   scope: string,

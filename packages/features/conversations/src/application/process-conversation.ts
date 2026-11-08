@@ -28,6 +28,7 @@ import {
   conversationRevisionPattern,
   unconfirmedConversationActionNotice,
   unconfirmedConversationObservationsNotice,
+  isInformationOnlyConversation,
 } from "../domain/conversation-action-authority.js";
 
 /** Purpose-bound framing for authorized memory supplied to a conversation. */
@@ -305,6 +306,7 @@ export class ProcessConversation {
       let prompt = "";
       let learningPreparation: ConversationLearningPreparation | null = null;
       let learningPreparationFailed = false;
+      let answerOnly = false;
       let modelInstructions = instructions;
       let modelSchema: {
         readonly name: string;
@@ -317,7 +319,16 @@ export class ProcessConversation {
           snapshot = undefined;
           continue;
         }
+        const currentMessage = snapshot.messages.find(
+          (message) => message.id === snapshot!.sourceId,
+        );
+        if (!currentMessage) throw new ConversationError("context_incomplete");
+        answerOnly = isInformationOnlyConversation(currentMessage.body);
+        modelInstructions = answerOnly
+          ? `${instructions}\nThis is an information-only question. Explain the finding using supplied evidence and return action=null. Do not propose or perform changes to memory, observations, rules or project configuration. Do not claim knowledge was saved. Mixed questions and assertions remain read-only.`
+          : instructions;
         if (
+          !answerOnly &&
           policy.automaticLearning &&
           snapshot.sourceMaintainer &&
           !learningPreparationFailed &&
@@ -369,9 +380,12 @@ export class ProcessConversation {
             : {}),
           conversation: JSON.parse(renderConversation(snapshot)) as unknown,
           memory: context.text,
-          memoryChanges: policy.requireConfirmation
-            ? "Propose useful changes. The server will request exact author confirmation unless this message already contains it."
-            : "Apply only memory operations requested or specifically approved by the current verified maintainer; no separate confirmation turn is required. Plain factual agreement is not a request for a memory action. Ambiguity still requires clarification.",
+          memoryChanges: answerOnly
+            ? "Answer only: no memory proposals, automatic observations, project rule changes, or memory actions."
+            : policy.requireConfirmation
+              ? "Propose useful changes. The server will request exact author confirmation unless this message already contains it."
+              : "Apply only memory operations requested or specifically approved by the current verified maintainer; no separate confirmation turn is required. Plain factual agreement is not a request for a memory action. Ambiguity still requires clarification.",
+          ...(answerOnly ? { requestedPurpose: "answer_only" } : {}),
         });
         const bytes =
           4096 +
@@ -512,6 +526,9 @@ export class ProcessConversation {
             throw new ConversationError("unavailable");
           }
         }
+        // Fail closed if inference proposes a write despite an answer-only purpose.
+        if (answerOnly && (output.action || output.kind === "effect_notice"))
+          throw new ConversationError("unavailable");
         if (!(await this.dependencies.records.freezeOutput(id, output)))
           throw new ConversationError("conflict");
         selected = output;
@@ -520,7 +537,11 @@ export class ProcessConversation {
       }
       // Learning follows the one paid grant, so its own scope-epoch transition
       // cannot invalidate the already frozen model input. New facts help the next turn.
-      if (policy.automaticLearning && snapshot.sourceMaintainer) {
+      if (
+        !answerOnly &&
+        policy.automaticLearning &&
+        snapshot.sourceMaintainer
+      ) {
         if (
           !(await this.dependencies.sources.isCurrent(snapshot, budget)) ||
           !(await policy.isCurrent(budget))

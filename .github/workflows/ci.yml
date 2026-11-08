@@ -63,7 +63,7 @@ env:
   REVIEW_ROUTER_DATABASE_RECOVERY_WITNESS: ci_database_recovery_witness_not_for_production_000000000000
   REVIEW_ROUTER_DEFAULT_MODEL: gpt-5.5
   REVIEW_ROUTER_DEFAULT_EFFORT: xhigh
-  REVIEW_ROUTER_PAIRED_ACTION_REF: abff4814dccab046debd61f7f5e14f4524f54e5e
+  REVIEW_ROUTER_PAIRED_ACTION_REF: 80c63cdbc23e32d099ba1779f9d09ff220a0370c
   REVIEW_ROUTER_HOSTED_POOL_ACTION_TAG: v1.0.171
   REVIEW_ROUTER_HOSTED_POOL_ACTION_SHA: 66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff
   REVIEW_ROUTER_HOSTED_POOL_ACTION_DIST_SHA256: 2a65907ac8474f805dcb23358618c9c673e6a903bf1c3c26fcdf4cfe02debe2a
@@ -302,7 +302,7 @@ jobs:
   self-hosted-e2e:
     name: Self-hosted E2E
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_E2E_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
 
     steps:
@@ -510,6 +510,9 @@ jobs:
           node --test deploy/hindsight/bootstrap.test.ts
           node --test deploy/self-hosted/setup-memory.test.ts
           node --test deploy/hetzner/fleet-overlay/fleet-overlay.node-test.mjs
+
+      - name: Guided self-hosted installer types and contracts
+        run: pnpm self-hosted:install:check
 
   quality:
     name: Quality Checks
@@ -818,6 +821,29 @@ jobs:
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir packages/platform/db db:migrate:deploy
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='codex_oauth_provider_identity_guard' AND pg_catalog.pg_get_userbyid(p.proowner)='postgres'")" = 1
           test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d review_router_ci_test -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+
+      # Clone the qualified ordinary schema before any application sessions.
+      # Replaying 000079 after its inert owner exists would reject that topology.
+      # This setup fixture preserves its ledger until the disposable service ends.
+      - name: Prepare provider setup migration PostgreSQL database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          test "$(psql -XqAt -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname='reviewrouter_release_migration'")" = 0
+          psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE reviewrouter_hosted_model_test TEMPLATE review_router_ci_test'
+
+      - name: Provider setup migration and locked-provider PostgreSQL (zero skips)
+        env:
+          REVIEW_ROUTER_MIGRATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/reviewrouter_hosted_model_test?schema=public
+          REVIEW_ROUTER_RUN_LOCKED_PROVIDER_PG17: "1"
+        run: |
+          GOMAXPROCS=2 node scripts/local-checks/compiler-cli.ts --native --noEmit -p tsconfig.hosted-pool-operations.json
+          results="$RUNNER_TEMP/provider-setup-postgres-results.json"
+          pnpm exec vitest run \
+            apps/web/src/server/codex-runtime-migration.postgres.test.ts \
+            scripts/locked-provider.pg17.real.test.ts \
+            --maxWorkers=1 --reporter=default --reporter=json --outputFile="$results"
+          node scripts/check-provider-setup-postgres-results.ts "$results"
 
       - name: Rotating Codex PostgreSQL 17 combined migration rehearsal (no skips)
         env:

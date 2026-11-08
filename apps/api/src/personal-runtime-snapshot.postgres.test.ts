@@ -14,12 +14,14 @@ import {
 import { PrismaPersonalAccountOperations } from "../../../packages/features/provider-accounts/src/infrastructure/prisma/prisma-personal-account-operations";
 import {
   createWorkspaceProviderProfile,
-  PrismaReviewConfigurationRepository,
-  PrismaReviewConfigurationTransactionRepository,
-  PrismaWorkspaceProviderProfileRepository,
   parseReviewConfigurationStrict,
   saveReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import {
+  PrismaReviewConfigurationRepository,
+  PrismaReviewConfigurationTransactionRepository,
+  PrismaWorkspaceProviderProfileRepository,
+} from "@reviewrouter/features-review-config/composition";
 import {
   canonicalJson,
   parseProducerPrDescriptionProfile,

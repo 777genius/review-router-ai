@@ -841,6 +841,42 @@ it("companion local unpaid admission consumes one reservation and one SDK reques
   }
 });
 
+it("preserves confirmed provider quota without replaying the companion request", async () => {
+  const state = companionReservation();
+  const providerQuota = {
+    provider: "openrouter" as const,
+    limit: 1000,
+    remaining: 0 as const,
+    resetAt: "2026-11-04T00:00:00.000Z",
+  };
+  const f = await fixture(32768, 0, 2, 5000, undefined, {
+    admission: state.admission,
+    providerQuota,
+  });
+  try {
+    await expect(
+      f.relay.responses(
+        "authorization-1",
+        companionEnvelope(),
+        new AbortController(),
+        undefined,
+        companionContext,
+      ),
+    ).rejects.toMatchObject({
+      code: "provider_quota_exhausted",
+      statusCode: 502,
+      effect: "effect_unknown",
+      providerQuota,
+    });
+    expect(f.requestRefs).toHaveLength(1);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
 it.each([403, 503])(
   "ordinary request logs closed SDK refusal fields for HTTP %s without retrying",
   async (httpStatus) => {
@@ -1127,6 +1163,12 @@ async function fixture(
     admission: ReviewRunCompanionDispatchAdmission &
       Partial<Pick<ReviewRunModelDispatchAdmission, "forward">>;
     unpaid?: boolean;
+    providerQuota?: {
+      provider: "openrouter";
+      limit: number;
+      remaining: 0;
+      resetAt: string;
+    };
     refusalStatus?: number;
     failUsageOutcome?: boolean;
     modelDispatchV2?: boolean;
@@ -1401,6 +1443,9 @@ async function fixture(
   let prepareGate: Promise<void> | undefined;
   let prepareStarted: (() => void) | undefined;
   let prepareFailure = false;
+  let prepareRejection:
+    | { statusCode: number; body: (intent: c.Prepare) => unknown }
+    | undefined;
   const operations = new Map<string, c.Operation>();
   const operationReads: string[] = [];
   const intents: c.Prepare[] = [];
@@ -1427,6 +1472,14 @@ async function fixture(
     if (req.url === "/internal/v1/run-access") {
       const intent = JSON.parse(raw) as c.Prepare;
       intents.push(intent);
+      if (prepareRejection) {
+        res
+          .writeHead(prepareRejection.statusCode, {
+            "content-type": "application/json",
+          })
+          .end(JSON.stringify(prepareRejection.body(intent)));
+        return;
+      }
       const executionRef = `execution-${intent.operationId}`;
       nativeExecutions.set(executionRef, "active");
       operations.set(intent.operationId, {
@@ -1504,6 +1557,19 @@ async function fixture(
               retry: { kind: "never" },
             }),
           );
+        return;
+      }
+      if (companionOptions?.providerQuota) {
+        res.writeHead(503, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            code: "upstream_failure",
+            traceRef: "quota-fixture-trace",
+            requestRef: String(req.headers["x-gateway-request-id"]),
+            effect: "effect_unknown",
+            retry: { kind: "readback" },
+            providerQuota: companionOptions.providerQuota,
+          }),
+        );
         return;
       }
       if (companionOptions?.unpaid) {
@@ -1706,6 +1772,12 @@ async function fixture(
   const relay = createReviewRunGatewayRelay(relayInput);
   return {
     preparation,
+    rejectPreparation(
+      statusCode: number,
+      body: (intent: c.Prepare) => unknown,
+    ) {
+      prepareRejection = { statusCode, body };
+    },
     relay,
     terminalRuns,
     authorizations: relayInput.authorizations,
@@ -1846,6 +1918,204 @@ it.each([
   },
   10000,
 );
+
+it("preserves a validated run-access admission refusal without claiming a model dispatch", async () => {
+  const f = await fixture(8 * MiB);
+  f.rejectPreparation(503, (intent) => ({
+    code: "admission_limited",
+    traceRef: "fixture-trace",
+    operationRef: intent.operationId,
+    effect: "not_dispatched",
+    retry: { kind: "after", milliseconds: 1000 },
+  }));
+  try {
+    await expect(f.preparation.prepare()).rejects.toMatchObject({
+      code: "safe_error",
+      effect: "not_dispatched",
+      httpStatus: 503,
+      diagnostic: { code: "admission_limited" },
+    });
+    expect(f.intents).toHaveLength(1);
+    expect(f.nativeExecutions.size).toBe(0);
+    expect(f.requestRefs).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each(["foreign-operation", "malformed"])(
+  "keeps %s run-access rejection uncertain",
+  async (kind) => {
+    const f = await fixture(8 * MiB);
+    f.rejectPreparation(503, (intent) => ({
+      code: "admission_limited",
+      traceRef: "fixture-trace",
+      operationRef:
+        kind === "foreign-operation" ? "another-operation" : intent.operationId,
+      effect: "not_dispatched",
+      retry: { kind: "after", milliseconds: 1000 },
+      ...(kind === "malformed"
+        ? { untrustedDetails: "not a safe diagnostic" }
+        : {}),
+    }));
+    try {
+      await expect(f.preparation.prepare()).rejects.toMatchObject({
+        code: "invalid_response",
+        effect: "effect_unknown",
+      });
+      expect(f.intents).toHaveLength(1);
+      expect(f.nativeExecutions.size).toBe(0);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+// Regression: a proven pre-Prepare refusal must not permanently consume a relay slot.
+it.each([false, true])(
+  "releases proven no-execution capacity after v4=%s refusal",
+  async (v4) => {
+    const f = await fixture(
+      MiB,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      128,
+      undefined,
+      v4
+        ? { models: ["gpt-5.6-sol"], independentAllocations: true }
+        : undefined,
+    );
+    f.rejectPreparation(503, (intent) => ({
+      code: "admission_limited",
+      traceRef: "fixture-trace",
+      operationRef: intent.operationId,
+      effect: "not_dispatched",
+      retry: { kind: "after", milliseconds: 1000 },
+    }));
+    try {
+      const reviewer = v4 ? "reviewer-0" : undefined;
+      await expect(
+        streamRun(f, "authorization-1", reviewer),
+      ).rejects.toMatchObject({
+        code: v4 ? "admission_limited" : "safe_error",
+        effect: "not_dispatched",
+      });
+      f.revoke("authorization-1");
+      await expect(
+        streamRun(f, "authorization-2", reviewer),
+      ).rejects.toMatchObject({
+        code: v4 ? "admission_limited" : "safe_error",
+        effect: "not_dispatched",
+      });
+      expect(f.intents).toHaveLength(2);
+      expect(f.nativeExecutions.size).toBe(0);
+      expect(f.requestRefs).toHaveLength(0);
+      expect(f.nativeCloses).toHaveLength(0);
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("retains the no-execution proof across repeated close without preparing again", async () => {
+  const f = await fixture(MiB);
+  f.rejectPreparation(503, (intent) => ({
+    code: "admission_limited",
+    traceRef: "fixture-trace",
+    operationRef: intent.operationId,
+    effect: "not_dispatched",
+    retry: { kind: "after", milliseconds: 1000 },
+  }));
+  try {
+    await expect(f.preparation.prepare()).rejects.toMatchObject({
+      code: "safe_error",
+    });
+    expect(f.preparation.needsRecovery()).toBe(false);
+    expect(await f.preparation.recoverSameOperation()).toEqual({
+      status: "denied",
+    });
+    for (let i = 0; i < 2; i++) {
+      expect(await f.preparation.close("cancelled")).toEqual({
+        state: "unknown",
+      });
+      expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(true);
+    }
+    expect(f.intents).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each([
+  "missing-operation",
+  "foreign-operation",
+  "unknown-effect",
+  "different-code",
+  "no-delay",
+  "malformed",
+])("retains uncertain cleanup for %s refusal", async (kind) => {
+  const f = await fixture(MiB);
+  f.rejectPreparation(503, (intent) => ({
+    code: kind === "different-code" ? "forbidden" : "admission_limited",
+    traceRef: "fixture-trace",
+    ...(kind === "missing-operation"
+      ? {}
+      : {
+          operationRef:
+            kind === "foreign-operation"
+              ? "foreign-operation"
+              : intent.operationId,
+        }),
+    effect: kind === "unknown-effect" ? "effect_unknown" : "not_dispatched",
+    retry:
+      kind === "no-delay"
+        ? { kind: "never" }
+        : { kind: "after", milliseconds: 1000 },
+    ...(kind === "malformed" ? { untrusted: true } : {}),
+  }));
+  try {
+    await expect(f.preparation.prepare()).rejects.toBeDefined();
+    expect(await f.preparation.close("cancelled")).toEqual({
+      state: "unknown",
+    });
+    expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(false);
+    expect(f.preparation.needsRecovery()).toBe(true);
+    expect(f.intents).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it("does not replace an earlier unknown Prepare with a later non-entry refusal", async () => {
+  const f = await fixture(MiB);
+  try {
+    f.setPrepareFailure();
+    await expect(f.preparation.prepare()).rejects.toMatchObject({
+      effect: "effect_unknown",
+    });
+    f.rejectPreparation(503, (intent) => ({
+      code: "admission_limited",
+      traceRef: "fixture-trace",
+      operationRef: intent.operationId,
+      effect: "not_dispatched",
+      retry: { kind: "after", milliseconds: 1000 },
+    }));
+    await expect(f.preparation.recoverSameOperation()).rejects.toMatchObject({
+      effect: "not_dispatched",
+    });
+    expect(await f.preparation.close("cancelled")).toEqual({
+      state: "unknown",
+    });
+    expect(f.preparation.canReleaseWithoutRemoteClose()).toBe(false);
+    expect(f.nativeExecutions.size).toBe(1);
+    expect(f.nativeCloses).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
 
 it("rejects unsupported captured output before run-access or inference", async () => {
   const f = await fixture(8 * MiB + 1);

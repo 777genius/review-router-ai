@@ -1,11 +1,11 @@
-import { activateConfirmedHostedPoolBindingAfterWorkflowMerge as activateHostedBinding } from "@reviewrouter/features-workflow-provisioning";
+import { activateConfirmedHostedPoolBindingAfterWorkflowMerge as activateHostedBinding } from "@reviewrouter/features-workflow-provisioning/composition";
 import { resolveReviewRouterCodexRotatingTrustedActionRefs } from "@reviewrouter/platform-config";
 import { switchRepositoryConfigurationAuthMode } from "./prisma-hosted-pool-mutations";
 
 export type {
   VerifiedHostedPoolWorkflow,
   HostedPoolWorkflowActivationResult,
-} from "@reviewrouter/features-workflow-provisioning";
+} from "@reviewrouter/features-workflow-provisioning/composition";
 
 export function activateConfirmedHostedPoolBindingAfterWorkflowMerge(
   input: Omit<

@@ -1,12 +1,14 @@
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
 import {
-  acquireReviewConfigurationWriteScope,
   findReviewConfiguration,
   parseRepositoryReviewPolicy,
-  PrismaReviewConfigurationTransactionRepository,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
   type ProviderProfileDraft,
 } from "@reviewrouter/features-review-config";
+import {
+  acquireReviewConfigurationWriteScope,
+  PrismaReviewConfigurationTransactionRepository,
+} from "@reviewrouter/features-review-config/composition";
 import type { Prisma } from "@prisma/client";
 
 /**

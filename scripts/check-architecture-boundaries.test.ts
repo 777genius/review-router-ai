@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -99,6 +105,87 @@ describe("nested feature layer coverage", () => {
       );
     },
   );
+});
+
+describe("review-execution private owner boundaries", () => {
+  it("allows one-way pure mapping and transaction read helpers", () => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-mappers.ts",
+      'import type { ReviewExecution } from "../../domain/review-execution";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/review-executions/src/infrastructure/prisma/prisma-review-execution-snapshot.ts",
+      'import { executionToDomain } from "./prisma-review-execution-mappers";\n',
+    );
+    writeFile(
+      root,
+      "apps/api/src/review-action-v2-execution-result-mappers.ts",
+      'import type { ReviewExecution } from "@reviewrouter/features-review-executions";\n',
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+  });
+
+  it.each([
+    [
+      "prisma-review-execution-mappers.ts",
+      'import type { Store } from "./prisma-review-execution-store";\n',
+    ],
+    [
+      "prisma-review-execution-snapshot.ts",
+      'export { PrismaReviewExecutionStore } from "./prisma-review-execution-store";\n',
+    ],
+    [
+      "prisma-review-execution-snapshot.ts",
+      'export const load = () => import("./prisma-review-execution-store");\n',
+    ],
+  ])("rejects reverse store dependencies from %s", (name, source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      `packages/features/review-executions/src/infrastructure/prisma/${name}`,
+      source,
+    );
+    expect(() => runChecker(root)).toThrow(
+      /private readers and mappers must not import their store/,
+    );
+  });
+
+  it.each([
+    'import type { Handlers } from "./review-action-v2-execution-evidence-composition";\n',
+    'export type { Handlers } from "./review-action-v2-execution-evidence-composition.js";\n',
+    'import { PrismaClient } from "@prisma/client";\n',
+  ])(
+    "rejects reverse or infrastructure imports from API result mappers",
+    (source) => {
+      const root = createFixture("export type Investigation = string;\n");
+      writeFile(
+        root,
+        "apps/api/src/review-action-v2-execution-result-mappers.ts",
+        source,
+      );
+      expect(() => runChecker(root)).toThrow(
+        /pure result mappers must not import their composition host or infrastructure SDK/,
+      );
+    },
+  );
+  it.each([
+    'import type { Handlers } from "./review-action-v2-context-attestation-composition";\n',
+    'export type { Handlers } from "./review-action-v2-context-attestation-composition.js";\n',
+    'import { PrismaClient } from "@prisma/client";\n',
+  ])("rejects side effects in context response mapping", (source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "apps/api/src/review-action-v2-context-result-mappers.ts",
+      source,
+    );
+    expect(() => runChecker(root)).toThrow(
+      /pure result mappers must not import their composition host or infrastructure SDK/,
+    );
+  });
 });
 
 describe("review-investigations architecture ratchet", () => {
@@ -354,6 +441,220 @@ describe("usage producer protocol transport boundary", () => {
     },
   );
 });
+
+describe("application and composition boundaries", () => {
+  it.each([
+    "workflow-provisioning",
+    "provider-setup",
+    "review-config",
+    "audit-log",
+  ])(
+    "allows %s application exports and a separate production composition entrypoint",
+    (feature) => {
+      const root = compositionFixture(feature);
+      expect(runChecker(root)).toContain("Architecture boundary check passed");
+    },
+  );
+
+  it.each([
+    ["direct value export", 'export * from "./infrastructure/adapter";\n'],
+    [
+      "direct type export",
+      'export type { Adapter } from "./infrastructure/adapter";\n',
+    ],
+    ["forwarding export", 'export * from "./public-contracts";\n'],
+  ])("rejects root adapter exposure through a %s", (_kind, source) => {
+    const root = compositionFixture("review-config");
+    writeFile(root, "packages/features/review-config/src/index.ts", source);
+    writeFile(
+      root,
+      "packages/features/review-config/src/public-contracts.ts",
+      'export type { Adapter } from "./composition/index.js";\n',
+    );
+    expect(() => runChecker(root)).toThrow(/application root cannot expose/);
+  });
+
+  it.each([
+    'import { Adapter } from "@reviewrouter/features-review-config/composition";\n',
+    'import type { Adapter } from "@reviewrouter/features-review-config/composition";\n',
+    'export type { Adapter } from "@reviewrouter/features-review-config/composition";\n',
+    'export const load = () => import("@reviewrouter/features-review-config/composition");\n',
+    'import type { Adapter } from "../../../review-config/src/composition/index.js";\n',
+  ])("rejects a core consumer's outer dependency: %s", (source) => {
+    const root = compositionFixture("review-config");
+    writeFile(
+      root,
+      "packages/features/consumer/src/application/use-case.ts",
+      source,
+    );
+    expect(() => runChecker(root)).toThrow(
+      /core cannot depend on selected composition/,
+    );
+  });
+
+  it("rejects own relative directory imports into composition", () => {
+    const root = compositionFixture("audit-log");
+    writeFile(
+      root,
+      "packages/features/audit-log/src/application/use-case.ts",
+      'import type { Adapter } from "../composition";\n',
+    );
+    expect(() => runChecker(root)).toThrow(
+      /core cannot depend on selected composition/,
+    );
+  });
+
+  it("rejects provider setup memory adapters forwarded by the application root", () => {
+    const root = compositionFixture("provider-setup");
+    writeFile(
+      root,
+      "packages/features/provider-setup/src/index.ts",
+      'export * from "./setup-contracts";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/provider-setup/src/setup-contracts.ts",
+      'export * from "./infrastructure/memory/store";\n',
+    );
+    expect(() => runChecker(root)).toThrow(/application root cannot expose/);
+  });
+
+  it("keeps provider setup transaction authority out of application consumers", () => {
+    const root = compositionFixture("provider-setup");
+    writeFile(
+      root,
+      "packages/features/consumer/src/application/setup.ts",
+      'import type { AdmittedOperation } from "@reviewrouter/features-provider-setup/composition";\n',
+    );
+    expect(() => runChecker(root)).toThrow(
+      /core cannot depend on selected composition/,
+    );
+  });
+
+  it("keeps outer composition consumers and independent legacy package roots allowed", () => {
+    const root = compositionFixture("workflow-provisioning");
+    writeFile(
+      root,
+      "packages/features/consumer/src/infrastructure/adapter.ts",
+      'import type { Adapter } from "@reviewrouter/features-workflow-provisioning/composition";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/workflow-provisioning/src/domain/policy.ts",
+      'export { legacyPolicy } from "@reviewrouter/features-codex-oauth-rotating";\n',
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+  });
+
+  it("rejects a source-only composition export without its production condition", () => {
+    const root = compositionFixture("audit-log");
+    writeFile(
+      root,
+      "packages/features/audit-log/package.json",
+      JSON.stringify({
+        exports: { "./composition": { default: "./src/composition/index.ts" } },
+      }),
+    );
+    expect(() => runChecker(root)).toThrow(
+      /source, type and production composition entrypoints/,
+    );
+  });
+
+  it.each(["./store", "./review-configuration"])(
+    "rejects an adapter exposed through the package alias %s",
+    (subpath) => {
+      const root = compositionFixture("review-config");
+      const manifestPath = "packages/features/review-config/package.json";
+      const manifest = JSON.parse(
+        readFileSync(join(root, manifestPath), "utf8"),
+      );
+      manifest.exports[subpath] = {
+        types: "./src/infrastructure/adapter.ts",
+        production: "./dist/infrastructure/adapter.js",
+        default: "./src/infrastructure/adapter.ts",
+      };
+      writeFile(root, manifestPath, JSON.stringify(manifest));
+      writeFile(
+        root,
+        "packages/features/consumer/src/application/use-case.ts",
+        `import { Adapter } from "@reviewrouter/features-review-config/${subpath.slice(2)}";\n`,
+      );
+      expect(() => runChecker(root)).toThrow(/only approved public subpaths/);
+    },
+  );
+
+  it("checks approved domain subpath forwarding without a root re-export", () => {
+    const root = compositionFixture("review-config");
+    const manifestPath = "packages/features/review-config/package.json";
+    const manifest = JSON.parse(readFileSync(join(root, manifestPath), "utf8"));
+    manifest.exports["./review-configuration"] = {
+      types: "./src/domain/review-configuration.ts",
+      production: "./dist/domain/review-configuration.js",
+      default: "./src/domain/review-configuration.ts",
+    };
+    writeFile(root, manifestPath, JSON.stringify(manifest));
+    writeFile(
+      root,
+      "packages/features/review-config/src/domain/review-configuration.ts",
+      'export { Adapter } from "../public-proxy";\n',
+    );
+    writeFile(
+      root,
+      "packages/features/review-config/src/public-proxy.ts",
+      'export { Adapter } from "./infrastructure/adapter";\n',
+    );
+    expect(() => runChecker(root)).toThrow(/application root cannot expose/);
+  });
+});
+
+function compositionFixture(feature: string): string {
+  const root = createFixture("export type Investigation = string;\n");
+  const prefix = `packages/features/${feature}`;
+  writeFile(
+    root,
+    `${prefix}/package.json`,
+    JSON.stringify({
+      exports: {
+        ".": {
+          types: "./src/index.ts",
+          production: "./dist/index.js",
+          default: "./src/index.ts",
+        },
+        "./composition": {
+          types: "./src/composition/index.ts",
+          production: "./dist/composition/index.js",
+          default: "./src/composition/index.ts",
+        },
+      },
+    }),
+  );
+  writeFile(
+    root,
+    `${prefix}/src/index.ts`,
+    'export * from "./application/use-case";\n',
+  );
+  writeFile(
+    root,
+    `${prefix}/src/application/use-case.ts`,
+    'export type { Policy } from "../domain/policy";\n',
+  );
+  writeFile(
+    root,
+    `${prefix}/src/domain/policy.ts`,
+    "export type Policy = string;\n",
+  );
+  writeFile(
+    root,
+    `${prefix}/src/composition/index.ts`,
+    'export * from "../infrastructure/adapter";\n',
+  );
+  writeFile(
+    root,
+    `${prefix}/src/infrastructure/adapter.ts`,
+    "export class Adapter {}\n",
+  );
+  return root;
+}
 
 function createFixture(domainSource: string): string {
   const root = mkdtempSync(join(tmpdir(), "reviewrouter-architecture-"));

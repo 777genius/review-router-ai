@@ -10,12 +10,20 @@ vi.mock("@reviewrouter/features-review-config", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@reviewrouter/features-review-config")
   >()),
-  acquireReviewConfigurationWriteScope: vi.fn(),
-  PrismaReviewConfigurationTransactionRepository: class {
-    saveNextVersions = mocks.save;
-  },
   findReviewConfiguration: mocks.find,
 }));
+vi.mock(
+  "@reviewrouter/features-review-config/composition",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@reviewrouter/features-review-config/composition")
+    >()),
+    acquireReviewConfigurationWriteScope: vi.fn(),
+    PrismaReviewConfigurationTransactionRepository: class {
+      saveNextVersions = mocks.save;
+    },
+  }),
+);
 const config = parseReviewConfiguration({
   schemaVersion: 3,
   providers: [

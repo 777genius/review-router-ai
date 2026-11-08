@@ -1,3 +1,4 @@
+import { createApiPublicationLifecycleFacts } from "./review-publication-lifecycle-facts";
 import { assertReviewRunCompanionDispatchEvidence } from "./review-lifecycle-verification.js";
 import {
   prepareReviewResolutionHistory,
@@ -7,7 +8,6 @@ import {
   appliedComparisonResolutions,
   bindComparisonResolutionHistory,
 } from "./review-comparison-baseline-resolutions.js";
-import { exactRestoredPublication } from "./review-execution-publication-restore.js";
 import { buildReviewComparisonBaseline } from "./review-comparison-baseline.js";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
@@ -25,6 +25,7 @@ import {
 import { PrismaReviewExecutionStore } from "@reviewrouter/features-review-executions/composition";
 import {
   CurrentMutationAuthorityStatus,
+  ResolvePersistedPublicationLifecycle,
   CurrentPublicationPermitStatus,
   CurrentReviewRevisionStatus,
   CurrentReviewSafetyDecisionStatus,
@@ -39,10 +40,8 @@ import {
   ReviewPublicationProjectionCoverage,
   ReviewPublicationOccurrenceState,
   ReviewPublicationLifecycleObservationVersion,
-  ReviewPublicationLifecycleExpectationStatus,
   LiveReviewPublicationLifecycleStatus,
   ReviewPublicationRunControlStatus,
-  ResolveCurrentPublicationLifecycle,
   isReviewFindingFingerprint,
   hasEveryRequiredCanonicalReceipt,
   hasPendingPrDescriptionContinuation,
@@ -53,8 +52,6 @@ import {
   reviewPublicationAttemptId,
   planReviewPublicationOperations,
   publishedReviewProjectionPublicationEnvelopeVersion,
-  reviewPublicationLifecycleExpectationFromProjection,
-  bindOwnPublicationResolutionOperations,
   validateReviewPublicationLifecycleVerification,
   type LiveReviewPublicationLifecyclePort,
   type CurrentPublicationLifecyclePort,
@@ -64,7 +61,6 @@ import {
   type ReviewPublicationDecisionPorts,
   type ReviewPublicationPermitIdentity,
   type ReviewPublicationPlanningLimits,
-  type ReviewPublicationLifecycleExpectationDecision,
   type ReviewPublicationResolutionHistoryPort,
   type ReviewPublicationLifecycleVerificationFact,
 } from "@reviewrouter/features-review-publishing/v2";
@@ -998,7 +994,7 @@ async function readPublicationStatus(
 
 export function createProductionPublicationLifecyclePort(input: {
   readonly executions: Pick<
-    PrismaReviewExecutionStore,
+    ReviewExecutionQueryPort,
     "findStream" | "findExecution"
   >;
   readonly authorizationQueries: Pick<
@@ -1009,104 +1005,18 @@ export function createProductionPublicationLifecyclePort(input: {
   readonly resolutionHistory?: ReviewPublicationResolutionHistoryPort;
   readonly publications?: ReviewPublicationAttemptQueryPort;
 }): CurrentPublicationLifecyclePort {
-  return {
-    async resolve(scope) {
-      let expectation: ReviewPublicationLifecycleExpectationDecision;
-      let requireResolutionHistory = false;
-      try {
-        const stream = await input.executions.findStream(scope);
-        const snapshot = stream?.activeExecutionId
-          ? await input.executions.findExecution(stream.activeExecutionId)
-          : null;
-        const artifact = snapshot?.artifact;
-        if (!artifact) {
-          expectation = {
-            status: ReviewPublicationLifecycleExpectationStatus.Missing,
-          };
-        } else {
-          const authorization =
-            await input.authorizationQueries.findReviewRunAuthorizationById(
-              artifact.publicationPermit.authorizationId,
-            );
-          if (!authorization) {
-            expectation = {
-              status: ReviewPublicationLifecycleExpectationStatus.Missing,
-            };
-          } else {
-            requireResolutionHistory = !!parseReviewRunRuntimeSnapshot(
-              authorization.runtimeSnapshotCanonicalJson,
-            )?.lifecycleVerificationCapability;
-            try {
-              expectation = reviewPublicationLifecycleExpectationFromProjection(
-                {
-                  reviewedHeadSha: artifact.reviewedHeadSha,
-                  lifecycleStateHash: artifact.lifecycleStateHash,
-                  commandLedgerWatermark: artifact.commandLedgerWatermark,
-                  projectionEnvelopeJson: artifact.projectionEnvelopeJson,
-                  legacyObservationBoundary: authorization.createdAt,
-                },
-              );
-            } catch {
-              expectation = {
-                status: ReviewPublicationLifecycleExpectationStatus.Invalid,
-              };
-            }
-            if (
-              requireResolutionHistory &&
-              expectation.status ===
-                ReviewPublicationLifecycleExpectationStatus.Available
-            ) {
-              if (!input.resolutionHistory || !input.publications)
-                throw new Error("resolution_history_ports_unavailable");
-              const view = exactRestoredPublication(
-                snapshot!,
-                await input.publications.findByPermitIdentity(
-                  artifact.publicationPermit,
-                ),
-              );
-              expectation = bindOwnPublicationResolutionOperations(
-                expectation,
-                view,
-                (value) => createHash("sha256").update(value).digest("hex"),
-              );
-            }
-          }
-        }
-      } catch {
-        expectation = {
-          status: ReviewPublicationLifecycleExpectationStatus.Unavailable,
-        };
-      }
-      return new ResolveCurrentPublicationLifecycle({
-        expectations: {
-          async resolve() {
-            return expectation;
-          },
-        },
-        live: input.liveLifecycle,
-        ...(requireResolutionHistory && input.resolutionHistory
-          ? {
-              resolutionHistory: {
-                read: async (scope, threadIds) => {
-                  const histories = await input.resolutionHistory!.read(
-                    scope,
-                    threadIds,
-                  );
-                  if (
-                    !Array.isArray(histories) ||
-                    histories.some((history) => history.historyCut === null)
-                  )
-                    throw new Error(
-                      "resolution_history_activation_unavailable",
-                    );
-                  return histories;
-                },
-              },
-            }
-          : {}),
-      }).resolve(scope);
-    },
-  };
+  return new ResolvePersistedPublicationLifecycle({
+    facts: createApiPublicationLifecycleFacts({
+      executions: input.executions,
+      authorizations: input.authorizationQueries,
+    }),
+    live: input.liveLifecycle,
+    digestUtf8: (value) => createHash("sha256").update(value).digest("hex"),
+    ...(input.resolutionHistory
+      ? { resolutionHistory: input.resolutionHistory }
+      : {}),
+    ...(input.publications ? { publications: input.publications } : {}),
+  });
 }
 
 function productionPublicationDecisions(input: {

@@ -505,6 +505,37 @@ describe.skipIf(!adminUrl)(
           where: { id: command.repositoryId },
         }),
       ).toMatchObject({ setupStatus: "not_configured" });
+      // Model the real legacy metadata left behind after the new caller was
+      // manually installed. Only fixture setup uses admin; adoption uses API.
+      const previous = await admin.workflowProvisioning.update({
+        where: { repositoryId: command.repositoryId },
+        data: {
+          workflowPath: ".github/workflows/reviewrouter-codex.yml",
+          workflowStyle: "explicit",
+          actionVersion: "v1",
+          revision: { increment: 1 },
+        },
+      });
+      const adopted = await service.confirm(command);
+      expect(adopted.status, JSON.stringify(adopted)).toBe("ready");
+      expect(
+        await admin.workflowProvisioning.findUnique({
+          where: { repositoryId: command.repositoryId },
+        }),
+      ).toMatchObject({
+        workflowPath: ".github/workflows/reviewrouter-review.yml",
+        workflowStyle: "reusable",
+        actionVersion: "workflow-v1",
+        installedWorkflowRequirement: "gateway",
+        revision: previous.revision + 1,
+      });
+      const replay = await service.confirm(command);
+      expect(replay.status, JSON.stringify(replay)).toBe("ready");
+      expect(
+        await admin.workflowProvisioning.findUnique({
+          where: { repositoryId: command.repositoryId },
+        }),
+      ).toMatchObject({ revision: previous.revision + 1 });
     }, 60000);
   },
 );

@@ -5,6 +5,8 @@
     "skipLibCheck": false
   },
   "include": [
+    "scripts/lib/application-composition-boundaries.ts",
+    "scripts/check-architecture-boundaries.test.ts",
     "packages/features/review-history/src/**/*.ts",
     "scripts/review-history-tooling/**/*.ts",
     "packages/features/review-providers/src/composition/**/*.ts",

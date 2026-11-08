@@ -1,0 +1,19 @@
+import type { RepositoryWorkflowCheck } from "../../domain/repository-workflow-check";
+export type { RepositoryWorkflowCheck };
+
+export type RepositoryWorkflowProbeInput = {
+  readonly githubInstallationId: string;
+  readonly owner: string;
+  readonly name: string;
+  readonly defaultBranch: string;
+  readonly workflowPath: string;
+  readonly expectedActionRef: string;
+  readonly expectedContentMarkerGroups?: readonly (readonly string[])[];
+  readonly expectedContentValidator?: (workflow: string) => boolean;
+};
+
+export interface RepositoryWorkflowProbePort {
+  probeWorkflow(
+    input: RepositoryWorkflowProbeInput,
+  ): Promise<RepositoryWorkflowCheck>;
+}

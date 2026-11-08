@@ -27,14 +27,16 @@ export type WorkflowProvisioningRecord = WorkflowProvisioningScope & {
   readonly errorMessage?: string | null;
 };
 
+export type WorkflowProvisioningTransition = "applied" | "superseded";
+
 export interface WorkflowProvisioningRepositoryPort {
   beginAttempt(
     record: WorkflowProvisioningRecord,
   ): Promise<WorkflowProvisioningAttempt>;
   markSetupPullRequestOpen(
     record: WorkflowProvisioningRecord & WorkflowProvisioningAttempt,
-  ): Promise<void>;
+  ): Promise<WorkflowProvisioningTransition>;
   markFailed(
     record: WorkflowProvisioningRecord & WorkflowProvisioningAttempt,
-  ): Promise<void>;
+  ): Promise<WorkflowProvisioningTransition>;
 }

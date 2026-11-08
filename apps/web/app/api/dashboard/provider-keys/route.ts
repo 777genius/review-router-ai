@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import {
   assertWorkspaceFeatureEntitlement,
   PrismaEntitlementRepository,

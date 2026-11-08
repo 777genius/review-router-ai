@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "noEmit": true, "allowImportingTsExtensions": true },
   "include": [
+    "database-role-guard.ts",
     "disposable-temp-cleanup.ts",
     "disposable-temp-cleanup.test.ts",
     "native-memory-install.ts",

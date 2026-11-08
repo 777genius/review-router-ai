@@ -2,7 +2,10 @@ import type { PrismaClient } from "@prisma/client";
 import { PrismaProducerReleaseRepository } from "../infrastructure/prisma/prisma-producer-release-repository";
 import { PrismaReviewMutationAuthorityRepository } from "../infrastructure/prisma/prisma-review-mutation-authority-repository";
 import { PrismaReviewRunAuthorizationRepository } from "../infrastructure/prisma/prisma-review-run-authorization-repository";
-import { PrismaReviewSafetyControlRepository } from "../infrastructure/prisma/prisma-review-safety-control-repository";
+import {
+  PrismaReviewSafetyControlRepository,
+  PrismaReviewSafetyQueryRepository,
+} from "../infrastructure/prisma/prisma-review-safety-control-repository";
 import { PrismaScmRepositoryIdentityRepository } from "../infrastructure/prisma/prisma-scm-repository-identity-repository";
 
 export function createPrismaReviewRunControlRepositories(
@@ -37,5 +40,6 @@ export {
   PrismaReviewMutationAuthorityRepository,
   PrismaReviewRunAuthorizationRepository,
   PrismaReviewSafetyControlRepository,
+  PrismaReviewSafetyQueryRepository,
   PrismaScmRepositoryIdentityRepository,
 };

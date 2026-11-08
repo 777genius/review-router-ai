@@ -274,6 +274,8 @@ export function createPersonalAccountSharingApi(
             sourceId: row.sourceId,
             targetWorkspaceId: row.targetWorkspaceId,
             organizationLabel: row.organizationLabel,
+            avatarUrl: row.organizationLabel ? (row.avatarUrl ?? null) : null,
+            slug: row.organizationLabel ? (row.slug ?? null) : null,
             revision: row.revision,
             state: row.state,
             canRevoke: row.canRevoke,
@@ -327,6 +329,8 @@ export function createPersonalAccountSharingApi(
           organizations: page.items.map((row) => ({
             workspaceId: row.workspaceId,
             label: row.label,
+            avatarUrl: row.avatarUrl ?? null,
+            slug: row.slug ?? null,
             ...(row.predecessors
               ? {
                   predecessors: row.predecessors.map(

@@ -1,1 +1,1 @@
-export { OctokitReviewV2DispatchCapabilityInspector } from "@reviewrouter/features-workflow-provisioning";
+export { OctokitReviewV2DispatchCapabilityInspector } from "@reviewrouter/features-workflow-provisioning/composition";

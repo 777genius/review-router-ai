@@ -206,7 +206,7 @@ describe.skipIf(!databaseUrl)(
               ? "TRANSCRIPT_CANARY_OLD_TURN: opaque identifiers must preserve leading zeroes."
               : index === 104
                 ? (options.sourceBody ??
-                  "Why do we preserve these identifiers?")
+                  "Identifiers are represented as opaque strings.")
                 : `History turn ${index + 1}`,
         created_at: new Date(
           Date.parse(time) - (105 - index) * 1000,
@@ -578,6 +578,58 @@ describe.skipIf(!databaseUrl)(
         counts: () => ({ learned, actionCalls, policyCalls }),
       };
     }
+
+    it.each([
+      "/rr explain",
+      "Identifiers use leading zeroes. Почему это считается ошибкой?",
+      "Explain why this finding is dangerous",
+    ])(
+      "answers without learning or changing memory: %s",
+      async (sourceBody) => {
+        const f = await fixture({ sourceBody });
+        let prepared = 0;
+        f.memory.prepareLearning = async () => {
+          prepared++;
+          throw new Error("read_only_must_not_prepare_learning");
+        };
+        try {
+          const first = await f.processor.execute(input, controls());
+          expect(first.status).toBe("ready");
+          expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+          expect(prepared).toBe(0);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          expect(await f.processor.execute(input, controls())).toEqual(first);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
+    it("rejects a model-suggested memory mutation on a mixed question", async () => {
+      const f = await fixture({
+        sourceBody: "IDs have leading zeroes. Why is this considered unsafe?",
+        modelAction: {
+          kind: "create",
+          body: "Unwanted model knowledge",
+          knowledgeKind: "observation",
+          intentQuote: "IDs have leading zeroes.",
+        },
+      });
+      try {
+        const first = await f.processor.execute(input, controls());
+        expect(first.status).toBe("output_unavailable");
+        expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
+        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+      } finally {
+        await f.app.close();
+      }
+    });
 
     it.each([false, true])(
       "isolates failed learning preparation without a child and preserves dispatch authority: revoked=%s",

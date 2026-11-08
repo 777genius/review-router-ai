@@ -45,7 +45,7 @@ import {
   ReviewV2PublicationExecutionStatus,
   ReviewV2PublicationFreshnessReadStatus,
   ReviewV2ScmProvider,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 
 describe("review v2 production worker composition", () => {
   it.each([

@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useEffect, useRef, useState } from "react";
-import { useQuery, type QueryClient } from "@tanstack/react-query";
+import { createContext, useCallback, useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
 import { Button } from "@reviewrouter/ui";
 import { RefreshCw } from "lucide-react";
 import type {
@@ -10,6 +10,8 @@ import type {
 } from "../../src/server/account-gateway-accounts";
 import {
   accountLimitsOptions,
+  accountLimitsKey,
+  accountLimitsRefreshOptions,
   releaseAccountLimits,
   removeAccountLimits,
 } from "./account-limits-query";
@@ -100,6 +102,25 @@ export function AccountLimitsLine({
   const reading = useRef(false);
   const [local, setLocal] = useState(false);
   const [clock, setClock] = useState<number | null>(null);
+  const initialRefresh = useRef<string | null>(null);
+  const refresh = useMutation(
+    accountLimitsRefreshOptions(
+      scope,
+      { context, connectionId, workspaceId },
+      client,
+    ),
+    client,
+  );
+  const mutateRefresh = refresh.mutate;
+  const refreshCurrent = useCallback(() => {
+    if (reading.current) return;
+    reading.current = true;
+    mutateRefresh(undefined, {
+      onSettled: () => {
+        reading.current = false;
+      },
+    });
+  }, [mutateRefresh]);
   const query = useQuery(
     {
       ...accountLimitsOptions(
@@ -107,6 +128,17 @@ export function AccountLimitsLine({
         { context, connectionId, workspaceId },
         client,
       ),
+      // Inventory survives tab unmounts, but its extracted limits are released.
+      // Recover a missing projection through the authorized cached-read route;
+      // this never probes the provider or retries an existing observation.
+      enabled:
+        Boolean(context) &&
+        !blocked &&
+        !initialData &&
+        expectedStatus !== "restricted" &&
+        expectedStatus !== "unsupported" &&
+        client.getQueryData(accountLimitsKey(scope, connectionId)) ===
+          undefined,
       ...(initialData
         ? {
             initialData: {
@@ -127,6 +159,23 @@ export function AccountLimitsLine({
       cachedView.fetchedAt <= expectedFetchedAt);
   const view = changed ? null : cachedView;
   const fetchedAt = view?.fetchedAt;
+  const refreshMissing =
+    view?.status === "unknown" &&
+    view.reason === "missing_snapshot" &&
+    view.refreshAvailable;
+  const displayToken = view?.displayToken;
+  useEffect(() => {
+    if (
+      !context ||
+      blocked ||
+      !refreshMissing ||
+      !displayToken ||
+      initialRefresh.current === displayToken
+    )
+      return;
+    initialRefresh.current = displayToken;
+    refreshCurrent();
+  }, [context, blocked, refreshMissing, displayToken, refreshCurrent]);
   useEffect(() => {
     setLocal(true);
     const started = Date.now();
@@ -240,7 +289,10 @@ export function AccountLimitsLine({
                       {resetText(reset, now)}
                     </span>
                     {stale ? (
-                      <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
+                      <span
+                        className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
+                        title="These saved limits may have changed. Reload checks the latest saved snapshot; Ready describes the connection, not its remaining quota."
+                      >
                         Outdated
                       </span>
                     ) : null}
@@ -299,16 +351,31 @@ export function AccountLimitsLine({
         {query.isError || query.data?.status === "unavailable" ? (
           <p role="status">Could not reload saved limits.</p>
         ) : null}
+        {refresh.isError ? (
+          <p role="status">
+            Could not refresh current limits. Saved observations are unchanged.
+          </p>
+        ) : null}
       </div>
       {context && !restricted && !unsupported ? (
         <Button
           variant="ghost"
           size="sm"
           className="size-8 min-h-8 rounded-lg p-0 text-slate-400"
-          aria-label="Reload saved limits"
-          title="Reload the saved snapshot. Does not contact the provider."
-          disabled={query.isFetching}
+          aria-label={
+            view?.refreshAvailable ? "Refresh limits" : "Reload saved limits"
+          }
+          title={
+            view?.refreshAvailable
+              ? "Fetch current limits without running a model."
+              : "Reload the saved snapshot. Does not contact the provider."
+          }
+          disabled={query.isFetching || refresh.isPending}
           onClick={() => {
+            if (view?.refreshAvailable) {
+              refreshCurrent();
+              return;
+            }
             if (reading.current) return;
             reading.current = true;
             void query.refetch().finally(() => {
@@ -318,7 +385,7 @@ export function AccountLimitsLine({
         >
           <RefreshCw
             aria-hidden="true"
-            className={`size-3.5${query.isFetching ? " motion-safe:animate-spin" : ""}`}
+            className={`size-3.5${query.isFetching || refresh.isPending ? " motion-safe:animate-spin" : ""}`}
           />
         </Button>
       ) : null}

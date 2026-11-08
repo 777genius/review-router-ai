@@ -44,14 +44,11 @@ import {
   parseRepositoryReviewPolicy,
   parseReviewConfigurationStrict,
   parseWorkspaceReviewPolicy,
-  PrismaReviewConfigurationTransactionRepository,
-  PrismaReviewPolicyHeadReader,
   providerCredentialRequestFor,
   REVIEW_POLICY_SCHEMA_VERSION,
   resolveEffectiveReviewConfigurations,
   reviewProviderConfigurationSchema,
   reviewProviderSelectionFor,
-  runReviewConfigurationTransaction,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
   workspaceReviewSettingsFromConfiguration,
   type ManagedApiKeyFacts,
@@ -63,6 +60,11 @@ import {
   type ReviewProviderConfiguration,
   type ReviewProviderSelection,
 } from "../packages/features/review-config/src/index.js";
+import {
+  PrismaReviewConfigurationTransactionRepository,
+  PrismaReviewPolicyHeadReader,
+  runReviewConfigurationTransaction,
+} from "../packages/features/review-config/src/composition/index.js";
 import { requiredWorkflowRequirement } from "../packages/features/workflow-provisioning/src/index.js";
 import { isCodexRotatingOAuthAllowedForRepository } from "../packages/platform/config/src/index.js";
 import { createPrismaClient } from "../packages/platform/db/src/index.js";

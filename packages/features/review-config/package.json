@@ -33,6 +33,11 @@
       "types": "./src/domain/workspace-provider-profile.ts",
       "production": "./dist/domain/workspace-provider-profile.js",
       "default": "./src/domain/workspace-provider-profile.ts"
+    },
+    "./composition": {
+      "types": "./src/composition/index.ts",
+      "production": "./dist/composition/index.js",
+      "default": "./src/composition/index.ts"
     }
   },
   "dependencies": {

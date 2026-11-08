@@ -1,7 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import {
   AbandonContextGatewaySession,
-  AbandonContextGatewaySessionStatus,
   AcceptSealedContextAttestation,
   AcceptSealedContextAttestationStatus,
   ContextDependencyKind,
@@ -91,10 +90,6 @@ import {
 import {
   ReviewActionV2OperationId,
   ReviewActionV2ProtocolErrorCode,
-  ReviewContextGatewayOpenResultStatus,
-  ReviewContextGatewaySealResultStatus,
-  ReviewContextReceiptReplayCommitResultStatus,
-  ReviewContextReplayCommitResultStatus,
   canonicalizeReviewContextConfinementEvidence,
   canonicalizeReviewInvestigationContextConfinementEvidence,
   canonicalizeReviewContextGatewayEvent,
@@ -125,6 +120,15 @@ import {
   type ReviewInvestigationAuthorizedProviderKind,
 } from "./review-action-v2-investigation-extension-admission.js";
 import type { ReviewInvestigationRolloutGuardPort } from "./review-investigation-rollout-guard.js";
+import {
+  mapOpenStatus,
+  mapSealStatus,
+  mapFailedSealStatus,
+  mapReplayStatus,
+  replayDenied,
+  mapReceiptReplayStatus,
+  receiptReplayDenied,
+} from "./review-action-v2-context-result-mappers.js";
 import type {
   ReviewActionV2InvestigationLeaseCapabilityPort,
   VerifiedReviewActionV2InvestigationLeaseCapability,
@@ -3620,96 +3624,6 @@ function contextIdentities(
     nextGatewaySessionId: () => d.nextId("gateway_session"),
     nextAttestationId: () => d.nextId("attestation"),
     nextReplayProofId: () => d.nextId("replay_proof"),
-  };
-}
-
-function mapOpenStatus(status: OpenContextGatewaySessionStatus) {
-  switch (status) {
-    case OpenContextGatewaySessionStatus.Opened:
-      return ReviewContextGatewayOpenResultStatus.Opened;
-    case OpenContextGatewaySessionStatus.Idempotent:
-      return ReviewContextGatewayOpenResultStatus.Idempotent;
-    case OpenContextGatewaySessionStatus.Denied:
-      return ReviewContextGatewayOpenResultStatus.Denied;
-    case OpenContextGatewaySessionStatus.Conflict:
-      return ReviewContextGatewayOpenResultStatus.Conflict;
-  }
-}
-
-function mapSealStatus(status: AcceptSealedContextAttestationStatus) {
-  switch (status) {
-    case AcceptSealedContextAttestationStatus.Accepted:
-      return ReviewContextGatewaySealResultStatus.Accepted;
-    case AcceptSealedContextAttestationStatus.Idempotent:
-      return ReviewContextGatewaySealResultStatus.Idempotent;
-    case AcceptSealedContextAttestationStatus.Denied:
-      return ReviewContextGatewaySealResultStatus.Denied;
-    case AcceptSealedContextAttestationStatus.Conflict:
-      return ReviewContextGatewaySealResultStatus.Conflict;
-  }
-}
-
-function mapFailedSealStatus(status: AbandonContextGatewaySessionStatus) {
-  switch (status) {
-    case AbandonContextGatewaySessionStatus.Abandoned:
-      return ReviewContextGatewaySealResultStatus.Accepted;
-    case AbandonContextGatewaySessionStatus.Idempotent:
-    case AbandonContextGatewaySessionStatus.AlreadyTerminal:
-    case AbandonContextGatewaySessionStatus.Expired:
-      return ReviewContextGatewaySealResultStatus.Idempotent;
-    case AbandonContextGatewaySessionStatus.Denied:
-      return ReviewContextGatewaySealResultStatus.Denied;
-    case AbandonContextGatewaySessionStatus.Conflict:
-      return ReviewContextGatewaySealResultStatus.Conflict;
-  }
-}
-
-function mapReplayStatus(status: ReplayContextAttestationStatus) {
-  switch (status) {
-    case ReplayContextAttestationStatus.Accepted:
-      return ReviewContextReplayCommitResultStatus.Accepted;
-    case ReplayContextAttestationStatus.Idempotent:
-      return ReviewContextReplayCommitResultStatus.Idempotent;
-    case ReplayContextAttestationStatus.Denied:
-      return ReviewContextReplayCommitResultStatus.Denied;
-    case ReplayContextAttestationStatus.Conflict:
-      return ReviewContextReplayCommitResultStatus.Conflict;
-  }
-}
-
-function replayDenied() {
-  return {
-    statusCode: 200 as const,
-    result: {
-      status: ReviewContextReplayCommitResultStatus.Denied,
-      replayProofId: null,
-      replayProofHash: null,
-      attachmentCapability: null,
-    },
-  };
-}
-
-function mapReceiptReplayStatus(status: ReplayContextAttestationStatus) {
-  switch (status) {
-    case ReplayContextAttestationStatus.Accepted:
-      return ReviewContextReceiptReplayCommitResultStatus.Accepted;
-    case ReplayContextAttestationStatus.Idempotent:
-      return ReviewContextReceiptReplayCommitResultStatus.Idempotent;
-    case ReplayContextAttestationStatus.Denied:
-      return ReviewContextReceiptReplayCommitResultStatus.Denied;
-    case ReplayContextAttestationStatus.Conflict:
-      return ReviewContextReceiptReplayCommitResultStatus.Conflict;
-  }
-}
-
-function receiptReplayDenied() {
-  return {
-    statusCode: 200 as const,
-    result: {
-      status: ReviewContextReceiptReplayCommitResultStatus.Denied,
-      replayProofId: null,
-      replayProofHash: null,
-    },
   };
 }
 

@@ -9,7 +9,7 @@ import {
   issueCodexRotatingSetupForRepository,
   type CodexRotatingSetupRepository,
 } from "./codex-rotating-setup-command";
-import { PrismaCodexRotatingSetupRecovery } from "./prisma-codex-rotating-setup-recovery";
+import { PrismaCodexRotatingSetupRecovery } from "@reviewrouter/features-provider-setup/composition";
 
 export { codexRotatingSetupRecoveryAcknowledgement };
 

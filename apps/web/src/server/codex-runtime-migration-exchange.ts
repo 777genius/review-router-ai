@@ -12,7 +12,7 @@ import type {
   GitHubActionsOidcClaims,
   GitHubActionsOidcTokenVerifierPort,
 } from "@reviewrouter/features-action-control-plane/oidc";
-import { resolveCodexRotatingSetupManifestForNonce } from "./codex-rotating-setup-manifest";
+import { resolveCodexRotatingSetupManifestForNonce } from "@reviewrouter/features-provider-setup/composition";
 import type { CodexRuntimeMigrationGitHub } from "./codex-runtime-migration-github";
 
 export function assertCodexRuntimeMigrationOidc(input: {

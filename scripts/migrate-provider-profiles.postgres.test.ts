@@ -7,10 +7,10 @@ import {
 import {
   canonicalJson,
   parseReviewConfigurationStrict,
-  PrismaReviewPolicyHeadReader,
   resolveEffectiveReviewConfigurations,
   type ReviewConfiguration,
 } from "../packages/features/review-config/src/index";
+import { PrismaReviewPolicyHeadReader } from "../packages/features/review-config/src/composition/index";
 import { workspacePolicyFixture } from "../packages/features/review-config/src/tests/current-policy-fixture";
 import {
   assertProviderProfileMigrationSchema,

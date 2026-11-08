@@ -10,7 +10,7 @@ import {
 } from "@reviewrouter/features-provider-setup";
 import type { GitHubActionsOidcClaims } from "@reviewrouter/features-action-control-plane/oidc";
 import { assertCodexRuntimeMigrationOidc } from "./codex-runtime-migration-exchange";
-import { assertOriginalCodexRuntimeMigrationSource } from "./codex-runtime-migration-source";
+import { assertOriginalCodexRuntimeMigrationSource } from "@reviewrouter/features-provider-setup/composition";
 import {
   codexRuntimeMigrationFixture,
   digest,

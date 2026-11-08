@@ -8,10 +8,10 @@ import {
   renderReviewRouterProviderApiCaller,
 } from "../../../packages/protocol-review-workflow/src/index.js";
 import {
-  PrismaReviewConfigurationRepository,
   parseReviewConfigurationStrict,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.js";
+import { PrismaReviewConfigurationRepository } from "../../../packages/features/review-config/src/composition/index.js";
 import {
   systemPolicyWriteFixture,
   workspacePolicyFixture,

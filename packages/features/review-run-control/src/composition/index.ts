@@ -5,6 +5,11 @@ export * from "../infrastructure/operator";
 export * from "../infrastructure/prisma/prisma-locked-review-run-principal-reader";
 export * from "../infrastructure/trusted-producer-release-materializer";
 export {
+  trustedProducerReleaseMaterializationOwnerRefs,
+  trustedProducerReleaseMaterializationRunbookRefs,
+  trustedProducerReleaseMaterializationThresholds,
+} from "../producer-release-defaults";
+export {
   ConfiguredProducerReleaseAttestationRegistry,
   readConfiguredProducerReleaseAttestations,
 } from "../infrastructure/configured-producer-release-attestation";

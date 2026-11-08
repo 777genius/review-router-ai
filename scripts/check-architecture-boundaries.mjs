@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
+import { checkApplicationCompositionBoundaries } from "./lib/application-composition-boundaries.ts";
 
 const root = process.env.REVIEWROUTER_ARCHITECTURE_ROOT
   ? resolve(process.env.REVIEWROUTER_ARCHITECTURE_ROOT)
@@ -95,6 +96,14 @@ await checkReviewActionV2ProtocolBoundaries(violations);
 await checkRevisionAwareReviewRatchet(violations);
 await checkPrismaTransactionQuerySerialization(violations);
 await checkReleaseRolloutProviderNeutrality(violations);
+await checkCodexRuntimeOwnershipBoundaries(violations);
+await checkReviewExecutionExtractionBoundaries(violations);
+violations.push(
+  ...(await checkApplicationCompositionBoundaries(
+    root,
+    extractImportSpecifiers,
+  )),
+);
 
 if (violations.length > 0) {
   writeSync(
@@ -144,6 +153,145 @@ function isSourceFile(fileName) {
   return [...sourceExtensions].some((extension) =>
     fileName.endsWith(extension),
   );
+}
+
+/**
+ * The Action entrypoint composes narrowly owned adapters. New adapter sources
+ * must never depend on the entrypoint, and the trusted domain must never
+ * acquire imports from the Action transport. Keep this checked as source grows.
+ */
+async function checkCodexRuntimeOwnershipBoundaries(violations) {
+  const sourceRoot = join(
+    root,
+    "packages",
+    "features",
+    "codex-oauth-rotating",
+    "src",
+  );
+  const actionRoot = join(sourceRoot, "action");
+  const domainRoot = join(sourceRoot, "domain");
+  if (!existsSync(actionRoot) || !existsSync(domainRoot)) return;
+
+  const actionFiles = await collectAllSourceFiles(actionRoot);
+  for (const file of actionFiles) {
+    if (
+      file.endsWith("github-action.ts") ||
+      /\.(?:test|spec)\.[cm]?tsx?$/u.test(file)
+    ) {
+      continue;
+    }
+    for (const imported of extractImportSpecifiers(
+      readFileSync(file, "utf8"),
+    )) {
+      if (/^\.\/github-action(?:\.(?:js|ts|mts|cts))?$/u.test(imported)) {
+        violations.push({
+          file,
+          imported,
+          reason:
+            "Action adapters must not import the Action composition entrypoint",
+        });
+      }
+    }
+  }
+
+  const domainFiles = await collectAllSourceFiles(domainRoot);
+  for (const file of domainFiles) {
+    if (/\.(?:test|spec)\.[cm]?tsx?$/u.test(file)) continue;
+    const isExtractedWorkflowOwner =
+      /(?:^|[\\/])codex-(?:contract|workflow)\.ts$/u.test(file);
+    for (const imported of extractImportSpecifiers(
+      readFileSync(file, "utf8"),
+    )) {
+      if (
+        imported.startsWith("../action/") ||
+        (isExtractedWorkflowOwner &&
+          /^\.\/codex-oauth-rotating(?:\.(?:js|ts|mts|cts))?$/u.test(imported))
+      ) {
+        violations.push({
+          file,
+          imported,
+          reason:
+            "Codex domain/workflow owners must not depend on Action adapters or the OAuth facade",
+        });
+      }
+    }
+  }
+}
+
+/**
+ * The post-#818 refactor keeps its read/serialization helpers behind the
+ * existing feature store and the pure response mappers behind the API host.
+ * Guard only these concrete seams; broader package policy is owned elsewhere.
+ */
+async function checkReviewExecutionExtractionBoundaries(violations) {
+  const prismaRoot = join(
+    root,
+    "packages",
+    "features",
+    "review-executions",
+    "src",
+    "infrastructure",
+    "prisma",
+  );
+  const adapterFiles = [
+    "prisma-review-execution-mappers.ts",
+    "prisma-review-execution-snapshot.ts",
+  ];
+  for (const name of adapterFiles) {
+    const file = join(prismaRoot, name);
+    if (!existsSync(file)) continue;
+    for (const imported of extractImportSpecifiers(
+      readFileSync(file, "utf8"),
+    )) {
+      if (
+        /^\.\/prisma-review-execution-store(?:\.[cm]?[jt]s)?$/u.test(
+          imported,
+        ) ||
+        /(?:^|\/)apps\/(?:api|web|worker)\//u.test(imported)
+      ) {
+        violations.push({
+          file,
+          imported,
+          reason:
+            "Review-execution private readers and mappers must not import their store or application hosts",
+        });
+      }
+    }
+  }
+
+  const apiMappers = [
+    {
+      name: "review-action-v2-execution-result-mappers.ts",
+      host: "review-action-v2-execution-evidence-composition",
+    },
+    {
+      name: "review-action-v2-context-result-mappers.ts",
+      host: "review-action-v2-context-attestation-composition",
+    },
+  ];
+  for (const mapper of apiMappers) {
+    const file = join(root, "apps", "api", "src", mapper.name);
+    if (!existsSync(file)) continue;
+    for (const imported of extractImportSpecifiers(
+      readFileSync(file, "utf8"),
+    )) {
+      if (
+        imported === `./${mapper.host}` ||
+        imported === `./${mapper.host}.js` ||
+        imported === `./${mapper.host}.ts` ||
+        /^@prisma\/client(?:\/.*)?$/u.test(imported) ||
+        /^@octokit(?:\/.*)?$/u.test(imported) ||
+        /^(?:fastify|next)(?:\/.*)?$/u.test(imported)
+      ) {
+        violations.push({
+          file,
+          imported,
+          reason:
+            "Review Action v2 pure result mappers must not import their composition host or infrastructure SDK",
+        });
+      }
+    }
+  }
 }
 
 async function checkReleaseRolloutProviderNeutrality(violations) {

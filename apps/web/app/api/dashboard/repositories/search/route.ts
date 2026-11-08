@@ -8,10 +8,8 @@ import {
   PrismaEntitlementRepository,
 } from "@reviewrouter/features-entitlements";
 import { PrismaHostedPoolQuery } from "@reviewrouter/features-hosted-account-pool";
-import {
-  PrismaReviewPolicyHeadReader,
-  resolveEffectiveReviewConfigurations,
-} from "@reviewrouter/features-review-config";
+import { resolveEffectiveReviewConfigurations } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import {
   listWorkspaceRepositoryHealth,
   PrismaRepositoryHealthRepository,
@@ -41,7 +39,7 @@ import {
 import { listGitHubUserRepositoryAccess } from "../../../../../src/server/github-user-repository-access";
 import { loadHostedPoolDashboardView } from "../../../../../src/server/hosted-pool-dashboard";
 import { getPrisma } from "../../../../../src/server/prisma";
-import { PrismaCodexRotatingSetupReadiness } from "../../../../../src/server/prisma-codex-rotating-setup-readiness";
+import { PrismaCodexRotatingSetupReadiness } from "@reviewrouter/features-provider-setup/composition";
 import { readGatewayReviewV2RepositoryReadiness } from "../../../../../src/server/prisma-gateway-review-v2-provisioning";
 import {
   buildRepositorySearchText,

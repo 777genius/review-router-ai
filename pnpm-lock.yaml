@@ -187,8 +187,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -340,8 +340,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -928,12 +928,21 @@ importers:
 
   packages/features/provider-setup:
     dependencies:
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
       '@reviewrouter/features-codex-oauth-rotating':
         specifier: workspace:*
         version: link:../codex-oauth-rotating
       '@reviewrouter/features-review-providers':
         specifier: workspace:*
         version: link:../review-providers
+      '@reviewrouter/platform-config':
+        specifier: workspace:*
+        version: link:../../platform/config
+      '@reviewrouter/platform-db':
+        specifier: workspace:*
+        version: link:../../platform/db
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
@@ -944,8 +953,8 @@ importers:
   packages/features/provider-usage:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz
+        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz
       '@get-modular/assembly':
         specifier: 0.7.0
         version: 0.7.0
@@ -1205,9 +1214,15 @@ importers:
       '@prisma/client':
         specifier: 7.8.0
         version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
+      '@reviewrouter/platform-signed-capabilities':
+        specifier: workspace:*
+        version: link:../../platform/signed-capabilities
       '@reviewrouter/shared':
         specifier: workspace:*
         version: link:../../shared
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
     devDependencies:
       '@reviewrouter/platform-db':
         specifier: workspace:*
@@ -1468,8 +1483,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz':
-    resolution: {integrity: sha512-2JQuzFXHxT2i0KWUe6XFyk/IUUnxmfuSqRVI4MIpANjCnyuCXcGUba/ijhTKPIHeOZua2oAyw6JBaihObcBgCg==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz':
+    resolution: {integrity: sha512-odgJvz0dEnep4jIEBR3zeTPzzefm1zAzGwlyl5JDC3qEXRJcP8ofvJsIpfzUy5YPVSgzSeyp/0Mx1tGXnHd5mA==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6614,7 +6629,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-limits-refresh-cf08f9e4559a.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

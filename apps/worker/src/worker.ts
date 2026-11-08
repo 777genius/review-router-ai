@@ -32,7 +32,7 @@ import {
   PrismaConflictReviewRepository,
 } from "@reviewrouter/features-conflict-review";
 import { createConflictReviewDetectionRequestedHandler } from "@reviewrouter/features-conflict-review/outbox";
-import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import {
   OctokitOrgRulesetSetupGateway,
   PrismaOrgRulesetProvisioningRepository,
@@ -48,7 +48,7 @@ import {
 import { PrismaMemoryUsageEventRepository } from "@reviewrouter/features-memory/infrastructure";
 import { MemoryKnowledgeError } from "@reviewrouter/features-memory";
 import { createMemoryKnowledgeRuntime } from "@reviewrouter/features-memory/composition";
-import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config";
+import { PrismaWorkspaceMemorySettings } from "@reviewrouter/features-review-config/composition";
 import {
   PrismaRateLimitStore,
   pruneExpiredRateLimitBuckets,

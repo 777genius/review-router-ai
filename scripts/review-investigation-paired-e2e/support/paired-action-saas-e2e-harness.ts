@@ -34,10 +34,8 @@ import {
   reviewActionV2CanonicalizerDigest,
   reviewActionV2PublishedSchemaDigest,
 } from "../../../packages/protocol-review-action-v2/src/index.js";
-import {
-  parseReviewConfigurationStrict,
-  PrismaReviewConfigurationRepository,
-} from "../../../packages/features/review-config/src/index.js";
+import { parseReviewConfigurationStrict } from "../../../packages/features/review-config/src/index.js";
+import { PrismaReviewConfigurationRepository } from "../../../packages/features/review-config/src/composition/index.js";
 import {
   systemPolicyWriteFixture,
   workspacePolicyDocumentFixture,

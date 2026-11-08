@@ -23,12 +23,12 @@ import type {
   MemoryActor,
   MemoryKnowledgeEntryMetadata,
 } from "../../packages/features/memory/src/index.js";
+import { saveWorkspaceMemorySettings } from "../../packages/features/review-config/src/index.js";
 import {
   PrismaWorkspaceMemorySettings,
   PrismaReviewConfigurationRepository,
   PrismaReviewPolicyHeadReader,
-  saveWorkspaceMemorySettings,
-} from "../../packages/features/review-config/src/index.js";
+} from "../../packages/features/review-config/src/composition/index.js";
 import { readDurableCommands } from "./command-inventory.js";
 import { qualifiedReadback } from "./score-inventory.js";
 import { createConfiguredMemorySourcePreview } from "../../packages/features/memory/src/composition/index.js";

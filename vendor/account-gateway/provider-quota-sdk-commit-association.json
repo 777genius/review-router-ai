@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "493b946368779d0de15602a90f8561ed3c118c23",
+  "sourceRoster": {
+    "packages/account-gateway/src/features/facade-client/contracts/index.ts": "6d10460cb04b9c3739f55143baa923e86fa9965ba45d24fb8fe1f1556d2c46c4",
+    "services/account-gateway/src/domain.ts": "e87b5bf609eda8ddcfbf9db87c4453c4f37c82589fabe552e8d734284f7d1b5b",
+    "services/account-gateway/src/facade.ts": "27a512bea1335c34241f734951b3aba88c45aaf8e447a2e17f84a9bf153dcd4b",
+    "services/account-gateway/src/native-transport.ts": "80a7fc8909c1ad6078eef9e662a91288450695856534b502036a0f6fc075a0d3",
+    "services/account-gateway/src/native-wire.ts": "33148a4cc85d9dd17e6de6e1ff49931a8f290e0cb897620004f55044f7bd5dc4",
+    "services/account-gateway/test/facade-ingress.test.ts": "84dc5b6b9350d31bf247f2f41cfa198447b4d5910a8ac8cd8a2c3323e1df50dd",
+    "services/account-gateway/test/native-wire.test.ts": "5b2a03409cd7234b0f45460ee241e79e12e36bad9b382bdb2f5d66694914e054",
+    "tests/client.test.mjs": "63e0151a99da057716140e4d95979a9ddbf7b964036028bebf7a006e77a0869f"
+  },
+  "sourceRosterSha256": "c3c9b6031d710f0a7fa19ce33b8ae94109bfcf005246c6a7218a2414e9f460aa",
+  "artifactSha256": "0db9a2b65798d5aa655df9ad8a0cf6915c8613d9f1babcdb5f67d0e07d6a4809",
+  "artifact": "agent-teams-account-gateway-0.1.0.tgz",
+  "packProvenance": "candidate-sdk-provenance.json",
+  "relationship": "Archive built from earlier candidate snapshot; final committed source has formatting-only SDK differences. Original build provenance retained. This is not a claim that the archive was rebuilt from this commit.",
+  "checks": "FOCUSED_TESTS_AND_TYPES_PASS_LINT_PENDING_CI"
+}

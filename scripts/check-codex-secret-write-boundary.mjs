@@ -33,7 +33,7 @@ const runtimeLedger =
 const runtimeComposition = "apps/api/src/app.ts";
 const setupDispatcher = "apps/web/src/server/codex-rotating-setup-ledger.ts";
 const setupLedger =
-  "apps/web/src/server/prisma-codex-rotating-setup-payload-claim.ts";
+  "packages/features/provider-setup/src/infrastructure/prisma/prisma-codex-rotating-setup-payload-claim.ts";
 
 export function checkCodexSecretWriteBoundary(checkoutRoot = root) {
   const failures = [];

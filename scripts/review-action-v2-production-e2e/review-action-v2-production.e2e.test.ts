@@ -1,11 +1,22 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createPrismaClient } from "../../packages/platform/db/src/index.js";
+import { PrismaProviderAccountRepository } from "../../packages/features/provider-accounts/src/index.js";
+import {
+  parseReviewConfigurationStrict,
+  saveReviewConfiguration,
+} from "../../packages/features/review-config/src/index.js";
+import { PrismaReviewConfigurationRepository } from "../../packages/features/review-config/src/composition/index.js";
+import {
+  systemPolicyWriteFixture,
+  workspacePolicyFixture,
+} from "../../packages/features/review-config/src/tests/current-policy-fixture.js";
 import {
   ReviewEvidenceCommitResultStatus,
   ReviewEvidenceLookupResultStatus,
   ReviewExecutionMutationResultStatus,
   ReviewInvocationLeaseResultStatus,
 } from "../../packages/protocol-review-action-v2/src/index.js";
+import { parseReviewRunRuntimeSnapshot } from "../../packages/features/review-run-control/src/index.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   reviewStatisticsSettledEventType,
@@ -25,6 +36,8 @@ import {
 } from "./support/review-action-v2-e2e-harness.js";
 
 const databaseUrl = process.env.REVIEW_ROUTER_TEST_DATABASE_URL;
+const discoveryGatewayProfile = "discovery-lifecycle-e2e";
+const discoveryGatewayModel = "gpt-5-codex";
 const enabled = process.env.REVIEW_ROUTER_REVIEW_V2_E2E === "1";
 if (enabled && !databaseUrl) {
   throw new Error(
@@ -48,6 +61,127 @@ describeWithDatabase.sequential(
       harness = null;
       await resetReviewActionV2E2EDatabase(databaseUrl!);
     });
+
+    it("publishes discovery with captured lifecycle capability before resolution history activation", async () => {
+      await harness?.close();
+      harness = null;
+      await resetReviewActionV2E2EDatabase(databaseUrl!);
+      harness = await createReviewActionV2E2EHarness(databaseUrl!, {
+        modelTransport: "account_gateway",
+        repositoryProviderSelection: "none",
+        lifecycleVerificationProfile: true,
+        environmentOverrides: {
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_ENABLED: "1",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_ORIGIN:
+            "https://gateway.reviewrouter.e2e",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_CONTROL_ORIGIN:
+            "https://gateway.reviewrouter.e2e",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RUN_CONTROL_BEARER:
+            "discovery-lifecycle-e2e-control-token",
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY: JSON.stringify({
+            profiles: [
+              {
+                profileRef: discoveryGatewayProfile,
+                limits: {
+                  requests: 9,
+                  concurrency: 1,
+                  requestBytes: 98304,
+                  outputBytes: 32768,
+                  tokens: 4096,
+                },
+              },
+            ],
+          }),
+          REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY: JSON.stringify({
+            profiles: [
+              {
+                profile: {
+                  profileId: discoveryGatewayProfile,
+                  protocol: "openai-responses",
+                  modelIds: [discoveryGatewayModel],
+                  authKinds: ["api_key"],
+                },
+                outputTokens: 4096,
+              },
+            ],
+            ingressBytes: 98304,
+            requestTimeoutMs: 60000,
+            waitBudgetMs: 0,
+            maxWaits: 0,
+            maxSessions: 4,
+            maxInFlight: 4,
+          }),
+        },
+      });
+      const fixture = requiredHarness(harness);
+      await selectSavedDiscoveryGateway(fixture);
+      const flow = await fixture.createCommittedFlow();
+      const authorization =
+        await fixture.prisma.reviewRunAuthorization.findUniqueOrThrow({
+          where: { authorizationId: flow.authorizationId },
+          select: { runtimeSnapshotCanonicalJson: true },
+        });
+      expect(
+        parseReviewRunRuntimeSnapshot(
+          authorization.runtimeSnapshotCanonicalJson,
+        )?.lifecycleVerificationCapability,
+      ).toMatchObject({
+        modelTransport: "account_gateway",
+        model: discoveryGatewayModel,
+      });
+      await expect(
+        fixture.prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: fixture.repositoryConnectionId },
+          select: {
+            lifecycleResolutionMode: true,
+            lifecycleResolutionActivatedAt: true,
+            lifecycleResolutionActivationVersion: true,
+          },
+        }),
+      ).resolves.toEqual({
+        lifecycleResolutionMode: "legacy_open",
+        lifecycleResolutionActivatedAt: null,
+        lifecycleResolutionActivationVersion: 0,
+      });
+
+      const finalized = await fixture.finalize(flow);
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await expect(fixture.processFinalizedOutbox()).resolves.toMatchObject({
+        processed: 1,
+        deadLettered: 0,
+      });
+      await fixture.runWorkerUntilSettled();
+
+      await expectTerminalSuccess(fixture, flow.executionId);
+      await expectSnapshot(fixture, flow.executionId, true);
+      expect(fixture.fakeGitHub.comments).toHaveLength(1);
+      expect(fixture.fakeGitHub.checkRuns).toHaveLength(1);
+      const publication =
+        await fixture.prisma.reviewPublicationAttemptV2.findFirstOrThrow({
+          where: { executionId: flow.executionId },
+          select: { publicationAttemptId: true },
+        });
+      await expect(
+        fixture.prisma.reviewPublicationOperationV2.findMany({
+          where: { publicationAttemptId: publication.publicationAttemptId },
+          select: { publicationKind: true, state: true },
+          orderBy: { publicationKind: "asc" },
+        }),
+      ).resolves.toEqual([
+        { publicationKind: "summary", state: "completed" },
+        { publicationKind: "managed_check", state: "completed" },
+      ]);
+      await expect(
+        fixture.prisma.reviewPublicationReceiptV2.count({
+          where: {
+            publicationAttemptId: publication.publicationAttemptId,
+            status: "succeeded",
+          },
+        }),
+      ).resolves.toBe(2);
+    }, 60_000);
 
     it("adopts a committed observation after provider restart without another semantic attempt", async () => {
       const fixture = requiredHarness(harness);
@@ -900,6 +1034,66 @@ function progressComments(fixture: ReviewActionV2E2EHarness) {
     (comment) =>
       comment.user.login === "reviewrouter-e2e[bot]" &&
       comment.body.includes("<!-- review-router-live-progress -->"),
+  );
+}
+
+/** Select a real saved route; authorization must capture the capability itself. */
+async function selectSavedDiscoveryGateway(
+  fixture: ReviewActionV2E2EHarness,
+): Promise<void> {
+  const connection = await fixture.prisma.providerAccountConnection.create({
+    data: {
+      ownerWorkspaceId: fixture.workspaceId,
+      gatewayAccountRef: `${fixture.prefix}-account`,
+      profileRef: discoveryGatewayProfile,
+      displayName: "Disposable discovery lifecycle",
+      state: "active",
+    },
+  });
+  const binding = await new PrismaProviderAccountRepository(
+    fixture.prisma,
+  ).compareAndSetBinding({
+    workspaceId: fixture.workspaceId,
+    connectionId: connection.id,
+    expectedRevision: 0,
+    state: "active",
+  });
+  const target = {
+    scope: "repository" as const,
+    workspaceId: fixture.workspaceId,
+    repositoryId: fixture.repositoryConnectionId,
+  };
+  await saveReviewConfiguration(
+    {
+      target,
+      expectedVersion: null,
+      ...systemPolicyWriteFixture(
+        parseReviewConfigurationStrict({
+          ...workspacePolicyFixture,
+          providers: [
+            {
+              kind: "codex",
+              authMode: "codex_account_gateway",
+              model: discoveryGatewayModel,
+              reasoningEffort: "high",
+              fastMode: false,
+              agenticContext: true,
+              gatewayBindingId: binding.id,
+              gatewayProfileRef: connection.profileRef,
+            },
+          ],
+        }),
+        target,
+      ),
+    },
+    {
+      configurations: new PrismaReviewConfigurationRepository(
+        fixture.prisma,
+        undefined,
+        false,
+        undefined,
+      ),
+    },
   );
 }
 

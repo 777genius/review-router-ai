@@ -12,9 +12,9 @@ import * as c from "@agent-teams/account-gateway/contracts";
 import { PrismaProviderAccountRepository } from "@reviewrouter/features-provider-accounts";
 import {
   parseReviewConfigurationStrict,
-  PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewConfigurationRepository } from "@reviewrouter/features-review-config/composition";
 import {
   canonicalJson,
   ManageReviewRunAuthorizations,

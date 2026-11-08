@@ -50,7 +50,7 @@ export function ActionToast({
     toast.custom(
       (id) => (
         <div
-          className={`rounded-2xl border p-4 shadow-[0_20px_70px_rgba(0,0,0,0.45)] backdrop-blur-2xl ${toneClassNames[tone]}`}
+          className={`max-h-[calc(100dvh-8rem)] overflow-y-auto rounded-2xl border p-4 shadow-[0_20px_70px_rgba(0,0,0,0.45)] backdrop-blur-2xl ${toneClassNames[tone]}`}
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">

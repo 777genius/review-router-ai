@@ -1,7 +1,5 @@
-import {
-  PrismaAuditLogRepository,
-  recordAuditEvent,
-} from "@reviewrouter/features-audit-log";
+import { recordAuditEvent } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import { lockProviderAccountBindingUses } from "@reviewrouter/features-provider-accounts";
 import type { Prisma } from "@prisma/client";
 import type { ProviderProfileFacts } from "../../domain/provider-management-policy";

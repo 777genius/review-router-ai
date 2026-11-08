@@ -12,7 +12,10 @@ import { InvestigationRolloutProvider } from "@reviewrouter/features-review-inve
 import {
   ImmutableRegistryWriteStatus,
   ReviewSafetyCapability,
+  ReviewSafetyControlWriteStatus,
+  ReviewSafetyPolicyScope,
   ReviewSafetyRolloutMode,
+  type ReviewSafetyEmergencyControl,
 } from "@reviewrouter/features-review-run-control";
 import {
   inspectEnvironment,
@@ -21,6 +24,7 @@ import {
   parseArguments,
   parseInvestigationRolloutProvider,
   parseReviewV2ReleaseBundleCandidate,
+  parseReviewV2ExpectedEmergencyVersion,
   requireConfirmation,
   reviewV2CohortEmergencyInitialization,
   reviewV2CohortOperationForCommand,
@@ -30,6 +34,7 @@ import {
   reviewV2WorkspaceEmergencyTransitionForCommand,
   resolveImmutableRegistryProfileId,
   serializeOperatorCliJson,
+  updateGlobalEmergencyControl,
 } from "./review-action-v2-operator-cli";
 
 describe("review action v2 operator CLI", () => {
@@ -504,6 +509,86 @@ describe("review action v2 operator CLI", () => {
     ).toBeNull();
   });
 
+  it("accepts an optional exact positive emergency-control version", () => {
+    expect(
+      parseReviewV2ExpectedEmergencyVersion(parseArguments([])),
+    ).toBeUndefined();
+    expect(
+      parseReviewV2ExpectedEmergencyVersion(
+        parseArguments(["--expected-version", "1"]),
+      ),
+    ).toBe(1);
+    expect(() =>
+      parseReviewV2ExpectedEmergencyVersion(
+        parseArguments(["--expected-version=1"]),
+      ),
+    ).toThrow("review_v2_option_invalid:expected-version");
+    for (const value of [
+      undefined,
+      "0",
+      "-1",
+      "1.5",
+      "1e2",
+      "0x10",
+      "01",
+      "9007199254740992",
+      "not-a-version",
+    ]) {
+      const args =
+        value === undefined
+          ? ["--expected-version"]
+          : ["--expected-version", value];
+      expect(() =>
+        parseReviewV2ExpectedEmergencyVersion(parseArguments(args)),
+      ).toThrow("review_v2_option_invalid:expected-version");
+    }
+  });
+
+  it("refuses a newer operator stop without calling its mutation port", async () => {
+    const f = globalEmergencyFixture(2);
+    await expect(
+      updateGlobalEmergencyControl(
+        f.runtime,
+        { stopped: false, reason: "open" },
+        1,
+      ),
+    ).rejects.toThrow("review_v2_global_emergency_control_version_conflict");
+    expect(f.write).not.toHaveBeenCalled();
+    expect(f.current()).toMatchObject({ version: 2, stopped: true });
+  });
+
+  it("retains the supplied version through the write when an operator races the read", async () => {
+    const f = globalEmergencyFixture(1, true);
+    await expect(
+      updateGlobalEmergencyControl(
+        f.runtime,
+        { stopped: false, reason: "open" },
+        1,
+      ),
+    ).rejects.toThrow("review_v2_global_emergency_control_version_conflict");
+    expect(f.write).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedVersion: 1, stopped: false }),
+    );
+    expect(f.current()).toMatchObject({
+      version: 2,
+      stopped: true,
+      updatedBy: "concurrent-operator",
+    });
+  });
+
+  it("keeps the existing current-version behavior when no expected version is supplied", async () => {
+    const f = globalEmergencyFixture(4);
+    const result = await updateGlobalEmergencyControl(f.runtime, {
+      stopped: false,
+      reason: "open",
+    });
+    expect(result.status).toBe(ReviewSafetyControlWriteStatus.Updated);
+    expect(f.write).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedVersion: 4 }),
+    );
+    expect(f.current()).toMatchObject({ version: 5, stopped: false });
+  });
+
   it("maps only explicit repository emergency transitions", () => {
     expect(
       reviewV2RepositoryEmergencyTransitionForCommand(
@@ -562,6 +647,56 @@ describe("review action v2 operator CLI", () => {
     );
   });
 });
+
+function globalEmergencyFixture(version: number, changeBeforeWrite = false) {
+  let current: ReviewSafetyEmergencyControl = {
+    emergencyControlId: "global-review-v2",
+    scope: { scope: ReviewSafetyPolicyScope.Global },
+    version,
+    stopped: true,
+    reason: "operator-stop",
+    updatedBy: "existing-operator",
+    updatedAt: new Date("2026-11-07T00:00:00Z"),
+  };
+  type WriteInput = Parameters<
+    Parameters<
+      typeof updateGlobalEmergencyControl
+    >[0]["runControl"]["safetyControls"]["setReviewSafetyEmergencyStop"]
+  >[0];
+  const write = vi.fn(async (input: WriteInput) => {
+    if (changeBeforeWrite) {
+      current = {
+        ...current,
+        version: current.version + 1,
+        stopped: true,
+        updatedBy: "concurrent-operator",
+      };
+    }
+    if (input.expectedVersion !== current.version) {
+      return { status: ReviewSafetyControlWriteStatus.Conflict };
+    }
+    current = {
+      ...current,
+      version: current.version + 1,
+      stopped: input.stopped,
+      reason: input.reason,
+      updatedBy: input.updatedBy,
+    };
+    return { status: ReviewSafetyControlWriteStatus.Updated, control: current };
+  });
+  return {
+    current: () => current,
+    write,
+    runtime: {
+      repositories: {
+        safetyControls: {
+          findReviewSafetyEmergencyControl: async () => ({ ...current }),
+        },
+      },
+      runControl: { safetyControls: { setReviewSafetyEmergencyStop: write } },
+    },
+  };
+}
 
 function releaseCandidate(): Record<string, unknown> {
   return {

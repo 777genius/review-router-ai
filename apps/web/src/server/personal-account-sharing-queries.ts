@@ -15,6 +15,8 @@ export type OwnOrganizationBinding = {
   readonly sourceId: string;
   readonly targetWorkspaceId: string;
   readonly organizationLabel: string | null;
+  readonly avatarUrl?: string | null;
+  readonly slug?: string | null;
   readonly revision: number;
   readonly state: "active" | "revoked";
   readonly remoteFenceDelivery:
@@ -26,6 +28,8 @@ export type OwnOrganizationBinding = {
 export type EligiblePersonalSharingOrganization = {
   readonly workspaceId: string;
   readonly label: string;
+  readonly avatarUrl?: string | null;
+  readonly slug?: string | null;
   readonly predecessors?: readonly {
     readonly sourceId: string;
     readonly bindingId: string;
@@ -46,6 +50,10 @@ export type OwnAccessSummary = {
   }[];
   // The viewer's own personal workspace, identical on every row of one call.
   readonly personalWorkspaceId: string | null;
+  readonly personalWorkspace?: {
+    label: string;
+    avatarUrl: string | null;
+  } | null;
   readonly complete: true;
 };
 
@@ -117,6 +125,14 @@ export class PrismaPersonalAccountSharingQueries {
         b."workspaceId" AS "targetWorkspaceId", b."revision", b."state"::text,
         CASE WHEN w."deletionState" = 'active' AND m."role" IN ('owner', 'admin')
           THEN w."name" ELSE NULL END AS "organizationLabel",
+        CASE WHEN w."deletionState" = 'active' AND m."role" IN ('owner', 'admin')
+          THEN w."slug" ELSE NULL END AS "slug",
+        CASE WHEN w."deletionState" = 'active' AND m."role" IN ('owner', 'admin')
+          THEN (SELECT COALESCE(i."accountAvatarUrl",
+            CASE WHEN i."accountLogin" ~ '^[A-Za-z0-9-]+$'
+              THEN 'https://github.com/' || i."accountLogin" || '.png?size=64' END)
+            FROM "GitHubInstallation" i WHERE i."workspaceId" = w."id"
+            ORDER BY i."id" ASC LIMIT 1) ELSE NULL END AS "avatarUrl",
         CASE WHEN b."pendingFenceOperationId" IS NOT NULL THEN 'remote_pending'
           WHEN b."state" = 'revoked' AND b."fenceAckOperationId" IS NOT NULL
             AND b."fenceAckPolicyRevision" = b."policyRevision" THEN 'remote_applied'
@@ -184,7 +200,11 @@ export class PrismaPersonalAccountSharingQueries {
           personalOwnerUserId: request.actorUserId,
           deletionState: "active",
         },
-        select: { id: true },
+        select: {
+          id: true,
+          name: true,
+          personalOwnerUser: { select: { githubLogin: true, avatarUrl: true } },
+        },
       }),
     ]);
     const bySource = new Map(rows.map((row) => [row.sourceId, row]));
@@ -244,6 +264,12 @@ export class PrismaPersonalAccountSharingQueries {
           },
         ),
         personalWorkspaceId,
+        personalWorkspace: personal
+          ? {
+              label: personal.personalOwnerUser?.githubLogin ?? personal.name,
+              avatarUrl: personal.personalOwnerUser?.avatarUrl ?? null,
+            }
+          : null,
         complete: true as const,
       };
     });
@@ -279,7 +305,16 @@ export class PrismaPersonalAccountSharingQueries {
       },
       orderBy: { id: "asc" },
       take: limit + 1,
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        installations: {
+          select: { accountAvatarUrl: true, accountLogin: true },
+          orderBy: { id: "asc" },
+          take: 1,
+        },
+      },
     });
     const result = page(rows, limit, (row) => row.id);
     if (!result.items.length) return { items: [], nextAfterId: null };
@@ -329,6 +364,13 @@ export class PrismaPersonalAccountSharingQueries {
         return {
           workspaceId: row.id,
           label: row.name,
+          slug: row.slug,
+          avatarUrl:
+            row.installations[0]?.accountAvatarUrl ??
+            (row.installations[0]?.accountLogin &&
+            /^[A-Za-z0-9-]+$/.test(row.installations[0].accountLogin)
+              ? `https://github.com/${row.installations[0].accountLogin}.png?size=64`
+              : null),
           ...(hints.length ? { predecessors: hints } : {}),
         };
       }),

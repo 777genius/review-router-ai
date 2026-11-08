@@ -14,9 +14,9 @@ import {
 } from "../../../packages/features/action-control-plane/src/index.ts";
 import {
   clearReviewConfiguration,
-  PrismaReviewConfigurationRepository,
   saveReviewConfiguration,
 } from "../../../packages/features/review-config/src/index.ts";
+import { PrismaReviewConfigurationRepository } from "../../../packages/features/review-config/src/composition/index.ts";
 import { createPrismaClient } from "../../../packages/platform/db/src/index.ts";
 import { SystemClock } from "../../../packages/shared/src/index.ts";
 import { createApiApp } from "../../../apps/api/src/app.js";

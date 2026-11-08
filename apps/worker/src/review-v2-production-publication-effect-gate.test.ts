@@ -24,7 +24,7 @@ import {
 import {
   ReviewV2PublicationEffectGateDecision,
   ReviewV2ScmProvider,
-} from "./review-v2-publication-ports";
+} from "@reviewrouter/features-review-publishing/v2";
 
 describe("production review investigation publication effect gate", () => {
   it("rechecks the current writer qualification before a fresh resolve even for an existing captured execution", async () => {

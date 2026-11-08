@@ -3,10 +3,7 @@ import type {
   ReviewExecutionSnapshot,
   ReviewExecutionQueryPort,
 } from "@reviewrouter/features-review-executions";
-import {
-  reviewPublicationAttemptId,
-  type ReviewPublicationAttemptView,
-} from "@reviewrouter/features-review-publishing/v2";
+import { reviewPublicationAttemptId } from "@reviewrouter/features-review-publishing/v2";
 
 export type PersistedAcceptedReviewManifest = Readonly<{
   workSlotId: string;
@@ -116,24 +113,4 @@ export function persistedReviewExecutionRestore(
         }
       : null,
   };
-}
-
-/** A lookup result must be this exact frozen publication, regardless of current inventory digest. */
-export function exactRestoredPublication(
-  snapshot: ReviewExecutionSnapshot,
-  view: ReviewPublicationAttemptView | null,
-): ReviewPublicationAttemptView | null {
-  const expected = persistedReviewExecutionRestore(snapshot).artifact;
-  if (!view || !expected) return null;
-  const attempt = view.attempt;
-  if (
-    attempt.publicationAttemptId !== expected.publicationAttemptId ||
-    attempt.permit.executionId !== expected.executionId ||
-    attempt.permit.generation.toString() !== expected.generation ||
-    attempt.permit.projectionHash !== expected.projectionHash ||
-    attempt.permit.reviewedHeadSha !== expected.reviewedHeadSha ||
-    attempt.permit.reviewRevisionHash !== expected.reviewRevisionHash
-  )
-    throw new Error("restore_publication_scope_mismatch");
-  return view;
 }

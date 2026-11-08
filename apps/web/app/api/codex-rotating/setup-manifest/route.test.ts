@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../../../src/server/prisma", () => ({
   getPrisma: () => ({ transaction: "route-test" }),
 }));
-vi.mock("../../../../src/server/codex-rotating-setup-manifest", () => ({
+vi.mock("@reviewrouter/features-provider-setup/composition", () => ({
   resolveCodexRotatingSetupManifestForNonce:
     mocks.resolveCodexRotatingSetupManifestForNonce,
 }));

@@ -70,7 +70,7 @@ export type AccountLimitsWindowView = {
 type DisplayContext = {
   readonly fetchedAt: string;
   readonly displayToken: string;
-  readonly refreshAvailable: false;
+  readonly refreshAvailable: boolean;
 };
 export type AccountLimitsView = DisplayContext &
   (

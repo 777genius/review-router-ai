@@ -7,19 +7,17 @@ import {
   resolveReviewRouterPublicApiUrl,
 } from "@reviewrouter/platform-config";
 import {
-  PrismaReviewPolicyHeadReader,
   resolveReviewRuntimeEnv,
   type ReviewConfiguration,
 } from "@reviewrouter/features-review-config";
+import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import {
   PrismaProviderAccountRepository,
   selectBinding,
 } from "@reviewrouter/features-provider-accounts";
 import { readPersonalAccountSharingEnabled } from "@reviewrouter/features-provider-accounts/composition";
-import {
-  PrismaAuditLogRepository,
-  recordAuditEvent,
-} from "@reviewrouter/features-audit-log";
+import { recordAuditEvent } from "@reviewrouter/features-audit-log";
+import { PrismaAuditLogRepository } from "@reviewrouter/features-audit-log/composition";
 import { areWorkflowDocumentsSemanticallyEqual } from "@reviewrouter/features-codex-oauth-rotating";
 import {
   ConfirmInstalledGatewayReviewRepository,
@@ -438,6 +436,19 @@ export function createInstalledGatewayReviewConfirmation(input: {
                   revision: scope.setup.revision,
                 }
               : null,
+            ...(scope.setup &&
+            (scope.setup.workflowPath !== expected.path ||
+              scope.setup.workflowStyle !== "reusable" ||
+              scope.setup.actionVersion !==
+                reviewRouterWorkflowContract.channel)
+              ? {
+                  verifiedPreviousGatewayBinding: {
+                    workflowPath: scope.setup.workflowPath,
+                    workflowStyle: scope.setup.workflowStyle,
+                    actionVersion: scope.setup.actionVersion,
+                  },
+                }
+              : {}),
             branch: scope.setup?.branch ?? "reviewrouter/setup",
             baseBranch: scope.defaultBranch,
             status: "configured",

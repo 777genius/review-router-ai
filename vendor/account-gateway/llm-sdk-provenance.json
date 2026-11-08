@@ -1,18 +1,15 @@
 {
   "schema": "account-gateway-llm-sdk-consumer/v1",
-  "archive": "agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz",
-  "sha256": "5b1ec4ee7d17bfe5a6871e51598a040192dd69f539a0966eb9112e12b2c1694e",
+  "archive": "agent-teams-account-gateway-0.1.0-quota-0db9a2b65798.tgz",
+  "sha256": "0db9a2b65798d5aa655df9ad8a0cf6915c8613d9f1babcdb5f67d0e07d6a4809",
   "sourceRepository": "agent-teams-ai/account-gateway",
-  "sourceCommit": "c866c7d4d96c632d9fe6ac26961a73a710059f0d",
-  "previousArchive": "agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz",
+  "sourceCommit": "493b946368779d0de15602a90f8561ed3c118c23",
+  "previousArchive": "agent-teams-account-gateway-0.1.0-llm-5b1ec4ee7d17.tgz",
   "qualification": {
-    "build": "passed",
-    "llmCases": 10,
-    "fullSdkTests": {
-      "passed": 75,
-      "failed": 0,
-      "skipped": 0
-    },
-    "productionActivated": false
-  }
+    "sdkBuild": "passed on pinned TS7 host",
+    "relayIntegrationCases": 100,
+    "providerModels": 0
+  },
+  "sourceAssociation": "provider-quota-sdk-commit-association.json",
+  "packedSource": "provider-quota-sdk-source-pack.json"
 }

@@ -9,6 +9,27 @@ models, reasoning effort, review language, severity thresholds, comment limits,
 provider parallelism and the agreement required for inline findings.
 Provider capabilities differ; not every model supports every setting.
 
+### Inline reviewer agreement (managed v2)
+
+**Inline agreement** sets the minimum number of independent reviewer votes
+required to publish an AI finding as an inline PR comment. Repeated work
+slots with one vote identity count once; separately configured reviewer
+identities can count independently even when using the same model.
+Findings below the threshold remain visible in the PR review summary instead of appearing as
+agreed inline comments. They can still fail the configured severity check, so
+an unconfirmed serious finding does not become an all-clear. Deterministic-only
+`static`/`ast` findings are exempt, but those keys do not count as additional
+AI reviewer votes in mixed findings. The default threshold of one keeps
+the normal single-reviewer workflow. Historical discussion thread resolution
+has a separate, stricter confirmation policy.
+
+This contract requires a managed v2 Action release containing the one-vote
+threshold fix from [Action PR #375](https://github.com/777genius/review-router/pull/375).
+Merging the source does not activate it: existing installations must update
+their pinned Action runtime to a release that includes the fix. Older managed
+v2 releases and direct Action entrypoints may have different summary and
+publication behavior.
+
 Operators can also use the [configuration CLI](./operations/review-configuration-operator-cli.md):
 
 ```bash
@@ -80,6 +101,3 @@ gh run rerun RUN_ID --repo OWNER/REPOSITORY --failed
 
 If the head changed, use the new PR run. Reconnecting does not update the
 workflow's pinned Action version.
-
-Hosted pool accounts use a different lifecycle. Follow the
-[pool operator guide](../ai-docs/operations/hosted-pool-operator.md).

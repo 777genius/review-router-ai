@@ -2,15 +2,13 @@ import { execFileSync } from "node:child_process";
 import { Octokit } from "@octokit/rest";
 import { resolveReviewRouterActionRef } from "../../../packages/platform/config/src/index.ts";
 import { createPrismaClient } from "../../../packages/platform/db/src/index.ts";
+import { provisionReviewRouterWorkflow } from "../../../packages/features/workflow-provisioning/src/index.ts";
 import {
   OctokitWorkflowSetupGateway,
   PrismaWorkflowProvisioningRepository,
-  provisionReviewRouterWorkflow,
-} from "../../../packages/features/workflow-provisioning/src/index.ts";
-import {
-  PrismaReviewPolicyHeadReader,
-  resolveReviewRuntimeEnv,
-} from "../../../packages/features/review-config/src/index.ts";
+} from "../../../packages/features/workflow-provisioning/src/composition/index.ts";
+import { resolveReviewRuntimeEnv } from "../../../packages/features/review-config/src/index.ts";
+import { PrismaReviewPolicyHeadReader } from "../../../packages/features/review-config/src/composition/index.ts";
 import { createGitHubApp, findInstallationForRepo } from "./github-app.js";
 import { loadAppProfile, loadEnvFiles, requiredEnv } from "./config.js";
 

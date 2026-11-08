@@ -13,6 +13,11 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { AccountLimitsView } from "../../src/server/account-gateway-accounts";
 import { AccountLimitsLine } from "./account-limits-line";
 import { accountLimitsKey, extractAccountLimits } from "./account-limits-query";
+import { refreshAccountLimitsAction } from "./account-limits-actions";
+
+vi.mock("./account-limits-actions", () => ({
+  refreshAccountLimitsAction: vi.fn(),
+}));
 
 const now = "2026-10-22T10:00:00.000Z";
 function snapshot(): AccountLimitsView {
@@ -62,7 +67,96 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  vi.mocked(refreshAccountLimitsAction).mockReset();
 });
+
+test("loads a new connection's supported quota once without running a model", async () => {
+  const fetch = vi.fn();
+  vi.stubGlobal("fetch", fetch);
+  vi.mocked(refreshAccountLimitsAction).mockResolvedValue({
+    status: "ok",
+    value: { ...snapshot(), refreshAvailable: true },
+  });
+  const { props } = fixture({
+    status: "unknown",
+    reason: "missing_snapshot",
+    fetchedAt: now,
+    displayToken: "generation-a",
+    refreshAvailable: true,
+  });
+  render(<AccountLimitsLine {...props} />);
+  expect(
+    (await screen.findByRole("progressbar")).getAttribute("aria-valuenow"),
+  ).toBe("62.5");
+  expect(refreshAccountLimitsAction).toHaveBeenCalledExactlyOnceWith({
+    context: props.context,
+    connectionId: props.connectionId,
+  });
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test("a failed explicit refresh keeps the old observation and does not retry", async () => {
+  vi.mocked(refreshAccountLimitsAction).mockRejectedValue(
+    new Error("private provider details"),
+  );
+  const { props } = fixture({ ...snapshot(), refreshAvailable: true });
+  render(<AccountLimitsLine {...props} />);
+  expect(refreshAccountLimitsAction).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh limits" }));
+  expect(
+    await screen.findByText(/Could not refresh current limits/),
+  ).toBeTruthy();
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+    "62.5",
+  );
+  expect(screen.queryByText(/private provider details/)).toBeNull();
+  expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
+});
+
+test.each(["new-generation", "newer-observation"])(
+  "a late quota refresh cannot replace a %s",
+  async (change) => {
+    let finish!: (
+      value: Awaited<ReturnType<typeof refreshAccountLimitsAction>>,
+    ) => void;
+    vi.mocked(refreshAccountLimitsAction).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { client, props } = fixture({
+      ...snapshot(),
+      refreshAvailable: true,
+    });
+    render(<AccountLimitsLine {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh limits" }));
+    await waitFor(() =>
+      expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1),
+    );
+    const current = {
+      ...snapshot(),
+      fetchedAt: "2026-10-22T10:02:00.000Z",
+      displayToken:
+        change === "new-generation" ? "generation-b" : "generation-a",
+      refreshAvailable: true,
+    };
+    await act(async () => {
+      client.setQueryData(accountLimitsKey(props.scope, props.connectionId), {
+        status: "ok",
+        value: current,
+      });
+      finish({
+        status: "ok",
+        value: { ...snapshot(), refreshAvailable: true },
+      });
+      await Promise.resolve();
+    });
+    expect(
+      client.getQueryData(accountLimitsKey(props.scope, props.connectionId)),
+    ).toEqual({ status: "ok", value: current });
+  },
+);
 
 test("SSR includes observed usage and UTC timestamps without reading the network", () => {
   const fetch = vi.fn();
