@@ -429,6 +429,9 @@ export class ProcessConversation {
               : "ordinary_contributor",
             body: selectedSource.body,
           },
+          ...(learningPreparation?.observationEvidence
+            ? { observationEvidence: learningPreparation.observationEvidence }
+            : {}),
           conversation: JSON.parse(renderConversation(snapshot)) as unknown,
           memory: context.text,
           memoryChanges: answerOnly

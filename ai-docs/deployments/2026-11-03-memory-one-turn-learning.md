@@ -18,7 +18,7 @@
   actual selected-model semantic qualification and the existing release process.
   Ordinary [provider/Action delivery](2026-11-04-provider-errors-and-findings.md)
   proceeds independently of this unqualified capability.
-- Last updated: `2026-11-04`.
+- Last updated: `2026-11-08`.
 
 ## Environment status
 
@@ -132,16 +132,20 @@ is authorized by this record.
 
 ## Ordered rollout
 
-1. Production ordinary code installation is already complete on a3/image0ff.
-   Preserve its actual source/image evidence and settings. Staging remains
-   unverified and requires its own authorized rollout/acceptance record.
-2. Reconcile the missing endorsement and invalid-output evidence against the
+1. The earlier #804/#805/#807 ordinary code is installed on a3/image0ff.
+   Preserve actual source/image evidence and settings; there is no reason to
+   redeploy it solely to close semantic qualification.
+2. PR #806 remains a **pending source candidate**, not an installation.
+   After exact-head CI and code merge, arrange ordinary rollout only with
+   separate release-owner authorization and an installed-image inventory.
+   Staging and self-hosted require their own acceptance records.
+3. Reconcile the missing endorsement and invalid-output evidence against the
    actual current source before any newly authorized qualification. Retain all
    prior source/run identities and inference-mechanism boundaries.
-3. Qualify the actual selected model/account through the maintained evaluator
+4. Qualify the actual selected model/account through the maintained evaluator
    without threshold relaxation, fabricated observations or replacement scores.
    Record the real official outcome before issuing a semantic capability.
-4. Only after qualification passes, complete the existing App and genuine-artifact
+5. Only after qualification passes, complete the existing App and genuine-artifact
    first-install/update acceptance and capability delivery. Record each target
    separately under the [release process](../operations/07-environments-and-release-management.md).
 
@@ -158,6 +162,39 @@ any later explicitly authorized qualification result. Until then keep the
 semantic target blocked/UNAVAILABLE and self-hosted capability delivery pending.
 The separate Action228/229 and private228 rollout must not be described as a Memory
 semantic qualification.
+
+## Historical human-evidence source correction (PR #806)
+
+[PR #806](https://github.com/777genius/review-router-ai/pull/806) is a **pending
+ordinary-code candidate**, not an installation. Its original source commit was
+`f650bd229f4fdf3e23276d46b1bbafb266d4f5c9`; the current combined candidate
+and exact-head CI are tracked by that PR. The confirmed #804/#805/#807
+production tuple above remains historical installed evidence.
+
+| Environment / target          | PR #806 status | Actual candidate installation |
+| ----------------------------- | -------------- | ----------------------------- |
+| staging                       | `pending`      | None verified                 |
+| production / ordinary code    | `pending`      | Not installed                 |
+| self-hosted / qualified input | `pending`      | No qualified artifact issued  |
+
+No rollout, account/model switch, schema migration or capability activation is
+authorized by source merge. A future release owner must check current images,
+obtain deployment authorization, follow normal release and rollback/API preflight,
+and record target-specific acceptance.
+
+The earlier [40/50 partial evidence-binding run](evidence/2026-11-03-memory-evidence-binding-partial.json)
+is retained as **UNAVAILABLE**, not an official semantic score. One unknown
+request outcome was fenced and closed, and no request was replayed. This
+candidate separates checked human evidence for observations from the complete
+discussion used for answering. The source quotes and supporting technical
+clauses use the same frozen projection; one parent request and the input size
+budget remain enforced.
+
+This source change does **not** establish semantic precision/recall, qualify a
+provider, grant Memory capability or authorize production activation. Preserve
+the newer r2 observations and any later retained evidence. A separately
+authorized, actual isolated semantic run and unchanged quality thresholds are
+still required before activation.
 
 ## Retry, partial completion, and rollback
 
