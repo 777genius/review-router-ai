@@ -140,7 +140,14 @@ export function createAccountLimitsService(input: {
           async read(target) {
             const supported =
               source.state === "active" && input.refresher
-                ? input.refresher.supports(target.profileId).catch(() => false)
+                ? input.refresher.supports(target.profileId).catch((error) => {
+                    if (explicitRefresh)
+                      refreshDiagnosis =
+                        error instanceof AccountDiagnosisError
+                          ? error.diagnosis
+                          : { code: "unavailable", source: "network" };
+                    return false;
+                  })
                 : Promise.resolve(false);
             if (!explicitRefresh) {
               let timer: ReturnType<typeof setTimeout> | undefined;
