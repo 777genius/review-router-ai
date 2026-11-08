@@ -504,3 +504,39 @@ it("never exposes an earlier provider quota after revocation during a timed-out 
   ).toHaveLength(1);
   expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(1);
 });
+
+it("does not release a prepared provider quota if the user cancels during close", async () => {
+  const f = await fixture("quota_slow_close");
+  const events: ConnectionProbeEvent[] = [];
+  const controller = new AbortController();
+  let cancel: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await createGatewayConnectionProbe({
+      resolve: async () => f.tuple,
+      admit: async () => {},
+      control: f.control,
+      executionOrigin: f.origin,
+    })(
+      request(),
+      (event) => {
+        events.push(event);
+        if (event.type === "progress" && event.stage === "closing")
+          cancel = setTimeout(() => controller.abort(), 50);
+      },
+      controller.signal,
+    );
+  } finally {
+    if (cancel) clearTimeout(cancel);
+  }
+  expect(events.at(-1)).toEqual({
+    type: "result",
+    ok: false,
+    code: "cancelled",
+    diagnosis: { code: "cancelled", source: "network" },
+  });
+  expect(JSON.stringify(events)).not.toContain("quota_exhausted");
+  expect(
+    f.calls.filter((call) => call.path.endsWith("/requests")),
+  ).toHaveLength(1);
+  expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(1);
+});
