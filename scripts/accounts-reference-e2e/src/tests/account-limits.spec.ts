@@ -480,10 +480,11 @@ test("Claude account limits distinguish all-model and model windows on desktop a
   await summary.press("Enter");
   await expect(limits.locator("details")).toHaveAttribute("open", "");
   await expect(limits.getByRole("progressbar")).toHaveCount(2);
-  await expect(limits).toContainText("7d Sonnet");
-  await expect(limits).toContainText("7d Fable");
-  await expect(limits).toContainText("72.25% used");
-  await expect(limits).toContainText("125% used");
+  const rows = limits.locator("details > div > div");
+  await expect(rows.filter({ hasText: "7d Sonnet" })).toContainText(
+    "72.25% used",
+  );
+  await expect(rows.filter({ hasText: "7d Fable" })).toContainText("125% used");
   await expect(limits.getByText(/^As of:/).first()).toBeVisible();
   await expect(limits).toContainText(/UTC[+-]\d{2}:\d{2}/);
   expect((await stats(request)).reads).toBe(before.reads);
@@ -608,8 +609,9 @@ test("Claude account limits follow the personal owner across workspace sharing",
   await expect(ownLimits).toContainText("62.5% left");
   // Per-model windows belong to the full Details view, not the two-window compact bar.
   await ownLimits.getByText("Details", { exact: true }).click();
-  await expect(ownLimits).toContainText("7d Sonnet");
-  await expect(ownLimits).toContainText("72.25% used");
+  await expect(
+    ownLimits.locator("details > div > div").filter({ hasText: "7d Sonnet" }),
+  ).toContainText("72.25% used");
   await expect(ownLimits).not.toContainText("visible to the owner");
   await page.waitForLoadState("networkidle");
   expect((await stats(request)).readAccounts).toContain(
