@@ -89,11 +89,15 @@ async function fixture(
       const admitted = JSON.parse(String(req.headers["x-gateway-admission"]));
       expect(admitted.limits.requests).toBe(1);
       expect(admitted.accountRef).toBe("shared-test-account");
-      if (mode === "quota" || mode === "quota_slow_close" || mode === "opaque") {
+      if (
+        mode === "quota" ||
+        mode === "quota_slow_close" ||
+        mode === "opaque"
+      ) {
         res.statusCode = 502;
         res.end(
           JSON.stringify(
-            (mode === "quota" || mode === "quota_slow_close")
+            mode === "quota" || mode === "quota_slow_close"
               ? {
                   code: "upstream_failure",
                   traceRef: "quota-test",
@@ -160,8 +164,7 @@ async function fixture(
           state: mode === "cleanup" ? "pending" : "applied",
         }),
       );
-    }
-    else {
+    } else {
       res.statusCode = 404;
       res.end("{}");
     }
@@ -502,7 +505,9 @@ it("never exposes an earlier provider quota after revocation during a timed-out 
   expect(
     f.calls.filter((call) => call.path.endsWith("/requests")),
   ).toHaveLength(1);
-  expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(1);
+  expect(
+    f.calls.filter((call) => call.path.endsWith("/close")),
+  ).toHaveLength(1);
 });
 
 it("does not release a prepared provider quota if the user cancels during close", async () => {
@@ -538,5 +543,7 @@ it("does not release a prepared provider quota if the user cancels during close"
   expect(
     f.calls.filter((call) => call.path.endsWith("/requests")),
   ).toHaveLength(1);
-  expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(1);
+  expect(
+    f.calls.filter((call) => call.path.endsWith("/close")),
+  ).toHaveLength(1);
 });

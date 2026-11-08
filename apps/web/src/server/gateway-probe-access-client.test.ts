@@ -7,7 +7,9 @@ import {
   gatewayProbeLimits,
 } from "@reviewrouter/features-provider-accounts/gateway-probe";
 import { gatewayProbeAccessClient } from "./gateway-probe-access-client";
-import { AccountDiagnosisError } from "../features/account-gateway/account-diagnosis";
+import {
+  AccountDiagnosisError,
+} from "../features/account-gateway/account-diagnosis";
 const stops: (() => void)[] = [];
 afterEach(() => {
   for (const stop of stops.splice(0)) stop();
@@ -44,18 +46,18 @@ it.each([
             : mode === "success_malformed"
               ? { bearer: "private-secret", operation: {} }
               : mode === "opaque"
-              ? { error: "private-secret", claimedProviderStatus: 429 }
-              : {
-                  code: "admission_limited",
-                  traceRef: "fixture",
-                  operationRef:
-                    mode === "foreign" ? "foreign-operation" : operationId,
-                  effect: "not_dispatched",
-                  retry: { kind: "after", milliseconds: 1000 },
-                  ...(mode === "malformed"
-                    ? { rawProviderError: "private-secret" }
-                    : {}),
-                },
+                ? { error: "private-secret", claimedProviderStatus: 429 }
+                : {
+                    code: "admission_limited",
+                    traceRef: "fixture",
+                    operationRef:
+                      mode === "foreign" ? "foreign-operation" : operationId,
+                    effect: "not_dispatched",
+                    retry: { kind: "after", milliseconds: 1000 },
+                    ...(mode === "malformed"
+                      ? { rawProviderError: "private-secret" }
+                      : {}),
+                  },
         ),
       );
     });

@@ -1,4 +1,6 @@
-import { AccountDiagnosisError } from "../../src/features/account-gateway/account-diagnosis";
+import {
+  AccountDiagnosisError,
+} from "../../src/features/account-gateway/account-diagnosis";
 import {
   type QueryClient,
   queryOptions,
@@ -61,7 +63,10 @@ export function accountLimitsRefreshOptions(
       if (result.status !== "ok")
         throw new AccountDiagnosisError(
           result.diagnosis ?? {
-            code: result.status === "invalid" ? "invalid_request" : result.status,
+            code:
+              result.status === "invalid"
+                ? "invalid_request"
+                : result.status,
             source: "application",
           },
         );
