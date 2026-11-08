@@ -293,31 +293,12 @@ export class ReviewProgressGitHubGateway {
   ): Promise<ReviewProgressComment[]> {
     const matches: ReviewProgressComment[] = [];
     for (let page = 1; page <= this.maxCommentPages; page += 1) {
-      let response: Awaited<ReturnType<ReviewProgressGitHubRequester>>;
-      try {
-        response = await this.request(
-          "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
-          repositoryParameters(input, {
-            issue_number: input.pullNumber,
-            per_page: 100,
-            page,
-          }),
-        );
-      } catch (error) {
-        throw this.classify(error);
-      }
-      if (!Array.isArray(response.data)) {
-        throw failure(
-          "invalid_response",
-          "github_issue_comments_invalid",
-          false,
-        );
-      }
-      for (const value of response.data) {
+      const comments = await this.fetchCommentPage(input, page);
+      for (const value of comments) {
         const comment = parseCommentOrNull(value);
         if (comment && ownsMarker(comment, input)) matches.push(comment);
       }
-      if (response.data.length < 100) break;
+      if (comments.length < 100) break;
       if (page === this.maxCommentPages) {
         throw failure(
           "pagination_inconclusive",
@@ -327,6 +308,33 @@ export class ReviewProgressGitHubGateway {
       }
     }
     return matches.sort((left, right) => left.id - right.id);
+  }
+
+  private async fetchCommentPage(
+    input: UpsertReviewProgressCommentInput,
+    page: number,
+  ): Promise<unknown[]> {
+    let response: Awaited<ReturnType<ReviewProgressGitHubRequester>>;
+    try {
+      response = await this.request(
+        "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+        repositoryParameters(input, {
+          issue_number: input.pullNumber,
+          per_page: 100,
+          page,
+        }),
+      );
+    } catch (error) {
+      throw this.classify(error);
+    }
+    if (!Array.isArray(response.data)) {
+      throw failure(
+        "invalid_response",
+        "github_issue_comments_invalid",
+        false,
+      );
+    }
+    return response.data;
   }
 
   private async reconcileMutation(

@@ -197,6 +197,67 @@ describe("ReviewProgressGitHubGateway", () => {
     );
   });
 
+  it("discovers a marked comment on page two without creating another", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const pages = [
+      Array.from({ length: 100 }, (_, index) => ({
+        id: index + 1,
+        body: "unrelated",
+        user: { login: "review-router[bot]" },
+      })),
+      [
+        {
+          id: 701,
+          body: desired,
+          user: { login: "review-router[bot]" },
+        },
+      ],
+    ];
+    const calls: Array<{
+      route: string;
+      parameters: Readonly<Record<string, unknown>>;
+    }> = [];
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters = {},
+    ) => {
+      calls.push({ route, parameters });
+      if (route === "GET /repos/{owner}/{repo}/pulls/{pull_number}") {
+        return {
+          data: {
+            state: "open",
+            head: { sha: head },
+            base: { repo: { full_name: "acme/rocket" } },
+          },
+        };
+      }
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        return { data: pages[Number(parameters.page) - 1] ?? [] };
+      }
+      throw new Error(`unexpected_route:${route}`);
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 701,
+      operation: "unchanged",
+      duplicateCommentIds: [],
+    });
+    expect(
+      calls
+        .filter(
+          ({ route }) =>
+            route ===
+            "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2]);
+    expect(mutations(calls)).toEqual([]);
+  });
+
   it("refuses to POST when the bounded scan is inconclusive", async () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
