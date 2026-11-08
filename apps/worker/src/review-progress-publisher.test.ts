@@ -259,6 +259,29 @@ describe("ReviewProgressPublisher", () => {
     expect(store.suppress).not.toHaveBeenCalled();
   });
 
+  it("retries unknown failures using the fallback delay", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const publisher = createPublisher(store, async () => {
+      throw new Error("installation_transient");
+    });
+
+    await expect(publisher.runMaintenance()).resolves.toMatchObject({
+      claimed: 1,
+      failed: 1,
+      suppressed: 0,
+    });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_publish_failed",
+        retryAt: new Date(now.getTime() + 5_000),
+        now,
+      }),
+    );
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
   it("suppresses a non-retryable GitHub error without scheduling retry", async () => {
     const publication = claimed();
     const store = fakeStore(publication);

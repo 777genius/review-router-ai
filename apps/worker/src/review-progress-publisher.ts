@@ -216,26 +216,46 @@ export class ReviewProgressPublisher {
       result.suppressed += 1;
       return;
     }
-    const githubError =
-      error instanceof ReviewProgressGitHubError ? error : null;
-    const retryAt =
-      githubError?.metadata.retryAt ??
-      new Date(this.clock.now().getTime() + this.options.retryDelayMs);
+    const retry = publicationRetryPlan(
+      error,
+      () => this.clock.now(),
+      this.options.retryDelayMs,
+    );
     const retryOutcome = await this.store.retry({
       publication,
-      safeCode: githubError
-        ? `review_progress_${githubError.kind}`
-        : "review_progress_publish_failed",
-      retryAt,
-      ...(githubError?.kind === "rate_limited"
-        ? { installationCooldownUntil: retryAt }
-        : {}),
+      ...retry,
       now: this.clock.now(),
       maxFailures: this.options.maxFailures,
     });
     if (retryOutcome === "suppressed") result.suppressed += 1;
     else result.failed += 1;
   }
+}
+
+/** Derive retry metadata separately from persistence and result counters. */
+function publicationRetryPlan(
+  error: unknown,
+  now: () => Date,
+  retryDelayMs: number,
+): {
+  readonly safeCode: string;
+  readonly retryAt: Date;
+  readonly installationCooldownUntil?: Date;
+} {
+  const githubError =
+    error instanceof ReviewProgressGitHubError ? error : null;
+  const retryAt =
+    githubError?.metadata.retryAt ??
+    new Date(now().getTime() + retryDelayMs);
+  return {
+    safeCode: githubError
+      ? `review_progress_${githubError.kind}`
+      : "review_progress_publish_failed",
+    retryAt,
+    ...(githubError?.kind === "rate_limited"
+      ? { installationCooldownUntil: retryAt }
+      : {}),
+  };
 }
 
 function parseSnapshot(value: unknown): ProgressSnapshot {
