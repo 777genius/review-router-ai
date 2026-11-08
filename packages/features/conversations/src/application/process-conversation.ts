@@ -349,6 +349,16 @@ export class ProcessConversation {
           throw new ConversationError("forbidden");
         if ((fixedCommand || suggestCommand) && !snapshot.sourceMaintainer)
           throw new ConversationError("forbidden");
+        // Suggestions inherit the complete GitHub parent comment range.
+        // Keep this constraint out of read-only fixed verification.
+        if (
+          suggestCommand &&
+          ((snapshot.anchor.startLine != null &&
+            snapshot.anchor.startLine !== snapshot.anchor.line) ||
+            (snapshot.anchor.startSide != null &&
+              snapshot.anchor.startSide !== snapshot.anchor.side))
+        )
+          throw new ConversationError("unavailable");
         focusedSource =
           fixedCommand || suggestCommand
             ? ((await this.dependencies.sources.readFocusedSource?.(

@@ -884,6 +884,37 @@ describe.skipIf(!databaseUrl)(
       },
     );
 
+    it("allows read-only fixed verification on a multi-line parent anchor", async () => {
+      const f = await fixture({
+        sourceBody: "/rr fixed",
+        modelText: JSON.stringify({
+          kind: "answer",
+          answer: JSON.stringify({
+            verdict: "fixed",
+            confidence: 0.97,
+            scopeSufficient: true,
+            reason: "The source checks identifier length before accepting it.",
+            evidence: [{ line: 2, quote: "return id.length > 0;" }],
+          }),
+          action: null,
+        }),
+      });
+      f.comments[0]!.line = 2;
+      f.comments[0]!.original_line = 2;
+      f.comments[0]!.start_line = 1;
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("ready");
+        expect(result.reply?.body).toContain("Fixed (revalidated)");
+        expect(result.learning.status).toBe("disabled");
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          1,
+        );
+      } finally {
+        await f.app.close();
+      }
+    });
+
     it("rejects model-suggested memory edits during a code suggestion", async () => {
       const f = await fixture({
         sourceBody: "/rr suggest fix",

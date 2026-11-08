@@ -424,15 +424,6 @@ export class GitHubConversationSource
     );
     if (!snapshot.sourceMaintainer || !root || !this.isFinding(root.body))
       return null;
-    // GitHub suggestions under multi-line anchors may replace the entire
-    // range, even if the proposed replacement names only its ending line.
-    if (
-      (snapshot.anchor.startLine != null &&
-        snapshot.anchor.startLine !== snapshot.anchor.line) ||
-      (snapshot.anchor.startSide != null &&
-        snapshot.anchor.startSide !== snapshot.anchor.side)
-    )
-      return null;
     const original = snapshot.anchor.path;
     if (!isAllowedFocusedPath(original)) return null;
     try {
