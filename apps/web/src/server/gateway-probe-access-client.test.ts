@@ -12,7 +12,14 @@ const stops: (() => void)[] = [];
 afterEach(() => {
   for (const stop of stops.splice(0)) stop();
 });
-it.each(["matching", "foreign", "malformed", "denied", "opaque"] as const)(
+it.each([
+  "matching",
+  "foreign",
+  "malformed",
+  "denied",
+  "opaque",
+  "success_malformed",
+] as const)(
   "keeps the private %s response bounded and origin-safe",
   async (mode) => {
     const input = {
@@ -28,12 +35,15 @@ it.each(["matching", "foreign", "malformed", "denied", "opaque"] as const)(
       calls++;
       req.resume();
       res.setHeader("content-type", "application/json");
-      res.statusCode = mode === "denied" ? 403 : 503;
+      res.statusCode =
+        mode === "denied" ? 403 : mode === "success_malformed" ? 200 : 503;
       res.end(
         JSON.stringify(
           mode === "denied"
             ? { error: "denied" }
-            : mode === "opaque"
+            : mode === "success_malformed"
+              ? { bearer: "private-secret", operation: {} }
+              : mode === "opaque"
               ? { error: "private-secret", claimedProviderStatus: 429 }
               : {
                   code: "admission_limited",
