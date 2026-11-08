@@ -295,47 +295,48 @@ describe("ReviewProgressGitHubGateway", () => {
     );
   });
 
-  it.each([
-    {
-      state: "already desired",
-      knownBody: formatReviewProgressComment("working", marker),
-    },
-    { state: "requires PATCH", knownBody: `known\n${marker}` },
-  ])(
-    "defers a known comment $state when the duplicate scan is inconclusive",
-    async ({ knownBody }) => {
-      const fullPage = Array.from({ length: 100 }, (_, index) => ({
-        id: index + 1,
-        body: "unrelated",
-      }));
-      const fixture = githubFixture(
-        [
-          ...fullPage,
-          { id: 900, body: knownBody },
-          { id: 901, body: `hidden duplicate\n${marker}` },
-        ],
-        { listedComments: fullPage },
-      );
+  async function assertKnownCommentScanInconclusive(knownBody: string) {
+    const fullPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture(
+      [
+        ...fullPage,
+        { id: 900, body: knownBody },
+        { id: 901, body: `hidden duplicate\n${marker}` },
+      ],
+      { listedComments: fullPage },
+    );
 
-      await expect(
-        gateway(fixture.request, { maxCommentPages: 1 }).upsert({
-          ...input(),
-          knownCommentId: 900,
-        }),
-      ).rejects.toMatchObject({
-        kind: "pagination_inconclusive",
-        metadata: { retryable: true },
-      });
-      expect(
-        fixture.calls.some(
-          ({ route, parameters }) =>
-            route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}" &&
-            parameters.comment_id === 900,
-        ),
-      ).toBe(true);
-      expect(mutations(fixture.calls)).toEqual([]);
-    },
-  );
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(
+      fixture.calls.some(
+        ({ route, parameters }) =>
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}" &&
+          parameters.comment_id === 900,
+      ),
+    ).toBe(true);
+    expect(mutations(fixture.calls)).toEqual([]);
+  }
+
+  it("defers incomplete scans with an unchanged known comment", async () => {
+    await assertKnownCommentScanInconclusive(
+      formatReviewProgressComment("working", marker),
+    );
+  });
+
+  it("defers incomplete scans before PATCHing a known comment", async () => {
+    await assertKnownCommentScanInconclusive(`known\n${marker}`);
+  });
 
   it("prioritizes a verified known comment over an earlier match", async () => {
     const fixture = githubFixture([
