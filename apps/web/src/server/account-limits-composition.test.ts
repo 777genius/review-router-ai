@@ -363,7 +363,7 @@ it("retries quota refresh capability discovery after one transport failure", asy
     token: "test-credential",
   });
   const id = "openai-codex-oauth-responses-v1";
-  expect(await refresher.supports(id)).toBe(false);
+  await expect(refresher.supports(id)).rejects.toThrow();
   expect(await refresher.supports(id)).toBe(true);
   expect(await refresher.supports(id)).toBe(true);
   expect(calls).toEqual([
