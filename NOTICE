@@ -1,0 +1,18 @@
+ReviewRouter
+Copyright 2026 ReviewRouter contributors
+
+The original ReviewRouter contributions in this distribution are provided under
+the Apache License, Version 2.0 (see LICENSE).
+
+OpenCodeReview by the Alibaba open-source contributors is used as a foundation
+and upstream integration. The OpenCodeReview project is distributed under
+Apache License, Version 2.0:
+https://github.com/alibaba/open-code-review
+
+This notice does not relicense third-party or vendored components. Their
+existing license and attribution notices remain applicable. In particular,
+the bundled Space Grotesk and JetBrains Mono fonts have their own SIL Open
+Font License terms in apps/web/app/fonts/OFL.txt, and bundled action
+third-party licenses are kept in scripts/codex-rotating-action-third-party-licenses.txt.
+
+ReviewRouter is not endorsed by the Apache Software Foundation or Alibaba.

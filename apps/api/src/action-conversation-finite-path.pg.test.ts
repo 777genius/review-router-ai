@@ -220,6 +220,8 @@ describe.skipIf(!databaseUrl)(
         side: "RIGHT",
         line: 5,
         original_line: 5,
+        start_line: null as number | null,
+        start_side: null as string | null,
         commit_id: "c".repeat(40),
         original_commit_id: "c".repeat(40),
         diff_hunk: "@@ -1 +1 @@\n+const id = input;",
@@ -652,27 +654,6 @@ describe.skipIf(!databaseUrl)(
       }
     });
 
-    it.each([".npmrc", "config/.aws/credentials", "src/.hidden.ts"])(
-      "refuses to read hidden current-HEAD files: %s",
-      async (focusedFilename) => {
-        const f = await fixture({ sourceBody: "/rr fixed", focusedFilename });
-        try {
-          const first = await f.processor.execute(input, controls());
-          expect(first.status).toBe("unavailable");
-          expect(first.reply).toBeUndefined();
-          expect(
-            f.calls.filter((call) => call.kind === "request"),
-          ).toHaveLength(0);
-          expect(
-            f.sourceCalls.some((call) => call.route.includes("/contents/")),
-          ).toBe(false);
-          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
-        } finally {
-          await f.app.close();
-        }
-      },
-    );
-
     it.each([
       ["fixed", "fixed", 0.97, "Fixed (revalidated)"],
       ["still_present", "still_present", 0.91, "Still present (revalidated)"],
@@ -730,14 +711,16 @@ describe.skipIf(!databaseUrl)(
     );
 
     it.each([
-      ".env.local",
-      ".npmrc",
-      "deploy/terraform.tfstate",
-      "src/.hidden/file.ts",
-    ])(
-      "rejects protected focused paths without a paid model call: %s",
-      async (focusedFilename) => {
-        const f = await fixture({ sourceBody: "/rr fixed", focusedFilename });
+      ["/rr fixed", ".env.local"],
+      ["/rr fixed", "deploy/terraform.tfstate"],
+      ["/rr fixed", "config/.aws/credentials"],
+      ["/rr fixed", "src/.hidden.ts"],
+      ["/rr suggest fix", ".npmrc"],
+      ["/rr suggest fix", "src/.hidden/file.ts"],
+    ] as const)(
+      "rejects protected focused path without a paid model call: %s %s",
+      async (sourceBody, focusedFilename) => {
+        const f = await fixture({ sourceBody, focusedFilename });
         try {
           const result = await f.processor.execute(input, controls());
           expect(result.status).toBe("unavailable");
@@ -757,12 +740,15 @@ describe.skipIf(!databaseUrl)(
     it.each([
       "/rr fixed\nPlease check this finding",
       "@review-router-ai fixed\nHere is the edited source",
+      "/rr suggest fix\nApply this to all lines",
+      "@review-router-ai suggest fix\nTry this patch",
       "/rr fixed please check this",
       "@review-router-ai fixed please check this",
-      "@reviewrouter fixed?",
-      "Исправил, проверь пожалуйста",
+      "/rr suggest fix please",
+      "@review-router-ai suggest fix please",
+      "Предложи исправление пожалуйста",
     ])(
-      "does not infer or learn from an appended focused command: %s",
+      "does not infer or learn from a malformed focused command: %s",
       async (sourceBody) => {
         const f = await fixture({ sourceBody });
         try {
@@ -781,26 +767,6 @@ describe.skipIf(!databaseUrl)(
       },
     );
 
-    it("rejects a renamed finding before paid verification", async () => {
-      const f = await fixture({
-        sourceBody: "/rr fixed",
-        focusedStatus: "renamed",
-      });
-      try {
-        const result = await f.processor.execute(input, controls());
-        expect(result.status).toBe("unavailable");
-        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
-          0,
-        );
-        expect(
-          f.sourceCalls.some((call) => call.route.includes("/contents/")),
-        ).toBe(false);
-        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
-      } finally {
-        await f.app.close();
-      }
-    });
-
     it("rejects a memory-command model output during /rr fixed", async () => {
       const f = await fixture({
         sourceBody: "/rr fixed",
@@ -814,6 +780,164 @@ describe.skipIf(!databaseUrl)(
       try {
         const result = await f.processor.execute(input, controls());
         expect(result.status).toBe("output_unavailable");
+        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+      } finally {
+        await f.app.close();
+      }
+    });
+
+    it.each([
+      ["applicable", "  return id.trim().length > 0;", false, "suggestion"],
+      [
+        "outdated anchor",
+        "  return id.trim().length > 0;",
+        true,
+        "Cannot suggest",
+      ],
+      [
+        "identical proposal",
+        "  return id.length > 0;",
+        false,
+        "Cannot suggest",
+      ],
+    ] as const)(
+      "accepts only a current-head anchored GitHub suggestion: %s",
+      async (_, replacement, outdated, expected) => {
+        const f = await fixture({
+          sourceBody: "/rr suggest fix",
+          modelText: JSON.stringify({
+            kind: "answer",
+            answer: JSON.stringify({
+              startLine: 2,
+              endLine: 2,
+              before: "  return id.length > 0;",
+              replacement,
+            }),
+            action: null,
+          }),
+        });
+        f.comments[0]!.line = 2;
+        f.comments[0]!.original_line = 2;
+        if (outdated) f.comments[0]!.commit_id = "d".repeat(40);
+        let prepared = 0;
+        f.memory.prepareLearning = async () => {
+          prepared++;
+          throw new Error("suggest_request_must_not_prepare_learning");
+        };
+        try {
+          const first = await f.processor.execute(input, controls());
+          expect(first.status).toBe("ready");
+          expect(first.reply?.body).toContain(expected);
+          if (!outdated && replacement !== "  return id.length > 0;") {
+            expect(first.reply?.body).toContain("c".repeat(12));
+            expect(first.reply?.body).toContain(
+              "suggestion\n  return id.trim().length > 0;",
+            );
+          } else {
+            expect(first.reply?.body).not.toContain("suggestion\n");
+            expect(first.reply?.body).not.toContain("c".repeat(12));
+          }
+          expect(first.learning).toEqual({ status: "disabled", effectIds: [] });
+          expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+          expect(prepared).toBe(0);
+          expect(
+            f.sourceCalls.some((entry) => entry.route.includes("/contents/")),
+          ).toBe(true);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+          expect(await f.processor.execute(input, controls())).toEqual(first);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(1);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
+    it("rejects multi-line finding anchors before a paid suggestion request", async () => {
+      const f = await fixture({ sourceBody: "/rr suggest fix" });
+      f.comments[0]!.line = 2;
+      f.comments[0]!.original_line = 2;
+      f.comments[0]!.start_line = 1;
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("unavailable");
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          0,
+        );
+        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+      } finally {
+        await f.app.close();
+      }
+    });
+
+    it.each(["/rr fixed", "/rr suggest fix"])(
+      "rejects renamed findings without paid inference: %s",
+      async (sourceBody) => {
+        const f = await fixture({ sourceBody, focusedStatus: "renamed" });
+        try {
+          const result = await f.processor.execute(input, controls());
+          expect(result.status).toBe("unavailable");
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(0);
+          expect(
+            f.sourceCalls.some((call) => call.route.includes("/contents/")),
+          ).toBe(false);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
+
+    it("allows read-only fixed verification on a multi-line parent anchor", async () => {
+      const f = await fixture({
+        sourceBody: "/rr fixed",
+        modelText: JSON.stringify({
+          kind: "answer",
+          answer: JSON.stringify({
+            verdict: "fixed",
+            confidence: 0.97,
+            scopeSufficient: true,
+            reason: "The source checks identifier length before accepting it.",
+            evidence: [{ line: 2, quote: "return id.length > 0;" }],
+          }),
+          action: null,
+        }),
+      });
+      f.comments[0]!.line = 2;
+      f.comments[0]!.original_line = 2;
+      f.comments[0]!.start_line = 1;
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("ready");
+        expect(result.reply?.body).toContain("Fixed (revalidated)");
+        expect(result.learning.status).toBe("disabled");
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          1,
+        );
+      } finally {
+        await f.app.close();
+      }
+    });
+
+    it("rejects model-suggested memory edits during a code suggestion", async () => {
+      const f = await fixture({
+        sourceBody: "/rr suggest fix",
+        modelAction: {
+          kind: "create",
+          knowledgeKind: "observation",
+          body: "Unrequested model knowledge.",
+          intentQuote: "/rr suggest fix",
+        },
+      });
+      f.comments[0]!.line = 2;
+      f.comments[0]!.original_line = 2;
+      try {
+        const first = await f.processor.execute(input, controls());
+        expect(first.status).toBe("output_unavailable");
         expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
       } finally {
         await f.app.close();

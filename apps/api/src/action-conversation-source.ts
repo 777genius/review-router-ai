@@ -34,6 +34,8 @@ type ReviewComment = {
   readonly side?: string | null;
   readonly line?: number | null;
   readonly original_line?: number | null;
+  readonly start_line?: number | null;
+  readonly start_side?: string | null;
   readonly commit_id: string;
   readonly original_commit_id: string;
   readonly diff_hunk: string;
@@ -350,6 +352,8 @@ export class GitHubConversationSource
         side: root.side ?? null,
         line: root.line ?? null,
         originalLine: root.original_line ?? null,
+        startLine: root.start_line ?? null,
+        startSide: root.start_side ?? null,
         commitSha: root.commit_id,
         originalCommitSha: root.original_commit_id,
         diffHunk: root.diff_hunk,
