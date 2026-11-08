@@ -469,9 +469,9 @@ it.each(["ok", "quota", "cleanup"] as const)(
     expect(
       f.calls.filter((call) => call.path.endsWith("/requests")),
     ).toHaveLength(1);
-    expect(
-      f.calls.filter((call) => call.path.endsWith("/close")),
-    ).toHaveLength(1);
+    expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(
+      1,
+    );
   },
 );
 
@@ -499,9 +499,9 @@ it("never exposes an earlier provider quota after revocation during a timed-out 
   expect(
     f.calls.filter((call) => call.path.endsWith("/requests")),
   ).toHaveLength(1);
-  expect(
-    f.calls.filter((call) => call.path.endsWith("/close")),
-  ).toHaveLength(1);
+  expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(
+    1,
+  );
 });
 
 it("does not release a prepared provider quota if the user cancels during close", async () => {
@@ -537,7 +537,7 @@ it("does not release a prepared provider quota if the user cancels during close"
   expect(
     f.calls.filter((call) => call.path.endsWith("/requests")),
   ).toHaveLength(1);
-  expect(
-    f.calls.filter((call) => call.path.endsWith("/close")),
-  ).toHaveLength(1);
+  expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(
+    1,
+  );
 });

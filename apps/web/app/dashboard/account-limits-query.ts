@@ -62,9 +62,7 @@ export function accountLimitsRefreshOptions(
         throw new AccountDiagnosisError(
           result.diagnosis ?? {
             code:
-              result.status === "invalid"
-                ? "invalid_request"
-                : result.status,
+              result.status === "invalid" ? "invalid_request" : result.status,
             source: "application",
           },
         );
