@@ -343,7 +343,7 @@ export class ReviewProgressGitHubGateway {
       throw new ReviewProgressGitHubError(
         "ambiguous_mutation",
         "github_progress_comment_mutation_ambiguous",
-        { retryable: true, retryAt: this.fallbackRetryAt() },
+        { retryable: true, retryAt: fallbackRetryAt(this.now, this.random) },
         { cause: { mutationError, observationError } },
       );
     }
@@ -368,71 +368,81 @@ export class ReviewProgressGitHubGateway {
     error: unknown,
     fallbackKind: ReviewProgressGitHubFailureKind = "github_request_failed",
   ): ReviewProgressGitHubError {
-    if (error instanceof ReviewProgressGitHubError) return error;
-    const value = record(error);
-    const response = record(value?.response);
-    const status = number(value?.status) ?? number(response?.status);
-    const headers = normalizeHeaders(
-      record(value?.headers) ?? record(response?.headers),
-    );
-    const responseData = record(response?.data);
-    const isRateLimit =
-      status === 429 ||
-      (status === 403 &&
-        (headers["x-ratelimit-remaining"] === "0" ||
-          headers["retry-after"] !== undefined ||
-          isSecondaryRateLimitResponse(responseData)));
-    if (isRateLimit) {
-      const retryNotBefore = retryBoundary(headers, this.now(), 60_000);
-      const retryAt = jitterAfter(retryNotBefore, this.random);
-      return new ReviewProgressGitHubError(
-        "rate_limited",
-        "github_progress_comment_rate_limited",
-        { status, retryable: true, retryAt, retryNotBefore },
-        { cause: error },
-      );
-    }
-    if (status === 403) {
-      return new ReviewProgressGitHubError(
-        "revoked_app",
-        "github_app_access_revoked",
-        { status, retryable: false },
-        { cause: error },
-      );
-    }
-    if (status !== undefined && status >= 500) {
-      const retryNotBefore = retryBoundary(headers, this.now());
-      return new ReviewProgressGitHubError(
-        "github_unavailable",
-        "github_progress_comment_unavailable",
-        {
-          status,
-          retryable: true,
-          retryNotBefore,
-          retryAt: jitterAfter(retryNotBefore, this.random),
-        },
-        { cause: error },
-      );
-    }
+    return classifyGitHubFailure(error, fallbackKind, this.now, this.random);
+  }
+}
+
+/** Classify GitHub transport failures without coupling policy to the gateway. */
+function classifyGitHubFailure(
+  error: unknown,
+  fallbackKind: ReviewProgressGitHubFailureKind,
+  now: () => Date,
+  random: () => number,
+): ReviewProgressGitHubError {
+  if (error instanceof ReviewProgressGitHubError) return error;
+  const value = record(error);
+  const response = record(value?.response);
+  const status = number(value?.status) ?? number(response?.status);
+  const headers = normalizeHeaders(
+    record(value?.headers) ?? record(response?.headers),
+  );
+  const responseData = record(response?.data);
+  const isRateLimit =
+    status === 429 ||
+    (status === 403 &&
+      (headers["x-ratelimit-remaining"] === "0" ||
+        headers["retry-after"] !== undefined ||
+        isSecondaryRateLimitResponse(responseData)));
+  if (isRateLimit) {
+    const retryNotBefore = retryBoundary(headers, now(), 60_000);
+    const retryAt = jitterAfter(retryNotBefore, random);
     return new ReviewProgressGitHubError(
-      fallbackKind,
-      fallbackKind === "ambiguous_mutation"
-        ? "github_progress_comment_mutation_ambiguous"
-        : "github_progress_comment_request_failed",
+      "rate_limited",
+      "github_progress_comment_rate_limited",
+      { status, retryable: true, retryAt, retryNotBefore },
+      { cause: error },
+    );
+  }
+  if (status === 403) {
+    return new ReviewProgressGitHubError(
+      "revoked_app",
+      "github_app_access_revoked",
+      { status, retryable: false },
+      { cause: error },
+    );
+  }
+  if (status !== undefined && status >= 500) {
+    const retryNotBefore = retryBoundary(headers, now());
+    return new ReviewProgressGitHubError(
+      "github_unavailable",
+      "github_progress_comment_unavailable",
       {
-        ...(status === undefined ? {} : { status }),
-        retryable: fallbackKind === "ambiguous_mutation",
-        ...(fallbackKind === "ambiguous_mutation"
-          ? { retryAt: this.fallbackRetryAt() }
-          : {}),
+        status,
+        retryable: true,
+        retryNotBefore,
+        retryAt: jitterAfter(retryNotBefore, random),
       },
       { cause: error },
     );
   }
+  return new ReviewProgressGitHubError(
+    fallbackKind,
+    fallbackKind === "ambiguous_mutation"
+      ? "github_progress_comment_mutation_ambiguous"
+      : "github_progress_comment_request_failed",
+    {
+      ...(status === undefined ? {} : { status }),
+      retryable: fallbackKind === "ambiguous_mutation",
+      ...(fallbackKind === "ambiguous_mutation"
+        ? { retryAt: fallbackRetryAt(now, random) }
+        : {}),
+    },
+    { cause: error },
+  );
+}
 
-  private fallbackRetryAt(): Date {
-    return jitterAfter(new Date(this.now().getTime() + 1_000), this.random);
-  }
+function fallbackRetryAt(now: () => Date, random: () => number): Date {
+  return jitterAfter(new Date(now().getTime() + 1_000), random);
 }
 
 /** Validate the remote pull identity independently of the GitHub request. */
