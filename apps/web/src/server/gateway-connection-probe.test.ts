@@ -445,8 +445,7 @@ it("does not reveal provider quota after account authority is lost during the fa
 it.each(["ok", "quota", "cleanup"] as const)(
   "does not disclose %s probe results after revocation during close",
   async (mode) => {
-    const fixtureMode = mode === "ok" ? "ok" : mode;
-    const f = await fixture(fixtureMode);
+    const f = await fixture(mode);
     const events: ConnectionProbeEvent[] = [];
     await createGatewayConnectionProbe({
       resolve: async () => {
@@ -466,7 +465,11 @@ it.each(["ok", "quota", "cleanup"] as const)(
     });
     expect(JSON.stringify(events)).not.toContain("quota_exhausted");
     expect(events.filter((event) => event.type === "result")).toHaveLength(1);
-    expect(f.calls.filter((call) => call.path.endsWith("/requests"))).toHaveLength(1);
-    expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(1);
+    expect(
+      f.calls.filter((call) => call.path.endsWith("/requests")),
+    ).toHaveLength(1);
+    expect(
+      f.calls.filter((call) => call.path.endsWith("/close")),
+    ).toHaveLength(1);
   },
 );
