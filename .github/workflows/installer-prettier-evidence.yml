@@ -1,0 +1,46 @@
+# TEMPORARY formatter evidence job; delete this workflow before merging the PR.
+name: Installer Prettier evidence (temporary)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/installer-prettier-evidence.yml
+
+permissions:
+  contents: read
+
+jobs:
+  format-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install dependencies (same lockfile as static checks)
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Render Prettier-only installer changes for maintainer verification
+        shell: bash
+        run: |
+          pnpm exec prettier --write deploy/self-hosted/install.ts deploy/self-hosted/install-agent.test.ts
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const paths = ['deploy/self-hosted/install.ts', 'deploy/self-hosted/install-agent.test.ts'];
+          for (const [fileIndex, path] of paths.entries()) {
+            const base64 = readFileSync(path).toString('base64');
+            const chunkSize = 3072;
+            const count = Math.ceil(base64.length / chunkSize);
+            console.log('RR_PRETTIER_META|' + fileIndex + '|' + count + '|' + base64.length);
+            for (let index = 0; index < count; index++) {
+              console.log('RR_PRETTIER_CHUNK|' + fileIndex + '|' + index + '|' + base64.slice(index * chunkSize, (index + 1) * chunkSize));
+            }
+          }
+          NODE
