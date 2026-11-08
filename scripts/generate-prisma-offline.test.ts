@@ -426,7 +426,7 @@ describe("offline Prisma generate", () => {
     );
   });
 
-  it("checks every required lane when the workflow is not cancelled", () => {
+  it("enforces exactly the required jobs for every CI impact tier", () => {
     const workflow = parse(
       readFileSync(".github/workflows/ci.yml", "utf8"),
     ) as {
@@ -451,58 +451,84 @@ describe("offline Prisma generate", () => {
       "managed-migration-pg17",
     ];
     const gate = workflow.jobs["quality-gates"];
+    expect(workflow.jobs.impact).toBeDefined();
     expect(gate?.if).toBe("${{ always() && !cancelled() }}");
-    expect(gate?.needs?.toSorted()).toEqual(required.toSorted());
+    expect(gate?.needs?.toSorted()).toEqual(["impact", ...required].toSorted());
     const enforcement = gate?.steps?.find(
-      (step) => step.name === "Enforce every quality and PG17 lane",
+      (step) => step.name === "Enforce tier-specific quality and PG17 lanes",
     );
     expect(enforcement?.run).toBeDefined();
+    expect(enforcement?.env?.IMPACT_RESULT).toBe("${{ needs.impact.result }}");
+    expect(enforcement?.env?.IMPACT_TIER).toBe(
+      "${{ needs.impact.outputs.tier }}",
+    );
     const variables = required.map((jobId) => {
       expect(workflow.jobs[jobId], `${jobId}: required job`).toBeDefined();
+      expect(workflow.jobs[jobId]?.needs).toContain("impact");
       const variable = Object.entries(enforcement?.env ?? {}).find(
         ([, value]) => value === "${{ needs." + jobId + ".result }}",
       )?.[0];
       expect(variable, `${jobId}: bound result`).toBeDefined();
       return variable!;
     });
-    const success = Object.fromEntries(
-      variables.map((name) => [name, "success"]),
-    );
-    const runGate = (results: Record<string, string>) =>
+    const runGate = (
+      results: Record<string, string>,
+      tier: string,
+      draft = false,
+      impactResult = "success",
+    ) =>
       spawnSync("bash", ["-c", enforcement!.run!], {
-        env: { ...process.env, ...results },
+        env: {
+          ...process.env,
+          ...results,
+          IMPACT_RESULT: impactResult,
+          IMPACT_TIER: tier,
+          DRAFT_PR: String(draft),
+        },
         encoding: "utf8",
       });
-    expect(runGate(success).status).toBe(0);
-    for (const variable of variables) {
-      for (const result of ["failure", "cancelled", "skipped", ""]) {
-        expect(
-          runGate({ ...success, [variable]: result }).status,
-          `${variable}=${result || "missing"}: aggregate must fail`,
-        ).toBe(1);
+    const expectations = {
+      full: ["success", "success", "success", "success", "success"],
+      docs: ["skipped", "skipped", "skipped", "success", "skipped"],
+      ui: ["success", "skipped", "skipped", "success", "skipped"],
+    } as const;
+    for (const [tier, expected] of Object.entries(expectations)) {
+      const success = Object.fromEntries(
+        variables.map((name, i) => [name, expected[i]]),
+      );
+      expect(
+        runGate(success, tier).status,
+        `${tier}: expected lane set`,
+      ).toBe(0);
+      for (const [i, variable] of variables.entries()) {
+        const unexpected = expected[i] === "success" ? "skipped" : "success";
+        for (const result of ["failure", "cancelled", unexpected, ""]) {
+          expect(
+            runGate({ ...success, [variable]: result }, tier).status,
+            `${tier} ${variable}=${result || "missing"} must fail`,
+          ).toBe(1);
+        }
       }
     }
-    // Draft pull requests skip the heavy lanes on purpose, but a failed,
-    // cancelled or missing lane must still fail the aggregate.
-    const runDraftGate = (results: Record<string, string>) =>
-      runGate({ ...results, DRAFT_PR: "true" });
-    expect(runDraftGate(success).status).toBe(0);
+    const full = Object.fromEntries(variables.map((name) => [name, "success"]));
+    for (const tier of ["", "unknown"]) {
+      expect(runGate(full, tier).status, `${tier}: invalid tier`).toBe(1);
+    }
+    for (const impact of ["", "failure", "skipped", "cancelled"]) {
+      expect(runGate(full, "full", false, impact).status).toBe(1);
+    }
+    // Draft PRs may skip heavy jobs but never accept failure or cancellation.
+    const skipped = Object.fromEntries(
+      variables.map((name) => [name, "skipped"]),
+    );
+    expect(runGate(skipped, "full", true).status).toBe(0);
     for (const variable of variables) {
-      expect(
-        runDraftGate({ ...success, [variable]: "skipped" }).status,
-        `${variable}=skipped: draft pull request may skip`,
-      ).toBe(0);
       for (const result of ["failure", "cancelled", ""]) {
         expect(
-          runDraftGate({ ...success, [variable]: result }).status,
-          `${variable}=${result || "missing"}: draft aggregate must fail`,
+          runGate({ ...skipped, [variable]: result }, "full", true).status,
+          `draft ${variable}=${result || "missing"} must fail`,
         ).toBe(1);
       }
-      expect(
-        runGate({ ...success, [variable]: "skipped", DRAFT_PR: "false" })
-          .status,
-        `${variable}=skipped: ready pull request must not skip`,
-      ).toBe(1);
     }
   });
 });
