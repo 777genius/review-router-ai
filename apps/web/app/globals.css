@@ -2039,3 +2039,5 @@ body:has([role="dialog"]) .z-50:has([role="listbox"]) {
 .rr-sticky-table tbody tr:hover {
   background-color: rgba(103, 232, 249, 0.03);
 }
+
+/* Disposable CI impact UI-only E2E fixture; do not merge. */
