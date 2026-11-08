@@ -89,8 +89,6 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Test fail-closed CI impact policy
-        run: node --test scripts/ci-impact.test.mjs
       - name: Select CI impact tier
         id: select
         env:
@@ -552,6 +550,9 @@ jobs:
       - name: Generate Next.js route types
         working-directory: apps/web
         run: pnpm exec next typegen
+
+      - name: Test fail-closed CI impact policy
+        run: node --test scripts/ci-impact.test.mjs
 
       - name: Lint
         run: pnpm lint
