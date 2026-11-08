@@ -724,16 +724,24 @@ describe.skipIf(!databaseUrl)(
       },
     );
 
-
-    it.each([".env.local", ".npmrc", "deploy/terraform.tfstate", "src/.hidden/file.ts"])(
+    it.each([
+      ".env.local",
+      ".npmrc",
+      "deploy/terraform.tfstate",
+      "src/.hidden/file.ts",
+    ])(
       "rejects protected focused paths without a paid model call: %s",
       async (focusedFilename) => {
         const f = await fixture({ sourceBody: "/rr fixed", focusedFilename });
         try {
           const result = await f.processor.execute(input, controls());
           expect(result.status).toBe("unavailable");
-          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(0);
-          expect(f.sourceCalls.some((call) => call.route.includes("/contents/"))).toBe(false);
+          expect(
+            f.calls.filter((call) => call.kind === "request"),
+          ).toHaveLength(0);
+          expect(
+            f.sourceCalls.some((call) => call.route.includes("/contents/")),
+          ).toBe(false);
           expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
         } finally {
           await f.app.close();
