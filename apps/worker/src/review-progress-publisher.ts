@@ -245,7 +245,9 @@ function publicationRetryPlan(
   const githubError =
     error instanceof ReviewProgressGitHubError ? error : null;
   let retryAt = githubError?.metadata.retryAt;
-  retryAt ??= new Date(now().getTime() + retryDelayMs);
+  if (!retryAt) {
+    retryAt = new Date(now().getTime() + retryDelayMs);
+  }
   return {
     safeCode: githubError
       ? `review_progress_${githubError.kind}`
