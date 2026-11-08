@@ -188,6 +188,7 @@ describe.skipIf(!databaseUrl)(
         requireConfirmation?: boolean;
         sourceBody?: string;
         focusedFilename?: string;
+        focusedStatus?: "modified" | "renamed";
         outputTokens?: number;
         policyOutputTokens?: number;
         contextWindowTokens?: number;
@@ -240,7 +241,7 @@ describe.skipIf(!databaseUrl)(
             ? [
                 {
                   filename: options.focusedFilename ?? "src/ids.ts",
-                  status: "modified",
+                  status: options.focusedStatus ?? "modified",
                   patch:
                     "@@ -1,2 +1,3 @@\n+export function validateId(id: string) {\n+  return id.length > 0;\n+}\n",
                 },
@@ -759,6 +760,24 @@ describe.skipIf(!databaseUrl)(
         expect(result.status).toBe("unavailable");
         expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(0);
         expect(f.sourceCalls.some((call) => call.route.includes("/contents/"))).toBe(false);
+        expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
+      } finally {
+        await f.app.close();
+      }
+    });
+
+    it("rejects a renamed finding before paid verification", async () => {
+      const f = await fixture({
+        sourceBody: "/rr fixed",
+        focusedStatus: "renamed",
+      });
+      try {
+        const result = await f.processor.execute(input, controls());
+        expect(result.status).toBe("unavailable");
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(0);
+        expect(
+          f.sourceCalls.some((call) => call.route.includes("/contents/")),
+        ).toBe(false);
         expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
       } finally {
         await f.app.close();
