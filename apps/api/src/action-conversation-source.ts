@@ -129,9 +129,7 @@ function isAllowedFocusedPath(value: string): boolean {
     !value.startsWith("/") &&
     !value.includes("\\") &&
     !value.includes("\0") &&
-    !value
-      .split("/")
-      .some((segment) => !segment || segment.startsWith(".")) &&
+    !value.split("/").some((segment) => !segment || segment.startsWith(".")) &&
     !/(^|\/)(?:\.git(?:hub)?|node_modules|secrets?|credentials?|keys?|\.ssh|\.aws|\.kube)(?:\/|$)/iu.test(
       value,
     ) &&

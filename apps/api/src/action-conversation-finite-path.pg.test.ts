@@ -829,7 +829,9 @@ describe.skipIf(!databaseUrl)(
       try {
         const result = await f.processor.execute(input, controls());
         expect(result.status).toBe("unavailable");
-        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(0);
+        expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+          0,
+        );
         expect(f.counts()).toMatchObject({ learned: 0, actionCalls: 0 });
       } finally {
         await f.app.close();
