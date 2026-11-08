@@ -60,7 +60,10 @@ export function accountLimitsRefreshOptions(
       }
       if (result.status !== "ok")
         throw new AccountDiagnosisError(
-          result.diagnosis ?? { code: "unknown", source: "unknown" },
+          result.diagnosis ?? {
+            code: result.status === "invalid" ? "invalid_request" : result.status,
+            source: "application",
+          },
         );
       if (result.value.status === "unavailable")
         throw new AccountDiagnosisError({
