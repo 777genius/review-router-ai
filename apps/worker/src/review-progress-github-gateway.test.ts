@@ -397,6 +397,21 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("rechecks the PR head before patching a changed canonical comment", async () => {
+    const fixture = githubFixture(
+      [{ id: 4, body: `old\n${marker}` }],
+      { staleHeadAfterFirstRead: true },
+    );
+
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "stale_head",
+      metadata: { retryable: false },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("rechecks the PR head after discovery and before mutation", async () => {
     const fixture = githubFixture([], { staleHeadAfterFirstRead: true });
 

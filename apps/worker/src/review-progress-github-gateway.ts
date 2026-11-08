@@ -142,38 +142,53 @@ export class ReviewProgressGitHubGateway {
     desiredBody: string,
   ): Promise<UpsertReviewProgressCommentResult> {
     if (canonical.body !== desiredBody) {
-      await this.assertCurrentPullRequest(input);
-      try {
-        await this.request(
-          "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
-          repositoryParameters(input, {
-            comment_id: canonical.id,
-            body: desiredBody,
-          }),
-        );
-      } catch (error) {
-        const reconciled = await this.reconcileMutation(
-          input,
-          desiredBody,
-          error,
-          canonical.id,
-        );
-        return {
-          commentId: canonical.id,
-          operation: "reconciled",
-          duplicateCommentIds: reconciled
-            .filter(({ id }) => id !== canonical.id)
-            .map(({ id }) => id),
-        };
-      }
-      return {
-        commentId: canonical.id,
-        operation: "updated",
-        duplicateCommentIds: duplicates.map(({ id }) => id),
-      };
+      return this.patchChangedComment(
+        input,
+        canonical.id,
+        duplicates,
+        desiredBody,
+      );
     }
 
     return this.settleUnchangedComment(input, canonical.id, duplicates);
+  }
+
+  /** Reconcile ambiguous PATCH failures without deleting duplicate comments. */
+  private async patchChangedComment(
+    input: UpsertReviewProgressCommentInput,
+    canonicalId: number,
+    duplicates: readonly ReviewProgressComment[],
+    desiredBody: string,
+  ): Promise<UpsertReviewProgressCommentResult> {
+    await this.assertCurrentPullRequest(input);
+    try {
+      await this.request(
+        "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        repositoryParameters(input, {
+          comment_id: canonicalId,
+          body: desiredBody,
+        }),
+      );
+    } catch (error) {
+      const reconciled = await this.reconcileMutation(
+        input,
+        desiredBody,
+        error,
+        canonicalId,
+      );
+      return {
+        commentId: canonicalId,
+        operation: "reconciled",
+        duplicateCommentIds: reconciled
+          .filter(({ id }) => id !== canonicalId)
+          .map(({ id }) => id),
+      };
+    }
+    return {
+      commentId: canonicalId,
+      operation: "updated",
+      duplicateCommentIds: duplicates.map(({ id }) => id),
+    };
   }
 
   private async settleUnchangedComment(
