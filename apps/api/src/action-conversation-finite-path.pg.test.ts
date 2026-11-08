@@ -741,8 +741,13 @@ describe.skipIf(!databaseUrl)(
       "@review-router-ai fixed\nHere is the edited source",
       "/rr suggest fix\nApply this to all lines",
       "@review-router-ai suggest fix\nTry this patch",
+      "/rr fixed please check this",
+      "@review-router-ai fixed please check this",
+      "/rr suggest fix please",
+      "@review-router-ai suggest fix please",
+      "Предложи исправление пожалуйста",
     ])(
-      "does not infer or learn from a multiline focused command: %s",
+      "does not infer or learn from a malformed focused command: %s",
       async (sourceBody) => {
         const f = await fixture({ sourceBody });
         try {

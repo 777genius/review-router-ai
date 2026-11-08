@@ -1,4 +1,4 @@
-# TEMPORARY: regenerate exact conversation stamps/verifier; delete before merge.
+# TEMPORARY: regenerate exact conversation stamps/verifier after focused-prefix guard; delete before merge.
 name: Conversation source coherence (temporary)
 
 on:
