@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -15,22 +10,42 @@ const cases = [
   ["empty diff fails closed", [], "full"],
   ["docs only", ["README.md", "docs/guide.md"], "docs"],
   ["deployment Markdown only", ["ai-docs/deployments/rollout.md"], "docs"],
-  ["evidence JSON is not documentation", ["ai-docs/evidence/receipt.json"], "full"],
+  [
+    "evidence JSON is not documentation",
+    ["ai-docs/evidence/receipt.json"],
+    "full",
+  ],
   ["scripts in docs are executable", ["docs/example.sh"], "full"],
   ["repo instructions change is not docs-only", ["AGENTS.md"], "full"],
   ["visual component", ["apps/web/app/dashboard/limits.tsx"], "ui"],
   ["shared visual component", ["packages/ui/src/button.tsx"], "ui"],
-  ["CSS and images", ["apps/web/app/theme.css", "apps/web/public/logo.svg"], "ui"],
+  [
+    "CSS and images",
+    ["apps/web/app/theme.css", "apps/web/public/logo.svg"],
+    "ui",
+  ],
   ["visual plus docs", ["docs/guide.md", "apps/web/app/landing.tsx"], "ui"],
   ["API route must be full", ["apps/web/app/api/session/route.tsx"], "full"],
-  ["server rendering implementation must be full", ["apps/web/src/server/index.tsx"], "full"],
+  [
+    "server rendering implementation must be full",
+    ["apps/web/src/server/index.tsx"],
+    "full",
+  ],
   ["auth implementation must be full", ["apps/web/app/auth/page.tsx"], "full"],
   ["backend code must be full", ["apps/api/src/index.ts"], "full"],
-  ["backend plus visual must be full", ["apps/api/src/index.ts", "apps/web/app/page.tsx"], "full"],
+  [
+    "backend plus visual must be full",
+    ["apps/api/src/index.ts", "apps/web/app/page.tsx"],
+    "full",
+  ],
   ["database change must be full", ["prisma/schema.prisma"], "full"],
   ["workflow change must be full", [".github/workflows/ci.yml"], "full"],
   ["shared toolchain change must be full", ["pnpm-lock.yaml"], "full"],
-  ["test harness change must be full", ["scripts/self-hosted-e2e/run.mjs"], "full"],
+  [
+    "test harness change must be full",
+    ["scripts/self-hosted-e2e/run.mjs"],
+    "full",
+  ],
   ["invalid path must be full", ["docs/../unsafe.md"], "full"],
   ["nonstring must be full", [null], "full"],
 ];

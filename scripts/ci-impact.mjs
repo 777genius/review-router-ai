@@ -95,9 +95,10 @@ function main() {
       ? changedPaths(process.env.CI_BASE_SHA, process.env.GITHUB_SHA)
       : null;
   // Pushes to main and manual release qualification retain full certification.
-  const tier = event === "pull_request" && paths !== null
-    ? classifyChangedPaths(paths)
-    : "full";
+  const tier =
+    event === "pull_request" && paths !== null
+      ? classifyChangedPaths(paths)
+      : "full";
   const reason =
     event !== "pull_request"
       ? "main or manual: full release gate"
@@ -106,7 +107,8 @@ function main() {
         : "classified from complete Git diff";
   const line = "tier=" + tier + "\n";
   process.stdout.write("CI impact: " + tier + " (" + reason + ")\n");
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, line);
+  if (process.env.GITHUB_OUTPUT)
+    appendFileSync(process.env.GITHUB_OUTPUT, line);
   if (process.env.GITHUB_STEP_SUMMARY)
     appendFileSync(
       process.env.GITHUB_STEP_SUMMARY,
