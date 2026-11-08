@@ -187,6 +187,8 @@ describe.skipIf(!databaseUrl)(
         modelText?: string;
         requireConfirmation?: boolean;
         sourceBody?: string;
+        focusedFilename?: string;
+        focusedStatus?: "modified" | "renamed";
         outputTokens?: number;
         policyOutputTokens?: number;
         contextWindowTokens?: number;
@@ -240,8 +242,8 @@ describe.skipIf(!databaseUrl)(
           const data = route.endsWith("/files")
             ? [
                 {
-                  filename: "src/ids.ts",
-                  status: "modified",
+                  filename: options.focusedFilename ?? "src/ids.ts",
+                  status: options.focusedStatus ?? "modified",
                   patch:
                     "@@ -1,2 +1,3 @@\n+export function validateId(id: string) {\n+  return id.length > 0;\n+}\n",
                 },
@@ -837,6 +839,25 @@ describe.skipIf(!databaseUrl)(
         await f.app.close();
       }
     });
+
+    it.each(["/rr fixed", "/rr suggest fix"])(
+      "rejects renamed findings without paid inference: %s",
+      async (sourceBody) => {
+        const f = await fixture({ sourceBody, focusedStatus: "renamed" });
+        try {
+          const result = await f.processor.execute(input, controls());
+          expect(result.status).toBe("unavailable");
+          expect(f.calls.filter((call) => call.kind === "request")).toHaveLength(
+            0,
+          );
+          expect(
+            f.sourceCalls.some((call) => call.route.includes("/contents/")),
+          ).toBe(false);
+        } finally {
+          await f.app.close();
+        }
+      },
+    );
 
     it("rejects model-suggested memory edits during a code suggestion", async () => {
       const f = await fixture({

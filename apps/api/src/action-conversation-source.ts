@@ -460,14 +460,16 @@ export class GitHubConversationSource
           page,
         });
         if (!Array.isArray(files) || files.length > 100) return null;
-        matched = files.find(
-          (item) =>
-            item.filename === original ||
-            (item.status === "renamed" && item.previous_filename === original),
-        );
+        matched = files.find((item) => item.filename === original);
         if (matched || files.length < 100) break;
       }
-      if (!matched || matched.status === "removed") return null;
+      // Renames and unsupported file states cannot yield an applicable
+      // suggestion on the original GitHub comment anchor.
+      if (
+        !matched ||
+        (matched.status !== "modified" && matched.status !== "added")
+      )
+        return null;
       const targetPath = matched.filename;
       if (!isAllowedFocusedPath(targetPath)) return null;
       const { data: file } = await client.request<{
