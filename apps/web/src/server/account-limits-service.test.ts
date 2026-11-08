@@ -354,3 +354,18 @@ it("releases a safe refresh diagnosis only while the same owner generation remai
   });
   expect(await service.refresh("source")).toEqual({ status: "denied" });
 });
+
+it("distinguishes temporary capability discovery failure from unsupported profiles", async () => {
+  const { service, supports, refresh } = fixture(true);
+  supports.mockRejectedValueOnce(new Error("private transport details"));
+  expect(await service.refresh("source")).toEqual({
+    status: "unavailable",
+    diagnosis: { code: "unavailable", source: "network" },
+  });
+  expect(refresh).not.toHaveBeenCalled();
+  expect(await service.refresh("source")).toMatchObject({
+    status: "ok",
+    value: { refreshAvailable: true },
+  });
+  expect(refresh).toHaveBeenCalledOnce();
+});
