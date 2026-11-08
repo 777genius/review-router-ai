@@ -1,0 +1,36 @@
+name: One-time PR 831 formatter diff
+on:
+  push:
+    branches:
+      - fix/account-refresh-and-test-errors-20261105
+    paths:
+      - .github/workflows/pr831-prettier-diff.yml
+
+permissions:
+  contents: read
+
+jobs:
+  exact-formatter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Setup pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Use pinned formatter only, without project execution
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund prettier@3.8.3
+          prettier --write apps/web/app/dashboard/account-limits-query.ts apps/web/src/server/gateway-connection-probe.test.ts README.md
+          git diff -- apps/web/app/dashboard/account-limits-query.ts apps/web/src/server/gateway-connection-probe.test.ts README.md > exact-prettier.patch
+          test -s exact-prettier.patch
+      - name: Upload precise safe formatter patch
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr831-prettier-patch-${{ github.sha }}
+          path: exact-prettier.patch
+          retention-days: 3
