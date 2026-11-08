@@ -91,6 +91,8 @@ export type ConversationSnapshot = ConversationIdentity & {
     readonly side: string | null;
     readonly line: number | null;
     readonly originalLine: number | null;
+    readonly startLine?: number | null;
+    readonly startSide?: string | null;
     readonly commitSha: string;
     readonly originalCommitSha: string;
     readonly diffHunk: string;
