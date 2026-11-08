@@ -331,6 +331,11 @@ export class ProcessConversation {
         );
         if (!currentMessage) throw new ConversationError("context_incomplete");
         fixedCommand = isFixedFindingCommand(currentMessage.body);
+        const focusedFirstLine =
+          currentMessage.body.trim().split(/\r\n?|\n/u, 1)[0] ?? "";
+        // A command with appended lines must not silently become a generic AI turn.
+        if (!fixedCommand && isFixedFindingCommand(focusedFirstLine))
+          throw new ConversationError("forbidden");
         if (fixedCommand && !snapshot.sourceMaintainer)
           throw new ConversationError("forbidden");
         focusedSource = fixedCommand
