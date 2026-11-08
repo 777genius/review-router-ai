@@ -72,8 +72,7 @@ function git(args, cwd) {
 export function changedPaths(base, head, cwd = process.cwd()) {
   if (!sha.test(base) || !sha.test(head)) return null;
   const actual = git(["rev-parse", "HEAD"], cwd);
-  if (actual === null || actual.toString("utf8").trim() !== head)
-    return null;
+  if (actual === null || actual.toString("utf8").trim() !== head) return null;
   if (git(["merge-base", "--is-ancestor", base, head], cwd) === null)
     return null;
   const diff = git(
