@@ -328,11 +328,7 @@ export class ReviewProgressGitHubGateway {
       throw this.classify(error);
     }
     if (!Array.isArray(response.data)) {
-      throw failure(
-        "invalid_response",
-        "github_issue_comments_invalid",
-        false,
-      );
+      throw failure("invalid_response", "github_issue_comments_invalid", false);
     }
     return response.data;
   }
