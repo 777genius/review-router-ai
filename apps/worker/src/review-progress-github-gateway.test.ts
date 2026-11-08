@@ -143,6 +143,23 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("rechecks the PR head before deleting a duplicate", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture(
+      [
+        { id: 4, body: desired },
+        { id: 7, body: `duplicate\n${marker}` },
+      ],
+      { staleHeadAfterFirstRead: true },
+    );
+
+    await expect(gateway(fixture.request).upsert(input())).rejects.toMatchObject({
+      kind: "stale_head",
+      metadata: { retryable: false },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("performs no mutation when the canonical body is desired and unique", async () => {
     const fixture = githubFixture([
       { id: 4, body: formatReviewProgressComment("working", marker) },

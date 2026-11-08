@@ -173,10 +173,18 @@ export class ReviewProgressGitHubGateway {
       };
     }
 
+    return this.settleUnchangedComment(input, canonical.id, duplicates);
+  }
+
+  private async settleUnchangedComment(
+    input: UpsertReviewProgressCommentInput,
+    canonicalId: number,
+    duplicates: readonly ReviewProgressComment[],
+  ): Promise<UpsertReviewProgressCommentResult> {
     const duplicate = duplicates[0];
     if (!duplicate) {
       return {
-        commentId: canonical.id,
+        commentId: canonicalId,
         operation: "unchanged",
         duplicateCommentIds: [],
       };
@@ -191,7 +199,7 @@ export class ReviewProgressGitHubGateway {
       throw this.classify(error, "ambiguous_mutation");
     }
     return {
-      commentId: canonical.id,
+      commentId: canonicalId,
       operation: "duplicate_deleted",
       duplicateCommentIds: duplicates.slice(1).map(({ id }) => id),
     };
