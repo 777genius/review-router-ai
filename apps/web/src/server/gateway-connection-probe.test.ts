@@ -418,12 +418,8 @@ it.each(["quota", "opaque"] as const)(
             }
           : { code: "unavailable", source: "gateway" },
     });
-    expect(
-      f.calls.filter((c) => c.path.endsWith("/requests")),
-    ).toHaveLength(1);
-    expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(
-      1,
-    );
+    expect(f.calls.filter((c) => c.path.endsWith("/requests"))).toHaveLength(1);
+    expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(1);
     expect(JSON.stringify(events)).not.toContain("private-provider-secret");
   },
 );
@@ -447,9 +443,7 @@ it("does not reveal provider quota after account authority is lost during the fa
     diagnosis: { code: "access_denied", source: "application" },
   });
   expect(JSON.stringify(events)).not.toContain("quota_exhausted");
-  expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(
-    1,
-  );
+  expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(1);
 });
 
 it.each(["ok", "quota", "cleanup"] as const)(
