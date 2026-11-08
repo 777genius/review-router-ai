@@ -138,7 +138,17 @@ export function gatewayProbeAccessClient(
           response.status,
         );
       }
-      return envelope.parse(parsed);
+      const validated = envelope.safeParse(parsed);
+      if (!validated.success)
+        throw new GatewayError(
+          "invalid_response",
+          "effect_unknown",
+          intent.operationId,
+          undefined,
+          undefined,
+          response.status,
+        );
+      return validated.data;
     },
   };
 }
