@@ -34,6 +34,26 @@ it("uses typed provider evidence rather than outer Gateway status or error text"
     httpStatus: 429,
     retryAt: "2026-11-05T00:00:00.000Z",
   });
+  const nonExhausted = {
+    ...diagnostic,
+    providerQuota: {
+      ...diagnostic.providerQuota!,
+      remaining: 4,
+    },
+  };
+  expect(
+    diagnoseAccountGatewayFailure(
+      new GatewayError(
+        "safe_error",
+        "effect_unknown",
+        undefined,
+        undefined,
+        nonExhausted,
+        502,
+      ),
+      now,
+    ),
+  ).toEqual({ code: "unavailable", source: "gateway", httpStatus: 502 });
   expect(accountDiagnosisMessage(failure)).toContain(
     "provider's quota is exhausted",
   );

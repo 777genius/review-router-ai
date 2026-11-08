@@ -63,7 +63,10 @@ export function diagnoseAccountGatewayFailure(
     const parsed = c.safeError.safeParse(error.diagnostic);
     if (parsed.success) {
       const diagnostic = parsed.data;
-      if (diagnostic.code === "upstream_failure" && diagnostic.providerQuota) {
+      if (
+        diagnostic.code === "upstream_failure" &&
+        diagnostic.providerQuota?.remaining === 0
+      ) {
         const reset = retryAt(diagnostic.providerQuota.resetAt, now);
         return {
           code: "quota_exhausted",
