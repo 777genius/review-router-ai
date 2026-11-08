@@ -756,6 +756,10 @@ describe.skipIf(!databaseUrl)(
     it.each([
       "/rr fixed\nPlease check this finding",
       "@review-router-ai fixed\nHere is the edited source",
+      "/rr fixed please check this",
+      "@review-router-ai fixed please check this",
+      "@reviewrouter fixed?",
+      "Исправил, проверь пожалуйста",
     ])(
       "does not infer or learn from an appended focused command: %s",
       async (sourceBody) => {

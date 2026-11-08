@@ -333,8 +333,12 @@ export class ProcessConversation {
         fixedCommand = isFixedFindingCommand(currentMessage.body);
         const focusedFirstLine =
           currentMessage.body.trim().split(/\r\n?|\n/u, 1)[0] ?? "";
-        // A command with appended lines must not silently become a generic AI turn.
-        if (!fixedCommand && isFixedFindingCommand(focusedFirstLine))
+        // Invalid focused requests, including same-line suffixes, must never
+        // acquire ordinary discussion inference or automatic learning authority.
+        const reservedFixedPrefix =
+          /^(?:\/rr\s+fixed|@(?:reviewrouter(?:-ai)?|review-router-ai(?:\[bot\])?)\s+fixed)(?=$|[\s.,!?;:])/iu.test(focusedFirstLine) ||
+          /^исправил[,!.\s]*проверь(?=$|[\s.,!?;:])/iu.test(focusedFirstLine);
+        if (!fixedCommand && reservedFixedPrefix)
           throw new ConversationError("forbidden");
         if (fixedCommand && !snapshot.sourceMaintainer)
           throw new ConversationError("forbidden");
