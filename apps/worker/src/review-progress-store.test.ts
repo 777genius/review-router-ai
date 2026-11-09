@@ -333,16 +333,18 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       }),
     ).resolves.toBeNull();
     expect(publicationUpdate).toHaveBeenCalledTimes(1);
-    expect(publicationUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          lastErrorCode: "review_progress_github_repository_unavailable",
-        }),
-      }),
-    );
-    expect(publicationUpdate.mock.calls[0]?.[0]).not.toHaveProperty(
-      "data.claimId",
-    );
+    expect(publicationUpdate).toHaveBeenCalledWith({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          scope,
+      },
+      data: {
+        failureCount: { increment: 1 },
+        lastErrorCode: "review_progress_github_repository_unavailable",
+        nextPublishAt: new Date(now.getTime() + 60_000),
+        updatedAt: now,
+      },
+    });
   });
 
   it("writes a fenced claim before returning the matching publication", async () => {
