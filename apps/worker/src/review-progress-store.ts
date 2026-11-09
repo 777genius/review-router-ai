@@ -388,7 +388,7 @@ function matchesActiveProgressIdentity(
 function isPublishableGitHubRepository(
   repository: {
     readonly workspaceId: string;
-    readonly scmRepositoryIdentityId: string;
+    readonly scmRepositoryIdentityId: string | null;
     readonly selected: boolean;
     readonly archived: boolean;
     readonly provider: string;
@@ -401,7 +401,8 @@ function isPublishableGitHubRepository(
 ): boolean {
   return (
     repository.workspaceId === publication.workspaceId &&
-    repository.scmRepositoryIdentityId === publication.scmRepositoryIdentityId &&
+    repository.scmRepositoryIdentityId ===
+      publication.scmRepositoryIdentityId &&
     installationStatus === "active" &&
     repository.selected === true &&
     repository.archived === false &&
