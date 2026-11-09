@@ -215,7 +215,7 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
-  it("defers an inconclusive duplicate scan without exhausting retries", async () => {
+  it("defers capped scans without exhausting retries", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);
     const pages: number[] = [];
@@ -223,7 +223,9 @@ describe("ReviewProgressPublisher", () => {
       botLogin: "review-router[bot]",
       request: async (route, parameters = {}) => {
         if (route.includes("/pulls/")) return pull();
-        if (route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments") {
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+        ) {
           const page = Number(parameters.page);
           pages.push(page);
           return {
