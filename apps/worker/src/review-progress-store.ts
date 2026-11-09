@@ -388,20 +388,20 @@ async function promoteSettledExecution(
   );
   if (!execution || !terminalOutcome) return false;
   const progress = await transaction.reviewExecutionProgressV1.findUnique({
-      where: { executionId },
-    });
+    where: { executionId },
+  });
   if (!progress || progress.terminalOutcome !== null) return false;
   const publication = await transaction.reviewProgressPublicationV1.findUnique({
-      where: {
-        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-          {
-            workspaceId: progress.workspaceId,
-            repositoryConnectionId: progress.repositoryConnectionId,
-            scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
-            pullRequestNumber: progress.pullRequestNumber,
-          },
-      },
-    });
+    where: {
+      workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+        {
+          workspaceId: progress.workspaceId,
+          repositoryConnectionId: progress.repositoryConnectionId,
+          scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
+          pullRequestNumber: progress.pullRequestNumber,
+        },
+    },
+  });
   if (
     !publication ||
     publication.activeExecutionId !== executionId ||
