@@ -229,8 +229,7 @@ async function reserveInstallationBudgetMutation(
   const budget =
     await transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow({
       where: {
-        githubInstallationId:
-          input.publication.repository.githubInstallationId,
+        githubInstallationId: input.publication.repository.githubInstallationId,
       },
     });
   const stillClaimed = await transaction.reviewProgressPublicationV1.count({
@@ -246,13 +245,10 @@ async function reserveInstallationBudgetMutation(
     return { allowed: false as const, retryAt: availableAt };
   await transaction.reviewProgressInstallationBudgetV1.update({
     where: {
-      githubInstallationId:
-        input.publication.repository.githubInstallationId,
+      githubInstallationId: input.publication.repository.githubInstallationId,
     },
     data: {
-      nextMutationAt: new Date(
-        input.now.getTime() + input.minimumIntervalMs,
-      ),
+      nextMutationAt: new Date(input.now.getTime() + input.minimumIntervalMs),
       updatedAt: input.now,
     },
   });
