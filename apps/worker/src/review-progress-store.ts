@@ -365,6 +365,7 @@ async function claimDuePublication(
     publication,
     progress,
     repository,
+    repository.installation,
   );
 }
 
@@ -391,8 +392,8 @@ async function claimPreparedPublication(
   repository: {
     readonly owner: string;
     readonly name: string;
-    readonly installation: { readonly githubInstallationId: bigint };
   },
+  installation: { readonly githubInstallationId: bigint },
 ): Promise<ClaimedReviewProgress> {
   const claimId = randomUUID();
   const claimUntil = new Date(input.now.getTime() + input.claimDurationMs);
@@ -419,7 +420,7 @@ async function claimPreparedPublication(
     repository: {
       owner: repository.owner,
       name: repository.name,
-      githubInstallationId: repository.installation.githubInstallationId,
+      githubInstallationId: installation.githubInstallationId,
     },
     claim: { claimId, ownerIdHash: input.ownerIdHash, claimUntil },
   };
