@@ -680,7 +680,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       },
     });
   });
-  it("rejects partial terminal counts without gaps before either write", async () => {
+  it("rejects partial terminal counts without gaps", async () => {
     const progressUpdate = vi.fn();
     const publicationUpdate = vi.fn();
     const prisma = {
