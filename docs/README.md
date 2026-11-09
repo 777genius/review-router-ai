@@ -5,6 +5,7 @@
 ## Use ReviewRouter
 
 - [Capabilities and limits](./capabilities.md)
+- [PR comment commands and permissions](https://github.com/777genius/review-router#pr-comment-commands)
 - [Review settings and Codex reconnect](./review-settings.md)
 - [Self-hosting: guided installation and manual reference](./operations/review-router-self-hosted-end-to-end.md)
 - [GitLab CI runtime](../deploy/gitlab/README.md)

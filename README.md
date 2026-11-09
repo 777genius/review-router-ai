@@ -84,6 +84,28 @@ and review rules in one dashboard.
 Availability varies by provider, installed workflows and deployment. See
 [capabilities and limits](./docs/capabilities.md).
 
+## PR comment commands
+
+With the **ReviewRouter Interaction** workflow installed, `/rr help`, `/rr status`
+and `/rr review` work in the PR conversation; replies to a ReviewRouter
+inline finding can use `/rr skip`, `/rr unskip`, `/rr explain`, `/rr fixed`
+and `/rr suggest fix`.
+
+- `/rr fixed` checks **one** existing finding against the current HEAD and
+  reports whether it is fixed, still present or cannot be verified.
+- `/rr suggest fix` may produce **one human-applied GitHub code suggestion**
+  for a verified current changed line; it does not commit, push or resolve threads.
+
+These two focused commands require a qualified managed Conversation Gateway,
+an authorized repository maintainer, a same-repository PR and a direct reply
+to the original verified inline finding. Publishing focused replies also
+requires `REVIEW_ROUTER_DISCUSSION_MODE=suggest` (or `discussion_mode: suggest` in
+a reusable workflow); the default `off` does not publish the response.
+Provider and workflow availability vary; some standalone Action installs only
+listen to inline review replies.
+See the [complete command reference](https://github.com/777genius/review-router#pr-comment-commands)
+for all supported commands, permissions, Memory options and limitations.
+
 ## Start with GitHub
 
 1. [Install the GitHub App](https://reviewrouter.org) and select repositories.
