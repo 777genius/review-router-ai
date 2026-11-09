@@ -13,6 +13,18 @@ const documentation = new Set([
 ]);
 
 function isDocumentation(path) {
+  // Documentation consumed by tests, review policy or release evidence
+  // is executable input; it always requires the full contract suite.
+  if (
+    path.startsWith("ai-docs/decisions/") ||
+    path.startsWith("ai-docs/operations/") ||
+    path.startsWith("docs/adr/") ||
+    path.startsWith("docs/release-evidence/") ||
+    path === "ai-docs/BETA_RUNBOOK.md" ||
+    path === "ai-docs/AGENT_START_HERE.md" ||
+    path === "docs/operations/private-pg17-release-rollout.md"
+  )
+    return false;
   return (
     documentation.has(path) ||
     ((path.startsWith("docs/") || path.startsWith("ai-docs/")) &&

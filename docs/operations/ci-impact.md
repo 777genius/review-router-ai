@@ -1,6 +1,6 @@
 # CI impact tiers
 
-Normal pull requests run a conservative change-based subset of the core CI. The `CI impact selection` job computes a complete, NUL-delimited Git diff against the current PR merge commit (not GitHub's limited changed-file API). Unavailable ancestry, unknown paths, executable scripts, toolchains, workflow edits, or mixed backend changes fall back to `full`.
+Normal pull requests run a conservative change-based subset of the core CI. The `CI impact selection` job computes a complete, NUL-delimited Git diff against the current PR merge commit (not GitHub's limited changed-file API). Unavailable ancestry, unknown paths, executable scripts, toolchains, workflow edits, or mixed backend changes fall back to `full`. Architecture decisions, operational contracts, release evidence and verified rollout runbooks also require `full`.
 
 **`docs`:** Markdown/text/images in `docs/` or `ai-docs/`, or named root documents. Runs Static Checks, CI impact and Quality Gates.
 
