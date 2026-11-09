@@ -810,9 +810,22 @@ export function createReviewRunGatewayRelay(input: {
           : deadline - Date.now();
       if (remaining <= 0)
         throw new RelayFailure("close_pending", 409, "effect_unknown");
-      const operation = await session.preparation.close(reason, {
-        signal: AbortSignal.timeout(remaining),
-      });
+      let operation: Awaited<ReturnType<typeof session.preparation.close>>;
+      try {
+        operation = await session.preparation.close(reason, {
+          signal: AbortSignal.timeout(remaining),
+        });
+      } catch (error) {
+        // Readback can fail while Gateway is unavailable. Only a settled empty
+        // handle may continue to the durable-authority fence below; never hide
+        // a failure while a local capability or request is still held.
+        if (
+          session.aborts.size !== 0 ||
+          !session.preparation.canDetachUnknownWithoutCapability()
+        )
+          throw error;
+        operation = { state: "unknown" };
+      }
       if (
         operation.state === "applied" ||
         session.preparation.canReleaseWithoutRemoteClose()
