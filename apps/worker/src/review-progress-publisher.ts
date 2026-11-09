@@ -202,7 +202,7 @@ export class ReviewProgressPublisher {
   private async handlePublishFailure(
     publication: ClaimedReviewProgress,
     error: unknown,
-    result: { suppressed: number; failed: number },
+    result: { suppressed: number; failed: number; deferred: number },
   ): Promise<void> {
     if (
       error instanceof ReviewProgressGitHubError &&
@@ -228,6 +228,7 @@ export class ReviewProgressPublisher {
       maxFailures: this.options.maxFailures,
     });
     if (retryOutcome === "suppressed") result.suppressed += 1;
+    else if (retry.countFailure === false) result.deferred += 1;
     else result.failed += 1;
   }
 }
@@ -241,6 +242,7 @@ function publicationRetryPlan(
   readonly safeCode: string;
   readonly retryAt: Date;
   readonly installationCooldownUntil?: Date;
+  readonly countFailure?: false;
 } {
   const githubError = error instanceof ReviewProgressGitHubError ? error : null;
   let retryAt = githubError?.metadata.retryAt;
@@ -254,6 +256,10 @@ function publicationRetryPlan(
     retryAt,
     ...(githubError?.kind === "rate_limited"
       ? { installationCooldownUntil: retryAt }
+      : {}),
+    // A bounded duplicate scan must never mutate comments or exhaust retries.
+    ...(githubError?.kind === "pagination_inconclusive"
+      ? { countFailure: false as const }
       : {}),
   };
 }

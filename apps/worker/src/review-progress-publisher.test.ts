@@ -215,6 +215,50 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("defers an inconclusive duplicate scan without exhausting retries", async () => {
+    const publication = { ...claimed(), failureCount: 2 };
+    const store = fakeStore(publication);
+    const pages: number[] = [];
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments") {
+          const page = Number(parameters.page);
+          pages.push(page);
+          return {
+            data: Array.from({ length: 100 }, (_, index) => ({
+              id: page * 100 + index,
+              body: "unrelated",
+              user: { login: "someone-else" },
+            })),
+          };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(pages).toEqual([1, 2]);
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_pagination_inconclusive",
+        retryAt: new Date(now.getTime() + 5_000),
+        countFailure: false,
+        maxFailures: 3,
+      }),
+    );
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
   it("suppresses a poison publication at the retry bound", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);
