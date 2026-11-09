@@ -320,11 +320,10 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls.some(
-        ({ route, parameters }) =>
-          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}" &&
-          parameters.comment_id === 900,
+        ({ route }) =>
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(mutations(fixture.calls)).toEqual([]);
   }
 
@@ -359,14 +358,12 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
-  it("does not patch a known bot comment belonging to a different PR", async () => {
-    const fixture = githubFixture(
-      [
-        { id: 900, body: `foreign\n${marker}` },
-        { id: 4, body: `target\n${marker}` },
-      ],
-      { listedComments: [{ id: 4, body: `target\n${marker}` }] },
-    );
+  it("ignores foreign known ID when target has a canonical", async () => {
+    const foreign = { id: 900, body: `foreign\n${marker}` };
+    const target = { id: 4, body: `target\n${marker}` };
+    const fixture = githubFixture([foreign, target], {
+      listedComments: [target],
+    });
 
     await expect(
       gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),
@@ -383,11 +380,9 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
-  it("creates on the target PR instead of updating a foreign known comment", async () => {
-    const fixture = githubFixture(
-      [{ id: 900, body: `foreign\n${marker}` }],
-      { listedComments: [] },
-    );
+  it("creates on target PR when known ID is foreign", async () => {
+    const foreign = { id: 900, body: `foreign\n${marker}` };
+    const fixture = githubFixture([foreign], { listedComments: [] });
 
     await expect(
       gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),

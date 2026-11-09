@@ -105,14 +105,10 @@ export class ReviewProgressGitHubGateway {
   ): Promise<UpsertReviewProgressCommentResult> {
     validateInput(input);
     await this.assertCurrentPullRequest(input);
-    const known = await this.readKnownComment(input);
-    // A known canonical comment does not prove that hidden duplicates are absent.
+    // Only comments listed under this PR can be canonical.
     const existing = await this.findMarkedComments(input);
-    // A repository-wide comment ID is canonical only if the target PR lists it.
     const canonical =
-      known && existing.some(({ id }) => id === known.id)
-        ? known
-        : existing[0];
+      existing.find(({ id }) => id === input.knownCommentId) ?? existing[0];
     const duplicates = existing.filter(({ id }) => id !== canonical?.id);
     const desiredBody = formatReviewProgressComment(input.body, input.marker);
 
@@ -242,23 +238,6 @@ export class ReviewProgressGitHubGateway {
         operation: "reconciled",
         duplicateCommentIds: reconciled.slice(1).map(({ id }) => id),
       };
-    }
-  }
-
-  private async readKnownComment(
-    input: UpsertReviewProgressCommentInput,
-  ): Promise<ReviewProgressComment | null> {
-    if (input.knownCommentId === undefined) return null;
-    try {
-      const response = await this.request(
-        "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
-        repositoryParameters(input, { comment_id: input.knownCommentId }),
-      );
-      const comment = parseComment(response.data);
-      return ownsMarker(comment, input) ? comment : null;
-    } catch (error) {
-      if (errorStatus(error) === 404) return null;
-      throw this.classify(error);
     }
   }
 
@@ -538,11 +517,6 @@ function ownsMarker(
       input.expectedBotLogin.toLowerCase() &&
     comment.body.includes(input.marker)
   );
-}
-
-function errorStatus(error: unknown): number | undefined {
-  const value = record(error);
-  return number(value?.status) ?? number(record(value?.response)?.status);
 }
 
 function record(value: unknown): Record<string, unknown> | null {
