@@ -88,26 +88,11 @@ export class PrismaReviewProgressPublicationStore {
     readonly bodyHash: string;
     readonly now: Date;
   }): Promise<boolean> {
-    const nextPublishAt = input.publication.terminal
-      ? input.now
-      : new Date(input.now.getTime() + 60_000);
     const result = await this.prisma.reviewProgressPublicationV1.updateMany({
       where: {
         ...claimedPublicationFence(input.publication),
       },
-      data: {
-        publishedVersion: input.publication.desiredVersion,
-        commentId: input.commentId,
-        publishedBodyHash: input.bodyHash,
-        lastPublishedAt: input.now,
-        nextPublishAt,
-        claimId: null,
-        claimOwnerIdHash: null,
-        claimUntil: null,
-        failureCount: 0,
-        lastErrorCode: null,
-        updatedAt: input.now,
-      },
+      data: completionMutationData(input),
     });
     return result.count === 1;
   }
@@ -177,6 +162,28 @@ export class PrismaReviewProgressPublicationStore {
     }
     return promoted;
   }
+}
+
+/** Derive terminal/ongoing publication settlement fields before the fenced write. */
+function completionMutationData(
+  input: Parameters<PrismaReviewProgressPublicationStore["complete"]>[0],
+) {
+  const nextPublishAt = input.publication.terminal
+    ? input.now
+    : new Date(input.now.getTime() + 60_000);
+  return {
+    publishedVersion: input.publication.desiredVersion,
+    commentId: input.commentId,
+    publishedBodyHash: input.bodyHash,
+    lastPublishedAt: input.now,
+    nextPublishAt,
+    claimId: null,
+    claimOwnerIdHash: null,
+    claimUntil: null,
+    failureCount: 0,
+    lastErrorCode: null,
+    updatedAt: input.now,
+  };
 }
 
 /** Persist retry and installation cooldown inside the same transaction. */

@@ -32,6 +32,47 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
+  it.each([
+    { mode: "ongoing", terminal: false, delayMs: 60_000 },
+    { mode: "terminal", terminal: true, delayMs: 0 },
+  ])("settles $mode claims", async ({ terminal, delayMs }) => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+    } as never);
+    const publication = { ...claimed(), terminal };
+    const bodyHash = "c".repeat(64);
+
+    await expect(
+      store.complete({ publication, commentId: 42n, bodyHash, now }),
+    ).resolves.toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        ...publication.scope,
+        activeExecutionId: publication.executionId,
+        activeGeneration: publication.generation,
+        activeHeadSha: publication.headSha,
+        activePlanHash: publication.planHash,
+        desiredVersion: publication.desiredVersion,
+        claimId: publication.claim.claimId,
+        claimOwnerIdHash: publication.claim.ownerIdHash,
+      },
+      data: {
+        publishedVersion: publication.desiredVersion,
+        commentId: 42n,
+        publishedBodyHash: bodyHash,
+        lastPublishedAt: now,
+        nextPublishAt: new Date(now.getTime() + delayMs),
+        claimId: null,
+        claimOwnerIdHash: null,
+        claimUntil: null,
+        failureCount: 0,
+        lastErrorCode: null,
+        updatedAt: now,
+      },
+    });
+  });
+
   it("fences every progress mutation to the same claim identity", async () => {
     const publication = claimed();
     const whereClauses: unknown[] = [];
