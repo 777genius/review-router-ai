@@ -822,6 +822,29 @@ export function createReviewRunGatewayRelay(input: {
         const pendingTermination = parentTermination();
         if (pendingTermination) await pendingTermination;
         sessions.delete(session.key);
+      } else if (
+        session.aborts.size === 0 &&
+        session.preparation.canDetachUnknownWithoutCapability()
+      ) {
+        // Dropping a settled empty cache entry does not settle the remote
+        // operation. Its original intent remains on the terminal authorization
+        // and Gateway owns deadline and physical cleanup. Never synthesize an
+        // applied close, replay a prepare, or discard a retained bearer.
+        const termination = parentTermination();
+        const owner = termination ? await termination : undefined;
+        if (
+          owner &&
+          (owner.state === ReviewRunAuthorizationState.Revoked ||
+            owner.state === ReviewRunAuthorizationState.Expired) &&
+          owner.authorizationId === session.authorizationId &&
+          owner.runtimeSnapshotCanonicalJson === session.canonical &&
+          canonicalJson(reviewRunGatewayOwnedIdentity(owner)) ===
+            session.identity &&
+          owner.maxExpiresAt.getTime() === session.deadline &&
+          session.aborts.size === 0 &&
+          session.preparation.canDetachUnknownWithoutCapability()
+        )
+          sessions.delete(session.key);
       }
       return operation;
     } finally {

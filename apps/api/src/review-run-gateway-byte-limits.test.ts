@@ -2498,19 +2498,80 @@ it("releases an unstarted revoked status session without calling native close", 
   }
 });
 
-it("retains a lost Prepare result and never retries it during capacity cleanup", async () => {
+it("releases only an empty unknown v3 handle after durable revocation without retrying Prepare", async () => {
   const f = await fixture(MiB, 0, 1);
   try {
     f.setPrepareFailure();
     await expect(streamRun(f, "authorization-1")).rejects.toBeDefined();
     f.revoke("authorization-1");
+    expect(await f.relay.closeRun("authorization-1", "cancelled")).toEqual({
+      state: "unknown",
+    });
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.nativeCloses).toHaveLength(0);
+    expect(f.intents).toHaveLength(1);
+    // The old applied execution is not replayed or falsely reported closed.
+    expect(await f.relay.closeRun("authorization-1", "cancelled")).toEqual({
+      state: "unknown",
+    });
+    f.setPrepareFailure(false);
+    await expect(streamRun(f, "authorization-2")).resolves.toBe("stream");
+    expect(f.intents).toHaveLength(2);
+    expect(
+      f.intents.filter(
+        (intent) => intent.operationId === "operation-authorization-1",
+      ),
+    ).toHaveLength(1);
+    expect(f.nativeExecutions.get("execution-operation-authorization-1")).toBe(
+      "active",
+    );
+    expect(f.nativeCloses).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each(["active", "different_identity", "read_failure"] as const)(
+  "does not detach an unknown preparation with %s authority",
+  async (mode) => {
+    const f = await fixture(MiB, 0, 1);
+    try {
+      f.setPrepareFailure();
+      await expect(streamRun(f, "authorization-1")).rejects.toBeDefined();
+      if (mode !== "active") {
+        f.revoke("authorization-1");
+        if (mode === "different_identity")
+          f.overrides.set("authorization-1", { sourceRunId: "another-run" });
+        else f.lookupFailures.add("authorization-1");
+      }
+      await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+        code: "relay_saturated",
+      });
+      expect(f.intents).toHaveLength(1);
+      expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    } finally {
+      f.lookupFailures.clear();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("does not detach an unknown preparation while its HTTP request is still in flight", async () => {
+  const f = await fixture(MiB, 0, 1);
+  const gate = f.holdPrepare();
+  let first: Promise<unknown> | undefined;
+  try {
+    f.setPrepareFailure();
+    first = streamRun(f, "authorization-1").catch(() => undefined);
+    await gate.started;
+    f.revoke("authorization-1");
     await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
       code: "relay_saturated",
     });
     expect(f.intents).toHaveLength(1);
-    expect(f.admissions).toHaveLength(0);
-    expect(f.nativeCloses).toHaveLength(0);
   } finally {
+    gate.release();
+    await first;
     await f.relay.shutdown();
   }
 });
@@ -3342,6 +3403,44 @@ it("v4 missing original cleanup operation stays unknown and cannot mint a replac
     expect(f.nativeCloses).toHaveLength(0);
   } finally {
     await restarted?.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 frees an empty unknown handle only after parent revocation without replay", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  try {
+    f.setPrepareFailure();
+    await expect(
+      streamRun(f, "authorization-1", "reviewer-0"),
+    ).rejects.toBeDefined();
+    f.operations.clear(); // Readback cannot prove the delayed Prepare's outcome.
+    f.revoke("authorization-1");
+    expect(await f.relay.closeRun("authorization-1", "cancelled")).toEqual({
+      state: "unknown",
+    });
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestModels).toHaveLength(0);
+    expect(f.nativeCloses).toHaveLength(0);
+    f.setPrepareFailure(false);
+    await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
+      "stream",
+    );
+    expect(f.intents).toHaveLength(2);
+    expect(
+      f.nativeExecutions.get(`execution-${f.intents[0]!.operationId}`),
+    ).toBe("active");
+  } finally {
     await f.relay.shutdown();
   }
 });
