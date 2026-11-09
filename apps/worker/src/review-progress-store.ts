@@ -316,13 +316,7 @@ async function claimDuePublication(
   const progress = await transaction.reviewExecutionProgressV1.findUnique({
     where: { executionId: publication.activeExecutionId },
   });
-  if (
-    !progress ||
-    progress.generation !== publication.activeGeneration ||
-    progress.headSha !== publication.activeHeadSha ||
-    progress.planHash !== publication.activePlanHash ||
-    progress.desiredVersion !== publication.desiredVersion
-  ) {
+  if (!progress || !matchesActiveProgressIdentity(progress, publication)) {
     await deferUnavailablePublication(
       transaction,
       candidate,
@@ -341,14 +335,12 @@ async function claimDuePublication(
   });
   if (
     !repository ||
-    repository.workspaceId !== publication.workspaceId ||
-    repository.scmRepositoryIdentityId !==
-      publication.scmRepositoryIdentityId ||
     !repository.installation ||
-    repository.installation.status !== "active" ||
-    repository.selected !== true ||
-    repository.archived !== false ||
-    repository.provider !== "github"
+    !isPublishableGitHubRepository(
+      repository,
+      repository.installation.status,
+      publication,
+    )
   ) {
     await deferUnavailablePublication(
       transaction,
@@ -366,6 +358,54 @@ async function claimDuePublication(
     progress,
     repository,
     repository.installation,
+  );
+}
+
+/** Validate a candidate against the exact active progress generation. */
+function matchesActiveProgressIdentity(
+  progress: {
+    readonly generation: bigint;
+    readonly headSha: string;
+    readonly planHash: string;
+    readonly desiredVersion: bigint;
+  },
+  publication: {
+    readonly activeGeneration: bigint;
+    readonly activeHeadSha: string;
+    readonly activePlanHash: string;
+    readonly desiredVersion: bigint;
+  },
+): boolean {
+  return (
+    progress.generation === publication.activeGeneration &&
+    progress.headSha === publication.activeHeadSha &&
+    progress.planHash === publication.activePlanHash &&
+    progress.desiredVersion === publication.desiredVersion
+  );
+}
+
+/** Keep GitHub repository eligibility separate from the claim write. */
+function isPublishableGitHubRepository(
+  repository: {
+    readonly workspaceId: string;
+    readonly scmRepositoryIdentityId: string;
+    readonly selected: boolean;
+    readonly archived: boolean;
+    readonly provider: string;
+  },
+  installationStatus: string,
+  publication: {
+    readonly workspaceId: string;
+    readonly scmRepositoryIdentityId: string;
+  },
+): boolean {
+  return (
+    repository.workspaceId === publication.workspaceId &&
+    repository.scmRepositoryIdentityId === publication.scmRepositoryIdentityId &&
+    installationStatus === "active" &&
+    repository.selected === true &&
+    repository.archived === false &&
+    repository.provider === "github"
   );
 }
 

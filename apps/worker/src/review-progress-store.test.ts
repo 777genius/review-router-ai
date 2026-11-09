@@ -277,6 +277,74 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
+  it("defers an inactive GitHub installation before writing a claim", async () => {
+    const scope = {
+      workspaceId: "workspace-1",
+      repositoryConnectionId: "repository-1",
+      scmRepositoryIdentityId: "identity-1",
+      pullRequestNumber: 42,
+    };
+    const publicationUpdate = vi.fn(async () => ({}));
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $queryRaw: async () => [scope],
+          reviewProgressPublicationV1: {
+            findUniqueOrThrow: async () => ({
+              ...scope,
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              desiredVersion: 73n,
+            }),
+            update: publicationUpdate,
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              desiredVersion: 73n,
+            }),
+          },
+          repositoryConnection: {
+            findUnique: async () => ({
+              workspaceId: "workspace-1",
+              scmRepositoryIdentityId: "identity-1",
+              selected: true,
+              archived: false,
+              provider: "github",
+              installation: {
+                githubInstallationId: 112n,
+                status: "suspended",
+              },
+            }),
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.claimNext({
+        ownerIdHash: "d".repeat(64),
+        now,
+        claimDurationMs: 60_000,
+      }),
+    ).resolves.toBeNull();
+    expect(publicationUpdate).toHaveBeenCalledTimes(1);
+    expect(publicationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          lastErrorCode: "review_progress_github_repository_unavailable",
+        }),
+      }),
+    );
+    expect(publicationUpdate.mock.calls[0]?.[0]).not.toHaveProperty(
+      "data.claimId",
+    );
+  });
+
   it("writes a fenced claim before returning the matching publication", async () => {
     const scope = {
       workspaceId: "workspace-1",
