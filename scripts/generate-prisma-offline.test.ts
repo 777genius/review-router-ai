@@ -497,10 +497,8 @@ describe("offline Prisma generate", () => {
       const success = Object.fromEntries(
         variables.map((name, i) => [name, expected[i]]),
       );
-      expect(
-        runGate(success, tier).status,
-        `${tier}: expected lane set`,
-      ).toBe(0);
+      const status = runGate(success, tier).status;
+      expect(status, `${tier}: expected lane set`).toBe(0);
       for (const [i, variable] of variables.entries()) {
         const unexpected = expected[i] === "success" ? "skipped" : "success";
         for (const result of ["failure", "cancelled", unexpected, ""]) {
