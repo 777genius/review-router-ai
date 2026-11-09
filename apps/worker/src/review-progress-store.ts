@@ -358,6 +358,42 @@ async function claimDuePublication(
     );
     return null;
   }
+  return claimPreparedPublication(
+    transaction,
+    input,
+    candidate,
+    publication,
+    progress,
+    repository,
+  );
+}
+
+/** Persist the fenced claim and construct its owned publication projection. */
+async function claimPreparedPublication(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<PrismaReviewProgressPublicationStore["claimNext"]>[0],
+  candidate: ClaimedReviewProgress["scope"],
+  publication: {
+    readonly publishedVersion: bigint;
+    readonly commentId: bigint | null;
+    readonly publishedBodyHash: string | null;
+    readonly failureCount: number;
+  },
+  progress: {
+    readonly executionId: string;
+    readonly generation: bigint;
+    readonly headSha: string;
+    readonly planHash: string;
+    readonly desiredVersion: bigint;
+    readonly snapshotJson: unknown;
+    readonly terminalOutcome: string | null;
+  },
+  repository: {
+    readonly owner: string;
+    readonly name: string;
+    readonly installation: { readonly githubInstallationId: bigint };
+  },
+): Promise<ClaimedReviewProgress> {
   const claimId = randomUUID();
   const claimUntil = new Date(input.now.getTime() + input.claimDurationMs);
   await transaction.reviewProgressPublicationV1.update({

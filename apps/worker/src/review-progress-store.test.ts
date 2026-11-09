@@ -277,6 +277,97 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
+  it("writes a fenced claim before returning the matching publication", async () => {
+    const scope = {
+      workspaceId: "workspace-1",
+      repositoryConnectionId: "repository-1",
+      scmRepositoryIdentityId: "identity-1",
+      pullRequestNumber: 42,
+    };
+    const claimUpdate = vi.fn(async () => ({}));
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $queryRaw: async () => [scope],
+          reviewProgressPublicationV1: {
+            findUniqueOrThrow: async () => ({
+              ...scope,
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              desiredVersion: 73n,
+              publishedVersion: 72n,
+              commentId: 99n,
+              publishedBodyHash: "c".repeat(64),
+              failureCount: 0,
+            }),
+            update: claimUpdate,
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              desiredVersion: 73n,
+              snapshotJson: { phase: "running" },
+              terminalOutcome: null,
+            }),
+          },
+          repositoryConnection: {
+            findUnique: async () => ({
+              workspaceId: "workspace-1",
+              scmRepositoryIdentityId: "identity-1",
+              selected: true,
+              archived: false,
+              provider: "github",
+              owner: "acme",
+              name: "rocket",
+              installation: { githubInstallationId: 112n, status: "active" },
+            }),
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    const publication = await store.claimNext({
+      ownerIdHash: "d".repeat(64),
+      now,
+      claimDurationMs: 60_000,
+    });
+
+    expect(publication).toMatchObject({
+      scope,
+      executionId: "execution-1",
+      desiredVersion: 73n,
+      publishedVersion: 72n,
+      commentId: 99n,
+      terminal: false,
+      repository: {
+        owner: "acme",
+        name: "rocket",
+        githubInstallationId: 112n,
+      },
+      claim: {
+        claimId: expect.any(String),
+        ownerIdHash: "d".repeat(64),
+        claimUntil: new Date(now.getTime() + 60_000),
+      },
+    });
+    expect(claimUpdate).toHaveBeenCalledWith({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          scope,
+      },
+      data: {
+        claimId: publication?.claim.claimId,
+        claimOwnerIdHash: "d".repeat(64),
+        claimUntil: new Date(now.getTime() + 60_000),
+      },
+    });
+  });
+
   it("suppresses when the desired version reaches its retry bound", async () => {
     const updateMany = vi.fn(async () => ({ count: 1 }));
     const prisma = {
