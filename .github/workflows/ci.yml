@@ -73,9 +73,47 @@ env:
   REVIEW_ROUTER_PG_RESTORE: /usr/lib/postgresql/17/bin/pg_restore
 
 jobs:
+  impact:
+    name: CI impact selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tier: ${{ steps.select.outputs.tier }}
+    steps:
+      - name: Checkout reviewed PR merge ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Select CI impact tier
+        id: select
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            echo "tier=full" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+             git cat-file -e "${CI_BASE_SHA}:scripts/ci-impact.mjs"; then
+            # Never execute policy code supplied by the PR being classified.
+            git show "${CI_BASE_SHA}:scripts/ci-impact.mjs" > "$RUNNER_TEMP/ci-impact-trusted.mjs"
+            node "$RUNNER_TEMP/ci-impact-trusted.mjs"
+          else
+            echo "CI impact classifier unavailable in trusted base; running full CI"
+            echo "tier=full" >> "$GITHUB_OUTPUT"
+          fi
+
   release-authority-pg17-contract:
     name: Dedicated Release Authority PG17 contract
-    if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract) }}
+    needs: impact
+    if: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) || (github.event_name == 'workflow_dispatch' && inputs.release_authority_pg17_contract)) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
@@ -258,7 +296,8 @@ jobs:
 
   codex-rotating-installer-portability:
     name: Rotating installer lock (${{ matrix.os }})
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    needs: impact
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && matrix.os || startsWith(matrix.os, 'ubuntu-') && (vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || matrix.os) || matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -301,7 +340,8 @@ jobs:
 
   self-hosted-e2e:
     name: Self-hosted E2E
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    needs: impact
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_E2E_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
 
@@ -324,7 +364,8 @@ jobs:
 
   hosted-runtime-image:
     name: Hosted runtime OCI build
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    needs: impact
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 25
 
@@ -348,7 +389,8 @@ jobs:
 
   managed-migration-pg17:
     name: Managed migration PG17 (${{ matrix.lane }})
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    needs: impact
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     strategy:
@@ -418,6 +460,7 @@ jobs:
     name: Quality Gates
     needs:
       [
+        impact,
         quality,
         quality-db-contracts,
         quality-source-certification,
@@ -429,9 +472,11 @@ jobs:
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
-      - name: Enforce every quality and PG17 lane
+      - name: Enforce tier-specific quality and PG17 lanes
         shell: bash
         env:
+          IMPACT_RESULT: ${{ needs.impact.result }}
+          IMPACT_TIER: ${{ needs.impact.outputs.tier }}
           QUALITY_RESULT: ${{ needs.quality.result }}
           QUALITY_DB_CONTRACTS_RESULT: ${{ needs.quality-db-contracts.result }}
           QUALITY_SOURCE_CERTIFICATION_RESULT: ${{ needs.quality-source-certification.result }}
@@ -443,22 +488,40 @@ jobs:
           DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
         run: |
           set -euo pipefail
-          allowed=success
-          if [ "${DRAFT_PR:-false}" = "true" ]; then allowed="success skipped"; fi
-          for result in \
-            "$QUALITY_RESULT" \
-            "$QUALITY_DB_CONTRACTS_RESULT" \
-            "$QUALITY_SOURCE_CERTIFICATION_RESULT" \
-            "$STATIC_CHECKS_RESULT" \
-            "$MANAGED_PG17_RESULT"; do
-            case " $allowed " in
-              *" $result "*) ;;
-              *) echo "lane result '$result' is not allowed" >&2; exit 1 ;;
-            esac
+          if [[ "$IMPACT_RESULT" != "success" ]]; then
+            echo "CI impact detection failed: $IMPACT_RESULT" >&2
+            exit 1
+          fi
+          case "$IMPACT_TIER" in
+            docs|ui|full) ;;
+            *) echo "Unknown CI impact tier: $IMPACT_TIER" >&2; exit 1 ;;
+          esac
+          results=("$QUALITY_RESULT" "$QUALITY_DB_CONTRACTS_RESULT" "$QUALITY_SOURCE_CERTIFICATION_RESULT" "$STATIC_CHECKS_RESULT" "$MANAGED_PG17_RESULT")
+          labels=(quality quality-db-contracts quality-source-certification static-checks managed-migration-pg17)
+          if [[ "$DRAFT_PR" == "true" ]]; then
+            for result in "${results[@]}"; do
+              case "$result" in
+                success|skipped) ;;
+                *) echo "Draft PR: unexpected lane result '$result'" >&2; exit 1 ;;
+              esac
+            done
+            exit 0
+          fi
+          case "$IMPACT_TIER" in
+            docs) expected=(skipped skipped skipped success skipped) ;;
+            ui) expected=(success skipped skipped success skipped) ;;
+            full) expected=(success success success success success) ;;
+          esac
+          for i in "${!results[@]}"; do
+            if [[ "${results[$i]}" != "${expected[$i]}" ]]; then
+              echo "${labels[$i]}: got '${results[$i]}', expected '${expected[$i]}' for $IMPACT_TIER" >&2
+              exit 1
+            fi
           done
 
   static-checks:
     name: Static Checks
+    needs: impact
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
@@ -488,6 +551,9 @@ jobs:
         working-directory: apps/web
         run: pnpm exec next typegen
 
+      - name: Test fail-closed CI impact policy
+        run: node --test scripts/ci-impact.test.mjs
+
       - name: Lint
         run: pnpm lint
 
@@ -516,7 +582,8 @@ jobs:
 
   quality:
     name: Quality Checks
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    needs: impact
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.impact.outputs.tier != 'docs' }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_BUILD_RUNNER || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
@@ -731,7 +798,8 @@ jobs:
 
   quality-db-contracts:
     name: DB Contract and Migration Checks
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    needs: impact
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
@@ -1059,7 +1127,8 @@ jobs:
 
   quality-source-certification:
     name: Source and Certification Checks
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    needs: impact
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && (github.event_name != 'pull_request' || needs.impact.outputs.tier == 'full') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || vars.CI_LINUX_CHECKS_RUNNER || vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
     env:
