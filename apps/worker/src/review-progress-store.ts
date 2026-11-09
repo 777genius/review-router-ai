@@ -227,20 +227,18 @@ async function reserveInstallationBudgetMutation(
   FOR UPDATE
 `);
   const budget =
-    await transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow(
-      {
-        where: {
-          githubInstallationId:
-            input.publication.repository.githubInstallationId,
-        },
-      },
-    );
-  const stillClaimed = await transaction.reviewProgressPublicationV1.count({
+    await transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow({
       where: {
-        ...claimedPublicationFence(input.publication),
-        claimUntil: { gt: input.now },
+        githubInstallationId:
+          input.publication.repository.githubInstallationId,
       },
     });
+  const stillClaimed = await transaction.reviewProgressPublicationV1.count({
+    where: {
+      ...claimedPublicationFence(input.publication),
+      claimUntil: { gt: input.now },
+    },
+  });
   if (stillClaimed !== 1)
     return { allowed: false as const, retryAt: input.now };
   const availableAt = maxDate(budget.nextMutationAt, budget.cooldownUntil);
