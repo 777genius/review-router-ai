@@ -160,6 +160,38 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(query.strings.join(" ")).toContain('"cooldownUntil" = GREATEST');
   });
 
+  it("fails retry when installation cooldown persistence fails", async () => {
+    const calls: string[] = [];
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewProgressPublicationV1: {
+            updateMany: async () => {
+              calls.push("publication");
+              return { count: 1 };
+            },
+          },
+          $executeRaw: async () => {
+            calls.push("cooldown");
+            throw new Error("cooldown_failed");
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.retry({
+        publication: claimed(),
+        safeCode: "review_progress_rate_limited",
+        retryAt: new Date(now.getTime() + 1_000),
+        installationCooldownUntil: new Date(now.getTime() + 60_000),
+        now,
+        maxFailures: 3,
+      }),
+    ).rejects.toThrow("cooldown_failed");
+    expect(calls).toEqual(["publication", "cooldown"]);
+  });
+
   it("orders terminal snapshots before ordinary due progress", async () => {
     const rawQueries: unknown[] = [];
     const prisma = {

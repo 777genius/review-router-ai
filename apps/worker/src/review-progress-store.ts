@@ -122,40 +122,9 @@ export class PrismaReviewProgressPublicationStore {
     readonly countFailure?: boolean | undefined;
   }): Promise<"retried" | "suppressed"> {
     assertDuration(input.maxFailures);
-    let outcome: "retried" | "suppressed" = "retried";
-    await this.prisma.$transaction(async (transaction) => {
-      const mutation = retryMutationData(input);
-      await transaction.reviewProgressPublicationV1.updateMany({
-        where: {
-          ...claimedPublicationFence(input.publication),
-        },
-        data: mutation.data,
-      });
-      if (mutation.reachesLimit) outcome = "suppressed";
-      if (input.installationCooldownUntil) {
-        await transaction.$executeRaw(Prisma.sql`
-          INSERT INTO "ReviewProgressInstallationBudgetV1"
-            ("githubInstallationId", "nextMutationAt", "cooldownUntil", "updatedAt")
-          VALUES (
-            ${input.publication.repository.githubInstallationId},
-            ${input.installationCooldownUntil},
-            ${input.installationCooldownUntil},
-            ${input.now}
-          )
-          ON CONFLICT ("githubInstallationId") DO UPDATE SET
-            "nextMutationAt" = GREATEST(
-              "ReviewProgressInstallationBudgetV1"."nextMutationAt",
-              EXCLUDED."nextMutationAt"
-            ),
-            "cooldownUntil" = GREATEST(
-              "ReviewProgressInstallationBudgetV1"."cooldownUntil",
-              EXCLUDED."cooldownUntil"
-            ),
-            "updatedAt" = EXCLUDED."updatedAt"
-        `);
-      }
-    });
-    return outcome;
+    return this.prisma.$transaction((transaction) =>
+      retryPublicationMutation(transaction, input),
+    );
   }
 
   async suppress(input: {
@@ -208,6 +177,45 @@ export class PrismaReviewProgressPublicationStore {
     }
     return promoted;
   }
+}
+
+/** Persist retry and installation cooldown inside the same transaction. */
+async function retryPublicationMutation(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<PrismaReviewProgressPublicationStore["retry"]>[0],
+): Promise<"retried" | "suppressed"> {
+  let outcome: "retried" | "suppressed" = "retried";
+  const mutation = retryMutationData(input);
+  await transaction.reviewProgressPublicationV1.updateMany({
+    where: {
+      ...claimedPublicationFence(input.publication),
+    },
+    data: mutation.data,
+  });
+  if (mutation.reachesLimit) outcome = "suppressed";
+  if (input.installationCooldownUntil) {
+    await transaction.$executeRaw(Prisma.sql`
+      INSERT INTO "ReviewProgressInstallationBudgetV1"
+        ("githubInstallationId", "nextMutationAt", "cooldownUntil", "updatedAt")
+      VALUES (
+        ${input.publication.repository.githubInstallationId},
+        ${input.installationCooldownUntil},
+        ${input.installationCooldownUntil},
+        ${input.now}
+      )
+      ON CONFLICT ("githubInstallationId") DO UPDATE SET
+        "nextMutationAt" = GREATEST(
+          "ReviewProgressInstallationBudgetV1"."nextMutationAt",
+          EXCLUDED."nextMutationAt"
+        ),
+        "cooldownUntil" = GREATEST(
+          "ReviewProgressInstallationBudgetV1"."cooldownUntil",
+          EXCLUDED."cooldownUntil"
+        ),
+        "updatedAt" = EXCLUDED."updatedAt"
+    `);
+  }
+  return outcome;
 }
 
 /** Reserve the installation budget inside the same serializable transaction. */
