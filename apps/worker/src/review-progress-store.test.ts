@@ -158,6 +158,60 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(query.strings.join(" ")).toContain("THEN 0 ELSE 1 END");
   });
 
+  it("defers a stale projection before repository lookup", async () => {
+    const scope = {
+      workspaceId: "workspace-1",
+      repositoryConnectionId: "repository-1",
+      scmRepositoryIdentityId: "identity-1",
+      pullRequestNumber: 42,
+    };
+    const deferUpdate = vi.fn(async () => ({}));
+    const repositoryLookup = vi.fn();
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $queryRaw: async () => [scope],
+          reviewProgressPublicationV1: {
+            findUniqueOrThrow: async () => ({
+              ...scope,
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              desiredVersion: 73n,
+            }),
+            update: deferUpdate,
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              generation: 8n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              desiredVersion: 73n,
+            }),
+          },
+          repositoryConnection: { findUnique: repositoryLookup },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.claimNext({
+        ownerIdHash: "d".repeat(64),
+        now,
+        claimDurationMs: 60_000,
+      }),
+    ).resolves.toBeNull();
+    expect(repositoryLookup).not.toHaveBeenCalled();
+    expect(deferUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          lastErrorCode: "review_progress_projection_identity_corrupted",
+        }),
+      }),
+    );
+  });
+
   it("suppresses when the desired version reaches its retry bound", async () => {
     const updateMany = vi.fn(async () => ({ count: 1 }));
     const prisma = {

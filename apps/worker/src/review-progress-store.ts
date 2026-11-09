@@ -64,120 +64,8 @@ export class PrismaReviewProgressPublicationStore {
           )`
       : Prisma.empty;
     return this.prisma.$transaction(
-      async (transaction) => {
-        const rows = await transaction.$queryRaw<
-          Array<{
-            workspaceId: string;
-            repositoryConnectionId: string;
-            scmRepositoryIdentityId: string;
-            pullRequestNumber: number;
-          }>
-        >(Prisma.sql`
-        SELECT publication."workspaceId", publication."repositoryConnectionId",
-          publication."scmRepositoryIdentityId", publication."pullRequestNumber"
-        FROM "ReviewProgressPublicationV1" publication
-        WHERE publication."desiredVersion" > publication."publishedVersion"
-          AND publication."nextPublishAt" <= ${input.now}
-          AND (publication."claimUntil" IS NULL OR publication."claimUntil" <= ${input.now})
-          ${repositoryPredicate}
-        ORDER BY
-          CASE WHEN EXISTS (
-            SELECT 1 FROM "ReviewExecutionProgressV1" progress
-            WHERE progress."executionId" = publication."activeExecutionId"
-              AND progress."terminalOutcome" IS NOT NULL
-          ) THEN 0 ELSE 1 END,
-          publication."nextPublishAt", publication."updatedAt"
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      `);
-        const candidate = rows[0];
-        if (!candidate) return null;
-        const publication =
-          await transaction.reviewProgressPublicationV1.findUniqueOrThrow({
-            where: {
-              workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-                candidate,
-            },
-          });
-        const progress = await transaction.reviewExecutionProgressV1.findUnique(
-          {
-            where: { executionId: publication.activeExecutionId },
-          },
-        );
-        if (
-          !progress ||
-          progress.generation !== publication.activeGeneration ||
-          progress.headSha !== publication.activeHeadSha ||
-          progress.planHash !== publication.activePlanHash ||
-          progress.desiredVersion !== publication.desiredVersion
-        ) {
-          await deferUnavailablePublication(
-            transaction,
-            candidate,
-            input.now,
-            "review_progress_projection_identity_corrupted",
-          );
-          return null;
-        }
-        const repository = await transaction.repositoryConnection.findUnique({
-          where: { id: publication.repositoryConnectionId },
-          include: {
-            installation: {
-              select: { githubInstallationId: true, status: true },
-            },
-          },
-        });
-        if (
-          !repository ||
-          repository.workspaceId !== publication.workspaceId ||
-          repository.scmRepositoryIdentityId !==
-            publication.scmRepositoryIdentityId ||
-          !repository.installation ||
-          repository.installation.status !== "active" ||
-          repository.selected !== true ||
-          repository.archived !== false ||
-          repository.provider !== "github"
-        ) {
-          await deferUnavailablePublication(
-            transaction,
-            candidate,
-            input.now,
-            "review_progress_github_repository_unavailable",
-          );
-          return null;
-        }
-        const claimId = randomUUID();
-        const claimUntil = new Date(
-          input.now.getTime() + input.claimDurationMs,
-        );
-        await transaction.reviewProgressPublicationV1.update({
-          where: {
-            workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-              candidate,
-          },
-          data: { claimId, claimOwnerIdHash: input.ownerIdHash, claimUntil },
-        });
-        return {
-          scope: candidate,
-          executionId: progress.executionId,
-          generation: progress.generation,
-          headSha: progress.headSha,
-          planHash: progress.planHash,
-          desiredVersion: progress.desiredVersion,
-          publishedVersion: publication.publishedVersion,
-          commentId: publication.commentId,
-          publishedBodyHash: publication.publishedBodyHash,
-          failureCount: publication.failureCount,
-          snapshot: progress.snapshotJson,
-          terminal: progress.terminalOutcome !== null,
-          repository: {
-            owner: repository.owner,
-            name: repository.name,
-            githubInstallationId: repository.installation.githubInstallationId,
-          },
-          claim: { claimId, ownerIdHash: input.ownerIdHash, claimUntil },
-        };
-      },
+      (transaction) =>
+        claimDuePublication(transaction, input, repositoryPredicate),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
@@ -369,6 +257,122 @@ export class PrismaReviewProgressPublicationStore {
     }
     return promoted;
   }
+}
+
+/** Claim the next due projection under the same serializable transaction. */
+async function claimDuePublication(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<PrismaReviewProgressPublicationStore["claimNext"]>[0],
+  repositoryPredicate: Prisma.Sql,
+): Promise<ClaimedReviewProgress | null> {
+  const rows = await transaction.$queryRaw<
+    Array<{
+      workspaceId: string;
+      repositoryConnectionId: string;
+      scmRepositoryIdentityId: string;
+      pullRequestNumber: number;
+    }>
+  >(Prisma.sql`
+  SELECT publication."workspaceId", publication."repositoryConnectionId",
+    publication."scmRepositoryIdentityId", publication."pullRequestNumber"
+  FROM "ReviewProgressPublicationV1" publication
+  WHERE publication."desiredVersion" > publication."publishedVersion"
+    AND publication."nextPublishAt" <= ${input.now}
+    AND (publication."claimUntil" IS NULL OR publication."claimUntil" <= ${input.now})
+    ${repositoryPredicate}
+  ORDER BY
+    CASE WHEN EXISTS (
+      SELECT 1 FROM "ReviewExecutionProgressV1" progress
+      WHERE progress."executionId" = publication."activeExecutionId"
+        AND progress."terminalOutcome" IS NOT NULL
+    ) THEN 0 ELSE 1 END,
+    publication."nextPublishAt", publication."updatedAt"
+  LIMIT 1
+  FOR UPDATE SKIP LOCKED
+`);
+  const candidate = rows[0];
+  if (!candidate) return null;
+  const publication =
+    await transaction.reviewProgressPublicationV1.findUniqueOrThrow({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          candidate,
+      },
+    });
+  const progress = await transaction.reviewExecutionProgressV1.findUnique({
+    where: { executionId: publication.activeExecutionId },
+  });
+  if (
+    !progress ||
+    progress.generation !== publication.activeGeneration ||
+    progress.headSha !== publication.activeHeadSha ||
+    progress.planHash !== publication.activePlanHash ||
+    progress.desiredVersion !== publication.desiredVersion
+  ) {
+    await deferUnavailablePublication(
+      transaction,
+      candidate,
+      input.now,
+      "review_progress_projection_identity_corrupted",
+    );
+    return null;
+  }
+  const repository = await transaction.repositoryConnection.findUnique({
+    where: { id: publication.repositoryConnectionId },
+    include: {
+      installation: {
+        select: { githubInstallationId: true, status: true },
+      },
+    },
+  });
+  if (
+    !repository ||
+    repository.workspaceId !== publication.workspaceId ||
+    repository.scmRepositoryIdentityId !==
+      publication.scmRepositoryIdentityId ||
+    !repository.installation ||
+    repository.installation.status !== "active" ||
+    repository.selected !== true ||
+    repository.archived !== false ||
+    repository.provider !== "github"
+  ) {
+    await deferUnavailablePublication(
+      transaction,
+      candidate,
+      input.now,
+      "review_progress_github_repository_unavailable",
+    );
+    return null;
+  }
+  const claimId = randomUUID();
+  const claimUntil = new Date(input.now.getTime() + input.claimDurationMs);
+  await transaction.reviewProgressPublicationV1.update({
+    where: {
+      workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+        candidate,
+    },
+    data: { claimId, claimOwnerIdHash: input.ownerIdHash, claimUntil },
+  });
+  return {
+    scope: candidate,
+    executionId: progress.executionId,
+    generation: progress.generation,
+    headSha: progress.headSha,
+    planHash: progress.planHash,
+    desiredVersion: progress.desiredVersion,
+    publishedVersion: publication.publishedVersion,
+    commentId: publication.commentId,
+    publishedBodyHash: publication.publishedBodyHash,
+    failureCount: publication.failureCount,
+    snapshot: progress.snapshotJson,
+    terminal: progress.terminalOutcome !== null,
+    repository: {
+      owner: repository.owner,
+      name: repository.name,
+      githubInstallationId: repository.installation.githubInstallationId,
+    },
+    claim: { claimId, ownerIdHash: input.ownerIdHash, claimUntil },
+  };
 }
 
 /** Promote one settlement only when its active progress still owns the projection. */
