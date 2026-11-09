@@ -739,7 +739,6 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(progressUpdate).not.toHaveBeenCalled();
     expect(publicationUpdate).not.toHaveBeenCalled();
   });
-
 });
 
 function claimed() {
