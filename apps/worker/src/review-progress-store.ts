@@ -656,7 +656,20 @@ function terminalSnapshot(
   ) {
     throw new Error("review_progress_snapshot_invalid");
   }
-  const counts = value.counts;
+  assertTerminalCounts(value.counts, terminal);
+  return {
+    ...value,
+    phase: "terminal",
+    terminal,
+    updatedAt: now.toISOString(),
+  } as Prisma.InputJsonObject;
+}
+
+/** Validate the required-count invariants before terminal persistence. */
+function assertTerminalCounts(
+  counts: Record<string, Prisma.JsonValue>,
+  terminal: TerminalOutcome,
+): void {
   const requiredCompleted = counts.requiredCompleted;
   const requiredTotal = counts.requiredTotal;
   const requiredExhausted = counts.requiredExhausted;
@@ -680,12 +693,6 @@ function terminalSnapshot(
     requiredExhausted + requiredCancelled < 1
   )
     throw new Error("review_progress_partial_outcome_inconsistent");
-  return {
-    ...value,
-    phase: "terminal",
-    terminal,
-    updatedAt: now.toISOString(),
-  } as Prisma.InputJsonObject;
 }
 
 function isRecord(value: unknown): value is Record<string, Prisma.JsonValue> {

@@ -680,6 +680,66 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       },
     });
   });
+  it("rejects partial terminal counts without gaps before either write", async () => {
+    const progressUpdate = vi.fn();
+    const publicationUpdate = vi.fn();
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewExecutionV2: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              state: "partial",
+            }),
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              workspaceId: "workspace-1",
+              repositoryConnectionId: "repository-1",
+              scmRepositoryIdentityId: "identity-1",
+              pullRequestNumber: 42,
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              terminalOutcome: null,
+              snapshotJson: {
+                schemaVersion: 1,
+                phase: "publishing",
+                counts: {
+                  requiredTotal: 1,
+                  requiredCompleted: 1,
+                  requiredExhausted: 0,
+                  requiredCancelled: 0,
+                },
+              },
+            }),
+            update: progressUpdate,
+          },
+          reviewProgressPublicationV1: {
+            findUnique: async () => ({
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              desiredVersion: 73n,
+            }),
+            update: publicationUpdate,
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
+        now,
+      }),
+    ).rejects.toThrow("review_progress_partial_outcome_inconsistent");
+    expect(progressUpdate).not.toHaveBeenCalled();
+    expect(publicationUpdate).not.toHaveBeenCalled();
+  });
+
 });
 
 function claimed() {
