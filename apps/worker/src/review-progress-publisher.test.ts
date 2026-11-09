@@ -59,6 +59,39 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("does not report a stale fenced completion as published", async () => {
+    const store = fakeStore(claimed());
+    store.complete.mockResolvedValue(false);
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) return { data: [] };
+        if (route.startsWith("POST")) {
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+            },
+          };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.complete).toHaveBeenCalledOnce();
+    expect(store.retry).not.toHaveBeenCalled();
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
   it("defers without touching GitHub when the installation budget is busy", async () => {
     const publication = claimed();
     const store = fakeStore(publication);

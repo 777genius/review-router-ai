@@ -190,12 +190,16 @@ export class ReviewProgressPublisher {
       result.deferred += 1;
       return;
     }
-    await this.store.complete({
+    const completed = await this.store.complete({
       publication,
       commentId: BigInt(published.commentId),
       bodyHash,
       now: this.clock.now(),
     });
+    if (!completed) {
+      result.deferred += 1;
+      return;
+    }
     result.published += 1;
   }
 
