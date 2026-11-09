@@ -77,56 +77,7 @@ export class PrismaReviewProgressPublicationStore {
   }): Promise<{ allowed: true } | { allowed: false; retryAt: Date }> {
     assertDuration(input.minimumIntervalMs);
     return this.prisma.$transaction(
-      async (transaction) => {
-        await transaction.$executeRaw(Prisma.sql`
-        INSERT INTO "ReviewProgressInstallationBudgetV1"
-          ("githubInstallationId", "nextMutationAt", "updatedAt")
-        VALUES (${input.publication.repository.githubInstallationId}, ${input.now}, ${input.now})
-        ON CONFLICT DO NOTHING
-      `);
-        await transaction.$queryRaw(Prisma.sql`
-        SELECT 1 FROM "ReviewProgressInstallationBudgetV1"
-        WHERE "githubInstallationId" = ${input.publication.repository.githubInstallationId}
-        FOR UPDATE
-      `);
-        const budget =
-          await transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow(
-            {
-              where: {
-                githubInstallationId:
-                  input.publication.repository.githubInstallationId,
-              },
-            },
-          );
-        const stillClaimed =
-          await transaction.reviewProgressPublicationV1.count({
-            where: {
-              ...claimedPublicationFence(input.publication),
-              claimUntil: { gt: input.now },
-            },
-          });
-        if (stillClaimed !== 1)
-          return { allowed: false as const, retryAt: input.now };
-        const availableAt = maxDate(
-          budget.nextMutationAt,
-          budget.cooldownUntil,
-        );
-        if (availableAt > input.now)
-          return { allowed: false as const, retryAt: availableAt };
-        await transaction.reviewProgressInstallationBudgetV1.update({
-          where: {
-            githubInstallationId:
-              input.publication.repository.githubInstallationId,
-          },
-          data: {
-            nextMutationAt: new Date(
-              input.now.getTime() + input.minimumIntervalMs,
-            ),
-            updatedAt: input.now,
-          },
-        });
-        return { allowed: true as const };
-      },
+      (transaction) => reserveInstallationBudgetMutation(transaction, input),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   }
@@ -257,6 +208,57 @@ export class PrismaReviewProgressPublicationStore {
     }
     return promoted;
   }
+}
+
+/** Reserve the installation budget inside the same serializable transaction. */
+async function reserveInstallationBudgetMutation(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<PrismaReviewProgressPublicationStore["reserveInstallationMutation"]>[0],
+): Promise<{ allowed: true } | { allowed: false; retryAt: Date }> {
+  await transaction.$executeRaw(Prisma.sql`
+  INSERT INTO "ReviewProgressInstallationBudgetV1"
+    ("githubInstallationId", "nextMutationAt", "updatedAt")
+  VALUES (${input.publication.repository.githubInstallationId}, ${input.now}, ${input.now})
+  ON CONFLICT DO NOTHING
+`);
+  await transaction.$queryRaw(Prisma.sql`
+  SELECT 1 FROM "ReviewProgressInstallationBudgetV1"
+  WHERE "githubInstallationId" = ${input.publication.repository.githubInstallationId}
+  FOR UPDATE
+`);
+  const budget =
+    await transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow(
+      {
+        where: {
+          githubInstallationId:
+            input.publication.repository.githubInstallationId,
+        },
+      },
+    );
+  const stillClaimed = await transaction.reviewProgressPublicationV1.count({
+      where: {
+        ...claimedPublicationFence(input.publication),
+        claimUntil: { gt: input.now },
+      },
+    });
+  if (stillClaimed !== 1)
+    return { allowed: false as const, retryAt: input.now };
+  const availableAt = maxDate(budget.nextMutationAt, budget.cooldownUntil);
+  if (availableAt > input.now)
+    return { allowed: false as const, retryAt: availableAt };
+  await transaction.reviewProgressInstallationBudgetV1.update({
+    where: {
+      githubInstallationId:
+        input.publication.repository.githubInstallationId,
+    },
+    data: {
+      nextMutationAt: new Date(
+        input.now.getTime() + input.minimumIntervalMs,
+      ),
+      updatedAt: input.now,
+    },
+  });
+  return { allowed: true as const };
 }
 
 /** Claim the next due projection under the same serializable transaction. */

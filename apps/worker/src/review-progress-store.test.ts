@@ -101,6 +101,35 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     ]);
   });
 
+  it("does not consume installation budget after losing the claim fence", async () => {
+    const budgetUpdate = vi.fn();
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async () => 1,
+          $queryRaw: async () => [],
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: async () => ({
+              nextMutationAt: now,
+              cooldownUntil: null,
+            }),
+            update: budgetUpdate,
+          },
+          reviewProgressPublicationV1: { count: async () => 0 },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        publication: claimed(),
+        now,
+        minimumIntervalMs: 1_000,
+      }),
+    ).resolves.toEqual({ allowed: false, retryAt: now });
+    expect(budgetUpdate).not.toHaveBeenCalled();
+  });
+
   it("persists installation cooldown with monotonic database GREATEST", async () => {
     const rawQueries: unknown[] = [];
     const prisma = {
