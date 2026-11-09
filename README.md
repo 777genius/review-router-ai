@@ -98,8 +98,11 @@ and `/rr suggest fix`.
 
 These two focused commands require a qualified managed Conversation Gateway,
 an authorized repository maintainer, a same-repository PR and a direct reply
-to the original verified inline finding. Provider and workflow availability
-vary; some standalone Action installs only listen to inline review replies.
+to the original verified inline finding. Publishing focused replies also
+requires `REVIEW_ROUTER_DISCUSSION_MODE=suggest` (or `discussion_mode: suggest` in
+a reusable workflow); the default `off` does not publish the response.
+Provider and workflow availability vary; some standalone Action installs only
+listen to inline review replies.
 See the [complete command reference](https://github.com/777genius/review-router#pr-comment-commands)
 for all supported commands, permissions, Memory options and limitations.
 
