@@ -577,8 +577,15 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
   });
 
   it("publishes a failed terminal state when final review publication failed", async () => {
-    const progressUpdate = vi.fn(async () => ({}));
-    const publicationUpdate = vi.fn(async () => ({}));
+    const mutationOrder: string[] = [];
+    const progressUpdate = vi.fn(async () => {
+      mutationOrder.push("progress");
+      return {};
+    });
+    const publicationUpdate = vi.fn(async () => {
+      mutationOrder.push("publication");
+      return {};
+    });
     const prisma = {
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
@@ -632,14 +639,46 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         now,
       }),
     ).resolves.toBe(1);
-    expect(progressUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
+    expect(mutationOrder).toEqual(["progress", "publication"]);
+    expect(progressUpdate).toHaveBeenCalledWith({
+      where: { executionId: "execution-1" },
+      data: {
+        phase: "terminal",
+        terminalOutcome: "failed",
+        snapshotJson: {
+          schemaVersion: 1,
           phase: "terminal",
-          terminalOutcome: "failed",
-        }),
-      }),
-    );
+          terminal: "failed",
+          counts: {
+            requiredTotal: 1,
+            requiredCompleted: 1,
+            requiredExhausted: 0,
+            requiredCancelled: 0,
+          },
+          updatedAt: now.toISOString(),
+        },
+        snapshotHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        desiredVersion: 74n,
+        updatedAt: now,
+      },
+    });
+    expect(publicationUpdate).toHaveBeenCalledWith({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          {
+            workspaceId: "workspace-1",
+            repositoryConnectionId: "repository-1",
+            scmRepositoryIdentityId: "identity-1",
+            pullRequestNumber: 42,
+          },
+      },
+      data: {
+        version: { increment: 1n },
+        desiredVersion: 74n,
+        nextPublishAt: now,
+        updatedAt: now,
+      },
+    });
   });
 });
 

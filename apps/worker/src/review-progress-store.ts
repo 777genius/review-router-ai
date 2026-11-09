@@ -487,15 +487,16 @@ async function promoteSettledExecution(
     where: { executionId },
   });
   if (!progress || progress.terminalOutcome !== null) return false;
+  const scope = {
+    workspaceId: progress.workspaceId,
+    repositoryConnectionId: progress.repositoryConnectionId,
+    scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
+    pullRequestNumber: progress.pullRequestNumber,
+  };
   const publication = await transaction.reviewProgressPublicationV1.findUnique({
     where: {
       workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-        {
-          workspaceId: progress.workspaceId,
-          repositoryConnectionId: progress.repositoryConnectionId,
-          scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
-          pullRequestNumber: progress.pullRequestNumber,
-        },
+        scope,
     },
   });
   if (
@@ -506,44 +507,55 @@ async function promoteSettledExecution(
     publication.activePlanHash !== progress.planHash
   )
     return false;
-  const desiredVersion = publication.desiredVersion + 1n;
-  const snapshot = terminalSnapshot(
-    progress.snapshotJson,
+  await persistTerminalPromotion(transaction, {
+    executionId,
+    scope,
+    desiredVersion: publication.desiredVersion + 1n,
+    snapshot: terminalSnapshot(progress.snapshotJson, terminalOutcome, now),
     terminalOutcome,
     now,
-  );
-  const snapshotHash = hashProgressSnapshot(snapshot);
+  });
+  return true;
+}
+
+/** Write a terminal snapshot and its publication version in one transaction. */
+async function persistTerminalPromotion(
+  transaction: Prisma.TransactionClient,
+  input: {
+    readonly executionId: string;
+    readonly scope: ClaimedReviewProgress["scope"];
+    readonly desiredVersion: bigint;
+    readonly snapshot: Prisma.InputJsonObject;
+    readonly terminalOutcome: TerminalOutcome;
+    readonly now: Date;
+  },
+): Promise<void> {
+  const snapshotHash = hashProgressSnapshot(input.snapshot);
   await transaction.reviewExecutionProgressV1.update({
-    where: { executionId },
+    where: { executionId: input.executionId },
     data: {
       phase: "terminal",
-      terminalOutcome,
-      snapshotJson: snapshot,
+      terminalOutcome: input.terminalOutcome,
+      snapshotJson: input.snapshot,
       snapshotHash,
-      desiredVersion,
-      updatedAt: now,
+      desiredVersion: input.desiredVersion,
+      updatedAt: input.now,
     },
   });
   await transaction.reviewProgressPublicationV1.update({
     where: {
       workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-        {
-          workspaceId: progress.workspaceId,
-          repositoryConnectionId: progress.repositoryConnectionId,
-          scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
-          pullRequestNumber: progress.pullRequestNumber,
-        },
+        input.scope,
     },
     data: {
       version: { increment: 1n },
-      desiredVersion,
-      nextPublishAt: now,
-      updatedAt: now,
+      desiredVersion: input.desiredVersion,
+      nextPublishAt: input.now,
+      updatedAt: input.now,
       // Preserve a live claim. Its completion is fenced by desiredVersion,
       // while clearing it here could allow two simultaneous GitHub writes.
     },
   });
-  return true;
 }
 
 /** Keep retry exhaustion and error-code policy outside persistence effects. */
