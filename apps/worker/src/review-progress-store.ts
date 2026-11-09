@@ -194,28 +194,43 @@ async function retryPublicationMutation(
   });
   if (mutation.reachesLimit) outcome = "suppressed";
   if (input.installationCooldownUntil) {
-    await transaction.$executeRaw(Prisma.sql`
-      INSERT INTO "ReviewProgressInstallationBudgetV1"
-        ("githubInstallationId", "nextMutationAt", "cooldownUntil", "updatedAt")
-      VALUES (
-        ${input.publication.repository.githubInstallationId},
-        ${input.installationCooldownUntil},
-        ${input.installationCooldownUntil},
-        ${input.now}
-      )
-      ON CONFLICT ("githubInstallationId") DO UPDATE SET
-        "nextMutationAt" = GREATEST(
-          "ReviewProgressInstallationBudgetV1"."nextMutationAt",
-          EXCLUDED."nextMutationAt"
-        ),
-        "cooldownUntil" = GREATEST(
-          "ReviewProgressInstallationBudgetV1"."cooldownUntil",
-          EXCLUDED."cooldownUntil"
-        ),
-        "updatedAt" = EXCLUDED."updatedAt"
-    `);
+    await persistInstallationCooldown(
+      transaction,
+      input.publication.repository.githubInstallationId,
+      input.installationCooldownUntil,
+      input.now,
+    );
   }
   return outcome;
+}
+
+/** Persist a GitHub installation cooldown monotonically in the retry transaction. */
+async function persistInstallationCooldown(
+  transaction: Prisma.TransactionClient,
+  installationId: bigint,
+  cooldownUntil: Date,
+  now: Date,
+): Promise<void> {
+  await transaction.$executeRaw(Prisma.sql`
+    INSERT INTO "ReviewProgressInstallationBudgetV1"
+      ("githubInstallationId", "nextMutationAt", "cooldownUntil", "updatedAt")
+    VALUES (
+      ${installationId},
+      ${cooldownUntil},
+      ${cooldownUntil},
+      ${now}
+    )
+    ON CONFLICT ("githubInstallationId") DO UPDATE SET
+      "nextMutationAt" = GREATEST(
+        "ReviewProgressInstallationBudgetV1"."nextMutationAt",
+        EXCLUDED."nextMutationAt"
+      ),
+      "cooldownUntil" = GREATEST(
+        "ReviewProgressInstallationBudgetV1"."cooldownUntil",
+        EXCLUDED."cooldownUntil"
+      ),
+      "updatedAt" = EXCLUDED."updatedAt"
+  `);
 }
 
 /** Reserve the installation budget inside the same serializable transaction. */

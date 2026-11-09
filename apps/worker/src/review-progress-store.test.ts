@@ -146,18 +146,23 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     };
     const store = new PrismaReviewProgressPublicationStore(prisma as never);
 
+    const cooldownUntil = new Date(now.getTime() + 60_000);
     await store.retry({
       publication: claimed(),
       safeCode: "review_progress_rate_limited",
       retryAt: new Date(now.getTime() + 1_000),
-      installationCooldownUntil: new Date(now.getTime() + 60_000),
+      installationCooldownUntil: cooldownUntil,
       now,
       maxFailures: 10,
     });
 
-    const query = rawQueries[0] as { strings: readonly string[] };
+    const query = rawQueries[0] as {
+      strings: readonly string[];
+      values: readonly unknown[];
+    };
     expect(query.strings.join(" ")).toContain('"nextMutationAt" = GREATEST');
     expect(query.strings.join(" ")).toContain('"cooldownUntil" = GREATEST');
+    expect(query.values).toEqual([17n, cooldownUntil, cooldownUntil, now]);
   });
 
   it("fails retry when installation cooldown persistence fails", async () => {
