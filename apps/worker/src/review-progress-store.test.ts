@@ -247,6 +247,55 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
+  it("does not promote a settled execution after its projection is superseded", async () => {
+    const progressUpdate = vi.fn();
+    const publicationUpdate = vi.fn();
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewExecutionV2: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              state: "completed",
+            }),
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              workspaceId: "workspace-1",
+              repositoryConnectionId: "repository-1",
+              scmRepositoryIdentityId: "identity-1",
+              pullRequestNumber: 42,
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              terminalOutcome: null,
+            }),
+            update: progressUpdate,
+          },
+          reviewProgressPublicationV1: {
+            findUnique: async () => ({
+              activeExecutionId: "execution-2",
+              activeGeneration: 8n,
+              activeHeadSha: "c".repeat(40),
+              activePlanHash: "d".repeat(64),
+            }),
+            update: publicationUpdate,
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
+        now,
+      }),
+    ).resolves.toBe(0);
+    expect(progressUpdate).not.toHaveBeenCalled();
+    expect(publicationUpdate).not.toHaveBeenCalled();
+  });
+
   it("publishes a failed terminal state when final review publication failed", async () => {
     const progressUpdate = vi.fn(async () => ({}));
     const publicationUpdate = vi.fn(async () => ({}));

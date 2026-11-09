@@ -356,86 +356,98 @@ export class PrismaReviewProgressPublicationStore {
     );
     for (const [executionId, publicationOutcome] of settlements) {
       const changed = await this.prisma.$transaction(
-        async (transaction) => {
-          const execution = await transaction.reviewExecutionV2.findUnique({
-            where: { executionId },
-            select: { executionId: true, state: true },
-          });
-          const terminalOutcome = executionStateTerminal(
-            execution?.state,
+        (transaction) =>
+          promoteSettledExecution(
+            transaction,
+            executionId,
             publicationOutcome,
-          );
-          if (!execution || !terminalOutcome) return false;
-          const progress =
-            await transaction.reviewExecutionProgressV1.findUnique({
-              where: { executionId },
-            });
-          if (!progress || progress.terminalOutcome !== null) return false;
-          const publication =
-            await transaction.reviewProgressPublicationV1.findUnique({
-              where: {
-                workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-                  {
-                    workspaceId: progress.workspaceId,
-                    repositoryConnectionId: progress.repositoryConnectionId,
-                    scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
-                    pullRequestNumber: progress.pullRequestNumber,
-                  },
-              },
-            });
-          if (
-            !publication ||
-            publication.activeExecutionId !== executionId ||
-            publication.activeGeneration !== progress.generation ||
-            publication.activeHeadSha !== progress.headSha ||
-            publication.activePlanHash !== progress.planHash
-          )
-            return false;
-          const desiredVersion = publication.desiredVersion + 1n;
-          const snapshot = terminalSnapshot(
-            progress.snapshotJson,
-            terminalOutcome,
             input.now,
-          );
-          const snapshotHash = hashProgressSnapshot(snapshot);
-          await transaction.reviewExecutionProgressV1.update({
-            where: { executionId },
-            data: {
-              phase: "terminal",
-              terminalOutcome,
-              snapshotJson: snapshot,
-              snapshotHash,
-              desiredVersion,
-              updatedAt: input.now,
-            },
-          });
-          await transaction.reviewProgressPublicationV1.update({
-            where: {
-              workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-                {
-                  workspaceId: progress.workspaceId,
-                  repositoryConnectionId: progress.repositoryConnectionId,
-                  scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
-                  pullRequestNumber: progress.pullRequestNumber,
-                },
-            },
-            data: {
-              version: { increment: 1n },
-              desiredVersion,
-              nextPublishAt: input.now,
-              updatedAt: input.now,
-              // Preserve a live claim. Its completion is fenced by desiredVersion,
-              // while clearing it here could allow two simultaneous GitHub writes.
-            },
-          });
-          return true;
-        },
+          ),
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
       if (changed) promoted += 1;
     }
     return promoted;
   }
+}
+
+/** Promote one settlement only when its active progress still owns the projection. */
+async function promoteSettledExecution(
+  transaction: Prisma.TransactionClient,
+  executionId: string,
+  publicationOutcome: "succeeded" | "failed" | "superseded",
+  now: Date,
+): Promise<boolean> {
+  const execution = await transaction.reviewExecutionV2.findUnique({
+    where: { executionId },
+    select: { executionId: true, state: true },
+  });
+  const terminalOutcome = executionStateTerminal(
+    execution?.state,
+    publicationOutcome,
+  );
+  if (!execution || !terminalOutcome) return false;
+  const progress = await transaction.reviewExecutionProgressV1.findUnique({
+      where: { executionId },
+    });
+  if (!progress || progress.terminalOutcome !== null) return false;
+  const publication = await transaction.reviewProgressPublicationV1.findUnique({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          {
+            workspaceId: progress.workspaceId,
+            repositoryConnectionId: progress.repositoryConnectionId,
+            scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
+            pullRequestNumber: progress.pullRequestNumber,
+          },
+      },
+    });
+  if (
+    !publication ||
+    publication.activeExecutionId !== executionId ||
+    publication.activeGeneration !== progress.generation ||
+    publication.activeHeadSha !== progress.headSha ||
+    publication.activePlanHash !== progress.planHash
+  )
+    return false;
+  const desiredVersion = publication.desiredVersion + 1n;
+  const snapshot = terminalSnapshot(
+    progress.snapshotJson,
+    terminalOutcome,
+    now,
+  );
+  const snapshotHash = hashProgressSnapshot(snapshot);
+  await transaction.reviewExecutionProgressV1.update({
+    where: { executionId },
+    data: {
+      phase: "terminal",
+      terminalOutcome,
+      snapshotJson: snapshot,
+      snapshotHash,
+      desiredVersion,
+      updatedAt: now,
+    },
+  });
+  await transaction.reviewProgressPublicationV1.update({
+    where: {
+      workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+        {
+          workspaceId: progress.workspaceId,
+          repositoryConnectionId: progress.repositoryConnectionId,
+          scmRepositoryIdentityId: progress.scmRepositoryIdentityId,
+          pullRequestNumber: progress.pullRequestNumber,
+        },
+    },
+    data: {
+      version: { increment: 1n },
+      desiredVersion,
+      nextPublishAt: now,
+      updatedAt: now,
+      // Preserve a live claim. Its completion is fenced by desiredVersion,
+      // while clearing it here could allow two simultaneous GitHub writes.
+    },
+  });
+  return true;
 }
 
 /** Keep retry exhaustion and error-code policy outside persistence effects. */
