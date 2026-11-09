@@ -13,10 +13,16 @@ const documentation = new Set([
 ]);
 
 function isDocumentation(path) {
-  // These architecture decisions are executable assertions in history:architecture.
+  // Documentation consumed by tests, review policy or release evidence
+  // is executable input; it always requires the full contract suite.
   if (
-    path === "ai-docs/decisions/README.md" ||
-    path === "ai-docs/decisions/032-review-history-scoped-composition.md"
+    path.startsWith("ai-docs/decisions/") ||
+    path.startsWith("ai-docs/operations/") ||
+    path.startsWith("docs/adr/") ||
+    path.startsWith("docs/release-evidence/") ||
+    path === "ai-docs/BETA_RUNBOOK.md" ||
+    path === "ai-docs/AGENT_START_HERE.md" ||
+    path === "docs/operations/private-pg17-release-rollout.md"
   )
     return false;
   return (
