@@ -194,6 +194,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
   it("orders terminal snapshots before ordinary due progress", async () => {
     const rawQueries: unknown[] = [];
+    const publicationLookup = vi.fn();
     const prisma = {
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
@@ -201,6 +202,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
             rawQueries.push(query);
             return [];
           },
+          reviewProgressPublicationV1: { findUniqueOrThrow: publicationLookup },
         }),
     };
     const store = new PrismaReviewProgressPublicationStore(prisma as never);
@@ -212,11 +214,13 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         claimDurationMs: 60_000,
       }),
     ).resolves.toBeNull();
+    expect(publicationLookup).not.toHaveBeenCalled();
     const query = rawQueries[0] as { strings: readonly string[] };
     expect(query.strings.join(" ")).toContain(
       'progress."terminalOutcome" IS NOT NULL',
     );
     expect(query.strings.join(" ")).toContain("THEN 0 ELSE 1 END");
+    expect(query.strings.join(" ")).toContain("FOR UPDATE SKIP LOCKED");
   });
 
   it("defers a stale projection before repository lookup", async () => {

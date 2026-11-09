@@ -265,26 +265,21 @@ async function reserveInstallationBudgetMutation(
   return { allowed: true as const };
 }
 
-/** Claim the next due projection under the same serializable transaction. */
-async function claimDuePublication(
+/** Select one due publication scope under the existing row lock and priority policy. */
+async function selectDuePublicationScope(
   transaction: Prisma.TransactionClient,
-  input: Parameters<PrismaReviewProgressPublicationStore["claimNext"]>[0],
+  now: Date,
   repositoryPredicate: Prisma.Sql,
-): Promise<ClaimedReviewProgress | null> {
+): Promise<ClaimedReviewProgress["scope"] | null> {
   const rows = await transaction.$queryRaw<
-    Array<{
-      workspaceId: string;
-      repositoryConnectionId: string;
-      scmRepositoryIdentityId: string;
-      pullRequestNumber: number;
-    }>
+    Array<ClaimedReviewProgress["scope"]>
   >(Prisma.sql`
   SELECT publication."workspaceId", publication."repositoryConnectionId",
     publication."scmRepositoryIdentityId", publication."pullRequestNumber"
   FROM "ReviewProgressPublicationV1" publication
   WHERE publication."desiredVersion" > publication."publishedVersion"
-    AND publication."nextPublishAt" <= ${input.now}
-    AND (publication."claimUntil" IS NULL OR publication."claimUntil" <= ${input.now})
+    AND publication."nextPublishAt" <= ${now}
+    AND (publication."claimUntil" IS NULL OR publication."claimUntil" <= ${now})
     ${repositoryPredicate}
   ORDER BY
     CASE WHEN EXISTS (
@@ -296,7 +291,20 @@ async function claimDuePublication(
   LIMIT 1
   FOR UPDATE SKIP LOCKED
 `);
-  const candidate = rows[0];
+  return rows[0] ?? null;
+}
+
+/** Claim the next due projection under the same serializable transaction. */
+async function claimDuePublication(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<PrismaReviewProgressPublicationStore["claimNext"]>[0],
+  repositoryPredicate: Prisma.Sql,
+): Promise<ClaimedReviewProgress | null> {
+  const candidate = await selectDuePublicationScope(
+    transaction,
+    input.now,
+    repositoryPredicate,
+  );
   if (!candidate) return null;
   const publication =
     await transaction.reviewProgressPublicationV1.findUniqueOrThrow({
