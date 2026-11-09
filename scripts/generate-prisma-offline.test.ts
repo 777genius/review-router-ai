@@ -453,7 +453,8 @@ describe("offline Prisma generate", () => {
     const gate = workflow.jobs["quality-gates"];
     expect(workflow.jobs.impact).toBeDefined();
     expect(gate?.if).toBe("${{ always() && !cancelled() }}");
-    expect(gate?.needs?.toSorted()).toEqual(["impact", ...required].toSorted());
+    const needed = ["impact", ...required];
+    expect(gate?.needs?.toSorted()).toEqual(needed.toSorted());
     const enforcement = gate?.steps?.find(
       (step) => step.name === "Enforce tier-specific quality and PG17 lanes",
     );
@@ -496,10 +497,8 @@ describe("offline Prisma generate", () => {
       const success = Object.fromEntries(
         variables.map((name, i) => [name, expected[i]]),
       );
-      expect(
-        runGate(success, tier).status,
-        `${tier}: expected lane set`,
-      ).toBe(0);
+      const status = runGate(success, tier).status;
+      expect(status, `${tier}: expected lane set`).toBe(0);
       for (const [i, variable] of variables.entries()) {
         const unexpected = expected[i] === "success" ? "skipped" : "success";
         for (const result of ["failure", "cancelled", unexpected, ""]) {
@@ -510,7 +509,7 @@ describe("offline Prisma generate", () => {
         }
       }
     }
-    const full = Object.fromEntries(variables.map((name) => [name, "success"]));
+    const full = Object.fromEntries(variables.map((v) => [v, "success"]));
     for (const tier of ["", "unknown"]) {
       expect(runGate(full, tier).status, `${tier}: invalid tier`).toBe(1);
     }
@@ -518,9 +517,7 @@ describe("offline Prisma generate", () => {
       expect(runGate(full, "full", false, impact).status).toBe(1);
     }
     // Draft PRs may skip heavy jobs but never accept failure or cancellation.
-    const skipped = Object.fromEntries(
-      variables.map((name) => [name, "skipped"]),
-    );
+    const skipped = Object.fromEntries(variables.map((v) => [v, "skipped"]));
     expect(runGate(skipped, "full", true).status).toBe(0);
     for (const variable of variables) {
       for (const result of ["failure", "cancelled", ""]) {
