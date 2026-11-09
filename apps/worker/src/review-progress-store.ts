@@ -213,7 +213,9 @@ export class PrismaReviewProgressPublicationStore {
 /** Reserve the installation budget inside the same serializable transaction. */
 async function reserveInstallationBudgetMutation(
   transaction: Prisma.TransactionClient,
-  input: Parameters<PrismaReviewProgressPublicationStore["reserveInstallationMutation"]>[0],
+  input: Parameters<
+    PrismaReviewProgressPublicationStore["reserveInstallationMutation"]
+  >[0],
 ): Promise<{ allowed: true } | { allowed: false; retryAt: Date }> {
   await transaction.$executeRaw(Prisma.sql`
   INSERT INTO "ReviewProgressInstallationBudgetV1"
