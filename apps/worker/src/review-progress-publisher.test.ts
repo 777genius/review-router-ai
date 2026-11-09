@@ -215,7 +215,7 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
-  it("defers capped scans without exhausting retries", async () => {
+  it("backs off capped scans for an hour without exhausting retries", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);
     const pages: number[] = [];
@@ -252,7 +252,7 @@ describe("ReviewProgressPublisher", () => {
       expect.objectContaining({
         publication,
         safeCode: "review_progress_pagination_inconclusive",
-        retryAt: new Date(now.getTime() + 5_000),
+        retryAt: new Date(now.getTime() + 60 * 60_000),
         countFailure: false,
         maxFailures: 3,
       }),

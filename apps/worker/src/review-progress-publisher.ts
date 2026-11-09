@@ -247,7 +247,13 @@ function publicationRetryPlan(
   const githubError = error instanceof ReviewProgressGitHubError ? error : null;
   let retryAt = githubError?.metadata.retryAt;
   if (!retryAt) {
-    retryAt = new Date(now().getTime() + retryDelayMs);
+    // A capped scan is structural, not a transient GitHub outage: avoid hot retries.
+    retryAt = new Date(
+      now().getTime() +
+        (githubError?.kind === "pagination_inconclusive"
+          ? Math.max(retryDelayMs, 60 * 60_000)
+          : retryDelayMs),
+    );
   }
   return {
     safeCode: githubError
