@@ -108,7 +108,11 @@ export class ReviewProgressGitHubGateway {
     const known = await this.readKnownComment(input);
     // A known canonical comment does not prove that hidden duplicates are absent.
     const existing = await this.findMarkedComments(input);
-    const canonical = known ?? existing[0];
+    // A repository-wide comment ID is canonical only if the target PR lists it.
+    const canonical =
+      known && existing.some(({ id }) => id === known.id)
+        ? known
+        : existing[0];
     const duplicates = existing.filter(({ id }) => id !== canonical?.id);
     const desiredBody = formatReviewProgressComment(input.body, input.marker);
 

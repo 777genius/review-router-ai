@@ -359,6 +359,51 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("does not patch a known bot comment belonging to a different PR", async () => {
+    const fixture = githubFixture(
+      [
+        { id: 900, body: `foreign\n${marker}` },
+        { id: 4, body: `target\n${marker}` },
+      ],
+      { listedComments: [{ id: 4, body: `target\n${marker}` }] },
+    );
+
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),
+    ).resolves.toEqual({
+      commentId: 4,
+      operation: "updated",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        parameters: expect.objectContaining({ comment_id: 4 }),
+      }),
+    ]);
+  });
+
+  it("creates on the target PR instead of updating a foreign known comment", async () => {
+    const fixture = githubFixture(
+      [{ id: 900, body: `foreign\n${marker}` }],
+      { listedComments: [] },
+    );
+
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),
+    ).resolves.toEqual({
+      commentId: 100,
+      operation: "created",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toEqual([
+      expect.objectContaining({
+        route: "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+        parameters: expect.objectContaining({ issue_number: 42 }),
+      }),
+    ]);
+  });
+
   it("keeps the verified known comment when deleting an earlier duplicate", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const fixture = githubFixture([
