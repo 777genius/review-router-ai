@@ -48,6 +48,9 @@ Sources: [provider catalog](../packages/features/review-providers/src/domain/pro
 [history]: ../ai-docs/deployments/2026-10-28-review-history.md
 [usage]: ../ai-docs/deployments/2026-10-29-statistics-history-followthrough.md
 
+Full PR comment command reference (including `/rr fixed` and
+`/rr suggest fix`): [ReviewRouter Action README](https://github.com/777genius/review-router#pr-comment-commands).
+
 Features in source are not necessarily active in every hosted workspace.
 
 ## Hosting and data
