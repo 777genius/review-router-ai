@@ -1,0 +1,56 @@
+name: NVIDIA ephemeral source-pinned SDK import
+on:
+  push:
+    branches: [feat/nvidia-build-gateway-sandbox]
+    paths:
+      - '.github/workflows/nvidia-ephemeral-sdk-import.yml'
+permissions:
+  contents: write
+jobs:
+  import:
+    if: github.repository == '777genius/review-router-ai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '26.11.1'
+      - name: Download immutable public Gateway candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/agent-teams-ai/account-gateway/actions/artifacts/13810068169/zip --output "$RUNNER_TEMP/nvidia-sdk.zip"
+          unzip -q "$RUNNER_TEMP/nvidia-sdk.zip" -d "$RUNNER_TEMP/nvidia-sdk"
+          test "$(sha256sum "$RUNNER_TEMP/nvidia-sdk/agent-teams-account-gateway-0.1.0.tgz" | cut -d' ' -f1)" = "0f674667e17292cdcc3884606e084badd70c3b20b96ce44ee144889cbc67b322"
+          cp "$RUNNER_TEMP/nvidia-sdk/agent-teams-account-gateway-0.1.0.tgz" vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz
+      - name: Update three consumers and their offline-safe lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const filename = 'agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz';
+          for (const path of ['apps/web/package.json', 'apps/api/package.json', 'packages/features/provider-usage/package.json']) {
+            const source = fs.readFileSync(path, 'utf8');
+            const next = source.replace(/agent-teams-account-gateway-0\.1\.0-[^/"\s]+\.tgz/g, filename);
+            if (next === source) throw new Error('Expected pinned SDK path in ' + path);
+            fs.writeFileSync(path, next);
+          }
+          NODE
+          npm install --prefix "$RUNNER_TEMP/gateway-pnpm" --ignore-scripts --no-audit pnpm@11.28.2
+          node "$RUNNER_TEMP/gateway-pnpm/node_modules/pnpm/bin/pnpm.cjs" --config.engine-strict=true install --lockfile-only --ignore-scripts --no-frozen-lockfile
+      - name: Commit only the trusted SDK archive and manifest/lock updates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz apps/web/package.json apps/api/package.json packages/features/provider-usage/package.json pnpm-lock.yaml
+          git diff --cached --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: pin reviewed NVIDIA Account Gateway SDK candidate"
+          git push origin HEAD:feat/nvidia-build-gateway-sandbox
