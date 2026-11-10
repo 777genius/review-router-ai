@@ -101,6 +101,46 @@ describe("Gateway model catalog presentation", () => {
     expect(option?.description).not.toContain("not confirmed");
   });
 
+  it("keeps NVIDIA sandbox models disabled for tool-using review until tools are certified", () => {
+    const modelId = "deepseek-ai/deepseek-v4.1-flash";
+    const profile = {
+      models: [modelId],
+      connection: {
+        provider: "nvidia" as const,
+        planLabel: "Trial",
+        regionLabel: "Global",
+        completionInputKind: "none" as const,
+        personalOnly: false,
+        limitsContract: "none" as const,
+        modelSettings: [{
+          modelId, reasoning: null, fast: null,
+          tools: { allowed: ["none"], default: "none" },
+        }],
+      },
+    };
+    const catalog = {
+      status: "snapshot" as const,
+      source: "nvidia" as const,
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      models: [modelId],
+    };
+    const [refused] = gatewayProviderModelOptions([], profile, { catalog, requiresTools: true });
+    expect(refused?.disabled).toBe(true);
+    expect(refused?.description).toContain("Tool calling is not supported");
+    const [allowed] = gatewayProviderModelOptions([], profile, { catalog, requiresTools: false });
+    expect(allowed?.disabled).toBe(false);
+    const [untrusted] = gatewayProviderModelOptions([], profile, {
+      catalog: { ...catalog, source: "openrouter" }, requiresTools: false,
+    });
+    expect(untrusted?.disabled).not.toBe(true);
+    // The source mismatch must never upgrade tools via an unrelated catalog.
+    const [stillRefused] = gatewayProviderModelOptions([], profile, {
+      catalog: { ...catalog, source: "openrouter" }, requiresTools: true,
+    });
+    expect(stillRefused?.badge).not.toBe("Unsupported");
+  });
+
   it("keeps true native tools:none unavailable for a tool-using review", () => {
     const [option] = gatewayProviderModelOptions(
       [{ ...stalePublic, disabled: false, badge: "PAID" }],
