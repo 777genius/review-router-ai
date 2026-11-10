@@ -971,18 +971,19 @@ function Controls({
       </>
     );
   }
+  const enrollmentProfiles =
+    data?.status === "ok"
+      ? data.value.profiles.filter(
+          (p) =>
+            centrallyEnrollAllowed(p) &&
+            (personal || !p.connection?.personalOnly),
+        )
+      : [];
   return (
     <div className="space-y-4">
-      {connectOnly &&
-      data?.status === "ok" &&
-      !activeNonce &&
-      data.value.profiles.some(
-        (p) => centrallyEnrollAllowed(p) && (personal || !p.connection?.personalOnly),
-      ) ? (
+      {connectOnly && !activeNonce && enrollmentProfiles.length > 0 ? (
         <ConnectionForm
-          profiles={data.value.profiles.filter(
-            (p) => centrallyEnrollAllowed(p) && (personal || !p.connection?.personalOnly),
-          )}
+          profiles={enrollmentProfiles}
           accounts={data.value.accounts}
           disabled={disabled}
           managementScope={managementScope}
@@ -994,20 +995,13 @@ function Controls({
         {!connectOnly &&
         !hideConnect &&
         (!initiallyOpenConnect || ready) &&
-        data?.status === "ok" &&
-        data.value.profiles.some(
-          (p) =>
-            centrallyEnrollAllowed(p) &&
-            (p.authKind === "api_key" || p.authKind === "oauth") &&
-            (personal || !p.connection?.personalOnly),
+        enrollmentProfiles.some(
+          (p) => p.authKind === "api_key" || p.authKind === "oauth",
         ) ? (
           <ConnectAccountDialog
             initiallyOpen={initiallyOpenConnect && !activeNonce}
-            profiles={data.value.profiles.filter(
-              (p) =>
-                centrallyEnrollAllowed(p) &&
-                (p.authKind === "api_key" || p.authKind === "oauth") &&
-                (personal || !p.connection?.personalOnly),
+            profiles={enrollmentProfiles.filter(
+              (p) => p.authKind === "api_key" || p.authKind === "oauth",
             )}
             accounts={data.value.accounts}
             disabled={disabled}
