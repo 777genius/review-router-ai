@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+AI discussion default-on onboarding: [qualified, author-only rotating Codex setup](2026-11-11-ai-discussion-default-onboarding.md), [PR #856](https://github.com/777genius/review-router-ai/pull/856) — staging/production `pending`; coordinate web/API attestation rollout before any new v4 caller activation. No deployment or Action release claimed.
+
 Action232 and SaaS Usage/stream delivery: [production and live canary record](2026-11-10-action232-usage-and-stream.md) — #849/#850 and Action232 `deployed`; Codex review, Statistics and Usage verified. Two earlier ambiguous lifecycle attempts remain unknown; disk and durable fact-budget follow-up remain open.
 
 Gateway diagnostic stream recovery: [PR #103 and #104 follow-through](2026-11-09-gateway-diagnostic-stream.md) — staging `pending`, production `installed`; failure restart policy enabled with retained-child limitations; account-list verification remains pending.
