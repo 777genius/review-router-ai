@@ -14,6 +14,7 @@ const providerSecretKinds = [
   "codex_oauth_rotating",
   "mimo_token_plan_api_key",
   "claude_code_oauth",
+  "claude_code_api_key",
   "openrouter_api_key",
   "kimi_code_api_key",
 ] as const satisfies readonly ProviderSetupKind[];
@@ -116,6 +117,7 @@ export function buildProviderSecretSetupGuidance(input: {
 
   const secretName = secretNameForProviderSetup(input.provider);
   const isClaudeCodeOAuth = input.provider === "claude_code_oauth";
+  const isClaudeCodeApiKey = input.provider === "claude_code_api_key";
   const isMimoTokenPlan = input.provider === "mimo_token_plan_api_key";
   const usesGitHubActionsAppSecret = isClaudeCodeOAuth || isMimoTokenPlan;
   const failureRecovery = isClaudeCodeOAuth
@@ -193,7 +195,14 @@ export function buildProviderSecretSetupGuidance(input: {
         sendsSecretToReviewRouter: false,
       },
     ],
-    warnings: isMimoTokenPlan
+    warnings: isClaudeCodeApiKey
+      ? [
+          "Use a Claude Console API key, not a Claude subscription setup-token.",
+          "Store the key in GitHub Actions Secrets; ReviewRouter SaaS does not read this secret.",
+          "The selected Claude API-key mode never falls back to an OAuth subscription.",
+          "Fork pull requests do not receive secret-backed provider execution.",
+        ]
+      : isMimoTokenPlan
       ? [
           "Run this interactive command on a trusted machine and enter the MiMo Token Plan API key only when GitHub CLI prompts for the secret value.",
           "The command and ReviewRouter UI/server never contain the key value; ReviewRouter SaaS never receives MIMO_TOKEN_PLAN_API_KEY.",
