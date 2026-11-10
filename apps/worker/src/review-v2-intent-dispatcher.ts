@@ -174,7 +174,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
           "review_requested_inspection_attempt_missing",
         ),
         headers: { "X-GitHub-Api-Version": "2026-03-10" },
-        request: { timeout: 5_000 },
+        request: { signal: AbortSignal.timeout(5_000) },
       },
     );
     if (

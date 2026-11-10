@@ -29,6 +29,7 @@ describe("GitHubActionsReviewRequestedDispatchGateway", () => {
           expect(parameters).toMatchObject({
             run_id: "702",
             attempt_number: "1",
+            request: { signal: expect.any(AbortSignal) },
           });
           return {
             data: {
