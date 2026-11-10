@@ -30,7 +30,9 @@ export function savedProviderIdentity(input: {
       ? "mimo"
       : provider === "OpenRouter"
         ? "openrouter"
-        : undefined;
+        : provider === "NVIDIA Build"
+          ? "nvidia"
+          : undefined;
   } catch {
     // An unavailable/retired catalog cannot justify guessing from a label/model.
     return undefined;
