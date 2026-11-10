@@ -217,6 +217,10 @@ export async function readPersonalAccountOperation(
       throw new ProviderAccountError("connection_unavailable");
     if (operation.state === "rejected") {
       await store.noteConnectPhase(actorUserId, clientOperationId, "rejected");
+    } else if (operation.state === "unknown") {
+      // Preserve uncertainty without replaying ingress; a later read can still
+      // reconcile authoritative applied or rejected evidence for this nonce.
+      await store.noteConnectPhase(actorUserId, clientOperationId, "unknown");
     } else if (operation.state === "applied" && operation.result) {
       const result = operation.result;
       const { profileId, displayName } = original.intent;
