@@ -277,6 +277,77 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(calls)).toEqual([]);
   });
 
+  it("accepts exactly full final page only when GitHub confirms no next page", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const lastPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 101,
+      body: index === 0 ? desired : "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage, lastPage],
+      pageLinks: [
+        '<https://api.github.com/comments?page=2>; rel="next"',
+        '<https://api.github.com/comments?page=1>; rel="prev"',
+      ],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 101,
+      operation: "unchanged",
+      duplicateCommentIds: [],
+    });
+    expect(
+      fixture.calls
+        .filter(
+          ({ route }) =>
+            route ===
+            "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2]);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("keeps the cap fail-closed when a full final page links onward", async () => {
+    const fullPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [fullPage],
+      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next"'],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("does not trust unparseable pagination links on a full final page", async () => {
+    const fullPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [fullPage],
+      pageLinks: ["<https://api.github.com/comments?page=2>; rel=next"],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert(input()),
+    ).rejects.toMatchObject({ kind: "pagination_inconclusive" });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("refuses to POST when the bounded scan is inconclusive", async () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
@@ -665,6 +736,12 @@ function githubFixture(
       body: string;
       authorLogin?: string;
     }>;
+    readonly pagedComments?: readonly (readonly {
+      id: number;
+      body: string;
+      authorLogin?: string;
+    }[])[];
+    readonly pageLinks?: readonly (string | undefined)[];
     readonly staleHeadAfterFirstRead?: boolean;
   } = {},
 ) {
@@ -697,10 +774,15 @@ function githubFixture(
       };
     }
     if (route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments") {
+      const pageIndex = Number(parameters.page) - 1;
+      const visible = options.pagedComments
+        ? (options.pagedComments[pageIndex] ?? []).map(toStoredComment)
+        : (options.listedComments?.map(toStoredComment) ?? comments);
       return {
-        data: (options.listedComments?.map(toStoredComment) ?? comments).map(
-          toResponseComment,
-        ),
+        data: visible.map(toResponseComment),
+        ...(options.pageLinks
+          ? { headers: { link: options.pageLinks[pageIndex] } }
+          : {}),
       };
     }
     if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {

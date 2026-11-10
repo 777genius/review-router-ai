@@ -261,12 +261,21 @@ export class ReviewProgressGitHubGateway {
   ): Promise<ReviewProgressComment[]> {
     const matches: ReviewProgressComment[] = [];
     for (let page = 1; page <= this.maxCommentPages; page += 1) {
-      const comments = await this.fetchCommentPage(input, page);
+      const { comments, hasNextPage } = await this.fetchCommentPage(
+        input,
+        page,
+      );
       for (const value of comments) {
         const comment = parseCommentOrNull(value);
         if (comment && ownsMarker(comment, input)) matches.push(comment);
       }
-      if (comments.length < 100) break;
+      // Trust a complete GitHub Link header; without one, stay fail-closed at the cap.
+      if (
+        hasNextPage === false ||
+        (hasNextPage === undefined && comments.length < 100)
+      ) {
+        break;
+      }
       if (page === this.maxCommentPages) {
         throw failure(
           "pagination_inconclusive",
@@ -281,7 +290,7 @@ export class ReviewProgressGitHubGateway {
   private async fetchCommentPage(
     input: UpsertReviewProgressCommentInput,
     page: number,
-  ): Promise<unknown[]> {
+  ): Promise<{ comments: unknown[]; hasNextPage: boolean | undefined }> {
     let response: Awaited<ReturnType<ReviewProgressGitHubRequester>>;
     try {
       response = await this.request(
@@ -298,7 +307,10 @@ export class ReviewProgressGitHubGateway {
     if (!Array.isArray(response.data)) {
       throw failure("invalid_response", "github_issue_comments_invalid", false);
     }
-    return response.data;
+    return {
+      comments: response.data,
+      hasNextPage: hasNextCommentPage(response.headers),
+    };
   }
 
   private async reconcileMutation(
@@ -341,6 +353,25 @@ export class ReviewProgressGitHubGateway {
   ): ReviewProgressGitHubError {
     return classifyGitHubFailure(error, fallbackKind, this.now, this.random);
   }
+}
+
+/** Only complete pagination on a well-formed GitHub Link header. */
+function hasNextCommentPage(
+  headers: Readonly<Record<string, string | number | undefined>> | undefined,
+): boolean | undefined {
+  const link = Object.entries(headers ?? {}).find(
+    ([key]) => key.toLowerCase() === "link",
+  )?.[1];
+  if (typeof link !== "string" || !link.trim()) return undefined;
+  const entries = link.split(/,\s*(?=<)/u);
+  if (
+    !entries.every((entry) =>
+      /^\s*<[^>]+>\s*;\s*rel="(?:next|prev|first|last)"\s*$/iu.test(entry),
+    )
+  ) {
+    return undefined;
+  }
+  return entries.some((entry) => /;\s*rel="next"/iu.test(entry));
 }
 
 /** Classify GitHub transport failures without coupling policy to the gateway. */
