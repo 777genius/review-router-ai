@@ -523,6 +523,53 @@ describe("ProviderSetupDialog", () => {
     );
   });
 
+  it("selects Anthropic API-key auth without creating a second Claude provider", async () => {
+    view = {
+      ...view,
+      target: "repositories",
+      sources: [
+        ...apiSources(),
+        {
+          key: "user_ci_secret:claude_code_oauth",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_oauth",
+          decision: { allowed: true },
+        },
+        {
+          key: "user_ci_secret:claude_code_api_key",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_api_key",
+          decision: { allowed: true },
+        },
+      ],
+    };
+    renderDialog(repositoryTarget);
+    await choose("Add a new provider");
+    await chooseSelect("Provider", "Claude Code");
+    expect(screen.getByRole("radio", { name: "Claude subscription" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "Anthropic API key" }));
+    expect(
+      screen.getByRole("radio", { name: "GitHub Secrets" }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.getByRole("radio", { name: "ReviewRouter" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Use for this repository" }));
+    await waitFor(() =>
+      expect(saveProviderRosterAction).toHaveBeenCalledWith(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            provider: expect.objectContaining({
+              kind: "new",
+              credential: {
+                kind: "user_ci_secret",
+                authMode: "claude_code_api_key",
+              },
+            }),
+          }),
+        ),
+      ),
+    );
+  });
+
   it("keeps ReviewRouter as the chosen default when enrollment is unavailable instead of switching custody", async () => {
     view = {
       ...view,
