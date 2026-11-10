@@ -10,6 +10,7 @@ import type { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-in
  */
 export class ReviewV2TerminalRunRecovery {
   private after = "";
+  private inspectionInFlight: Promise<boolean> | null = null;
   constructor(
     private readonly executions: Pick<
       PrismaReviewExecutionStore,
@@ -53,7 +54,7 @@ export class ReviewV2TerminalRunRecovery {
           !intent ||
           intent.authorizationId !== e.authorizationId ||
           intent.executionId !== e.executionId ||
-          !(await this.gateway.isFailedTerminalAttempt({ intent }))
+          !(await this.inspectAttempt(intent))
         )
           continue;
         const result =
@@ -77,5 +78,38 @@ export class ReviewV2TerminalRunRecovery {
       }
     }
     return { scanned: candidates.length, recovered, conflicts, failures };
+  }
+
+  private async inspectAttempt(
+    intent: Parameters<
+      GitHubActionsReviewRequestedDispatchGateway["isFailedTerminalAttempt"]
+    >[0]["intent"],
+  ): Promise<boolean> {
+    // A hung installation-token request must not block the worker or accumulate
+    // more requests. Its late result never authorizes a lifecycle transition.
+    if (this.inspectionInFlight) return false;
+    const pending = Promise.resolve().then(() =>
+      this.gateway.isFailedTerminalAttempt({ intent }),
+    );
+    this.inspectionInFlight = pending;
+    void pending.then(
+      () => {
+        this.inspectionInFlight = null;
+      },
+      () => {
+        this.inspectionInFlight = null;
+      },
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        pending,
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(false), 5_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
