@@ -14,7 +14,7 @@ import {
   type AuditLogRepositoryPort,
 } from "@reviewrouter/features-audit-log";
 import {
-  renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCodexRotatingInteractionWorkflow,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
   renderAccountGatewayInteractionWorkflow,
@@ -213,7 +213,7 @@ export async function provisionReviewRouterWorkflow(
     ? reviewRouterWorkflowContract.channel
     : plan.actionRef;
   if (plan.codexRotatingProviderInstanceId) {
-    renderCanonicalCodexRotatingInteractionWorkflowV3({
+    renderCodexRotatingInteractionWorkflow({
       actionRef: plan.actionRef,
       apiUrl: plan.apiUrl,
       runtimeConfigMode: plan.runtimeConfigMode,
