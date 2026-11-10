@@ -33,6 +33,7 @@ describe("provider catalog", () => {
       "codex_account_gateway",
       "mimo_token_plan_api_key",
       "claude_code_oauth",
+      "claude_code_api_key",
       "openrouter_api_key",
       "kimi_code_api_key",
     ]);
@@ -55,6 +56,7 @@ describe("provider catalog", () => {
       "codex-mimo",
     );
     expect(providerKindForAuthMode("claude_code_oauth")).toBe("claude");
+    expect(providerKindForAuthMode("claude_code_api_key")).toBe("claude");
     expect(providerKindForAuthMode("openrouter_api_key")).toBe("openrouter");
 
     expect(providerAuthModeBelongsToKind("claude_code_oauth", "codex")).toBe(
@@ -70,6 +72,10 @@ describe("provider catalog", () => {
       "CLAUDE_CODE_OAUTH_TOKEN",
     ]);
     expect(toLegacyRuntimeAuthMode("claude_code_oauth")).toBe("claude-oauth");
+    expect(getProviderSecretNames("claude_code_api_key")).toEqual([
+      "ANTHROPIC_API_KEY",
+    ]);
+    expect(toLegacyRuntimeAuthMode("claude_code_api_key")).toBe("claude-api-key");
     expect(toLegacyRuntimeAuthMode("codex_subscription_oauth_rotating")).toBe(
       "codex-oauth-rotating",
     );
@@ -98,6 +104,9 @@ describe("provider catalog", () => {
     expect(fromProviderSetupKind("claude_code_oauth")).toBe(
       "claude_code_oauth",
     );
+    expect(fromProviderSetupKind("claude_code_api_key")).toBe(
+      "claude_code_api_key",
+    );
     expect(fromProviderSetupKind("codex_oauth_rotating")).toBe(
       "codex_subscription_oauth_rotating",
     );
@@ -121,6 +130,7 @@ describe("provider catalog", () => {
     expect(getProviderCatalogEntry("claude").capabilities).toEqual([
       "static_model_catalog",
       "subscription_oauth",
+      "api_key",
     ]);
     expect(getProviderCatalogEntry("codex").authModes).toEqual([
       "codex_subscription_oauth_rotating",
