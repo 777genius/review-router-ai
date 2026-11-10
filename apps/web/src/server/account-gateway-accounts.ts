@@ -1145,6 +1145,9 @@ export function createAccountsAdapter(input: {
           account.metadataRevision !== intent.gatewayRevision
         )
           return { status: "conflict" };
+        // Legacy reads remain available, but ReviewRouter must not reconnect
+        // third-party Claude subscription OAuth through the SaaS.
+        if (account.profileId === claudeOAuthProfileId) throw new Denied();
         const profile = catalogue.find((p) => p.id === account.profileId);
         if (
           profile?.authKind !== "oauth" ||
@@ -1163,6 +1166,9 @@ export function createAccountsAdapter(input: {
           method: oauthMethodFor(profile, intent.method),
         });
       } else {
+        // Subscription reviews use the customer's GitHub Secret and official
+        // Claude Code CLI; centralized OAuth enrollment is not supported.
+        if (intent.profileId === claudeOAuthProfileId) throw new Denied();
         const profile = catalogue.find(
           (p) => p.id === intent.profileId && p.authKind === "oauth",
         );
@@ -1924,6 +1930,9 @@ export function createDisabledPersonalAccountsAdapter(input: {
       credential?: string,
     ) {
       const safe = oauthIntentSchema.parse(raw);
+      // Personal enrollment is a separate entry point from workspace OAuth.
+      if (safe.profileId === claudeOAuthProfileId)
+        throw new ProviderAccountError("invalid_input");
       const key = credential;
       const actorUserId = await input.authorizeUser();
       const ingress = profiles.get(safe.profileId);
