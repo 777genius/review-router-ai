@@ -127,6 +127,11 @@ export type AccountRowsRenderer = (
 
 type ManagementScope = "workspace" | "personal";
 
+// Legacy Claude OAuth accounts remain readable, but customers may only enroll
+// subscription credentials locally in their own GitHub Actions CLI workflow.
+const centrallyEnrollAllowed = (profile: AccountProfileView) =>
+  profile.id !== "anthropic-claude-oauth-messages-v1";
+
 // Small safe keys: scoped stable user/workspace locator; no signature or secret.
 const pageKey = (scope: string, cursor: string | null) =>
   ["gateway-accounts", scope, "page", cursor] as const;
@@ -912,6 +917,7 @@ function Controls({
           />
         ) : null}
         {account.authKind === "oauth" &&
+        account.profileId !== "anthropic-claude-oauth-messages-v1" &&
         account.state !== "disabled" &&
         account.state !== "tombstoned" &&
         data.value.profiles.find((p) => p.id === account.profileId)
@@ -967,10 +973,15 @@ function Controls({
   }
   return (
     <div className="space-y-4">
-      {connectOnly && data?.status === "ok" && !activeNonce ? (
+      {connectOnly &&
+      data?.status === "ok" &&
+      !activeNonce &&
+      data.value.profiles.some(
+        (p) => centrallyEnrollAllowed(p) && (personal || !p.connection?.personalOnly),
+      ) ? (
         <ConnectionForm
           profiles={data.value.profiles.filter(
-            (p) => personal || !p.connection?.personalOnly,
+            (p) => centrallyEnrollAllowed(p) && (personal || !p.connection?.personalOnly),
           )}
           accounts={data.value.accounts}
           disabled={disabled}
@@ -986,6 +997,7 @@ function Controls({
         data?.status === "ok" &&
         data.value.profiles.some(
           (p) =>
+            centrallyEnrollAllowed(p) &&
             (p.authKind === "api_key" || p.authKind === "oauth") &&
             (personal || !p.connection?.personalOnly),
         ) ? (
@@ -993,6 +1005,7 @@ function Controls({
             initiallyOpen={initiallyOpenConnect && !activeNonce}
             profiles={data.value.profiles.filter(
               (p) =>
+                centrallyEnrollAllowed(p) &&
                 (p.authKind === "api_key" || p.authKind === "oauth") &&
                 (personal || !p.connection?.personalOnly),
             )}
