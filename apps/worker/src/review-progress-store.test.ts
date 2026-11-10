@@ -349,59 +349,69 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(query.strings.join(" ")).toContain("FOR UPDATE SKIP LOCKED");
   });
 
-  it("defers a stale projection before repository lookup", async () => {
-    const scope = {
-      workspaceId: "workspace-1",
-      repositoryConnectionId: "repository-1",
-      scmRepositoryIdentityId: "identity-1",
-      pullRequestNumber: 42,
-    };
-    const deferUpdate = vi.fn(async () => ({}));
-    const repositoryLookup = vi.fn();
-    const prisma = {
-      $transaction: async (operation: (transaction: unknown) => unknown) =>
-        operation({
-          $queryRaw: async () => [scope],
-          reviewProgressPublicationV1: {
-            findUniqueOrThrow: async () => ({
-              ...scope,
-              activeExecutionId: "execution-1",
-              activeGeneration: 7n,
-              activeHeadSha: "a".repeat(40),
-              activePlanHash: "b".repeat(64),
-              desiredVersion: 73n,
-            }),
-            update: deferUpdate,
-          },
-          reviewExecutionProgressV1: {
-            findUnique: async () => ({
-              generation: 8n,
-              headSha: "a".repeat(40),
-              planHash: "b".repeat(64),
-              desiredVersion: 73n,
-            }),
-          },
-          repositoryConnection: { findUnique: repositoryLookup },
-        }),
-    };
-    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+  it.each([
+    { caseName: "missing progress", mismatch: "missing" },
+    { caseName: "changed generation", mismatch: "generation" },
+    { caseName: "changed desired version", mismatch: "desiredVersion" },
+  ] as const)(
+    "defers a stale projection ($caseName) before repository lookup",
+    async ({ mismatch }) => {
+      const scope = {
+        workspaceId: "workspace-1",
+        repositoryConnectionId: "repository-1",
+        scmRepositoryIdentityId: "identity-1",
+        pullRequestNumber: 42,
+      };
+      const deferUpdate = vi.fn(async () => ({}));
+      const repositoryLookup = vi.fn();
+      const prisma = {
+        $transaction: async (operation: (transaction: unknown) => unknown) =>
+          operation({
+            $queryRaw: async () => [scope],
+            reviewProgressPublicationV1: {
+              findUniqueOrThrow: async () => ({
+                ...scope,
+                activeExecutionId: "execution-1",
+                activeGeneration: 7n,
+                activeHeadSha: "a".repeat(40),
+                activePlanHash: "b".repeat(64),
+                desiredVersion: 73n,
+              }),
+              update: deferUpdate,
+            },
+            reviewExecutionProgressV1: {
+              findUnique: async () =>
+                mismatch === "missing"
+                  ? null
+                  : {
+                      generation: mismatch === "generation" ? 8n : 7n,
+                      headSha: "a".repeat(40),
+                      planHash: "b".repeat(64),
+                      desiredVersion: mismatch === "desiredVersion" ? 74n : 73n,
+                    },
+            },
+            repositoryConnection: { findUnique: repositoryLookup },
+          }),
+      };
+      const store = new PrismaReviewProgressPublicationStore(prisma as never);
 
-    await expect(
-      store.claimNext({
-        ownerIdHash: "d".repeat(64),
-        now,
-        claimDurationMs: 60_000,
-      }),
-    ).resolves.toBeNull();
-    expect(repositoryLookup).not.toHaveBeenCalled();
-    expect(deferUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          lastErrorCode: "review_progress_projection_identity_corrupted",
+      await expect(
+        store.claimNext({
+          ownerIdHash: "d".repeat(64),
+          now,
+          claimDurationMs: 60_000,
         }),
-      }),
-    );
-  });
+      ).resolves.toBeNull();
+      expect(repositoryLookup).not.toHaveBeenCalled();
+      expect(deferUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            lastErrorCode: "review_progress_projection_identity_corrupted",
+          }),
+        }),
+      );
+    },
+  );
 
   it.each([
     {

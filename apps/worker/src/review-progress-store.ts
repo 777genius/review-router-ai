@@ -344,18 +344,13 @@ async function claimDuePublication(
           candidate,
       },
     });
-  const progress = await transaction.reviewExecutionProgressV1.findUnique({
-    where: { executionId: publication.activeExecutionId },
-  });
-  if (!progress || !matchesActiveProgressIdentity(progress, publication)) {
-    await deferUnavailablePublication(
-      transaction,
-      candidate,
-      input.now,
-      "review_progress_projection_identity_corrupted",
-    );
-    return null;
-  }
+  const progress = await loadMatchingActiveProgress(
+    transaction,
+    publication,
+    candidate,
+    input.now,
+  );
+  if (!progress) return null;
   const eligible = await loadPublishableGitHubRepository(
     transaction,
     publication,
@@ -372,6 +367,34 @@ async function claimDuePublication(
     eligible.repository,
     eligible.installation,
   );
+}
+
+/** Resolve active progress and defer an invalid generation before repository lookup. */
+async function loadMatchingActiveProgress(
+  transaction: Prisma.TransactionClient,
+  publication: {
+    readonly activeExecutionId: string;
+    readonly activeGeneration: bigint;
+    readonly activeHeadSha: string;
+    readonly activePlanHash: string;
+    readonly desiredVersion: bigint;
+  },
+  scope: ClaimedReviewProgress["scope"],
+  now: Date,
+) {
+  const progress = await transaction.reviewExecutionProgressV1.findUnique({
+    where: { executionId: publication.activeExecutionId },
+  });
+  if (!progress || !matchesActiveProgressIdentity(progress, publication)) {
+    await deferUnavailablePublication(
+      transaction,
+      scope,
+      now,
+      "review_progress_projection_identity_corrupted",
+    );
+    return null;
+  }
+  return progress;
 }
 
 /** Check GitHub repository eligibility before writing the publication claim. */
