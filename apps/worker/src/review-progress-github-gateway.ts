@@ -367,8 +367,7 @@ function confirmedReconciliation(
   }
   return [...observed].sort((left, right) => {
     const desiredOrder =
-      Number(right.body === desiredBody) -
-      Number(left.body === desiredBody);
+      Number(right.body === desiredBody) - Number(left.body === desiredBody);
     return desiredOrder || left.id - right.id;
   });
 }
