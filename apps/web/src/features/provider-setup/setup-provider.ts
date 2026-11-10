@@ -104,6 +104,8 @@ export function setupProviderForSource(
     (provider) => provider.githubSource === source.key,
   );
   if (direct) return direct.id;
+  if (source.key === "user_ci_secret:claude_code_api_key")
+    return "claude-code";
   if (source.key.startsWith("managed_api_key:"))
     return apiKeyProviders.find(
       (provider) => source.key === `managed_api_key:${provider.directAuthMode}`,
@@ -186,6 +188,7 @@ export function setupProviderForDirectAuthMode(
   authMode: ProviderSourceOption["authMode"],
 ): SetupProviderId | undefined {
   if (authMode === "codex_subscription_oauth_rotating") return "codex";
-  if (authMode === "claude_code_oauth") return "claude-code";
+  if (authMode === "claude_code_oauth" || authMode === "claude_code_api_key")
+    return "claude-code";
   return apiKeyProviderForAuthMode(authMode);
 }
