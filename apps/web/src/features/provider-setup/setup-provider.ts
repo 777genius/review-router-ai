@@ -18,6 +18,7 @@ export type SetupProviderId =
   | "codex"
   | "claude-code"
   | "glm"
+  | "nvidia"
   | "minimax"
   | "grok";
 
@@ -61,6 +62,16 @@ export const setupProviders: readonly SetupProvider[] = Object.freeze([
       publicCatalogProvider: provider.directProviderKind,
     }),
   ),
+  {
+    id: "nvidia",
+    label: "NVIDIA Build (evaluation)",
+    identity: "nvidia",
+    credentialLabel: "NVIDIA Build API key",
+    credentialKind: "api_key",
+    // This is a Gateway-owned connection; never create a direct GitHub Secret.
+    githubSource: null,
+    publicCatalogProvider: null,
+  },
   {
     id: "glm",
     label: "GLM Coding Plan",
@@ -138,6 +149,12 @@ export function setupProviderForGatewayProfile(
   profile: GatewayProfileIdentity | undefined,
 ): SetupProviderId | undefined {
   if (!profile || profile.protocol !== "openai-responses") return undefined;
+  if (
+    profile.id === "nvidia-build-chat-apikey-v1" &&
+    profile.authKind === "api_key" &&
+    profile.connection?.provider === "nvidia" &&
+    (!profile.provider || profile.provider === "nvidia")
+  ) return "nvidia";
   const subscription = subscriptionProfileDefinition(profile.id);
   if (
     subscription &&
