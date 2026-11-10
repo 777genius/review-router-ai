@@ -363,20 +363,19 @@ function validCounts(value: Record<string, unknown>): boolean {
     "requiredCancelled",
     "optionalTotal",
     "optionalCompleted",
-  ].every(
-    (key) => Number.isSafeInteger(value[key]) && (value[key] as number) >= 0,
-  );
+  ].every((key) => isNonNegativeSafeInteger(value[key]));
 }
 
 function validCoverage(value: unknown): boolean {
   if (!isRecord(value) || typeof value.valid !== "boolean") return false;
-  return (
-    value.valid === false ||
-    (Number.isSafeInteger(value.total) &&
-      Number.isSafeInteger(value.covered) &&
-      Number.isSafeInteger(value.uncovered) &&
-      Number.isSafeInteger(value.excluded))
+  if (value.valid === false) return true;
+  return ["total", "covered", "uncovered", "excluded"].every((key) =>
+    isNonNegativeSafeInteger(value[key]),
   );
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isPhase(value: unknown): value is ProgressSnapshot["phase"] {

@@ -194,6 +194,33 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("suppresses negative valid coverage counts before GitHub access", async () => {
+    const publication = claimed({
+      ...progressSnapshot(),
+      fileCoverage: {
+        valid: true,
+        total: 1,
+        covered: -1,
+        uncovered: 0,
+        excluded: 0,
+      },
+    });
+    const store = fakeStore(publication);
+    const factory = vi.fn();
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 0,
+      suppressed: 1,
+      failed: 0,
+    });
+    expect(store.reserveInstallationMutation).not.toHaveBeenCalled();
+    expect(factory).not.toHaveBeenCalled();
+  });
+
   it("defers a corrupt snapshot when stale-claim suppression is fenced out", async () => {
     const publication = { ...claimed(), snapshot: { schemaVersion: 9 } };
     const store = fakeStore(publication);
