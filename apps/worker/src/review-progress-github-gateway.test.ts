@@ -302,15 +302,12 @@ describe("ReviewProgressGitHubGateway", () => {
       operation: "unchanged",
       duplicateCommentIds: [],
     });
-    expect(
-      fixture.calls
-        .filter(
-          ({ route }) =>
-            route ===
-            "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
-        )
-        .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2]);
+    const commentListRoute =
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    const pageNumbers = fixture.calls
+      .filter(({ route }) => route === commentListRoute)
+      .map(({ parameters }) => parameters.page);
+    expect(pageNumbers).toEqual([1, 2]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
