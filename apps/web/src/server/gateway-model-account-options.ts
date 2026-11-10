@@ -246,7 +246,9 @@ export function createGatewayModelAccountOptions(input: {
           provider:
             discoverySource === "codex"
               ? ("openai" as const)
-              : ("openrouter" as const),
+              : discoverySource === "nvidia"
+                ? ("nvidia" as const)
+                : ("openrouter" as const),
           planLabel: profile.label,
           regionLabel: "Global",
           completionInputKind: "none" as const,
