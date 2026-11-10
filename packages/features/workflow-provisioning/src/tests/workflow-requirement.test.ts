@@ -81,7 +81,12 @@ const hybridRotating = config([
 describe("workflow requirement", () => {
   it("enables new discussion replies only for rotating Codex setup", () => {
     expect(defaultReviewDiscussionMode("rotating")).toBe("suggest");
-    for (const transport of ["gateway", "provider_api", "ci_secrets", "hosted_pool"] as const) {
+    for (const transport of [
+      "gateway",
+      "provider_api",
+      "ci_secrets",
+      "hosted_pool",
+    ] as const) {
       expect(defaultReviewDiscussionMode(transport)).toBe("off");
     }
   });
