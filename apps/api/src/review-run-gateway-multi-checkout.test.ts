@@ -16,8 +16,12 @@ import { workspacePolicyFixture } from "../../../packages/features/review-config
 import { createReviewRunGatewayCheckout } from "./review-run-gateway-checkout";
 import type { ReadSelectedGatewayModelSettings } from "./review-run-gateway-model-settings";
 
-function fixture(count = 2, sharedAllocation = false) {
-  const profileRef = "openrouter-openai-responses-apikey-v1";
+function fixture(
+  count = 2,
+  sharedAllocation = false,
+  profileRef = "openrouter-openai-responses-apikey-v1",
+  repositoryFullName = "owner/repo",
+) {
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
     providers: Array.from({ length: count }, (_, index) => ({
@@ -170,7 +174,7 @@ function fixture(count = 2, sharedAllocation = false) {
     resolveRepository: async () => ({
       githubInstallationId: "123",
       githubRepositoryId: "456",
-      repositoryFullName: "owner/repo",
+      repositoryFullName,
     }),
     issuer: { issueContentsReadToken: issuer },
     readSelectedModelSettings: settings,
@@ -223,6 +227,18 @@ describe("multi-reviewer checkout projection", () => {
     expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
       "REVIEW_ROUTER_GATEWAY_MODEL_SETTINGS_JSON",
     );
+  });
+
+  it("refuses NVIDIA trial checkout outside the single synthetic fixture before issuing an SCM token", async () => {
+    const forbidden = fixture(1, false, "nvidia-build-chat-apikey-v1", "customer/private-source");
+    await expect(forbidden.issue()).rejects.toThrow("authorization_denied");
+    expect(forbidden.issuer).not.toHaveBeenCalled();
+    const synthetic = fixture(
+      1, false, "nvidia-build-chat-apikey-v1", "777genius/rr-hosted-pool-e2e-20260927",
+    );
+    const result = await synthetic.issue();
+    expect(result.repository).toBe("777genius/rr-hosted-pool-e2e-20260927");
+    expect(synthetic.issuer).toHaveBeenCalledTimes(1);
   });
 
   it("retains failed allocation coverage and exports a healthy sibling", async () => {
