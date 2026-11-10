@@ -778,6 +778,30 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(request).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps non-rate-limited 404 failures terminal", async () => {
+    const request: ReviewProgressGitHubRequester = vi.fn(async () => {
+      throw { response: { status: 404 } };
+    });
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "github_request_failed",
+      metadata: { status: 404, retryable: false },
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it("keeps ambiguous PATCH failures retryable", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+      if (route.startsWith("PATCH ")) throw { status: 404 };
+      return fixture.request(route, parameters);
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { status: 404, retryable: true },
+    });
+  });
 });
 
 function input() {

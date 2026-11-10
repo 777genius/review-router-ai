@@ -416,6 +416,17 @@ function classifyGitHubFailure(
     random,
   );
   if (retryable) return retryable;
+  return fallbackGitHubFailure(error, fallbackKind, status, now, random);
+}
+
+/** Preserve non-rate-limit transport and ambiguous-mutation fallbacks. */
+function fallbackGitHubFailure(
+  error: unknown,
+  fallbackKind: ReviewProgressGitHubFailureKind,
+  status: number | undefined,
+  now: () => Date,
+  random: () => number,
+): ReviewProgressGitHubError {
   if (status === 403) {
     return new ReviewProgressGitHubError(
       "revoked_app",
