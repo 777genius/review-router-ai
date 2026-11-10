@@ -210,7 +210,11 @@ export class ReviewProgressPublisher {
     now: Date,
     result: { suppressed: number; deferred: number },
   ): Promise<void> {
-    const suppressed = await this.store.suppress({ publication, safeCode, now });
+    const suppressed = await this.store.suppress({
+      publication,
+      safeCode,
+      now,
+    });
     if (suppressed) {
       result.suppressed += 1;
     } else {
