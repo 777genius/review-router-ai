@@ -59,6 +59,58 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("updates a known comment through the installation gateway", async () => {
+    const publication = { ...claimed(), commentId: 77n };
+    const store = fakeStore(publication);
+    const routes: string[] = [];
+    const publisher = createPublisher(store, async (installationId) => {
+      expect(installationId).toBe(9n);
+      return {
+        botLogin: "review-router[bot]",
+        request: async (route, parameters = {}) => {
+          routes.push(route);
+          if (route.includes("/pulls/")) return pull();
+          if (route.startsWith("GET")) {
+            return {
+              data: [
+                {
+                  id: 77,
+                  body: "<!-- review-router-live-progress -->",
+                  user: { login: "review-router[bot]" },
+                },
+              ],
+            };
+          }
+          if (route.startsWith("PATCH")) {
+            expect(parameters.comment_id).toBe(77);
+            expect(parameters.body).toContain(
+              "<!-- review-router-live-progress -->",
+            );
+            return { data: { id: 77 } };
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      };
+    });
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 1,
+      deferred: 0,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(routes).toEqual([
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+    expect(store.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ publication, commentId: 77n }),
+    );
+  });
+
   it("does not report a stale fenced completion as published", async () => {
     const store = fakeStore(claimed());
     store.complete.mockResolvedValue(false);

@@ -120,25 +120,7 @@ export class ReviewProgressPublisher {
     const bodyHash = sha256(body);
     if (await this.deferForBusyInstallation(publication, now, result)) return;
     try {
-      const installation = await this.requestForInstallation(
-        publication.repository.githubInstallationId,
-      );
-      const gateway = new ReviewProgressGitHubGateway(installation.request, {
-        maxCommentPages: this.options.maxCommentPages,
-        now: () => this.clock.now(),
-      });
-      const published = await gateway.upsert({
-        owner: publication.repository.owner,
-        repo: publication.repository.name,
-        pullNumber: publication.scope.pullRequestNumber,
-        expectedHeadSha: publication.headSha,
-        expectedBotLogin: installation.botLogin,
-        ...(publication.commentId === null
-          ? {}
-          : { knownCommentId: Number(publication.commentId) }),
-        marker: githubProgressCommentMarker,
-        body,
-      });
+      const published = await this.upsertProgressComment(publication, body);
       await this.settlePublishedMutation(
         publication,
         published,
@@ -148,6 +130,32 @@ export class ReviewProgressPublisher {
     } catch (error) {
       await this.handlePublishFailure(publication, error, result);
     }
+  }
+
+  /** Keep installation-scoped GitHub effects separate from store settlement. */
+  private async upsertProgressComment(
+    publication: ClaimedReviewProgress,
+    body: string,
+  ): Promise<UpsertReviewProgressCommentResult> {
+    const installation = await this.requestForInstallation(
+      publication.repository.githubInstallationId,
+    );
+    const gateway = new ReviewProgressGitHubGateway(installation.request, {
+      maxCommentPages: this.options.maxCommentPages,
+      now: () => this.clock.now(),
+    });
+    return gateway.upsert({
+      owner: publication.repository.owner,
+      repo: publication.repository.name,
+      pullNumber: publication.scope.pullRequestNumber,
+      expectedHeadSha: publication.headSha,
+      expectedBotLogin: installation.botLogin,
+      ...(publication.commentId === null
+        ? {}
+        : { knownCommentId: Number(publication.commentId) }),
+      marker: githubProgressCommentMarker,
+      body,
+    });
   }
 
   /** Preserve installation-budget deferral independently of GitHub writes. */
