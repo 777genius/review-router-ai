@@ -7,10 +7,10 @@
 
 ## Environment status
 
-| Target | Status | Actual release/image | Evidence |
-| --- | --- | --- | --- |
-| Staging | `pending` | Not verified | Source CI is not a staged deployment |
-| Production | `pending` | Not verified | No deployment or new setup PR approval authorized |
+| Target     | Status    | Actual release/image | Evidence                                          |
+| ---------- | --------- | -------------------- | ------------------------------------------------- |
+| Staging    | `pending` | Not verified         | Source CI is not a staged deployment              |
+| Production | `pending` | Not verified         | No deployment or new setup PR approval authorized |
 
 ## Rollout dependencies
 
@@ -25,6 +25,6 @@ If no qualified disposable installation/provider is available, keep live verific
 
 ## Execution log
 
-| Time | Target | Actual version | Outcome |
-| --- | --- | --- | --- |
+| Time       | Target         | Actual version  | Outcome                      |
+| ---------- | -------------- | --------------- | ---------------------------- |
 | 2026-11-11 | Source PR #856 | Git branch only | No staged/production rollout |
