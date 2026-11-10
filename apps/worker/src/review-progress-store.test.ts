@@ -764,7 +764,28 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       },
     });
   });
-  it("rejects partial terminal counts without gaps", async () => {
+  it.each([
+    {
+      name: "without gaps",
+      values: [0, 0],
+      error: "review_progress_partial_outcome_inconsistent",
+    },
+    {
+      name: "with a negative required count",
+      values: [-1, 2],
+      error: "review_progress_snapshot_invalid",
+    },
+    {
+      name: "with a fractional required count",
+      values: [0.5, 0.5],
+      error: "review_progress_snapshot_invalid",
+    },
+    {
+      name: "with an unsafe required count",
+      values: [Number.MAX_SAFE_INTEGER + 1, 0],
+      error: "review_progress_snapshot_invalid",
+    },
+  ])("rejects partial terminal $name", async ({ values, error }) => {
     const progressUpdate = vi.fn();
     const publicationUpdate = vi.fn();
     const prisma = {
@@ -793,8 +814,8 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
                 counts: {
                   requiredTotal: 1,
                   requiredCompleted: 1,
-                  requiredExhausted: 0,
-                  requiredCancelled: 0,
+                  requiredExhausted: values[0],
+                  requiredCancelled: values[1],
                 },
               },
             }),
@@ -819,7 +840,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
         now,
       }),
-    ).rejects.toThrow("review_progress_partial_outcome_inconsistent");
+    ).rejects.toThrow(error);
     expect(progressUpdate).not.toHaveBeenCalled();
     expect(publicationUpdate).not.toHaveBeenCalled();
   });

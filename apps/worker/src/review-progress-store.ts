@@ -696,10 +696,10 @@ function assertTerminalCounts(
   const requiredExhausted = counts.requiredExhausted;
   const requiredCancelled = counts.requiredCancelled;
   if (
-    typeof requiredCompleted !== "number" ||
-    typeof requiredTotal !== "number" ||
-    typeof requiredExhausted !== "number" ||
-    typeof requiredCancelled !== "number"
+    !isRequiredCount(requiredCompleted) ||
+    !isRequiredCount(requiredTotal) ||
+    !isRequiredCount(requiredExhausted) ||
+    !isRequiredCount(requiredCancelled)
   )
     throw new Error("review_progress_snapshot_invalid");
   if (
@@ -714,6 +714,11 @@ function assertTerminalCounts(
     requiredExhausted + requiredCancelled < 1
   )
     throw new Error("review_progress_partial_outcome_inconsistent");
+}
+
+/** Terminal counts must satisfy the same nonnegative-integer invariant as publication. */
+function isRequiredCount(value: Prisma.JsonValue): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isRecord(value: unknown): value is Record<string, Prisma.JsonValue> {
