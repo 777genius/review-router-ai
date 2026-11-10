@@ -1,7 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { UsageError } from "@reviewrouter/features-provider-usage";
 import type { PrismaClient } from "@reviewrouter/platform-db";
-import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import {
+  createConsumerControlClient,
+  GatewayError,
+} from "@agent-teams/account-gateway/http";
 import {
   PrismaUsageAttributionReader,
   PrismaUsageReconciliation,
@@ -11,6 +14,20 @@ import {
   quarantineGatewayObservation,
   replayGatewayQuarantine,
 } from "./provider-usage-quarantine";
+
+class GatewayUsageTemporarilyUnavailable extends Error {}
+
+function transientGatewayRead(error: unknown): boolean {
+  return (
+    error instanceof GatewayError &&
+    (error.code === "transport" ||
+      error.code === "cancelled" ||
+      (error.code === "safe_error" &&
+        error.httpStatus === 503 &&
+        (error.diagnostic?.code === "upstream_failure" ||
+          error.diagnostic?.code === "admission_limited")))
+  );
+}
 /** Maintenance remains active for retention even on deployments with direct-only producers. */
 export function createProviderUsageGatewayReconciliation(
   prisma: PrismaClient,
@@ -69,7 +86,17 @@ export function createProviderUsageGatewayReconciliation(
           const source = createGatewayUsageSource({
             workspaceId: scope.workspaceId,
             sourceInstance,
-            client,
+            client: {
+              async listUsage(query) {
+                try {
+                  return await client.listUsage(query);
+                } catch (error) {
+                  if (transientGatewayRead(error))
+                    throw new GatewayUsageTemporarilyUnavailable();
+                  throw error;
+                }
+              },
+            },
             attribution: new PrismaUsageAttributionReader(prisma),
             quarantine: (observation, reason) =>
               quarantineGatewayObservation(
@@ -98,7 +125,9 @@ export function createProviderUsageGatewayReconciliation(
               code:
                 error instanceof UsageError
                   ? error.code
-                  : "native_source_unavailable",
+                  : error instanceof GatewayUsageTemporarilyUnavailable
+                    ? "native_source_unavailable"
+                    : "native_source_error",
               now: new Date(),
             });
             return { workspaceId: scope.workspaceId, status: "retry_pending" };
