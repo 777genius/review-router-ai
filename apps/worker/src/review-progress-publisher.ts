@@ -109,12 +109,12 @@ export class ReviewProgressPublisher {
     try {
       body = formatGithubProgressComment(parseSnapshot(publication.snapshot));
     } catch {
-      await this.store.suppress({
+      await this.suppressPublication(
         publication,
-        safeCode: "review_progress_snapshot_invalid",
+        "review_progress_snapshot_invalid",
         now,
-      });
-      result.suppressed += 1;
+        result,
+      );
       return;
     }
     const bodyHash = sha256(body);
@@ -203,6 +203,18 @@ export class ReviewProgressPublisher {
     result.published += 1;
   }
 
+  /** Count suppression only when its optimistic claim fence actually commits. */
+  private async suppressPublication(
+    publication: ClaimedReviewProgress,
+    safeCode: string,
+    now: Date,
+    result: { suppressed: number; deferred: number },
+  ): Promise<void> {
+    const suppressed = await this.store.suppress({ publication, safeCode, now });
+    if (suppressed) result.suppressed += 1;
+    else result.deferred += 1;
+  }
+
   private async handlePublishFailure(
     publication: ClaimedReviewProgress,
     error: unknown,
@@ -212,12 +224,12 @@ export class ReviewProgressPublisher {
       error instanceof ReviewProgressGitHubError &&
       !error.metadata.retryable
     ) {
-      await this.store.suppress({
+      await this.suppressPublication(
         publication,
-        safeCode: `review_progress_${error.kind}`,
-        now: this.clock.now(),
-      });
-      result.suppressed += 1;
+        `review_progress_${error.kind}`,
+        this.clock.now(),
+        result,
+      );
       return;
     }
     const retry = publicationRetryPlan(

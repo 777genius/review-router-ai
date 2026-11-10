@@ -133,6 +133,31 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("defers a corrupt snapshot when stale-claim suppression is fenced out", async () => {
+    const publication = { ...claimed(), snapshot: { schemaVersion: 9 } };
+    const store = fakeStore(publication);
+    store.suppress.mockResolvedValue(false);
+    const factory = vi.fn();
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.suppress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_snapshot_invalid",
+      }),
+    );
+    expect(factory).not.toHaveBeenCalled();
+    expect(store.retry).not.toHaveBeenCalled();
+  });
+
   it("publishes a legacy v1 snapshot without a source marker", async () => {
     const legacySnapshot = { ...progressSnapshot() };
     delete legacySnapshot.sourceIdentity;
@@ -379,6 +404,28 @@ describe("ReviewProgressPublisher", () => {
         safeCode: "review_progress_revoked_app",
       }),
     );
+    expect(store.retry).not.toHaveBeenCalled();
+  });
+
+  it("defers non-retryable failures if stale-claim suppression loses the fence", async () => {
+    const store = fakeStore(claimed());
+    store.suppress.mockResolvedValue(false);
+    const factory = vi.fn(async () => {
+      throw new ReviewProgressGitHubError("revoked_app", "revoked", {
+        retryable: false,
+      });
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.suppress).toHaveBeenCalledOnce();
     expect(store.retry).not.toHaveBeenCalled();
   });
 });
