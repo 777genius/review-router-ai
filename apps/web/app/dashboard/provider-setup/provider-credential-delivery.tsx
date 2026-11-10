@@ -1100,6 +1100,15 @@ function ciSecretDetails(
   footnote: string;
   link: Readonly<{ label: string; url: string }> | null;
 }> {
+  if (authMode === "claude_code_api_key") {
+    return {
+      title: "Add your Anthropic API key",
+      body: `Reviews use an Anthropic Console API key. Store ANTHROPIC_API_KEY in the GitHub Actions secrets of ${repositoryFullName}.`,
+      prompt: "Paste only your Anthropic API key when the GitHub CLI command asks for it.",
+      footnote: "Do not paste a Claude subscription setup-token. The selected mode never falls back to a subscription.",
+      link: null,
+    };
+  }
   const provider = apiKeyProviderForAuthMode(authMode);
   if (provider) {
     const label = getApiKeyProvider(provider).label;
