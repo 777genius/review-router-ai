@@ -2119,8 +2119,11 @@ function reviewRouterProviderSelectionForRuntimeEnv(
   );
   if (authModeProvider) selectedKinds.add(authModeProvider);
 
-  const claudeCodeOAuthTokenSecret =
+  const claudeSelected =
     selectedKinds.has("claude") || authModeProvider === "claude";
+  // Auth mode, not the provider display name, decides which secret is needed.
+  const claudeCodeOAuthTokenSecret =
+    claudeSelected && authMode !== "claude-api-key";
   const openRouterApiKeySecret =
     selectedKinds.has("openrouter") || authModeProvider === "openrouter";
   const mimoTokenPlanApiKeySecret =
@@ -2147,7 +2150,7 @@ function reviewRouterProviderSelectionForRuntimeEnv(
     codexCliWithoutSecret,
     codexSubscriptionAuth,
     codexApiKey,
-    claudeCli: claudeCodeOAuthTokenSecret,
+    claudeCli: claudeSelected,
     selectionKnown: true,
   };
 }
