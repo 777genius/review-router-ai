@@ -1,6 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
 import { codexRotatingSetupManifestSchema } from "@reviewrouter/features-provider-setup";
-import { renderCanonicalCodexRotatingInteractionWorkflowV3 } from "@reviewrouter/features-workflow-provisioning";
+import {
+  renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCanonicalCodexRotatingInteractionWorkflowV4,
+} from "@reviewrouter/features-workflow-provisioning";
 import { createCodexRuntimeMigrationGitHub } from "./codex-runtime-migration-composition";
 import { resolveCodexRotatingPublicWebUrl } from "./codex-rotating-seed-script";
 import { lockCodexRotatingProviderRow } from "@reviewrouter/features-provider-setup/composition";
@@ -72,15 +75,22 @@ export async function completeCodexRuntimeMigrationActivation(input: {
       await github.migration.enableActivatedIngress({
         binding,
         reviewSourceSha256: namespace.workflowSourceSha256,
-        interactionSources: (["off", "suggest"] as const).map(
-          (discussionMode) =>
+        interactionSources: [
+          ...(["off", "suggest"] as const).map((discussionMode) =>
             renderCanonicalCodexRotatingInteractionWorkflowV3({
               actionRef: binding.targetActionRef,
               apiUrl: input.expectedApiUrl,
               runtimeConfigMode: "oidc",
               discussionMode,
             }),
-        ),
+          ),
+          renderCanonicalCodexRotatingInteractionWorkflowV4({
+            actionRef: binding.targetActionRef,
+            apiUrl: input.expectedApiUrl,
+            runtimeConfigMode: "oidc",
+            discussionMode: "suggest",
+          }),
+        ],
       });
     },
     { timeout: 30_000 },
