@@ -25,6 +25,11 @@ export function UsageDetails({
   selectedCurrency?: string | undefined;
   bucket?: CostBucket | undefined;
 }) {
+  const oldestSourceUpdate = report.sources.reduce<string | null>(
+    (oldest, source) =>
+      source.asOf && (!oldest || source.asOf < oldest) ? source.asOf : oldest,
+    null,
+  );
   return (
     <div className="space-y-5 border-t border-slate-700/50 pt-5 text-xs text-slate-400">
       <p className="break-words">
@@ -47,6 +52,17 @@ export function UsageDetails({
         {report.unboundedSummaries} separate reported summaries · Unattributed
         observations: {report.unattributed ?? "unknown"} · Observations without
         run ID: {report.overview.observationsWithoutRunId}
+      </p>
+      <p>
+        Latest update is the most recent source report; completeness can differ
+        between sources, models and days.
+        {oldestSourceUpdate ? (
+          <> Some sources last reported {humanUtc(oldestSourceUpdate)}.</>
+        ) : null}
+      </p>
+      <p>
+        A partial day covers only part of a UTC day. Unknown or partial
+        observations mean usage measurements are missing or incomplete.
       </p>
       <p>
         Source lag: {report.sourceLag} · All reported source windows from{" "}

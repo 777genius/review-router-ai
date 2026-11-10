@@ -632,7 +632,7 @@ function ProviderUsageContext({
               </span>
               <span className="ml-auto text-slate-400">
                 {data.asOf
-                  ? `Updated ${humanUtc(data.asOf)}`
+                  ? `Latest update ${humanUtc(data.asOf)}`
                   : "Freshness unavailable"}
               </span>
               <span className="text-cyan-200">Details ⌄</span>

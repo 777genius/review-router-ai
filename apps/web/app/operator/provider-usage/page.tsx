@@ -77,7 +77,7 @@ export default async function OperatorProviderUsagePage() {
         </p>
         <p>
           Covered from: {report.coveredFrom ?? "Unknown"}. Source lag:{" "}
-          {report.sourceLag}. Report generated: {report.asOf}.
+          {report.sourceLag}. Latest source update: {report.asOf}.
         </p>
         <p>Quota and subscription reset: unknown.</p>
       </section>
