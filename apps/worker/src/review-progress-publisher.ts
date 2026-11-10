@@ -118,26 +118,7 @@ export class ReviewProgressPublisher {
       return;
     }
     const bodyHash = sha256(body);
-    const reservation = await this.store.reserveInstallationMutation({
-      publication,
-      now,
-      minimumIntervalMs: Math.max(
-        1_000,
-        this.options.minimumMutationIntervalMs,
-      ),
-    });
-    if (!reservation.allowed) {
-      await this.store.retry({
-        publication,
-        safeCode: "review_progress_installation_budget_wait",
-        retryAt: reservation.retryAt,
-        now,
-        maxFailures: this.options.maxFailures,
-        countFailure: false,
-      });
-      result.deferred += 1;
-      return;
-    }
+    if (await this.deferForBusyInstallation(publication, now, result)) return;
     try {
       const installation = await this.requestForInstallation(
         publication.repository.githubInstallationId,
@@ -167,6 +148,33 @@ export class ReviewProgressPublisher {
     } catch (error) {
       await this.handlePublishFailure(publication, error, result);
     }
+  }
+
+  /** Preserve installation-budget deferral independently of GitHub writes. */
+  private async deferForBusyInstallation(
+    publication: ClaimedReviewProgress,
+    now: Date,
+    result: { deferred: number },
+  ): Promise<boolean> {
+    const reservation = await this.store.reserveInstallationMutation({
+      publication,
+      now,
+      minimumIntervalMs: Math.max(
+        1_000,
+        this.options.minimumMutationIntervalMs,
+      ),
+    });
+    if (reservation.allowed) return false;
+    await this.store.retry({
+      publication,
+      safeCode: "review_progress_installation_budget_wait",
+      retryAt: reservation.retryAt,
+      now,
+      maxFailures: this.options.maxFailures,
+      countFailure: false,
+    });
+    result.deferred += 1;
+    return true;
   }
 
   private async settlePublishedMutation(

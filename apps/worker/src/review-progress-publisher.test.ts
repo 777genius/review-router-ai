@@ -111,8 +111,17 @@ describe("ReviewProgressPublisher", () => {
     });
     expect(factory).not.toHaveBeenCalled();
     expect(store.retry).toHaveBeenCalledWith(
-      expect.objectContaining({ retryAt }),
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_installation_budget_wait",
+        retryAt,
+        now,
+        maxFailures: 3,
+        countFailure: false,
+      }),
     );
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.suppress).not.toHaveBeenCalled();
   });
 
   it("suppresses a corrupt durable snapshot without affecting the review", async () => {
