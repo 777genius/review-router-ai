@@ -136,7 +136,7 @@ Conversion must preserve prompt history, call IDs, tool schemas and output schem
 ### P1 — Sub2API native source (separate PR in agent-teams-ai/sub2api)
 
 - Add a **fixed and optional NVIDIA API-key qualified profile** in existing native registry/bootstrap, not a generic URL or another Coding Plan. Pin host, auth, model anchors, modality and bounded request/response limits.
-- Reuse pure apicompat converter behind protected native transport. Add strict NVIDIA-specific validator and stream/terminal qualification; preserve call ID, tools, evidence and provider-use accounting.
+- **Prefer existing native Responses dispatch if P0 proves exact hosted-model compatibility.** Otherwise reuse the pure `apicompat` Chat converter **behind the same protected native dispatch**, preserving call IDs, tool history, terminal evidence, cancellation and usage. Extract a small common `protected Chat upstream` path only if its behavior is demonstrably reusable; do not create a vendor-specific HTTP client or copy ordinary retry logic.
 - Reuse existing native management/custody, 429/cooldown scheduling and usage observation. New observability only safe closed-vocabulary categories and actually supported reset metadata.
 - Add fixed account-scoped NVIDIA model authority through the existing native models reader, with source identity, physical-generation/principal fences and per-model capabilities, **or** keep the v1 scope to a single certified birth anchor. Do not silently treat unknown model discovery as confirmation; replay known #85 regression fixtures.
 - Extend source/DB allowlists only where truly required after inspection; **no speculative DB migrations**. Preserve retained receipts and source pin.
@@ -147,7 +147,7 @@ Conversion must preserve prompt history, call IDs, tool schemas and output schem
 
 ### P2 — Account Gateway profile + SDK (separate PR in agent-teams-ai/account-gateway)
 
-- Add finite **nvidia** provider identity/profile in the one trusted provider registry, fixed native endpoint/profile tuple, API-key-only connection and reconnect capability.
+- Add finite **nvidia** provider identity/profile in the one trusted provider registry, fixed native endpoint/profile tuple, API-key-only connection and reconnect capability. Generalize the existing finite optional API-key profile list (currently hardcoded Kimi/GLM/MiniMax) **only enough** to add future independently-qualified API-key profiles as data; keep separate native validation, fixed origins and policy fences.
 - Reuse existing account creation, replacement, owner sharing, lifecycle, projections, OIDC/capability admission and usage. No duplicate account types or token database.
 - Project only proven model IDs/controls. Start with bounded static qualified models via an explicit **NVIDIA account-model source** in the SDK's finite discovery mapping and existing native account-model contract. Without that source, select one immutable anchor only. Model-list **network refresh** is later and must not be confused with a signed/configured static snapshot. Never invent function calls, reasoning efforts, price or quota.
 - Reuse native Source-of-Truth 429/limit results; do not add retry, cooldown or account selector to TS. Revalidate owner, binding, generation and credential epoch before/after async reads.
@@ -157,7 +157,7 @@ Conversion must preserve prompt history, call IDs, tool schemas and output schem
 
 ### P3 — ReviewRouter thin UX/policy adoption (separate PR in 777genius/review-router-ai)
 
-- Reuse current Gateway capability projection, setup provider mapping and provider identity/logo, add NVIDIA enrollment/connection and select model only after Gateway confirms qualified availability.
+- Reuse current Gateway capability projection and existing account dialog, add NVIDIA identity/logo and select a model only after Gateway confirms qualified availability. Replace the unnecessary Gateway-backed vendor branch in the setup picker with a **trusted capability-driven choice**: new API-key Gateway profiles should not require duplicate additions to the direct GitHub Secrets catalog and the provider UI. Keep native/SDK allowlists and visual identity mappings finite.
 - Reuse existing WorkspaceProviderProfile gateway binding and provider policy; keep existing OpenRouter, CLI Direct API-key and workflow pins intact. No second scheduler or direct NVIDIA GitHub Secret in P3.
 - Show restrictive trial eligibility notice and prevent unapproved private/customer repo review to trial endpoints. Do not advertise a model as executable just because NVIDIA catalog lists it.
 - Preserve GitHub App-first publication, exact review head SHA, redaction, error mapping and immutable account usage evidence.
@@ -211,6 +211,7 @@ Three review passes conducted for this proposal:
 2. **Security/protocol critique:** A simple base-URL change or reusing the ordinary Chat fallback would bypass strict private native guarantees. Required pure codec reuse behind one-entry native transport, bounded host and negative pre-entry tests.
 3. **Product/E2E critique:** Catalog badges and free-tier anecdotes do not prove callable API, review-capable tools or daily quota; Kimi preview and confidential-data restrictions demand explicit “unsupported” UX and owner-gated sandbox acceptance. Closed issue #85 still warrants replay regression tests.
 4. **Model admission critique:** A second model cannot be admitted on a single fixed-profile account solely by editing the UI catalog; native model membership currently handles only Codex/OpenRouter. Clarified the independent NVIDIA static account-model snapshot requirement and the one-anchor fail-closed fallback.
+5. **Minimal-change/protocol critique:** The API is largely compatible but the hosted model may be Chat-only. Test Responses first (potentially much smaller diff), use existing pure Chat codec only if necessary. Keep a finite upstream wire strategy and trusted capability-driven UI. No generic provider plugin infrastructure, new account scheduler or speculative protocol translation.
 
 **Non-goals in v1:** direct NVIDIA GitHub Secrets/T0 workflow, multi-provider quorum redesign, rotating free-trial keys to evade limits, generic arbitrary-provider proxy, duplicate quota scheduler, new DB/account framework, broad migrations, new feature flags, paid production activation, secret ingestion from old stores, or deploying any services in this docs PR.
 
@@ -227,4 +228,4 @@ Three review passes conducted for this proposal:
 - [NVIDIA API trial terms](https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf)
 - [Known replay issue #85](https://github.com/agent-teams-ai/sub2api/issues/85)
 
-**Stop condition for this PR:** obtain recorded owner decisions A–F in PR review. Do not implement or deploy until those approvals; G requires fresh approval at activation time.
+**Stop condition for this PR:** obtain recorded owner decisions A–F in PR review. Do not implement or deploy until those approvals; G requires fresh approval at activation time. **Open product question:** Is the first NVIDIA use case a disposable evaluation/synthetic test (compatible with trial constraints), or must it support real private/customer code immediately? The latter is a separate vendor/terms negotiation, not a safe trial launch.
