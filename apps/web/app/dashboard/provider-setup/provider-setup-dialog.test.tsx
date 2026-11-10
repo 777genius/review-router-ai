@@ -415,20 +415,32 @@ describe("ProviderSetupDialog", () => {
       expect(storage[1]).toBe(
         screen.getByRole("radio", { name: "GitHub Secrets" }),
       );
-      expect(storage[0]?.getAttribute("aria-checked")).toBe("true");
+      expect(storage[0]?.getAttribute("aria-checked")).toBe(
+        id === "codex" ? "true" : "false",
+      );
+      if (id === "claude-code") {
+        expect(storage[0]?.getAttribute("aria-disabled")).toBe("true");
+        expect(
+          screen.getByRole("radiogroup", { name: "Claude authentication" }),
+        ).toBeTruthy();
+      }
       expect(screen.queryByLabelText("API key")).toBeNull();
       expect(screen.getAllByText(copy).length).toBeGreaterThan(0);
-      const continuation = new URL(
-        screen
-          .getByRole("link", { name: "Connect account" })
-          .getAttribute("href")!,
-        "https://example.test",
-      );
-      expect(continuation.searchParams.get("keyProvider")).toBe(id);
-      expect(continuation.searchParams.getAll("keyRepository")).toEqual([
-        "repo_1",
-      ]);
-      fireEvent.click(storage[1]!);
+      if (id === "codex") {
+        const continuation = new URL(
+          screen
+            .getByRole("link", { name: "Connect account" })
+            .getAttribute("href")!,
+          "https://example.test",
+        );
+        expect(continuation.searchParams.get("keyProvider")).toBe(id);
+        expect(continuation.searchParams.getAll("keyRepository")).toEqual([
+          "repo_1",
+        ]);
+        fireEvent.click(storage[1]!);
+      } else {
+        expect(screen.queryByRole("link", { name: "Connect account" })).toBeNull();
+      }
       fireEvent.click(
         screen.getByRole("button", { name: "Use for this repository" }),
       );
@@ -450,7 +462,7 @@ describe("ProviderSetupDialog", () => {
     },
   );
 
-  it("reuses the ready Claude subscription with its exact profile instead of offering it as a generic account", async () => {
+  it("keeps central Claude OAuth unavailable even when Gateway advertises that profile", async () => {
     const fixture = gatewayFixture();
     if (fixture.status !== "ok") throw new Error("fixture unavailable");
     const profile = fixture.value.profiles[0]!;
@@ -474,19 +486,24 @@ describe("ProviderSetupDialog", () => {
     fixture.value.nextCursor = null;
     view = {
       ...view,
-      sources: apiSources(),
+      sources: [...apiSources(), {
+        key: "user_ci_secret:claude_code_oauth",
+        credentialKind: "user_ci_secret",
+        authMode: "claude_code_oauth",
+        decision: { allowed: true },
+      }],
       gatewaySetupProviders: ["claude-code"],
     };
     renderDialog(repositoryTarget, { gatewayAccounts: fixture });
     await choose("Add a new provider");
     await chooseSelect("Provider", "Claude Code");
-    await waitFor(() =>
-      expect(
-        screen.getByRole("combobox", { name: /^Account\b/ }).textContent,
-      ).toContain("Selected account"),
-    );
+    expect(screen.queryByRole("combobox", { name: /^Account\b/ })).toBeNull();
     expect(screen.queryByRole("link", { name: "Connect account" })).toBeNull();
-    expect(screen.queryByLabelText("API key")).toBeNull();
+    const reviewRouter = screen.getByRole("radio", { name: "ReviewRouter" });
+    expect(reviewRouter.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      screen.getByRole("radio", { name: "GitHub Secrets" }).getAttribute("aria-checked"),
+    ).toBe("true");
     fireEvent.click(
       screen.getByRole("button", { name: "Use for this repository" }),
     );
@@ -496,9 +513,8 @@ describe("ProviderSetupDialog", () => {
           singletonRosterExpectation({
             provider: expect.objectContaining({
               credential: {
-                kind: "gateway_binding",
-                bindingId: "binding-1",
-                gatewayProfileRef: profile.id,
+                kind: "user_ci_secret",
+                authMode: "claude_code_oauth",
               },
             }),
           }),
