@@ -42,6 +42,7 @@ describe("provider setup registry", () => {
       ["openrouter", "OpenRouter"],
       ["mimo", "MiMo Token Plan"],
       ["kimi", "Kimi Code"],
+      ["nvidia", "NVIDIA Build (evaluation)"],
       ["glm", "GLM Coding Plan"],
       ["minimax", "MiniMax M Plan"],
       ["grok", "Grok"],
@@ -135,6 +136,33 @@ describe("provider setup registry", () => {
       ).toEqual([]);
     },
   );
+
+  it("admits NVIDIA only as its own Gateway API-key profile, without a direct secret", () => {
+    const nvidia = profile({
+      id: "nvidia-build-chat-apikey-v1",
+      provider: "nvidia",
+      authKind: "api_key",
+      connection: {
+        provider: "nvidia",
+        planLabel: "NVIDIA Build evaluation",
+        regionLabel: "Global",
+        completionInputKind: "none",
+        personalOnly: false,
+        limitsContract: "none",
+        modelSettings: [],
+      },
+    });
+    expect(setupProviderForGatewayProfile(nvidia)).toBe("nvidia");
+    expect(gatewaySetupProvidersForProfiles([nvidia])).toEqual(["nvidia"]);
+    expect(getSetupProvider("nvidia").githubSource).toBeNull();
+    expect(getSetupProvider("nvidia").publicCatalogProvider).toBeNull();
+    expect(setupProviderForGatewayProfile({ ...nvidia, id: "unqualified-nvidia" })).toBeUndefined();
+    expect(setupProviderForGatewayProfile({ ...nvidia, authKind: "oauth" })).toBeUndefined();
+    expect(setupProviderForGatewayProfile({ ...nvidia, provider: "openrouter" })).toBeUndefined();
+    expect(setupProviderForGatewayProfile({
+      ...nvidia, connection: { ...nvidia.connection!, provider: "openrouter" },
+    })).toBeUndefined();
+  });
 
   it("uses the authenticated deployment availability and deduplicates profiles", () => {
     expect(
