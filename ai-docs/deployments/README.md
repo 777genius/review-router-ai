@@ -13,7 +13,7 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
-Gateway diagnostic stream recovery: [PR #103 follow-through](2026-11-09-gateway-diagnostic-stream.md) — staging `pending`, production `installed`; failure restart policy enabled with retained-child limitations; account-list verification remains pending.
+Gateway diagnostic stream recovery: [PR #103 and #104 follow-through](2026-11-09-gateway-diagnostic-stream.md) — staging `pending`, production `installed`; failure restart policy enabled with retained-child limitations; account-list verification remains pending.
 
 Inline reviewer agreement wording: [dashboard tooltip and managed v2 contract](2026-11-07-inline-agreement-dashboard.md), [PR #830](https://github.com/777genius/review-router-ai/pull/830) and [Action PR #375](https://github.com/777genius/review-router/pull/375) — staging/production `pending`; source changes do not activate or release the Action.
 
