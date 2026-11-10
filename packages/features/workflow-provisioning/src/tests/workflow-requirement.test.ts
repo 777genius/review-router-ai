@@ -53,6 +53,14 @@ const claude = config([
     ...settings,
   },
 ]);
+const claudeApiKey = config([
+  {
+    kind: "claude",
+    authMode: "claude_code_api_key",
+    model: "sonnet",
+    ...settings,
+  },
+]);
 const mimo = config([
   {
     kind: "codex-mimo",
@@ -100,12 +108,14 @@ describe("workflow requirement", () => {
     expect(requiredWorkflowTransport(claude)).toBe("ci_secrets");
     expect(requiredWorkflowTransport(mimo)).toBe("provider_api");
     expect(requiredWorkflowRequirement(claude)).toBe("ci_secrets+claude");
+    expect(requiredWorkflowTransport(claudeApiKey)).toBe("ci_secrets");
+    expect(requiredWorkflowRequirement(claudeApiKey)).toBe("ci_secrets+claude");
     expect(requiredWorkflowRequirement(mimo)).toBe("provider_api+codex-mimo");
     expect(requiredWorkflowRequirement(hybridRotating)).toBe("rotating+claude");
   });
 
   it("records for an attempt what its rendered workflow requires", () => {
-    for (const candidate of [claude, mimo, hybridRotating])
+    for (const candidate of [claude, claudeApiKey, mimo, hybridRotating])
       expect(
         renderedWorkflowRequirement(
           requiredWorkflowTransport(candidate),
