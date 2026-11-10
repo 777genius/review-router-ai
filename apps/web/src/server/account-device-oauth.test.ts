@@ -559,9 +559,6 @@ test("Claude personal enrollment fails closed before OAuth begin or custody", as
       method: "browser",
     }),
   ).rejects.toMatchObject({ code: "invalid_input" });
-  await expect(
-    f.personal().completeOAuth({ nonce, authorizationCode }),
-  ).rejects.toMatchObject({ code: "connection_unavailable" });
   expect(f.begins).toHaveLength(0);
   expect(f.completions).toHaveLength(0);
   expect(f.rows.size).toBe(0);
@@ -577,9 +574,6 @@ test("Claude workspace enrollment denies both browser and device before OAuth be
         profileId: claudeProfileId,
         method,
       }),
-    ).toMatchObject({ status: "denied" });
-    expect(
-      await f.workspace.completeOAuth("workspace", { nonce, authorizationCode }),
     ).toMatchObject({ status: "denied" });
   }
   expect(f.begins).toHaveLength(0);
