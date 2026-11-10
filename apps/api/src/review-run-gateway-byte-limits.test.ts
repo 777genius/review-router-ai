@@ -624,6 +624,112 @@ it("forwards the captured nine-request native grant unchanged through actual pre
   }
 });
 
+it("streams lifecycle SSE larger than the result limit while keeping the authorized wire budget", async () => {
+  const state = companionReservation();
+  const forward = vi.fn(
+    async (...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>) => {
+      const result = await state.admission.claim(...args);
+      if (result.status !== "restored") throw new Error("reservation_required");
+      return { ...result, status: "claimed" as const };
+    },
+  );
+  const frame = `data: ${JSON.stringify({ type: "response.reasoning_summary_text.delta", item_id: "rs_" + "a".repeat(40), output_index: 0, summary_index: 0, sequence_number: 1, delta: "x" })}\n\n`;
+  const terminal = `data: ${JSON.stringify({ type: "response.completed", response: { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "{}" }] }], usage: { output_tokens: 400 } } })}\n\n`;
+  const expected = frame.repeat(300) + terminal;
+  expect(Buffer.byteLength(expected)).toBeGreaterThan(32768);
+  expect(Buffer.byteLength(expected)).toBeLessThan(65536);
+  const f = await fixture(
+    65536,
+    0,
+    2,
+    5000,
+    async (res) => {
+      res.end(expected);
+    },
+    { admission: { ...state.admission, forward }, modelDispatchV2: true },
+  );
+  const app = Fastify();
+  const bytes = companionEnvelope();
+  const context = {
+    ...companionContext,
+    dispatchVersion: 2 as const,
+    requestOrdinal: 1,
+    routeIdentityHash: "e".repeat(64),
+  };
+  const reserved = await state.admission.claim(
+    f.authorization(),
+    context,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  state.rows.set(context.dispatchId, {
+    ...reserved.dispatch,
+    dispatchVersion: 2,
+    requestOrdinal: 1,
+    routeIdentityHash: context.routeIdentityHash,
+    requestBytes: bytes.byteLength,
+    maxOutputTokens: 4096,
+  });
+  await registerReviewRunGatewayRelayRoutes(app, f.relay);
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${(app.server.address() as AddressInfo).port}/api/action/v2/account-gateway/responses`,
+      { method: "POST", headers: modelForwardHeaders(1), body: bytes },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(expected);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+    expect(f.requestRefs).toHaveLength(1);
+    expect(forward).toHaveBeenCalledTimes(1);
+  } finally {
+    await app.close();
+    await f.relay.shutdown();
+  }
+});
+
+it("keeps oversized companion streams unknown and logs a safe failure phase", async () => {
+  const state = companionReservation();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const f = await fixture(49152, 60000, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    await expect(
+      (async () => {
+        while (!(await reader.read()).done) {
+          /* consume */
+        }
+      })(),
+    ).rejects.toMatchObject({ effect: "effect_unknown" });
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review_run_companion_stream_failure",
+        phase: "upstream_read",
+        maxStreamBytes: 49152,
+        receivedBytes: expect.any(Number),
+      }),
+    );
+    expect(f.requestRefs).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+    log.mockRestore();
+  }
+});
+
 it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
   const state = companionReservation();
   const eof = deferred();
