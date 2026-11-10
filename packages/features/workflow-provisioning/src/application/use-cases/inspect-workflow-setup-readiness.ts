@@ -75,8 +75,9 @@ export function workflowSetupReadinessMode(
   if (
     input.discussionMode === "suggest" &&
     !(
-      input.codexSessionMode === "account-gateway" &&
-      input.gatewayInteractionRuntimeSha
+      (input.codexSessionMode === "account-gateway" &&
+        input.gatewayInteractionRuntimeSha) ||
+      (input.codexRotatingProviderInstanceId && !input.codexSessionMode)
     )
   )
     return "invalid";
