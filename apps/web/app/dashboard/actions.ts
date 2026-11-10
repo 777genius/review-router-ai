@@ -40,7 +40,6 @@ import {
 import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
-import { resolveApprovedClaudeSubscriptionActionRef } from "../../src/server/workflow-provisioning/approved-claude-subscription-action-ref";
 import { readDashboardRuntimeReleases } from "../../src/server/review-runtime-readiness";
 import {
   continueCodexRuntimeMigrationSetup,
@@ -1478,40 +1477,10 @@ async function createSetupPullRequestMutation(
             },
           })
         : undefined;
-    const claudeSubscriptionActionRef =
-      !managedReview &&
-      isClaudeSubscriptionConfiguration(resolvedRuntime.config) &&
-      !conflictReviewFallbackAllowed &&
-      workflowStyle === "reusable" &&
-      discussionMode !== "suggest"
-        ? await resolveApprovedClaudeSubscriptionActionRef(
-            {
-              actionRef,
-              configuration: resolvedRuntime.config,
-              releases: await readDashboardRuntimeReleases({
-                env: process.env,
-                releases:
-                  createPrismaReviewRunControlRepositories(prisma)
-                    .producerReleases,
-              }),
-            },
-            {
-              readExecutionWorkflow: async (commitSha) => {
-                const result = await octokit.request(
-                  "GET /repos/{owner}/{repo}/contents/{path}",
-                  {
-                    owner: "777genius",
-                    repo: "review-router",
-                    path: ".github/workflows/reviewrouter-execution-reusable.yml",
-                    ref: commitSha,
-                    request: { timeout: 15000 },
-                  },
-                );
-                return readGitHubWorkflowBlob(result.data).source;
-              },
-            },
-          )
-        : undefined;
+    // Do not newly provision the prepared raw-OAuth Messages transport for a
+    // third-party Claude subscription. The approved direct subscription path
+    // is the user's GitHub Actions Secret + unmodified Claude Code CLI.
+    const claudeSubscriptionActionRef: string | undefined = undefined;
     const workflowPath =
       managedReview || claudeSubscriptionActionRef
         ? reviewRouterWorkflowContract.callerPath
