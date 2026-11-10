@@ -365,7 +365,8 @@ function hasNextCommentPage(
   const link = Object.entries(headers ?? {}).find(
     ([key]) => key.toLowerCase() === "link",
   )?.[1];
-  if (typeof link !== "string" || !link.trim()) return undefined;
+  if (link === undefined) return undefined;
+  if (typeof link !== "string" || !link.trim()) return "invalid";
   const entries = link.split(/,\s*(?=<)/u);
   if (
     !entries.every((entry) =>
