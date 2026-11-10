@@ -208,4 +208,116 @@ describe.skipIf(!adminUrl)("audited source redrive real PostgreSQL", () => {
       await prisma.auditEvent.count({ where: { targetId: q.sourceInstance } }),
     ).toBe(0);
   });
+  it("retries a prolonged Gateway outage with bounded backoff and resumes from the same cursor", async () => {
+    const sourceInstance = "gateway/recover-after-outage";
+    await prisma.usageSourceCheckpoint.create({
+      data: {
+        sourceInstance,
+        workspaceId: "target",
+        cursor: "retained-cursor",
+        highWaterMark: "retained-high",
+        coveredFrom: new Date("2026-10-01"),
+      },
+    });
+    const worker = new PrismaUsageReconciliation(prisma);
+    const claim = () =>
+      worker.claim({
+        sourceInstance,
+        workspaceId: "target",
+        owner: "poller",
+        now: new Date(),
+        leaseMs: 60000,
+        coveredFrom: new Date(),
+      });
+    for (let attempt = 0; attempt < 9; attempt++) {
+      const lease = await claim();
+      expect(lease).toMatchObject({
+        cursor: "retained-cursor",
+        highWaterMark: "retained-high",
+      });
+      await worker.fail(lease!, {
+        code: "native_source_unavailable",
+        now: new Date(),
+      });
+      const row = await prisma.usageSourceCheckpoint.findUniqueOrThrow({
+        where: { sourceInstance },
+      });
+      expect(row.deadLetteredAt).toBeNull();
+      expect(row.failureCount).toBe(attempt + 1);
+      expect(row.nextAttemptAt!.getTime() - Date.now()).toBeGreaterThan(50000);
+      expect(row.nextAttemptAt!.getTime() - Date.now()).toBeLessThanOrEqual(
+        3600000,
+      );
+      expect(await claim()).toBeNull();
+      await prisma.usageSourceCheckpoint.update({
+        where: { sourceInstance },
+        data: { nextAttemptAt: new Date(0) },
+      });
+    }
+    const recovered = await claim();
+    expect(recovered).toMatchObject({
+      cursor: "retained-cursor",
+      highWaterMark: "retained-high",
+    });
+    await worker.commitPage(
+      recovered!,
+      {
+        facts: [],
+        cursor: "next-cursor",
+        highWaterMark: "retained-high",
+        complete: true,
+      },
+      {
+        workspaceId: "target",
+        invocationId: "recovery",
+        source: "native",
+        now: new Date(),
+        replayUntil: new Date(Date.now() + 60000),
+      },
+    );
+    expect(
+      await prisma.usageSourceCheckpoint.findUniqueOrThrow({
+        where: { sourceInstance },
+      }),
+    ).toMatchObject({
+      cursor: "next-cursor",
+      highWaterMark: null,
+      failureCount: 0,
+      nextAttemptAt: null,
+      lastErrorCode: null,
+    });
+  });
+  it.each([
+    ["gateway/data-error", "usage_identity_conflict"],
+    ["other/source", "native_source_unavailable"],
+  ])(
+    "still dead-letters %s failures that are not a Gateway outage",
+    async (sourceInstance, code) => {
+      await prisma.usageSourceCheckpoint.create({
+        data: {
+          sourceInstance,
+          workspaceId: "target",
+          failureCount: 7,
+          cursor: "preserved",
+          coveredFrom: new Date(),
+        },
+      });
+      const worker = new PrismaUsageReconciliation(prisma);
+      const lease = await worker.claim({
+        sourceInstance,
+        workspaceId: "target",
+        owner: "poller",
+        now: new Date(),
+        leaseMs: 60000,
+        coveredFrom: new Date(),
+      });
+      expect(lease).not.toBeNull();
+      await worker.fail(lease!, { code, now: new Date() });
+      const row = await prisma.usageSourceCheckpoint.findUniqueOrThrow({
+        where: { sourceInstance },
+      });
+      expect(row.deadLetteredAt).not.toBeNull();
+      expect(row.cursor).toBe("preserved");
+    },
+  );
 });

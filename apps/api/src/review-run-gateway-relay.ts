@@ -810,9 +810,22 @@ export function createReviewRunGatewayRelay(input: {
           : deadline - Date.now();
       if (remaining <= 0)
         throw new RelayFailure("close_pending", 409, "effect_unknown");
-      const operation = await session.preparation.close(reason, {
-        signal: AbortSignal.timeout(remaining),
-      });
+      let operation: Awaited<ReturnType<typeof session.preparation.close>>;
+      try {
+        operation = await session.preparation.close(reason, {
+          signal: AbortSignal.timeout(remaining),
+        });
+      } catch (error) {
+        // Readback can fail while Gateway is unavailable. Only a settled empty
+        // handle may continue to the durable-authority fence below; never hide
+        // a failure while a local capability or request is still held.
+        if (
+          session.aborts.size !== 0 ||
+          !session.preparation.canDetachUnknownWithoutCapability()
+        )
+          throw error;
+        operation = { state: "unknown" };
+      }
       if (
         operation.state === "applied" ||
         session.preparation.canReleaseWithoutRemoteClose()
@@ -822,6 +835,29 @@ export function createReviewRunGatewayRelay(input: {
         const pendingTermination = parentTermination();
         if (pendingTermination) await pendingTermination;
         sessions.delete(session.key);
+      } else if (
+        session.aborts.size === 0 &&
+        session.preparation.canDetachUnknownWithoutCapability()
+      ) {
+        // Dropping a settled empty cache entry does not settle the remote
+        // operation. Its original intent remains on the terminal authorization
+        // and Gateway owns deadline and physical cleanup. Never synthesize an
+        // applied close, replay a prepare, or discard a retained bearer.
+        const termination = parentTermination();
+        const owner = termination ? await termination : undefined;
+        if (
+          owner &&
+          (owner.state === ReviewRunAuthorizationState.Revoked ||
+            owner.state === ReviewRunAuthorizationState.Expired) &&
+          owner.authorizationId === session.authorizationId &&
+          owner.runtimeSnapshotCanonicalJson === session.canonical &&
+          canonicalJson(reviewRunGatewayOwnedIdentity(owner)) ===
+            session.identity &&
+          owner.maxExpiresAt.getTime() === session.deadline &&
+          session.aborts.size === 0 &&
+          session.preparation.canDetachUnknownWithoutCapability()
+        )
+          sessions.delete(session.key);
       }
       return operation;
     } finally {

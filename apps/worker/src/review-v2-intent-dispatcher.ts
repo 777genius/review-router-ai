@@ -17,6 +17,13 @@ import {
 import type { createPrismaClient } from "@reviewrouter/platform-db";
 
 type PrismaClient = ReturnType<typeof createPrismaClient>;
+const failedRunConclusions = new Set([
+  "failure",
+  "cancelled",
+  "timed_out",
+  "action_required",
+  "startup_failure",
+]);
 
 type OctokitRequester = {
   request(
@@ -145,6 +152,53 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     return parseRevisionInspection(pullRequest.data, input.intent);
   }
 
+  /** Read only the exact attempt; success, missing or mismatched evidence fails closed. */
+  async isFailedTerminalAttempt(input: {
+    readonly intent: ReviewRequestedIntent;
+  }) {
+    const target = await this.resolveTarget(input.intent);
+    const octokit = await this.installations.forInstallation(
+      installationId(target.githubInstallationId),
+    );
+    const response = await octokit.request(
+      "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}",
+      {
+        owner: target.owner,
+        repo: target.repo,
+        run_id: requiredRunIdentity(
+          input.intent.sourceRunId,
+          "review_requested_inspection_run_missing",
+        ),
+        attempt_number: requiredRunIdentity(
+          input.intent.sourceRunAttempt,
+          "review_requested_inspection_attempt_missing",
+        ),
+        headers: { "X-GitHub-Api-Version": "2026-03-10" },
+        request: { signal: AbortSignal.timeout(5_000) },
+      },
+    );
+    if (
+      !target.githubRepositoryId ||
+      !isRecord(response.data) ||
+      !isRecord(response.data.repository) ||
+      String(response.data.repository.id) !== target.githubRepositoryId ||
+      typeof response.data.repository.full_name !== "string" ||
+      response.data.repository.full_name.toLowerCase() !==
+        `${target.owner}/${target.repo}`.toLowerCase()
+    )
+      return false;
+    const run = parseInspectionResponse(
+      response.data,
+      input.intent,
+      this.workflowPath,
+    );
+    return (
+      run.completed &&
+      run.conclusion !== null &&
+      failedRunConclusions.has(run.conclusion)
+    );
+  }
+
   async cancelKnownRun(input: {
     readonly intent: ReviewRequestedIntent;
   }): Promise<void> {
@@ -253,6 +307,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
         id: true,
         workspaceId: true,
         scmRepositoryIdentityId: true,
+        githubRepositoryId: true,
         owner: true,
         name: true,
         defaultBranch: true,
@@ -280,6 +335,7 @@ export class GitHubActionsReviewRequestedDispatchGateway implements ReviewReques
     return {
       owner: repository.owner,
       repo: repository.name,
+      githubRepositoryId: repository.githubRepositoryId?.toString() ?? null,
       defaultBranch: repository.defaultBranch,
       githubInstallationId:
         repository.installation.githubInstallationId.toString(),
@@ -292,6 +348,7 @@ type DispatchTarget = Readonly<{
   repo: string;
   defaultBranch: string;
   githubInstallationId: string;
+  githubRepositoryId: string | null;
 }>;
 
 type InstallationClientPort = {

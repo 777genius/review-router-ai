@@ -12,6 +12,81 @@ import {
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
 
 describe("GitHubActionsReviewRequestedDispatchGateway", () => {
+  it.each([
+    ["failure", true],
+    ["cancelled", true],
+    ["timed_out", true],
+    ["success", false],
+    [null, false],
+  ])(
+    "accepts only failed exact workflow attempts (%s)",
+    async (conclusion, expected) => {
+      const request = vi.fn(
+        async (
+          _route: string,
+          parameters?: Readonly<Record<string, unknown>>,
+        ) => {
+          expect(parameters).toMatchObject({
+            run_id: "702",
+            attempt_number: "1",
+            request: { signal: expect.any(AbortSignal) },
+          });
+          return {
+            data: {
+              id: 702,
+              run_attempt: 1,
+              event: "workflow_dispatch",
+              path: ".github/workflows/reviewrouter-review.yml",
+              display_title: "ReviewRouter review request-1",
+              status: "completed",
+              conclusion,
+              repository: { id: 456, full_name: "777genius/agent-teams-ai" },
+            },
+          };
+        },
+      );
+      await expect(
+        gatewayWith(request).isFailedTerminalAttempt({
+          intent: {
+            ...intentFixture(),
+            sourceRunId: "702",
+            sourceRunAttempt: "1",
+          },
+        }),
+      ).resolves.toBe(expected);
+    },
+  );
+  it("rejects a different attempt or repository for terminal recovery", async () => {
+    const intent = {
+      ...intentFixture(),
+      sourceRunId: "702",
+      sourceRunAttempt: "1",
+    };
+    const base = {
+      id: 702,
+      run_attempt: 2,
+      event: "workflow_dispatch",
+      path: ".github/workflows/reviewrouter-review.yml",
+      display_title: "ReviewRouter review request-1",
+      status: "completed",
+      conclusion: "failure",
+      repository: { id: 456, full_name: "777genius/agent-teams-ai" },
+    };
+    await expect(
+      gatewayWith(async () => ({ data: base })).isFailedTerminalAttempt({
+        intent,
+      }),
+    ).rejects.toThrow("review_requested_inspection_identity_invalid");
+    await expect(
+      gatewayWith(async () => ({
+        data: {
+          ...base,
+          run_attempt: 1,
+          repository: { id: 999, full_name: "777genius/agent-teams-ai" },
+        },
+      })).isFailedTerminalAttempt({ intent }),
+    ).resolves.toBe(false);
+  });
   it("reconciles an existing run before creating an external side effect", async () => {
     const request = vi.fn(async (route: string) => {
       expect(route).toContain("/workflows/");
@@ -501,6 +576,7 @@ function gatewayWith(
         id: "connection-1",
         workspaceId: "workspace-1",
         scmRepositoryIdentityId: "repository-1",
+        githubRepositoryId: 456n,
         owner: "777genius",
         name: "agent-teams-ai",
         defaultBranch: "main",
