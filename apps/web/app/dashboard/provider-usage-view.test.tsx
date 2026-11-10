@@ -218,6 +218,42 @@ describe("provider usage interactive report", () => {
     ).toBe("/dashboard/setup?workspace=workspace#dashboard-section-content");
     expect(container.textContent).not.toContain("Quota / limits: unknown");
   });
+  it("separates the latest update from older sources and partial day measurements", () => {
+    render(
+      <Harness
+        seed={{
+          ...report,
+          asOf: "2026-10-30T19:40:12.000Z",
+          latestSourceAsOf: "2026-11-10T16:44:32.000Z",
+          sources: [
+            {
+              sourceInstance: "old",
+              coveredFrom: report.from,
+              asOf: "2026-10-30T19:40:12.000Z",
+              lagMs: 1000,
+            },
+            {
+              sourceInstance: "current",
+              coveredFrom: report.from,
+              asOf: "2026-11-10T16:44:32.000Z",
+              lagMs: 10,
+            },
+          ],
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("Latest update Nov 10, 2026, 16:44 UTC"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Details"));
+    expect(
+      screen.getByText(/Some sources last reported Oct 30, 2026, 19:40 UTC/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/A partial day covers only part of a UTC day/),
+    ).toBeTruthy();
+    expect(screen.getByText(/Some usage is unknown or partial/)).toBeTruthy();
+  });
   it("hydrates the exact review key and preserves exact currency/basis and requested/observed identities", () => {
     render(<Harness />);
     expect(fetchProviderUsage).not.toHaveBeenCalled();

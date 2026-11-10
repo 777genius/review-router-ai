@@ -198,6 +198,7 @@ function ProviderUsageContext({
   };
   const custom = customInterval(draftFrom, draftTo);
   const hasUnknown = data && hasUnknownUsage(data);
+  const latestSourceUpdate = data?.latestSourceAsOf ?? data?.asOf;
   return (
     <section aria-label="Provider usage" className="min-w-0 space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-5">
@@ -631,8 +632,8 @@ function ProviderUsageContext({
                   : "Reported observations; coverage is not guaranteed"}
               </span>
               <span className="ml-auto text-slate-400">
-                {data.asOf
-                  ? `Updated ${humanUtc(data.asOf)}`
+                {latestSourceUpdate
+                  ? `Latest update ${humanUtc(latestSourceUpdate)}`
                   : "Freshness unavailable"}
               </span>
               <span className="text-cyan-200">Details ⌄</span>
