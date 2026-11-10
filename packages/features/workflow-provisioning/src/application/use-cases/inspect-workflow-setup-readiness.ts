@@ -23,7 +23,7 @@ import {
   defaultWorkflowPath,
   getCodexRotatingWorkflowSetupContentMarkerGroups,
   getWorkflowSetupContentMarkerGroups,
-  renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCodexRotatingInteractionWorkflow,
   type ReviewRouterDiscussionMode,
   renderAccountGatewayWorkflow,
   renderAccountGatewayInteractionWorkflow,
@@ -354,7 +354,7 @@ export async function isWorkflowSetupAlreadyCurrent(
   let expectedInteractionWorkflow: string;
   try {
     expectedInteractionWorkflow =
-      renderCanonicalCodexRotatingInteractionWorkflowV3({
+      renderCodexRotatingInteractionWorkflow({
         actionRef: input.actionRef,
         apiUrl: expectedPublicApiUrl!,
         runtimeConfigMode: "oidc",
