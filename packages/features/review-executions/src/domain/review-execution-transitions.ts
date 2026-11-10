@@ -1366,6 +1366,8 @@ export function decideExpiredRunningExecutionFailure(input: {
   readonly execution: ReviewExecution;
   readonly activeLeases: readonly ReviewInvocationLease[];
   readonly now: Date;
+  /** The worker proved this exact source attempt failed and its authority is terminal. */
+  readonly sourceTerminal?: boolean;
 }): ExecutionLifecycleDecision {
   assertDate(input.now, "execution_expiry_now");
   if (input.execution.state === ReviewExecutionState.Failed) {
@@ -1382,7 +1384,7 @@ export function decideExpiredRunningExecutionFailure(input: {
   if (
     input.execution.state !== ReviewExecutionState.Running ||
     input.stream.activeExecutionId !== input.execution.executionId ||
-    input.execution.executionDeadlineAt > input.now
+    (!input.sourceTerminal && input.execution.executionDeadlineAt > input.now)
   ) {
     return unchangedLifecycle(
       ExecutionLifecycleDecisionStatus.NotEligible,
