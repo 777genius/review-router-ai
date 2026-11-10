@@ -246,10 +246,15 @@ export class ReviewProgressPublisher {
       now: this.clock.now(),
       maxFailures: this.options.maxFailures,
     });
-    if (retryOutcome === "stale") result.deferred += 1;
-    else if (retryOutcome === "suppressed") result.suppressed += 1;
-    else if (retry.countFailure === false) result.deferred += 1;
-    else result.failed += 1;
+    if (retryOutcome === "stale") {
+      result.deferred += 1;
+    } else if (retryOutcome === "suppressed") {
+      result.suppressed += 1;
+    } else if (retry.countFailure === false) {
+      result.deferred += 1;
+    } else {
+      result.failed += 1;
+    }
   }
 }
 
