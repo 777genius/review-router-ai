@@ -830,6 +830,10 @@ function renderCanonicalCodexRotatingInteractionWorkflow(
       "invalid_app_first_interaction_reusable_workflow_runtime_ref",
     );
   }
+  const modeExpression =
+    version === "v4"
+      ? defaultOnDiscussionModeExpression(options)
+      : discussionModeExpression(options);
 
   return `name: ReviewRouter Interaction
 
@@ -899,11 +903,7 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
         env:
           GITHUB_TOKEN: \${{ github.token }}
           REVIEW_ROUTER_MODE: "interaction-preflight"
-          REVIEW_ROUTER_DISCUSSION_MODE: ${
-            version === "v4"
-              ? defaultOnDiscussionModeExpression(options)
-              : discussionModeExpression(options)
-          }
+          REVIEW_ROUTER_DISCUSSION_MODE: ${modeExpression}
         run: node .reviewrouter-runtime/dist/index.js
 
       - name: Install Codex CLI for discussion replies
@@ -935,11 +935,7 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
           GITHUB_TOKEN: \${{ github.token }}
           REVIEW_ROUTER_MODE: "interaction"
           REVIEW_ROUTER_LEDGER_KEY: \${{ secrets.REVIEW_ROUTER_LEDGER_KEY }}
-          REVIEW_ROUTER_DISCUSSION_MODE: ${
-            version === "v4"
-              ? defaultOnDiscussionModeExpression(options)
-              : discussionModeExpression(options)
-          }
+          REVIEW_ROUTER_DISCUSSION_MODE: ${modeExpression}
           REVIEW_ROUTER_DISCUSSION_MAX_PER_PR: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}
           REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}
           REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS: \${{ vars.REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS || '60' }}
