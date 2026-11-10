@@ -1013,12 +1013,22 @@ export function createReviewRunGatewayRelay(input: {
         body: new ReadableStream<Uint8Array>(
           {
             async pull(target) {
+              let phase:
+                | "upstream_read"
+                | "authority_recheck"
+                | "cancelled"
+                | "native_status"
+                | "stream_byte_limit"
+                | "downstream" = "upstream_read";
               try {
                 const chunk = await reader.read();
+                phase = "authority_recheck";
                 await localFresh();
+                phase = "cancelled";
                 if (signal.aborted) throw new Error("companion_cancelled");
                 if (chunk.done) {
                   // EOF alone is not native no-dispatch/completion evidence.
+                  phase = "native_status";
                   const status = await session.preparation.status(
                     requestRef,
                     { signal },
@@ -1030,11 +1040,31 @@ export function createReviewRunGatewayRelay(input: {
                   target.close();
                 } else {
                   received += chunk.value.byteLength;
+                  phase = "stream_byte_limit";
                   if (received > maxResponseBytes)
                     throw new Error("companion_response_too_large");
+                  phase = "downstream";
                   target.enqueue(chunk.value);
                 }
-              } catch {
+              } catch (error) {
+                try {
+                  const detail = captureStreamFailureDiagnostic(
+                    error,
+                    "upstream_read",
+                    signal.aborted,
+                    requestRef,
+                  );
+                  console.error({
+                    event: "review_run_companion_stream_failure",
+                    phase,
+                    requestRef,
+                    receivedBytes: received,
+                    maxStreamBytes: maxResponseBytes,
+                    ...(detail?.sdkCode ? { sdkCode: detail.sdkCode } : {}),
+                  });
+                } catch {
+                  /* Diagnostics must not affect settlement. */
+                }
                 await unknown();
                 cleanup();
                 await stream.cancel().catch(() => {});
@@ -1392,9 +1422,11 @@ export function createReviewRunGatewayRelay(input: {
             fresh,
             () => check(token, auth, session, "local", reviewerId),
             finish,
+            // Companion response limits apply to the final model result, not
+            // the raw SSE stream (which also contains deltas and reasoning).
+            // Keep the separately authorized aggregate wire budget enforced.
             Math.min(
               gateway.limits.outputBytes,
-              isCompanion ? capability!.maxResponseBytes : Infinity,
               modelBudget?.maxResponseBytes ?? Infinity,
             ),
             diagnostic,
