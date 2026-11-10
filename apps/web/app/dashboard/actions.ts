@@ -1910,6 +1910,12 @@ async function confirmSetupPullRequestMergedMutation(
         }
       }
     }
+    // Confirmation/repair must not re-authorize a legacy prepared Messages
+    // caller that executes a Claude subscription token outside the official
+    // customer-owned CLI. It may remain readable as historical evidence, but
+    // a new setup PR must use the GitHub Secrets CLI route.
+    if (claudeSubscriptionActionRef)
+      throw new Error("workflow_provisioning_match_not_found");
     const managedReview =
       accountGateway || openRouterDirect || !!claudeSubscriptionActionRef;
     const gatewayActionRef = accountGateway
