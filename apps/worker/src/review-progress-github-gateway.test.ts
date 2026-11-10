@@ -365,11 +365,9 @@ describe("ReviewProgressGitHubGateway", () => {
   });
 
   it("rejects invalid first-page Link before scanning page two", async () => {
+    const marked = { id: 19, body: `old\n${marker}` };
     const fixture = githubFixture([], {
-      pagedComments: [
-        [{ id: 19, body: `old\\n${marker}` }],
-        [],
-      ],
+      pagedComments: [[marked], []],
       pageLinks: ["<https://api.github.com/comments?page=2>; rel=next"],
     });
 
@@ -380,14 +378,11 @@ describe("ReviewProgressGitHubGateway", () => {
       metadata: { retryable: true },
     });
     expect(mutations(fixture.calls)).toEqual([]);
-    expect(
-      fixture.calls.filter(
-        ({ route }) =>
-          route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
-      ),
-    ).toHaveLength(1);
+    const commentReads = fixture.calls.filter(({ route }) =>
+      route.includes("/issues/{issue_number}/comments"),
+    );
+    expect(commentReads).toHaveLength(1);
   });
-
   it("rejects empty Link on a short page", async () => {
     const markedComment = {
       id: 19,
