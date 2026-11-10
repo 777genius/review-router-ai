@@ -348,7 +348,7 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
-  it("fails closed on an invalid Link header even for a short page", async () => {
+  it("rejects malformed Link on a short page", async () => {
     const markedComment = {
       id: 19,
       body: formatReviewProgressComment("working", marker),
@@ -367,7 +367,7 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
-  it("fails closed on an explicitly empty Link header on a short page", async () => {
+  it("rejects empty Link on a short page", async () => {
     const markedComment = {
       id: 19,
       body: formatReviewProgressComment("working", marker),
