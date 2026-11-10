@@ -24,11 +24,9 @@ describe("terminal workflow recovery", () => {
   it("passes exact attempt and stream fence only after a failed source was observed", async () => {
     const executions = {
       listRevokedRunning: vi.fn().mockResolvedValue([snapshot]),
-      failObservedTerminalRunningExecution: vi
-        .fn()
-        .mockResolvedValue({
-          status: ReviewExecutionLifecycleTransitionStatus.Applied,
-        }),
+      failObservedTerminalRunningExecution: vi.fn().mockResolvedValue({
+        status: ReviewExecutionLifecycleTransitionStatus.Applied,
+      }),
     };
     const intents = {
       findBySourceRunIdentity: vi.fn().mockResolvedValue(intent),
@@ -62,12 +60,9 @@ describe("terminal workflow recovery", () => {
     async (reason) => {
       const executions = {
         listRevokedRunning: vi.fn().mockResolvedValue([snapshot]),
-        failObservedTerminalRunningExecution: vi
-          .fn()
-          .mockResolvedValue({
-            status:
-              ReviewExecutionLifecycleTransitionStatus.ConcurrencyConflict,
-          }),
+        failObservedTerminalRunningExecution: vi.fn().mockResolvedValue({
+          status: ReviewExecutionLifecycleTransitionStatus.ConcurrencyConflict,
+        }),
       };
       const intents = {
         findBySourceRunIdentity: vi
@@ -99,11 +94,9 @@ describe("terminal workflow recovery", () => {
   it("reports a stream-version race without retrying or modifying the newer execution", async () => {
     const executions = {
       listRevokedRunning: vi.fn().mockResolvedValue([snapshot]),
-      failObservedTerminalRunningExecution: vi
-        .fn()
-        .mockResolvedValue({
-          status: ReviewExecutionLifecycleTransitionStatus.ConcurrencyConflict,
-        }),
+      failObservedTerminalRunningExecution: vi.fn().mockResolvedValue({
+        status: ReviewExecutionLifecycleTransitionStatus.ConcurrencyConflict,
+      }),
     };
     const recovery = new ReviewV2TerminalRunRecovery(
       executions as never,
