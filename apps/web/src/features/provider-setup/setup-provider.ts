@@ -157,12 +157,8 @@ export function setupProviderForGatewayProfile(
     (!profile.provider || profile.provider === "codex")
   )
     return "codex";
-  if (
-    profile.id === "anthropic-claude-oauth-messages-v1" &&
-    (!profile.connection || profile.connection.provider === "anthropic") &&
-    (!profile.provider || profile.provider === "claude")
-  )
-    return "claude-code";
+  // An existing Claude OAuth account may be shown in diagnostic account
+  // views, but must not become a new SaaS enrollment/provider choice.
   return undefined;
 }
 
