@@ -349,10 +349,12 @@ describe("ReviewProgressGitHubGateway", () => {
   });
 
   it("fails closed on an invalid Link header even for a short page", async () => {
+    const markedComment = {
+      id: 19,
+      body: formatReviewProgressComment("working", marker),
+    };
     const fixture = githubFixture([], {
-      pagedComments: [
-        [{ id: 19, body: formatReviewProgressComment("working", marker) }],
-      ],
+      pagedComments: [[markedComment]],
       pageLinks: ['<https://api.github.com/comments?page=2>; rel=next'],
     });
 
