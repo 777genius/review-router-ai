@@ -1259,10 +1259,7 @@ async function createSetupPullRequestMutation(
       repositoryId,
     });
     const transport = requiredWorkflowTransport(resolvedRuntime.config);
-    const discussionMode = defaultReviewDiscussionMode(
-      transport,
-      resolvedRuntime.config,
-    );
+    const discussionMode = defaultReviewDiscussionMode(transport);
     const accountGateway = transport === "gateway";
     const gatewayInteractionRuntimeSha = accountGateway
       ? qualifiedGatewayInteractionRuntimeSha(process.env, {
