@@ -1,7 +1,7 @@
 # Default-on AI finding replies without an onboarding checkbox
 
 **Date:** 2026-11-11  
-**Status:** plan v1 — pending two review rounds and implementation  
+**Status:** plan v2 — architecture critique completed, security critique pending  
 **Scope:** setup PR generation and repository setup UX only. No production deployment in this PR.
 
 ## User contract
@@ -14,12 +14,13 @@ Creating a ReviewRouter setup PR requires no "Enable AI suggested replies" check
 - Qualified managed Account Gateway already generates `discussion_mode: ${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest' }}` for its immutable interaction caller. Unqualified Gateway does not generate that caller.
 - Native Claude subscription and direct provider-API caller contracts reject `discussionMode=suggest`. Do not circumvent these release boundaries.
 - The standalone Action discussion preflight skips bots, fork PRs and non-ReviewRouter threads, and limits replies; it does **not** establish commenter write/author authorization before inference. Default-on without an additional guard could spend a repository owner's provider allowance for unrelated commenters.
+- **Propagation bug:** the provisioning use case does not forward `plan.discussionMode` to `renderReviewRouterWorkflowFiles`, and the rotating workflow renderer omits `options.discussionMode` when creating its interaction workflow. Merely changing the form reader would leave setup PRs with `off`.
 
 ## Planned change
 
 1. Remove the checkbox and its presentation plumbing from setup UI. Keep one obvious `Create setup PR` action and normal progress states.
-2. Derive the effective discussion mode on the **server**, after inspecting the saved provider transport. Use `suggest` for the existing Codex-capable CI/rotating discussion workflow only; use `off` for unsupported direct provider API and Claude-only workflows. Gateway's separately qualified interaction caller retains its existing `suggest` default, without passing unsupported inputs to provisioning.
-3. For Action-rendered interaction workflows, gate **paid discussion inference** to same-repository PR authors using trusted GitHub webhook event context in the workflow's discussion-mode expression. Keep `/rr` command delivery and existing preflight intact for maintainers. Preserve a repository-level `REVIEW_ROUTER_DISCUSSION_MODE=off` override.
+2. Derive the effective discussion mode on the **server**, after inspecting the saved provider transport. Use `suggest` only for rotating Codex and CI-secret Codex/MiMo setups where the existing discussion handler has an auth path; use `off` for unsupported provider API, native Claude and other routes. Do not assume `provider_kind` alone proves Gateway compatibility. Gateway's separately qualified interaction caller retains its existing `suggest` default, without passing unsupported inputs to provisioning.
+3. Forward `discussionMode` through **both** the provisioning use case and the rotating interaction renderer; check the actual generated YAML rather than only function arguments. For Action-rendered interaction workflows, gate **paid discussion inference** to same-repository PR authors using trusted GitHub webhook event context in the workflow's discussion-mode expression. Keep `/rr` command delivery and existing preflight intact for maintainers. Preserve a repository-level `REVIEW_ROUTER_DISCUSSION_MODE=off` override.
 4. Remove obsolete form parsing and tests. Assert the server ignores submitted stale `reviewDiscussionMode` values (no client-controlled bypass).
 5. Extend small, focused tests for: checkbox absence; server mode decisions; Action workflow expression and opt-out; Gateway qualified/unqualified callers; Claude and provider API unaffected; existing setup refresh and malformed form handling.
 6. Document default-on behavior, who can trigger it, provider usage and how to opt out. Record rollout status in the deployment registry per repository rules.
@@ -38,5 +39,14 @@ No new feature flags, database migration, provider support expansion, account bi
 - Estimate: approximately 120–250 changed handwritten lines including tests/docs; risk 4/10 for generated workflow expressions; no new services.
 
 ## Review rounds
+
+### Round 1 — architecture and compatibility (2026-11-11)
+
+- **Finding A (high):** the original plan missed that both the provisioning use case and rotating renderer drop `discussionMode`; fixed by adding end-to-end option propagation to item 3 and rendered-YAML assertions.
+- **Finding B (high):** `ci_secrets` includes native Claude and configurations without Codex discussion auth. Replace transport-only selection with explicit qualified provider/auth capability; unsupported routes stay off.
+- **Finding C (medium):** Gateway already defaults to suggest only when a qualified interaction runtime exists. Keep it untouched; never synthesize a Gateway release SHA or flip provisioning capability gates.
+- **Decision:** one existing setup action, no additional client preference, no migration or Action bundle rebuild. Review verdict: proceed after focused security review.
+
+### Round 2 — security and spending
 
 Pending.
