@@ -149,6 +149,24 @@ describe("provider secret setup guidance", () => {
     );
   });
 
+  it("provides a separate Anthropic API-key setup without exposing credentials to SaaS", () => {
+    const guidance = buildProviderSecretSetupGuidance({
+      provider: "claude_code_api_key",
+      repoFullName: "777genius/example",
+    });
+    expect(providerSecretKindSchema.safeParse("claude_code_api_key").success).toBe(true);
+    expect(guidance.commands[0]).toMatchObject({
+      secretNames: ["ANTHROPIC_API_KEY"],
+      sendsSecretToReviewRouter: false,
+      storesSecretIn: "github_repository_secret",
+    });
+    expect(guidance.commands[0]?.command).toBe(
+      "gh secret set ANTHROPIC_API_KEY --repo 777genius/example --app actions",
+    );
+    expect(guidance.warnings.join(" ")).toContain("never falls back");
+    expect(guidance.warnings.join(" ")).not.toContain("claude setup-token");
+  });
+
   it("builds Claude Code OAuth org selected-repository guidance", () => {
     const guidance = buildProviderSecretSetupGuidance({
       provider: "claude_code_oauth",
