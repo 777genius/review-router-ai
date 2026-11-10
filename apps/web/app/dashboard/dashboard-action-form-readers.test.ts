@@ -144,7 +144,6 @@ describe("dashboard action form readers", () => {
       );
     },
   );
-
 });
 
 function inheritAll(): FormData {
