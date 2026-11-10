@@ -456,12 +456,15 @@ describe("dashboard setup PR recovery", () => {
         expect(JSON.stringify(result)).not.toMatch(
           /private-|headSha|attemptId/,
         );
-      } else if (scenario === "allowed") {
+      } else if (scenario === "allowed" || scenario === "suggest") {
         expect(result.params).toMatchObject({
           notice: "workflow_already_current",
         });
         expect(mocks.isWorkflowSetupAlreadyCurrent).toHaveBeenCalledWith(
-          expect.objectContaining({ codexSessionMode: "account-gateway" }),
+          expect.objectContaining({
+            codexSessionMode: "account-gateway",
+            discussionMode: "off",
+          }),
           expect.anything(),
         );
         expect(mocks.assertWorkspaceFeatureEntitlement).toHaveBeenCalledWith(
