@@ -333,20 +333,12 @@ export class ReviewProgressGitHubGateway {
         { cause: { mutationError, observationError } },
       );
     }
-    if (
-      observed.some(
-        ({ id, body }) =>
-          body === desiredBody &&
-          (expectedCommentId === undefined || id === expectedCommentId),
-      )
-    ) {
-      return [...observed].sort((left, right) => {
-        const desiredOrder =
-          Number(right.body === desiredBody) -
-          Number(left.body === desiredBody);
-        return desiredOrder || left.id - right.id;
-      });
-    }
+    const confirmed = confirmedReconciliation(
+      observed,
+      desiredBody,
+      expectedCommentId,
+    );
+    if (confirmed) return confirmed;
     throw this.classify(mutationError, "ambiguous_mutation");
   }
 
@@ -356,6 +348,29 @@ export class ReviewProgressGitHubGateway {
   ): ReviewProgressGitHubError {
     return classifyGitHubFailure(error, fallbackKind, this.now, this.random);
   }
+}
+
+/** Confirm a mutation only from the complete observed target-PR comment scan. */
+function confirmedReconciliation(
+  observed: readonly ReviewProgressComment[],
+  desiredBody: string,
+  expectedCommentId?: number,
+): ReviewProgressComment[] | null {
+  if (
+    !observed.some(
+      ({ id, body }) =>
+        body === desiredBody &&
+        (expectedCommentId === undefined || id === expectedCommentId),
+    )
+  ) {
+    return null;
+  }
+  return [...observed].sort((left, right) => {
+    const desiredOrder =
+      Number(right.body === desiredBody) -
+      Number(left.body === desiredBody);
+    return desiredOrder || left.id - right.id;
+  });
 }
 
 /** Only complete pagination on a well-formed GitHub Link header. */
