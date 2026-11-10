@@ -55,6 +55,7 @@ describe("provider setup registry", () => {
   it.each([
     ["repository_rotating", "codex"],
     ["user_ci_secret:claude_code_oauth", "claude-code"],
+    ["user_ci_secret:claude_code_api_key", "claude-code"],
     ["user_ci_secret:openrouter_api_key", "openrouter"],
     ["managed_api_key:openrouter_api_key", "openrouter"],
     ["user_ci_secret:mimo_token_plan_api_key", "mimo"],
@@ -79,6 +80,9 @@ describe("provider setup registry", () => {
       setupProviderForDirectAuthMode("codex_subscription_oauth_rotating"),
     ).toBe("codex");
     expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe(
+      "claude-code",
+    );
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe(
       "claude-code",
     );
   });
