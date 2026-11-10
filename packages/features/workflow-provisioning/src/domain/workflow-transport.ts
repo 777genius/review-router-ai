@@ -11,7 +11,10 @@ import {
 } from "@reviewrouter/features-review-config";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import { hostedPoolSessionMode } from "./hosted-pool-workflow-template";
-import { codexRotatingProviderSecretInputsForRuntimeEnv } from "./workflow-template";
+import {
+  codexRotatingProviderSecretInputsForRuntimeEnv,
+  type ReviewRouterDiscussionMode,
+} from "./workflow-template";
 
 /** How a repository workflow receives the credentials of its provider. */
 export type WorkflowTransport =
@@ -142,6 +145,19 @@ export function ciSecretsWorkflowProviderKind(
   return config.providers.some((provider) => provider.kind === "claude")
     ? "claude"
     : undefined;
+}
+
+/** Onboarding default; never inferred from client-submitted form values. */
+export function defaultReviewDiscussionMode(
+  transport: WorkflowTransport,
+  config: ReviewConfiguration,
+): ReviewRouterDiscussionMode {
+  if (transport === "rotating") return "suggest";
+  if (transport !== "ci_secrets") return "off";
+  return ciSecretsWorkflowProviderKind(config) !== "claude" &&
+    config.providers.some((provider) => provider.kind === "codex")
+    ? "suggest"
+    : "off";
 }
 
 /** The native subscription caller has one credential and one selected model. */
