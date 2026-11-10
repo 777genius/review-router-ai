@@ -72,6 +72,12 @@ and review rules in one dashboard.
 
 - **GitHub App setup.** Select repositories, create an inspectable setup PR
   for workflow changes and verify readiness in the dashboard.
+- **AI finding discussions.** New qualified rotating Codex workflows enable
+  suggest-only replies for the same-repository PR author by default; other
+  commenters do not trigger paid AI discussion. Qualified managed Gateway
+  workflows have an independent default. Opt out with repository variable
+  `REVIEW_ROUTER_DISCUSSION_MODE=off`. Unsupported providers remain disabled,
+  and earlier installed workflows change only after an approved setup PR.
 - **Organization-wide checks.** In eligible GitHub organizations, configure a
   shared required workflow through GitHub Rulesets for selected or all repos.
   Requires a supported GitHub plan and organization permissions.
@@ -99,8 +105,10 @@ and `/rr suggest fix`.
 These two focused commands require a qualified managed Conversation Gateway,
 an authorized repository maintainer, a same-repository PR and a direct reply
 to the original verified inline finding. Publishing focused replies also
-requires `REVIEW_ROUTER_DISCUSSION_MODE=suggest` (or `discussion_mode: suggest` in
-a reusable workflow); the default `off` does not publish the response.
+requires an eligible managed interaction caller with effective `discussion_mode: suggest`.
+Qualified managed Gateway callers default to `suggest`; older reusable callers
+can still default to `off` until configured. Repository variable
+`REVIEW_ROUTER_DISCUSSION_MODE=off` disables published replies.
 Provider and workflow availability vary; some standalone Action installs only
 listen to inline review replies.
 See the [complete command reference](https://github.com/777genius/review-router#pr-comment-commands)
