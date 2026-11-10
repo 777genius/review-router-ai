@@ -79,7 +79,7 @@ export type AccountProfileView = {
     | import("../features/account-gateway/connection-capabilities").AccountConnectionView
     | undefined;
   // Trusted configured vendor; never derived from an editable account label.
-  provider?: import("@reviewrouter/features-review-providers").ProviderKind;
+  provider?: import("@reviewrouter/features-review-providers").ProviderKind | "nvidia";
   // Additive display fields; older safe bootstrap consumers may omit them.
   // The authorized adapter always supplies both from its configured catalog.
   authKind?: c.Profile["authKinds"][number];
@@ -400,7 +400,7 @@ export function createAccountsAdapter(input: {
   synchronization: ProviderAccountSynchronizationPort;
   bindingDependencies: ProviderAccountDependencies;
   fences?: WorkspaceBindingFenceRepositoryPort;
-  apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter">;
+  apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter" | "NVIDIA Build">;
   apiKeyProfileBaseURLs?: ReadonlyMap<string, string>;
   codexOAuthProfileId?: typeof codexOAuthProfileId;
   claudeOAuthProfileId?: typeof claudeOAuthProfileId;
@@ -420,7 +420,7 @@ export function createAccountsAdapter(input: {
       id,
       {
         label: name,
-        provider: name === "MiMo" ? "codex-mimo" : "openrouter",
+        provider: name === "MiMo" ? "codex-mimo" : name === "OpenRouter" ? "openrouter" : "nvidia",
         authKind: "api_key",
         canReconnect: true,
       },
@@ -2063,16 +2063,23 @@ export function accountGatewayProfilesConfiguration() {
   const contextKey =
     process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET ?? "";
   if (contextKey.length < 32) throw new Error("accounts_unavailable");
-  const apiKeyProfiles = new Map<string, "MiMo" | "OpenRouter">();
+  const apiKeyProfiles = new Map<string, "MiMo" | "OpenRouter" | "NVIDIA Build">();
   for (const [value, name] of [
     [process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID, "MiMo"],
     [
       process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID,
       "OpenRouter",
     ],
+    [
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID,
+      "NVIDIA Build",
+    ],
   ] as const)
     if (value) {
       c.reference.parse(value);
+      // A deployment setting may select only the source-qualified profile.
+      if (name === "NVIDIA Build")
+        z.literal("nvidia-build-chat-apikey-v1").parse(value);
       if (apiKeyProfiles.has(value)) throw new Error("accounts_unavailable");
       apiKeyProfiles.set(value, name);
     }
