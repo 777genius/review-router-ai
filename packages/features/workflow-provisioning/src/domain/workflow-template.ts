@@ -1116,7 +1116,7 @@ jobs:
       CODEX_AUTH_JSON_PRESENT: \${{ secrets.CODEX_AUTH_JSON != '' && '1' || '0' }}
       OPENAI_API_KEY_PRESENT: \${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
       OPENROUTER_API_KEY_PRESENT: \${{ secrets.OPENROUTER_API_KEY != '' && '1' || '0' }}
-      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
+      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}
       ANTHROPIC_API_KEY_PRESENT: \${{ secrets.ANTHROPIC_API_KEY != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
     steps:
       - name: Pass merge queue check
