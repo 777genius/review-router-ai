@@ -12,7 +12,7 @@ import type {
 export type ProviderIdentity = AccountUpstreamProvider;
 
 export function providerIdentityForKind(
-  kind: ProviderKind | undefined,
+  kind: ProviderKind | "nvidia" | undefined,
 ): ProviderIdentity | undefined {
   switch (kind) {
     case "codex":
@@ -22,6 +22,7 @@ export function providerIdentityForKind(
     case "claude":
       return "anthropic";
     case "openrouter":
+    case "nvidia":
     case "kimi":
       return kind;
     default:
@@ -42,7 +43,7 @@ export function accountProviderIdentity(
   profile:
     | Readonly<{
         connection?: AccountConnectionView | undefined;
-        provider?: ProviderKind | undefined;
+        provider?: ProviderKind | "nvidia" | undefined;
       }>
     | undefined,
 ): ProviderIdentity | undefined {
