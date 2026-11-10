@@ -290,7 +290,10 @@ export class ReviewProgressGitHubGateway {
   private async fetchCommentPage(
     input: UpsertReviewProgressCommentInput,
     page: number,
-  ): Promise<{ comments: unknown[]; hasNextPage: boolean | undefined }> {
+  ): Promise<{
+    comments: unknown[];
+    hasNextPage: boolean | "invalid" | undefined;
+  }> {
     let response: Awaited<ReturnType<ReviewProgressGitHubRequester>>;
     try {
       response = await this.request(
@@ -358,7 +361,7 @@ export class ReviewProgressGitHubGateway {
 /** Only complete pagination on a well-formed GitHub Link header. */
 function hasNextCommentPage(
   headers: Readonly<Record<string, string | number | undefined>> | undefined,
-): boolean | undefined {
+): boolean | "invalid" | undefined {
   const link = Object.entries(headers ?? {}).find(
     ([key]) => key.toLowerCase() === "link",
   )?.[1];
@@ -369,7 +372,7 @@ function hasNextCommentPage(
       /^\s*<[^>]+>\s*;\s*rel="(?:next|prev|first|last)"\s*$/iu.test(entry),
     )
   ) {
-    return undefined;
+    return "invalid";
   }
   return entries.some((entry) => /;\s*rel="next"/iu.test(entry));
 }

@@ -348,6 +348,23 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("fails closed on an invalid Link header even for a short page", async () => {
+    const fixture = githubFixture([], {
+      pagedComments: [
+        [{ id: 19, body: formatReviewProgressComment("working", marker) }],
+      ],
+      pageLinks: ['<https://api.github.com/comments?page=2>; rel=next'],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("refuses to POST when the bounded scan is inconclusive", async () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
