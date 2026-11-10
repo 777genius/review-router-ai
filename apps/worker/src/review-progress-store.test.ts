@@ -238,6 +238,44 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(calls).toEqual(["publication", "cooldown"]);
   });
 
+  it("reports a stale retry fence at the failure limit and preserves rate-limit cooldown", async () => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const cooldownQueries: unknown[] = [];
+    const cooldownWrite = vi.fn(async (query: unknown) => {
+      cooldownQueries.push(query);
+      return 1;
+    });
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewProgressPublicationV1: { updateMany },
+          $executeRaw: cooldownWrite,
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+    const publication = { ...claimed(), failureCount: 2 };
+    const cooldownUntil = new Date(now.getTime() + 60_000);
+
+    await expect(
+      store.retry({
+        publication,
+        safeCode: "review_progress_rate_limited",
+        retryAt: new Date(now.getTime() + 1_000),
+        installationCooldownUntil: cooldownUntil,
+        now,
+        maxFailures: 3,
+      }),
+    ).resolves.toBe("stale");
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ claimId: "claim-1" }),
+      }),
+    );
+    expect(cooldownWrite).toHaveBeenCalledOnce();
+    const query = cooldownQueries[0] as { values: readonly unknown[] };
+    expect(query.values).toEqual([17n, cooldownUntil, cooldownUntil, now]);
+  });
+
   it("orders terminal snapshots before ordinary due progress", async () => {
     const rawQueries: unknown[] = [];
     const publicationLookup = vi.fn();

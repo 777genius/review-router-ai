@@ -386,6 +386,28 @@ describe("ReviewProgressPublisher", () => {
     expect(store.suppress).not.toHaveBeenCalled();
   });
 
+  it("defers a retry when another worker owns the claim", async () => {
+    const store = fakeStore(claimed());
+    store.retry.mockResolvedValue("stale");
+    const factory = vi.fn(async () => {
+      throw new Error("installation_transient");
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({ safeCode: "review_progress_publish_failed" }),
+    );
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
   it("suppresses a non-retryable GitHub error without scheduling retry", async () => {
     const publication = claimed();
     const store = fakeStore(publication);
@@ -464,7 +486,9 @@ function fakeStore(publication: ClaimedReviewProgress) {
       > => ({ allowed: true as const }),
     ),
     complete: vi.fn(async () => true),
-    retry: vi.fn(async (): Promise<"retried" | "suppressed"> => "retried"),
+    retry: vi.fn(
+      async (): Promise<"retried" | "suppressed" | "stale"> => "retried",
+    ),
     suppress: vi.fn(async () => true),
   };
 }

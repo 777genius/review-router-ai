@@ -105,7 +105,7 @@ export class PrismaReviewProgressPublicationStore {
     readonly now: Date;
     readonly maxFailures: number;
     readonly countFailure?: boolean | undefined;
-  }): Promise<"retried" | "suppressed"> {
+  }): Promise<"retried" | "suppressed" | "stale"> {
     assertDuration(input.maxFailures);
     return this.prisma.$transaction((transaction) =>
       retryPublicationMutation(transaction, input),
@@ -190,16 +190,14 @@ function completionMutationData(
 async function retryPublicationMutation(
   transaction: Prisma.TransactionClient,
   input: Parameters<PrismaReviewProgressPublicationStore["retry"]>[0],
-): Promise<"retried" | "suppressed"> {
-  let outcome: "retried" | "suppressed" = "retried";
+): Promise<"retried" | "suppressed" | "stale"> {
   const mutation = retryMutationData(input);
-  await transaction.reviewProgressPublicationV1.updateMany({
+  const updated = await transaction.reviewProgressPublicationV1.updateMany({
     where: {
       ...claimedPublicationFence(input.publication),
     },
     data: mutation.data,
   });
-  if (mutation.reachesLimit) outcome = "suppressed";
   if (input.installationCooldownUntil) {
     await persistInstallationCooldown(
       transaction,
@@ -208,7 +206,8 @@ async function retryPublicationMutation(
       input.now,
     );
   }
-  return outcome;
+  if (updated.count !== 1) return "stale";
+  return mutation.reachesLimit ? "suppressed" : "retried";
 }
 
 /** Persist a GitHub installation cooldown monotonically in the retry transaction. */

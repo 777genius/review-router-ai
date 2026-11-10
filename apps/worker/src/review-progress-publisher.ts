@@ -211,8 +211,11 @@ export class ReviewProgressPublisher {
     result: { suppressed: number; deferred: number },
   ): Promise<void> {
     const suppressed = await this.store.suppress({ publication, safeCode, now });
-    if (suppressed) result.suppressed += 1;
-    else result.deferred += 1;
+    if (suppressed) {
+      result.suppressed += 1;
+    } else {
+      result.deferred += 1;
+    }
   }
 
   private async handlePublishFailure(
@@ -243,7 +246,8 @@ export class ReviewProgressPublisher {
       now: this.clock.now(),
       maxFailures: this.options.maxFailures,
     });
-    if (retryOutcome === "suppressed") result.suppressed += 1;
+    if (retryOutcome === "stale") result.deferred += 1;
+    else if (retryOutcome === "suppressed") result.suppressed += 1;
     else if (retry.countFailure === false) result.deferred += 1;
     else result.failed += 1;
   }
