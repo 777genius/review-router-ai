@@ -133,12 +133,12 @@ describe("Gateway model catalog presentation", () => {
     const [untrusted] = gatewayProviderModelOptions([], profile, {
       catalog: { ...catalog, source: "openrouter" }, requiresTools: false,
     });
-    expect(untrusted?.disabled).not.toBe(true);
-    // The source mismatch must never upgrade tools via an unrelated catalog.
+    expect(untrusted?.disabled).toBe(true);
+    expect(untrusted?.description).toContain("NVIDIA account model qualification unavailable");
     const [stillRefused] = gatewayProviderModelOptions([], profile, {
       catalog: { ...catalog, source: "openrouter" }, requiresTools: true,
     });
-    expect(stillRefused?.badge).not.toBe("Unsupported");
+    expect(stillRefused?.disabled).toBe(true);
   });
 
   it("keeps true native tools:none unavailable for a tool-using review", () => {
