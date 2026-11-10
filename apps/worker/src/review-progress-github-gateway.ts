@@ -407,41 +407,20 @@ function classifyGitHubFailure(
     record(value?.headers) ?? record(response?.headers),
   );
   const responseData = record(response?.data);
-  const isRateLimit =
-    status === 429 ||
-    (status === 403 &&
-      (headers["x-ratelimit-remaining"] === "0" ||
-        headers["retry-after"] !== undefined ||
-        isSecondaryRateLimitResponse(responseData)));
-  if (isRateLimit) {
-    const retryNotBefore = retryBoundary(headers, now(), 60_000);
-    const retryAt = jitterAfter(retryNotBefore, random);
-    return new ReviewProgressGitHubError(
-      "rate_limited",
-      "github_progress_comment_rate_limited",
-      { status, retryable: true, retryAt, retryNotBefore },
-      { cause: error },
-    );
-  }
+  const retryable = classifyRetryableHttpFailure(
+    error,
+    status,
+    headers,
+    responseData,
+    now,
+    random,
+  );
+  if (retryable) return retryable;
   if (status === 403) {
     return new ReviewProgressGitHubError(
       "revoked_app",
       "github_app_access_revoked",
       { status, retryable: false },
-      { cause: error },
-    );
-  }
-  if (status !== undefined && status >= 500) {
-    const retryNotBefore = retryBoundary(headers, now());
-    return new ReviewProgressGitHubError(
-      "github_unavailable",
-      "github_progress_comment_unavailable",
-      {
-        status,
-        retryable: true,
-        retryNotBefore,
-        retryAt: jitterAfter(retryNotBefore, random),
-      },
       { cause: error },
     );
   }
@@ -459,6 +438,48 @@ function classifyGitHubFailure(
     },
     { cause: error },
   );
+}
+
+/** Isolate retry scheduling for GitHub throttling and server outages. */
+function classifyRetryableHttpFailure(
+  error: unknown,
+  status: number | undefined,
+  headers: Readonly<Record<string, string>>,
+  responseData: Record<string, unknown> | null,
+  now: () => Date,
+  random: () => number,
+): ReviewProgressGitHubError | null {
+  const isRateLimit =
+    status === 429 ||
+    (status === 403 &&
+      (headers["x-ratelimit-remaining"] === "0" ||
+        headers["retry-after"] !== undefined ||
+        isSecondaryRateLimitResponse(responseData)));
+  if (isRateLimit) {
+    const retryNotBefore = retryBoundary(headers, now(), 60_000);
+    const retryAt = jitterAfter(retryNotBefore, random);
+    return new ReviewProgressGitHubError(
+      "rate_limited",
+      "github_progress_comment_rate_limited",
+      { status, retryable: true, retryAt, retryNotBefore },
+      { cause: error },
+    );
+  }
+  if (status !== undefined && status >= 500) {
+    const retryNotBefore = retryBoundary(headers, now());
+    return new ReviewProgressGitHubError(
+      "github_unavailable",
+      "github_progress_comment_unavailable",
+      {
+        status,
+        retryable: true,
+        retryNotBefore,
+        retryAt: jitterAfter(retryNotBefore, random),
+      },
+      { cause: error },
+    );
+  }
+  return null;
 }
 
 function fallbackRetryAt(now: () => Date, random: () => number): Date {

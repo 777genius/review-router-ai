@@ -754,6 +754,30 @@ describe("ReviewProgressGitHubGateway", () => {
       },
     });
   });
+
+  it("uses fallback retry timing for headerless 5xx", async () => {
+    const request: ReviewProgressGitHubRequester = vi.fn(async () => {
+      throw { status: 502 };
+    });
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    const caught = await gateway(request, {
+      now: () => now,
+      random: () => 0,
+    })
+      .upsert(input())
+      .catch((error: unknown) => error);
+
+    expect(caught).toMatchObject({
+      kind: "github_unavailable",
+      metadata: {
+        status: 502,
+        retryable: true,
+        retryNotBefore: new Date("2026-08-12T12:00:01.000Z"),
+        retryAt: new Date("2026-08-12T12:00:01.250Z"),
+      },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
 });
 
 function input() {
