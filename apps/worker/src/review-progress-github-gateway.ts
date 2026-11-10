@@ -276,7 +276,7 @@ export class ReviewProgressGitHubGateway {
       ) {
         break;
       }
-      if (page === this.maxCommentPages) {
+      if (hasNextPage === "invalid" || page === this.maxCommentPages) {
         throw failure(
           "pagination_inconclusive",
           "github_issue_comments_pagination_inconclusive",
