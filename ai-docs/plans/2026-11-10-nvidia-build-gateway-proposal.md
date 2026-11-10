@@ -1,12 +1,14 @@
 # Proposal: NVIDIA Build as a separate ReviewRouter provider
 
-**Status:** PROPOSED — discussion only; OWNER APPROVAL REQUIRED before implementation, credentials, production exposure, or deployment  
+**Status:** PROPOSED — owner APPROVED P0 sandbox-only evaluation on synthetic PRs (2026-11-10); implementation, production/customer use and deployment still require separate approval  
 **Date:** 2026-11-10  
 **Primary repository:** [ReviewRouter](https://github.com/777genius/review-router-ai)  
 **Dependency owners:** [Account Gateway](https://github.com/agent-teams-ai/account-gateway) and [Sub2API native fork](https://github.com/agent-teams-ai/sub2api)  
 **Intent:** An independent NVIDIA Build / NIM connection and account, not NVIDIA models hidden under an OpenRouter account.
 
 ## Executive decision
+
+**Owner decision (2026-11-10):** start with the **free NVIDIA Build sandbox and synthetic, nonconfidential PRs only**. No production deployment, customer/private repository content, automatic fallback, account/key pooling, or paid endpoint. Continue bounded offline research, fixture preparation and a credential-gated disposable P0 protocol smoke. A sandbox API key is **not yet provided**; no real upstream probe has been run. This is scoped P0 permission, **not** blanket approval for P1–P4.
 
 **Recommend a Gateway-first, independently qualified NVIDIA API-key connection using the existing accounts and execution stack.** Reuse ReviewRouter Providers/Connections UX and workspace/model policies, Account Gateway ownership and SDK, and Sub2API native custody, rate-limit observations, durable request effects and protected execution. **Do not assume Chat translation is required:** first prove whether these exact NVIDIA-hosted models support a working OpenAI Responses endpoint. If yes, reuse native Responses dispatch. If not, reuse the existing pure Responses ↔ Chat codec inside the protected native execution path, **not** an independent provider client.
 
@@ -127,11 +129,25 @@ Conversion must preserve prompt history, call IDs, tool schemas and output schem
 ### P0 — contract and sandbox spike (no production state)
 
 - Lock down NVIDIA model IDs and exact request/response/stream behavior with redacted official examples or an explicitly owner-authorized, disposable API key. **Before writing a Chat bridge, test whether each selected hosted model actually supports /v1/responses with a sufficient subset of our tool/stream requirements.** Verify 200/400/401/429/stream and finish semantics; replay function results and a 2-turn code-review prompt.
-- Inspect license/trial restrictions and assign use only to synthetic/public disposable code; no existing customer/project source.
+- **Approved scope:** free trial testing only with self-contained synthetic prompts and a dedicated disposable private GitHub fixture. Never send private/customer repo code, PR diffs, screenshots, account metadata or other confidential content to NVIDIA. The private status of a sandbox GitHub repository does **not** make private business source eligible for trial.
 - Only where hosted Responses fails or lacks capabilities, prove existing pure codec fitness: Responses→Chat (instructions, messages, tool schema, functions, strict JSON) and Chat→Responses (stream chunks, usage, terminal state). Negative fixtures must reject unsupported client features pre-entry. Do **not** spend effort creating a bridge when an existing qualified Responses path works.
 - Record upstream headers/error evidence without response content, bearer tokens, private source, or traceable prompts; capture precise capabilities, not guessed.
 
 **Exit:** explicit protocol and legal matrix; if required code review behaviors are unsupported, return a no-go.
+
+### P0 key onboarding and exact controlled smoke contract
+
+- Owner generates a **NVIDIA Build Endpoints** API key using [Build Settings → API Keys](https://build.nvidia.com/settings/api-keys) (NVIDIA account login / phone verification if required). Do not confuse it with the NGC registry/download key.
+- **Never paste key into this PR, ChatGPT chat, source code, an issue, logs or CLI command history.** Use a *repository-scoped* GitHub Actions secret named `NVIDIA_API_KEY` in the private disposable sandbox; not a ReviewRouter production repo/org secret. GitHub UI: Settings → Secrets and variables → Actions → New repository secret. Local alternative: `gh secret set NVIDIA_API_KEY --repo OWNER/DISPOSABLE-REPO` (interactive input). Only the owner can do this; GitHub keeps values unreadable in the API.
+- Candidate for reuse (reconfirm before binding): `777genius/rr-hosted-pool-e2e-20260927` is an **existing private, unarchived** disposable RR test repository, with **no active workflows/open PRs observed at design review**. It is a *candidate*, not preapproved for key storage or automatically assumed safe against future changes. Verify no untrusted workflow execution, branch protections and collaborators before using; alternatively create a new dedicated private disposable repository.
+- Probe process is a **manual-trigger/sandbox-only** GitHub Actions workflow, `permissions: contents: read` (or none if no checkout), **no pull_request_target**, no third-party actions, no workflow reuse, no environment dumping, and no account/provider token prints. Hardcode `https://integrate.api.nvidia.com/v1`, only the two proposed exact model IDs and fixed synthetic prompts. No editable external endpoint argument and **no automatic retry**.
+- Phase 1, no key: static source/contract checks and synthetic fixtures for existing native `/responses` and managed `Responses→Chat` bridge; mark **fixture-only, not actual provider capability proof**.
+- Phase 2, after secret set: at most **four tiny requests** in one manually authorized run, for each of two models try (1) `/chat/completions` as documented and (2) `/responses` only to discover actual hosted-model support. Use small output budgets and timeouts, no file/repository data; do not assume an HTTP 404/405/400 proves an account's daily quota. Never repeat failed/ambiguous dispatches. Optionally attempt a short function/tool + two-turn synthetic replay in a *separate explicitly bounded* run only after successful Phase 2 and quota/account eligibility confirmation.
+- Evidence: record only **status code, endpoint kind, model ID, elapsed bucket, safe typed error class, observed rate-limit headers/Retry-After where present, proof of complete response/stream/tool shape, and artifact/test commit SHA**. Never persist request/response bodies, credentials or raw upstream error messages; a 200 alone is not E2E approval.
+- Abort on auth error, rate-limit or trial ineligibility. After the spike, owner deletes or rotates the repository-scoped secret (GitHub Actions → secret Delete; or `gh secret delete NVIDIA_API_KEY --repo OWNER/DISPOSABLE-REPO`). Do not recycle a trial credential for production.
+- **Go/no-go:** if hosted `/responses` passes the full relevant synthetic contract use existing native Responses transport; otherwise qualify existing protected Chat bridge. If neither preserves tool/history/terminal semantics, stop P1–P4 rather than implementing lossy compatibility.
+
+This onboarding does not request that the owner share the secret value in chat. A confirmation that `NVIDIA_API_KEY` is installed in the selected disposable repository is sufficient to start a permitted controlled smoke.
 
 ### P1 — Sub2API native source (separate PR in agent-teams-ai/sub2api)
 
@@ -176,10 +192,10 @@ Conversion must preserve prompt history, call IDs, tool schemas and output schem
 ## 6. Explicit owner approval gates — STOP HERE
 
 - [ ] **A — Architecture/scope:** Approve **Gateway-first only**, one new NVIDIA provider with independently owned account; no GitHub Secrets/direct route in v1.
-- [ ] **B — Usage/legal:** Confirm that the initial use is **evaluation in a disposable sandbox on synthetic/nonconfidential code only**. Production/customer/private repository use is NOT approved by this plan and requires permitted commercial terms plus security/legal review.
+- [x] **B — Usage/legal (approved 2026-11-10):** **free evaluation in disposable sandbox with synthetic/nonconfidential data only**. No production deployment, customer/private repository source or production API key; any later real-code use requires permitted commercial terms and security/legal review.
 - [ ] **C — Models:** Approve evaluating **DeepSeek V4.1 Flash and GLM 5.3 Flash** only when programmatic access and required review features are proven; **Kimi K3.1 Pro stays preview/unavailable** until an actual supported API exists.
 - [ ] **D — Model catalog & capabilities:** Approve **small static qualified allowlist first**, no generic model URL, no dynamic catalog before evidence, no invented tool/quota capabilities.
-- [ ] **E — Spike credential:** Explicit authorization and provision of a **disposable NVIDIA key** for permitted synthetic/public test requests when ready; otherwise fixtures only. Do not borrow or inspect existing production keys.
+- [ ] **E — Spike credential (pending owner action):** User will generate a **NVIDIA Build Endpoints** key and store it as a GitHub Actions **repository secret** `NVIDIA_API_KEY` in a verified disposable private sandbox. No key has been provisioned/observed yet. Do not borrow or inspect existing production keys. A live four-request smoke remains pending until safe secret onboarding.
 - [ ] **F — Execution:** Approve opening implementation PRs in Sub2API, Account Gateway and ReviewRouter **after** P0 evidence and a reviewed narrowed diff plan. The current draft PR changes documentation only.
 - [ ] **G — Activation:** Separate future approval for live canary, customer availability, production credentials/terms and deployment. Do not equate merge/green CI with a production enablement.
 
@@ -238,4 +254,4 @@ Three review passes conducted for this proposal:
 - [NVIDIA API trial terms](https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf)
 - [Known replay issue #85](https://github.com/agent-teams-ai/sub2api/issues/85)
 
-**Stop condition for this PR:** obtain recorded owner decisions A–F in PR review. Do not implement or deploy until those approvals; G requires fresh approval at activation time. **Open product question:** Is the first NVIDIA use case a disposable evaluation/synthetic test (compatible with trial constraints), or must it support real private/customer code immediately? The latter is a separate vendor/terms negotiation, not a safe trial launch.
+**Stop condition for this PR:** P0 synthetic/free sandbox is now an **approved bounded research and test scope** (B complete); A, C, D, E and F still need approval/qualification as described, and G requires future explicit approval. No implementation or deployment before relevant approvals. The prior product fork about private/customer code is **resolved in favor of sandbox only**; commercial production terms are out of scope.
