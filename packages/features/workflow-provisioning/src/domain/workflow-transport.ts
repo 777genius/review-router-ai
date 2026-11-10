@@ -150,14 +150,10 @@ export function ciSecretsWorkflowProviderKind(
 /** Onboarding default; never inferred from client-submitted form values. */
 export function defaultReviewDiscussionMode(
   transport: WorkflowTransport,
-  config: ReviewConfiguration,
 ): ReviewRouterDiscussionMode {
-  if (transport === "rotating") return "suggest";
-  if (transport !== "ci_secrets") return "off";
-  return ciSecretsWorkflowProviderKind(config) !== "claude" &&
-    config.providers.some((provider) => provider.kind === "codex")
-    ? "suggest"
-    : "off";
+  // Only the rotating Codex workflow has a qualified source-verified legacy
+  // discussion responder. Gateway has its own separately qualified caller.
+  return transport === "rotating" ? "suggest" : "off";
 }
 
 /** The native subscription caller has one credential and one selected model. */
