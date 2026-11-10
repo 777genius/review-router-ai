@@ -17,6 +17,7 @@ import {
   isolatedQualityWorkflowPath,
   renderCanonicalIsolatedQualityWorkflow,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
+  renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderCodexRotatingInteractionWorkflow,
   renderCodexRotatingAdvisoryWorkflow,
   renderAccountGatewayWorkflow,
@@ -657,6 +658,43 @@ describe("workflow setup readiness", () => {
       expectedActionRef:
         "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
     });
+  });
+
+  it("recognizes the approved author-gated v4 rotating discussion workflow as current", async () => {
+    const probe = new CapturingWorkflowProbe({
+      status: "present",
+      expectedActionRefFound: true,
+      expectedContentMarkersFound: true,
+    });
+    const apiUrl = "https://app.reviewrouter.dev";
+    const input = {
+      ...readinessInput,
+      actionRef: versionedActionRef,
+      codexRotatingProviderInstanceId: versionedProviderInstanceId,
+      discussionMode: "suggest" as const,
+    };
+    await expect(
+      isWorkflowSetupAlreadyCurrent(input, {
+        workflowProbe: probe,
+        resolvePublicApiUrl: () => apiUrl,
+      }),
+    ).resolves.toBe(true);
+
+    const interactionProbe = probe.inputs.find(
+      (candidate) => candidate.workflowPath === defaultInteractionWorkflowPath,
+    );
+    const validator = interactionProbe?.expectedContentValidator;
+    expect(validator).toBeTypeOf("function");
+    const options = {
+      actionRef: versionedActionRef,
+      apiUrl,
+      runtimeConfigMode: "oidc" as const,
+      discussionMode: "suggest" as const,
+    };
+    expect(validator?.(renderCodexRotatingInteractionWorkflow(options))).toBe(true);
+    expect(
+      validator?.(renderCanonicalCodexRotatingInteractionWorkflowV3(options)),
+    ).toBe(false);
   });
 
   it("never probes the standard Codex workflow for the isolated repository", async () => {
