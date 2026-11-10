@@ -521,6 +521,7 @@ jobs:
       OPENAI_API_KEY_PRESENT: \${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
       OPENROUTER_API_KEY_PRESENT: \${{ secrets.OPENROUTER_API_KEY != '' && '1' || '0' }}
       CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}
+      ANTHROPIC_API_KEY_PRESENT: \${{ secrets.ANTHROPIC_API_KEY != '' && '1' || '0' }}
       MIMO_TOKEN_PLAN_API_KEY_PRESENT: \${{ secrets.${mimoTokenPlanApiKeySecretName} != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
     steps:
       - name: Checkout pull request code
@@ -567,7 +568,7 @@ ${
 }
 
       - name: Install Claude Code CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && ${claudeCliCondition} }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && (env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' || env.ANTHROPIC_API_KEY_PRESENT == '1') && ${claudeCliCondition} }}
         shell: bash
         run: |
           curl -fsSL https://claude.ai/install.sh | bash -s stable
@@ -1116,6 +1117,7 @@ jobs:
       OPENAI_API_KEY_PRESENT: \${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
       OPENROUTER_API_KEY_PRESENT: \${{ secrets.OPENROUTER_API_KEY != '' && '1' || '0' }}
       CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
+      ANTHROPIC_API_KEY_PRESENT: \${{ secrets.ANTHROPIC_API_KEY != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
     steps:
       - name: Pass merge queue check
         if: \${{ github.event_name == 'merge_group' }}
@@ -1147,7 +1149,7 @@ jobs:
         run: npm install -g @openai/codex@${defaultCodexCliVersion}
 
       - name: Install Claude Code CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && github.event_name != 'merge_group' && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && github.event_name != 'merge_group' && (env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' || env.ANTHROPIC_API_KEY_PRESENT == '1') }}
         shell: bash
         run: |
           curl -fsSL https://claude.ai/install.sh | bash -s stable
