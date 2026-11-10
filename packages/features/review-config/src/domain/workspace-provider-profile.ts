@@ -29,6 +29,7 @@ const credentialAuthModes = {
   user_ci_secret: [
     "mimo_token_plan_api_key",
     "claude_code_oauth",
+    "claude_code_api_key",
     "openrouter_api_key",
     "kimi_code_api_key",
   ],
@@ -368,6 +369,7 @@ export function providerCredentialRequestFor(
     case "kimi_code_api_key":
       return { kind: "user_ci_secret", authMode: provider.authMode };
     case "claude_code_oauth":
+    case "claude_code_api_key":
       return { kind: "user_ci_secret", authMode: provider.authMode };
   }
 }
