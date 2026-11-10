@@ -444,6 +444,21 @@ function createReviewRunCheckout(
         !/^[a-f0-9]{40}$/.test(auth.headSha)
       )
         throw new CheckoutFailure("authorization_denied", 401);
+      // NVIDIA Build trial is qualified ONLY for the disposable synthetic
+      // test repository. A model/credential connection alone is not approval
+      // to export private or customer source to a free evaluation endpoint.
+      // Production eligibility requires a separate, explicitly reviewed profile.
+      if (
+        input.modelTransport === "account_gateway" &&
+        configuration.providers.some(
+          (row) =>
+            row.authMode === "codex_account_gateway" &&
+            row.gatewayProfileRef === "nvidia-build-chat-apikey-v1",
+        ) &&
+        target.repositoryFullName.toLowerCase() !==
+          "777genius/rr-hosted-pool-e2e-20260927"
+      )
+        throw new CheckoutFailure("authorization_denied", 403);
       const savedTarget = Object.freeze({ ...target });
       if (
         input.modelTransport === "account_gateway"
