@@ -24,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api repos/agent-teams-ai/account-gateway/actions/artifacts/13810068169/zip --output "$RUNNER_TEMP/nvidia-sdk.zip"
+          gh api -H "Accept: application/vnd.github+json" repos/agent-teams-ai/account-gateway/actions/artifacts/13810068169/zip > "$RUNNER_TEMP/nvidia-sdk.zip"
           unzip -q "$RUNNER_TEMP/nvidia-sdk.zip" -d "$RUNNER_TEMP/nvidia-sdk"
           test "$(sha256sum "$RUNNER_TEMP/nvidia-sdk/agent-teams-account-gateway-0.1.0.tgz" | cut -d' ' -f1)" = "0f674667e17292cdcc3884606e084badd70c3b20b96ce44ee144889cbc67b322"
           cp "$RUNNER_TEMP/nvidia-sdk/agent-teams-account-gateway-0.1.0.tgz" vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz
