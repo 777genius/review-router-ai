@@ -222,9 +222,27 @@ describe("provider setup view", () => {
   it("hides Claude Code where the deployment disables it", () => {
     const view = buildProviderSetupView(facts({ claudeCodeEnabled: false }));
     expect(sourceOf(view, "user_ci_secret:claude_code_oauth")).toBeUndefined();
+    expect(sourceOf(view, "user_ci_secret:claude_code_api_key")).toBeUndefined();
     expect(
       sourceOf(view, "user_ci_secret:mimo_token_plan_api_key"),
     ).toBeDefined();
+  });
+
+  it("keeps both Claude CI auth modes separate under the same provider", () => {
+    const view = buildProviderSetupView(facts());
+    expect(sourceOf(view, "user_ci_secret:claude_code_oauth")).toMatchObject({
+      credentialKind: "user_ci_secret",
+      authMode: "claude_code_oauth",
+      decision: { allowed: true },
+    });
+    expect(sourceOf(view, "user_ci_secret:claude_code_api_key")).toMatchObject({
+      credentialKind: "user_ci_secret",
+      authMode: "claude_code_api_key",
+      decision: { allowed: true },
+    });
+    expect(view.sources.filter((source) =>
+      source.key.startsWith("user_ci_secret:claude_code_"),
+    )).toHaveLength(2);
   });
 
   it("does not advertise rotating Codex when its repository deployment gate is off", () => {
