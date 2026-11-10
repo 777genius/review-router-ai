@@ -464,7 +464,8 @@ function discussionModeExpression(
 function defaultOnDiscussionModeExpression(
   options: Pick<ReviewRouterWorkflowOptions, "discussionMode">,
 ): string {
-  if (options.discussionMode !== "suggest") return discussionModeExpression(options);
+  if (options.discussionMode !== "suggest")
+    return discussionModeExpression(options);
   // Only the verified same-repository PR author can spend provider quota.
   return `\${{ github.event_name == 'pull_request_review_comment' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.id > 0 && github.event.comment.user.id == github.event.pull_request.user.id && (vars.REVIEW_ROUTER_DISCUSSION_MODE == '' || vars.REVIEW_ROUTER_DISCUSSION_MODE == 'suggest') && 'suggest' || 'off' }}`;
 }
@@ -898,7 +899,11 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
         env:
           GITHUB_TOKEN: \${{ github.token }}
           REVIEW_ROUTER_MODE: "interaction-preflight"
-          REVIEW_ROUTER_DISCUSSION_MODE: ${version === "v4" ? defaultOnDiscussionModeExpression(options) : discussionModeExpression(options)}
+          REVIEW_ROUTER_DISCUSSION_MODE: ${
+            version === "v4"
+              ? defaultOnDiscussionModeExpression(options)
+              : discussionModeExpression(options)
+          }
         run: node .reviewrouter-runtime/dist/index.js
 
       - name: Install Codex CLI for discussion replies
@@ -930,7 +935,11 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
           GITHUB_TOKEN: \${{ github.token }}
           REVIEW_ROUTER_MODE: "interaction"
           REVIEW_ROUTER_LEDGER_KEY: \${{ secrets.REVIEW_ROUTER_LEDGER_KEY }}
-          REVIEW_ROUTER_DISCUSSION_MODE: ${version === "v4" ? defaultOnDiscussionModeExpression(options) : discussionModeExpression(options)}
+          REVIEW_ROUTER_DISCUSSION_MODE: ${
+            version === "v4"
+              ? defaultOnDiscussionModeExpression(options)
+              : discussionModeExpression(options)
+          }
           REVIEW_ROUTER_DISCUSSION_MAX_PER_PR: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}
           REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}
           REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS: \${{ vars.REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS || '60' }}
