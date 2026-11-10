@@ -519,26 +519,15 @@ async function claimPreparedPublication(
   };
 }
 
-/** Promote one settlement only when its active progress still owns the projection. */
-async function promoteSettledExecution(
+/** Read and fence the active progress generation before terminal promotion. */
+async function loadPromotableProgress(
   transaction: Prisma.TransactionClient,
   executionId: string,
-  publicationOutcome: "succeeded" | "failed" | "superseded",
-  now: Date,
-): Promise<boolean> {
-  const execution = await transaction.reviewExecutionV2.findUnique({
-    where: { executionId },
-    select: { executionId: true, state: true },
-  });
-  const terminalOutcome = executionStateTerminal(
-    execution?.state,
-    publicationOutcome,
-  );
-  if (!execution || !terminalOutcome) return false;
+) {
   const progress = await transaction.reviewExecutionProgressV1.findUnique({
     where: { executionId },
   });
-  if (!progress || progress.terminalOutcome !== null) return false;
+  if (!progress || progress.terminalOutcome !== null) return null;
   const scope = {
     workspaceId: progress.workspaceId,
     repositoryConnectionId: progress.repositoryConnectionId,
@@ -558,12 +547,37 @@ async function promoteSettledExecution(
     publication.activeHeadSha !== progress.headSha ||
     publication.activePlanHash !== progress.planHash
   )
-    return false;
+    return null;
+  return { progress, scope, publication };
+}
+
+/** Promote one settlement only when its active progress still owns the projection. */
+async function promoteSettledExecution(
+  transaction: Prisma.TransactionClient,
+  executionId: string,
+  publicationOutcome: "succeeded" | "failed" | "superseded",
+  now: Date,
+): Promise<boolean> {
+  const execution = await transaction.reviewExecutionV2.findUnique({
+    where: { executionId },
+    select: { executionId: true, state: true },
+  });
+  const terminalOutcome = executionStateTerminal(
+    execution?.state,
+    publicationOutcome,
+  );
+  if (!execution || !terminalOutcome) return false;
+  const promotable = await loadPromotableProgress(transaction, executionId);
+  if (!promotable) return false;
   await persistTerminalPromotion(transaction, {
     executionId,
-    scope,
-    desiredVersion: publication.desiredVersion + 1n,
-    snapshot: terminalSnapshot(progress.snapshotJson, terminalOutcome, now),
+    scope: promotable.scope,
+    desiredVersion: promotable.publication.desiredVersion + 1n,
+    snapshot: terminalSnapshot(
+      promotable.progress.snapshotJson,
+      terminalOutcome,
+      now,
+    ),
     terminalOutcome,
     now,
   });

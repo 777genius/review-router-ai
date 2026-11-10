@@ -675,7 +675,12 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
-  it("does not promote a settled execution after its projection is superseded", async () => {
+  it.each([
+    { name: "execution ID", override: { activeExecutionId: "execution-2" } },
+    { name: "generation", override: { activeGeneration: 8n } },
+    { name: "head SHA", override: { activeHeadSha: "c".repeat(40) } },
+    { name: "plan hash", override: { activePlanHash: "d".repeat(64) } },
+  ])("rejects mismatched $name fence", async ({ override }) => {
     const progressUpdate = vi.fn();
     const publicationUpdate = vi.fn();
     const prisma = {
@@ -703,10 +708,11 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
           },
           reviewProgressPublicationV1: {
             findUnique: async () => ({
-              activeExecutionId: "execution-2",
-              activeGeneration: 8n,
-              activeHeadSha: "c".repeat(40),
-              activePlanHash: "d".repeat(64),
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              ...override,
             }),
             update: publicationUpdate,
           },
