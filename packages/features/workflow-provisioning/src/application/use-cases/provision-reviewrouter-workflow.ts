@@ -217,6 +217,7 @@ export async function provisionReviewRouterWorkflow(
       actionRef: plan.actionRef,
       apiUrl: plan.apiUrl,
       runtimeConfigMode: plan.runtimeConfigMode,
+      discussionMode: plan.discussionMode,
     });
   }
 
@@ -358,6 +359,7 @@ export async function provisionReviewRouterWorkflow(
           apiUrl: plan.apiUrl,
           runtimeConfigMode: plan.runtimeConfigMode,
           workflowStyle: plan.workflowStyle,
+          discussionMode: plan.discussionMode,
           conflictReviewFallbackEnabled:
             plan.conflictReviewFallbackEnabled === true,
           forkAgenticSandboxEnabled: plan.forkAgenticSandboxEnabled === true,
