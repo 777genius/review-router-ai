@@ -87,6 +87,7 @@ export class ReviewV2TerminalRunRecovery {
   ): Promise<boolean> {
     // A hung installation-token request must not block the worker or accumulate
     // more requests. Its late result never authorizes a lifecycle transition.
+    // Only this recovery is paused until the request settles or the worker restarts.
     if (this.inspectionInFlight) return false;
     const pending = Promise.resolve().then(() =>
       this.gateway.isFailedTerminalAttempt({ intent }),

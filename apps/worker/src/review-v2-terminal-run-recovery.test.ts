@@ -113,80 +113,95 @@ describe("terminal workflow recovery", () => {
       executions.failObservedTerminalRunningExecution,
     ).toHaveBeenCalledTimes(1);
   });
-  it("does not stall the worker or duplicate a hung installation-token request", async () => {
-    vi.useFakeTimers();
-    try {
-      let resolveRequest!: (value: { data: unknown }) => void;
-      const request = vi.fn(
-        () =>
-          new Promise<{ data: unknown }>((resolve) => {
-            resolveRequest = resolve;
-          }),
-      );
-      const gateway = new GitHubActionsReviewRequestedDispatchGateway(
-        {
-          repositoryConnection: {
-            findUnique: async () => ({
-              workspaceId: "workspace",
-              scmRepositoryIdentityId: "scm",
-              githubRepositoryId: 456n,
-              owner: "owner",
-              name: "repo",
-              defaultBranch: "main",
-              provider: "github",
-              selected: true,
-              archived: false,
-              installation: { status: "active", githubInstallationId: 123n },
+  it.each(["installation", "request"] as const)(
+    "does not stall or duplicate a hung %s lookup",
+    async (phase) => {
+      vi.useFakeTimers();
+      try {
+        let resolveRequest!: (value: { data: unknown }) => void;
+        const request = vi.fn(
+          () =>
+            new Promise<{ data: unknown }>((resolve) => {
+              resolveRequest = resolve;
             }),
-          },
-        } as never,
-        { appId: "1", privateKey: "unused" },
-        undefined,
-        { forInstallation: async () => ({ request }) },
-      );
-      const executions = {
-        listRevokedRunning: vi.fn().mockResolvedValue([snapshot]),
-        failObservedTerminalRunningExecution: vi.fn(),
-      };
-      const recovery = new ReviewV2TerminalRunRecovery(
-        executions as never,
-        {
-          findBySourceRunIdentity: vi
-            .fn()
-            .mockResolvedValue({
+        );
+        let resolveInstallation!: (client: { request: typeof request }) => void;
+        const forInstallation = vi.fn(() =>
+          phase === "installation"
+            ? new Promise<{ request: typeof request }>((resolve) => {
+                resolveInstallation = resolve;
+              })
+            : Promise.resolve({ request }),
+        );
+        const gateway = new GitHubActionsReviewRequestedDispatchGateway(
+          {
+            repositoryConnection: {
+              findUnique: async () => ({
+                workspaceId: "workspace",
+                scmRepositoryIdentityId: "scm",
+                githubRepositoryId: 456n,
+                owner: "owner",
+                name: "repo",
+                defaultBranch: "main",
+                provider: "github",
+                selected: true,
+                archived: false,
+                installation: { status: "active", githubInstallationId: 123n },
+              }),
+            },
+          } as never,
+          { appId: "1", privateKey: "unused" },
+          undefined,
+          { forInstallation },
+        );
+        const executions = {
+          listRevokedRunning: vi.fn().mockResolvedValue([snapshot]),
+          failObservedTerminalRunningExecution: vi.fn(),
+        };
+        const recovery = new ReviewV2TerminalRunRecovery(
+          executions as never,
+          {
+            findBySourceRunIdentity: vi.fn().mockResolvedValue({
               ...execution,
               ...intent,
               requestId: "request",
             }),
-        } as never,
-        gateway,
-        clock,
-      );
-      const first = recovery.execute({ limit: 10 });
-      await vi.advanceTimersByTimeAsync(5_000);
-      expect(await first).toMatchObject({ recovered: 0 });
-      expect(await recovery.execute({ limit: 10 })).toMatchObject({
-        recovered: 0,
-      });
-      expect(request).toHaveBeenCalledTimes(1);
-      resolveRequest({
-        data: {
-          id: 123,
-          run_attempt: 1,
-          event: "workflow_dispatch",
-          path: ".github/workflows/reviewrouter-review.yml",
-          display_title: "ReviewRouter review request",
-          status: "completed",
-          conclusion: "failure",
-          repository: { id: 456, full_name: "owner/repo" },
-        },
-      });
-      await vi.advanceTimersByTimeAsync(0);
-      expect(
-        executions.failObservedTerminalRunningExecution,
-      ).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+          } as never,
+          gateway,
+          clock,
+        );
+        const first = recovery.execute({ limit: 10 });
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(await first).toMatchObject({ recovered: 0 });
+        expect(await recovery.execute({ limit: 10 })).toMatchObject({
+          recovered: 0,
+        });
+        expect(forInstallation).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledTimes(phase === "request" ? 1 : 0);
+        if (phase === "installation") {
+          resolveInstallation({ request });
+          await vi.advanceTimersByTimeAsync(0);
+          expect(request).toHaveBeenCalledTimes(1);
+        }
+        resolveRequest({
+          data: {
+            id: 123,
+            run_attempt: 1,
+            event: "workflow_dispatch",
+            path: ".github/workflows/reviewrouter-review.yml",
+            display_title: "ReviewRouter review request",
+            status: "completed",
+            conclusion: "failure",
+            repository: { id: 456, full_name: "owner/repo" },
+          },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(
+          executions.failObservedTerminalRunningExecution,
+        ).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 });
