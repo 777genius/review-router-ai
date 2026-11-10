@@ -717,7 +717,7 @@ function assertTerminalCounts(
 }
 
 /** Terminal counts must satisfy the same nonnegative-integer invariant as publication. */
-function isRequiredCount(value: Prisma.JsonValue): value is number {
+function isRequiredCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
