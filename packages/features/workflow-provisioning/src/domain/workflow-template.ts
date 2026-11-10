@@ -457,7 +457,12 @@ const mimoTokenPlanApiKeySecretName = "MIMO_TOKEN_PLAN_API_KEY";
 function discussionModeExpression(
   options: Pick<ReviewRouterWorkflowOptions, "discussionMode">,
 ): string {
-  return `\${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || '${options.discussionMode ?? "off"}' }}`;
+  if (options.discussionMode !== "suggest") {
+    return `\${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'off' }}`;
+  }
+  // Default-on must not spend the owner's provider quota for unrelated commenters.
+  // GitHub-authored event metadata is available before the Action/runtime starts.
+  return `\${{ github.event_name == 'pull_request_review_comment' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.id > 0 && github.event.comment.user.id == github.event.pull_request.user.id && (vars.REVIEW_ROUTER_DISCUSSION_MODE == '' || vars.REVIEW_ROUTER_DISCUSSION_MODE == 'suggest') && 'suggest' || 'off' }}`;
 }
 
 export function renderReviewRouterWorkflow(
@@ -1959,6 +1964,7 @@ export function renderReviewRouterWorkflowFiles(
           actionRef: options.actionRef,
           apiUrl: options.apiUrl,
           runtimeConfigMode: options.runtimeConfigMode,
+          discussionMode: options.discussionMode,
         }),
       },
     ];
