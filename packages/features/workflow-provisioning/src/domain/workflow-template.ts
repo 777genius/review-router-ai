@@ -467,7 +467,7 @@ function defaultOnDiscussionModeExpression(
   if (options.discussionMode !== "suggest")
     return discussionModeExpression(options);
   // Only the verified same-repository PR author can spend provider quota.
-  return `\${{ github.event_name == 'pull_request_review_comment' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.id > 0 && github.event.comment.user.id == github.event.pull_request.user.id && (vars.REVIEW_ROUTER_DISCUSSION_MODE == '' || vars.REVIEW_ROUTER_DISCUSSION_MODE == 'suggest') && 'suggest' || 'off' }}`;
+  return `\${{ github.event_name == 'pull_request_review_comment' && github.event.action == 'created' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.id > 0 && github.event.comment.user.id == github.event.pull_request.user.id && (vars.REVIEW_ROUTER_DISCUSSION_MODE == '' || vars.REVIEW_ROUTER_DISCUSSION_MODE == 'suggest') && 'suggest' || 'off' }}`;
 }
 
 export function renderReviewRouterWorkflow(
