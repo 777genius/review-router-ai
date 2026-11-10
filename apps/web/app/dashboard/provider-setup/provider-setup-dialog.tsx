@@ -770,9 +770,11 @@ function ProviderChoiceStep({
   const initialChoice = useMemo<Choice | null>(() => {
     if (initialIntent) {
       const key =
-        initialIntent.storage === "reviewrouter"
-          ? "gateway_binding"
-          : githubSourceFor(initialIntent.provider);
+        initialIntent.provider === "claude-code"
+          ? githubSourceFor("claude-code", "subscription")
+          : initialIntent.storage === "reviewrouter"
+            ? "gateway_binding"
+            : githubSourceFor(initialIntent.provider);
       if (key && view.sources.some((source) => source.key === key))
         return { kind: "new", source: key };
     }
@@ -1064,7 +1066,7 @@ function ProviderChoiceStep({
 
   function githubSourceFor(
     provider: SetupProviderId,
-    method: "subscription" | "api_key" = claudeMethod,
+    method: "subscription" | "api_key" = "subscription",
   ): ProviderSourceKey | null {
     if (provider === "claude-code" && method === "api_key")
       return "user_ci_secret:claude_code_api_key";
@@ -1104,7 +1106,7 @@ function ProviderChoiceStep({
 
   function storageAvailabilityFor(provider: SetupProviderId) {
     const githubSource = view.sources.find(
-      (option) => option.key === githubSourceFor(provider),
+      (option) => option.key === githubSourceFor(provider, claudeMethod),
     );
     const gatewayAllowed = view.sources.some(
       (option) => option.key === "gateway_binding" && option.decision.allowed,
