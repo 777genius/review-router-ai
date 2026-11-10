@@ -8,6 +8,21 @@
 
 ## Executive decision
 
+### Implementation and E2E evidence — 2026-11-11
+
+Implementation is **in progress**, not merged or production activated. Separate dependency-ordered PRs:
+- [Sub2API #94](https://github.com/agent-teams-ai/sub2api/pull/94): fixed NVIDIA Chat profile, reuse protected native Responses→Chat bridge, bounded static two-model policy, additive SQL migration 259, strict shared codec regression tests, and real PostgreSQL candidate creation.
+- [Account Gateway #105](https://github.com/agent-teams-ai/account-gateway/pull/105): one trusted provider profile, source-owned API-key profile list, two-model account-source SDK contract and server-side account policy.
+- [Review Router #854](https://github.com/777genius/review-router-ai/pull/854): independent NVIDIA Gateway display/selection identity, fail-closed model-catalog handling, no direct GitHub Secrets provider.
+
+**Passed evidence, source-pinned**: [Gateway native PostgreSQL qualification run 42922347760](https://github.com/agent-teams-ai/account-gateway/actions/runs/42922347760) checked out Sub2API PR #94 SHA `282352f3c5009e2b30ebfab0c0f602998eb26fa1`, passed Go 1.27.3 NVIDIA/static/strict-Responses tests, native regressions, PostgreSQL 17 and real private HTTP managed-account birth using a synthetic key. Subsequent native change was formatting-only. Gateway Checkpoint A, Checkpoint B and full-stack E2E also previously passed on the functional candidate (their actual SHA and run IDs must be checked before final qualification).
+
+**Not yet proven**: a live NVIDIA Build request, actual tool calling/2-turn continuation, production-compatible data terms, exact-head three-repository CI, installed pinned SDK + ReviewRouter browser/PR E2E, or release. The SDK candidate was built and artifact SHA-256 checked; its controlled import into Review Router awaits CI. The GitHub secret `NVIDIA_API_KEY` is not confirmed provisioned in the private disposable sandbox. Never infer a test from a supplied chat credential.
+
+**Critical E2E stop gate**: both NVIDIA models currently advertise `tools: none` **until a real synthetic tool-call canary proves tool semantics**; Review Router therefore must keep tool-dependent reviewer selection disabled. Do **not** flip this to `function` just to turn an E2E green. Once proven, update the same native model source and Gateway capabilities + tests; rerun full synthetic App-first review. The feature is not complete until this gap is closed.
+
+**Production stop remains absolute.** No customer/private project diffs to NVIDIA trial, no production deployment, no auto-fallback, and no merge that implies an unsupported fully agentic reviewer.
+
 **Owner decisions (2026-11-10–11):** free NVIDIA Build sandbox, synthetic nonconfidential PRs only. User additionally authorized proceeding through planned engineering and E2E in all three repositories **without production deploy**. An ephemeral test key was supplied in chat, **not installed as GitHub Actions Secret**; do not reproduce it, embed it in any repository, test/log/issue, or forward it to any unrelated tool. Treat chat-shared credential as exposed and rotate after sandbox qualification. GitHub connection here does **not** offer Actions secret management and the current runtime cannot reach external API endpoints, therefore **live provider E2E remains unrun until the secret is securely installed in an isolated test repository by the owner**. Permission to implement != proof that live API or final PR acceptance is complete.
 
 **Recommend a Gateway-first, independently qualified NVIDIA API-key connection using the existing accounts and execution stack.** Reuse ReviewRouter Providers/Connections UX and workspace/model policies, Account Gateway ownership and SDK, and Sub2API native custody, rate-limit observations, durable request effects and protected execution. **Do not assume Chat translation is required:** first prove whether these exact NVIDIA-hosted models support a working OpenAI Responses endpoint. If yes, reuse native Responses dispatch. If not, reuse the existing pure Responses ↔ Chat codec inside the protected native execution path, **not** an independent provider client.
