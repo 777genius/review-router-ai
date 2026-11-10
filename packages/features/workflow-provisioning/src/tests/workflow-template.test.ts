@@ -904,6 +904,7 @@ describe("renderReviewRouterWorkflow", () => {
     expect(newDefault).toContain(
       "github.event.pull_request.head.repo.full_name == github.repository",
     );
+    expect(newDefault).toContain("github.event.action == 'created'");
     expect(newDefault).toContain("github.event.pull_request.user.id > 0");
     expect(newDefault).not.toContain(
       "vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest'",
