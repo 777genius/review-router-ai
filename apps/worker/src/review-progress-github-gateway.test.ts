@@ -792,7 +792,10 @@ describe("ReviewProgressGitHubGateway", () => {
 
   it("keeps ambiguous PATCH failures retryable", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
-    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
       if (route.startsWith("PATCH ")) throw { status: 404 };
       return fixture.request(route, parameters);
     };
