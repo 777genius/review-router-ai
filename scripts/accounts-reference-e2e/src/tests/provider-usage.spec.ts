@@ -1123,7 +1123,9 @@ test("provider usage renders native lag and partial producer coverage truthfully
       exact: true,
     });
     await expect(
-      usage.getByText(`Updated ${expectedHumanUtc(asOf)}`, { exact: true }),
+      usage.getByText(`Latest update ${expectedHumanUtc(asOf)}`, {
+        exact: true,
+      }),
     ).toBeVisible();
     await usage.getByLabel("Details", { exact: true }).click();
     await expect(

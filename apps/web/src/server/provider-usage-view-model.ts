@@ -43,6 +43,7 @@ export interface ProviderUsageReport {
   from: string;
   to: string;
   asOf: string | null;
+  latestSourceAsOf?: string | null;
   sources: UsagePeriodReport["sources"];
   unattributed: number | null;
   coveredFrom: string | null;
@@ -97,6 +98,12 @@ export function buildUsageReport(
             report.sources[0]!.asOf!,
           )
         : null,
+    // Latest successful source update, not a guarantee that every source is current.
+    latestSourceAsOf: report.sources.reduce<string | null>(
+      (latest, source) =>
+        source.asOf && (!latest || source.asOf > latest) ? source.asOf : latest,
+      null,
+    ),
     sources: report.sources,
     unattributed: report.unattributedCount,
     coveredFrom: report.sources.length

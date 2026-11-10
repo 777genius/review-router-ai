@@ -216,7 +216,7 @@ export function UsageCharts({ report, metric, bucket }: Props) {
         </ul>
         <p className="mt-2 text-xs text-slate-500">
           UTC days · ○ No observations or unknown value · Partial days at period
-          boundaries
+          boundaries describe the time window, not measurement completeness
         </p>
       </section>
       <section

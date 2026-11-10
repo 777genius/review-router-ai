@@ -55,6 +55,35 @@ describe("safe usage browser projection", () => {
     expect(report.rows).toEqual([]);
     expect(report.hasMore).toBe(true);
   });
+  it("shows the latest source update without claiming all sources are current", () => {
+    const source = usageReportFixture();
+    source.sources = [
+      {
+        sourceInstance: "old",
+        coveredFrom: source.from,
+        asOf: "2026-10-30T19:40:12.000Z",
+        lagMs: 1000,
+      },
+      {
+        sourceInstance: "current",
+        coveredFrom: source.from,
+        asOf: "2026-11-10T16:44:32.000Z",
+        lagMs: 10,
+      },
+      {
+        sourceInstance: "pending",
+        coveredFrom: source.from,
+        asOf: null,
+        lagMs: null,
+      },
+    ];
+    const report = buildUsageReport(source);
+    expect(report.asOf).toBeNull();
+    expect(report.latestSourceAsOf).toBe("2026-11-10T16:44:32.000Z");
+    expect(report.sourceLag).toBe("unknown");
+    expect(report.sources).toEqual(source.sources);
+    expect(report.totals).toEqual(source.totals);
+  });
   it("uses proven requested-provider annotation without manufacturing observed usage", () => {
     const source = usageReportFixture();
     const identity = {
