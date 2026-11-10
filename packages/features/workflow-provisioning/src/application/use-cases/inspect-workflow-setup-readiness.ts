@@ -358,6 +358,7 @@ export async function isWorkflowSetupAlreadyCurrent(
         actionRef: input.actionRef,
         apiUrl: expectedPublicApiUrl!,
         runtimeConfigMode: "oidc",
+        discussionMode: input.discussionMode,
       });
   } catch {
     return false;
