@@ -8,11 +8,35 @@
 
 ## Executive decision
 
-**Recommend a Gateway-first, provider-specific, explicitly qualified NVIDIA API-key connection.** Reuse the existing ReviewRouter Providers/Connections UX, workspace binding and model policy, Account Gateway account ownership and SDK, and Sub2API native credential custody, scheduling, rate-limit observations, request effects and protected execution. Implement only a narrow protected NVIDIA Chat Completions adapter in native Sub2API, using the existing pure Responses ↔ Chat Completions codec where verified.
+**Recommend a Gateway-first, independently qualified NVIDIA API-key connection using the existing accounts and execution stack.** Reuse ReviewRouter Providers/Connections UX and workspace/model policies, Account Gateway ownership and SDK, and Sub2API native custody, rate-limit observations, durable request effects and protected execution. **Do not assume Chat translation is required:** first prove whether these exact NVIDIA-hosted models support a working OpenAI Responses endpoint. If yes, reuse native Responses dispatch. If not, reuse the existing pure Responses ↔ Chat codec inside the protected native execution path, **not** an independent provider client.
 
 **Do not** add a parallel account system, a generic arbitrary-base-URL proxy, a second quota scheduler, a new public secret store, a new feature flag, or implicit NVIDIA/OpenRouter failover. No operational action is authorized by this proposal.
 
 The free NVIDIA API trial is **not** a safe production default: NVIDIA's API Trial Terms constrain it to evaluation/development, restrict confidential and personal data, and permit described content processing. Do not send private or customer PR diffs to a trial endpoint. A distinct paid, contractually permitted production profile would need independent legal/security approval and qualification.
+
+## Architecture refinement — one provider descriptor, two wire formats, no second account engine
+
+The product expectation is right: OpenAI-compatible providers should be easy to add. The existing account infrastructure is reusable; the **missing reusable seam is a small, finite upstream wire strategy and model-admission policy within native**, not another Account Gateway/ReviewRouter account framework.
+
+**Separate three concerns that already have distinct owners:**
+
+| Concern | Existing authority to reuse | NVIDIA-specific addition |
+| --- | --- | --- |
+| Provider/account identity and capabilities | Gateway `providerConnectionRegistry`; SDK `provider-connections/v1` | One qualified NVIDIA API-key profile, no new account type or table |
+| Execution/custody/limits/UNKNOWN | Native Sub2API public Responses wire, protected transport and durable Gateway effects | Fixed upstream origin and proven wire strategy: `responses` if supported for exact model, otherwise `chat_completions` using existing pure codec |
+| Review policy and UI | ReviewRouter Gateway account selection, bindings, model picker and App-first workflow | Show trusted NVIDIA profile returned by Gateway; do **not** create another hardcoded direct-key provider workflow |
+
+**What is already consistent:** Gateway's provider registry already supports the `"openai-chat"` **protocol value**, but `providerConnectionDefinition.protocol` currently describes the **consumer/public profile protocol**. Do not change it to `openai-chat` just because NVIDIA upstream uses Chat: `ReviewRouter → Gateway → Sub2API` currently runs `openai-responses`. In native transport, resolve the upstream wire format from a trusted, fixed profile definition **after** authorization. A browser-supplied base URL, protocol or model list must never select execution behavior.
+
+**Where current hardcoding remains (and why it matters):**
+- [Gateway service-config.ts](https://github.com/agent-teams-ai/account-gateway/blob/main/services/account-gateway/src/service-config.ts) caps optional `providerProfiles` to three and explicitly enumerates Kimi/GLM/MiniMax. A new NVIDIA API-key profile currently cannot simply be added to the SDK registry and work automatically. Generalize **only this finite optional API-key profile registration** in a checked manner, not an arbitrary plugin endpoint.
+- [Gateway facade.ts](https://github.com/agent-teams-ai/account-gateway/blob/main/services/account-gateway/src/facade.ts) starts each account with one immutable model anchor; [Gateway native-authority.ts](https://github.com/agent-teams-ai/account-gateway/blob/main/services/account-gateway/src/native-authority.ts) rejects any other requested model without account-model qualification. The SDK's [account-model discovery sources](https://github.com/agent-teams-ai/account-gateway/blob/main/packages/account-gateway/src/features/facade-client/contracts/index.ts) currently authorize **Codex/OpenRouter only**. Hence two NVIDIA models on one account need a **source-qualified static multi-model list**, reused through the existing admission/owner fences; no arbitrary UI allowlist.
+- [Sub2API gatewaytransport/registry.go](https://github.com/agent-teams-ai/sub2api/blob/main/backend/internal/gatewaytransport/registry.go) and [native identity dispatch](https://github.com/agent-teams-ai/sub2api/blob/main/backend/internal/service/native_gateway_identity.go) independently verify exact profile, origin and model. Retain those independent checks: duplication of *security validation* across trust boundaries is intentional; duplication of account lifecycle, DTOs, provider dialogs or codecs is not.
+- [ReviewRouter setup-provider.ts](../../apps/web/src/features/provider-setup/setup-provider.ts) currently enumerates known API key/subscription setup providers and treats only `"openai-responses"` as a Gateway candidate. For Gateway-backed connections, **consume trusted provider capability metadata** instead of hardcoding new vendor branches in every setup/identity component. Keep the existing finite GitHub Secrets provider list separate. The product should not inherit arbitrary unknown provider IDs from user labels.
+
+**Small reusable design, not a generic plugin platform:** a fixed native `QualifiedUpstreamProfile` (profile ID, endpoint, upstream wire, bounded model policy and validated capabilities), a reusable proven `Responses/Chat` converter, and one qualified connection in Gateway. Extract shared code only in the specific hardcoded branches exercised by NVIDIA; avoid broad provider rewrites, migration, new scheduler, dynamic endpoint registry or feature flags.
+
+**Provider bootstrap should reject unknown/unsupported tuples.** Some NIM **self-hosted** backends document `POST /v1/responses`; this does **not** establish support for both selected **NVIDIA Build-hosted** models. The specific hosted endpoint is a **P0 two-model spike**, not an architectural assumption: [NVIDIA NIM self-hosted API reference](https://docs.nvidia.com/nim/large-language-models/latest/function-calling.html) versus [hosted NIM API catalog](https://docs.api.nvidia.com/nim/reference/llm-apis).
 
 ## 1. Current findings, checked against source
 
@@ -45,19 +69,19 @@ The free NVIDIA API trial is **not** a safe production default: NVIDIA's API Tri
 
 ## 2. NVIDIA public API and eligibility evidence
 
-- NVIDIA Build sample/Reference API uses OpenAI-compatible **POST /v1/chat/completions**, base URL **https://integrate.api.nvidia.com/v1**, API key authentication and possible streaming. This is **not proof** that a hosted **/v1/responses** endpoint exists. Reference: [NVIDIA API documentation](https://docs.api.nvidia.com/nim/reference/llm-apis).
-- Candidate A: [DeepSeek V4.1 Flash on NVIDIA](https://build.nvidia.com/deepseek-ai/deepseek-v4.1-flash). Candidate B: [GLM 5.3 Flash on NVIDIA](https://build.nvidia.com/z-ai/glm-5-3-flash). Model identifiers, tool/stream support, account authorization and output shape must be proved using exact official sample + controlled invocation, not inferred from marketing badges.
+- NVIDIA Build hosted samples expose OpenAI-compatible **POST /v1/chat/completions**, base URL **https://integrate.api.nvidia.com/v1** and Bearer API keys. Some **self-hosted** NVIDIA NIM implementations also document **POST /v1/responses**; endpoint support must be checked **for each exact hosted model** rather than inferred from the NIM server's feature table. References: [hosted API catalog](https://docs.api.nvidia.com/nim/reference/llm-apis), [NIM self-hosted reference](https://docs.nvidia.com/nim/large-language-models/latest/function-calling.html).
+- Candidate A: [DeepSeek V4.1 Flash on NVIDIA](https://build.nvidia.com/deepseek-ai/deepseek-v4.1-flash), documented model ID **`deepseek-ai/deepseek-v4.1-flash`** ([model API reference](https://docs.api.nvidia.com/nim/reference/nvidia-deepseek-v4_1-flash-infer)). Candidate B: [GLM 5.3 Flash on NVIDIA](https://build.nvidia.com/z-ai/glm-5-3-flash), documented model ID **`z-ai/glm-5.3-flash`** ([sample client](https://build.nvidia.com/z-ai/glm-5-3-flash/build)). Per-model tool/stream/schema/Responses support and live account authorization must be proved, not inferred from marketing badges.
 - Candidate C: [Kimi K3.1 Pro on NVIDIA](https://build.nvidia.com/moonshotai/kimi-k3_1-pro) is **preview/playground only as currently advertised**, not a callable API model; **do not display it as executable** until NVIDIA publishes actual working programmatic API access.
 - [NVIDIA API Trial Terms](https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf): **§1.2/§1.4** restrict trial use to internal evaluation/nonproduction; **§2.6(a)** bars confidential/sensitive/personal data (unless expressly permitted); **§3.3** allows processing User Content and Generated Content for service/model improvement; **§4.12** may require competition/use-case review. A production paid/partner offering has its own separate terms. These require legal/security review before any real user PR body is sent.
 - A universal guaranteed free daily request quota was **not established**. Rate-per-minute anecdotes and trial credits are not an API contract. Do **not** promise “more free requests than OpenRouter,” invent a daily capacity or implement evasion/rotation. Native should expose only account-specific, observed authoritative dimensions; otherwise show **Unknown**.
 
 ### Contract-first wire decision
 
-Keep **ReviewRouter/SDK → /v1/responses** as is. Sub2API's **qualified native NVIDIA provider** may translate:
-1. Strictly admitted Responses request → supported NVIDIA Chat Completions request.
-2. Supported streaming Chat Completions/tool deltas → validated Responses events; enforce terminal finish/usage and byte/time bounds.
-3. Real upstream 429 and documented rate metadata → existing native busy/cooldown/usage mechanisms.
-4. Provider timeout/disconnect/ambiguous write → existing durable **UNKNOWN**, with no new attempt and no silent fallback.
+Keep **ReviewRouter/SDK → /v1/responses** as is. Two native strategies, chosen by **qualified model and fixed upstream profile**, not runtime user configuration:
+1. **Native Responses first:** if a controlled synthetic probe confirms that the exact hosted NVIDIA model accepts `/v1/responses` with our required tools/stream/replay, use existing Responses path unchanged except its fixed provider policy/endpoint and model admission.
+2. **Protected Chat fallback:** otherwise strictly validate the Responses input **before entry**, then reuse existing pure `apicompat.ResponsesToChatCompletionsRequestWithOptions` and `ChatCompletionsToResponses` stream state inside a protected native transport, not the ordinary forwarding path. Validate SSE terminal, schema/tool fidelity, history and usage. A model unable to support required semantics is unsupported, not silently downgraded.
+3. Real upstream 429 and documented rate metadata → existing native busy/cooldown/usage mechanisms (no new quota scheduler).
+4. Provider timeout/disconnect/ambiguous write → existing durable **UNKNOWN**, no new attempt and no implicit fallback.
 
 Conversion must preserve prompt history, call IDs, tool schemas and output schema semantics that are actually supported. Unsupported features must fail **before** native upstream entry. A response “completed” is not enough to prove correct code review; the actual ReviewRouter findings schema and GitHub App evidence must also pass. If the codec cannot preserve required agentic semantics, stop qualification instead of weakening validator or faking tool support.
 
@@ -66,7 +90,7 @@ Conversion must preserve prompt history, call IDs, tool schemas and output schem
 | Option | Benefits | Costs / risks | Decision |
 | --- | --- | --- | --- |
 | A. New direct NVIDIA provider in ReviewRouter/GitHub Secrets | Independent key in GitHub CI | Duplicates provider entry, workflow descriptors, execution/protocol path; no account sharing/limits in Gateway; wrong first layer for the request | **Not first** |
-| **B. Add qualified NVIDIA profile in Account Gateway + native Sub2API** | Existing encrypted accounts, distinct connection, model selection, usage, owner/workspace access, E2E route | Requires guarded Chat conversion and exact source-pinned coordinated release | **Recommended** |
+| **B. Add qualified NVIDIA profile in Account Gateway + native Sub2API** | Existing encrypted accounts, distinct connection, model selection, usage, owner/workspace access, E2E route | Native model admission and conditional guarded Chat conversion if Responses is absent, source-pinned release | **Recommended** |
 | C. Select NVIDIA-branded models through existing OpenRouter account | No new provider integration | OpenRouter credits/limits/terms; **not** a separate NVIDIA account; different upstream routing | **Does not meet goal** |
 | D. Generic URL / arbitrary vendor proxy in Gateway | Potential future extensibility | Host escape/SSRF, model/protocol ambiguity, custody/qualification bypass, unnecessary abstractions | **Reject** |
 
@@ -81,12 +105,12 @@ Conversion must preserve prompt history, call IDs, tool schemas and output schem
       └─ fixed profile = nvidia-build-chat-apikey-v1
            ↓ fixed provider identifier + immutable native qualification
     Sub2API native (existing owner of one-entry, credits/cooldowns, cancellations)
-      ├─ strict Responses admission and capability check
-      ├─ pure Responses→Chat encoder, fixed NVIDIA host
-      ├─ Chat SSE→Responses decoder, usage and terminal qualification
-      └─ strict no-duplicate/UNKNOWN, no secret leakage
-           ↓
-    https://integrate.api.nvidia.com/v1/chat/completions
+      ├─ strict model and Responses admission
+      ├─ verified upstream /responses (if supported by exact hosted model)
+      ├─ OR protected pure Responses↔Chat conversion
+      └─ existing usage/terminal/cancel/UNKNOWN, no secret leakage
+           ↓ fixed qualified host and model
+    https://integrate.api.nvidia.com/v1/{responses | chat/completions}
 
 **Account isolation:** An NVIDIA key belongs to its exact owner/account/physical generation and cannot be silently recycled as an OpenRouter key. UI access must pass existing personal ownership, explicit workspace binding, authorizations, and lease/revision checks.
 
@@ -102,9 +126,9 @@ Conversion must preserve prompt history, call IDs, tool schemas and output schem
 
 ### P0 — contract and sandbox spike (no production state)
 
-- Lock down NVIDIA model IDs and exact request/response/stream behavior with redacted official examples or an explicitly owner-authorized, disposable API key. Verify 200/400/401/429/stream and finish semantics; replay function results and 2-turn code-review prompt.
+- Lock down NVIDIA model IDs and exact request/response/stream behavior with redacted official examples or an explicitly owner-authorized, disposable API key. **Before writing a Chat bridge, test whether each selected hosted model actually supports /v1/responses with a sufficient subset of our tool/stream requirements.** Verify 200/400/401/429/stream and finish semantics; replay function results and a 2-turn code-review prompt.
 - Inspect license/trial restrictions and assign use only to synthetic/public disposable code; no existing customer/project source.
-- Prove codec fitness: Responses→Chat (instructions, messages, tool schema, functions, strict JSON) and Chat→Responses (stream chunks, usage, terminal state) with existing apicompat functions. Negative fixtures must reject unsupported client features pre-entry.
+- Only where hosted Responses fails or lacks capabilities, prove existing pure codec fitness: Responses→Chat (instructions, messages, tool schema, functions, strict JSON) and Chat→Responses (stream chunks, usage, terminal state). Negative fixtures must reject unsupported client features pre-entry. Do **not** spend effort creating a bridge when an existing qualified Responses path works.
 - Record upstream headers/error evidence without response content, bearer tokens, private source, or traceable prompts; capture precise capabilities, not guessed.
 
 **Exit:** explicit protocol and legal matrix; if required code review behaviors are unsupported, return a no-go.
@@ -179,7 +203,7 @@ No gate is pre-approved by creating or merging this documentation PR.
 
 ## 8. Engineering budget and explicit non-goals
 
-**Indicative changed production + tests LOC, not a fixed quote:** native Sub2API **900–1,900**; Gateway/SDK **350–900**; ReviewRouter UI/policy **350–900**; cross-repo fixtures/E2E/documentation **300–700**; **total 1,900–4,400**. Complexity **6–7/10** (the meaningful risk is trustworthy Chat→Responses tool streaming and effect semantics, not the UI).
+**Revised estimate, including tests, provisional until exact model P0:** if NVIDIA-hosted **Responses works** with our tools/stream: approximately **800–1,800 changed LOC across all repositories** (complexity **4–5/10**); if **protected Chat translation is required**: approximately **1,700–3,400 LOC** (complexity **6–7/10**). A small synthetic protocol spike is around **100–300 LOC** of disposable fixtures/harness if existing test utilities suffice. These are estimates, not verified diff sizes. The cost centre is model authority, end-to-end/negative evidence, codec correctness and three independent trust-boundary releases; merely adding a visual card is small.
 
 Three review passes conducted for this proposal:
 
