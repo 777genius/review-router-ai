@@ -142,6 +142,48 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     ]);
   });
 
+  it("locks the installation budget before reserving it", async () => {
+    const calls: string[] = [];
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async () => {
+            calls.push("insert");
+            return 1;
+          },
+          $queryRaw: async () => {
+            calls.push("lock");
+            return [];
+          },
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: async () => {
+              calls.push("read");
+              return { nextMutationAt: now, cooldownUntil: null };
+            },
+            update: async () => {
+              calls.push("reserve");
+              return {};
+            },
+          },
+          reviewProgressPublicationV1: {
+            count: async () => {
+              calls.push("fence");
+              return 1;
+            },
+          },
+        }),
+    } as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        publication: claimed(),
+        now,
+        minimumIntervalMs: 1_000,
+      }),
+    ).resolves.toEqual({ allowed: true });
+    expect(calls).toEqual(["insert", "lock", "read", "fence", "reserve"]);
+  });
+
   it("does not consume installation budget after losing the claim fence", async () => {
     const budgetUpdate = vi.fn();
     const prisma = {
