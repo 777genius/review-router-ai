@@ -223,7 +223,8 @@ describe("provider usage interactive report", () => {
       <Harness
         seed={{
           ...report,
-          asOf: "2026-11-10T16:44:32.000Z",
+          asOf: "2026-10-30T19:40:12.000Z",
+          latestSourceAsOf: "2026-11-10T16:44:32.000Z",
           sources: [
             {
               sourceInstance: "old",

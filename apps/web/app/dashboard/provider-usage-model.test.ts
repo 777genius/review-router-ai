@@ -78,7 +78,8 @@ describe("safe usage browser projection", () => {
       },
     ];
     const report = buildUsageReport(source);
-    expect(report.asOf).toBe("2026-11-10T16:44:32.000Z");
+    expect(report.asOf).toBeNull();
+    expect(report.latestSourceAsOf).toBe("2026-11-10T16:44:32.000Z");
     expect(report.sourceLag).toBe("unknown");
     expect(report.sources).toEqual(source.sources);
     expect(report.totals).toEqual(source.totals);
