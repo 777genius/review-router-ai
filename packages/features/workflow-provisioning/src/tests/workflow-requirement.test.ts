@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   comparableWorkflowRequirement,
+  defaultReviewDiscussionMode,
   renderedWorkflowRequirement,
   inspectRequiredWorkflowTransport,
   inspectRequiredWorkflowRequirement,
@@ -78,6 +79,13 @@ const hybridRotating = config([
 ]);
 
 describe("workflow requirement", () => {
+  it("enables new discussion replies only for rotating Codex setup", () => {
+    expect(defaultReviewDiscussionMode("rotating")).toBe("suggest");
+    for (const transport of ["gateway", "provider_api", "ci_secrets", "hosted_pool"] as const) {
+      expect(defaultReviewDiscussionMode(transport)).toBe("off");
+    }
+  });
+
   it("accepts every all-Gateway roster and rejects a mixed transport without reducing it", () => {
     const gateway = {
       kind: "codex",
