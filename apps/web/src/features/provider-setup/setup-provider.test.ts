@@ -87,11 +87,14 @@ describe("provider setup registry", () => {
     );
   });
 
-  it("advertises Codex and Claude enrollment before any accounts exist", () => {
+  it("never advertises central Claude subscription OAuth enrollment", () => {
     expect(gatewaySetupProvidersForProfiles([codex, claude])).toEqual([
       "codex",
-      "claude-code",
     ]);
+    expect(gatewaySetupProvidersForProfiles([claude])).toEqual([]);
+    // The user-owned GitHub Secret routes are still available.
+    expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe("claude-code");
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe("claude-code");
   });
 
   it.each([
@@ -205,7 +208,7 @@ describe("provider setup registry", () => {
 
   it("maps qualified connection metadata and ignores editable labels or models", () => {
     expect(setupProviderForGatewayProfile(codex)).toBe("codex");
-    expect(setupProviderForGatewayProfile(claude)).toBe("claude-code");
+    expect(setupProviderForGatewayProfile(claude)).toBeUndefined();
     expect(
       setupProviderForGatewayProfile(
         profile({
