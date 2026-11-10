@@ -356,6 +356,35 @@ async function claimDuePublication(
     );
     return null;
   }
+  const eligible = await loadPublishableGitHubRepository(
+    transaction,
+    publication,
+    candidate,
+    input.now,
+  );
+  if (!eligible) return null;
+  return claimPreparedPublication(
+    transaction,
+    input,
+    candidate,
+    publication,
+    progress,
+    eligible.repository,
+    eligible.installation,
+  );
+}
+
+/** Check GitHub repository eligibility before writing the publication claim. */
+async function loadPublishableGitHubRepository(
+  transaction: Prisma.TransactionClient,
+  publication: {
+    readonly repositoryConnectionId: string;
+    readonly workspaceId: string;
+    readonly scmRepositoryIdentityId: string;
+  },
+  scope: ClaimedReviewProgress["scope"],
+  now: Date,
+) {
   const repository = await transaction.repositoryConnection.findUnique({
     where: { id: publication.repositoryConnectionId },
     include: {
@@ -375,21 +404,13 @@ async function claimDuePublication(
   ) {
     await deferUnavailablePublication(
       transaction,
-      candidate,
-      input.now,
+      scope,
+      now,
       "review_progress_github_repository_unavailable",
     );
     return null;
   }
-  return claimPreparedPublication(
-    transaction,
-    input,
-    candidate,
-    publication,
-    progress,
-    repository,
-    repository.installation,
-  );
+  return { repository, installation: repository.installation };
 }
 
 /** Validate a candidate against the exact active progress generation. */
