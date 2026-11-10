@@ -16,7 +16,9 @@ export function gatewayProviderModelOptions(
   const nativeSource =
     profile?.connection?.provider === "openrouter"
       ? "openrouter"
-      : profile?.connection?.provider === "openai"
+      : profile?.connection?.provider === "nvidia"
+        ? "nvidia"
+        : profile?.connection?.provider === "openai"
         ? "codex"
         : undefined;
   const now = Date.now();
