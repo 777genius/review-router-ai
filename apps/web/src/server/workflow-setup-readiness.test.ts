@@ -691,7 +691,9 @@ describe("workflow setup readiness", () => {
       runtimeConfigMode: "oidc" as const,
       discussionMode: "suggest" as const,
     };
-    expect(validator?.(renderCodexRotatingInteractionWorkflow(options))).toBe(true);
+    expect(
+      validator?.(renderCodexRotatingInteractionWorkflow(options)),
+    ).toBe(true);
     expect(
       validator?.(renderCanonicalCodexRotatingInteractionWorkflowV3(options)),
     ).toBe(false);
