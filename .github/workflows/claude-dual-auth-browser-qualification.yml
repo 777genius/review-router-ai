@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/claude-dual-auth-browser-qualification.yml
       - scripts/provider-setup-visual/flows.ts
+      - scripts/provider-setup-visual/ui.ts
       - scripts/provider-setup-visual/onboarding-qualification.ts
       - apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx
       - apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx
