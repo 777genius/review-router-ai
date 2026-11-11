@@ -1267,7 +1267,7 @@ export function analyzeWorkflowProviderCompatibility(input: {
       input.workflowYaml.includes(requiredSecret) &&
       (workflowStyle !== "explicit" ||
         !apiKeySelected ||
-        /^\s*ANTHROPIC_API_KEY:\s*\$\{\{\s*secrets\.ANTHROPIC_API_KEY\s*\}\}\s*$/m.test(
+        /^\s*ANTHROPIC_API_KEY:\s*(["']?)\$\{\{\s*secrets\.ANTHROPIC_API_KEY\s*\}\}\1\s*$/m.test(
           input.workflowYaml,
         ));
     if (!secretIsForwarded) {
