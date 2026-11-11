@@ -43,9 +43,11 @@ const skillsCatalogMigrationName = "000150_skills_catalog_security";
 const reviewHistoryMigrationName = "000151_review_history";
 const unifiedModelDispatchMigrationName = "000154_unified_model_dispatch";
 const usageMemberReportIndexName = "000155_usage_member_report_index";
+const claudeApiKeyMigrationName = "000156_claude_code_api_key_secret";
 const readPreIndexCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
-    (row) => row.migrationName !== usageMemberReportIndexName,
+    (row) => row.migrationName !== usageMemberReportIndexName &&
+      row.migrationName !== claudeApiKeyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
   rows: readonly T[],
@@ -199,6 +201,7 @@ const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
+      name !== claudeApiKeyMigrationName &&
       name !== usageMemberReportIndexName &&
       name !== gatewayAllocationsMigrationName &&
       !renderConversationalMemoryCheckoutExtension.some(
@@ -586,7 +589,16 @@ const canonicalPrefix = (count: number) =>
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
-    const full = readRenderManagedCheckoutInventory();
+    const withClaude = readRenderManagedCheckoutInventory();
+    expect(withClaude).toHaveLength(161);
+    expect(withClaude.at(-1)).toEqual({
+      migrationName: claudeApiKeyMigrationName,
+      checksum: "2fbf057867678221b77369316922bfc73851f328959d24933ab3bd543746c03f",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(withClaude)).toEqual(catalog);
+    const full = withClaude.filter(
+      (row) => row.migrationName !== claudeApiKeyMigrationName,
+    );
     expect(full).toHaveLength(160);
     expect(full.at(-1)).toEqual({
       migrationName: usageMemberReportIndexName,
@@ -2934,7 +2946,12 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(160);
+    expect(inventory).toHaveLength(161);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, claudeApiKeyMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(160);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, usageMemberReportIndexName), {
       recursive: true,
