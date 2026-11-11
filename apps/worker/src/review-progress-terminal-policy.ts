@@ -78,4 +78,3 @@ function isRequiredCount(value: unknown): value is number {
 function isRecord(value: unknown): value is Record<string, Prisma.JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-

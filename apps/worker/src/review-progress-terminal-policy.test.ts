@@ -13,7 +13,9 @@ describe("Review progress terminal policy", () => {
       "complete_with_gaps",
     );
     expect(executionStateTerminal("completed", "failed")).toBe("failed");
-    expect(executionStateTerminal("completed", "superseded")).toBe("superseded");
+    expect(executionStateTerminal("completed", "superseded")).toBe(
+      "superseded",
+    );
     expect(executionStateTerminal("running", "succeeded")).toBeNull();
   });
 
