@@ -315,6 +315,7 @@ it.each([
 function dynamicModelFixture(
   options: {
     source?: "codex" | "openrouter";
+    profileId?: string;
     fetchedAt?: string;
     expiresAt?: string;
     large?: boolean;
@@ -348,7 +349,7 @@ function dynamicModelFixture(
       | "transient-checked-inline-gateway-full-thread-v1";
   } = {},
 ) {
-  const profileId = "openrouter-openai-responses-apikey-v1";
+  const profileId = options.profileId ?? "openrouter-openai-responses-apikey-v1";
   const model = "vendor/dynamic-qualified-model";
   const identity: ConversationIdentity = {
     workspaceId: options.workspaceId ?? "workspace_probe",
@@ -790,6 +791,14 @@ it.each([
   { staleSource: true },
 ])("v2 retains exact model/profile qualification %j", async (options) => {
   const f = dynamicModelFixture({ capabilityV2: true, ...options });
+  await expect(f.capture()).rejects.toThrow("unavailable");
+  expect(f.fetch).not.toHaveBeenCalled();
+});
+
+it("rejects NVIDIA evaluation accounts in follow-up discussions before model transport", async () => {
+  const f = dynamicModelFixture({
+    profileId: "nvidia-build-chat-apikey-v1",
+  });
   await expect(f.capture()).rejects.toThrow("unavailable");
   expect(f.fetch).not.toHaveBeenCalled();
 });
