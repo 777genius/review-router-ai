@@ -34,6 +34,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV1,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCanonicalCodexRotatingInteractionWorkflowV4,
   renderCodexRotatingInteractionWorkflow,
   scanCodexRotatingAdvisoryWorkflow,
   workflowChecksOutReviewRouterRuntime,
@@ -883,6 +884,52 @@ describe("renderReviewRouterWorkflow", () => {
     });
   });
 
+  it("keeps v3 interaction bytes stable and installs v4 only for author-gated replies", () => {
+    const options = {
+      actionRef:
+        "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+      apiUrl: "https://reviewrouter.org",
+      runtimeConfigMode: "oidc" as const,
+      discussionMode: "suggest" as const,
+    };
+    const legacy = renderCanonicalCodexRotatingInteractionWorkflowV3(options);
+    const newDefault =
+      renderCanonicalCodexRotatingInteractionWorkflowV4(options);
+    expect(legacy).toContain(
+      "REVIEW_ROUTER_DISCUSSION_MODE: ${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest' }}",
+    );
+    expect(legacy).not.toContain("github.event.comment.user.id");
+    expect(newDefault).toContain(
+      "github.event.comment.user.id == github.event.pull_request.user.id",
+    );
+    expect(newDefault).toContain(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    );
+    expect(newDefault).toContain("github.event.action == 'created'");
+    expect(newDefault).toContain("github.event.pull_request.user.id > 0");
+    expect(newDefault).not.toContain(
+      "vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest'",
+    );
+    expect(newDefault.match(/github.event.comment.user.id/g)).toHaveLength(2);
+    expect(renderCodexRotatingInteractionWorkflow(options)).toBe(newDefault);
+    expect(() =>
+      renderCanonicalCodexRotatingInteractionWorkflowV4({
+        ...options,
+        discussionMode: "off",
+      }),
+    ).toThrow("codex_interaction_v4_requires_suggest");
+    const files = renderReviewRouterWorkflowFiles({
+      ...options,
+      codexRotatingProviderInstanceId: "codex-rotating:123456",
+      staticRuntimeEnv: { REVIEW_AUTH_MODE: "codex-oauth-rotating" },
+    });
+    expect(
+      workflowFileContent(
+        files.find((file) => file.path === defaultInteractionWorkflowPath),
+      ),
+    ).toBe(newDefault);
+  });
+
   it("renders the dedicated rotating Codex interaction workflow", () => {
     const workflow = renderCodexRotatingInteractionWorkflow({
       actionRef:
@@ -1307,7 +1354,16 @@ describe("renderReviewRouterWorkflow", () => {
     );
 
     expect(interactionWorkflowContent).toContain(
-      "discussion_mode: ${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest' }}",
+      "discussion_mode: ${{ github.event_name == 'pull_request_review_comment'",
+    );
+    expect(interactionWorkflowContent).toContain(
+      "github.event.comment.user.id == github.event.pull_request.user.id",
+    );
+    expect(interactionWorkflowContent).toContain(
+      "(vars.REVIEW_ROUTER_DISCUSSION_MODE == '' || vars.REVIEW_ROUTER_DISCUSSION_MODE == 'suggest')",
+    );
+    expect(interactionWorkflowContent).not.toContain(
+      "vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest'",
     );
   });
 

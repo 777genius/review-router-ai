@@ -787,6 +787,7 @@ describe("provisionReviewRouterWorkflow", () => {
         apiUrl: "https://app.reviewrouter.dev",
         runtimeConfigMode: "oidc",
         workflowStyle: "reusable",
+        discussionMode: "suggest",
         conflictReviewFallbackEnabled: false,
         codexRotatingProviderInstanceId: "codex-rotating:123456",
       },
@@ -858,6 +859,15 @@ describe("provisionReviewRouterWorkflow", () => {
       "CODEX_AUTH_JSON_PRESENT: ${{ secrets.REVIEWROUTER_CODEX_AUTH_JSON != '' && '1' || '0' }}",
     );
     expect(interactionWorkflowContent).not.toContain("secrets.CODEX_AUTH_JSON");
+    expect(interactionWorkflowContent).toContain(
+      "github.event.comment.user.id == github.event.pull_request.user.id",
+    );
+    expect(interactionWorkflowContent).toContain(
+      "vars.REVIEW_ROUTER_DISCUSSION_MODE == 'suggest'",
+    );
+    expect(interactionWorkflowContent).not.toContain(
+      "vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest'",
+    );
     expect(workflowFiles).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

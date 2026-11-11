@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+AI discussion default-on onboarding: [qualified, author-only rotating Codex setup](2026-11-11-ai-discussion-default-onboarding.md), [PR #856](https://github.com/777genius/review-router-ai/pull/856) — staging/production `pending`; coordinate web/API attestation rollout before any new v4 caller activation. No deployment or Action release claimed.
+
 get-tok onboarding and analytics: [PR #853 delivery and UX audit](2026-11-11-get-tok-onboarding.md) — production `deployed`; two pre-deployment real reviews and their eventual Statistics/Usage verified. The existing Codex connection was used by explicit owner choice; fresh OAuth identity conflict and listed UX follow-ups remain open.
 
 Action232 and SaaS Usage/stream delivery: [production and live canary record](2026-11-10-action232-usage-and-stream.md) — #849/#850 and Action232 `deployed`; Codex review, Statistics and Usage verified. Two earlier ambiguous lifecycle attempts remain unknown; disk and durable fact-budget follow-up remain open.

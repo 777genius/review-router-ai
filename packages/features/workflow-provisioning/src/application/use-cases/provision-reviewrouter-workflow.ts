@@ -14,7 +14,7 @@ import {
   type AuditLogRepositoryPort,
 } from "@reviewrouter/features-audit-log";
 import {
-  renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCodexRotatingInteractionWorkflow,
   renderReviewRouterWorkflowFiles,
   renderAccountGatewayWorkflow,
   renderAccountGatewayInteractionWorkflow,
@@ -213,10 +213,13 @@ export async function provisionReviewRouterWorkflow(
     ? reviewRouterWorkflowContract.channel
     : plan.actionRef;
   if (plan.codexRotatingProviderInstanceId) {
-    renderCanonicalCodexRotatingInteractionWorkflowV3({
+    renderCodexRotatingInteractionWorkflow({
       actionRef: plan.actionRef,
       apiUrl: plan.apiUrl,
       runtimeConfigMode: plan.runtimeConfigMode,
+      ...(plan.discussionMode !== undefined
+        ? { discussionMode: plan.discussionMode }
+        : {}),
     });
   }
 
@@ -358,6 +361,9 @@ export async function provisionReviewRouterWorkflow(
           apiUrl: plan.apiUrl,
           runtimeConfigMode: plan.runtimeConfigMode,
           workflowStyle: plan.workflowStyle,
+          ...(plan.discussionMode !== undefined
+            ? { discussionMode: plan.discussionMode }
+            : {}),
           conflictReviewFallbackEnabled:
             plan.conflictReviewFallbackEnabled === true,
           forkAgenticSandboxEnabled: plan.forkAgenticSandboxEnabled === true,
