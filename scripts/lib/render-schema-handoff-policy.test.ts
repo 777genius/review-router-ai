@@ -591,8 +591,17 @@ const canonicalPrefix = (count: number) =>
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
     const full = readRenderManagedCheckoutInventory();
-    expect(full).toHaveLength(160);
+    expect(full).toHaveLength(161);
     expect(full.at(-1)).toEqual({
+      migrationName: verifiedReplyMigrationName,
+      checksum:
+        "690327803b321cad8914c1ac489751ad140e7b39126115bf826138959b3f3888",
+    });
+    const fullWithoutReply = full.filter(
+      (row) => row.migrationName !== verifiedReplyMigrationName,
+    );
+    expect(fullWithoutReply).toHaveLength(160);
+    expect(fullWithoutReply.at(-1)).toEqual({
       migrationName: usageMemberReportIndexName,
       checksum:
         "3f443fcdc18924dd5f1bf3c6eacbbc68969ce26811975206261b3aca014dcfd7",
@@ -2938,7 +2947,12 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(160);
+    expect(inventory).toHaveLength(161);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, verifiedReplyMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(160);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, usageMemberReportIndexName), {
       recursive: true,
@@ -3382,7 +3396,10 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(directory, { recursive: true });
       // Removing only the concurrent index restores exact reviewed checkout159.
       // A partial memory pair or an unpublished combination stays rejected.
-      if (name === usageMemberReportIndexName)
+      if (
+        name === usageMemberReportIndexName ||
+        name === verifiedReplyMigrationName
+      )
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
