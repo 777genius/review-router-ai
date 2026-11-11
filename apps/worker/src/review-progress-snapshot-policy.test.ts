@@ -45,9 +45,10 @@ describe("Review progress snapshot policy", () => {
         generation: Number.MAX_SAFE_INTEGER + 1,
       }),
     ).toThrow("review_progress_snapshot_invalid");
-    expect(() =>
-      parseSnapshot({ ...validSnapshot, phase: "unknown" }),
-    ).toThrow("review_progress_snapshot_invalid");
+    const invalidPhase = { ...validSnapshot, phase: "unknown" };
+    expect(() => parseSnapshot(invalidPhase)).toThrow(
+      "review_progress_snapshot_invalid",
+    );
   });
 
   it("rejects negative counters and invalid valid-coverage fields", () => {
