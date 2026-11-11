@@ -842,11 +842,10 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       const page = await flow.open("owner", repositoryRoute(repositoryKey), {
         theme: "dark",
       });
-      // Search and expand through the same controls as a user. On long lists
-      // the selected row may render as a collapsed summary after hydration.
-      await page
-        .getByRole("searchbox", { name: "Find repository" })
-        .fill(repository.name);
+      // The direct repository URL already identifies and renders this row.
+      // Changing the search query here updates history and can re-render the
+      // page while the provider dialog opens, dropping the active click.
+      // Use the selected repository's real disclosure without a second route.
       await flow.check("the repository is visible but does not claim verified workflow readiness", async () => {
         await visible(repositoryRowHeader(page, repositoryKey));
         return expectMatch(
