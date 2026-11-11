@@ -664,6 +664,32 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(recorded[0]).not.toHaveProperty("failureCount");
   });
 
+  it("does not add a cohort restriction for an unrestricted publisher", async () => {
+    const rawQueries: unknown[] = [];
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $queryRaw: async (query: unknown) => {
+            rawQueries.push(query);
+            return [];
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.claimNext({
+        ownerIdHash: "d".repeat(64),
+        now,
+        claimDurationMs: 60_000,
+      }),
+    ).resolves.toBeNull();
+    const query = rawQueries[0] as { strings: readonly string[] };
+    expect(query.strings.join(" ")).not.toContain(
+      'LOWER(repository."fullName") IN',
+    );
+  });
+
   it("limits hosted claims to the explicit repository cohort", async () => {
     const rawQueries: unknown[] = [];
     const prisma = {

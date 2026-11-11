@@ -53,16 +53,9 @@ export class PrismaReviewProgressPublicationStore {
   }): Promise<ClaimedReviewProgress | null> {
     assertOwner(input.ownerIdHash);
     assertDuration(input.claimDurationMs);
-    const repositoryPredicate = this.allowedRepositoryFullNames
-      ? Prisma.sql`
-          AND EXISTS (
-            SELECT 1 FROM "RepositoryConnection" repository
-            WHERE repository."id" = publication."repositoryConnectionId"
-              AND LOWER(repository."fullName") IN (${Prisma.join([
-                ...this.allowedRepositoryFullNames,
-              ])})
-          )`
-      : Prisma.empty;
+    const repositoryPredicate = repositoryCohortPredicate(
+      this.allowedRepositoryFullNames,
+    );
     return this.prisma.$transaction(
       (transaction) =>
         claimDuePublication(transaction, input, repositoryPredicate),
@@ -162,6 +155,21 @@ export class PrismaReviewProgressPublicationStore {
     }
     return promoted;
   }
+}
+
+/** Build the optional hosted repository cohort fence outside claim orchestration. */
+function repositoryCohortPredicate(
+  allowedRepositoryFullNames: ReadonlySet<string> | null,
+): Prisma.Sql {
+  if (!allowedRepositoryFullNames) return Prisma.empty;
+  return Prisma.sql`
+          AND EXISTS (
+            SELECT 1 FROM "RepositoryConnection" repository
+            WHERE repository."id" = publication."repositoryConnectionId"
+              AND LOWER(repository."fullName") IN (${Prisma.join([
+                ...allowedRepositoryFullNames,
+              ])})
+          )`;
 }
 
 /** Derive terminal/ongoing publication settlement fields before the fenced write. */
