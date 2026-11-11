@@ -67,6 +67,7 @@ export class GitHubAppReviewV2CredentialProvider
     private readonly repositories: ReviewV2GitHubRepositoryQueryPort,
     private readonly payloads: ReviewV2PublicationPayloadPort,
     private readonly assertCheckIdentityAllowed?: (name: string) => void,
+    private readonly trustedParentAuthors?: ReadonlySet<string>,
   ) {
     this.app = new App(options);
   }
@@ -96,6 +97,7 @@ export class GitHubAppReviewV2CredentialProvider
         payloads: this.payloads,
         assertCheckIdentityAllowed: this.assertCheckIdentityAllowed,
         botLogin,
+        trustedParentAuthors: this.trustedParentAuthors,
       }),
       close: async () => undefined,
     };
@@ -200,6 +202,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       readonly capability: ReviewPublicationOperationCapabilityFacts;
       readonly payloads: ReviewV2PublicationPayloadPort;
       readonly botLogin: string;
+      readonly trustedParentAuthors?: ReadonlySet<string> | undefined;
       readonly assertCheckIdentityAllowed?:
         | ((name: string) => void)
         | undefined;
@@ -770,12 +773,16 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       parent?.body ?? "",
     );
     const bot = this.options.botLogin.toLowerCase().replace(/\[bot\]$/u, "");
-    const author = parent?.author?.login
-      ?.toLowerCase()
-      .replace(/\[bot\]$/u, "");
+    const authorLogin = parent?.author?.login?.trim().toLowerCase();
+    const author = authorLogin?.replace(/\[bot\]$/u, "");
+    const trusted =
+      authorLogin !== undefined &&
+      (this.options.trustedParentAuthors?.has(authorLogin) === true ||
+        this.options.trustedParentAuthors?.has(`${author}[bot]`) === true);
     const owned =
       parent?.viewerDidAuthor === true ||
-      (parent?.author?.__typename === "Bot" && author === bot);
+      (parent?.author?.__typename === "Bot" &&
+        (author === bot || trusted));
     const expectedTargetId =
       parent?.id && fingerprint
         ? `rrt_${sha256(`${payload.threadId}\n${parent.id}\n${fingerprint}`).slice(0, 16)}`
