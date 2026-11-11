@@ -4,7 +4,7 @@ import { workflowSetupOutcomePresentation } from "./dashboard-copy";
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactElement } from "react";
-import { Button, Checkbox } from "@reviewrouter/ui";
+import { Button } from "@reviewrouter/ui";
 import { ActionToast } from "../action-toast";
 import {
   dashboardErrorText,
@@ -34,8 +34,6 @@ export function RepositorySetupActionButton({
   setupStatus,
   workflowCurrent,
   workflowRefresh = false,
-  gatewayWorkflow = false,
-  showDiscussionModeOption = true,
   mutationsEnabled,
   variant = "solid",
   onComplete,
@@ -47,8 +45,6 @@ export function RepositorySetupActionButton({
   readonly setupStatus: string;
   readonly workflowCurrent: boolean;
   readonly workflowRefresh?: boolean;
-  readonly gatewayWorkflow?: boolean;
-  readonly showDiscussionModeOption?: boolean;
   readonly mutationsEnabled: boolean;
   readonly variant?: "solid" | "soft" | "outline" | "ghost";
   readonly onComplete?: (params: Record<string, string>) => void;
@@ -122,25 +118,6 @@ export function RepositorySetupActionButton({
       <input type="hidden" name="workspaceId" value={workspaceId} />
       <input type="hidden" name="repositoryId" value={repositoryId} />
       <input type="hidden" name="workflowStyle" value="reusable" />
-      {gatewayWorkflow || !showDiscussionModeOption ? null : (
-        <label className="mb-3 flex max-w-xl items-start gap-3 rounded-lg border border-cyan-200/15 bg-slate-950/40 px-3 py-3 text-left text-sm text-slate-200">
-          <Checkbox
-            name="reviewDiscussionMode"
-            value="suggest"
-            disabled={disabled}
-            className="mt-1 h-4 w-4"
-          />
-          <span className="grid gap-1">
-            <span className="font-semibold text-cyan-50">
-              Enable AI suggested replies
-            </span>
-            <span className="text-xs leading-5 text-slate-400">
-              Adds suggest-only AI replies to ReviewRouter finding discussions
-              after this setup PR is merged.
-            </span>
-          </span>
-        </label>
-      )}
       <Button
         type="submit"
         variant={variant}

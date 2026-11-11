@@ -18,6 +18,7 @@ import {
 import {
   renderCanonicalCodexRotatingInteractionWorkflowV1,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
+  renderCanonicalCodexRotatingInteractionWorkflowV3,
   renderCodexRotatingInteractionWorkflow,
   renderAccountGatewayInteractionWorkflow,
 } from "@reviewrouter/features-workflow-provisioning";
@@ -1182,6 +1183,24 @@ describe("OctokitCodexRotatingGitHubSecretGateway", () => {
       "retained alias V3",
       renderCodexRotatingInteractionWorkflow,
       "https://api.reviewrouter.site",
+    ],
+    [
+      "retained historical suggest V3",
+      (input: Parameters<typeof renderCodexRotatingInteractionWorkflow>[0]) =>
+        renderCanonicalCodexRotatingInteractionWorkflowV3({
+          ...input,
+          discussionMode: "suggest",
+        }),
+      "https://api.reviewrouter.org",
+    ],
+    [
+      "author-guarded default-on V4",
+      (input: Parameters<typeof renderCodexRotatingInteractionWorkflow>[0]) =>
+        renderCodexRotatingInteractionWorkflow({
+          ...input,
+          discussionMode: "suggest",
+        }),
+      "https://api.reviewrouter.org",
     ],
     [
       "prior V2",
