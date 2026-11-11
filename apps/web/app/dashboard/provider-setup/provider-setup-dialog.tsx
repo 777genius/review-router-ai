@@ -1097,8 +1097,10 @@ function ProviderChoiceStep({
       {
         kind: "new",
         source:
-          resolvedStorage === "reviewrouter"
-            ? provider === "claude-code" && method === "api_key"
+          provider === "claude-code" && method === "subscription"
+            ? githubSourceFor(provider, method)
+            : resolvedStorage === "reviewrouter"
+              ? provider === "claude-code" && method === "api_key"
               ? (managedSourceFor(provider)?.key ?? null)
               : "gateway_binding"
             : delivery === "manual"
