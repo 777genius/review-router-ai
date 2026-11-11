@@ -3422,6 +3422,10 @@ describe("complete filesystem checkout inventory", () => {
         expect(fixture.read()).toEqual(catalog);
         mkdirSync(claudeDirectory);
         writeFileSync(claudeSql, claudeBytes);
+      } else if (name === claudeApiKeyMigrationName) {
+        // Removing just checkout161 restores the accepted checkout160,
+        // still protected by its pinned concurrent-index SQL checksum.
+        expect(fixture.read()).toEqual(catalog);
       } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);
