@@ -771,7 +771,9 @@ function ProviderChoiceStep({
     if (initialIntent) {
       const key =
         initialIntent.provider === "claude-code"
-          ? githubSourceFor("claude-code", "subscription")
+          ? initialIntent.storage === "reviewrouter"
+            ? "managed_api_key:claude_code_api_key"
+            : githubSourceFor("claude-code", "subscription")
           : initialIntent.storage === "reviewrouter"
             ? "gateway_binding"
             : githubSourceFor(initialIntent.provider);
@@ -860,13 +862,14 @@ function ProviderChoiceStep({
         : null),
   );
   const [keyStorage, setKeyStorage] = useState<ApiKeyStorage>(
-    initialIntent?.provider === "claude-code"
-      ? "github_secrets"
-      : (initialIntent?.storage ?? "reviewrouter"),
+    initialIntent?.storage ?? "reviewrouter",
   );
   const [claudeMethod, setClaudeMethod] = useState<"subscription" | "api_key">(
-    initialChoice?.kind === "new" &&
-      initialChoice.source === "user_ci_secret:claude_code_api_key"
+    (initialIntent?.provider === "claude-code" &&
+      initialIntent.storage === "reviewrouter") ||
+      (initialChoice?.kind === "new" &&
+        (initialChoice.source === "user_ci_secret:claude_code_api_key" ||
+          initialChoice.source === "managed_api_key:claude_code_api_key"))
       ? "api_key"
       : "subscription",
   );
