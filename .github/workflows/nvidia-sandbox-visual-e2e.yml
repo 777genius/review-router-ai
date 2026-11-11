@@ -70,7 +70,7 @@ jobs:
           node --import tsx scripts/provider-setup-visual/run.ts \
             --no-personal-sharing --nvidia-evaluation \
             --only '^dialog-nvidia-evaluation$' --out tmp/nvidia-sandbox-visual \
-            --next-heap-mb 2048
+            --next-heap-mb 3072
       - name: Assert all six screenshot receipts
         run: |
           node --input-type=module <<'NODE'
