@@ -173,6 +173,61 @@ describe("provider runtime plan", () => {
     expect(plan.requiredCliTools).toEqual(["claude"]);
   });
 
+  it("passes the selected Claude key mode even when Codex is the primary reviewer", () => {
+    const plan = buildProviderRuntimePlan({
+      ...baseInput,
+      execution: { providerLimit: 2, providerMaxParallel: 1, inlineMinAgreement: 1 },
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_subscription_oauth_rotating",
+          model: "gpt-5.5",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+        },
+        {
+          kind: "claude",
+          authMode: "claude_code_api_key",
+          model: "sonnet",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+    expect(plan.runtimeEnv.REVIEW_AUTH_MODE).toBe("codex-oauth-rotating");
+    expect(plan.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE).toBe("claude-api-key");
+    expect(plan.requiredSecretNames).toEqual(["ANTHROPIC_API_KEY"]);
+    expect(plan.requiredSecretNames).not.toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(plan.requiredCliTools).toEqual(["codex", "claude"]);
+  });
+
+  it("refuses conflicting Claude credential kinds in one process before execution", () => {
+    expect(() => buildProviderRuntimePlan({
+      ...baseInput,
+      execution: { providerLimit: 2, providerMaxParallel: 2, inlineMinAgreement: 1 },
+      providers: [
+        {
+          kind: "claude",
+          authMode: "claude_code_oauth",
+          model: "sonnet",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+        },
+        {
+          kind: "claude",
+          authMode: "claude_code_api_key",
+          model: "opus",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    })).toThrow("claude_conflicting_auth_modes");
+  });
+
   it("keeps OpenRouter as the public provider while planning Codex agent runtime", () => {
     const plan = buildProviderRuntimePlan({
       ...baseInput,
