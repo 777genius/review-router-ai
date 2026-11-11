@@ -340,7 +340,9 @@ async function loadInventory(
           threadId: thread.id,
           comments: witnessComments,
         }),
-        verifiedReplyPrefixHashes,
+        ...(verifiedReplyPrefixHashes.length
+          ? { verifiedReplyPrefixHashes }
+          : {}),
         isResolved: thread.isResolved,
         parentOwnedByIntegration,
         hasRelevantInteractionAfterParent:
