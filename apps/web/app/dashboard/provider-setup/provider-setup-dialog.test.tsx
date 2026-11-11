@@ -1182,14 +1182,9 @@ describe("ProviderSetupDialog", () => {
         },
       ],
     };
-    fixture.value.accounts[0]!.profileId = profile.id;
-    fixture.value.accounts[0]!.modelCatalog = {
-      status: "snapshot",
-      source: "nvidia",
-      models: [model],
-      fetchedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    };
+    // This fixture has a discoverable provider profile, but no saved account.
+    // A provider catalog alone must not allow repository assignment.
+    fixture.value.accounts = [];
     fixture.value.nextCursor = null;
     view = {
       ...view,
