@@ -1252,6 +1252,11 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
       compensateCanonical: true,
     })).resolves.toBe(ReviewPublicationReceiptStatus.StaleVisible);
     expect(nativeReplies).toHaveLength(1);
+    nativeReplies[0]!.body = `${body}\n<!-- edited -->`;
+    await expect(client.findAllByMarker({
+      operation: publishingOperation, cursor: null,
+    })).rejects.toThrow("github_verified_reply_body_conflict");
+    expect(posts).toBe(1);
   });
 
   it("refuses an unproven parent before writing a verified-fix reply", async () => {
