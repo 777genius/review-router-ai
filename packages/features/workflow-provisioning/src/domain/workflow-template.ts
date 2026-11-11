@@ -1984,7 +1984,9 @@ export function renderReviewRouterWorkflowFiles(
           actionRef: options.actionRef,
           apiUrl: options.apiUrl,
           runtimeConfigMode: options.runtimeConfigMode,
-          discussionMode: options.discussionMode,
+          ...(options.discussionMode !== undefined
+            ? { discussionMode: options.discussionMode }
+            : {}),
         }),
       },
     ];
