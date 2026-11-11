@@ -159,6 +159,7 @@ export type CanonicalReviewPublicationRendering = {
     readonly chunkIndex: number;
     readonly semantic: ReviewPublicationLifecycleSemantic;
     readonly threadId: string;
+    readonly targetId: string;
     readonly resolve: boolean;
   })[];
 };
@@ -361,6 +362,7 @@ export function renderCanonicalReviewPublication(
           ? ReviewPublicationLifecycleSemantic.Resolve
           : ReviewPublicationLifecycleSemantic.Reopen,
         threadId: entry.threadId,
+        targetId: entry.targetId,
         resolve,
         ...payload(
           marker,
@@ -369,6 +371,33 @@ export function renderCanonicalReviewPublication(
         ),
       };
     });
+
+  // A verified finding deserves an in-thread acknowledgement even when the
+  // repository remains report-only. Do not turn that evidence into resolve permission.
+  const replies =
+    input.renderPolicyVersion ===
+    CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6
+      ? input.source.lifecycle
+          .filter(
+            (entry) =>
+              entry.verdict === "resolved" &&
+              entry.verification?.confirmationState ===
+                "fix_confirmed_thread_open" &&
+              (entry.verification.mutationStatus === "report_only" ||
+                entry.verification.mutationStatus === "pending"),
+          )
+          .map((entry, index) => {
+            const reply = verifiedFixThreadReply(entry.targetId);
+            return {
+              chunkIndex: lifecycle.length + index,
+              semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+              threadId: entry.threadId,
+              targetId: entry.targetId,
+              resolve: false,
+              ...payload(reply.marker, reply.body, primitives),
+            };
+          })
+      : [];
 
   return {
     ...(input.source.prDescription === undefined
@@ -396,7 +425,27 @@ export function renderCanonicalReviewPublication(
       conclusion: input.source.check.conclusion,
     },
     inlineReviews,
-    lifecycle,
+    lifecycle: [...lifecycle, ...replies],
+  };
+}
+
+/** Stable marker and body allow reconciliation across retries and new attempts. */
+export function verifiedFixThreadReply(targetId: string): Readonly<{
+  marker: string;
+  body: string;
+}> {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(targetId)) {
+    throw new Error("publication_verified_reply_target_invalid");
+  }
+  const marker = `reviewrouter:fix-verified:v1:${targetId}`;
+  return {
+    marker,
+    body: [
+      "✅ **ReviewRouter verified this fix** against the reviewed revision.",
+      "This confirmation is separate from GitHub thread resolution; the thread may remain open.",
+      "",
+      `<!-- ${marker} -->`,
+    ].join("\\n"),
   };
 }
 
