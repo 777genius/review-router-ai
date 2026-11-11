@@ -142,7 +142,8 @@ export class DeterministicReviewPublicationRequestFactory {
       includeVerifiedFixReplies:
         !existing ||
         existing.attempt.operations.some(
-          (operation) => operation.publicationKind === ReviewPublicationKind.ThreadReply,
+          (operation) =>
+            operation.publicationKind === ReviewPublicationKind.ThreadReply,
         ),
     });
     if (!envelope) return null;

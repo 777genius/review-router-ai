@@ -80,27 +80,30 @@ describe("canonical review v2 projection adapter", () => {
     const base = finalizedArtifact();
     const projection = JSON.parse(base.projectionEnvelopeJson);
     const targetId = "rrt_report_1";
-    projection.publishing.lifecycle = [{
-      targetId,
-      threadId: "PRRT_report_1",
-      verdict: "resolved",
-      mutationEligible: false,
-      verification: {
+    projection.publishing.lifecycle = [
+      {
         targetId,
-        semanticVerdict: "resolved",
-        confirmationState: "fix_confirmed_thread_open",
-        severity: "major",
-        observationIds: ["observation-1"],
-        providerVoteKeys: ["verifier/account"],
-        reasonCodes: ["accepted_verification"],
-        mutationStatus: "report_only",
+        threadId: "PRRT_report_1",
+        verdict: "resolved",
+        mutationEligible: false,
+        verification: {
+          targetId,
+          semanticVerdict: "resolved",
+          confirmationState: "fix_confirmed_thread_open",
+          severity: "major",
+          observationIds: ["observation-1"],
+          providerVoteKeys: ["verifier/account"],
+          reasonCodes: ["accepted_verification"],
+          mutationStatus: "report_only",
+        },
       },
-    }];
+    ];
     const projectionEnvelopeJson = canonicalJson(projection);
     const projectionHash = hash(projectionEnvelopeJson);
     const artifact = {
       ...base,
-      projectionPolicyVersion: "review-projection-policy.v7-lifecycle-verification",
+      projectionPolicyVersion:
+        "review-projection-policy.v7-lifecycle-verification",
       projectionEnvelopeJson,
       projectionHash,
       publicationPermit: { ...base.publicationPermit, projectionHash },
@@ -140,13 +143,21 @@ describe("canonical review v2 projection adapter", () => {
       },
       envelope: envelope!,
     });
-    const reply = plan.find((item) => item.publicationKind === ReviewPublicationKind.ThreadReply);
+    const reply = plan.find(
+      (item) => item.publicationKind === ReviewPublicationKind.ThreadReply,
+    );
     expect(reply).toMatchObject({
-      effectStrategy: ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt,
+      effectStrategy:
+        ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt,
       role: ReviewPublicationOperationRole.Standalone,
       required: true,
     });
-    expect(plan.some((item) => item.publicationKind === ReviewPublicationKind.ThreadLifecycle)).toBe(false);
+    expect(
+      plan.some(
+        (item) =>
+          item.publicationKind === ReviewPublicationKind.ThreadLifecycle,
+      ),
+    ).toBe(false);
     const payload = await adapter.resolve({
       permit: artifact.publicationPermit,
       operation: {
@@ -164,7 +175,9 @@ describe("canonical review v2 projection adapter", () => {
     });
     if (payload?.kind !== ReviewV2PublicationPayloadKind.ThreadReply)
       throw new Error("expected_native_thread_reply");
-    expect(payload.body).toContain("<!-- reviewrouter:fix-verified:v1:rrt_report_1 -->");
+    expect(payload.body).toContain(
+      "<!-- reviewrouter:fix-verified:v1:rrt_report_1 -->",
+    );
   });
 
   it("derives the same bounded payload identities used by planning and SCM", async () => {

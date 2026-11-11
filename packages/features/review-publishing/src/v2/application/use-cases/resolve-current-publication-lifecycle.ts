@@ -238,7 +238,8 @@ function assertLiveLifecycle(input: {
         target.verifiedReplyPrefixHashes.length > 32 ||
         new Set(target.verifiedReplyPrefixHashes).size !==
           target.verifiedReplyPrefixHashes.length
-      ) throw new Error("lifecycle_verified_reply_witness_invalid");
+      )
+        throw new Error("lifecycle_verified_reply_witness_invalid");
       for (const hash of target.verifiedReplyPrefixHashes) {
         requiredSha256(hash, "lifecycle_verified_reply_witness");
       }

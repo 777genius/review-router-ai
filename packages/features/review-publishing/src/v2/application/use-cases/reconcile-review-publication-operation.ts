@@ -328,8 +328,9 @@ export class ReconcileReviewPublicationOperation {
       }
       if (!hasCurrentOperationObject(inventory, input.operation)) {
         if (
-          (input.operation.publicationKind === ReviewPublicationKind.PrDescription ||
-            input.operation.publicationKind === ReviewPublicationKind.ThreadReply)
+          input.operation.publicationKind ===
+            ReviewPublicationKind.PrDescription ||
+          input.operation.publicationKind === ReviewPublicationKind.ThreadReply
         ) {
           return {
             settled: true,
@@ -339,11 +340,13 @@ export class ReconcileReviewPublicationOperation {
               operation: input.operation,
               claim,
               finalReason:
-                input.operation.publicationKind === ReviewPublicationKind.ThreadReply
+                input.operation.publicationKind ===
+                ReviewPublicationKind.ThreadReply
                   ? "verified_reply_prior_write_unreconciled"
                   : "pr_description_prior_write_unreconciled",
               lastErrorCode:
-                input.operation.publicationKind === ReviewPublicationKind.ThreadReply
+                input.operation.publicationKind ===
+                ReviewPublicationKind.ThreadReply
                   ? "verified_reply_write_outcome_unknown"
                   : "pr_description_write_outcome_unknown",
             }),

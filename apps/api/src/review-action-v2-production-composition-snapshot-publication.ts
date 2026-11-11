@@ -649,7 +649,8 @@ async function requestPublication(
     projectionHash: artifact.projectionHash,
     digestUtf8: sha256,
   });
-  const existing = await dependencies.publications.findById(publicationAttemptId);
+  const existing =
+    await dependencies.publications.findById(publicationAttemptId);
   const envelope = publishedEnvelope({
     artifact,
     projectionCanonicalJson: artifact.projectionEnvelopeJson,
@@ -659,7 +660,8 @@ async function requestPublication(
     includeVerifiedFixReplies:
       !existing ||
       existing.attempt.operations.some(
-        (operation) => operation.publicationKind === ReviewPublicationKind.ThreadReply,
+        (operation) =>
+          operation.publicationKind === ReviewPublicationKind.ThreadReply,
       ),
   });
   await assertPrDescriptionArtifact({

@@ -1149,7 +1149,8 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
   });
 
   it("posts exactly one native verified-fix reply, reconciles a retry and leaves the thread open", async () => {
-    const sha = (value: string) => createHash("sha256").update(value).digest("hex");
+    const sha = (value: string) =>
+      createHash("sha256").update(value).digest("hex");
     const threadId = "PRRT_native_1";
     const parentId = "PRRC_native_parent";
     const fingerprint = "rrl_0123456789abcdef0123456789abcdef";
@@ -1158,19 +1159,28 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
     const body = `✅ **ReviewRouter verified this fix** against the reviewed revision.\nThis confirmation is separate from GitHub thread resolution; the thread may remain open.\n\n<!-- ${marker} -->`;
     const payload = {
       kind: ReviewV2PublicationPayloadKind.ThreadReply,
-      marker, markerHash: sha(marker), bodyHash: sha(body),
+      marker,
+      markerHash: sha(marker),
+      bodyHash: sha(body),
       bodyByteCount: Buffer.byteLength(body),
-      threadId, targetId, body,
+      threadId,
+      targetId,
+      body,
     } as const;
     const nativeReplies: Array<Record<string, unknown>> = [];
     let posts = 0;
     const graphqlQueries: string[] = [];
     const octokit: GitHubInstallationClient = {
       async request(route, params = {}) {
-        if (route === "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments") {
+        if (
+          route === "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments"
+        ) {
           return { data: [...nativeReplies] };
         }
-        if (route === "POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies") {
+        if (
+          route ===
+          "POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies"
+        ) {
           expect(params.comment_id).toBe(4532358290);
           expect(params.body).toBe(body);
           posts++;
@@ -1203,13 +1213,17 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
           return {
             node: {
               id: threadId,
-              comments: { nodes: [{
-                id: parentId,
-                databaseId: 4532358290,
-                viewerDidAuthor: true,
-                author: { login: "review-router[bot]", __typename: "Bot" },
-                body: `finding\n<!-- reviewrouter:finding:v2:${fingerprint} -->`,
-              }] },
+              comments: {
+                nodes: [
+                  {
+                    id: parentId,
+                    databaseId: 4532358290,
+                    viewerDidAuthor: true,
+                    author: { login: "review-router[bot]", __typename: "Bot" },
+                    body: `finding\n<!-- reviewrouter:finding:v2:${fingerprint} -->`,
+                  },
+                ],
+              },
             },
           } as T;
         }
@@ -1220,15 +1234,20 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
     const publishingOperation = {
       ...operation(),
       publicationKind: ReviewPublicationKind.ThreadReply,
-      effectStrategy: ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt,
+      effectStrategy:
+        ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt,
       markerHash: payload.markerHash,
       bodyHash: payload.bodyHash,
     };
-    expect(await client.findAllByMarker({
-      operation: publishingOperation, cursor: null,
-    })).toEqual({ objects: [], nextCursor: null });
+    expect(
+      await client.findAllByMarker({
+        operation: publishingOperation,
+        cursor: null,
+      }),
+    ).toEqual({ objects: [], nextCursor: null });
     const receipt = await client.applyOperation({
-      operation: publishingOperation, capability: capability(),
+      operation: publishingOperation,
+      capability: capability(),
     });
     expect(receipt).toMatchObject({
       externalObjectId: "review-comment:4532358291",
@@ -1236,7 +1255,8 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
       effectKind: ReviewPublicationExternalEffectKind.MutationAcknowledged,
     });
     const replay = await client.findAllByMarker({
-      operation: publishingOperation, cursor: null,
+      operation: publishingOperation,
+      cursor: null,
     });
     expect(replay.objects).toHaveLength(1);
     expect(replay.objects[0]).toMatchObject({
@@ -1244,61 +1264,92 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
       bodyHash: receipt.bodyHash,
     });
     expect(posts).toBe(1);
-    expect(graphqlQueries.every((query) => !query.includes("mutation "))).toBe(true);
-    await expect(client.markStaleOrDelete({
-      operation: publishingOperation,
-      canonicalExternalObjectId: receipt.externalObjectId,
-      duplicateExternalObjectIds: [],
-      compensateCanonical: true,
-    })).resolves.toBe(ReviewPublicationReceiptStatus.StaleVisible);
+    expect(graphqlQueries.every((query) => !query.includes("mutation "))).toBe(
+      true,
+    );
+    await expect(
+      client.markStaleOrDelete({
+        operation: publishingOperation,
+        canonicalExternalObjectId: receipt.externalObjectId,
+        duplicateExternalObjectIds: [],
+        compensateCanonical: true,
+      }),
+    ).resolves.toBe(ReviewPublicationReceiptStatus.StaleVisible);
     expect(nativeReplies).toHaveLength(1);
     nativeReplies[0]!.body = `${body}\n<!-- edited -->`;
-    await expect(client.findAllByMarker({
-      operation: publishingOperation, cursor: null,
-    })).rejects.toThrow("github_verified_reply_body_conflict");
+    await expect(
+      client.findAllByMarker({
+        operation: publishingOperation,
+        cursor: null,
+      }),
+    ).rejects.toThrow("github_verified_reply_body_conflict");
     expect(posts).toBe(1);
   });
 
   it("refuses an unproven parent before writing a verified-fix reply", async () => {
-    const sha = (value: string) => createHash("sha256").update(value).digest("hex");
+    const sha = (value: string) =>
+      createHash("sha256").update(value).digest("hex");
     const body = "Verified fix\n<!-- reviewrouter:fix-verified:v1:rrt_fake -->";
     const marker = "reviewrouter:fix-verified:v1:rrt_fake";
     const payload = {
       kind: ReviewV2PublicationPayloadKind.ThreadReply,
-      marker, markerHash: sha(marker), bodyHash: sha(body),
-      bodyByteCount: Buffer.byteLength(body), body,
-      threadId: "thread-1", targetId: "rrt_fake",
+      marker,
+      markerHash: sha(marker),
+      bodyHash: sha(body),
+      bodyByteCount: Buffer.byteLength(body),
+      body,
+      threadId: "thread-1",
+      targetId: "rrt_fake",
     } as const;
     let mutations = 0;
-    const client = githubPublicationClient({
-      async request() {
-        mutations++;
-        throw new Error("unexpected_mutation");
+    const client = githubPublicationClient(
+      {
+        async request() {
+          mutations++;
+          throw new Error("unexpected_mutation");
+        },
+        async graphql<T>(query): Promise<T> {
+          if (query.includes("ReviewRouterPublicationThread")) {
+            return {
+              node: {
+                id: "thread-1",
+                isResolved: false,
+                pullRequest: {
+                  number: 42,
+                  repository: { nameWithOwner: "owner/repo" },
+                },
+              },
+            } as T;
+          }
+          return {
+            node: {
+              id: "thread-1",
+              comments: {
+                nodes: [
+                  {
+                    id: "forged-parent",
+                    databaseId: 100,
+                    body: "not a ReviewRouter finding",
+                    viewerDidAuthor: false,
+                    author: { login: "human", __typename: "User" },
+                  },
+                ],
+              },
+            },
+          } as T;
+        },
       },
-      async graphql<T>(query): Promise<T> {
-        if (query.includes("ReviewRouterPublicationThread")) {
-          return { node: {
-            id: "thread-1", isResolved: false,
-            pullRequest: { number: 42, repository: { nameWithOwner: "owner/repo" } },
-          } } as T;
-        }
-        return { node: {
-          id: "thread-1",
-          comments: { nodes: [{
-            id: "forged-parent", databaseId: 100,
-            body: "not a ReviewRouter finding",
-            viewerDidAuthor: false,
-            author: { login: "human", __typename: "User" },
-          }] },
-        } } as T;
-      },
-    }, payload);
-    await expect(client.applyOperation({
-      operation: {
-        ...operation(), publicationKind: ReviewPublicationKind.ThreadReply,
-      },
-      capability: capability(),
-    })).rejects.toMatchObject({
+      payload,
+    );
+    await expect(
+      client.applyOperation({
+        operation: {
+          ...operation(),
+          publicationKind: ReviewPublicationKind.ThreadReply,
+        },
+        capability: capability(),
+      }),
+    ).rejects.toMatchObject({
       safeCode: "github_review_reply_parent_provenance_mismatch",
       outcome: "definitely_no_effect",
     });

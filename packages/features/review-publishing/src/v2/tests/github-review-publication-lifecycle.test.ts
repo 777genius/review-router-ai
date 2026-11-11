@@ -121,14 +121,19 @@ describe("GitHubReviewPublicationLifecycleAdapter", () => {
       async graphql<T>(query: string) {
         if (query.includes("ReviewRouterPublicationCommandLedger"))
           return ledgerPage(null, false) as T;
-        return inventoryPage([{
-          id: threadId,
-          isResolved: false,
-          comments: {
-            pageInfo: { hasNextPage: false, endCursor: null },
-            nodes: [parent],
-          },
-        }], false) as T;
+        return inventoryPage(
+          [
+            {
+              id: threadId,
+              isResolved: false,
+              comments: {
+                pageInfo: { hasNextPage: false, endCursor: null },
+                nodes: [parent],
+              },
+            },
+          ],
+          false,
+        ) as T;
       },
     }).resolve(scope);
     if (original.status !== LiveReviewPublicationLifecycleStatus.Available)
@@ -136,40 +141,53 @@ describe("GitHubReviewPublicationLifecycleAdapter", () => {
     const originalHash = original.targets[0]!.threadStateHash;
     const id = targetId(threadId, parentId, lineageFingerprint);
     const acknowledgement = comment(
-      "comment-confirmation", verifiedFixThreadReply(id).body,
+      "comment-confirmation",
+      verifiedFixThreadReply(id).body,
       "2026-07-23T10:00:10Z",
     );
-    const inventoryWith = async (withHuman: boolean) => adapter({
-      async graphql<T>(query: string) {
-        if (query.includes("ReviewRouterPublicationCommandLedger"))
-          return ledgerPage(null, false) as T;
-        return inventoryPage([{
-          id: threadId,
-          isResolved: false,
-          comments: {
-            pageInfo: { hasNextPage: false, endCursor: null },
-            nodes: [
-              parent,
-              acknowledgement,
-              ...(withHuman ? [comment(
-                "comment-human",
-                "Please double-check this case",
-                "2026-07-23T10:00:20Z",
-                { viewerDidAuthor: false },
-              )] : []),
+    const inventoryWith = async (withHuman: boolean) =>
+      adapter({
+        async graphql<T>(query: string) {
+          if (query.includes("ReviewRouterPublicationCommandLedger"))
+            return ledgerPage(null, false) as T;
+          return inventoryPage(
+            [
+              {
+                id: threadId,
+                isResolved: false,
+                comments: {
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                  nodes: [
+                    parent,
+                    acknowledgement,
+                    ...(withHuman
+                      ? [
+                          comment(
+                            "comment-human",
+                            "Please double-check this case",
+                            "2026-07-23T10:00:20Z",
+                            { viewerDidAuthor: false },
+                          ),
+                        ]
+                      : []),
+                  ],
+                },
+              },
             ],
-          },
-        }], false) as T;
-      },
-    }).resolve(scope);
+            false,
+          ) as T;
+        },
+      }).resolve(scope);
     const acknowledged = await inventoryWith(false);
     expect(acknowledged).toMatchObject({
       status: LiveReviewPublicationLifecycleStatus.Available,
-      targets: [{
-        targetId: id,
-        isResolved: false,
-        verifiedReplyPrefixHashes: [originalHash],
-      }],
+      targets: [
+        {
+          targetId: id,
+          isResolved: false,
+          verifiedReplyPrefixHashes: [originalHash],
+        },
+      ],
     });
     const human = await inventoryWith(true);
     expect(human).toMatchObject({

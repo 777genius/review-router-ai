@@ -1412,9 +1412,13 @@ describe("disposable dual-version rehearsal", () => {
     // Both published, independently reviewed manifests remain byte-exact.
     // Strip only the new reviewed tail before comparing the existing published
     // checkout manifests; managed/historical release-policy baselines stay fixed.
-    expect(migrationManifestIdentity(
-      currentMigrationNames.filter((name) => name !== "000156_verified_thread_reply"),
-    )).toBe(
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) => name !== "000156_verified_thread_reply",
+        ),
+      ),
+    ).toBe(
       "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54",
     );
     expect(
@@ -1433,7 +1437,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
-        name !== "000156_verified_thread_reply" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1448,7 +1452,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
-        name !== "000156_verified_thread_reply" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1465,7 +1469,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
-        name !== "000156_verified_thread_reply" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1483,7 +1487,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
-        name !== "000156_verified_thread_reply" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1503,7 +1507,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
-        name !== "000156_verified_thread_reply" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&

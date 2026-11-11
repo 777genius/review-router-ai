@@ -70,8 +70,12 @@ describe("canonical review publication renderer", () => {
       ReviewPublicationLifecycleSemantic.Resolve,
       ReviewPublicationLifecycleSemantic.Resolve,
     ]);
-    expect(before.lifecycle.map((entry) => entry.chunkIndex)).toEqual([0, 1, 2, 3]);
-    expect(before.lifecycle[0]?.body).toContain("ReviewRouter verified this fix");
+    expect(before.lifecycle.map((entry) => entry.chunkIndex)).toEqual([
+      0, 1, 2, 3,
+    ]);
+    expect(before.lifecycle[0]?.body).toContain(
+      "ReviewRouter verified this fix",
+    );
     expect(JSON.stringify(frozen)).toBe(frozenJson);
     expect(render()).toEqual(before);
     const legacyPlan = renderCanonicalReviewPublication(
@@ -90,7 +94,9 @@ describe("canonical review publication renderer", () => {
       ReviewPublicationLifecycleSemantic.Resolve,
       ReviewPublicationLifecycleSemantic.Resolve,
     ]);
-    expect(legacyPlan.lifecycle.map((entry) => entry.chunkIndex)).toEqual([0, 1]);
+    expect(legacyPlan.lifecycle.map((entry) => entry.chunkIndex)).toEqual([
+      0, 1,
+    ]);
     expect(() =>
       renderCanonicalReviewPublication(
         {
@@ -192,8 +198,12 @@ describe("canonical review publication renderer", () => {
       "<!-- reviewrouter:fix-verified:v1:rrt_verified_1 -->",
     );
     expect(completed.lifecycle[0]?.body).not.toContain("thread resolved");
-    expect(render(ReviewPublicationProjectionCoverage.Completed)).toEqual(completed);
-    expect(render(ReviewPublicationProjectionCoverage.Partial).lifecycle).toEqual([]);
+    expect(render(ReviewPublicationProjectionCoverage.Completed)).toEqual(
+      completed,
+    );
+    expect(
+      render(ReviewPublicationProjectionCoverage.Partial).lifecycle,
+    ).toEqual([]);
     expect(
       render(ReviewPublicationProjectionCoverage.Completed, [
         {

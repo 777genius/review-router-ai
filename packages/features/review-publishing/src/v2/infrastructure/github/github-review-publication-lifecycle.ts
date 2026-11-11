@@ -324,7 +324,8 @@ async function loadInventory(
             trustedCommandLedgerAuthors,
             "github_verified_reply",
           )
-        ) break;
+        )
+          break;
         verifiedReplyPrefixHashes.push(
           reviewLifecycleThreadStateHash({
             threadId: thread.id,

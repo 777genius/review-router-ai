@@ -671,19 +671,31 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     const page = parsePage(cursor);
     const response = await this.request(
       "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments",
-      { pull_number: this.options.permit.pullRequestNumber, per_page: 100, page },
+      {
+        pull_number: this.options.permit.pullRequestNumber,
+        per_page: 100,
+        page,
+      },
     );
     const rows = requireArray(response.data, "github_review_comments_invalid");
     const objects = rows.flatMap((row) => {
       if (
         row.in_reply_to_id !== parentId ||
         !isOwnedBody(row, payload.marker, this.options.botLogin)
-      ) return [];
+      )
+        return [];
       const body = requiredString(row.body, "github_comment_body_invalid");
       // A bot message containing our marker but edited away from the canonical
       // acknowledgement is ambiguous. Never create a second reply in that case.
-      if (body !== payload.body) throw new Error("github_verified_reply_body_conflict");
-      return [gatewayObject(`review-comment:${numericId(row)}`, payload, sha256(body))];
+      if (body !== payload.body)
+        throw new Error("github_verified_reply_body_conflict");
+      return [
+        gatewayObject(
+          `review-comment:${numericId(row)}`,
+          payload,
+          sha256(body),
+        ),
+      ];
     });
     return pageResult(objects, page, rows.length);
   }
@@ -710,8 +722,13 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         row.body !== payload.body ||
         row.in_reply_to_id !== commentId ||
         !isOwnedBody(row, payload.marker, this.options.botLogin)
-      ) throw new Error("github_review_reply_ack_mismatch");
-      return gatewayObject(`review-comment:${numericId(row)}`, payload, operation.bodyHash);
+      )
+        throw new Error("github_review_reply_ack_mismatch");
+      return gatewayObject(
+        `review-comment:${numericId(row)}`,
+        payload,
+        operation.bodyHash,
+      );
     } catch (error) {
       throw githubPostMutationObservationError(error);
     }
@@ -729,16 +746,18 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       readonly node?: {
         readonly id?: string;
         readonly comments?: {
-          readonly nodes?: readonly {
-            readonly id?: string;
-            readonly databaseId?: number | null;
-            readonly body?: string;
-            readonly viewerDidAuthor?: boolean | null;
-            readonly author?: {
-              readonly login?: string | null;
-              readonly __typename?: string | null;
-            } | null;
-          }[] | null;
+          readonly nodes?:
+            | readonly {
+                readonly id?: string;
+                readonly databaseId?: number | null;
+                readonly body?: string;
+                readonly viewerDidAuthor?: boolean | null;
+                readonly author?: {
+                  readonly login?: string | null;
+                  readonly __typename?: string | null;
+                } | null;
+              }[]
+            | null;
         } | null;
       } | null;
     }>(
@@ -747,9 +766,13 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     );
     const node = response.node;
     const parent = node?.comments?.nodes?.[0];
-    const fingerprint = extractUniqueReviewFindingFingerprint(parent?.body ?? "");
+    const fingerprint = extractUniqueReviewFindingFingerprint(
+      parent?.body ?? "",
+    );
     const bot = this.options.botLogin.toLowerCase().replace(/\[bot\]$/u, "");
-    const author = parent?.author?.login?.toLowerCase().replace(/\[bot\]$/u, "");
+    const author = parent?.author?.login
+      ?.toLowerCase()
+      .replace(/\[bot\]$/u, "");
     const owned =
       parent?.viewerDidAuthor === true ||
       (parent?.author?.__typename === "Bot" && author === bot);

@@ -954,9 +954,13 @@ lifecycleCase.each([
         second.exhausted,
       );
       const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
-      const valid = ["success", "report_only", "denied", "unknown", "stale_head"].includes(
-        scenario,
-      );
+      const valid = [
+        "success",
+        "report_only",
+        "denied",
+        "unknown",
+        "stale_head",
+      ].includes(scenario);
       expect(envelope.coverage.state).toBe("complete");
       expect(envelope.publishing.summary.allClear).toBe(false);
       expect(envelope.publishing.summary.occurrenceCounts.resolved).toBe(0);
@@ -1237,13 +1241,14 @@ lifecycleCase.each([
         expect(threads.verifiedReplyWrites()).toBe(2);
         expect(threads.verifiedReplies()).toHaveLength(2);
         expect(
-          threads.verifiedReplies().every((reply) =>
-            String(reply.body).includes("reviewrouter:fix-verified:v1:"),
-          ),
+          threads
+            .verifiedReplies()
+            .every((reply) =>
+              String(reply.body).includes("reviewrouter:fix-verified:v1:"),
+            ),
         ).toBe(true);
         expect(threads.resolveCalls()).toBe(2);
-      }
-      else if (!valid || scenario === "report_only")
+      } else if (!valid || scenario === "report_only")
         expect(threads.resolveCalls()).toBe(0);
       else {
         expect(threads.resolveCalls()).toBeGreaterThanOrEqual(1);
@@ -3323,7 +3328,8 @@ function nativeThreads(
         const thread = threads.find(
           (entry) => entry.parent.databaseId === parentId,
         );
-        if (!thread) return Response.json({ message: "Not Found" }, { status: 404 });
+        if (!thread)
+          return Response.json({ message: "Not Found" }, { status: 404 });
         const { body } = (await request.clone().json()) as { body: string };
         expect(body).toContain("reviewrouter:fix-verified:v1:");
         nativeReplyWrites++;
