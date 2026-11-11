@@ -236,6 +236,18 @@ export const reviewConfigurationSchema = z
   .strict()
   .superRefine((configuration, context) => {
     assertProviderRowsAreExplicitAndUnique(configuration.providers, context);
+    const claudeAuthModes = new Set(
+      configuration.providers
+        .filter((provider) => provider.kind === "claude")
+        .map((provider) => provider.authMode),
+    );
+    if (claudeAuthModes.size > 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["providers"],
+        message: "claude_conflicting_auth_modes",
+      });
+    }
     if (
       configuration.execution.providerLimit !==
         configuration.providers.length ||
