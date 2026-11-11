@@ -839,9 +839,16 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       const repository = VISUAL_REPOSITORIES[repositoryKey];
       const fullName = visualRepositoryFullName(repository);
       const defaultBefore = await defaultProfileId(flow.prisma, workspace.id);
-      const page = await flow.open("owner", repositoryRoute(repositoryKey), {
-        theme: "dark",
-      });
+      // Use the canonical GitHub organization workspace URL: the return link
+      // in the provider dialog intentionally navigates to that same alias.
+      const page = await flow.open(
+        "owner",
+        workspaceRoute("main", "repositories", {
+          workspace: workspace.installation.accountLogin,
+          repository: fullName,
+        }),
+        { theme: "dark" },
+      );
       // The direct repository URL already identifies and renders this row.
       // Changing the search query here updates history and can re-render the
       // page while the provider dialog opens, dropping the active click.
@@ -956,7 +963,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       });
       await returnFromSetupDialog(page, dialog, "Back to repository setup");
       await flow.check("credential verification does not certify an unverified review workflow", async () => {
-        await assertRepositoryExpanded(page, repositoryKey);
+        await assertRepositoryExpanded(page, repositoryKey, workspace.installation.accountLogin);
         await expectEventually(async () =>
           expectMatch(
             await stepTitle(page, repositoryKey),
@@ -2157,6 +2164,7 @@ async function returnFromSetupDialog(
 async function assertRepositoryExpanded(
   page: Page,
   key: VisualRepositoryKey,
+  expectedWorkspace = VISUAL_WORKSPACES[VISUAL_REPOSITORIES[key].workspace].id,
 ): Promise<void> {
   const repository = VISUAL_REPOSITORIES[key];
   const url = new URL(page.url());
@@ -2167,7 +2175,7 @@ async function assertRepositoryExpanded(
   );
   expectEqual(
     url.searchParams.get("workspace"),
-    VISUAL_WORKSPACES[repository.workspace].id,
+    expectedWorkspace,
     "returned workspace",
   );
   await visible(repositorySetupPanel(page, key));
