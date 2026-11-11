@@ -636,7 +636,9 @@ describe("ProviderSetupDialog", () => {
         .getAttribute("aria-checked"),
     ).toBe("false");
     fireEvent.click(
-      screen.getByRole("button", { name: "Use for this repository" }),
+      screen.getByRole("button", {
+        name: "Install key and use for this repository",
+      }),
     );
     await waitFor(() =>
       expect(saveProviderRosterAction).toHaveBeenCalledWith(
