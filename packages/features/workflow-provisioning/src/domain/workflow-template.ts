@@ -2187,7 +2187,9 @@ function providerKindForRuntimeAuthMode(
     case "mimo_token_plan_api_key":
       return "codex-mimo";
     case "claude-oauth":
+    case "claude-api-key":
     case "claude_code_oauth":
+    case "claude_code_api_key":
       return "claude";
     case "openrouter-api":
     case "openrouter_api_key":
