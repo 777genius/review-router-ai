@@ -192,6 +192,16 @@ function normalizeRuntimePlanProviders(
     throw new Error("provider_runtime_plan_requires_provider");
   }
   const validatedProviders = providers.map(validateRuntimePlanProvider);
+  if (
+    validatedProviders.some(
+      (provider) => provider.authMode === "codex_subscription_oauth_rotating",
+    ) &&
+    validatedProviders.some(
+      (provider) => provider.authMode === "claude_code_api_key",
+    )
+  ) {
+    throw new Error("claude_api_key_rotating_transport_unsupported");
+  }
   if (validatedProviders.some((provider) => provider.requiredHealthy)) {
     return validatedProviders;
   }
