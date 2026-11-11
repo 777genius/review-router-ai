@@ -1691,6 +1691,7 @@ function ProviderChoiceStep({
               source?.credentialKind === "managed_api_key")) ? (
             <div className="grid gap-3">
               {keyStorage === "github_secrets" &&
+              setupProvider !== "claude-code" &&
               managedSourceFor(setupProvider) ? (
                 <RadioCardGroup
                   label="GitHub secret delivery"
