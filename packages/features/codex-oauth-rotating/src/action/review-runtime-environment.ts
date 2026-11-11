@@ -157,8 +157,8 @@ function buildProviderSecretEnvForRuntime(input: {
   if (
     runtimeProvidersInclude(input.runtimeEnv, "claude/") &&
     (!input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE ||
-      (input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_oauth" ||
-        input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude-oauth")) &&
+      input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_oauth" ||
+      input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude-oauth") &&
     input.providerSecrets.claudeCodeOAuthToken
   ) {
     env.CLAUDE_CODE_OAUTH_TOKEN = input.providerSecrets.claudeCodeOAuthToken;

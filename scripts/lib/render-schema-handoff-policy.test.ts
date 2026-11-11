@@ -3415,7 +3415,10 @@ describe("complete filesystem checkout inventory", () => {
       // checkout-only tails (the member index and Claude API-key CHECK).
       if (name === usageMemberReportIndexName) {
         expect(() => fixture.read()).toThrow("checkout_extension");
-        const claudeDirectory = join(fixture.migrations, claudeApiKeyMigrationName);
+        const claudeDirectory = join(
+          fixture.migrations,
+          claudeApiKeyMigrationName,
+        );
         const claudeSql = join(claudeDirectory, "migration.sql");
         const claudeBytes = readFileSync(claudeSql);
         rmSync(claudeDirectory, { recursive: true });
