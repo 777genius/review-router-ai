@@ -1263,7 +1263,14 @@ export function analyzeWorkflowProviderCompatibility(input: {
     const requiredSecret = apiKeySelected
       ? "ANTHROPIC_API_KEY"
       : "CLAUDE_CODE_OAUTH_TOKEN";
-    if (!input.workflowYaml.includes(requiredSecret)) {
+    const secretIsForwarded =
+      input.workflowYaml.includes(requiredSecret) &&
+      (workflowStyle !== "explicit" ||
+        !apiKeySelected ||
+        /^\s*ANTHROPIC_API_KEY:\s*\$\{\{\s*secrets\.ANTHROPIC_API_KEY\s*\}\}\s*$/m.test(
+          input.workflowYaml,
+        ));
+    if (!secretIsForwarded) {
       missingRequirements.push("secret_pass_through");
     }
     if (
