@@ -3411,11 +3411,18 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing only the concurrent index restores exact reviewed checkout159.
-      // A partial memory pair or an unpublished combination stays rejected.
-      if (name === usageMemberReportIndexName)
+      // The reviewed checkout159 is valid only after removing BOTH
+      // checkout-only tails (the member index and Claude API-key CHECK).
+      if (name === usageMemberReportIndexName) {
+        expect(() => fixture.read()).toThrow("checkout_extension");
+        const claudeDirectory = join(fixture.migrations, claudeApiKeyMigrationName);
+        const claudeSql = join(claudeDirectory, "migration.sql");
+        const claudeBytes = readFileSync(claudeSql);
+        rmSync(claudeDirectory, { recursive: true });
         expect(fixture.read()).toEqual(catalog);
-      else expect(() => fixture.read()).toThrow();
+        mkdirSync(claudeDirectory);
+        writeFileSync(claudeSql, claudeBytes);
+      } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);
     }
