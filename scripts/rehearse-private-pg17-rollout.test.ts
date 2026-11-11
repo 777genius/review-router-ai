@@ -1282,7 +1282,12 @@ describe("disposable dual-version rehearsal", () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
 
-    const currentMigrationNames = migrationNames;
+    // The new application-only Claude CHECK is excluded from the historical
+    // signed checkout160 manifest, but included in the live source boundary.
+    const currentMigrationNames = migrationNames.filter(
+      (name) => name !== "000156_claude_code_api_key_secret",
+    );
+    expect(migrationNames).toHaveLength(161);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
@@ -1314,7 +1319,7 @@ describe("disposable dual-version rehearsal", () => {
         ),
     ).toEqual(["000136_review_skills", "000137_review_skills_capture"]);
     const exclusions = resolvePreReleaseMigrationExclusions(
-      currentMigrationNames,
+      migrationNames,
     );
     const historicalCheckout = legacyMigrationNames.filter(
       (name) =>
