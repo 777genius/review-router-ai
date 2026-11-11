@@ -10,6 +10,8 @@ on:
       - scripts/provider-setup-visual/onboarding-qualification.ts
       - apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx
       - apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx
+      - apps/web/src/features/provider-setup/api-key-storage.ts
+      - apps/web/src/features/provider-setup/api-key-storage.test.ts
 
 permissions:
   contents: read
