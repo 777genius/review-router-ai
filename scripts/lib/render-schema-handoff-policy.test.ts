@@ -3432,7 +3432,10 @@ describe("complete filesystem checkout inventory", () => {
       // index leaves both successor migrations present and must fail closed.
       if (name === usageMemberReportIndexName) {
         expect(() => fixture.read()).toThrow("checkout_extension");
-        const extensions = [claudeApiKeyMigrationName, verifiedReplyMigrationName];
+        const extensions = [
+          claudeApiKeyMigrationName,
+          verifiedReplyMigrationName,
+        ];
         const saved = extensions.map((migrationName) => {
           const extensionDirectory = join(fixture.migrations, migrationName);
           const extensionBytes = readFileSync(
@@ -3444,7 +3447,10 @@ describe("complete filesystem checkout inventory", () => {
         expect(fixture.read()).toEqual(catalog);
         for (const { extensionDirectory, extensionBytes } of saved) {
           mkdirSync(extensionDirectory);
-          writeFileSync(join(extensionDirectory, "migration.sql"), extensionBytes);
+          writeFileSync(
+            join(extensionDirectory, "migration.sql"),
+            extensionBytes,
+          );
         }
       } else if (name === claudeApiKeyMigrationName) {
         // Removing only the newest, unpublished Claude tail restores the
