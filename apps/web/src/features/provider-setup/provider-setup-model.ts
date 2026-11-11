@@ -354,8 +354,11 @@ export function buildProviderSetupView(
         repositoryId: null,
       }),
     },
-    ...(["mimo_token_plan_api_key", "openrouter_api_key", "claude_code_api_key"] as const).map(
-      (authMode): ProviderSourceOption => {
+    ...(["mimo_token_plan_api_key", "openrouter_api_key", "claude_code_api_key"] as const)
+      .filter((authMode) =>
+        authMode !== "claude_code_api_key" || facts.claudeCodeEnabled,
+      )
+      .map((authMode): ProviderSourceOption => {
         const key = facts.managedKeys[authMode];
         const install = admin
           ? decide({ kind: "manage_managed_key" })
