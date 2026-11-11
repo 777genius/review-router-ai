@@ -1,0 +1,54 @@
+name: Temporary Claude dual-auth bundle qualification
+
+on:
+  push:
+    branches:
+      - feat/claude-dual-auth-secrets-20261111
+    paths:
+      - .github/workflows/rebuild-claude-bundles.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-claude-bundle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    name: Rebuild and verify committed Action source bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - name: Setup pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install locked project dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Rebuild source-matching Action distribution
+        run: pnpm action:build
+      - name: Verify deterministic bundle
+        env:
+          REVIEWROUTER_CODEX_ROTATING_ACTION_REQUIRE_BINARY: "0"
+        run: node scripts/check-codex-rotating-action-artifact.mjs
+      - name: Commit bundle only when source-matching
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- action-dist/index.cjs
+          if git diff --cached --quiet; then
+            echo "Bundled Action already matches source."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'build(action): refresh deterministic dual-auth bundle'
+          git fetch origin "${GITHUB_REF_NAME}"
+          test "$(git rev-parse "origin/${GITHUB_REF_NAME}")" = "${GITHUB_SHA}"
+          git push origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
