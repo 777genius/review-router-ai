@@ -741,14 +741,14 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     const node = response.node;
     const parent = node?.comments?.nodes?.[0];
     const fingerprint = extractUniqueReviewFindingFingerprint(parent?.body ?? "");
-    const bot = this.options.botLogin.toLowerCase().replace(/\\[bot\\]$/u, "");
-    const author = parent?.author?.login?.toLowerCase().replace(/\\[bot\\]$/u, "");
+    const bot = this.options.botLogin.toLowerCase().replace(/\[bot\]$/u, "");
+    const author = parent?.author?.login?.toLowerCase().replace(/\[bot\]$/u, "");
     const owned =
       parent?.viewerDidAuthor === true ||
       (parent?.author?.__typename === "Bot" && author === bot);
     const expectedTargetId =
       parent?.id && fingerprint
-        ? `rrt_${sha256(`${payload.threadId}\\n${parent.id}\\n${fingerprint}`).slice(0, 16)}`
+        ? `rrt_${sha256(`${payload.threadId}\n${parent.id}\n${fingerprint}`).slice(0, 16)}`
         : null;
     if (
       node?.id !== payload.threadId ||
