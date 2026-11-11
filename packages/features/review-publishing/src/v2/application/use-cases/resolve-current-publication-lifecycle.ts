@@ -233,6 +233,16 @@ function assertLiveLifecycle(input: {
   for (const target of input.targets) {
     requiredFingerprint(target.markerFingerprint, "marker_fingerprint");
     requiredSha256(target.threadStateHash, "lifecycle_thread_state_hash");
+    if (target.verifiedReplyPrefixHashes !== undefined) {
+      if (
+        target.verifiedReplyPrefixHashes.length > 32 ||
+        new Set(target.verifiedReplyPrefixHashes).size !==
+          target.verifiedReplyPrefixHashes.length
+      ) throw new Error("lifecycle_verified_reply_witness_invalid");
+      for (const hash of target.verifiedReplyPrefixHashes) {
+        requiredSha256(hash, "lifecycle_verified_reply_witness");
+      }
+    }
     requiredBoolean(target.isResolved, "lifecycle_target_resolved");
     requiredBoolean(
       target.parentOwnedByIntegration,
@@ -353,7 +363,8 @@ function lifecycleTargetChanged(
   if (!observation) throw new Error("lifecycle_observation_incomplete");
   return (
     live.markerFingerprint !== observation.markerFingerprint ||
-    live.threadStateHash !== observation.threadStateHash
+    (live.threadStateHash !== observation.threadStateHash &&
+      !live.verifiedReplyPrefixHashes?.includes(observation.threadStateHash))
   );
 }
 
