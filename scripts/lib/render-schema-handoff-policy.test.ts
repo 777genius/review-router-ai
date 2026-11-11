@@ -2851,9 +2851,7 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
-      rmSync(join(migrations, verifiedReplyMigrationName), {
-        recursive: true,
-      });
+      rmSync(join(migrations, verifiedReplyMigrationName), { recursive: true });
       rmSync(join(migrations, usageMemberReportIndexName), { recursive: true });
       rmSync(join(migrations, gatewayAllocationsMigrationName), {
         recursive: true,

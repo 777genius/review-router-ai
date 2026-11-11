@@ -783,10 +783,14 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       parent?.viewerDidAuthor === true ||
       (parent?.author?.__typename === "Bot" &&
         (author === bot || trusted));
-    const expectedTargetId =
+    const parentIdentity =
       parent?.id && fingerprint
-        ? `rrt_${sha256(`${payload.threadId}\n${parent.id}\n${fingerprint}`).slice(0, 16)}`
+        ? `${payload.threadId}\n${parent.id}\n${fingerprint}`
         : null;
+    const expectedTargetId =
+      parentIdentity === null
+        ? null
+        : `rrt_${sha256(parentIdentity).slice(0, 16)}`;
     if (
       node?.id !== payload.threadId ||
       !parent ||

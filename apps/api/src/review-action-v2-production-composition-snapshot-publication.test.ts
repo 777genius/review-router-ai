@@ -1639,11 +1639,7 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     );
     expect(
       stored?.attempt.operations.map((operation) => operation.publicationKind),
-    ).toEqual([
-      "summary",
-      "managed_check",
-      "thread_lifecycle",
-    ]);
+    ).toEqual(["summary", "managed_check", "thread_lifecycle"]);
     expect(stored?.attempt.operations[2]?.chunkIndex).toBe(1);
 
     const restored = await routes.publication.request!.execute(request);
