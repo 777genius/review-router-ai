@@ -332,7 +332,7 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       catalog.length !== 161 ||
       catalog.at(-1) !== claudeApiKeyMigration ||
       claudeApiKeyMigration.checksum !==
-        "f329d536172a46caef5ebe37fd76dc398394141052bd9271819a4bee881bc89e"
+        "2fbf057867678221b77369316922bfc73851f328959d24933ab3bd543746c03f"
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(

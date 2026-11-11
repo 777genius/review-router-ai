@@ -21,7 +21,8 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
 const previousFull = currentFull.filter(
-  (row) => row.migrationName !== "000155_usage_member_report_index",
+  (row) => row.migrationName !== "000155_usage_member_report_index" &&
+    row.migrationName !== "000156_claude_code_api_key_secret",
 );
 const full = previousFull
   .filter(
