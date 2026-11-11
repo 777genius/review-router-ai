@@ -1771,7 +1771,9 @@ function ProviderChoiceStep({
                           : "github_secrets",
                       workspaceId,
                       repositoryIds: [],
-                      ...(setupProvider === "claude-code" ? { claudeMethod } : {}),
+                      ...(setupProvider === "claude-code"
+                        ? { claudeMethod }
+                        : {}),
                     })}
                   >
                     Choose repositories for key installation
