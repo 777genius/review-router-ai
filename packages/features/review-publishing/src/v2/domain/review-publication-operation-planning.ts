@@ -291,8 +291,7 @@ export function planReviewPublicationOperations(input: {
       if (
         operations.length + requiredLifecycleCount + 1 >
           limits.maxPublicationOperations ||
-        chunkCount + requiredLifecycleCount + 1 >
-          limits.maxPublicationChunks ||
+        chunkCount + requiredLifecycleCount + 1 > limits.maxPublicationChunks ||
         lifecycle.bodyByteCount >
           limits.maxPublicationBodyBytes -
             totalBodyBytes -

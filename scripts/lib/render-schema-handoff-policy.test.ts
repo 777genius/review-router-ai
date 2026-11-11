@@ -2851,6 +2851,9 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, verifiedReplyMigrationName), {
+        recursive: true,
+      });
       rmSync(join(migrations, usageMemberReportIndexName), { recursive: true });
       rmSync(join(migrations, gatewayAllocationsMigrationName), {
         recursive: true,
@@ -3315,11 +3318,9 @@ describe("complete filesystem checkout inventory", () => {
         join(fixture.migrations, row.migrationName, "migration.sql"),
       ),
     );
-    const accepted = [
-      0, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767,
-      65535, 131071, 262143, 524287, 1048575, 2097151, 4194303, 8388607,
-      16777215, 33554431, 67108863, 134217727,
-    ];
+    const accepted = Array.from({ length: tail.length - 1 }, (_, index) =>
+      index === 0 ? 0 : 2 ** (index + 2) - 1,
+    );
     const fullMask = (1 << tail.length) - 1;
     const masks = [
       ...accepted,
@@ -3399,10 +3400,9 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(directory, { recursive: true });
       // Removing only the concurrent index restores exact reviewed checkout159.
       // A partial memory pair or an unpublished combination stays rejected.
-      if (
-        name === usageMemberReportIndexName ||
-        name === verifiedReplyMigrationName
-      )
+      // The verified-reply extension alone is removable; its predecessor
+      // cannot disappear while the verified-reply extension remains.
+      if (name === verifiedReplyMigrationName)
         expect(fixture.read()).toEqual(catalog);
       else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

@@ -134,7 +134,8 @@ describe("review publication operation planning", () => {
       const planned = await plan(projection, limits(capacity));
       expect(
         planned.filter(
-          (operation) => operation.publicationKind === ReviewPublicationKind.Summary,
+          (operation) =>
+            operation.publicationKind === ReviewPublicationKind.Summary,
         ),
       ).toHaveLength(1);
       expect(
@@ -145,7 +146,8 @@ describe("review publication operation planning", () => {
       ).toHaveLength(2);
       expect(
         planned.filter(
-          (operation) => operation.publicationKind === ReviewPublicationKind.ThreadReply,
+          (operation) =>
+            operation.publicationKind === ReviewPublicationKind.ThreadReply,
         ),
       ).toHaveLength(expectedReplies);
       expect(
