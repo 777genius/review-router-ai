@@ -596,6 +596,20 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
       checksum: "2fbf057867678221b77369316922bfc73851f328959d24933ab3bd543746c03f",
     });
     expect(partitionRenderSchemaHandoffCheckout(withClaude)).toEqual(catalog);
+    // Adding a checkout tail does not authorize arbitrary SQL or an extra
+    // directory: every newly admitted row stays checksum-bound, fail closed.
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withClaude.slice(0, -1),
+        { ...withClaude.at(-1)!, checksum: "0".repeat(64) },
+      ]),
+    ).toThrow("checkout_extension");
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withClaude,
+        { migrationName: "000157_unknown", checksum: "0".repeat(64) },
+      ]),
+    ).toThrow();
     const full = withClaude.filter(
       (row) => row.migrationName !== claudeApiKeyMigrationName,
     );
