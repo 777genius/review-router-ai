@@ -157,7 +157,8 @@ function buildProviderSecretEnvForRuntime(input: {
   if (
     runtimeProvidersInclude(input.runtimeEnv, "claude/") &&
     (!input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE ||
-      input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_oauth") &&
+      (input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_oauth" ||
+        input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude-oauth")) &&
     input.providerSecrets.claudeCodeOAuthToken
   ) {
     env.CLAUDE_CODE_OAUTH_TOKEN = input.providerSecrets.claudeCodeOAuthToken;
@@ -188,6 +189,7 @@ export function assertProviderSecretInputsForRuntime(input: {
     (runtimeProvidersInclude(input.runtimeEnv, "claude/") ||
       input.runtimeEnv.REVIEW_AUTH_MODE === "claude-api-key") &&
     (input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_api_key" ||
+      input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude-api-key" ||
       input.runtimeEnv.REVIEW_AUTH_MODE === "claude-api-key")
   ) {
     throw new Error("claude_api_key_rotating_transport_unsupported");
