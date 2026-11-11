@@ -50,6 +50,8 @@ jobs:
             scripts/lib/render-schema-handoff-policy.test.ts \
             scripts/provider-setup-visual/flows.ts \
             scripts/rehearse-private-pg17-rollout.test.ts 
+      - name: Format temporary workflow for the disposable checkout
+        run: pnpm exec prettier --write .github/workflows/format-claude-dual-auth.yml
       - name: Verify entire checkout formatting
         run: pnpm format:check
       - name: Commit and push formatted files
