@@ -1,0 +1,57 @@
+name: NVIDIA sandbox exact Prettier remediation (one-time)
+on:
+  push:
+    branches:
+      - feat/nvidia-build-gateway-sandbox
+    paths:
+      - .github/workflows/nvidia-sandbox-format-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ github.repository == '777genius/review-router-ai' && github.ref == 'refs/heads/feat/nvidia-build-gateway-sandbox' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout isolated PR branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Use pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install project-pinned dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Format NVIDIA test and relay source, then check entire tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec prettier --version
+          pnpm exec prettier --write \
+            apps/api/src/nvidia-build-sandbox-repository.ts \
+            apps/api/src/review-run-gateway-checkout.ts \
+            apps/api/src/review-run-gateway-relay.ts \
+            apps/api/src/review-run-gateway-byte-limits.test.ts \
+            apps/api/src/review-run-gateway-multi-checkout.test.ts
+          pnpm format:check
+      - name: Commit deterministic formatting and remove this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- \
+            apps/api/src/nvidia-build-sandbox-repository.ts \
+            apps/api/src/review-run-gateway-checkout.ts \
+            apps/api/src/review-run-gateway-relay.ts \
+            apps/api/src/review-run-gateway-byte-limits.test.ts \
+            apps/api/src/review-run-gateway-multi-checkout.test.ts
+          git rm -- .github/workflows/nvidia-sandbox-format-once.yml
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "style(nvidia): normalize sandbox admission tests and remove one-time formatter"
+          git push origin HEAD:refs/heads/feat/nvidia-build-gateway-sandbox
