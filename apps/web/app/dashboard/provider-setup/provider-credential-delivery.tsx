@@ -488,7 +488,7 @@ export function ManagedKeyDelivery({
   onInstalled,
 }: DeliveryRepository &
   Readonly<{
-    authMode: "mimo_token_plan_api_key" | "openrouter_api_key";
+    authMode: "mimo_token_plan_api_key" | "openrouter_api_key" | "claude_code_api_key";
     installed: boolean;
     /** Why the viewer cannot install the key; null when they can. */
     installDecisionReason: string | null;
@@ -1132,11 +1132,13 @@ function ciSecretDetails(
 
 /** The plain name of a key ReviewRouter saves for a managed provider. */
 export function managedKeyName(
-  authMode: "mimo_token_plan_api_key" | "openrouter_api_key",
+  authMode: "mimo_token_plan_api_key" | "openrouter_api_key" | "claude_code_api_key",
 ): string {
   return authMode === "mimo_token_plan_api_key"
     ? "MiMo Token Plan"
-    : "OpenRouter";
+    : authMode === "claude_code_api_key"
+      ? "Anthropic"
+      : "OpenRouter";
 }
 
 function secretScopeOptions(input: {
