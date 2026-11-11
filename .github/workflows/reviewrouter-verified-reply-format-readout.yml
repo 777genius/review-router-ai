@@ -1,0 +1,83 @@
+name: Verified reply temporary format readout
+on:
+  push:
+    branches:
+      - fix/verified-thread-reply-v2-20261111
+    paths:
+      - .github/workflows/reviewrouter-verified-reply-format-readout.yml
+permissions:
+  contents: read
+jobs:
+  format-readout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact branch revision without retained credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install formatting dependencies
+        run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Format only changed TypeScript and JavaScript files without publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec prettier --write \
+          apps/api/src/review-action-v2-production-composition-snapshot-publication.ts \
+          apps/worker/src/review-v2-context-adapters.test.ts \
+          apps/worker/src/review-v2-context-adapters.ts \
+          apps/worker/src/review-v2-publication-gateways.test.ts \
+          apps/worker/src/review-v2-publication-payloads.test.ts \
+          apps/worker/src/review-v2-publication-payloads.ts \
+          packages/features/release-rollout/src/domain/release-migration-transition.test.ts \
+          packages/features/review-config/src/tests/gateway-configuration.postgres.test.ts \
+          packages/features/review-publishing/src/v2/application/ports/review-publication-payload-port.ts \
+          packages/features/review-publishing/src/v2/application/ports/review-publication-ports.ts \
+          packages/features/review-publishing/src/v2/application/use-cases/execute-review-publication-operation.ts \
+          packages/features/review-publishing/src/v2/application/use-cases/reconcile-review-publication-operation.ts \
+          packages/features/review-publishing/src/v2/application/use-cases/resolve-current-publication-lifecycle.ts \
+          packages/features/review-publishing/src/v2/domain/canonical-review-publication-renderer.ts \
+          packages/features/review-publishing/src/v2/domain/review-publication-attempt.ts \
+          packages/features/review-publishing/src/v2/domain/review-publication-operation-planning.ts \
+          packages/features/review-publishing/src/v2/infrastructure/github/github-review-publication-client.ts \
+          packages/features/review-publishing/src/v2/infrastructure/github/github-review-publication-lifecycle.ts \
+          packages/features/review-publishing/src/v2/infrastructure/prisma/review-publication-prisma-mappers.ts \
+          packages/features/review-publishing/src/v2/tests/canonical-review-publication-renderer.test.ts \
+          packages/features/review-publishing/src/v2/tests/github-review-publication-lifecycle.test.ts \
+          packages/features/review-publishing/src/v2/tests/resolve-current-publication-lifecycle.test.ts \
+          packages/features/review-publishing/src/v2/tests/review-publication-executor.test.ts \
+          scripts/codex-rotating-release-migration-workflow.test.ts \
+          scripts/lib/provider-key-checkout-admission.test.ts \
+          scripts/lib/render-historical96-checkout.mjs \
+          scripts/lib/render-historical96-checkout.test.ts \
+          scripts/lib/render-schema-handoff-policy.mjs \
+          scripts/lib/render-schema-handoff-policy.test.ts \
+          scripts/lib/render-schema-handoff-transaction.test.ts \
+          scripts/rehearse-private-pg17-rollout.mjs \
+          scripts/rehearse-private-pg17-rollout.test.ts \
+          scripts/review-investigation-paired-e2e/lifecycle-verification-paired.e2e.test.ts
+          git diff --check
+      - name: Publish formatting readout (no GitHub writes, no secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          paths = [p for p in subprocess.check_output(
+              ["git", "diff", "--name-only", "-z"]).decode("utf-8").split("\0") if p]
+          data = [{"path": p, "content": open(p, encoding="utf-8").read()}
+                  for p in paths]
+          payload = json.dumps(data, ensure_ascii=True, separators=(",", ":"))
+          print("RRFMT_HEADER:" + str(len(paths)) + ":" + str(len(payload)))
+          for offset in range(0, len(payload), 3000):
+              print("RRFMT_CHUNK:" + payload[offset:offset+3000])
+          print("RRFMT_SHA256:" + hashlib.sha256(payload.encode()).hexdigest())
+          PY
+      - name: Verify full repository formatting
+        run: pnpm exec prettier --check .
