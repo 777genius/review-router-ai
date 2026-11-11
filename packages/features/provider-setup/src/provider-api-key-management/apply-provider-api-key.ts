@@ -55,7 +55,9 @@ export async function applyProviderApiKey(
   if (
     providerType === "anthropic" &&
     providedApiKey &&
-    !/^sk-ant-api[0-9]{2}-[A-Za-z0-9._-]{8,}$/.test(providedApiKey)
+    (providedApiKey.length < 16 ||
+      /^sk-ant-oat/i.test(providedApiKey) ||
+      /[\s|\u0000-\u001f\u007f"'\x60]/.test(providedApiKey))
   ) {
     throw new Error("anthropic_api_key_invalid");
   }
