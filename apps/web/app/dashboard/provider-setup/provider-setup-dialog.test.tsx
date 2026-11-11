@@ -530,6 +530,64 @@ describe("ProviderSetupDialog", () => {
     );
   });
 
+  it("keeps Claude subscription on the user-owned OAuth secret even when a managed Anthropic key is installed", async () => {
+    view = {
+      ...view,
+      sources: [
+        ...apiSources(),
+        {
+          key: "user_ci_secret:claude_code_oauth",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_oauth",
+          decision: { allowed: true },
+        },
+        {
+          key: "user_ci_secret:claude_code_api_key",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_api_key",
+          decision: { allowed: true },
+        },
+        {
+          key: "managed_api_key:claude_code_api_key",
+          credentialKind: "managed_api_key",
+          authMode: "claude_code_api_key",
+          decision: { allowed: true },
+          managedKey: {
+            uploaded: true,
+            installedRepositoryIds: ["repo_1"],
+            install: { allowed: true },
+          },
+        },
+      ],
+    };
+    renderDialog(repositoryTarget);
+    await choose("Add a new provider");
+    await chooseSelect("Provider", "Claude Code");
+    fireEvent.click(screen.getByRole("radio", { name: "Claude subscription" }));
+    expect(
+      screen
+        .getByRole("radio", { name: "GitHub Secrets" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await waitFor(() =>
+      expect(saveProviderRosterAction).toHaveBeenCalledWith(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            provider: expect.objectContaining({
+              credential: {
+                kind: "user_ci_secret",
+                authMode: "claude_code_oauth",
+              },
+            }),
+          }),
+        ),
+      ),
+    );
+  });
+
   it("selects Anthropic API-key auth without creating a second Claude provider", async () => {
     view = {
       ...view,
