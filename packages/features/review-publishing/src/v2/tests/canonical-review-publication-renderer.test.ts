@@ -146,7 +146,10 @@ describe("canonical review publication renderer", () => {
         mutationStatus: "report_only",
       },
     } as const;
-    const render = (coverage: ReviewPublicationProjectionCoverage, lifecycle = [verified]) =>
+    const render = (
+      coverage: ReviewPublicationProjectionCoverage,
+      lifecycle: ReviewPublicationRenderingSource["lifecycle"] = [verified],
+    ) =>
       renderCanonicalReviewPublication(
         {
           coverage,
