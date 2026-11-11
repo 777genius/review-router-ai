@@ -425,7 +425,12 @@ export function renderCanonicalReviewPublication(
       conclusion: input.source.check.conclusion,
     },
     inlineReviews,
-    lifecycle: [...lifecycle, ...replies],
+    // Send the confirmation first: a denied resolve must not prevent the
+    // separate, authorized reply from reaching the original thread.
+    lifecycle: [...replies, ...lifecycle].map((entry, chunkIndex) => ({
+      ...entry,
+      chunkIndex,
+    })),
   };
 }
 
