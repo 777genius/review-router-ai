@@ -987,7 +987,7 @@ describe("dashboard setup PR recovery", () => {
       mocks.activateConfirmedCodexNamespaceAfterWorkflowMerge,
     ).not.toHaveBeenCalled();
     expect(state.current()).toMatchObject({
-      status: "pending",
+      status: "setup_pr_open",
     });
   });
 
