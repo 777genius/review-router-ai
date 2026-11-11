@@ -154,17 +154,6 @@ function buildProviderSecretEnvForRuntime(input: {
 }): Record<string, string> {
   assertProviderSecretInputsForRuntime(input);
   const env: Record<string, string> = {};
-  // This Action supports Claude subscriptions only through the original CLI.
-  // API-key Claude is approved on the standalone Secrets runtime, not through
-  // rotating/hosted Action transports. Never silently inject an old OAuth token.
-  if (
-    (runtimeProvidersInclude(input.runtimeEnv, "claude/") ||
-      input.runtimeEnv.REVIEW_AUTH_MODE === "claude-api-key") &&
-    (input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_api_key" ||
-      input.runtimeEnv.REVIEW_AUTH_MODE === "claude-api-key")
-  ) {
-    throw new Error("claude_api_key_rotating_transport_unsupported");
-  }
   if (
     runtimeProvidersInclude(input.runtimeEnv, "claude/") &&
     (!input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE ||
@@ -192,6 +181,17 @@ export function assertProviderSecretInputsForRuntime(input: {
   readonly runtimeEnv: Readonly<Record<string, string>>;
   readonly providerSecrets: ProviderSecretInputs;
 }): void {
+  // This Action supports Claude subscriptions only through the original CLI.
+  // API-key Claude is approved on the standalone Secrets runtime, not through
+  // rotating/hosted Action transports. Never silently inject an old OAuth token.
+  if (
+    (runtimeProvidersInclude(input.runtimeEnv, "claude/") ||
+      input.runtimeEnv.REVIEW_AUTH_MODE === "claude-api-key") &&
+    (input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_api_key" ||
+      input.runtimeEnv.REVIEW_AUTH_MODE === "claude-api-key")
+  ) {
+    throw new Error("claude_api_key_rotating_transport_unsupported");
+  }
   if (
     runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") &&
     !input.providerSecrets.mimoTokenPlanApiKey
