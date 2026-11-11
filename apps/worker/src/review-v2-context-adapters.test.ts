@@ -163,32 +163,16 @@ describe("review v2 worker context adapters", () => {
     const snapshot = executionSnapshot();
     const scoped = await publicationRequestFactory().build(snapshot);
     if (!scoped) throw new Error("test_publication_command_missing");
-    const scopedPrefix = `review-publication:${scoped.publicationAttemptId}:`;
-    const legacyOperations = scoped.operations.map((operation) => ({
-      ...operation,
-      publicationOperationId: operation.publicationOperationId.replace(
-        scopedPrefix,
-        "review-publication:",
-      ),
-      dependsOnOperationId:
-        operation.dependsOnOperationId?.replace(
-          scopedPrefix,
-          "review-publication:",
-        ) ?? null,
-    }));
+    // A real stored legacy plan has a request hash for its legacy IDs.
+    const legacy = legacyProjectionScopedCommand(scoped);
     const attempts = new FakePublicationAttempts();
-    attempts.store(
-      publicationView({
-        ...scoped,
-        operations: legacyOperations,
-      }),
-    );
+    attempts.store(publicationView(legacy));
 
     await expect(
       publicationRequestFactory(completionProjectionMapper(), attempts).build(
         snapshot,
       ),
-    ).resolves.toMatchObject({ operations: legacyOperations });
+    ).resolves.toEqual(legacy);
   });
 
   it("keeps a previously persisted request byte-identical despite newly available thread replies", async () => {
