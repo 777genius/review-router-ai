@@ -4073,6 +4073,7 @@ enum ReviewPublicationKindV2 {
   pending_review_submit
   submitted_review
   thread_lifecycle
+  thread_reply
 }
 
 enum ReviewPublicationEffectStrategyV2 {

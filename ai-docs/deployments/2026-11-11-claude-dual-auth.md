@@ -20,7 +20,7 @@
 
 - **No production deploy or credential enrollment is authorized** by these Draft PRs.
 - Read [release management](../operations/07-environments-and-release-management.md) and unfinished task index before any rollout. Verify exact current main, Action pin, approved immutable producer metadata and GitHub App identity.
-- The additive SQL check migration `000156_claude_code_api_key_secret` must run before SaaS can write new `WorkspaceProviderProfile.authMode=claude_code_api_key` rows. Existing rows and secrets are not migrated.
+- The additive SQL check migration `000157_claude_code_api_key_secret` must run before SaaS can write new `WorkspaceProviderProfile.authMode=claude_code_api_key` rows. Existing rows and secrets are not migrated.
 - Protect existing workspace provider profiles, repository defaults and workflow pins. No implicit change to saved Claude subscription mode.
 - **Credential-policy gate:** never collect/customer-enroll Claude subscription tokens in ReviewRouter or Gateway; the supported customer subscription path uses customer-owned GitHub Secrets with an unmodified Claude Code CLI. The existing prepared OAuth-over-HTTP runtime is not a substitute. Separate Anthropic authorization would be required for central subscription custody.
 - **Current scoped API-key custody:** ReviewRouter already has an encrypted workspace-key store with per-repository GitHub Secrets delivery. Extend its exact `providerType=anthropic` allowlist, preserve owner/admin authorization and audit, and run the same official Claude Code CLI in CI. Do not repurpose the Claude OAuth Gateway profile. Native Gateway inference is a separate future capability and is not required for this CI-backed mode.

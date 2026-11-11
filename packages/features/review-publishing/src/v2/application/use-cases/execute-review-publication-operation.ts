@@ -423,14 +423,24 @@ export class ExecuteReviewV2PublicationOperation {
 
       if (
         potentialEffect &&
-        begun.operation.publicationKind === ReviewPublicationKind.PrDescription
+        (begun.operation.publicationKind ===
+          ReviewPublicationKind.PrDescription ||
+          begun.operation.publicationKind === ReviewPublicationKind.ThreadReply)
       ) {
         return this.settlement.terminalizeKnownAmbiguity({
           command,
           operation: begun.operation,
           claim,
-          finalReason: "pr_description_prior_write_unreconciled",
-          lastErrorCode: "pr_description_write_outcome_unknown",
+          finalReason:
+            begun.operation.publicationKind ===
+            ReviewPublicationKind.ThreadReply
+              ? "verified_reply_prior_write_unreconciled"
+              : "pr_description_prior_write_unreconciled",
+          lastErrorCode:
+            begun.operation.publicationKind ===
+            ReviewPublicationKind.ThreadReply
+              ? "verified_reply_write_outcome_unknown"
+              : "pr_description_write_outcome_unknown",
         });
       }
 

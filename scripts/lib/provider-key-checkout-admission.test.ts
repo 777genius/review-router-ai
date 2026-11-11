@@ -35,7 +35,8 @@ const originalHistory = readRenderManagedCheckoutInventory()
       row.migrationName !== "000145_workspace_provider_profiles" &&
       row.migrationName !== "000154_unified_model_dispatch" &&
       row.migrationName !== "000155_usage_member_report_index" &&
-      row.migrationName !== "000156_claude_code_api_key_secret" &&
+      row.migrationName !== "000156_verified_thread_reply" &&
+      row.migrationName !== "000157_claude_code_api_key_secret" &&
       row.migrationName !== "000152_review_run_gateway_allocations" &&
       row.migrationName !== "000152_memory_automatic_source" &&
       row.migrationName !== "000153_conversation_processing" &&

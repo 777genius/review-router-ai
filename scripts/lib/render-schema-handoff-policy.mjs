@@ -322,14 +322,14 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
   )
     fail("checkout_catalog");
   // Additive Claude auth-mode CHECK is an application-only checkout tail.
-  // The exact new SQL and full 161-row inventory are required before reducing
+  // The exact new SQL and full 162-row inventory are required before reducing
   // to the previously signed checkout160; managed92 is never expanded.
   const claudeApiKeyMigration = catalog.find(
-    (row) => row.migrationName === "000156_claude_code_api_key_secret",
+    (row) => row.migrationName === "000157_claude_code_api_key_secret",
   );
   if (claudeApiKeyMigration) {
     if (
-      catalog.length !== 161 ||
+      catalog.length !== 162 ||
       catalog.at(-1) !== claudeApiKeyMigration ||
       claudeApiKeyMigration.checksum !==
         "f329d536172a46caef5ebe37fd76dc398394141052bd9271819a4bee881bc89e"
@@ -337,6 +337,25 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
       catalog.filter((row) => row !== claudeApiKeyMigration),
+    );
+  }
+  // Only the exact review-thread reply enum migration may extend this
+  // checkout. Remove it for the immutable historical handoff verification,
+  // which still pins the full prior inventory and every earlier checksum.
+  const verifiedReplyMigration = catalog.find(
+    (row) => row.migrationName === "000156_verified_thread_reply",
+  );
+  if (verifiedReplyMigration) {
+    if (
+      verifiedReplyMigration.checksum !==
+        "690327803b321cad8914c1ac489751ad140e7b39126115bf826138959b3f3888" ||
+      catalog.at(-1) !== verifiedReplyMigration ||
+      manifest(catalog.slice(0, -1)) !==
+        "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== verifiedReplyMigration),
     );
   }
   // The concurrent member-read index belongs only to ordinary Prisma deploy.
