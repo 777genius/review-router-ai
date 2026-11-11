@@ -29,7 +29,9 @@ jobs:
           pnpm exec prettier --write \
             packages/features/codex-oauth-rotating/src/action/review-runtime-environment.ts \
             packages/features/workflow-provisioning/src/tests/workflow-template.test.ts \
-            scripts/lib/render-schema-handoff-policy.test.ts
+            scripts/lib/render-schema-handoff-policy.test.ts \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx
       - name: Rebuild both committed Action bundles from exact source
         run: pnpm action:build
       - name: Verify byte-identical bundles and formatting
@@ -38,16 +40,20 @@ jobs:
           pnpm exec prettier --check \
             packages/features/codex-oauth-rotating/src/action/review-runtime-environment.ts \
             packages/features/workflow-provisioning/src/tests/workflow-template.test.ts \
-            scripts/lib/render-schema-handoff-policy.test.ts
+            scripts/lib/render-schema-handoff-policy.test.ts \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx
       - name: Regression tests for deterministic bundling and SQL tail
-        run: pnpm exec vitest run scripts/build-codex-rotating-action.test.ts scripts/lib/render-schema-handoff-policy.test.ts
+        run: pnpm exec vitest run scripts/build-codex-rotating-action.test.ts scripts/lib/render-schema-handoff-policy.test.ts apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx
       - name: Commit only qualified generated bundles and formatting
         shell: bash
         run: |
           git add action-dist/index.cjs action-dist/conflict-runtime.cjs \
             packages/features/codex-oauth-rotating/src/action/review-runtime-environment.ts \
             packages/features/workflow-provisioning/src/tests/workflow-template.test.ts \
-            scripts/lib/render-schema-handoff-policy.test.ts
+            scripts/lib/render-schema-handoff-policy.test.ts \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx
           if ! git diff --cached --quiet; then
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
               commit -m 'build(action): refresh exact-source bundles and format dual-auth changes'
