@@ -40,7 +40,10 @@ describe("Review progress snapshot policy", () => {
 
   it("rejects an unsafe generation and an invalid phase", () => {
     expect(() =>
-      parseSnapshot({ ...validSnapshot, generation: Number.MAX_SAFE_INTEGER + 1 }),
+      parseSnapshot({
+        ...validSnapshot,
+        generation: Number.MAX_SAFE_INTEGER + 1,
+      }),
     ).toThrow("review_progress_snapshot_invalid");
     expect(() =>
       parseSnapshot({ ...validSnapshot, phase: "unknown" }),
