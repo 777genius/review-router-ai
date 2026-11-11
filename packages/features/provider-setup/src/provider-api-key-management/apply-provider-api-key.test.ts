@@ -27,8 +27,9 @@ const publicKey = Buffer.from("0123456789abcdef0123456789abcdef").toString(
 );
 
 describe("applyProviderApiKey", () => {
-  it("encrypts an Anthropic API key once and delivers only ANTHROPIC_API_KEY to GitHub", async () => {
-    const key = "sk-ant-api03-synthetic-offline-key";
+  it.each(["sk-ant-api03-synthetic-offline-key", "sk-ant-api-v4-synthetic-offline-key"])(
+    "encrypts an Anthropic API key without a hardcoded version (%s)",
+    async (key) => {
     const providerApiKeys = store();
     const githubSecrets = gateway();
     const audit = { record: vi.fn(async () => undefined) };
@@ -56,7 +57,8 @@ describe("applyProviderApiKey", () => {
       expect(input.secretName).not.toBe("CLAUDE_CODE_OAUTH_TOKEN");
     }
     expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain(key);
-  });
+    },
+  );
 
   it.each([
     "sk-ant-oat01-synthetic-subscription",
