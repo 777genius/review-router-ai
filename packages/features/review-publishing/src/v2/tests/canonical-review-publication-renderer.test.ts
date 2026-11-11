@@ -65,9 +65,13 @@ describe("canonical review publication renderer", () => {
     expect(before.managedCheck?.summary).toContain("2 fixes verified");
     expect(frozen.summary.occurrenceCounts.resolved).toBe(0);
     expect(before.lifecycle.map((entry) => entry.semantic)).toEqual([
+      ReviewPublicationLifecycleSemantic.ConfirmReply,
+      ReviewPublicationLifecycleSemantic.ConfirmReply,
       ReviewPublicationLifecycleSemantic.Resolve,
       ReviewPublicationLifecycleSemantic.Resolve,
     ]);
+    expect(before.lifecycle.map((entry) => entry.chunkIndex)).toEqual([0, 1, 2, 3]);
+    expect(before.lifecycle[0]?.body).toContain("ReviewRouter verified this fix");
     expect(JSON.stringify(frozen)).toBe(frozenJson);
     expect(render()).toEqual(before);
     expect(() =>
@@ -121,6 +125,71 @@ describe("canonical review publication renderer", () => {
         primitives,
       ),
     ).toThrow("publication_verification_semantics_invalid");
+  });
+
+  it("publishes one native reply in report-only mode without requesting thread resolution", () => {
+    const targetId = "rrt_verified_1";
+    const base = source();
+    const verified = {
+      targetId,
+      threadId: "PRRT_target_1",
+      verdict: "resolved",
+      mutationEligible: false,
+      verification: {
+        targetId,
+        semanticVerdict: "resolved",
+        confirmationState: "fix_confirmed_thread_open",
+        severity: "major",
+        observationIds: ["observation-verified"],
+        providerVoteKeys: ["verifier/account"],
+        reasonCodes: ["accepted_verification"],
+        mutationStatus: "report_only",
+      },
+    } as const;
+    const render = (coverage: ReviewPublicationProjectionCoverage, lifecycle = [verified]) =>
+      renderCanonicalReviewPublication(
+        {
+          coverage,
+          renderPolicyVersion:
+            CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6,
+          targetCommitId: "a".repeat(40),
+          occurrenceStates: [ReviewPublicationOccurrenceState.New],
+          source: { ...base, lifecycle },
+        },
+        primitives,
+      );
+
+    const completed = render(ReviewPublicationProjectionCoverage.Completed);
+    expect(completed.lifecycle).toHaveLength(1);
+    expect(completed.lifecycle[0]).toMatchObject({
+      chunkIndex: 0,
+      semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+      threadId: "PRRT_target_1",
+      targetId,
+      resolve: false,
+    });
+    expect(completed.lifecycle[0]?.body).toContain(
+      "<!-- reviewrouter:fix-verified:v1:rrt_verified_1 -->",
+    );
+    expect(completed.lifecycle[0]?.body).not.toContain("thread resolved");
+    expect(render(ReviewPublicationProjectionCoverage.Completed)).toEqual(completed);
+    expect(render(ReviewPublicationProjectionCoverage.Partial).lifecycle).toEqual([]);
+    expect(
+      render(ReviewPublicationProjectionCoverage.Completed, [
+        {
+          ...verified,
+          verdict: "uncertain",
+          verification: {
+            ...verified.verification,
+            semanticVerdict: "uncertain",
+            confirmationState: "unverified",
+            mutationStatus: "not_eligible",
+            observationIds: [],
+            providerVoteKeys: [],
+          },
+        },
+      ]).lifecycle,
+    ).toEqual([]);
   });
 
   it("accepts the comparison policy without changing stored v5 partial bytes", () => {
