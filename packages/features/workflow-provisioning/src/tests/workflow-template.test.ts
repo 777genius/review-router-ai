@@ -207,6 +207,31 @@ describe("Claude dual-auth CI templates", () => {
     );
   });
 
+  it("detects Claude API-key selection inside JSON-quoted reusable workflow env", () => {
+    const workflow = renderReviewRouterReusableWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      workflowStyle: "reusable",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-api-key",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+    const check = (workflowYaml: string) =>
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml,
+        providerKind: "claude",
+        workflowStyle: "reusable",
+      });
+    expect(workflow).toContain('"REVIEW_AUTH_MODE"');
+    expect(check(workflow).missingRequirements).not.toContain("secret_pass_through");
+    expect(
+      check(workflow.replaceAll("ANTHROPIC_API_KEY", "REMOVED_ANTHROPIC_KEY"))
+        .missingRequirements,
+    ).toContain("secret_pass_through");
+  });
+
   it("preserves required workflow support for both approved Claude credentials", () => {
     const workflow = renderReviewRouterRequiredWorkflow({
       actionRef,
