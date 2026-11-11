@@ -74,6 +74,23 @@ describe("canonical review publication renderer", () => {
     expect(before.lifecycle[0]?.body).toContain("ReviewRouter verified this fix");
     expect(JSON.stringify(frozen)).toBe(frozenJson);
     expect(render()).toEqual(before);
+    const legacyPlan = renderCanonicalReviewPublication(
+      {
+        coverage: ReviewPublicationProjectionCoverage.Completed,
+        renderPolicyVersion:
+          CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6,
+        includeVerifiedFixReplies: false,
+        targetCommitId: "a".repeat(40),
+        occurrenceStates: [ReviewPublicationOccurrenceState.New],
+        source: frozen,
+      },
+      primitives,
+    );
+    expect(legacyPlan.lifecycle.map((entry) => entry.semantic)).toEqual([
+      ReviewPublicationLifecycleSemantic.Resolve,
+      ReviewPublicationLifecycleSemantic.Resolve,
+    ]);
+    expect(legacyPlan.lifecycle.map((entry) => entry.chunkIndex)).toEqual([0, 1]);
     expect(() =>
       renderCanonicalReviewPublication(
         {
