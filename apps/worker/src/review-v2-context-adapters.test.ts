@@ -191,6 +191,46 @@ describe("review v2 worker context adapters", () => {
     ).resolves.toMatchObject({ operations: legacyOperations });
   });
 
+  it("keeps a previously persisted request byte-identical despite newly available thread replies", async () => {
+    const snapshot = executionSnapshot();
+    const original = await publicationRequestFactory().build(snapshot);
+    if (!original) throw new Error("historical_publication_missing");
+    const attempts = new FakePublicationAttempts();
+    attempts.store(publicationView(original));
+    const seenPolicies: (boolean | undefined)[] = [];
+    const base = completionProjectionMapper();
+    const mapper: ReviewCompletionProjectionMapperPort = {
+      ...base,
+      async publicationEnvelope(artifact, options) {
+        seenPolicies.push(options?.includeVerifiedFixReplies);
+        const initial = await base.publicationEnvelope(artifact);
+        if (!initial) return null;
+        return {
+          ...initial,
+          lifecycle: options?.includeVerifiedFixReplies === false
+            ? []
+            : [{
+                chunkIndex: 0,
+                semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+                ...publicationBody("f", "9"),
+              }],
+        };
+      },
+    };
+
+    const restored = await publicationRequestFactory(mapper, attempts).build(snapshot);
+    expect(seenPolicies).toEqual([false]);
+    expect(restored?.requestHash).toBe(original.requestHash);
+    expect(restored?.operations).toEqual(original.operations);
+
+    const newAttempt = await publicationRequestFactory(mapper).build(snapshot);
+    expect(seenPolicies).toEqual([false, true]);
+    expect(newAttempt?.operations.map((operation) => operation.publicationKind)).toEqual([
+      ReviewPublicationKind.Summary,
+      ReviewPublicationKind.ThreadReply,
+    ]);
+  });
+
   it("replans against a concurrent legacy winning identity before retrying", async () => {
     const snapshot = executionSnapshot();
     const attempts = new FakePublicationAttempts();
