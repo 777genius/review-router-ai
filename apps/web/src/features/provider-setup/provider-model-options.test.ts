@@ -114,7 +114,7 @@ describe("Gateway model catalog presentation", () => {
         limitsContract: "none" as const,
         modelSettings: [{
           modelId, reasoning: null, fast: null,
-          tools: { allowed: ["none"], default: "none" },
+          tools: { allowed: ["none"] as const, default: "none" as const },
         }],
       },
     };
