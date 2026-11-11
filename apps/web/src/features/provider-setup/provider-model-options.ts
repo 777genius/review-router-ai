@@ -35,7 +35,7 @@ export function gatewayProviderModelOptions(
         (value): ReviewModelOption => ({
           value,
           label: value,
-          provider: "codex",
+          provider: profile?.connection?.provider === "nvidia" ? "nvidia" : "codex",
         }),
       ),
   ].map((option): ReviewModelOption => {
