@@ -1217,7 +1217,16 @@ lifecycleCase.each([
           },
         },
       });
-      if (scenario === "success") expect(threads.resolveCalls()).toBe(2);
+      if (scenario === "success") {
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toHaveLength(2);
+        expect(
+          threads.verifiedReplies().every((reply) =>
+            String(reply.body).includes("reviewrouter:fix-verified:v1:"),
+          ),
+        ).toBe(true);
+        expect(threads.resolveCalls()).toBe(2);
+      }
       else if (!valid) expect(threads.resolveCalls()).toBe(0);
       else {
         expect(threads.resolveCalls()).toBeGreaterThanOrEqual(1);
@@ -1940,6 +1949,8 @@ lifecycleCase.each([
           upstream.nativeKinds().filter((kind) => kind === "verifier"),
         ).toHaveLength(1);
         expect(threads.resolveCalls()).toBe(2);
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toHaveLength(2);
         expect(threads.closed()).toHaveLength(2);
         expect(
           threads.observed().filter((thread) => !thread.isResolved),
@@ -1986,6 +1997,7 @@ lifecycleCase.each([
         const callsBeforeRetry = upstream.requests();
         const reviewsBeforeRetry = threads.publishedComments().length;
         const resolveBeforeRetry = threads.resolveCalls();
+        const repliesBeforeRetry = threads.verifiedReplyWrites();
         // Ordinary renewable routes restore the same admitted run with its
         // current bearer; the original token may have been renewed during A/B.
         const repeated = await run(await authorize("2"));
@@ -2002,6 +2014,7 @@ lifecycleCase.each([
         expect(upstream.requests()).toBe(callsBeforeRetry);
         expect(threads.publishedComments()).toHaveLength(reviewsBeforeRetry);
         expect(threads.resolveCalls()).toBe(resolveBeforeRetry);
+        expect(threads.verifiedReplyWrites()).toBe(repliesBeforeRetry);
         expect(apiRejections).toEqual([]);
         console.info("paired_production_runner_acceptance", {
           route: route.name,
