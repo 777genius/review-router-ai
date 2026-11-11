@@ -1251,6 +1251,59 @@ it("companion usage failure after SDK forward stays unknown without a second SDK
     await f.relay.shutdown();
   }
 });
+it("refuses NVIDIA relay from other repositories before any SDK prepare, while allowing the synthetic fixture", async () => {
+  const model = "nvidia/nemotron-3.5-super-vl-120b-a12b";
+  const selection = {
+    profileId: "nvidia-build-chat-apikey-v1",
+    model,
+    authKind: "api_key" as const,
+  };
+  for (const repository of [null, "another-owner/private-repository"]) {
+    const f = await fixture(
+      32768, 0, 2, 5000, undefined, undefined, 128,
+      selection, undefined, undefined, repository,
+    );
+    try {
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          companionEnvelope(model),
+          new AbortController(),
+        ),
+      ).rejects.toMatchObject({
+        code: "authorization_denied",
+        statusCode: 403,
+        effect: "not_dispatched",
+      });
+      expect(f.admissions).toHaveLength(0);
+      expect(f.requestBodies).toHaveLength(0);
+    } finally {
+      await f.relay.shutdown();
+    }
+  }
+
+  const allowed = await fixture(
+    32768, 0, 2, 5000, undefined, undefined, 128,
+    selection, undefined, undefined, "777genius/rr-hosted-pool-e2e-20260927",
+  );
+  try {
+    const response = await allowed.relay.responses(
+      "authorization-1",
+      companionEnvelope(model),
+      new AbortController(),
+    );
+    expect(response.kind).toBe("stream");
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    while (!(await reader.read()).done) {
+      // Consume the synthetic native terminal response.
+    }
+    expect(allowed.requestBodies).toHaveLength(1);
+  } finally {
+    await allowed.relay.shutdown();
+  }
+});
+
 const servers: Server[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -1293,6 +1346,7 @@ async function fixture(
     grantConcurrency?: number;
   },
   nativeRefusalStatus?: number,
+  nvidiaRepositoryFullName?: string | null,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
@@ -1792,7 +1846,11 @@ async function fixture(
             profileId: selection.profileId,
             protocol: "openai-responses",
             modelIds: [
-              ...(multi?.profileModelIds ?? multi?.models ?? ["gpt-5.6-sol"]),
+              ...(multi?.profileModelIds ??
+                multi?.models ??
+                [selection.profileId === "nvidia-build-chat-apikey-v1"
+                  ? selection.model
+                  : "gpt-5.6-sol"]),
             ],
             authKinds: [selection.authKind ?? "oauth"],
           },
@@ -1836,6 +1894,10 @@ async function fixture(
       },
     },
     queries: queries as never,
+    resolveNvidiaRepository: async () =>
+      nvidiaRepositoryFullName
+        ? { repositoryFullName: nvidiaRepositoryFullName }
+        : null,
     checkAuthority: async (auth, freshness) => {
       authorityChecks.push(freshness);
       const held = heldAuthority;

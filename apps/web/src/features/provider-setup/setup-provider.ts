@@ -149,13 +149,12 @@ export function setupProviderForGatewayProfile(
   profile: GatewayProfileIdentity | undefined,
 ): SetupProviderId | undefined {
   if (!profile || profile.protocol !== "openai-responses") return undefined;
-  if (
-    profile.id === "nvidia-build-chat-apikey-v1" &&
-    profile.authKind === "api_key" &&
-    profile.connection?.provider === "nvidia" &&
-    (!profile.provider || profile.provider === "nvidia")
-  )
-    return "nvidia";
+  if (profile.id === "nvidia-build-chat-apikey-v1")
+    return profile.authKind === "api_key" &&
+      profile.connection?.provider === "nvidia" &&
+      (!profile.provider || profile.provider === "nvidia")
+      ? "nvidia"
+      : undefined;
   const subscription = subscriptionProfileDefinition(profile.id);
   if (
     subscription &&

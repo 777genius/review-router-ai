@@ -228,6 +228,10 @@ export function createReviewRunGatewayRelay(input: {
     | "expireOrRevokeReviewRunAuthorization"
   >;
   readonly queries: ReviewRunAuthorizationQueryPort;
+  /** Deny NVIDIA trial relay before preparing or dispatching for non-fixture SCM sources. */
+  readonly resolveNvidiaRepository?: (
+    authorization: ReviewRunAuthorization,
+  ) => Promise<{ readonly repositoryFullName: string } | null>;
   // Full SCM freshness at phase boundaries; opaque chunks keep every local guard.
   readonly checkAuthority: (
     authorization: ReviewRunAuthorization,
@@ -1178,6 +1182,16 @@ export function createReviewRunGatewayRelay(input: {
         throw new RelayFailure("authorization_denied", 401);
       const lane = selected(auth, reviewerId);
       const { snapshot, gateway } = lane;
+      // Checkout is not mandatory for every relay caller: repeat the trusted
+      // repository restriction at the actual inference admission boundary.
+      if (gateway.profileRef === "nvidia-build-chat-apikey-v1") {
+        const source = await input.resolveNvidiaRepository?.(auth);
+        if (
+          source?.repositoryFullName.toLowerCase() !==
+          "777genius/rr-hosted-pool-e2e-20260927"
+        )
+          throw new RelayFailure("authorization_denied", 403);
+      }
       // Parent headers are untrusted until the existing authority read selects
       // the frozen route. Reject out-of-budget contexts before native prepare.
       const companion = validateReviewRunCompanionDispatchContext(
