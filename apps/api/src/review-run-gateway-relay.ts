@@ -1,3 +1,4 @@
+import { isQualifiedNvidiaSandboxRepository } from "./nvidia-build-sandbox-repository.js";
 import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
@@ -231,7 +232,13 @@ export function createReviewRunGatewayRelay(input: {
   /** Deny NVIDIA trial relay before preparing or dispatching for non-fixture SCM sources. */
   readonly resolveNvidiaRepository?: (
     authorization: ReviewRunAuthorization,
-  ) => Promise<{ readonly repositoryFullName: string } | null>;
+  ) => Promise<
+    | {
+        readonly githubRepositoryId: string;
+        readonly repositoryFullName: string;
+      }
+    | null
+  >;
   // Full SCM freshness at phase boundaries; opaque chunks keep every local guard.
   readonly checkAuthority: (
     authorization: ReviewRunAuthorization,
@@ -1187,8 +1194,7 @@ export function createReviewRunGatewayRelay(input: {
       if (gateway.profileRef === "nvidia-build-chat-apikey-v1") {
         const source = await input.resolveNvidiaRepository?.(auth);
         if (
-          source?.repositoryFullName.toLowerCase() !==
-          "777genius/rr-hosted-pool-e2e-20260927"
+          !isQualifiedNvidiaSandboxRepository(source)
         )
           throw new RelayFailure("authorization_denied", 403);
       }

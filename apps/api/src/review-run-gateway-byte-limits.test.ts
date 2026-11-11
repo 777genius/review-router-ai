@@ -1258,7 +1258,17 @@ it("refuses NVIDIA relay from other repositories before any SDK prepare, while a
     model,
     authKind: "api_key" as const,
   };
-  for (const repository of [null, "another-owner/private-repository"]) {
+  for (const repository of [
+    null,
+    {
+      githubRepositoryId: "1390973362",
+      repositoryFullName: "another-owner/private-repository",
+    },
+    {
+      githubRepositoryId: "456",
+      repositoryFullName: "777genius/rr-hosted-pool-e2e-20260927",
+    },
+  ]) {
     const f = await fixture(
       32768, 0, 2, 5000, undefined, undefined, 128,
       selection, undefined, undefined, repository,
@@ -1284,7 +1294,10 @@ it("refuses NVIDIA relay from other repositories before any SDK prepare, while a
 
   const allowed = await fixture(
     32768, 0, 2, 5000, undefined, undefined, 128,
-    selection, undefined, undefined, "777genius/rr-hosted-pool-e2e-20260927",
+    selection, undefined, undefined, {
+      githubRepositoryId: "1390973362",
+      repositoryFullName: "777genius/rr-hosted-pool-e2e-20260927",
+    },
   );
   try {
     const response = await allowed.relay.responses(
@@ -1346,7 +1359,10 @@ async function fixture(
     grantConcurrency?: number;
   },
   nativeRefusalStatus?: number,
-  nvidiaRepositoryFullName?: string | null,
+  nvidiaRepository?: {
+    readonly githubRepositoryId: string;
+    readonly repositoryFullName: string;
+  } | null,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
@@ -1894,10 +1910,7 @@ async function fixture(
       },
     },
     queries: queries as never,
-    resolveNvidiaRepository: async () =>
-      nvidiaRepositoryFullName
-        ? { repositoryFullName: nvidiaRepositoryFullName }
-        : null,
+    resolveNvidiaRepository: async () => nvidiaRepository ?? null,
     checkAuthority: async (auth, freshness) => {
       authorityChecks.push(freshness);
       const held = heldAuthority;

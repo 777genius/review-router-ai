@@ -1,3 +1,4 @@
+import { isQualifiedNvidiaSandboxRepository } from "./nvidia-build-sandbox-repository.js";
 import {
   isProviderApiAuthMode,
   providerApiDescriptors,
@@ -455,8 +456,7 @@ function createReviewRunCheckout(
             row.authMode === "codex_account_gateway" &&
             row.gatewayProfileRef === "nvidia-build-chat-apikey-v1",
         ) &&
-        target.repositoryFullName.toLowerCase() !==
-          "777genius/rr-hosted-pool-e2e-20260927"
+        !isQualifiedNvidiaSandboxRepository(target)
       )
         throw new CheckoutFailure("authorization_denied", 403);
       const savedTarget = Object.freeze({ ...target });

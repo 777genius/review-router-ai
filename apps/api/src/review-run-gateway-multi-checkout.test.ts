@@ -21,6 +21,7 @@ function fixture(
   sharedAllocation = false,
   profileRef = "openrouter-openai-responses-apikey-v1",
   repositoryFullName = "owner/repo",
+  githubRepositoryId = "456",
 ) {
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
@@ -173,7 +174,7 @@ function fixture(
     confirmAuthority: async () => parentLive,
     resolveRepository: async () => ({
       githubInstallationId: "123",
-      githubRepositoryId: "456",
+      githubRepositoryId,
       repositoryFullName,
     }),
     issuer: { issueContentsReadToken: issuer },
@@ -238,11 +239,24 @@ describe("multi-reviewer checkout projection", () => {
     );
     await expect(forbidden.issue()).rejects.toThrow("authorization_denied");
     expect(forbidden.issuer).not.toHaveBeenCalled();
+    // A newly-created repository can reuse the fixture name, not its stable ID.
+    const sameNameDifferentId = fixture(
+      1,
+      false,
+      "nvidia-build-chat-apikey-v1",
+      "777genius/rr-hosted-pool-e2e-20260927",
+      "456",
+    );
+    await expect(sameNameDifferentId.issue()).rejects.toThrow(
+      "authorization_denied",
+    );
+    expect(sameNameDifferentId.issuer).not.toHaveBeenCalled();
     const synthetic = fixture(
       1,
       false,
       "nvidia-build-chat-apikey-v1",
       "777genius/rr-hosted-pool-e2e-20260927",
+      "1390973362",
     );
     const result = await synthetic.issue();
     expect(result.repository).toBe("777genius/rr-hosted-pool-e2e-20260927");
