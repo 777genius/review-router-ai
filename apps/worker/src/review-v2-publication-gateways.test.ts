@@ -1153,9 +1153,9 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
     const threadId = "PRRT_native_1";
     const parentId = "PRRC_native_parent";
     const fingerprint = "rrl_0123456789abcdef0123456789abcdef";
-    const targetId = `rrt_${sha(`${threadId}\\n${parentId}\\n${fingerprint}`).slice(0, 16)}`;
+    const targetId = `rrt_${sha(`${threadId}\n${parentId}\n${fingerprint}`).slice(0, 16)}`;
     const marker = `reviewrouter:fix-verified:v1:${targetId}`;
-    const body = `✅ **ReviewRouter verified this fix** against the reviewed revision.\\nThis confirmation is separate from GitHub thread resolution; the thread may remain open.\\n\\n<!-- ${marker} -->`;
+    const body = `✅ **ReviewRouter verified this fix** against the reviewed revision.\nThis confirmation is separate from GitHub thread resolution; the thread may remain open.\n\n<!-- ${marker} -->`;
     const payload = {
       kind: ReviewV2PublicationPayloadKind.ThreadReply,
       marker, markerHash: sha(marker), bodyHash: sha(body),
@@ -1208,7 +1208,7 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
                 databaseId: 4532358290,
                 viewerDidAuthor: true,
                 author: { login: "review-router[bot]", __typename: "Bot" },
-                body: `finding\\n<!-- reviewrouter:finding:v2:${fingerprint} -->`,
+                body: `finding\n<!-- reviewrouter:finding:v2:${fingerprint} -->`,
               }] },
             },
           } as T;
@@ -1256,7 +1256,7 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
 
   it("refuses an unproven parent before writing a verified-fix reply", async () => {
     const sha = (value: string) => createHash("sha256").update(value).digest("hex");
-    const body = "Verified fix\\n<!-- reviewrouter:fix-verified:v1:rrt_fake -->";
+    const body = "Verified fix\n<!-- reviewrouter:fix-verified:v1:rrt_fake -->";
     const marker = "reviewrouter:fix-verified:v1:rrt_fake";
     const payload = {
       kind: ReviewV2PublicationPayloadKind.ThreadReply,
