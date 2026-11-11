@@ -1,0 +1,105 @@
+name: NVIDIA sandbox provider visual E2E
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/nvidia-sandbox-visual-e2e.yml"
+      - "scripts/provider-setup-visual/**"
+      - "apps/web/src/features/provider-setup/**"
+      - "apps/web/src/server/account-gateway-accounts.ts"
+      - "apps/web/app/dashboard/provider-setup/**"
+      - "vendor/account-gateway/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nvidia-sandbox-visual-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  visual:
+    if: github.head_ref == 'feat/nvidia-build-gateway-sandbox' || github.ref == 'refs/heads/feat/nvidia-build-gateway-sandbox'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_DB: reviewrouter_provider_setup_visual
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d reviewrouter_provider_setup_visual"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      PROVIDER_VISUAL_DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5432/reviewrouter_provider_setup_visual
+      DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5432/reviewrouter_provider_setup_visual
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: --max-old-space-size=3072
+      TZ: UTC
+    steps:
+      - name: Checkout exact PR candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Setup pinned Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.21.0"
+      - name: Install locked dependencies
+        run: |
+          set -euo pipefail
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --ignore-scripts --frozen-lockfile
+          pnpm rebuild @prisma/engines
+          node scripts/prepare-pinned-subscription-runtime.ts
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA=1 node scripts/generate-prisma-offline.mjs
+          pnpm compiler:prepare
+      - name: Install locked Chromium only for this E2E
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Capture real NVIDIA provider UI on 390 900 1440 light and dark
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          node --import tsx scripts/provider-setup-visual/run.ts \
+            --no-personal-sharing --nvidia-evaluation \
+            --only '^dialog-nvidia-evaluation$' --out tmp/nvidia-sandbox-visual \
+            --next-heap-mb 2048
+      - name: Assert all six screenshot receipts
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync,statSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const root='tmp/nvidia-sandbox-visual';
+          const m=JSON.parse(readFileSync(root+'/manifest.json','utf8'));
+          assert.equal(m.revision,execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim());
+          assert.equal(m.flags.nvidiaEvaluation,true);
+          assert.equal(m.flags.personalSharing,false);
+          assert.equal(m.shots.length,6);
+          assert.equal(m.summary.captured,6);
+          assert.equal(m.summary.failed??0,0);
+          assert.equal(m.summary.suspect??0,0);
+          for(const theme of ['dark','light'])
+            for(const width of [390,900,1440]) {
+              const shot=m.shots.find(row=>row.width===width && row.theme===theme &&
+                row.scenario==='dialog-nvidia-evaluation');
+              assert(shot && shot.status==='captured');
+              assert(statSync(root+'/'+shot.file).size>1000);
+              assert.deepEqual(shot.pageErrors,[]);
+            }
+          NODE
+      - name: Retain screenshots and browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nvidia-sandbox-visual-${{ github.run_id }}
+          path: tmp/nvidia-sandbox-visual/
+          if-no-files-found: warn
+          retention-days: 7
