@@ -1287,6 +1287,8 @@ export function managedKeyErrorText(code: string): string {
       return "Only workspace owners and admins install keys.";
     case "stored_api_key_unavailable":
       return "There is no saved key yet. Add the provider again with its key.";
+    case "anthropic_api_key_invalid":
+      return "Enter an Anthropic Console API key, not a Claude subscription token.";
     case "repository_not_available_to_github_app":
       return "The ReviewRouter GitHub App cannot reach this repository.";
     case "insufficient_permissions":
