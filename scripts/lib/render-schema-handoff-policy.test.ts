@@ -43,9 +43,12 @@ const skillsCatalogMigrationName = "000150_skills_catalog_security";
 const reviewHistoryMigrationName = "000151_review_history";
 const unifiedModelDispatchMigrationName = "000154_unified_model_dispatch";
 const usageMemberReportIndexName = "000155_usage_member_report_index";
+const verifiedReplyMigrationName = "000156_verified_thread_reply";
 const readPreIndexCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
-    (row) => row.migrationName !== usageMemberReportIndexName,
+    (row) =>
+      row.migrationName !== usageMemberReportIndexName &&
+      row.migrationName !== verifiedReplyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
   rows: readonly T[],
@@ -200,6 +203,7 @@ const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
       name !== usageMemberReportIndexName &&
+      name !== verifiedReplyMigrationName &&
       name !== gatewayAllocationsMigrationName &&
       !renderConversationalMemoryCheckoutExtension.some(
         (row) => row.migrationName === name,
