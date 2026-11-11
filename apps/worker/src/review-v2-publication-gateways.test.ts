@@ -1195,7 +1195,7 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
         }
         throw new Error(`unexpected_gitHub_route:${route}`);
       },
-      async graphql<T>(query): Promise<T> {
+      async graphql<T>(query: string): Promise<T> {
         graphqlQueries.push(query);
         if (query.includes("ReviewRouterPublicationThread")) {
           return {
@@ -1308,7 +1308,7 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
           mutations++;
           throw new Error("unexpected_mutation");
         },
-        async graphql<T>(query): Promise<T> {
+        async graphql<T>(query: string): Promise<T> {
           if (query.includes("ReviewRouterPublicationThread")) {
             return {
               node: {
