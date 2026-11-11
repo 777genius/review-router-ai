@@ -1083,16 +1083,20 @@ function ProviderChoiceStep({
     method: "subscription" | "api_key" = claudeMethod,
   ): void {
     if (provider === "claude-code") setClaudeMethod(method);
-    // Subscription OAuth is runner-local; central API key needs a qualified
-    // native profile and must not silently fall back to OAuth custody.
+    // A Claude subscription remains in the user's CI; an Anthropic API key
+    // can reuse our existing encrypted workspace-key/Secrets delivery.
     const resolvedStorage =
-      provider === "claude-code" ? "github_secrets" : storage;
+      provider === "claude-code" && method === "subscription"
+        ? "github_secrets"
+        : storage;
     choose(
       {
         kind: "new",
         source:
           resolvedStorage === "reviewrouter"
-            ? "gateway_binding"
+            ? provider === "claude-code" && method === "api_key"
+              ? (managedSourceFor(provider)?.key ?? null)
+              : "gateway_binding"
             : delivery === "manual"
               ? githubSourceFor(provider, method)
               : delivery === "automatic"
@@ -1130,7 +1134,11 @@ function ProviderChoiceStep({
               : "GitHub Secrets is not available for this provider here.",
       reviewRouterUnavailable:
         provider === "claude-code"
-          ? "Claude subscription tokens stay in GitHub Secrets. Anthropic API-key storage in ReviewRouter is not qualified yet."
+          ? claudeMethod === "subscription"
+            ? "Claude subscription tokens must stay in GitHub Secrets."
+            : automaticDeliveryAvailable(managedSourceFor(provider))
+              ? undefined
+              : "Choose repositories for encrypted API-key storage and installation."
           : !gatewayAllowed
             ? "You cannot use a connected account here."
             : gatewaySupported
@@ -1304,7 +1312,8 @@ function ProviderChoiceStep({
           workspaceId,
           authMode: source.authMode as
             | "mimo_token_plan_api_key"
-            | "openrouter_api_key",
+            | "openrouter_api_key"
+            | "claude_code_api_key",
           ...(needsKeyUpload ? { apiKey } : {}),
           repositoryIds,
         });
@@ -1651,7 +1660,7 @@ function ProviderChoiceStep({
                   : setupProvider === "claude-code"
                     ? claudeMethod === "subscription"
                       ? "claude_subscription"
-                      : "api_key"
+                      : "claude_api_key"
                     : getSetupProvider(setupProvider).credentialKind ===
                         "subscription"
                       ? "subscription"
@@ -1661,10 +1670,14 @@ function ProviderChoiceStep({
             />
           ) : null}
           {setupProvider &&
-          keyStorage === "github_secrets" &&
-          getSetupProvider(setupProvider).credentialKind === "api_key" ? (
+          ((keyStorage === "github_secrets" &&
+            (getSetupProvider(setupProvider).credentialKind === "api_key" ||
+              (setupProvider === "claude-code" && claudeMethod === "api_key"))) ||
+            (keyStorage === "reviewrouter" &&
+              source?.credentialKind === "managed_api_key")) ? (
             <div className="grid gap-3">
-              {managedSourceFor(setupProvider) ? (
+              {keyStorage === "github_secrets" &&
+              managedSourceFor(setupProvider) ? (
                 <RadioCardGroup
                   label="GitHub secret delivery"
                   value={
@@ -1713,11 +1726,17 @@ function ProviderChoiceStep({
                       !view.sources.find(
                         (candidate) =>
                           candidate.key ===
-                          getSetupProvider(setupProvider).githubSource,
+                          githubSourceFor(setupProvider, claudeMethod),
                       )?.decision.allowed
                     }
                   />
                 </RadioCardGroup>
+              ) : source?.credentialKind === "managed_api_key" ? (
+                <p className="text-sm leading-6 text-slate-300">
+                  ReviewRouter encrypts this API key and installs it as a GitHub
+                  Actions secret in each selected repository. Claude Code runs
+                  in the repository's CI, not on ReviewRouter servers.
+                </p>
               ) : (
                 <p className="text-sm leading-6 text-slate-300">
                   Add the API key directly in each repository's GitHub Actions
@@ -1764,6 +1783,7 @@ function ProviderChoiceStep({
           ) : null}
           {setupProvider &&
           keyStorage === "reviewrouter" &&
+          source?.key === "gateway_binding" &&
           !storageAvailability?.reviewRouterUnavailable &&
           gatewayInventoryEmpty ? (
             <div className="grid gap-2 text-sm text-slate-300">
@@ -2233,7 +2253,8 @@ function CredentialStep({
     case "managed_key": {
       const managedAuthMode = authMode as
         | "mimo_token_plan_api_key"
-        | "openrouter_api_key";
+        | "openrouter_api_key"
+        | "claude_code_api_key";
       const option = view?.sources.find(
         (candidate) => candidate.key === `managed_api_key:${managedAuthMode}`,
       );
