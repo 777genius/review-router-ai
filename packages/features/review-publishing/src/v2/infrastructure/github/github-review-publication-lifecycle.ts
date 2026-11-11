@@ -12,6 +12,7 @@ import {
 } from "../../application/ports/review-command-ledger-verification-port";
 import type { ReviewPublicationScope } from "../../domain/review-publication-attempt";
 import { extractUniqueReviewFindingFingerprint } from "../../domain/review-finding-marker";
+import { verifiedFixThreadReply } from "../../domain/canonical-review-publication-renderer";
 import { reviewLifecycleThreadStateHash } from "../review-lifecycle-thread-state-witness";
 
 const commandLedgerMarkerPresence = /<!--\s*reviewrouter-ledger:v1\b/u;
@@ -295,23 +296,51 @@ async function loadInventory(
           lastRelevantChangeAt = changedAt;
         }
       }
+      const targetId = targetIdFor(thread.id, parent.id, fingerprint);
+      const witnessComments = comments.map((comment) => ({
+        id: comment.id,
+        authorLogin: commentAuthorLogin(comment),
+        body: comment.body ?? "",
+        createdAt: requiredTimestampValue(
+          comment.createdAt,
+          "github_comment_created_at",
+        ),
+        updatedAt: comment.updatedAt ?? null,
+      }));
+      const verifiedReplyPrefixHashes: string[] = [];
+      // A bot acknowledgement is itself a new native comment. Only an exact,
+      // trailing App-owned reply to this finding may be ignored when checking
+      // the earlier pre-publication thread witness. A human reply still vetoes.
+      for (
+        let end = comments.length - 1;
+        end > 0 && verifiedReplyPrefixHashes.length < 32;
+        end -= 1
+      ) {
+        const comment = comments[end]!;
+        if (
+          comment.body !== verifiedFixThreadReply(targetId).body ||
+          !isTrustedGitHubCommentAuthor(
+            comment,
+            trustedCommandLedgerAuthors,
+            "github_verified_reply",
+          )
+        ) break;
+        verifiedReplyPrefixHashes.push(
+          reviewLifecycleThreadStateHash({
+            threadId: thread.id,
+            comments: witnessComments.slice(0, end),
+          }),
+        );
+      }
       targets.push({
-        targetId: targetIdFor(thread.id, parent.id, fingerprint),
+        targetId,
         threadId: thread.id,
         markerFingerprint: fingerprint,
         threadStateHash: reviewLifecycleThreadStateHash({
           threadId: thread.id,
-          comments: comments.map((comment) => ({
-            id: comment.id,
-            authorLogin: commentAuthorLogin(comment),
-            body: comment.body ?? "",
-            createdAt: requiredTimestampValue(
-              comment.createdAt,
-              "github_comment_created_at",
-            ),
-            updatedAt: comment.updatedAt ?? null,
-          })),
+          comments: witnessComments,
         }),
+        verifiedReplyPrefixHashes,
         isResolved: thread.isResolved,
         parentOwnedByIntegration,
         hasRelevantInteractionAfterParent:
