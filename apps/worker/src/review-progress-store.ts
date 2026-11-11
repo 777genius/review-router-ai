@@ -640,6 +640,15 @@ async function persistTerminalPromotion(
     readonly now: Date;
   },
 ): Promise<void> {
+  await persistTerminalExecutionProgress(transaction, input);
+  await persistTerminalPublicationSchedule(transaction, input);
+}
+
+/** Persist terminal progress first, retaining the enclosing transaction. */
+async function persistTerminalExecutionProgress(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<typeof persistTerminalPromotion>[1],
+): Promise<void> {
   const snapshotHash = hashProgressSnapshot(input.snapshot);
   await transaction.reviewExecutionProgressV1.update({
     where: { executionId: input.executionId },
@@ -652,6 +661,13 @@ async function persistTerminalPromotion(
       updatedAt: input.now,
     },
   });
+}
+
+/** Schedule the terminal publication after its progress snapshot is stored. */
+async function persistTerminalPublicationSchedule(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<typeof persistTerminalPromotion>[1],
+): Promise<void> {
   await transaction.reviewProgressPublicationV1.update({
     where: {
       workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:

@@ -746,7 +746,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(publicationUpdate).not.toHaveBeenCalled();
   });
 
-  it("publishes a failed terminal state when final review publication failed", async () => {
+  it("writes terminal progress before publication and stops when progress persistence fails", async () => {
     const mutationOrder: string[] = [];
     const progressUpdate = vi.fn(async () => {
       mutationOrder.push("progress");
@@ -849,6 +849,15 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         updatedAt: now,
       },
     });
+    progressUpdate.mockRejectedValueOnce(new Error("progress-update-failed"));
+    publicationUpdate.mockClear();
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [{ executionId: "execution-1", outcome: "failed" }],
+        now,
+      }),
+    ).rejects.toThrow("progress-update-failed");
+    expect(publicationUpdate).not.toHaveBeenCalled();
   });
   it.each([
     {
