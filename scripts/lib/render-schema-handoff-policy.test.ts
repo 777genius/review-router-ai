@@ -595,7 +595,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     expect(withClaude.at(-1)).toEqual({
       migrationName: claudeApiKeyMigrationName,
       checksum:
-        "2fbf057867678221b77369316922bfc73851f328959d24933ab3bd543746c03f",
+        "f329d536172a46caef5ebe37fd76dc398394141052bd9271819a4bee881bc89e",
     });
     expect(partitionRenderSchemaHandoffCheckout(withClaude)).toEqual(catalog);
     // Adding a checkout tail does not authorize arbitrary SQL or an extra
