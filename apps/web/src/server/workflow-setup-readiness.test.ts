@@ -691,12 +691,11 @@ describe("workflow setup readiness", () => {
       runtimeConfigMode: "oidc" as const,
       discussionMode: "suggest" as const,
     };
-    expect(
-      validator?.(renderCodexRotatingInteractionWorkflow(options)),
-    ).toBe(true);
-    expect(
-      validator?.(renderCanonicalCodexRotatingInteractionWorkflowV3(options)),
-    ).toBe(false);
+    const currentSource = renderCodexRotatingInteractionWorkflow(options);
+    const legacySource =
+      renderCanonicalCodexRotatingInteractionWorkflowV3(options);
+    expect(validator?.(currentSource)).toBe(true);
+    expect(validator?.(legacySource)).toBe(false);
   });
 
   it("never probes the standard Codex workflow for the isolated repository", async () => {
