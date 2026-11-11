@@ -31,6 +31,7 @@ import {
   CurrentReviewSafetyDecisionStatus,
   RequestReviewPublicationStatus,
   ReviewPublicationAttemptState,
+  ReviewPublicationKind,
   ReviewPublicationAdjudicationEvidenceStatus,
   ReviewPublicationCapability,
   ReviewPublicationGateRejectedError,
@@ -642,12 +643,24 @@ async function requestPublication(
     await dependencies.ensureResolutionHistory?.(
       authorizationScope(authorization),
     );
+  const publicationAttemptId = reviewPublicationAttemptId({
+    executionId: artifact.executionId,
+    artifactId: artifact.artifactId,
+    projectionHash: artifact.projectionHash,
+    digestUtf8: sha256,
+  });
+  const existing = await dependencies.publications.findById(publicationAttemptId);
   const envelope = publishedEnvelope({
     artifact,
     projectionCanonicalJson: artifact.projectionEnvelopeJson,
     requestedPublishingCanonicalJson: request.operationsCanonicalJson,
     protocolLimitsProfileId: limits.protocolLimitsProfileId,
     limitsDigest: limits.limitsDigest,
+    includeVerifiedFixReplies:
+      !existing ||
+      existing.attempt.operations.some(
+        (operation) => operation.publicationKind === ReviewPublicationKind.ThreadReply,
+      ),
   });
   await assertPrDescriptionArtifact({
     authorization,
@@ -705,14 +718,6 @@ async function requestPublication(
       "publication_release_or_limits_invalid",
     );
   }
-  const publicationAttemptId = reviewPublicationAttemptId({
-    executionId: artifact.executionId,
-    artifactId: artifact.artifactId,
-    projectionHash: artifact.projectionHash,
-    digestUtf8: sha256,
-  });
-  const existing =
-    await dependencies.publications.findById(publicationAttemptId);
   const command = resolvePublicationCommand({
     artifact,
     envelope,
@@ -1232,6 +1237,7 @@ function publishedEnvelope(input: {
   readonly requestedPublishingCanonicalJson: string;
   readonly protocolLimitsProfileId: string;
   readonly limitsDigest: string;
+  readonly includeVerifiedFixReplies: boolean;
 }): PublishedReviewProjectionPublicationEnvelope {
   const projection = parseCanonicalRecord(
     input.projectionCanonicalJson,
@@ -1260,6 +1266,7 @@ function publishedEnvelope(input: {
         renderPolicyVersion: resolveReviewPublicationRenderPolicyVersion(
           input.artifact.projectionPolicyVersion,
         ),
+        includeVerifiedFixReplies: input.includeVerifiedFixReplies,
         targetCommitId: input.artifact.reviewedHeadSha,
         occurrenceStates: publicationOccurrenceStates(projection.occurrences),
         source: publishing,
