@@ -1,0 +1,53 @@
+name: NVIDIA ephemeral source formatting qualification
+on:
+  push:
+    branches: [feat/nvidia-build-gateway-sandbox]
+permissions:
+  contents: read
+jobs:
+  format:
+    if: github.repository == '777genius/review-router-ai'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.21.0'
+      - name: Apply pinned formatter in ephemeral worktree and emit exact patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/rr-prettier" --ignore-scripts --no-audit --no-fund prettier@3.8.3
+          "$RUNNER_TEMP/rr-prettier/node_modules/.bin/prettier" --write \
+            apps/api/src/action-conversation-policy.test.ts \
+            apps/api/src/review-run-gateway-multi-checkout.test.ts \
+            apps/web/app/dashboard/provider-logo.test.tsx \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx \
+            apps/web/src/features/provider-setup/provider-model-options.test.ts \
+            apps/web/src/features/provider-setup/provider-model-options.ts \
+            apps/web/src/features/provider-setup/setup-provider.test.ts \
+            apps/web/src/features/provider-setup/setup-provider.ts \
+            apps/web/src/server/account-gateway-accounts.ts \
+            apps/web/src/server/gateway-model-account-options.test.ts \
+            apps/web/src/server/personal-account-composition.ts \
+            scripts/provider-setup-visual/gateway-catalog-fixture.ts \
+            scripts/provider-setup-visual/scenarios.ts
+          echo BEGIN_NVIDIA_PRETTIER_DIFF
+          git --no-pager diff -- \
+            apps/api/src/action-conversation-policy.test.ts \
+            apps/api/src/review-run-gateway-multi-checkout.test.ts \
+            apps/web/app/dashboard/provider-logo.test.tsx \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx \
+            apps/web/src/features/provider-setup/provider-model-options.test.ts \
+            apps/web/src/features/provider-setup/provider-model-options.ts \
+            apps/web/src/features/provider-setup/setup-provider.test.ts \
+            apps/web/src/features/provider-setup/setup-provider.ts \
+            apps/web/src/server/account-gateway-accounts.ts \
+            apps/web/src/server/gateway-model-account-options.test.ts \
+            apps/web/src/server/personal-account-composition.ts \
+            scripts/provider-setup-visual/gateway-catalog-fixture.ts \
+            scripts/provider-setup-visual/scenarios.ts
+          echo END_NVIDIA_PRETTIER_DIFF
