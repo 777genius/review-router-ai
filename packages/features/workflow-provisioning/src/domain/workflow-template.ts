@@ -458,7 +458,17 @@ const mimoTokenPlanApiKeySecretName = "MIMO_TOKEN_PLAN_API_KEY";
 function discussionModeExpression(
   options: Pick<ReviewRouterWorkflowOptions, "discussionMode">,
 ): string {
+  // Historical v1/v2/v3 source must remain byte-for-byte canonical.
   return `\${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || '${options.discussionMode ?? "off"}' }}`;
+}
+
+function defaultOnDiscussionModeExpression(
+  options: Pick<ReviewRouterWorkflowOptions, "discussionMode">,
+): string {
+  if (options.discussionMode !== "suggest")
+    return discussionModeExpression(options);
+  // Only the verified same-repository PR author can spend provider quota.
+  return `\${{ github.event_name == 'pull_request_review_comment' && github.event.action == 'created' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.id > 0 && github.event.comment.user.id == github.event.pull_request.user.id && (vars.REVIEW_ROUTER_DISCUSSION_MODE == '' || vars.REVIEW_ROUTER_DISCUSSION_MODE == 'suggest') && 'suggest' || 'off' }}`;
 }
 
 export function renderReviewRouterWorkflow(
@@ -691,7 +701,7 @@ jobs:
         env:
           GITHUB_TOKEN: \${{ github.token }}
           REVIEW_ROUTER_MODE: "interaction-preflight"
-          REVIEW_ROUTER_DISCUSSION_MODE: ${discussionModeExpression(options)}
+          REVIEW_ROUTER_DISCUSSION_MODE: ${defaultOnDiscussionModeExpression(options)}
 
       - name: Setup Node.js for Codex discussion replies
         if: \${{ steps.preflight.outputs.needs_discussion == 'true' && (env.CODEX_AUTH_JSON_PRESENT == '1' || env.OPENAI_API_KEY_PRESENT == '1') }}
@@ -753,7 +763,7 @@ jobs:
         env:
           GITHUB_TOKEN: \${{ github.token }}
           REVIEW_ROUTER_MODE: "interaction"
-          REVIEW_ROUTER_DISCUSSION_MODE: ${discussionModeExpression(options)}
+          REVIEW_ROUTER_DISCUSSION_MODE: ${defaultOnDiscussionModeExpression(options)}
           REVIEW_ROUTER_DISCUSSION_MAX_PER_PR: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}
           REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}
           REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS: \${{ vars.REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS || '60' }}
@@ -766,7 +776,9 @@ jobs:
 export function renderCodexRotatingInteractionWorkflow(
   options: ReviewRouterWorkflowOptions,
 ): string {
-  return renderCanonicalCodexRotatingInteractionWorkflowV3(options);
+  return options.discussionMode === "suggest"
+    ? renderCanonicalCodexRotatingInteractionWorkflowV4(options)
+    : renderCanonicalCodexRotatingInteractionWorkflowV3(options);
 }
 
 /**
@@ -800,18 +812,31 @@ export function renderCanonicalCodexRotatingInteractionWorkflowV3(
   return renderCanonicalCodexRotatingInteractionWorkflow(options, "v3");
 }
 
+/** Default-on v4: the legacy v3 sources remain independently attestable. */
+export function renderCanonicalCodexRotatingInteractionWorkflowV4(
+  options: ReviewRouterWorkflowOptions,
+): string {
+  if (options.discussionMode !== "suggest")
+    throw new Error("codex_interaction_v4_requires_suggest");
+  return renderCanonicalCodexRotatingInteractionWorkflow(options, "v4");
+}
+
 function renderCanonicalCodexRotatingInteractionWorkflow(
   options: ReviewRouterWorkflowOptions,
-  version: "v1" | "v2" | "v3",
+  version: "v1" | "v2" | "v3" | "v4",
 ): string {
   const runtimeRef = extractReusableRuntimeRef(options.actionRef);
   const appFirst = version !== "v1";
-  const actionsRerunAuthority = version === "v3";
+  const actionsRerunAuthority = version === "v3" || version === "v4";
   if (actionsRerunAuthority && !/^[a-fA-F0-9]{40}$/.test(runtimeRef)) {
     throw new Error(
       "invalid_app_first_interaction_reusable_workflow_runtime_ref",
     );
   }
+  const modeExpression =
+    version === "v4"
+      ? defaultOnDiscussionModeExpression(options)
+      : discussionModeExpression(options);
 
   return `name: ReviewRouter Interaction
 
@@ -881,7 +906,7 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
         env:
           GITHUB_TOKEN: \${{ github.token }}
           REVIEW_ROUTER_MODE: "interaction-preflight"
-          REVIEW_ROUTER_DISCUSSION_MODE: ${discussionModeExpression(options)}
+          REVIEW_ROUTER_DISCUSSION_MODE: ${modeExpression}
         run: node .reviewrouter-runtime/dist/index.js
 
       - name: Install Codex CLI for discussion replies
@@ -913,7 +938,7 @@ ${actionsRerunAuthority ? "      actions: write\n" : ""}      contents: read
           GITHUB_TOKEN: \${{ github.token }}
           REVIEW_ROUTER_MODE: "interaction"
           REVIEW_ROUTER_LEDGER_KEY: \${{ secrets.REVIEW_ROUTER_LEDGER_KEY }}
-          REVIEW_ROUTER_DISCUSSION_MODE: ${discussionModeExpression(options)}
+          REVIEW_ROUTER_DISCUSSION_MODE: ${modeExpression}
           REVIEW_ROUTER_DISCUSSION_MAX_PER_PR: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_PR || '20' }}
           REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD: \${{ vars.REVIEW_ROUTER_DISCUSSION_MAX_PER_THREAD || '5' }}
           REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS: \${{ vars.REVIEW_ROUTER_DISCUSSION_TIMEOUT_SECONDS || '60' }}
@@ -1061,7 +1086,7 @@ jobs:
       api_url: ${JSON.stringify(options.apiUrl)}
       runtime_config_mode: ${options.runtimeConfigMode}
       review_workflow_file: reviewrouter.yml
-      discussion_mode: ${discussionModeExpression(options)}
+      discussion_mode: ${defaultOnDiscussionModeExpression(options)}
       discussion_model: \${{ vars.REVIEW_CODEX_MODEL || '${mimoTokenPlanSelected ? "mimo-v2.6-pro" : defaultCodexReviewModel}' }}${
         mimoTokenPlanSelected
           ? "\n      discussion_auth_mode: mimo-token-plan-api"
@@ -1981,6 +2006,9 @@ export function renderReviewRouterWorkflowFiles(
           actionRef: options.actionRef,
           apiUrl: options.apiUrl,
           runtimeConfigMode: options.runtimeConfigMode,
+          ...(options.discussionMode !== undefined
+            ? { discussionMode: options.discussionMode }
+            : {}),
         }),
       },
     ];

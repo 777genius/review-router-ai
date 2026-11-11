@@ -88,6 +88,7 @@ import {
   type ReviewRouterWorkflowStyle,
   type WorkflowSetupGatewayPort,
   ciSecretsWorkflowProviderKind,
+  defaultReviewDiscussionMode,
   isClaudeSubscriptionConfiguration,
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
@@ -159,7 +160,6 @@ import {
   readProviderSetupSelection,
   readRepositoryReviewSettingsForm,
   readReviewPolicyExpectedVersion,
-  readReviewDiscussionMode,
   readWorkflowStyle,
   readWorkspaceReviewSettingsForm,
 } from "./dashboard-action-form-readers";
@@ -1196,7 +1196,6 @@ async function createSetupPullRequestMutation(
   const repositoryId = readFormString(formData, "repositoryId");
   const workspaceId = readFormString(formData, "workspaceId");
   const workflowStyle = readWorkflowStyle(formData);
-  const discussionMode = readReviewDiscussionMode(formData);
   let params: Record<string, string>;
   let auditSubject: {
     readonly actor: string;
@@ -1257,6 +1256,7 @@ async function createSetupPullRequestMutation(
       repositoryId,
     });
     const transport = requiredWorkflowTransport(resolvedRuntime.config);
+    const discussionMode = defaultReviewDiscussionMode(transport);
     const accountGateway = transport === "gateway";
     const gatewayInteractionRuntimeSha = accountGateway
       ? qualifiedGatewayInteractionRuntimeSha(process.env, {

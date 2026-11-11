@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+AI discussion default-on onboarding: [qualified, author-only rotating Codex setup](2026-11-11-ai-discussion-default-onboarding.md), [PR #856](https://github.com/777genius/review-router-ai/pull/856) — staging/production `pending`; coordinate web/API attestation rollout before any new v4 caller activation. No deployment or Action release claimed.
+
 get-tok onboarding and analytics: [PR #853 delivery and UX audit](2026-11-11-get-tok-onboarding.md) — production `deployed`; two pre-deployment real reviews and their eventual Statistics/Usage verified. The existing Codex connection was used by explicit owner choice; fresh OAuth identity conflict and listed UX follow-ups remain open.
 
 Claude Code dual authentication: [customer subscription and Anthropic API-key delivery](2026-11-11-claude-dual-auth.md) — [SaaS Draft #857](https://github.com/777genius/review-router-ai/pull/857), [Action Draft #385](https://github.com/777genius/review-router/pull/385), [plan #855](https://github.com/777genius/review-router-ai/pull/855). Staging/production `pending`; exact-head E2E, immutable Action build and Gateway API-key qualification remain unproven. No deployment or live credentials authorized.
