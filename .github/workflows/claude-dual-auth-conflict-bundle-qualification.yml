@@ -24,16 +24,32 @@ jobs:
           node-version: "26.11.1"
       - run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
       - run: node scripts/install-private-dependencies.mjs --frozen-lockfile
-      - name: Rebuild the committed conflict runtime from current source
-        run: node scripts/build-conflict-runtime.ts
-      - name: Verify byte-for-byte rebuild and artifact smoke checks
-        run: pnpm action:artifact:check:smoke
-      - name: Commit only the generated conflict-runtime bundle
+      - name: Format dual-auth source and regression tests
+        run: |
+          pnpm exec prettier --write \
+            packages/features/codex-oauth-rotating/src/action/review-runtime-environment.ts \
+            packages/features/workflow-provisioning/src/tests/workflow-template.test.ts \
+            scripts/lib/render-schema-handoff-policy.test.ts
+      - name: Rebuild both committed Action bundles from exact source
+        run: pnpm action:build
+      - name: Verify byte-identical bundles and formatting
+        run: |
+          pnpm action:artifact:check:smoke
+          pnpm exec prettier --check \
+            packages/features/codex-oauth-rotating/src/action/review-runtime-environment.ts \
+            packages/features/workflow-provisioning/src/tests/workflow-template.test.ts \
+            scripts/lib/render-schema-handoff-policy.test.ts
+      - name: Regression tests for deterministic bundling and SQL tail
+        run: pnpm exec vitest run scripts/build-codex-rotating-action.test.ts scripts/lib/render-schema-handoff-policy.test.ts
+      - name: Commit only qualified generated bundles and formatting
         shell: bash
         run: |
-          git add action-dist/conflict-runtime.cjs
+          git add action-dist/index.cjs action-dist/conflict-runtime.cjs \
+            packages/features/codex-oauth-rotating/src/action/review-runtime-environment.ts \
+            packages/features/workflow-provisioning/src/tests/workflow-template.test.ts \
+            scripts/lib/render-schema-handoff-policy.test.ts
           if ! git diff --cached --quiet; then
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -m 'build(action): refresh conflict-runtime bundle from exact source'
+              commit -m 'build(action): refresh exact-source bundles and format dual-auth changes'
             git push origin HEAD:refs/heads/feat/claude-dual-auth-secrets-20261111
           fi
