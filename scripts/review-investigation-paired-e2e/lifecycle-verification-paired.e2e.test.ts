@@ -3599,7 +3599,14 @@ function nativeThreads(
                   originalLine: thread.line,
                   comments: {
                     pageInfo: { hasNextPage: false, endCursor: null },
-                    nodes: [thread.parent, ...thread.replies],
+                    nodes: [
+                      thread.parent,
+                      ...thread.replies.map((reply) => ({
+                        ...reply,
+                        // REST comment IDs are numeric; GraphQL requires opaque node IDs.
+                        id: `paired-review-reply-${reply.id}`,
+                      })),
+                    ],
                   },
                 })),
               },
