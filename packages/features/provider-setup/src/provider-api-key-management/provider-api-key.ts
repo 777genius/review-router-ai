@@ -107,7 +107,7 @@ export type ProviderApiKeyState = {
 
 export function providerApiKeySecretName(
   providerType: ProviderApiKeyProvider,
- ): "MIMO_TOKEN_PLAN_API_KEY" | "OPENROUTER_API_KEY" | "ANTHROPIC_API_KEY" {
+): "MIMO_TOKEN_PLAN_API_KEY" | "OPENROUTER_API_KEY" | "ANTHROPIC_API_KEY" {
   return providerType === "mimo"
     ? "MIMO_TOKEN_PLAN_API_KEY"
     : providerType === "anthropic"
