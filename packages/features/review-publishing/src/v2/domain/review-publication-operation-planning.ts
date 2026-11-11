@@ -267,11 +267,36 @@ export function planReviewPublicationOperations(input: {
     }
   }
 
+  // Verified acknowledgements are additive. Preserve capacity for every
+  // required resolution even when some optional replies cannot fit the release.
+  let requiredLifecycleCount = 0;
+  let requiredLifecycleBytes = 0;
   for (const lifecycle of envelope.lifecycle) {
     assertLifecycleSemantic(lifecycle.semantic);
-    chunkCount += 1;
+    assertCanonicalBodyFacts(lifecycle);
+    if (lifecycle.semantic !== ReviewPublicationLifecycleSemantic.ConfirmReply) {
+      requiredLifecycleCount += 1;
+      requiredLifecycleBytes = safeAddBodyBytes(
+        requiredLifecycleBytes,
+        lifecycle.bodyByteCount,
+      );
+    }
+  }
+  for (const lifecycle of envelope.lifecycle) {
     const isReply =
       lifecycle.semantic === ReviewPublicationLifecycleSemantic.ConfirmReply;
+    if (isReply) {
+      if (
+        operations.length + requiredLifecycleCount + 1 > limits.maxPublicationOperations ||
+        chunkCount + requiredLifecycleCount + 1 > limits.maxPublicationChunks ||
+        lifecycle.bodyByteCount >
+          limits.maxPublicationBodyBytes - totalBodyBytes - requiredLifecycleBytes
+      ) continue;
+    } else {
+      requiredLifecycleCount -= 1;
+      requiredLifecycleBytes -= lifecycle.bodyByteCount;
+    }
+    chunkCount += 1;
     append({
       publicationKind: isReply
         ? ReviewPublicationKind.ThreadReply
