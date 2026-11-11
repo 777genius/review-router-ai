@@ -193,7 +193,7 @@ function fixture(
     },
     issue: () =>
       checkout.issue("verified-parent-token", new AbortController().signal, {
-        providerInstanceId: "codex-rotating:456",
+        providerInstanceId: `codex-rotating:${githubRepositoryId}`,
         workflowSchemaVersion: 2,
       }),
   };
