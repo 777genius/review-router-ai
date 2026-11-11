@@ -170,11 +170,22 @@ describe("protocol v2 publication executor", () => {
     expect(fixture.gateway.applyCalls).toBe(1);
   });
 
-  it.each([ReviewPublicationKind.Summary, ReviewPublicationKind.PrDescription])(
+  it.each([
+    ReviewPublicationKind.Summary,
+    ReviewPublicationKind.PrDescription,
+    ReviewPublicationKind.ThreadReply,
+  ])(
     "reconciles every marker page before retry and does not duplicate an ambiguous %s write",
     async (publicationKind) => {
       const fixture = await createFixture({
-        operations: [{ ...operationPlan(), publicationKind }],
+        operations: [{
+          ...operationPlan(),
+          publicationKind,
+          effectStrategy:
+            publicationKind === ReviewPublicationKind.ThreadReply
+              ? ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt
+              : ReviewPublicationEffectStrategy.MutableSingleton,
+        }],
       });
       fixture.gateway.applyError = new ReviewV2ScmMutationError(
         "scm_timeout",
@@ -211,12 +222,18 @@ describe("protocol v2 publication executor", () => {
     },
   );
 
-  it("never replays an unknown PR body write when marker reconciliation is still empty", async () => {
+  it.each([ReviewPublicationKind.PrDescription, ReviewPublicationKind.ThreadReply])(
+    "never replays an unknown %s write when marker reconciliation is still empty",
+    async (publicationKind) => {
     const fixture = await createFixture({
       operations: [
         {
           ...operationPlan(),
-          publicationKind: ReviewPublicationKind.PrDescription,
+          publicationKind,
+          effectStrategy:
+            publicationKind === ReviewPublicationKind.ThreadReply
+              ? ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt
+              : ReviewPublicationEffectStrategy.MutableSingleton,
         },
       ],
     });
@@ -231,7 +248,10 @@ describe("protocol v2 publication executor", () => {
       fixture.executor.execute(executionCommand()),
     ).resolves.toMatchObject({
       status: ReviewV2PublicationExecutionStatus.Retryable,
-      safeReason: "pr_description_write_outcome_unknown",
+      safeReason:
+        publicationKind === ReviewPublicationKind.ThreadReply
+          ? "verified_reply_write_outcome_unknown"
+          : "pr_description_write_outcome_unknown",
     });
     expect(
       (await fixture.repository.findById("publication-1"))?.attempt.state,
@@ -241,7 +261,8 @@ describe("protocol v2 publication executor", () => {
       ReviewV2ScmCredentialPurpose.Mutate,
       ReviewV2ScmCredentialPurpose.ReconcileOnly,
     ]);
-  });
+  },
+  );
 
   it("surfaces a PR body readback conflict for manual reconciliation", async () => {
     const fixture = await createFixture({
