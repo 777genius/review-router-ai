@@ -1054,6 +1054,9 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       await flow.check("Claude API-key setup fits a mobile viewport", () =>
         assertNoHorizontalOverflow(page),
       );
+      // Show the selected repository's actual setup status in the screenshot,
+      // rather than capturing only the dashboard header after a route change.
+      await repositorySetupPanel(page, repositoryKey).scrollIntoViewIfNeeded();
       await flow.shot(
         page,
         "claude-api-key-credential-verified-workflow-pending",
