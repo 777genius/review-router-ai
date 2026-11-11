@@ -187,8 +187,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -340,8 +340,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -953,8 +953,8 @@ importers:
   packages/features/provider-usage:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz
+        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz
       '@get-modular/assembly':
         specifier: 0.7.0
         version: 0.7.0
@@ -1483,8 +1483,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz':
-    resolution: {integrity: sha512-+2TWFV6CSw4VCYGkedFcz/fiRlO5jSywALE0Eav1rxBc3C8u9jzeGK9+X1iwYA3/MMX8x9Bt3b///WMonVqZpQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz':
+    resolution: {integrity: sha512-FB0Lhl+Di6I2xZ822/tOmjiY1NI8vq6qrOWo03aBjHrYOcU5tbQR46kjqMG5Fe4b5r+0TWwuN0EPtbAvAahWvA==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6632,7 +6632,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0
