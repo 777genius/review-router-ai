@@ -621,15 +621,23 @@ describe("ProviderSetupDialog", () => {
       },
     });
     expect(
-      screen.getByRole("radio", { name: "Anthropic API key" }).getAttribute("aria-checked"),
+      screen
+        .getByRole("radio", { name: "Anthropic API key" })
+        .getAttribute("aria-checked"),
     ).toBe("true");
     expect(
-      screen.getByRole("radio", { name: "ReviewRouter" }).getAttribute("aria-checked"),
+      screen
+        .getByRole("radio", { name: "ReviewRouter" })
+        .getAttribute("aria-checked"),
     ).toBe("true");
     expect(
-      screen.getByRole("radio", { name: "Claude subscription" }).getAttribute("aria-checked"),
+      screen
+        .getByRole("radio", { name: "Claude subscription" })
+        .getAttribute("aria-checked"),
     ).toBe("false");
-    fireEvent.click(screen.getByRole("button", { name: "Use for this repository" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
     await waitFor(() =>
       expect(saveProviderRosterAction).toHaveBeenCalledWith(
         expect.objectContaining(
