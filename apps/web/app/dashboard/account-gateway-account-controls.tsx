@@ -979,12 +979,13 @@ function Controls({
             (personal || !p.connection?.personalOnly),
         )
       : [];
+  const enrollmentAccounts = data?.status === "ok" ? data.value.accounts : [];
   return (
     <div className="space-y-4">
       {connectOnly && !activeNonce && enrollmentProfiles.length > 0 ? (
         <ConnectionForm
           profiles={enrollmentProfiles}
-          accounts={data.value.accounts}
+          accounts={enrollmentAccounts}
           disabled={disabled}
           managementScope={managementScope}
           begin={beginOAuth}
@@ -1003,7 +1004,7 @@ function Controls({
             profiles={enrollmentProfiles.filter(
               (p) => p.authKind === "api_key" || p.authKind === "oauth",
             )}
-            accounts={data.value.accounts}
+            accounts={enrollmentAccounts}
             disabled={disabled}
             managementScope={managementScope}
             begin={beginOAuth}
