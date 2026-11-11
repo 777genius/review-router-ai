@@ -1068,8 +1068,12 @@ function ProviderChoiceStep({
     provider: SetupProviderId,
     method: "subscription" | "api_key" = "subscription",
   ): ProviderSourceKey | null {
-    if (provider === "claude-code" && method === "api_key")
-      return "user_ci_secret:claude_code_api_key";
+    // Claude subscription must never resolve to a previously installed
+    // managed Anthropic API key: that changes the selected credential.
+    if (provider === "claude-code")
+      return method === "api_key"
+        ? "user_ci_secret:claude_code_api_key"
+        : "user_ci_secret:claude_code_oauth";
     const managed = managedSourceFor(provider);
     return automaticDeliveryAvailable(managed)
       ? managed!.key
