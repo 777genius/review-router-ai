@@ -1243,7 +1243,8 @@ lifecycleCase.each([
         ).toBe(true);
         expect(threads.resolveCalls()).toBe(2);
       }
-      else if (!valid) expect(threads.resolveCalls()).toBe(0);
+      else if (!valid || scenario === "report_only")
+        expect(threads.resolveCalls()).toBe(0);
       else {
         expect(threads.resolveCalls()).toBeGreaterThanOrEqual(1);
         expect(threads.resolveCalls()).toBeLessThanOrEqual(2);
