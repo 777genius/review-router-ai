@@ -57,6 +57,7 @@ export async function applyProviderApiKey(
     providedApiKey &&
     (providedApiKey.length < 16 ||
       /^sk-ant-oat/i.test(providedApiKey) ||
+      // eslint-disable-next-line no-control-regex -- Reject control characters in stored credentials.
       /[\s|\u0000-\u001f\u007f"'\x60]/.test(providedApiKey))
   ) {
     throw new Error("anthropic_api_key_invalid");
