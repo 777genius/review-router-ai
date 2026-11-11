@@ -83,17 +83,42 @@ export async function quarantineGatewayObservation(
   });
   if (saved.hash !== hash) throw new UsageError("usage_hash_conflict");
 }
-/** Late attribution never guesses a tenant; replay only after a canonical lifecycle identity exists. */
-export async function replayGatewayQuarantine(
+export async function selectGatewayQuarantineBatch(
   prisma: PrismaClient,
   deployment: string,
+  now: Date,
 ) {
-  const rows = await prisma.usageUnattributedObservation.findMany({
+  const observedAfter = new Date(now.getTime() - 30 * 86400000);
+  // Every workspace reads the gateway's shared feed. Events belonging to other
+  // workspaces therefore enter quarantine even when their call identity already
+  // exists. Reserve half the batch for these directly matchable events so an
+  // old, repeatedly unmatched backlog cannot delay fresh usage indefinitely.
+  // Matching only selects candidates: the replay below still verifies the
+  // immutable tenant, invocation, attempt and payload hash before ingestion.
+  const matchable = await prisma.$queryRaw<
+    {
+      sourceInstance: string;
+      eventId: string;
+      revision: number;
+      hash: string;
+      payload: unknown;
+    }[]
+  >`SELECT q."sourceInstance", q."eventId", q."revision", q."hash", q."payload"
+    FROM "UsageUnattributedObservation" q
+    JOIN "UsageCall" c ON c."callId" = 'gw-' || encode(sha256(
+      convert_to(q."payload"->>'executionRef', 'UTF8') || decode('00', 'hex') ||
+      convert_to(q."payload"->>'requestRef', 'UTF8')), 'hex')
+    WHERE q."sourceInstance" = ${deployment} AND q."resolvedAt" IS NULL
+      AND q."nextResolutionAt" <= ${now} AND q."observedAt" >= ${observedAfter}
+    ORDER BY q."nextResolutionAt", q."receivedAt", q."eventId", q."revision"
+    LIMIT 50`;
+  const oldest = await prisma.usageUnattributedObservation.findMany({
     where: {
       sourceInstance: deployment,
       resolvedAt: null,
-      nextResolutionAt: { lte: new Date() },
-      observedAt: { gte: new Date(Date.now() - 30 * 86400000) },
+      nextResolutionAt: { lte: now },
+      observedAt: { gte: observedAfter },
+      NOT: matchable.map(({ eventId, revision }) => ({ eventId, revision })),
     },
     orderBy: [
       { nextResolutionAt: "asc" },
@@ -101,8 +126,21 @@ export async function replayGatewayQuarantine(
       { eventId: "asc" },
       { revision: "asc" },
     ],
-    take: 100,
+    take: 100 - matchable.length,
   });
+  return [...matchable, ...oldest];
+}
+
+/** Late attribution never guesses a tenant; replay only after a canonical lifecycle identity exists. */
+export async function replayGatewayQuarantine(
+  prisma: PrismaClient,
+  deployment: string,
+) {
+  const rows = await selectGatewayQuarantineBatch(
+    prisma,
+    deployment,
+    new Date(),
+  );
   const ingest = new IngestUsage(new PrismaUsageStore(prisma));
   let resolved = 0;
   for (const row of rows) {
