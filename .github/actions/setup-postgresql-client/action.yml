@@ -8,9 +8,9 @@ runs:
       run: |
         timeout --signal=TERM --kill-after=15s 5m bash <<'BASH'
         set -euo pipefail
-        for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+        for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources /etc/apt/apt-mirrors.txt /etc/apt/apt-security-mirrors.txt; do
           if [[ -f "$source" ]]; then
-            sudo sed -i -E 's#https?://azure[.]archive[.]ubuntu[.]com/ubuntu(/?)([[:space:]]|$)#https://archive.ubuntu.com/ubuntu\1\2#g' "$source"
+            sudo sed -i -E 's#https?://azure[.]archive[.]ubuntu[.]com/ubuntu#https://archive.ubuntu.com/ubuntu#g' "$source"
           fi
         done
         apt_options=(-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=2 -o DPkg::Lock::Timeout=30)

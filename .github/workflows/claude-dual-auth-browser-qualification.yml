@@ -68,6 +68,13 @@ jobs:
       - name: Install supported headless Chromium
         run: |
           mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
+          # GitHub-hosted runners can retain a stalled Azure mirror in apt mirrorlists.
+          # Normalize only the public Ubuntu sources before Playwright invokes apt.
+          for source in /etc/apt/apt-mirrors.txt /etc/apt/apt-security-mirrors.txt; do
+            if [[ -f "$source" ]]; then
+              sudo sed -i -E 's#https?://azure[.]archive[.]ubuntu[.]com/ubuntu#https://archive.ubuntu.com/ubuntu#g' "$source"
+            fi
+          done
           node node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
       - name: Run real Next + PG17 Claude subscription and API-key setup journeys
         run: |
