@@ -30,33 +30,38 @@ describe("applyProviderApiKey", () => {
   it.each(["sk-ant-api03-synthetic-offline-key", "sk-ant-api-v4-synthetic-offline-key"])(
     "encrypts an Anthropic API key without a hardcoded version (%s)",
     async (key) => {
-    const providerApiKeys = store();
-    const githubSecrets = gateway();
-    const audit = { record: vi.fn(async () => undefined) };
-    const result = await applyProviderApiKey(
-      {
-        workspaceId: "workspace_1",
-        actor: "user:github:owner",
-        providerType: "anthropic",
-        apiKey: key,
-        repositoryIds: ["repo_1", "repo_2"],
-      },
-      dependencies({ githubSecrets, providerApiKeys, audit }),
-    );
-    expect(result.results.map((row) => row.status)).toEqual(["applied", "applied"]);
-    expect(providerApiKeys.prepareApply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerType: "anthropic",
-        encryptedApiKey: `encrypted:${key}`,
-      }),
-    );
-    expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledTimes(2);
-    for (const [input] of vi.mocked(githubSecrets.putEncryptedRepositorySecret).mock.calls) {
-      expect(input.secretName).toBe("ANTHROPIC_API_KEY");
-      expect(JSON.stringify(input)).not.toContain(key);
-      expect(input.secretName).not.toBe("CLAUDE_CODE_OAUTH_TOKEN");
-    }
-    expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain(key);
+      const providerApiKeys = store();
+      const githubSecrets = gateway();
+      const audit = { record: vi.fn(async () => undefined) };
+      const result = await applyProviderApiKey(
+        {
+          workspaceId: "workspace_1",
+          actor: "user:github:owner",
+          providerType: "anthropic",
+          apiKey: key,
+          repositoryIds: ["repo_1", "repo_2"],
+        },
+        dependencies({ githubSecrets, providerApiKeys, audit }),
+      );
+      expect(result.results.map((row) => row.status)).toEqual([
+        "applied",
+        "applied",
+      ]);
+      expect(providerApiKeys.prepareApply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerType: "anthropic",
+          encryptedApiKey: `encrypted:${key}`,
+        }),
+      );
+      expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledTimes(2);
+      for (const [input] of vi.mocked(
+        githubSecrets.putEncryptedRepositorySecret,
+      ).mock.calls) {
+        expect(input.secretName).toBe("ANTHROPIC_API_KEY");
+        expect(JSON.stringify(input)).not.toContain(key);
+        expect(input.secretName).not.toBe("CLAUDE_CODE_OAUTH_TOKEN");
+      }
+      expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain(key);
     },
   );
 
