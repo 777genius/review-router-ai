@@ -144,6 +144,7 @@ const modelDispatchProfile: ReviewModelDispatchProfileV2 = {
 };
 type Scenario =
   | "success"
+  | "report_only"
   | "denied"
   | "unknown"
   | "missing_verdict"
@@ -175,6 +176,7 @@ lifecycleCase.each([
   ),
   ...(
     [
+      "report_only",
       "paid_unknown",
       "budget_exhausted",
       "stale_head",
@@ -923,7 +925,8 @@ lifecycleCase.each([
           }),
         ),
       });
-      expanded.lifecycleVerification.mode = "resolve";
+      expanded.lifecycleVerification.mode =
+        scenario === "report_only" ? "report" : "resolve";
       expect(
         JSON.parse(expanded.plan.assignmentManifestCanonicalJson)
           .manifestVersion,
@@ -951,9 +954,13 @@ lifecycleCase.each([
         second.exhausted,
       );
       const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
-      const valid = ["success", "denied", "unknown", "stale_head"].includes(
-        scenario,
-      );
+      const valid = [
+        "success",
+        "report_only",
+        "denied",
+        "unknown",
+        "stale_head",
+      ].includes(scenario);
       expect(envelope.coverage.state).toBe("complete");
       expect(envelope.publishing.summary.allClear).toBe(false);
       expect(envelope.publishing.summary.occurrenceCounts.resolved).toBe(0);
@@ -961,7 +968,7 @@ lifecycleCase.each([
         envelope.publishing.lifecycle.filter(
           (entry: { mutationEligible: boolean }) => entry.mutationEligible,
         ),
-      ).toHaveLength(valid ? 2 : 0);
+      ).toHaveLength(valid && scenario !== "report_only" ? 2 : 0);
       expect(envelope.publishing.summary.body).toContain(
         valid ? "2 fixes verified" : "0 fixes verified",
       );
@@ -1113,7 +1120,7 @@ lifecycleCase.each([
           headSha: "2".repeat(40),
         });
         await owned.processFinalizedOutbox();
-        await owned.runWorkerUntilSettled();
+        await owned.runWorkerUntilSettled(32);
         expect(
           await owned.prisma.reviewPublicationAttemptV2.findFirstOrThrow({
             where: { executionId: second.execution.executionId },
@@ -1181,12 +1188,23 @@ lifecycleCase.each([
         }
       } else if (scenario === "denied") {
         deniedMaintenanceStartedAt = new Date();
-        // The summary/check already have real effects: a per-thread denial
-        // cannot turn the whole publication into a no-effect success.
+        // This harness settles publication incrementally. A single pass need
+        // not have attempted both replies and both denied resolutions.
+        // Exercise each operation before asserting the final denial proofs.
         await expect(owned.runWorkerUntilSettled(1)).rejects.toThrow(
           "review_v2_e2e_worker_did_not_settle",
         );
-      } else await owned.runWorkerUntilSettled();
+        for (
+          let pass = 0;
+          pass < 24 &&
+          (threads.verifiedReplyWrites() < 2 || threads.resolveCalls() < 2);
+          pass += 1
+        ) {
+          await expect(owned.runWorkerUntilSettled(1)).rejects.toThrow(
+            "review_v2_e2e_worker_did_not_settle",
+          );
+        }
+      } else await owned.runWorkerUntilSettled(32);
       const after =
         await owned.prisma.finalizedReviewProjectionArtifactV2.findFirstOrThrow(
           { where: { executionId: second.execution.executionId } },
@@ -1217,14 +1235,41 @@ lifecycleCase.each([
           },
         },
       });
-      if (scenario === "success") expect(threads.resolveCalls()).toBe(2);
-      else if (!valid) expect(threads.resolveCalls()).toBe(0);
+      if (scenario === "report_only") {
+        expect(operations).toHaveLength(0);
+        expect(receipts).toHaveLength(0);
+        expect(threads.resolveCalls()).toBe(0);
+        expect(threads.closed()).toHaveLength(0);
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toHaveLength(2);
+        const published = threads.verifiedReplies();
+        await owned.runWorkerUntilSettled(32);
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toEqual(published);
+        expect(threads.closed()).toHaveLength(0);
+      }
+      if (scenario === "success") {
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toHaveLength(2);
+        expect(
+          threads
+            .verifiedReplies()
+            .every((reply) =>
+              String(reply.body).includes("reviewrouter:fix-verified:v1:"),
+            ),
+        ).toBe(true);
+        expect(threads.resolveCalls()).toBe(2);
+      } else if (!valid || scenario === "report_only")
+        expect(threads.resolveCalls()).toBe(0);
       else {
         expect(threads.resolveCalls()).toBeGreaterThanOrEqual(1);
         expect(threads.resolveCalls()).toBeLessThanOrEqual(2);
       }
       expect(receipts).toHaveLength(scenario === "success" ? 2 : 0);
       if (scenario === "denied") {
+        // Permission-denied resolution must not erase the independent native replies.
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toHaveLength(2);
         expect(threads.resolveCalls()).toBe(2);
         const publicationAttemptId = operations[0]!.publicationAttemptId;
         const deniedIds = operations.map(
@@ -1754,7 +1799,7 @@ lifecycleCase.each([
               // The real runner polls the publication receipt. Its real worker
               // must consume the finalized outbox while that promise is active.
               await owned.processFinalizedOutbox();
-              await owned.runWorkerUntilSettled();
+              await owned.runWorkerUntilSettled(32);
               if (!done)
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }
@@ -1774,7 +1819,7 @@ lifecycleCase.each([
             ).toMatchObject({ outcome: "completed" });
             expect(result.publicationReceipt).toBeDefined();
             await owned.processFinalizedOutbox();
-            await owned.runWorkerUntilSettled();
+            await owned.runWorkerUntilSettled(32);
             const execution =
               await owned.prisma.reviewExecutionV2.findFirstOrThrow({
                 where: { authorizationId: authorization.authorizationId },
@@ -1940,6 +1985,8 @@ lifecycleCase.each([
           upstream.nativeKinds().filter((kind) => kind === "verifier"),
         ).toHaveLength(1);
         expect(threads.resolveCalls()).toBe(2);
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toHaveLength(2);
         expect(threads.closed()).toHaveLength(2);
         expect(
           threads.observed().filter((thread) => !thread.isResolved),
@@ -1986,6 +2033,7 @@ lifecycleCase.each([
         const callsBeforeRetry = upstream.requests();
         const reviewsBeforeRetry = threads.publishedComments().length;
         const resolveBeforeRetry = threads.resolveCalls();
+        const repliesBeforeRetry = threads.verifiedReplyWrites();
         // Ordinary renewable routes restore the same admitted run with its
         // current bearer; the original token may have been renewed during A/B.
         const repeated = await run(await authorize("2"));
@@ -2002,6 +2050,7 @@ lifecycleCase.each([
         expect(upstream.requests()).toBe(callsBeforeRetry);
         expect(threads.publishedComments()).toHaveLength(reviewsBeforeRetry);
         expect(threads.resolveCalls()).toBe(resolveBeforeRetry);
+        expect(threads.verifiedReplyWrites()).toBe(repliesBeforeRetry);
         expect(apiRejections).toEqual([]);
         console.info("paired_production_runner_acceptance", {
           route: route.name,
@@ -2471,7 +2520,7 @@ lifecycleCase.each([
         });
         if (settle) {
           await owned.processFinalizedOutbox();
-          await owned.runWorkerUntilSettled();
+          await owned.runWorkerUntilSettled(32);
         }
       }
     } finally {
@@ -3249,6 +3298,7 @@ function nativeThreads(
     path: string;
     line: number;
     parent: Record<string, unknown>;
+    replies: Array<Record<string, unknown>>;
   };
   const threads: Thread[] = [];
   const reviews: Array<{
@@ -3261,12 +3311,59 @@ function nativeThreads(
   }> = [];
   let calls = 0;
   const requestThreads: string[] = [];
+  let nativeReplyWrites = 0;
   let unknownEffect = false;
   const original = fallbackFetch ?? github.fetch;
   vi.spyOn(github, "fetch").mockImplementation(async (input, init) => {
     const request =
       input instanceof Request ? input : new Request(String(input), init);
     const url = new URL(request.url);
+    const prefix = `/repos/${github.options.owner}/${github.options.repo}/pulls/${github.options.pullRequestNumber}`;
+    if (url.hostname === "api.github.com") {
+      const replyMatch = new RegExp(
+        `^${prefix}/comments/([0-9]+)/replies$`,
+      ).exec(url.pathname);
+      if (request.method === "GET" && url.pathname === `${prefix}/comments`) {
+        const comments = threads.flatMap((thread) => [
+          {
+            ...thread.parent,
+            id: thread.parent.databaseId,
+            user: { login: "reviewrouter-e2e[bot]" },
+          },
+          ...thread.replies,
+        ]);
+        return Response.json(comments);
+      }
+      if (request.method === "POST" && replyMatch) {
+        expect(request.headers.get("authorization")).toMatch(
+          /^(?:token|Bearer) fake-installation-token$/,
+        );
+        const parentId = Number(replyMatch[1]);
+        const thread = threads.find(
+          (entry) => entry.parent.databaseId === parentId,
+        );
+        if (!thread)
+          return Response.json({ message: "Not Found" }, { status: 404 });
+        const { body } = (await request.clone().json()) as { body: string };
+        expect(body).toContain("reviewrouter:fix-verified:v1:");
+        nativeReplyWrites++;
+        const now = new Date().toISOString();
+        const reply = {
+          id: 910_000 + nativeReplyWrites,
+          in_reply_to_id: parentId,
+          body,
+          user: { login: "reviewrouter-e2e[bot]" },
+          createdAt: now,
+          updatedAt: now,
+          publishedAt: now,
+          lastEditedAt: null,
+          viewerDidAuthor: true,
+          author: { login: "reviewrouter-e2e[bot]", __typename: "Bot" },
+        };
+        thread.replies.push(reply);
+        return Response.json(reply, { status: 201 });
+      }
+    }
     if (checkout && url.hostname === "api.github.com") {
       const prefix = `/repos/${github.options.owner}/${github.options.repo}/pulls/${github.options.pullRequestNumber}`;
       if (
@@ -3391,6 +3488,7 @@ function nativeThreads(
               isResolved: false,
               path: String(comment.path),
               line: Number(comment.line),
+              replies: [],
               parent: {
                 id: `paired-review-parent-${comment.id}`,
                 databaseId: comment.id,
@@ -3438,6 +3536,16 @@ function nativeThreads(
       return Response.json({
         data: {
           resolveReviewThread: { thread: { id: thread.id, isResolved: true } },
+        },
+      });
+    }
+    if (query.includes("ReviewRouterVerifiedReplyParent")) {
+      const thread = threads.find((entry) => entry.id === body.variables.id);
+      return Response.json({
+        data: {
+          node: thread
+            ? { id: thread.id, comments: { nodes: [thread.parent] } }
+            : null,
         },
       });
     }
@@ -3491,7 +3599,14 @@ function nativeThreads(
                   originalLine: thread.line,
                   comments: {
                     pageInfo: { hasNextPage: false, endCursor: null },
-                    nodes: [thread.parent],
+                    nodes: [
+                      thread.parent,
+                      ...thread.replies.map((reply) => ({
+                        ...reply,
+                        // REST comment IDs are numeric; GraphQL requires opaque node IDs.
+                        id: `paired-review-reply-${reply.id}`,
+                      })),
+                    ],
                   },
                 })),
               },
@@ -3514,6 +3629,7 @@ function nativeThreads(
           isResolved: false,
           path: filePath,
           line: Number(hint.line ?? 1),
+          replies: [],
           parent: {
             id: `paired-parent-${index}`,
             databaseId: 800 + index,
@@ -3543,6 +3659,8 @@ function nativeThreads(
         body: String(thread.parent.body),
       })),
     resolveCalls: () => calls,
+    verifiedReplyWrites: () => nativeReplyWrites,
+    verifiedReplies: () => threads.flatMap((thread) => thread.replies),
     requestThreads: () => [...requestThreads],
     closed: () =>
       threads.filter((thread) => thread.isResolved).map((thread) => thread.id),

@@ -413,6 +413,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     githubRepositories,
     projections,
     assertUnreservedCheckIdentity,
+    trustedReviewCommandLedgerAuthorsFromEnv(input.env),
   );
   const operationCapabilityIssuer =
     new RotatingReviewV2OperationCapabilityIssuer(

@@ -21,7 +21,9 @@ const reader = vi.mocked(readRenderManagedCheckoutInventory);
 // The complete current checkout is exercised separately.
 const currentFull = readRenderManagedCheckoutInventory();
 const previousFull = currentFull.filter(
-  (row) => row.migrationName !== "000155_usage_member_report_index",
+  (row) =>
+    row.migrationName !== "000155_usage_member_report_index" &&
+    row.migrationName !== "000156_verified_thread_reply",
 );
 const full = previousFull
   .filter(
@@ -188,7 +190,7 @@ describe("trusted historical96 checkout reader", () => {
     expect(reader).toHaveBeenCalledWith();
     reader.mockReturnValue([
       ...currentFull,
-      { migrationName: "000156_unknown", checksum: "0".repeat(64) },
+      { migrationName: "000157_unknown", checksum: "0".repeat(64) },
     ]);
     expect(() => readRenderHistorical96CheckoutInventory()).toThrow(
       "render_historical96_checkout_rejected:count",

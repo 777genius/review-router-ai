@@ -729,6 +729,8 @@ export type LiveReviewPublicationLifecycleTargetIdentity = Omit<
 > & {
   readonly markerFingerprint: string;
   readonly threadStateHash: string;
+  /** Prefixes excluding only trailing, App-owned canonical fix acknowledgements. */
+  readonly verifiedReplyPrefixHashes?: readonly string[];
   readonly isResolved: boolean;
   readonly parentOwnedByIntegration: boolean;
   readonly hasRelevantInteractionAfterParent: boolean;

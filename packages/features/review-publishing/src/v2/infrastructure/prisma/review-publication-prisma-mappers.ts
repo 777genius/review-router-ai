@@ -276,6 +276,8 @@ export function toDbPublicationKind(
       return DbPublicationKind.submitted_review;
     case ReviewPublicationKind.ThreadLifecycle:
       return DbPublicationKind.thread_lifecycle;
+    case ReviewPublicationKind.ThreadReply:
+      return DbPublicationKind.thread_reply;
   }
 }
 
@@ -431,6 +433,8 @@ function toDomainPublicationKind(
       return ReviewPublicationKind.SubmittedReview;
     case DbPublicationKind.thread_lifecycle:
       return ReviewPublicationKind.ThreadLifecycle;
+    case DbPublicationKind.thread_reply:
+      return ReviewPublicationKind.ThreadReply;
   }
 }
 

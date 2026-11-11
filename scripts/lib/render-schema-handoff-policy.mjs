@@ -321,6 +321,25 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Only the exact review-thread reply enum migration may extend this
+  // checkout. Remove it for the immutable historical handoff verification,
+  // which still pins the full prior inventory and every earlier checksum.
+  const verifiedReplyMigration = catalog.find(
+    (row) => row.migrationName === "000156_verified_thread_reply",
+  );
+  if (verifiedReplyMigration) {
+    if (
+      verifiedReplyMigration.checksum !==
+        "690327803b321cad8914c1ac489751ad140e7b39126115bf826138959b3f3888" ||
+      catalog.at(-1) !== verifiedReplyMigration ||
+      manifest(catalog.slice(0, -1)) !==
+        "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== verifiedReplyMigration),
+    );
+  }
   // The concurrent member-read index belongs only to ordinary Prisma deploy.
   // Pin its exact SQL and complete checkout160, then retain the unchanged
   // checkout159 -> managed92 admission. It never enters a repair transaction.

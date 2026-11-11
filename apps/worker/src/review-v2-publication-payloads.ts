@@ -53,11 +53,12 @@ export class CanonicalReviewV2ProjectionAdapter
 
   async publicationEnvelope(
     artifact: FinalizedReviewProjectionArtifact,
+    options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
   ): Promise<PublishedReviewProjectionPublicationEnvelope | null> {
     const loaded = await this.loadMatching(artifact.publicationPermit);
     if (!loaded) return null;
     const projection = parseProjection(artifact.projectionEnvelopeJson);
-    const catalog = buildCatalog(projection, artifact);
+    const catalog = buildCatalog(projection, artifact, options);
     const partial = artifact.coverageState === "partial";
     return {
       envelopeVersion: publishedReviewProjectionPublicationEnvelopeVersion,
@@ -102,9 +103,12 @@ export class CanonicalReviewV2ProjectionAdapter
         : catalog.lifecycle.map((entry, chunkIndex) => ({
             chunkIndex,
             ...facts(entry.payload),
-            semantic: entry.payload.resolve
-              ? ReviewPublicationLifecycleSemantic.Resolve
-              : ReviewPublicationLifecycleSemantic.Reopen,
+            semantic:
+              entry.payload.kind === ReviewV2PublicationPayloadKind.ThreadReply
+                ? ReviewPublicationLifecycleSemantic.ConfirmReply
+                : entry.payload.resolve
+                  ? ReviewPublicationLifecycleSemantic.Resolve
+                  : ReviewPublicationLifecycleSemantic.Reopen,
           })),
     };
   }
@@ -222,13 +226,16 @@ type PublicationCatalog = {
     readonly submit: PayloadOfKind<ReviewV2PublicationPayloadKind.PendingReviewSubmit>;
   }[];
   readonly lifecycle: readonly {
-    readonly payload: PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadLifecycle>;
+    readonly payload:
+      | PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadLifecycle>
+      | PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadReply>;
   }[];
 };
 
 function buildCatalog(
   projection: ProjectionEnvelope,
   artifact: FinalizedReviewProjectionArtifact,
+  options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
 ): PublicationCatalog {
   const rendered = renderCanonicalReviewPublication(
     {
@@ -239,6 +246,9 @@ function buildCatalog(
       renderPolicyVersion: resolveReviewPublicationRenderPolicyVersion(
         artifact.projectionPolicyVersion,
       ),
+      ...(options?.includeVerifiedFixReplies === undefined
+        ? {}
+        : { includeVerifiedFixReplies: options.includeVerifiedFixReplies }),
       targetCommitId: artifact.reviewedHeadSha,
       occurrenceStates: projection.occurrences.map((occurrence) =>
         reviewPublicationOccurrenceState(occurrence.state),
@@ -281,12 +291,21 @@ function buildCatalog(
     } as const,
   }));
   const lifecycle = rendered.lifecycle.map((entry) => ({
-    payload: {
-      kind: ReviewV2PublicationPayloadKind.ThreadLifecycle,
-      ...payloadFields(entry),
-      threadId: entry.threadId,
-      resolve: entry.resolve,
-    } as const,
+    payload:
+      entry.semantic === ReviewPublicationLifecycleSemantic.ConfirmReply
+        ? ({
+            kind: ReviewV2PublicationPayloadKind.ThreadReply,
+            ...payloadFields(entry),
+            threadId: entry.threadId,
+            targetId: entry.targetId,
+            body: entry.body,
+          } as const)
+        : ({
+            kind: ReviewV2PublicationPayloadKind.ThreadLifecycle,
+            ...payloadFields(entry),
+            threadId: entry.threadId,
+            resolve: entry.resolve,
+          } as const),
   }));
   const prDescription: PublicationCatalog["prDescription"] =
     rendered.prDescription === undefined
@@ -352,7 +371,23 @@ function payloadForOperation(
     case ReviewPublicationKind.SubmittedReview:
       return null;
     case ReviewPublicationKind.ThreadLifecycle:
-      return catalog.lifecycle[operation.chunkIndex]?.payload ?? null;
+    case ReviewPublicationKind.ThreadReply: {
+      // Existing V6 attempts retain their original chunk indexes. The marker
+      // and body are bound to that immutable operation, even after new replies
+      // have been introduced ahead of guarded resolutions.
+      const expectedKind =
+        operation.publicationKind === ReviewPublicationKind.ThreadReply
+          ? ReviewV2PublicationPayloadKind.ThreadReply
+          : ReviewV2PublicationPayloadKind.ThreadLifecycle;
+      return (
+        catalog.lifecycle.find(
+          (entry) =>
+            entry.payload.kind === expectedKind &&
+            entry.payload.markerHash === operation.markerHash &&
+            entry.payload.bodyHash === operation.bodyHash,
+        )?.payload ?? null
+      );
+    }
   }
 }
 
