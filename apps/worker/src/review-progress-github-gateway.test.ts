@@ -790,6 +790,78 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
+
+  it.each(["pagination_inconclusive", "rate_limited"] as const)(
+    "preserves %s after an ambiguous PATCH and an inconclusive rescan",
+    async (kind) => {
+      const fixture = githubFixture([{ id: 8, body: `old\n${marker}`}], {
+        throwAfterPatch: true,
+      });
+      let commentReads = 0;
+      const request: ReviewProgressGitHubRequester = async (
+        route,
+        parameters,
+      ) => {
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+        ) {
+          commentReads += 1;
+          if (commentReads === 2) {
+            if (kind === "rate_limited") {
+              throw {
+                status: 403,
+                response: { headers: { "retry-after": "60" } },
+              };
+            }
+            return {
+              data: Array.from({ length: 100 }, (_, index) => ({
+                id: index + 1,
+                body: "unrelated",
+              })),
+              headers: {
+                link: '<https://api.github.com/comments?page=2>; rel="next"',
+              },
+            };
+          }
+        }
+        return fixture.request(route, parameters);
+      };
+      const caught = await gateway(request, {
+        maxCommentPages: 1,
+        now: () => new Date("2026-08-12T12:00:00.000Z"),
+        random: () => 0,
+      })
+        .upsert(input())
+        .catch((error: unknown) => error);
+
+      expect(caught).toBeInstanceOf(ReviewProgressGitHubError);
+      expect(caught).toMatchObject({
+        kind,
+        metadata: { retryable: true },
+        cause: {
+          mutationError: expect.any(Error),
+          observationError: expect.objectContaining({ kind }),
+        },
+      });
+      const metadata = (caught as ReviewProgressGitHubError).metadata;
+      if (kind === "rate_limited") {
+        expect(metadata).toMatchObject({
+          status: 403,
+          retryNotBefore: new Date("2026-08-12T12:01:00.000Z"),
+        });
+        expect(metadata.retryAt!.getTime()).toBeGreaterThanOrEqual(
+          Date.parse("2026-08-12T12:01:00.000Z"),
+        );
+      } else {
+        expect(metadata.retryAt).toBeUndefined();
+      }
+      expect(commentReads).toBe(2);
+      expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+        "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+      ]);
+    },
+  );
+
   it("keeps ambiguous PATCH failures retryable", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     const request: ReviewProgressGitHubRequester = async (

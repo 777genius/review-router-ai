@@ -407,6 +407,82 @@ describe("ReviewProgressPublisher", () => {
     expect(store.suppress).not.toHaveBeenCalled();
   });
 
+
+  it.each(["pagination_inconclusive", "rate_limited"] as const)(
+    "retains %s retry policy after an ambiguous PATCH reconciliation",
+    async (kind) => {
+      const publication = { ...claimed(), commentId: 77n, failureCount: 2 };
+      const store = fakeStore(publication);
+      let commentReads = 0;
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route) => {
+          if (route.includes("/pulls/")) return pull();
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+          ) {
+            commentReads += 1;
+            if (commentReads === 1) {
+              return {
+                data: [
+                  {
+                    id: 77,
+                    body: "<!-- review-router-live-progress -->",
+                    user: { login: "review-router[bot]" },
+                  },
+                ],
+              };
+            }
+            if (kind === "rate_limited") {
+              throw {
+                status: 403,
+                response: { headers: { "retry-after": "60" } },
+              };
+            }
+            return {
+              data: Array.from({ length: 100 }, (_, index) => ({
+                id: index + 1,
+                body: "unrelated",
+                user: { login: "other" },
+              })),
+            };
+          }
+          if (route.startsWith("PATCH")) {
+            throw new Error("transport_outcome_unknown");
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      }));
+      const outcome = await publisher.runMaintenance();
+      expect(outcome).toEqual({
+        claimed: 1,
+        published: 0,
+        deferred: kind === "pagination_inconclusive" ? 1 : 0,
+        suppressed: 0,
+        failed: kind === "rate_limited" ? 1 : 0,
+      });
+      expect(commentReads).toBe(kind === "rate_limited" ? 2 : 3);
+      expect(store.retry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publication,
+          safeCode: `review_progress_${kind}`,
+          ...(kind === "pagination_inconclusive"
+            ? {
+                countFailure: false,
+                retryAt: new Date(now.getTime() + 60 * 60_000),
+              }
+            : {
+                installationCooldownUntil: expect.any(Date),
+                retryAt: expect.any(Date),
+              }),
+          maxFailures: 3,
+        }),
+      );
+      expect(store.complete).not.toHaveBeenCalled();
+      expect(store.suppress).not.toHaveBeenCalled();
+    },
+  );
+
   it("suppresses a poison publication at the retry bound", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);

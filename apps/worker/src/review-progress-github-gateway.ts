@@ -326,6 +326,18 @@ export class ReviewProgressGitHubGateway {
     try {
       observed = await this.findMarkedComments(input);
     } catch (observationError) {
+      if (
+        observationError instanceof ReviewProgressGitHubError &&
+        (observationError.kind === "pagination_inconclusive" ||
+          observationError.kind === "rate_limited")
+      ) {
+        throw new ReviewProgressGitHubError(
+          observationError.kind,
+          observationError.message,
+          observationError.metadata,
+          { cause: { mutationError, observationError } },
+        );
+      }
       throw new ReviewProgressGitHubError(
         "ambiguous_mutation",
         "github_progress_comment_mutation_ambiguous",
