@@ -1022,16 +1022,25 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       );
       await dialog.getByRole("button", { name: "Check GitHub setup" }).click();
       await flow.check(
-        "GitHub secret check rejects the missing Anthropic key before fixture injection",
+        "a missing Anthropic API key cannot be confirmed",
         async () => {
           await visible(
-            dialog.getByText("ANTHROPIC_API_KEY is not set for this repository yet."),
+            dialog.getByText(
+              `ANTHROPIC_API_KEY is not in the Actions secrets of ${fullName} yet. Run the command, then check again.`,
+              { exact: true },
+            ),
           );
           expectEqual(
-            await dialog.getByText(`ANTHROPIC_API_KEY is set for ${fullName}.`).count(),
+            await dialog.getByText("Secret available", { exact: true }).count(),
             0,
-            "no false positive for missing API-key secret",
+            "no success badge for an absent API key",
           );
+          expectMatch(
+            await stepTitle(page, repositoryKey),
+            /^1 of 4 - verification needed$/,
+            "missing API key does not complete setup",
+          );
+          await visible(dialog.getByRole("button", { name: "Check again" }));
         },
       );
       await flow.shot(page, "claude-api-key-secret-missing");
@@ -1043,7 +1052,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           visualRepositorySecretKey(fullName, "ANTHROPIC_API_KEY"),
         ],
       });
-      await dialog.getByRole("button", { name: "Check GitHub setup" }).click();
+      await dialog.getByRole("button", { name: "Check again" }).click();
       await flow.check(
         "the synthetic Anthropic secret is confirmed without upstream inference",
         async () => {
