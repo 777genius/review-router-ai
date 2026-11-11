@@ -238,6 +238,7 @@ export async function loadProviderSetupView(input: {
     managedKeys: {
       mimo_token_plan_api_key: managedKey("mimo_token_plan_api_key"),
       openrouter_api_key: managedKey("openrouter_api_key"),
+      claude_code_api_key: managedKey("claude_code_api_key"),
     },
     claudeCodeEnabled: isClaudeCodeProviderEnabled(),
   });
