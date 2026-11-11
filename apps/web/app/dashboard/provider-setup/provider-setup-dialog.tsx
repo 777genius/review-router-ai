@@ -1765,7 +1765,10 @@ function ProviderChoiceStep({
                     className="font-semibold text-cyan-200 underline"
                     href={apiKeySetupHref("repositories", {
                       provider: setupProvider,
-                      storage: "github_secrets",
+                      storage:
+                        setupProvider === "claude-code"
+                          ? keyStorage
+                          : "github_secrets",
                       workspaceId,
                       repositoryIds: [],
                       ...(setupProvider === "claude-code" ? { claudeMethod } : {}),
