@@ -1,5 +1,24 @@
 # Account Gateway SDK artifacts
 
+## NVIDIA Build sandbox candidate (Draft PR #854; not production)
+
+The three Review Router consumers in this **Draft** branch pin the source-built
+`agent-teams-account-gateway-0.1.0-nvidia-b6cf011965f4.tgz` archive.
+Its checksum, committed Gateway SDK source, exact Actions artifact, and qualification
+status are in `nvidia-sandbox-sdk-provenance.json`. It is not an npm release.
+
+This archive adds the bounded NVIDIA model-source contract, but its presence
+does **not** qualify a customer review. Native/SDK compatibility and offline
+PostgreSQL tests are distinct from hosted NVIDIA availability: both initial
+DeepSeek and GLM synthetic Chat requests timed out, and actual two-turn hosted
+tool calling remains unverified. The NVIDIA trial route is limited to
+`777genius/rr-hosted-pool-e2e-20260927` and never authorizes private customer
+source. Release or production activation requires new vendor, tool, source-pinned
+consumer, and security qualifications.
+
+The previously production-qualified SDK provenance below is retained untouched
+as historical proof; it does not qualify the NVIDIA branch.
+
 The current private provider-connections SDK is
 `agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz`.
 `provider-connections-provenance.json` binds the archive to committed SDK source
