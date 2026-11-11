@@ -706,7 +706,11 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     );
     try {
       const row = requireRecord(response.data, "github_review_reply_invalid");
-      if (row.body !== payload.body) throw new Error("github_review_reply_body_mismatch");
+      if (
+        row.body !== payload.body ||
+        row.in_reply_to_id !== commentId ||
+        !isOwnedBody(row, payload.marker, this.options.botLogin)
+      ) throw new Error("github_review_reply_ack_mismatch");
       return gatewayObject(`review-comment:${numericId(row)}`, payload, operation.bodyHash);
     } catch (error) {
       throw githubPostMutationObservationError(error);
