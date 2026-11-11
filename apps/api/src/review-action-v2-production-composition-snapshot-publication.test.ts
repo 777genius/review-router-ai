@@ -1572,7 +1572,7 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     expect(publicationRequestSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("restores a capacity-limited verified lifecycle request without replaying its writes", async () => {
+  it("restores omitted-reply Action requests without duplicate writes", async () => {
     const targetId = "rrt_verified_lifecycle";
     const publishingWithReplies = {
       ...publishing,
@@ -1631,9 +1631,15 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
       finalized.projectionHash,
     );
     const first = await routes.publication.request!.execute(request);
-    expect(first.result.status).toBe(ReviewPublicationRequestResultStatus.Accepted);
-    const stored = await repository.findById(first.result.publicationAttemptId!);
-    expect(stored?.attempt.operations.map((operation) => operation.publicationKind)).toEqual([
+    expect(first.result.status).toBe(
+      ReviewPublicationRequestResultStatus.Accepted,
+    );
+    const stored = await repository.findById(
+      first.result.publicationAttemptId!,
+    );
+    expect(
+      stored?.attempt.operations.map((operation) => operation.publicationKind),
+    ).toEqual([
       "summary",
       "managed_check",
       "thread_lifecycle",
@@ -1641,7 +1647,9 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     expect(stored?.attempt.operations[2]?.chunkIndex).toBe(1);
 
     const restored = await routes.publication.request!.execute(request);
-    expect(restored.result.status).toBe(ReviewPublicationRequestResultStatus.Restored);
+    expect(restored.result.status).toBe(
+      ReviewPublicationRequestResultStatus.Restored,
+    );
     expect(requestSpy).toHaveBeenCalledTimes(1);
     expect(policy.assertCurrentPolicy).toHaveBeenCalledTimes(1);
   });
