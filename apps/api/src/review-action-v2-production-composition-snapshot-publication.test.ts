@@ -1613,14 +1613,20 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     const repository = new InMemoryReviewPublicationRepository();
     const requestSpy = vi.spyOn(repository, "request");
     const policy = { assertCurrentPolicy: vi.fn() };
-    const routes = createRoutes(repository, policy, finalized, {}, {
-      authorization: verifierAuthorization(),
-      limits: {
-        ...protocolLimits,
-        maxPublicationOperations: 3,
-        maxPublicationChunks: 3,
+    const routes = createRoutes(
+      repository,
+      policy,
+      finalized,
+      {},
+      {
+        authorization: verifierAuthorization(),
+        limits: {
+          ...protocolLimits,
+          maxPublicationOperations: 3,
+          maxPublicationChunks: 3,
+        },
       },
-    });
+    );
     const permit = await capabilityAdapter().issuePublicationPermit(
       finalized.publicationPermit,
       now,

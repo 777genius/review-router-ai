@@ -625,9 +625,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           ? { ...row, migrationName: "000155_relabelled_index" }
           : row,
       ),
-      full.filter(
-        (row) => row.migrationName !== usageMemberReportIndexName,
-      ),
+      full.filter((row) => row.migrationName !== usageMemberReportIndexName),
       full.filter(
         (row) => row.migrationName !== unifiedModelDispatchMigrationName,
       ),

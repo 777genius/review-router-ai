@@ -781,8 +781,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         this.options.trustedParentAuthors?.has(`${author}[bot]`) === true);
     const owned =
       parent?.viewerDidAuthor === true ||
-      (parent?.author?.__typename === "Bot" &&
-        (author === bot || trusted));
+      (parent?.author?.__typename === "Bot" && (author === bot || trusted));
     const parentIdentity =
       parent?.id && fingerprint
         ? `${payload.threadId}\n${parent.id}\n${fingerprint}`
