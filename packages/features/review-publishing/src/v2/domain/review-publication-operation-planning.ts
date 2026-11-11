@@ -274,7 +274,9 @@ export function planReviewPublicationOperations(input: {
   for (const lifecycle of envelope.lifecycle) {
     assertLifecycleSemantic(lifecycle.semantic);
     assertCanonicalBodyFacts(lifecycle);
-    if (lifecycle.semantic !== ReviewPublicationLifecycleSemantic.ConfirmReply) {
+    if (
+      lifecycle.semantic !== ReviewPublicationLifecycleSemantic.ConfirmReply
+    ) {
       requiredLifecycleCount += 1;
       requiredLifecycleBytes = safeAddBodyBytes(
         requiredLifecycleBytes,
@@ -287,11 +289,17 @@ export function planReviewPublicationOperations(input: {
       lifecycle.semantic === ReviewPublicationLifecycleSemantic.ConfirmReply;
     if (isReply) {
       if (
-        operations.length + requiredLifecycleCount + 1 > limits.maxPublicationOperations ||
-        chunkCount + requiredLifecycleCount + 1 > limits.maxPublicationChunks ||
+        operations.length + requiredLifecycleCount + 1 >
+          limits.maxPublicationOperations ||
+        chunkCount + requiredLifecycleCount + 1 >
+          limits.maxPublicationChunks ||
         lifecycle.bodyByteCount >
-          limits.maxPublicationBodyBytes - totalBodyBytes - requiredLifecycleBytes
-      ) continue;
+          limits.maxPublicationBodyBytes -
+            totalBodyBytes -
+            requiredLifecycleBytes
+      ) {
+        continue;
+      }
     } else {
       requiredLifecycleCount -= 1;
       requiredLifecycleBytes -= lifecycle.bodyByteCount;
