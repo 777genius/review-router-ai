@@ -77,6 +77,7 @@ export type ProviderSourceKey =
   | "gateway_binding"
   | "managed_api_key:mimo_token_plan_api_key"
   | "managed_api_key:openrouter_api_key"
+  | "managed_api_key:claude_code_api_key"
   | "user_ci_secret:claude_code_oauth"
   | "user_ci_secret:claude_code_api_key"
   | "user_ci_secret:mimo_token_plan_api_key"
@@ -353,7 +354,7 @@ export function buildProviderSetupView(
         repositoryId: null,
       }),
     },
-    ...(["mimo_token_plan_api_key", "openrouter_api_key"] as const).map(
+    ...(["mimo_token_plan_api_key", "openrouter_api_key", "claude_code_api_key"] as const).map(
       (authMode): ProviderSourceOption => {
         const key = facts.managedKeys[authMode];
         const install = admin
@@ -478,7 +479,8 @@ function managedKeyInstalled(
 ): boolean {
   return (
     (authMode === "mimo_token_plan_api_key" ||
-      authMode === "openrouter_api_key") &&
+      authMode === "openrouter_api_key" ||
+      authMode === "claude_code_api_key") &&
     facts.managedKeys[authMode].installedRepositoryIds.has(repositoryId)
   );
 }
