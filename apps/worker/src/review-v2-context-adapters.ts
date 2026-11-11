@@ -9,6 +9,7 @@ import {
 import {
   RequestReviewPublicationStatus,
   ReviewPublicationAttemptState,
+  ReviewPublicationKind,
   ReviewPublicationProjectionCoverage,
   ReviewPublicationTerminalOutcome,
   effectiveReviewPublicationOutcome,
@@ -103,6 +104,7 @@ export type ReviewCompletionSnapshotProjection = {
 export interface ReviewCompletionProjectionMapperPort {
   publicationEnvelope(
     artifact: FinalizedReviewProjectionArtifact,
+    options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
   ): Promise<PublishedReviewProjectionPublicationEnvelope | null>;
   snapshotProjection(
     artifact: FinalizedReviewProjectionArtifact,
@@ -129,9 +131,6 @@ export class DeterministicReviewPublicationRequestFactory {
     snapshot: ReviewExecutionSnapshot,
   ): Promise<RequestReviewPublicationCommand | null> {
     const artifact = requireFinalizedArtifact(snapshot);
-    const envelope = await this.projections.publicationEnvelope(artifact);
-    if (!envelope) return null;
-    assertPublicationEnvelopeMatchesArtifact(envelope, artifact);
     const publicationAttemptId = reviewPublicationAttemptId({
       executionId: artifact.executionId,
       artifactId: artifact.artifactId,
@@ -139,6 +138,15 @@ export class DeterministicReviewPublicationRequestFactory {
       digestUtf8: sha256,
     });
     const existing = await this.attempts.findById(publicationAttemptId);
+    const envelope = await this.projections.publicationEnvelope(artifact, {
+      includeVerifiedFixReplies:
+        !existing ||
+        existing.attempt.operations.some(
+          (operation) => operation.publicationKind === ReviewPublicationKind.ThreadReply,
+        ),
+    });
+    if (!envelope) return null;
+    assertPublicationEnvelopeMatchesArtifact(envelope, artifact);
     const operations = await this.operationPlanner.plan({
       identity: resolveCurrentReviewPublicationOperationIdentity({
         publicationAttemptId,
