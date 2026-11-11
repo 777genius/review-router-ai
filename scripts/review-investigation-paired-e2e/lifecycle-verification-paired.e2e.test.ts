@@ -1256,6 +1256,9 @@ lifecycleCase.each([
       }
       expect(receipts).toHaveLength(scenario === "success" ? 2 : 0);
       if (scenario === "denied") {
+        // Permission-denied resolution must not erase the independent native replies.
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toHaveLength(2);
         expect(threads.resolveCalls()).toBe(2);
         const publicationAttemptId = operations[0]!.publicationAttemptId;
         const deniedIds = operations.map(
