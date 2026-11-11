@@ -91,7 +91,10 @@ describe("API key storage and safe continuation", () => {
         workspaceId: "workspace-one",
         repositoryIds: ["repo-a"],
       };
-      const url = new URL(apiKeySetupHref("repositories", intent), "https://example.test");
+      const url = new URL(
+        apiKeySetupHref("repositories", intent),
+        "https://example.test",
+      );
       expect(url.searchParams.get("keyClaudeMethod")).toBe(claudeMethod);
       expect(
         readApiKeySetupIntent(
