@@ -12,6 +12,7 @@ import {
   claimCapabilityFacts,
   hasEveryRequiredCanonicalReceipt,
   hasPendingPrDescriptionContinuation,
+  mayCloseAmbiguousOptionalDescription,
   isOptionalPrDescriptionContinuation,
   hasPublicationExternalEffectRisk,
   isActiveReviewPublicationOperation,
@@ -1017,6 +1018,12 @@ export class InMemoryReviewPublicationRepository
     );
     if (
       finalOutcome === ReviewPublicationTerminalOutcome.TerminalUnknown &&
+      !mayCloseAmbiguousOptionalDescription({
+        publicationOperationId: operation.publicationOperationId,
+        operations: stored.attempt.operations,
+        receipts,
+        lastErrorCode: command.lastErrorCode,
+      }) &&
       [operation, ...riskOperations].some(
         (candidate) => command.terminalizedAt < candidate.reconcileUntil,
       )
