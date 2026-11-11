@@ -1,6 +1,6 @@
 # get-tok onboarding audit and analytics delivery
 
-Status: the combined [PR #853](https://github.com/777genius/review-router-ai/pull/853) is production `deployed`; [exact-head full CI](https://github.com/777genius/review-router-ai/actions/runs/42944121136) passed and production readiness and existing get-tok Statistics/Usage were verified. No new post-deployment model review was started, so latency of new calls was not measured. Existing test repositories and stands remain in place. This record does not establish a successful fresh OAuth connection.
+Status: the combined [PR #853](https://github.com/777genius/review-router-ai/pull/853) is production `deployed`; [exact-head full CI](https://github.com/777genius/review-router-ai/actions/runs/42944121136) passed and production readiness and existing get-tok Statistics/Usage were verified. No additional manual post-deployment model smoke was started, so latency of new calls was not measured. Existing test repositories and stands remain in place. This record does not establish a successful fresh OAuth connection.
 
 ## Scope and real reviews
 
