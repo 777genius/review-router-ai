@@ -71,7 +71,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
           pnpm provider-setup:visual \
             --flows-only \
-            --only '^(flow-step3-create-attach|flow-claude-api-key-github-secrets)
+            --only '^(flow-step3-create-attach|flow-claude-api-key-github-secrets)$' \
             --out "$GITHUB_WORKSPACE/tmp/claude-dual-auth-browser-run"
       - name: Check exact flow and network evidence
         run: |
@@ -83,38 +83,12 @@ jobs:
           assert.equal(manifest.flows.length, required.length, 'both independent Claude flows must execute');
           for (const flowId of required) {
             const flow = manifest.flows.find(f => f.flow === flowId);
-            assert.ok(flow, `missing ${flowId} browser journey`);
+            assert.ok(flow, 'missing ' + flowId + ' browser journey');
             assert.equal(flow.status, 'pass', JSON.stringify(flow));
             assert.equal(flow.checks.filter(c => !c.pass).length, 0);
             assert.equal(flow.pageErrors.length, 0);
             assert.equal(flow.blockedRequests.length, 0);
           }
-          NODE
-      - name: Upload screenshots and logs for independent review
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: claude-dual-auth-browser-${{ github.run_id }}
-          path: |
-            tmp/claude-dual-auth-browser-run/*.json
-            tmp/claude-dual-auth-browser-run/*.jsonl
-            tmp/claude-dual-auth-browser-run/*.log
-            tmp/claude-dual-auth-browser-run/flows/*.png
-          if-no-files-found: warn
- \
-            --out "$GITHUB_WORKSPACE/tmp/claude-dual-auth-browser-run"
-      - name: Check exact flow and network evidence
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          import assert from 'node:assert/strict';
-          const manifest = JSON.parse(readFileSync('tmp/claude-dual-auth-browser-run/manifest.json', 'utf8'));
-          const flow = manifest.flows.find(f => f.flow === 'flow-claude-api-key-github-secrets');
-          assert.ok(flow, 'Claude browser journey must exist');
-          assert.equal(flow.status, 'pass', JSON.stringify(flow));
-          assert.equal(flow.checks.filter(c => !c.pass).length, 0);
-          assert.equal(flow.pageErrors.length, 0);
-          assert.equal(flow.blockedRequests.length, 0);
           NODE
       - name: Upload screenshots and logs for independent review
         if: always()
