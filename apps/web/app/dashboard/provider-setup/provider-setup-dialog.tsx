@@ -773,7 +773,10 @@ function ProviderChoiceStep({
         initialIntent.provider === "claude-code"
           ? initialIntent.storage === "reviewrouter"
             ? "managed_api_key:claude_code_api_key"
-            : githubSourceFor("claude-code", "subscription")
+            : githubSourceFor(
+                "claude-code",
+                initialIntent.claudeMethod ?? "subscription",
+              )
           : initialIntent.storage === "reviewrouter"
             ? "gateway_binding"
             : githubSourceFor(initialIntent.provider);
@@ -866,7 +869,8 @@ function ProviderChoiceStep({
   );
   const [claudeMethod, setClaudeMethod] = useState<"subscription" | "api_key">(
     (initialIntent?.provider === "claude-code" &&
-      initialIntent.storage === "reviewrouter") ||
+      (initialIntent.storage === "reviewrouter" ||
+        initialIntent.claudeMethod === "api_key")) ||
       (initialChoice?.kind === "new" &&
         (initialChoice.source === "user_ci_secret:claude_code_api_key" ||
           initialChoice.source === "managed_api_key:claude_code_api_key"))
@@ -1764,6 +1768,7 @@ function ProviderChoiceStep({
                       storage: "github_secrets",
                       workspaceId,
                       repositoryIds: [],
+                      ...(setupProvider === "claude-code" ? { claudeMethod } : {}),
                     })}
                   >
                     Choose repositories for key installation
