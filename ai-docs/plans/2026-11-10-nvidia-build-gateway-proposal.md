@@ -8,6 +8,43 @@
 
 ## Executive decision
 
+### Hosted inference external escalation — conditional owner action
+
+The sandbox's **owner-scoped key is valid for catalog access**, but independent hosted
+`POST /v1/chat/completions` attempts on both chosen models returned **no HTTP
+headers within 75 seconds**. This is neither an SDK/Chat-bridge proof nor evidence
+that the key is unauthorized. Related NVIDIA reports:
+[similar two-model timeouts (2026-11-06)](https://forums.developer.nvidia.com/t/chat-completions-hangs-for-deepseek-v4-1-flash-and-glm-5-3-flash-get-v1-models-works/388228)
+and [DeepSeek timeout (2026-11-10)](https://forums.developer.nvidia.com/t/deepseek-v4-1-flash-api-inference-timeout-get-models-works-post-chat-completions-returns-no-response/388614).
+NVIDIA's [NGC documentation](https://docs.nvidia.com/ngc/latest/ngc-user-guide.html)
+states that **Public API Endpoints** permission is required for inference.
+NVIDIA forum moderators direct account-access cases to
+[help@build.nvidia.com](https://forums.developer.nvidia.com/t/resolving-account-access-issues/345920).
+Neither entitlement failure nor backend saturation has been proven for this key.
+
+**Owner support request draft (send from registered NVIDIA account email, only if
+the service remains unavailable; never paste the full API key or private source):**
+
+> Subject: NVIDIA Build free hosted inference: catalog HTTP 200, Chat requests
+> time out on DeepSeek V4.1 Flash and GLM 5.3 Flash
+>
+> I am using the free NVIDIA Build developer sandbox for synthetic API tests.
+> With a repository-scoped disposable key, `GET /v1/models` returns HTTP 200 and
+> lists both `deepseek-ai/deepseek-v4.1-flash` and `z-ai/glm-5.3-flash`.
+> But separate minimal `POST /v1/chat/completions` requests to each model
+> received no status or body within 75 seconds, with no automatic retry.
+> Could you check my Personal Organization's **Public API Endpoints** entitlement,
+> account-to-inference routing, and hosted model capacity, and advise an official
+> resolution? No confidential inputs or production traffic were sent.
+> Reproduction run IDs: 42927092117 and 42927680260 (GitHub Actions).
+>
+> I can supply my registered account email and sanitized account details via
+> your secure support channel; I will not share raw API keys publicly.
+
+Do not trigger further expensive/ambiguous model requests automatically.
+Only after NVIDIA confirms access or service recovery should the owner approve
+another bounded synthetic canary; then continue the tool/stream and App-first E2E.
+
 ### Sandbox vendor catalog and synthetic PR evidence — 2026-11-11
 
 - Owner provisioned `NVIDIA_API_KEY` as a GitHub Actions **repository-scoped secret**; logs mask it. The disposable sandbox's [read-only catalog run #42932552168](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/42932552168) returned **HTTP 200**, with **84 model records** including both exact proposed IDs (`deepseek-ai/deepseek-v4.1-flash`, `z-ai/glm-5.3-flash`). This verifies key acceptance for `GET /v1/models`, **not** permission or operational readiness for inference.
