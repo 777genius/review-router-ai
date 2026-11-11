@@ -1120,7 +1120,7 @@ lifecycleCase.each([
           headSha: "2".repeat(40),
         });
         await owned.processFinalizedOutbox();
-        await owned.runWorkerUntilSettled();
+        await owned.runWorkerUntilSettled(32);
         expect(
           await owned.prisma.reviewPublicationAttemptV2.findFirstOrThrow({
             where: { executionId: second.execution.executionId },
@@ -1188,12 +1188,23 @@ lifecycleCase.each([
         }
       } else if (scenario === "denied") {
         deniedMaintenanceStartedAt = new Date();
-        // The summary/check already have real effects: a per-thread denial
-        // cannot turn the whole publication into a no-effect success.
+        // This harness settles publication incrementally. A single pass need
+        // not have attempted both replies and both denied resolutions.
+        // Exercise each operation before asserting the final denial proofs.
         await expect(owned.runWorkerUntilSettled(1)).rejects.toThrow(
           "review_v2_e2e_worker_did_not_settle",
         );
-      } else await owned.runWorkerUntilSettled();
+        for (
+          let pass = 0;
+          pass < 24 &&
+          (threads.verifiedReplyWrites() < 2 || threads.resolveCalls() < 2);
+          pass += 1
+        ) {
+          await expect(owned.runWorkerUntilSettled(1)).rejects.toThrow(
+            "review_v2_e2e_worker_did_not_settle",
+          );
+        }
+      } else await owned.runWorkerUntilSettled(32);
       const after =
         await owned.prisma.finalizedReviewProjectionArtifactV2.findFirstOrThrow(
           { where: { executionId: second.execution.executionId } },
@@ -1232,7 +1243,7 @@ lifecycleCase.each([
         expect(threads.verifiedReplyWrites()).toBe(2);
         expect(threads.verifiedReplies()).toHaveLength(2);
         const published = threads.verifiedReplies();
-        await owned.runWorkerUntilSettled();
+        await owned.runWorkerUntilSettled(32);
         expect(threads.verifiedReplyWrites()).toBe(2);
         expect(threads.verifiedReplies()).toEqual(published);
         expect(threads.closed()).toHaveLength(0);
@@ -1788,7 +1799,7 @@ lifecycleCase.each([
               // The real runner polls the publication receipt. Its real worker
               // must consume the finalized outbox while that promise is active.
               await owned.processFinalizedOutbox();
-              await owned.runWorkerUntilSettled();
+              await owned.runWorkerUntilSettled(32);
               if (!done)
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }
@@ -1808,7 +1819,7 @@ lifecycleCase.each([
             ).toMatchObject({ outcome: "completed" });
             expect(result.publicationReceipt).toBeDefined();
             await owned.processFinalizedOutbox();
-            await owned.runWorkerUntilSettled();
+            await owned.runWorkerUntilSettled(32);
             const execution =
               await owned.prisma.reviewExecutionV2.findFirstOrThrow({
                 where: { authorizationId: authorization.authorizationId },
@@ -2509,7 +2520,7 @@ lifecycleCase.each([
         });
         if (settle) {
           await owned.processFinalizedOutbox();
-          await owned.runWorkerUntilSettled();
+          await owned.runWorkerUntilSettled(32);
         }
       }
     } finally {
