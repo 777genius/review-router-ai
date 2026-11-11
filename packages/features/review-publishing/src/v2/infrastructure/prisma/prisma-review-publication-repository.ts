@@ -2,7 +2,6 @@ import {
   Prisma,
   ReviewPublicationAttemptStateV2 as DbAttemptState,
   ReviewPublicationClaimStateV2 as DbClaimState,
-  ReviewPublicationKindV2 as DbPublicationKind,
   ReviewPublicationOperationAttemptStateV2 as DbOperationAttemptState,
   ReviewPublicationOperationStateV2 as DbOperationState,
   ReviewPublicationTerminalOutcomeV2 as DbTerminalOutcome,
@@ -662,23 +661,6 @@ export class PrismaReviewPublicationRepository
             ReviewPublicationOperationRole.PendingReviewSubmit,
           ) &&
         targetExternalObjectId === null
-      ) {
-        return {
-          status: BeginReviewPublicationOperationStatus.DependencyNotCompleted,
-        };
-      }
-      // A verified reply and a native resolve are independent permissions, but
-      // the reply must settle first. Sorting by operation ID is not an ordering
-      // guarantee, especially after a deferred or uncertain GitHub write.
-      if (
-        operationRow.publicationKind === DbPublicationKind.thread_lifecycle &&
-        (await transaction.reviewPublicationOperationV2.count({
-          where: {
-            publicationAttemptId: operationRow.publicationAttemptId,
-            publicationKind: DbPublicationKind.thread_reply,
-            state: { not: DbOperationState.completed },
-          },
-        })) > 0
       ) {
         return {
           status: BeginReviewPublicationOperationStatus.DependencyNotCompleted,
