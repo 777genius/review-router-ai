@@ -8,7 +8,24 @@
 
 ## Executive decision
 
-### Hosted inference external escalation — conditional owner action
+### Current qualified design and acceptance (2026-11-11; overrides earlier two-model P0 notes)
+
+**Owner-approved scope:** implement and E2E-test a **single independent NVIDIA Build account** using only invented/synthetic PR material in the disposable private fixture. **No production deployment or customer/private business code**, even if the source PRs are merged. The trial secret was installed in the sandbox Actions repository; do not put it in source, logs, comments or production stores, and rotate the chat-shared key after qualification.
+
+**Qualified model:** `nvidia/nemotron-3.5-super-vl-120b-a12b`, at the exact fixed hosted URL `https://integrate.api.nvidia.com/v1/chat/completions`. DeepSeek V4.1 Flash and GLM 5.3 Flash remained **unqualified** because independent 75-second requests returned no HTTP response. They are **not** part of the approved v1 model allowlist. A second-model abstraction or future dynamic source is explicitly deferred until proven necessary.
+
+**Cross-repository implementation (smallest working slice):**
+- [Sub2API #94](https://github.com/agent-teams-ai/sub2api/pull/94): one fixed NVIDIA identity and native provider account, encrypted custody, additive PostgreSQL birth guard, existing protected Responses→Chat adapter (not a second client), strict stream/terminal and replay validation, bounded static account model snapshot.
+- [Account Gateway #105](https://github.com/agent-teams-ai/account-gateway/pull/105): one trusted provider registry descriptor and optional API-key registration, existing account lifecycle, ownership/fences, SDK `provider-connections/v1` and account-model read with **no missing-catalog anchor fallback**.
+- [Review Router #854](https://github.com/777genius/review-router-ai/pull/854): existing provider picker, SDK archive pinned by SHA-256 in all three consumers, account catalog, NVIDIA vendor identity, trial checkout restricted to the exact disposable test repository and conversation disabled for trial profiles.
+
+**Actual provider and native proof (PASS):** [Hosted NVIDIA SSE two-turn tool canary](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43007767383) recorded 2× HTTP 200, function tool-call/ID, a tool result and follow-up response, with terminal events and `[DONE]`. [Protected native Go→NVIDIA canary](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43008527694) independently passed 2 protected entries through the existing Chat bridge. [Native PostgreSQL E2E](https://github.com/agent-teams-ai/account-gateway/actions/runs/43008856396) and Account Gateway Checkpoint A/B, full-stack, native-client jobs passed on the functional candidate. ReviewRouter [six viewport/theme browser screenshots](https://github.com/777genius/review-router-ai/actions/runs/43009941246) passed, and the evidence images were inspected.
+
+**Final gates:** latest **non-Draft** exact-HEAD CI across repos, security/architecture review, rollback/secret hygiene, and **real ReviewRouter GitHub App-authored review** of the synthetic [fixture PR #32](https://github.com/777genius/rr-hosted-pool-e2e-20260927/pull/32) tied to its exact head `e48dc2bed0ddb6533217e35be845ee1422ce1d39`. The latter has **not** yet been observed; synthetic transport proof must not be relabelled App-first E2E. One-shot SDK/visual workflows were removed from final code diffs after artifacts were verified; production remained untouched.
+
+> The original DeepSeek/GLM two-model research below is retained **only as dated historical investigation**. Current implementation/acceptance is explicitly single-model Nemotron. Historical estimates, snapshots and pending E-gate wording are not a representation of current system state.
+
+### Historical hosted inference escalation — DeepSeek/GLM only (not a blocker for Nemotron)
 
 The sandbox's **owner-scoped key is valid for catalog access**, but independent hosted
 `POST /v1/chat/completions` attempts on both chosen models returned **no HTTP
@@ -42,8 +59,7 @@ the service remains unavailable; never paste the full API key or private source)
 > your secure support channel; I will not share raw API keys publicly.
 
 Do not trigger further expensive/ambiguous model requests automatically.
-Only after NVIDIA confirms access or service recovery should the owner approve
-another bounded synthetic canary; then continue the tool/stream and App-first E2E.
+Only if the owner later wants DeepSeek/GLM should this support path be used. The already-qualified Nemotron Chat/stream/tool tests proceed independently; App-first review still needs its own acceptance.
 
 ### Sandbox vendor catalog and synthetic PR evidence — 2026-11-11
 
@@ -56,7 +72,7 @@ another bounded synthetic canary; then continue the tool/stream and App-first E2
 
 - **Real native tool-path fixture (passed):** source-pinned [Gateway CI run #42927921750](https://github.com/agent-teams-ai/account-gateway/actions/runs/42927921750) checked out Sub2API exact source with two NVIDIA model IDs, parsed outbound Chat function-call stream, native one-entry dispatch, final terminal and SSE [DONE], and actual managed PostgreSQL candidate creation. It used synthetic credentials and a stubbed response; **does not prove the hosted provider supports tools**.
 - **NVIDIA Build actual inference, first DeepSeek probe (inconclusive/failure):** sandbox [CI #42927092117](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/42927092117) mounted the **masked** owner-installed repository-scoped `NVIDIA_API_KEY` and tried one minimal synthetic Chat Completions call on `deepseek-ai/deepseek-v4.1-flash`. The single call timed out after **75 seconds**, no HTTP status or model output observed; no retry, no confidential source transmitted. NVIDIA Developer Forum reports similar free endpoint timeouts, but this cannot independently distinguish upstream saturation from account entitlement.
-- **Independent GLM probe (not a DeepSeek retry):** [CI #42927680260](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/42927680260), same private sandbox secret and only synthetic prompt; queued at this checkpoint. The result must be inspected before further live inference. Never assume `GET /models` success proves entitlement for a Chat request.
+- **Independent GLM probe (not a DeepSeek retry):** [CI #42927680260](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/42927680260), same private sandbox secret and only synthetic prompt; completed with a 75-second transport timeout and no response. The result must be inspected before further live inference. Never assume `GET /models` success proves entitlement for a Chat request.
 - **Readiness:** absent live Chat + streamed two-turn tool canary, both models remain `tools: none` and disabled in tool-dependent Review Router selection. Do not advertise end-to-end review as qualified. PostgreSQL & offline tests are positive partial evidence, not the missing live provider proof.
 - **Review Router trial privacy fence:** PR [#854](https://github.com/777genius/review-router-ai/pull/854) rejects NVIDIA trial checkout unless the resolved GitHub repo is exactly `777genius/rr-hosted-pool-e2e-20260927`; tested with a deny-before-SCM-token synthetic case. Separate approval is needed before any production/private customer code route.
 - **SDK packaging:** exact source-built Gateway SDK artifact was verified with SHA-256, but the Review Router manifest/lockfile vendor import remains to be confirmed on CI. Nothing has been published or deployed.
@@ -282,12 +298,12 @@ This onboarding does not request that the owner share the secret value in chat. 
 
 ## 6. Explicit owner approval gates — STOP HERE
 
-- [ ] **A — Architecture/scope:** Approve **Gateway-first only**, one new NVIDIA provider with independently owned account; no GitHub Secrets/direct route in v1.
+- [x] **A — Architecture/scope:** Approved/implemented **Gateway-first only**, independent NVIDIA provider account, no direct GitHub Secrets/provider_api route in v1.
 - [x] **B — Usage/legal (approved 2026-11-10):** **free evaluation in disposable sandbox with synthetic/nonconfidential data only**. No production deployment, customer/private repository source or production API key; any later real-code use requires permitted commercial terms and security/legal review.
-- [ ] **C — Models:** Approve evaluating **DeepSeek V4.1 Flash and GLM 5.3 Flash** only when programmatic access and required review features are proven; **Kimi K3.1 Pro stays preview/unavailable** until an actual supported API exists.
-- [ ] **D — Model catalog & capabilities:** Approve **small static qualified allowlist first**, no generic model URL, no dynamic catalog before evidence, no invented tool/quota capabilities.
-- [ ] **E — Spike credential (pending owner action):** User will generate a **NVIDIA Build Endpoints** key and store it as a GitHub Actions **repository secret** `NVIDIA_API_KEY` at [`rr-hosted-pool-e2e-20260927` Actions secrets](https://github.com/777genius/rr-hosted-pool-e2e-20260927/settings/secrets/actions). The [sandbox-only probe workflow](https://github.com/777genius/rr-hosted-pool-e2e-20260927/blob/main/.github/workflows/nvidia-build-sandbox-probe.yml) is committed but unrun; **workflow_dispatch on main only (push trigger removed)**. No key has been provisioned/observed yet. Never put production keys or source in the trial. The four-request smoke remains pending until safe onboarding.
-- [ ] **F — Execution:** Approve opening implementation PRs in Sub2API, Account Gateway and ReviewRouter **after** P0 evidence and a reviewed narrowed diff plan. The current draft PR changes documentation only.
+- [x] **C — Models:** Qualified **Nemotron 3.5 Super VL 120B** as the sole v1 hosted candidate after real synthetic HTTP, streaming and tool replay PASS. DeepSeek/GLM timed out and are excluded, Kimi remains unqualified.
+- [x] **D — Model catalog & capabilities:** One static qualified model, source-owned account model snapshot, tool calling backed by real hosted and protected native canaries; fixed URL, no invented quota, no dynamic generic provider model.
+- [x] **E — Spike credential (completed owner action):** User will generate a **NVIDIA Build Endpoints** key and store it as a GitHub Actions **repository secret** `NVIDIA_API_KEY` at [`rr-hosted-pool-e2e-20260927` Actions secrets](https://github.com/777genius/rr-hosted-pool-e2e-20260927/settings/secrets/actions). The [sandbox protocol workflow](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43007767383) and [protected native run](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43008527694) completed successfully with the masked sandbox-only secret. Never put production keys or customer source in trial; rotate after qualification.
+- [x] **F — Execution:** Owner authorized sandbox-only implementation. The three scoped PRs #94, #105, #854 exist and have actual CI/hosted synthetic proof; production deployment separately forbidden.
 - [ ] **G — Activation:** Separate future approval for live canary, customer availability, production credentials/terms and deployment. Do not equate merge/green CI with a production enablement.
 
 No gate is pre-approved by creating or merging this documentation PR.
@@ -298,7 +314,7 @@ No gate is pre-approved by creating or merging this documentation PR.
 | --- | --- |
 | Add NVIDIA account, reconnect, remove | Credential is write-only; exact owner/physical generation; stale revision rejected |
 | Two different NVIDIA accounts + OpenRouter | Independent identity and quotas, no silent cross-routing, wrong binding denied |
-| Same NVIDIA account selects DeepSeek then GLM; unsupported model; Kimi preview | Both certified choices must pass independently fenced account-model admission; unavailable second model fails before upstream; preview remains unavailable |
+| NVIDIA account selects qualified Nemotron; unsupported DeepSeek/GLM/model ID | Only exact certified Nemotron passes independently fenced model admission; others denied before upstream |
 | 2+ turns, tool call + result, reasoning/replay, structured review output | Context/tool IDs preserved or rejected before entry; no lossy evidence or fake JSON certification |
 | SSE malformed/incomplete, early close/cancel | No false successful completion, correct closure/UNKNOWN, no replay |
 | Upstream 400/401/429/5xx | Typed safe failure; native cooldown only from confirmed evidence; no guessed reset or retry |
@@ -345,4 +361,4 @@ Three review passes conducted for this proposal:
 - [NVIDIA API trial terms](https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf)
 - [Known replay issue #85](https://github.com/agent-teams-ai/sub2api/issues/85)
 
-**Stop condition for this PR:** P0 synthetic/free sandbox is now an **approved bounded research and test scope** (B complete); A, C, D, E and F still need approval/qualification as described, and G requires future explicit approval. No implementation or deployment before relevant approvals. The prior product fork about private/customer code is **resolved in favor of sandbox only**; commercial production terms are out of scope.
+**Stop condition for this PR:** Owner approvals A–F and the single-model synthetic live protocol qualification are recorded as completed; **G remains unapproved** for production/customer use. Do not imply an App-first review passed merely from unit, SDK or provider HTTP tests. Merge the scoped implementation only after full exact-head CI and independent code-review acceptance. No production deployment or use of private/customer source.
