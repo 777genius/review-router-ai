@@ -337,6 +337,23 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
       catalog.filter((row) => row !== verifiedReplyMigration),
     );
   }
+  // Verified-fix replies extend the ordinary checkout only. Pin their exact
+  // append-only enum DDL, then retain the previously certified catalog.
+  const verifiedThreadReply = catalog.find(
+    (row) => row.migrationName === "000156_verified_thread_reply",
+  );
+  if (verifiedThreadReply) {
+    if (
+      verifiedThreadReply.checksum !==
+        "690327803b321cad8914c1ac489751ad140e7b39126115bf826138959b3f3888" ||
+      catalog.length !== 161 ||
+      catalog[catalog.length - 1] !== verifiedThreadReply
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== verifiedThreadReply),
+    );
+  }
   // The concurrent member-read index belongs only to ordinary Prisma deploy.
   // Pin its exact SQL and complete checkout160, then retain the unchanged
   // checkout159 -> managed92 admission. It never enters a repair transaction.
