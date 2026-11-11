@@ -92,6 +92,8 @@ jobs:
             assert.equal(flow.pageErrors.length, 0);
             assert.equal(flow.blockedRequests.length, 0);
           }
+          assert.deepEqual(manifest.network.githubUnhandled, [], 'unhandled server-side GitHub requests');
+          assert.deepEqual(manifest.network.blocked, [], 'blocked server-side network requests');
           NODE
       - name: Upload screenshots and logs for independent review
         if: always()
