@@ -892,9 +892,11 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           "API-key credential selected",
         );
         expectEqual(
-          await dialog.getByText(/claude setup-token/).count(),
-          0,
-          "no OAuth setup instructions",
+          await dialog
+            .getByRole("radio", { name: "Claude subscription" })
+            .getAttribute("aria-checked"),
+          "false",
+          "subscription method is visible but not selected",
         );
         await assertNoHorizontalOverflow(page);
       });
