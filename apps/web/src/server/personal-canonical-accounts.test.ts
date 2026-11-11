@@ -805,6 +805,29 @@ describe("personal canonical UI server boundary", () => {
     expect(JSON.stringify(result)).not.toMatch(/ABCD-EFGH|deviceAuthorization/);
   });
 
+  it("projects an uncertain device poll as unknown without creating another connection", async () => {
+    const f = fixture();
+    f.delegate.pollOAuth.mockResolvedValueOnce({
+      operationId: "connect",
+      phase: "unknown",
+      sourceId: null,
+      bindingId: null,
+      available: false,
+      state: "pending",
+      oauthMethod: "device_code",
+    });
+    expect(await f.api.pollGatewayOAuth("ignored", nonce)).toEqual({
+      status: "ok",
+      value: {
+        nonce,
+        state: "unknown",
+        oauthMethod: "device_code",
+        cleanup: "unresolved",
+      },
+    });
+    expect(f.delegate.connect).not.toHaveBeenCalled();
+  });
+
   it("delegates fresh OAuth/callback only and keeps auth URLs outside ordinary readback", async () => {
     const f = fixture();
     const begin = await f.api.beginGatewayOAuth("ignored", {

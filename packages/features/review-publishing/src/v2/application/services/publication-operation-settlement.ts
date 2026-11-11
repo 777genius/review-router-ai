@@ -10,6 +10,7 @@ import {
 import {
   ReviewPublicationExternalEffectKind,
   ReviewPublicationTerminalOutcome,
+  mayCloseAmbiguousOptionalDescription,
   type ReviewPublicationClaimTerm,
   type ReviewPublicationExternalEffect,
   type ReviewPublicationOperation,
@@ -258,7 +259,15 @@ export class PublicationOperationSettlement {
     readonly finalReason: string;
     readonly lastErrorCode: string;
   }): Promise<ReviewV2PublicationExecutionResult> {
-    if (this.dependencies.clock.now() < input.operation.reconcileUntil) {
+    if (
+      this.dependencies.clock.now() < input.operation.reconcileUntil &&
+      !mayCloseAmbiguousOptionalDescription({
+        publicationOperationId: input.operation.publicationOperationId,
+        operations: input.view.attempt.operations,
+        receipts: input.view.receipts,
+        lastErrorCode: input.lastErrorCode,
+      })
+    ) {
       return retryable(input.lastErrorCode);
     }
     let terminalized;

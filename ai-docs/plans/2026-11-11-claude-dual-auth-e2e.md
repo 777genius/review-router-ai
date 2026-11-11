@@ -6,10 +6,11 @@ Owner scope: ReviewRouter SaaS, ReviewRouter Action, Account Gateway, pinned Sub
 ## Outcome and explicit boundaries
 
 Offer **one Claude Code provider identity** with separately labelled credential methods:
+
 1. **Claude subscription in the user's CI**: unmodified official Claude Code binary, `CLAUDE_CODE_OAUTH_TOKEN` stored by the user in GitHub Actions Secrets; no upstream token in SaaS/Gateway.
 2. **Anthropic API key in the user's CI**: same official Claude Code binary and ReviewRouter review pipeline, selected `ANTHROPIC_API_KEY` GitHub Actions Secret, and explicit mutually exclusive auth selection.
 3. **Anthropic API key in ReviewRouter**: existing Account Gateway encrypted custody, binding, execution authorization and Sub2API's protected Messages/streaming transport after qualification of an **API-key profile**. No token in CI; checkout, tools, reviews and publication stay in the existing runtime.
-The product may continue to display an existing Claude OAuth Gateway account for legacy/diagnostic reads, but MUST NOT offer third-party Claude.ai subscription login or token custody as a new customer path without explicit Anthropic authorization. An existing technical OAuth implementation does not grant permission.
+   The product may continue to display an existing Claude OAuth Gateway account for legacy/diagnostic reads, but MUST NOT offer third-party Claude.ai subscription login or token custody as a new customer path without explicit Anthropic authorization. An existing technical OAuth implementation does not grant permission.
 
 No new CLI runner, secrets vault, provider scheduler, proxy, workflow publication mechanism, credentials table, generic provider framework, or feature flags. No production deployment, paid canary, owner secrets, or user project traffic in this task.
 
@@ -27,7 +28,7 @@ No new CLI runner, secrets vault, provider scheduler, proxy, workflow publicatio
 
 ## Critical implementation discovery: subscription runtime divergence
 
-Source inspection shows two *different* existing Claude subscription consumers:
+Source inspection shows two _different_ existing Claude subscription consumers:
 
 - `777genius/review-router/src/providers/claude-code.ts` uses the **unmodified official CLI** with a scoped process environment.
 - `777genius/review-router/src/codex-oauth/subscription-model-runtime.ts` calls `prepareClaudeSubscriptionModelRoute` → `startRunnerLocalAnthropicModelTransport`. The latter uses `fetch('https://api.anthropic.com/v1/messages')` with a subscription OAuth bearer token and `anthropic-beta: oauth-2025-04-20`, instead of launching Claude CLI. The SaaS `renderReviewRouterClaudeSubscriptionCaller` and setup action can provision this prepared route. It is NOT evidence that subscription reviews are all using the official CLI.
@@ -41,16 +42,16 @@ This finding increases the scope of the existing subscription migration and ther
 1. **Action (small, isolated PR)**: introduce an explicit `claude-api-key` runtime authorization mode sharing `ClaudeCodeProvider`. Capture selected mode before execution, inject **exactly one** of `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` into the sanitized child environment, isolate config, reject wrong/blank/command-shaped key before spawn, never log credentials or echo raw provider errors. Preserve existing OAuth semantics. Tests include both modes, both keys present, missing selected key, invalid value, prepared invocation and read-only agentic/fork behavior.
 2. **Native and Gateway (paired bounded PRs)**: qualify official API-key Anthropic Messages on the existing protected gateway by adding one API-key profile, fixed origin, exact model, credential kind / account-owned custody and native response/tool semantics. Reuse existing profile/limits/usage/stream closure, no repeated converter. Run invalid credential, wrong profile/model, replay, ambiguous effect, revoke/refresh, stream/cancel and ownership tests.
 3. **SaaS (one bounded PR)**: retire the prepared raw-OAuth HTTP subscription workflow as a customer enrollment path in favor of existing official CLI CI workflow, with verified review/verification capability and current release claims. Map the qualified Anthropic API-key profile to the same visible Claude Code identity; direct API key GitHub Secret route is distinct from subscription GitHub Secret route, and Gateway API-key storage appears only for a trusted qualified profile. Keep workspace/repository assignment, account enrollment continuation and model settings intact. No silent fallback between modes; no unqualified default. Central OAuth subscription option must not be advertised to customers.
-4. **E2E**: use synthetic private CI repository, controlled local Anthropic Messages server and fake setup-token/API-key strings. Run the *real* compiled Action/CLI through both selected authentication modes and strict mock reply/failure cases; run native+Gateway+SaaS with isolated PostgreSQL and user-namespace checks; exercise workspace default, repository override, revocation, no-credentials state, model mismatch, empty result, nonterminal SSE, invalid JSON, rerun dedup and GitHub App publication against synthetic PR. Run visual browser/keyboard checks. Collect immutable exact HEAD/CI receipts. Do **not** call paid upstream or claim authenticated live Anthropic success.
+4. **E2E**: use synthetic private CI repository, controlled local Anthropic Messages server and fake setup-token/API-key strings. Run the _real_ compiled Action/CLI through both selected authentication modes and strict mock reply/failure cases; run native+Gateway+SaaS with isolated PostgreSQL and user-namespace checks; exercise workspace default, repository override, revocation, no-credentials state, model mismatch, empty result, nonterminal SSE, invalid JSON, rerun dedup and GitHub App publication against synthetic PR. Run visual browser/keyboard checks. Collect immutable exact HEAD/CI receipts. Do **not** call paid upstream or claim authenticated live Anthropic success.
 5. **Release**: only after exact-source CI and review; production activation/rollout and a real-account canary require separate authorization. Update deployment registry with remaining gates; merge code does not deploy it.
 
 ## Acceptance constraints
 
-- Single Claude Code visible provider, with explicit subscription vs API-key auth and GitHub Secrets vs ReviewRouter storage where *actually permitted*.
+- Single Claude Code visible provider, with explicit subscription vs API-key auth and GitHub Secrets vs ReviewRouter storage where _actually permitted_.
 - No new cross-product credential copy; no secrets in action logs/URLs, SaaS DB, workflow outputs, saved route or environment snapshots.
 - Official CLI used on CI for subscription/direct API key, not a reimplementation. The prepared subscription raw-OAuth HTTP path must not be newly provisioned or silently selected. Gateway mode uses one native transport; producer must actually qualify the agent/profile pair.
 - Credential selection frozen on invocation; a wrong/missing credential **fails closed**. No silent downgrade to ambient auth / another provider / OAuth-to-API substitution.
-- Offline E2E has a hard firewall/loopback-only upstream, explicit synthetic identity, and proves outputs through actual review publication. A fake response is *not* evidence of live account access.
+- Offline E2E has a hard firewall/loopback-only upstream, explicit synthetic identity, and proves outputs through actual review publication. A fake response is _not_ evidence of live account access.
 - No migrations except if the existing closed credential/auth-mode DB constraints require additive changes; document them precisely before writing.
 - Unit, TS typecheck, architecture, native Go tests, PostgreSQL, packaged E2E and visual UI PASS on the final source refs. PR review observations fixed before merge.
 
@@ -72,4 +73,3 @@ This finding increases the scope of the existing subscription migration and ther
 - [Anthropic legal/compliance](https://code.claude.com/docs/en/legal-and-compliance): do not collect/intermediate subscription OAuth as an unauthorised third-party SaaS.
 - [Official Claude Code Action setup](https://github.com/anthropics/claude-code-action/blob/main/docs/setup.md): two supported CI credentials.
 - [ReviewRouter native Claude Gateway E2E](https://github.com/agent-teams-ai/account-gateway/blob/main/services/account-gateway/test/native-claude-joined.ts) and [native Messages test](https://github.com/agent-teams-ai/sub2api/blob/main/backend/internal/gatewaytransport/public_messages_test.go).
-

@@ -227,7 +227,15 @@ describe("protocol v2 publication executor", () => {
     );
     await fixture.executor.execute(executionCommand());
     fixture.gateway.applyError = null;
-    await fixture.executor.execute(executionCommand());
+    await expect(
+      fixture.executor.execute(executionCommand()),
+    ).resolves.toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Retryable,
+      safeReason: "pr_description_write_outcome_unknown",
+    });
+    expect(
+      (await fixture.repository.findById("publication-1"))?.attempt.state,
+    ).not.toBe("terminal");
     expect(fixture.gateway.applyCalls).toBe(1);
     expect(fixture.credentials.purposes).toEqual([
       ReviewV2ScmCredentialPurpose.Mutate,
@@ -343,6 +351,64 @@ describe("protocol v2 publication executor", () => {
     ]);
     expect(fixture.gateway.compensationCalls).toBe(0);
     expect(fixture.gateway.applyCalls).toBe(4);
+  });
+
+  it("settles proven required review while retaining an unknown optional body without another write", async () => {
+    const description = {
+      ...operationPlan(),
+      publicationOperationId: "description",
+      publicationKind: ReviewPublicationKind.PrDescription,
+      required: false,
+      markerHash: hash("7"),
+      bodyHash: hash("8"),
+    };
+    const fixture = await createFixture({
+      operations: [operationPlan(), description],
+    });
+    expect(await fixture.executor.execute(executionCommand())).toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Completed,
+    });
+    const before = await fixture.repository.findById("publication-1");
+    expect(before?.receipts).toHaveLength(1);
+    fixture.gateway.pages = [{ objects: [], nextCursor: null }];
+    fixture.gateway.applyError = new ReviewV2ScmMutationError(
+      "scm_timeout",
+      ReviewV2ScmMutationFailureOutcome.EffectMayExist,
+      true,
+    );
+    expect(
+      await fixture.executor.execute(executionCommand("description")),
+    ).toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Retryable,
+    });
+    expect(fixture.gateway.applyCalls).toBe(2);
+    fixture.gateway.applyError = null;
+    expect(
+      await fixture.executor.execute(executionCommand("description")),
+    ).toMatchObject({
+      status: ReviewV2PublicationExecutionStatus.Terminalized,
+      terminalOutcome: ReviewPublicationTerminalOutcome.Succeeded,
+    });
+    const after = await fixture.repository.findById("publication-1");
+    expect(after?.attempt).toMatchObject({
+      state: "terminal",
+      terminalOutcome: "succeeded",
+    });
+    expect(after?.receipts).toEqual(before?.receipts);
+    expect(
+      after?.attempt.operations.find(
+        (operation) => operation.publicationOperationId === "description",
+      )?.state,
+    ).toBe("terminal_unknown");
+    expect(after?.tombstones).toEqual([
+      expect.objectContaining({
+        publicationOperationId: "description",
+        finalOutcome: "terminal_unknown",
+        lastErrorCode: "pr_description_write_outcome_unknown",
+      }),
+    ]);
+    expect(fixture.gateway.applyCalls).toBe(2);
+    expect(fixture.gateway.compensationCalls).toBe(0);
   });
 
   it("preserves required success when the fresh optional continuation claim is rejected", async () => {

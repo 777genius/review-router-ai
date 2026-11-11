@@ -670,6 +670,20 @@ export function isOptionalPrDescriptionContinuation(input: {
   );
 }
 
+/** The required review is proven; an ambiguous optional body remains unknown,
+ * and its tombstone prevents another write without delaying review settlement. */
+export function mayCloseAmbiguousOptionalDescription(input: {
+  readonly publicationOperationId: string;
+  readonly operations: readonly ReviewPublicationOperation[];
+  readonly receipts: readonly ReviewPublicationReceipt[];
+  readonly lastErrorCode: string;
+}): boolean {
+  return (
+    input.lastErrorCode === "pr_description_write_outcome_unknown" &&
+    isOptionalPrDescriptionContinuation(input)
+  );
+}
+
 export function selectCanonicalExternalEffect(
   effects: readonly ReviewPublicationExternalEffect[],
 ): ReviewPublicationExternalEffect | null {

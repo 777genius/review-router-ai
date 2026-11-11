@@ -447,6 +447,128 @@ describeWithDatabase("PrismaReviewPublicationRepository real database", () => {
     ).toBe(1);
   });
 
+  it("settles an ambiguous optional description only after required receipts, preserving unknown", async () => {
+    const command = requestCommand(fixture, `optional-unknown-${randomUUID()}`);
+    const required = command.operations[0]!;
+    const description: ReviewPublicationOperationPlan = {
+      ...required,
+      publicationOperationId: `description-${randomUUID()}`,
+      publicationKind: ReviewPublicationKind.PrDescription,
+      required: false,
+      markerHash: digest("description-marker"),
+      bodyHash: digest("description-body"),
+    };
+    command.operations.push(description);
+    await repository.request(command);
+    const claim = await repository.claim(
+      claimCommand(command.publicationAttemptId),
+    );
+    if (claim.status !== ClaimReviewPublicationStatus.Acquired)
+      throw new Error("claim_failed");
+    const begin = await repository.begin(
+      beginCommand(
+        command.publicationAttemptId,
+        required.publicationOperationId,
+        {
+          expectedAttemptVersion: claim.attempt.version,
+          claimId: claim.claim.claimId,
+          claimFencingToken: claim.claim.fencingToken,
+        },
+      ),
+    );
+    if (begin.status !== BeginReviewPublicationOperationStatus.Begun)
+      throw new Error("begin_failed");
+    const premature = {
+      publicationAttemptId: command.publicationAttemptId,
+      publicationOperationId: required.publicationOperationId,
+      expectedAttemptVersion: begin.attempt.version,
+      claimId: claim.claim.claimId,
+      claimFencingToken: claim.claim.fencingToken,
+      tombstoneId: `tombstone-${randomUUID()}`,
+      siblingTombstones: [],
+      finalReason: "pr_description_prior_write_unreconciled",
+      lastErrorCode: "pr_description_write_outcome_unknown",
+      terminalizedBy: "real-db-test",
+      terminalizedAt: new Date(),
+      retainUntil: new Date(Date.now() + 86_400_000),
+    };
+    expect(await repository.terminalizeUnknown(premature)).toMatchObject({
+      status: TerminalizeUnknownReviewPublicationStatus.TooEarly,
+    });
+    const effect = effectCommand(begin.capability);
+    expect(await repository.record(effect)).toMatchObject({
+      status: RecordReviewExternalEffectStatus.Recorded,
+    });
+    const completion = await repository.complete(
+      completeCommand(
+        command.publicationAttemptId,
+        required.publicationOperationId,
+        {
+          expectedAttemptVersion: begin.attempt.version,
+          claimId: claim.claim.claimId,
+          claimFencingToken: claim.claim.fencingToken,
+          canonicalEffectId: effect.effectId,
+        },
+      ),
+    );
+    if (
+      completion.status !== CompleteReviewPublicationOperationStatus.Completed
+    )
+      throw new Error("required_completion_failed");
+    const next = await repository.claim(
+      claimCommand(command.publicationAttemptId, {
+        expectedAttemptVersion: completion.attempt.version,
+      }),
+    );
+    if (next.status !== ClaimReviewPublicationStatus.Acquired)
+      throw new Error("optional_claim_failed");
+    const optional = await repository.begin(
+      beginCommand(
+        command.publicationAttemptId,
+        description.publicationOperationId,
+        {
+          expectedAttemptVersion: next.attempt.version,
+          claimId: next.claim.claimId,
+          claimFencingToken: next.claim.fencingToken,
+        },
+      ),
+    );
+    if (optional.status !== BeginReviewPublicationOperationStatus.Begun)
+      throw new Error("optional_begin_failed");
+    const terminal = {
+      ...premature,
+      publicationOperationId: description.publicationOperationId,
+      expectedAttemptVersion: optional.attempt.version,
+      claimId: next.claim.claimId,
+      claimFencingToken: next.claim.fencingToken,
+    };
+    expect(
+      await repository.terminalizeUnknown({
+        ...terminal,
+        lastErrorCode: "different_unknown",
+      }),
+    ).toMatchObject({
+      status: TerminalizeUnknownReviewPublicationStatus.TooEarly,
+    });
+    expect(await repository.terminalizeUnknown(terminal)).toMatchObject({
+      status: TerminalizeUnknownReviewPublicationStatus.Terminalized,
+      attempt: { state: "terminal", terminalOutcome: "succeeded" },
+    });
+    expect(
+      await prisma.reviewPublicationAuditTombstoneV2.findUniqueOrThrow({
+        where: { tombstoneId: terminal.tombstoneId },
+      }),
+    ).toMatchObject({
+      finalOutcome: "terminal_unknown",
+      lastErrorCode: "pr_description_write_outcome_unknown",
+    });
+    expect(
+      await prisma.reviewPublicationReceiptV2.count({
+        where: { publicationAttemptId: command.publicationAttemptId },
+      }),
+    ).toBe(1);
+  });
+
   it("terminalizes unknown once and records an immutable adjudication", async () => {
     const command = requestCommand(fixture, "adjudication", {
       publicationNotAfter: new Date(Date.now() - 2_000),
