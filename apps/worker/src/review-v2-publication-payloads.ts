@@ -102,9 +102,12 @@ export class CanonicalReviewV2ProjectionAdapter
         : catalog.lifecycle.map((entry, chunkIndex) => ({
             chunkIndex,
             ...facts(entry.payload),
-            semantic: entry.payload.resolve
-              ? ReviewPublicationLifecycleSemantic.Resolve
-              : ReviewPublicationLifecycleSemantic.Reopen,
+            semantic:
+              entry.payload.kind === ReviewV2PublicationPayloadKind.ThreadReply
+                ? ReviewPublicationLifecycleSemantic.ConfirmReply
+                : entry.payload.resolve
+                  ? ReviewPublicationLifecycleSemantic.Resolve
+                  : ReviewPublicationLifecycleSemantic.Reopen,
           })),
     };
   }
@@ -222,7 +225,9 @@ type PublicationCatalog = {
     readonly submit: PayloadOfKind<ReviewV2PublicationPayloadKind.PendingReviewSubmit>;
   }[];
   readonly lifecycle: readonly {
-    readonly payload: PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadLifecycle>;
+    readonly payload:
+      | PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadLifecycle>
+      | PayloadOfKind<ReviewV2PublicationPayloadKind.ThreadReply>;
   }[];
 };
 
@@ -281,12 +286,21 @@ function buildCatalog(
     } as const,
   }));
   const lifecycle = rendered.lifecycle.map((entry) => ({
-    payload: {
-      kind: ReviewV2PublicationPayloadKind.ThreadLifecycle,
-      ...payloadFields(entry),
-      threadId: entry.threadId,
-      resolve: entry.resolve,
-    } as const,
+    payload:
+      entry.semantic === ReviewPublicationLifecycleSemantic.ConfirmReply
+        ? ({
+            kind: ReviewV2PublicationPayloadKind.ThreadReply,
+            ...payloadFields(entry),
+            threadId: entry.threadId,
+            targetId: entry.targetId,
+            body: entry.body,
+          } as const)
+        : ({
+            kind: ReviewV2PublicationPayloadKind.ThreadLifecycle,
+            ...payloadFields(entry),
+            threadId: entry.threadId,
+            resolve: entry.resolve,
+          } as const),
   }));
   const prDescription: PublicationCatalog["prDescription"] =
     rendered.prDescription === undefined
@@ -351,8 +365,18 @@ function payloadForOperation(
       );
     case ReviewPublicationKind.SubmittedReview:
       return null;
-    case ReviewPublicationKind.ThreadLifecycle:
-      return catalog.lifecycle[operation.chunkIndex]?.payload ?? null;
+    case ReviewPublicationKind.ThreadLifecycle: {
+      const payload = catalog.lifecycle[operation.chunkIndex]?.payload;
+      return payload?.kind === ReviewV2PublicationPayloadKind.ThreadLifecycle
+        ? payload
+        : null;
+    }
+    case ReviewPublicationKind.ThreadReply: {
+      const payload = catalog.lifecycle[operation.chunkIndex]?.payload;
+      return payload?.kind === ReviewV2PublicationPayloadKind.ThreadReply
+        ? payload
+        : null;
+    }
   }
 }
 
