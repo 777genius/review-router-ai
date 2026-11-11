@@ -8,6 +8,15 @@
 
 ## Executive decision
 
+### Further verified evidence and vendor qualification status — 2026-11-11
+
+- **Real native tool-path fixture (passed):** source-pinned [Gateway CI run #42927921750](https://github.com/agent-teams-ai/account-gateway/actions/runs/42927921750) checked out Sub2API exact source with two NVIDIA model IDs, parsed outbound Chat function-call stream, native one-entry dispatch, final terminal and SSE [DONE], and actual managed PostgreSQL candidate creation. It used synthetic credentials and a stubbed response; **does not prove the hosted provider supports tools**.
+- **NVIDIA Build actual inference, first DeepSeek probe (inconclusive/failure):** sandbox [CI #42927092117](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/42927092117) mounted the **masked** owner-installed repository-scoped `NVIDIA_API_KEY` and tried one minimal synthetic Chat Completions call on `deepseek-ai/deepseek-v4.1-flash`. The single call timed out after **75 seconds**, no HTTP status or model output observed; no retry, no confidential source transmitted. NVIDIA Developer Forum reports similar free endpoint timeouts, but this cannot independently distinguish upstream saturation from account entitlement.
+- **Independent GLM probe (not a DeepSeek retry):** [CI #42927680260](https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/42927680260), same private sandbox secret and only synthetic prompt; queued at this checkpoint. The result must be inspected before further live inference. Never assume `GET /models` success proves entitlement for a Chat request.
+- **Readiness:** absent live Chat + streamed two-turn tool canary, both models remain `tools: none` and disabled in tool-dependent Review Router selection. Do not advertise end-to-end review as qualified. PostgreSQL & offline tests are positive partial evidence, not the missing live provider proof.
+- **Review Router trial privacy fence:** PR [#854](https://github.com/777genius/review-router-ai/pull/854) rejects NVIDIA trial checkout unless the resolved GitHub repo is exactly `777genius/rr-hosted-pool-e2e-20260927`; tested with a deny-before-SCM-token synthetic case. Separate approval is needed before any production/private customer code route.
+- **SDK packaging:** exact source-built Gateway SDK artifact was verified with SHA-256, but the Review Router manifest/lockfile vendor import remains to be confirmed on CI. Nothing has been published or deployed.
+
 ### Implementation and E2E evidence — 2026-11-11
 
 Implementation is **in progress**, not merged or production activated. Separate dependency-ordered PRs:
