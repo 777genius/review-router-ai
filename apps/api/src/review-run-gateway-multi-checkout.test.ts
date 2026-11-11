@@ -230,11 +230,19 @@ describe("multi-reviewer checkout projection", () => {
   });
 
   it("refuses NVIDIA trial checkout outside the single synthetic fixture before issuing an SCM token", async () => {
-    const forbidden = fixture(1, false, "nvidia-build-chat-apikey-v1", "customer/private-source");
+    const forbidden = fixture(
+      1,
+      false,
+      "nvidia-build-chat-apikey-v1",
+      "customer/private-source",
+    );
     await expect(forbidden.issue()).rejects.toThrow("authorization_denied");
     expect(forbidden.issuer).not.toHaveBeenCalled();
     const synthetic = fixture(
-      1, false, "nvidia-build-chat-apikey-v1", "777genius/rr-hosted-pool-e2e-20260927",
+      1,
+      false,
+      "nvidia-build-chat-apikey-v1",
+      "777genius/rr-hosted-pool-e2e-20260927",
     );
     const result = await synthetic.issue();
     expect(result.repository).toBe("777genius/rr-hosted-pool-e2e-20260927");

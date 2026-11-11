@@ -112,10 +112,17 @@ describe("Gateway model catalog presentation", () => {
         completionInputKind: "none" as const,
         personalOnly: false,
         limitsContract: "none" as const,
-        modelSettings: [{
-          modelId, reasoning: null, fast: null,
-          tools: { allowed: ["function"] as const, default: "function" as const },
-        }],
+        modelSettings: [
+          {
+            modelId,
+            reasoning: null,
+            fast: null,
+            tools: {
+              allowed: ["function"] as const,
+              default: "function" as const,
+            },
+          },
+        ],
       },
     };
     const catalog = {
@@ -126,19 +133,26 @@ describe("Gateway model catalog presentation", () => {
       models: [modelId],
     };
     const [approved] = gatewayProviderModelOptions([], profile, {
-      catalog, requiresTools: true,
+      catalog,
+      requiresTools: true,
     });
     expect(approved?.provider).toBe("nvidia");
     expect(approved?.disabled).toBe(false);
 
     const [wrongSource] = gatewayProviderModelOptions([], profile, {
-      catalog: { ...catalog, source: "openrouter" }, requiresTools: true,
+      catalog: { ...catalog, source: "openrouter" },
+      requiresTools: true,
     });
     expect(wrongSource?.disabled).toBe(true);
-    expect(wrongSource?.description).toContain("NVIDIA account model qualification unavailable.");
+    expect(wrongSource?.description).toContain(
+      "NVIDIA account model qualification unavailable.",
+    );
 
     const [expired] = gatewayProviderModelOptions([], profile, {
-      catalog: { ...catalog, expiresAt: new Date(Date.now() - 60_000).toISOString() },
+      catalog: {
+        ...catalog,
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      },
       requiresTools: true,
     });
     expect(expired?.disabled).toBe(true);
@@ -147,18 +161,24 @@ describe("Gateway model catalog presentation", () => {
       ...profile,
       connection: {
         ...profile.connection,
-        modelSettings: [{
-          modelId, reasoning: null, fast: null,
-          tools: { allowed: ["none"] as const, default: "none" as const },
-        }],
+        modelSettings: [
+          {
+            modelId,
+            reasoning: null,
+            fast: null,
+            tools: { allowed: ["none"] as const, default: "none" as const },
+          },
+        ],
       },
     };
     const [notToolQualified] = gatewayProviderModelOptions([], noTools, {
-      catalog, requiresTools: true,
+      catalog,
+      requiresTools: true,
     });
     expect(notToolQualified?.disabled).toBe(true);
     const [textOnly] = gatewayProviderModelOptions([], noTools, {
-      catalog, requiresTools: false,
+      catalog,
+      requiresTools: false,
     });
     expect(textOnly?.disabled).toBe(false);
   });

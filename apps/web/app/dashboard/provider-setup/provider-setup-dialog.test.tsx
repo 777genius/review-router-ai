@@ -1191,16 +1191,24 @@ describe("ProviderSetupDialog", () => {
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
     fixture.value.nextCursor = null;
-    view = { ...view, sources: apiSources(), gatewaySetupProviders: ["nvidia"] };
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewaySetupProviders: ["nvidia"],
+    };
     renderDialog(repositoryTarget, { gatewayAccounts: fixture });
     await choose("Add a new provider");
     await chooseSelect("Provider", "NVIDIA Build (evaluation)");
     await screen.findByRole("combobox", { name: "Model" });
     expect(
-      screen.getByRole("radio", { name: "ReviewRouter" }).getAttribute("aria-checked"),
+      screen
+        .getByRole("radio", { name: "ReviewRouter" })
+        .getAttribute("aria-checked"),
     ).toBe("true");
     expect(
-      screen.getByRole("radio", { name: "GitHub Secrets" }).getAttribute("aria-disabled"),
+      screen
+        .getByRole("radio", { name: "GitHub Secrets" })
+        .getAttribute("aria-disabled"),
     ).toBe("true");
     expect(
       screen.getByRole("button", { name: "Use for this repository" }),

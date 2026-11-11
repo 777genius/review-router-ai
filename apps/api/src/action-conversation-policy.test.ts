@@ -349,7 +349,8 @@ function dynamicModelFixture(
       | "transient-checked-inline-gateway-full-thread-v1";
   } = {},
 ) {
-  const profileId = options.profileId ?? "openrouter-openai-responses-apikey-v1";
+  const profileId =
+    options.profileId ?? "openrouter-openai-responses-apikey-v1";
   const model = "vendor/dynamic-qualified-model";
   const identity: ConversationIdentity = {
     workspaceId: options.workspaceId ?? "workspace_probe",

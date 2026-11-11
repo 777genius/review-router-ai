@@ -131,22 +131,26 @@ export async function startGatewayCatalogFixture(
       return send(200, {
         contract: "provider-connections/v1",
         capabilities: [
-          ...(options.reviewerAccounts ? [{
-            contract: "provider-connections/v1",
-            profileId: VISUAL_GATEWAY_PROFILE.profileId,
-            provider: { identity: "openrouter", label: "OpenRouter" },
-            plan: { identity: "pay_as_you_go", label: "API" },
-            region: { identity: "global", label: "Global" },
-            protocol: "openai-responses",
-            modelIds: models,
-            authMethods: ["api_key"],
-            completionInputKind: "none",
-            availability: "enabled",
-            oauthCallbackMode: null,
-            reconnect: "replace_api_key",
-            limitsContract: "none",
-            models: qualified,
-          }] : []),
+          ...(options.reviewerAccounts
+            ? [
+                {
+                  contract: "provider-connections/v1",
+                  profileId: VISUAL_GATEWAY_PROFILE.profileId,
+                  provider: { identity: "openrouter", label: "OpenRouter" },
+                  plan: { identity: "pay_as_you_go", label: "API" },
+                  region: { identity: "global", label: "Global" },
+                  protocol: "openai-responses",
+                  modelIds: models,
+                  authMethods: ["api_key"],
+                  completionInputKind: "none",
+                  availability: "enabled",
+                  oauthCallbackMode: null,
+                  reconnect: "replace_api_key",
+                  limitsContract: "none",
+                  models: qualified,
+                },
+              ]
+            : []),
           ...(options.nvidiaEvaluation ? [NVIDIA_EVAL_CAPABILITY] : []),
         ],
       });
@@ -196,7 +200,10 @@ export async function startGatewayCatalogFixture(
       REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID:
         VISUAL_GATEWAY_PROFILE.profileId,
       ...(options.nvidiaEvaluation
-        ? { REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID: NVIDIA_EVAL_PROFILE.profileId }
+        ? {
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID:
+              NVIDIA_EVAL_PROFILE.profileId,
+          }
         : {}),
     },
     stop: () =>

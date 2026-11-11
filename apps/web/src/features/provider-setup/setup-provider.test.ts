@@ -156,12 +156,21 @@ describe("provider setup registry", () => {
     expect(gatewaySetupProvidersForProfiles([nvidia])).toEqual(["nvidia"]);
     expect(getSetupProvider("nvidia").githubSource).toBeNull();
     expect(getSetupProvider("nvidia").publicCatalogProvider).toBeNull();
-    expect(setupProviderForGatewayProfile({ ...nvidia, id: "unqualified-nvidia" })).toBeUndefined();
-    expect(setupProviderForGatewayProfile({ ...nvidia, authKind: "oauth" })).toBeUndefined();
-    expect(setupProviderForGatewayProfile({ ...nvidia, provider: "openrouter" })).toBeUndefined();
-    expect(setupProviderForGatewayProfile({
-      ...nvidia, connection: { ...nvidia.connection!, provider: "openrouter" },
-    })).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, id: "unqualified-nvidia" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, authKind: "oauth" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, provider: "openrouter" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({
+        ...nvidia,
+        connection: { ...nvidia.connection!, provider: "openrouter" },
+      }),
+    ).toBeUndefined();
   });
 
   it("uses the authenticated deployment availability and deduplicates profiles", () => {

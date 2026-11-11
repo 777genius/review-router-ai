@@ -35,7 +35,8 @@ export function gatewayProviderModelOptions(
         (value): ReviewModelOption => ({
           value,
           label: value,
-          provider: profile?.connection?.provider === "nvidia" ? "nvidia" : "codex",
+          provider:
+            profile?.connection?.provider === "nvidia" ? "nvidia" : "codex",
         }),
       ),
   ].map((option): ReviewModelOption => {
@@ -60,7 +61,10 @@ export function gatewayProviderModelOptions(
         ? {
             ...option,
             disabled: true,
-            description: [option.description, "NVIDIA account model qualification unavailable."]
+            description: [
+              option.description,
+              "NVIDIA account model qualification unavailable.",
+            ]
               .filter(Boolean)
               .join(" "),
           }

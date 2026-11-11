@@ -362,7 +362,8 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
   }),
   dialogScenario({
     id: "dialog-nvidia-evaluation",
-    title: "NVIDIA Build appears only as an explicit Gateway evaluation provider",
+    title:
+      "NVIDIA Build appears only as an explicit Gateway evaluation provider",
     users: ["owner"],
     route: repositoryRoute("mainNeedsSecret"),
     requires: { personalSharing: false, nvidiaEvaluation: true },
@@ -370,10 +371,15 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
       const { page } = context;
       const dialog = await openFromStepperLine("mainNeedsSecret")(context);
       await chooseNewProvider(dialog);
-      await dialog.getByRole("combobox", { name: "Provider", exact: true }).first().click();
-      const option = page.getByRole("option", { name: /NVIDIA Build \(evaluation\)/ });
+      await dialog
+        .getByRole("combobox", { name: "Provider", exact: true })
+        .first()
+        .click();
+      const option = page.getByRole("option", {
+        name: /NVIDIA Build \(evaluation\)/,
+      });
       await option.waitFor({ state: "visible" });
-      if (await option.getAttribute("aria-disabled") === "true")
+      if ((await option.getAttribute("aria-disabled")) === "true")
         throw new Error("nvidia_evaluation_provider_disabled");
       await option.click();
       await dialog.getByText("NVIDIA Build (evaluation)").first().waitFor({

@@ -79,7 +79,9 @@ export type AccountProfileView = {
     | import("../features/account-gateway/connection-capabilities").AccountConnectionView
     | undefined;
   // Trusted configured vendor; never derived from an editable account label.
-  provider?: import("@reviewrouter/features-review-providers").ProviderKind | "nvidia";
+  provider?:
+    | import("@reviewrouter/features-review-providers").ProviderKind
+    | "nvidia";
   // Additive display fields; older safe bootstrap consumers may omit them.
   // The authorized adapter always supplies both from its configured catalog.
   authKind?: c.Profile["authKinds"][number];
@@ -420,7 +422,12 @@ export function createAccountsAdapter(input: {
       id,
       {
         label: name,
-        provider: name === "MiMo" ? "codex-mimo" : name === "OpenRouter" ? "openrouter" : "nvidia",
+        provider:
+          name === "MiMo"
+            ? "codex-mimo"
+            : name === "OpenRouter"
+              ? "openrouter"
+              : "nvidia",
         authKind: "api_key",
         canReconnect: true,
       },
@@ -2063,7 +2070,10 @@ export function accountGatewayProfilesConfiguration() {
   const contextKey =
     process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET ?? "";
   if (contextKey.length < 32) throw new Error("accounts_unavailable");
-  const apiKeyProfiles = new Map<string, "MiMo" | "OpenRouter" | "NVIDIA Build">();
+  const apiKeyProfiles = new Map<
+    string,
+    "MiMo" | "OpenRouter" | "NVIDIA Build"
+  >();
   for (const [value, name] of [
     [process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID, "MiMo"],
     [

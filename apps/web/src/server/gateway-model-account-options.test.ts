@@ -122,11 +122,19 @@ function fixture(
     profiles: [
       {
         id: profileRef,
-        label: source === "codex" ? "Codex" : source === "nvidia" ? "NVIDIA Build" : "OpenRouter",
+        label:
+          source === "codex"
+            ? "Codex"
+            : source === "nvidia"
+              ? "NVIDIA Build"
+              : "OpenRouter",
         protocol: "openai-responses",
         provider: source,
         authKind: source === "codex" ? "oauth" : "api_key",
-        models: source === "nvidia" ? ["nvidia/nemotron-3.5-super-vl-120b-a12b"] : ["old-seed"],
+        models:
+          source === "nvidia"
+            ? ["nvidia/nemotron-3.5-super-vl-120b-a12b"]
+            : ["old-seed"],
       },
     ],
     gateway: { get, readAccountModels },

@@ -106,7 +106,12 @@ export async function productionPersonalAccounts() {
   > = [...settings.apiKeyProfiles].map(([id, name]) => ({
     id,
     label: name,
-    provider: name === "MiMo" ? "codex-mimo" : name === "OpenRouter" ? "openrouter" : "nvidia",
+    provider:
+      name === "MiMo"
+        ? "codex-mimo"
+        : name === "OpenRouter"
+          ? "openrouter"
+          : "nvidia",
     authKind: "api_key" as "api_key" | "oauth",
     canReconnect: true,
     ...(settings.apiKeyProfileBaseURLs.has(id)

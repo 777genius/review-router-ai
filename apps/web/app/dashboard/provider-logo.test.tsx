@@ -83,9 +83,9 @@ describe("provider display identity", () => {
     );
     expect(html).toContain('data-provider-logo="nvidia"');
     expect(html).not.toContain('data-provider-logo="openrouter"');
-    expect(renderToStaticMarkup(<AccountProviderLogo provider="nvidia" />)).toContain(
-      'data-provider-logo="nvidia"',
-    );
+    expect(
+      renderToStaticMarkup(<AccountProviderLogo provider="nvidia" />),
+    ).toContain('data-provider-logo="nvidia"');
   });
 
   it("uses local path-only MiMo geometry and a distinct neutral fallback", () => {

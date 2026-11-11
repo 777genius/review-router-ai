@@ -154,7 +154,8 @@ export function setupProviderForGatewayProfile(
     profile.authKind === "api_key" &&
     profile.connection?.provider === "nvidia" &&
     (!profile.provider || profile.provider === "nvidia")
-  ) return "nvidia";
+  )
+    return "nvidia";
   const subscription = subscriptionProfileDefinition(profile.id);
   if (
     subscription &&
