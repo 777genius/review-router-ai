@@ -7,7 +7,7 @@ ALTER TABLE "WorkspaceProviderProfile"
   ADD CONSTRAINT "WorkspaceProviderProfile_auth_mode" CHECK (
     ("credentialKind" = 'gateway_binding' AND "authMode" = 'codex_account_gateway')
     OR ("credentialKind" = 'managed_api_key'
-      AND "authMode" IN ('mimo_token_plan_api_key', 'openrouter_api_key'))
+      AND "authMode" IN ('mimo_token_plan_api_key', 'openrouter_api_key', 'claude_code_api_key'))
     OR ("credentialKind" = 'hosted_pool'
       AND "authMode" = 'codex_subscription_oauth_hosted_pool')
     OR ("credentialKind" = 'repository_rotating'
