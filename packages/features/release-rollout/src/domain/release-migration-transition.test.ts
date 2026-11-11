@@ -439,7 +439,8 @@ describe("canonical release migration transition", () => {
     );
     expect(checkout160).toEqual(
       readRenderManagedCheckoutInventory().filter(
-        (row) => row.migrationName !== "000157_claude_code_api_key_secret" &&
+        (row) =>
+          row.migrationName !== "000157_claude_code_api_key_secret" &&
           row.migrationName !== "000156_verified_thread_reply",
       ),
     );
