@@ -77,7 +77,7 @@ async function fixture(
     finalized = 0,
     loseBegin = false;
   let afterRead: (() => void) | undefined, afterPoll: (() => void) | undefined;
-  let pollState: "pending" | "applied" | "rejected" = "pending";
+  let pollState: "pending" | "applied" | "rejected" | "unknown" = "pending";
   const operations = new Map<string, c.Operation>();
   const rows = new Map<string, PersonalOperationResult>();
   const begins: c.OAuthBegin[] = [];
@@ -462,6 +462,39 @@ test("personal polling reconciles the original device operation once and blocks 
       ownerRef: accountGatewayUserOwnerRef("device-owner"),
     },
   ]);
+  expect(f.counts()).toEqual({ beginCount: 1, pollCount: 1, finalized: 1 });
+});
+
+test("device unknown readback stops waiting without replay and can still reconcile a later applied result", async () => {
+  const f = await fixture();
+  const request = {
+    nonce: randomUUID(),
+    profileId,
+    label: "My Codex",
+    method: "device_code" as const,
+  };
+  await f.personal().connect(request);
+  const original = await f.store.readOperation("device-owner", request.nonce);
+  f.pollState("unknown");
+  expect(await f.personal().pollOAuth(request.nonce)).toMatchObject({
+    phase: "unknown",
+  });
+  expect(await f.personal().operation(request.nonce)).toMatchObject({
+    phase: "unknown",
+  });
+  expect(f.counts()).toEqual({ beginCount: 1, pollCount: 1, finalized: 0 });
+  f.operations.set(original.id, {
+    operationRef: original.id,
+    state: "applied",
+    oauthMethod: "device_code",
+    result: {
+      kind: "account",
+      accountRef: "device-account",
+      metadataRevision: 1,
+      authorizationEpoch: 1,
+    },
+  });
+  expect((await f.personal().operation(request.nonce)).phase).toBe("applied");
   expect(f.counts()).toEqual({ beginCount: 1, pollCount: 1, finalized: 1 });
 });
 
