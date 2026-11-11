@@ -14,6 +14,36 @@ import {
   VISUAL_WORKSPACES,
 } from "./fixture-contract.js";
 
+const NVIDIA_EVAL_PROFILE = {
+  profileId: "nvidia-build-chat-apikey-v1",
+  protocol: "openai-responses",
+  modelIds: ["deepseek-ai/deepseek-v4.1-flash", "z-ai/glm-5.3-flash"],
+  authKinds: ["api_key"],
+} as const;
+
+const NVIDIA_EVAL_CAPABILITY = {
+  contract: "provider-connections/v1",
+  profileId: NVIDIA_EVAL_PROFILE.profileId,
+  provider: { identity: "nvidia", label: "NVIDIA Build" },
+  plan: { identity: "unknown", label: "NVIDIA API trial (evaluation only)" },
+  region: { identity: "global", label: "Global" },
+  protocol: "openai-responses",
+  modelIds: [...NVIDIA_EVAL_PROFILE.modelIds],
+  authMethods: ["api_key"],
+  completionInputKind: "none",
+  availability: "enabled",
+  oauthCallbackMode: null,
+  reconnect: "replace_api_key",
+  limitsContract: "none",
+  models: NVIDIA_EVAL_PROFILE.modelIds.map((modelId) => ({
+    modelId,
+    reasoning: null,
+    fast: null,
+    // No live NVIDIA tool qualification yet; review tools fail closed.
+    tools: { allowed: ["none"], default: "none" },
+  })),
+} as const;
+
 export type GatewayCatalogFixture = Readonly<{
   /** Environment that points the dashboard at this server. */
   environment: Readonly<Record<string, string>>;
@@ -21,7 +51,7 @@ export type GatewayCatalogFixture = Readonly<{
 }>;
 
 export async function startGatewayCatalogFixture(
-  options: { reviewerAccounts?: boolean } = {},
+  options: { reviewerAccounts?: boolean; nvidiaEvaluation?: boolean } = {},
 ): Promise<GatewayCatalogFixture> {
   const token = randomBytes(24).toString("base64url");
   let failedModelRefresh = false;
@@ -88,17 +118,20 @@ export async function startGatewayCatalogFixture(
     }
     if (request.method === "GET" && path === "/v1/profiles")
       return send(200, {
-        profiles: [{ ...VISUAL_GATEWAY_PROFILE, modelIds: models }],
+        profiles: [
+          { ...VISUAL_GATEWAY_PROFILE, modelIds: models },
+          ...(options.nvidiaEvaluation ? [NVIDIA_EVAL_PROFILE] : []),
+        ],
       });
     if (
-      options.reviewerAccounts &&
+      (options.reviewerAccounts || options.nvidiaEvaluation) &&
       request.method === "GET" &&
       path === "/v1/provider-connection-capabilities"
     ) {
       return send(200, {
         contract: "provider-connections/v1",
         capabilities: [
-          {
+          ...(options.reviewerAccounts ? [{
             contract: "provider-connections/v1",
             profileId: VISUAL_GATEWAY_PROFILE.profileId,
             provider: { identity: "openrouter", label: "OpenRouter" },
@@ -113,7 +146,8 @@ export async function startGatewayCatalogFixture(
             reconnect: "replace_api_key",
             limitsContract: "none",
             models: qualified,
-          },
+          }] : []),
+          ...(options.nvidiaEvaluation ? [NVIDIA_EVAL_CAPABILITY] : []),
         ],
       });
     }
@@ -161,6 +195,9 @@ export async function startGatewayCatalogFixture(
       // The fixture profile is an approved key profile of this deployment.
       REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID:
         VISUAL_GATEWAY_PROFILE.profileId,
+      ...(options.nvidiaEvaluation
+        ? { REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID: NVIDIA_EVAL_PROFILE.profileId }
+        : {}),
     },
     stop: () =>
       new Promise<void>((resolve) => {
