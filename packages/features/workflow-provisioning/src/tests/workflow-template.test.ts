@@ -200,6 +200,15 @@ describe("Claude dual-auth CI templates", () => {
     expect(compatibility(workflow).missingRequirements).not.toContain(
       "secret_pass_through",
     );
+    for (const quote of ['"', "'"]) {
+      const quotedWorkflow = workflow.replace(
+        "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
+        `ANTHROPIC_API_KEY: ${quote}\${{ secrets.ANTHROPIC_API_KEY }}${quote}`,
+      );
+      expect(compatibility(quotedWorkflow).missingRequirements).not.toContain(
+        "secret_pass_through",
+      );
+    }
     const brokenWorkflow = workflow.replaceAll(
       "ANTHROPIC_API_KEY",
       "REMOVED_ANTHROPIC_CREDENTIAL",
