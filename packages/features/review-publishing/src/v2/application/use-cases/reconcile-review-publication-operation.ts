@@ -338,8 +338,14 @@ export class ReconcileReviewPublicationOperation {
               view: input.view,
               operation: input.operation,
               claim,
-              finalReason: "pr_description_prior_write_unreconciled",
-              lastErrorCode: "pr_description_write_outcome_unknown",
+              finalReason:
+                input.operation.publicationKind === ReviewPublicationKind.ThreadReply
+                  ? "verified_reply_prior_write_unreconciled"
+                  : "pr_description_prior_write_unreconciled",
+              lastErrorCode:
+                input.operation.publicationKind === ReviewPublicationKind.ThreadReply
+                  ? "verified_reply_write_outcome_unknown"
+                  : "pr_description_write_outcome_unknown",
             }),
           };
         }
