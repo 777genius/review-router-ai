@@ -126,6 +126,7 @@ describe("Gateway model catalog presentation", () => {
       models: [modelId],
     };
     const [refused] = gatewayProviderModelOptions([], profile, { catalog, requiresTools: true });
+    expect(refused?.provider).toBe("nvidia");
     expect(refused?.disabled).toBe(true);
     expect(refused?.description).toContain("Tool calling is not supported");
     const [allowed] = gatewayProviderModelOptions([], profile, { catalog, requiresTools: false });
