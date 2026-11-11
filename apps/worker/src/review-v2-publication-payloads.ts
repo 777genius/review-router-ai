@@ -365,17 +365,23 @@ function payloadForOperation(
       );
     case ReviewPublicationKind.SubmittedReview:
       return null;
-    case ReviewPublicationKind.ThreadLifecycle: {
-      const payload = catalog.lifecycle[operation.chunkIndex]?.payload;
-      return payload?.kind === ReviewV2PublicationPayloadKind.ThreadLifecycle
-        ? payload
-        : null;
-    }
+    case ReviewPublicationKind.ThreadLifecycle:
     case ReviewPublicationKind.ThreadReply: {
-      const payload = catalog.lifecycle[operation.chunkIndex]?.payload;
-      return payload?.kind === ReviewV2PublicationPayloadKind.ThreadReply
-        ? payload
-        : null;
+      // Existing V6 attempts retain their original chunk indexes. The marker
+      // and body are bound to that immutable operation, even after new replies
+      // have been introduced ahead of guarded resolutions.
+      const expectedKind =
+        operation.publicationKind === ReviewPublicationKind.ThreadReply
+          ? ReviewV2PublicationPayloadKind.ThreadReply
+          : ReviewV2PublicationPayloadKind.ThreadLifecycle;
+      return (
+        catalog.lifecycle.find(
+          (entry) =>
+            entry.payload.kind === expectedKind &&
+            entry.payload.markerHash === operation.markerHash &&
+            entry.payload.bodyHash === operation.bodyHash,
+        )?.payload ?? null
+      );
     }
   }
 }
