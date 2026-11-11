@@ -742,7 +742,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         "a new provider starts from its default model",
         async () =>
           expectEqual(
-            await dialog.getByRole("textbox", { name: "Model" }).inputValue(),
+            await dialog.getByRole("combobox", { name: "Model" }).inputValue(),
             model,
             "model",
           ),
