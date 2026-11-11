@@ -103,6 +103,7 @@ describe("hosted pool PostgreSQL migration ordering", () => {
       "000145_workspace_provider_profiles",
       "000146_drop_review_configuration_projection",
       "000149_api_key_repository_secret_profiles",
+      "000156_claude_code_api_key_secret",
     ];
     for (const migration of registryMigrations)
       expect(source.match(new RegExp(migration, "gu"))).toHaveLength(1);
