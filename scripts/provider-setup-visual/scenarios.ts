@@ -364,14 +364,11 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
     id: "dialog-nvidia-evaluation",
     title: "NVIDIA Build appears only as an explicit Gateway evaluation provider",
     users: ["owner"],
-    route: workspaceRoute("main", "repositories"),
+    route: repositoryRoute("mainNeedsSecret"),
     requires: { personalSharing: false, nvidiaEvaluation: true },
-    prepare: async ({ page }) => {
-      const dialog = await openFromRow(
-        page,
-        "mainSetupPr",
-        "Use a different provider",
-      );
+    prepare: async (context) => {
+      const { page } = context;
+      const dialog = await openFromStepperLine("mainNeedsSecret")(context);
       await chooseNewProvider(dialog);
       await dialog.getByRole("combobox", { name: "Provider", exact: true }).first().click();
       const option = page.getByRole("option", { name: /NVIDIA Build \(evaluation\)/ });
