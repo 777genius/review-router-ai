@@ -863,7 +863,7 @@ describe("dashboard setup PR recovery", () => {
     ).resolves.toMatchObject({ params: { notice: "setup_pr_merged" } });
     expect(workflowProvisioning.updateMany).toHaveBeenCalledTimes(1);
   });
-  it("confirms the native Claude caller using only selected provisioning fields", async () => {
+  it("refuses to reauthorize a legacy Claude subscription caller through Gateway", async () => {
     const actionRef = resolveReviewRouterActionRef();
     const candidate = { ...initialCandidate, actionVersion: actionRef };
     const state = createProvisioningPrisma(candidate);
@@ -970,7 +970,9 @@ describe("dashboard setup PR recovery", () => {
     form.set("workspaceId", "workspace_1");
     form.set("repositoryId", "repository_1");
     const result = await confirmSetupPullRequestMergedClientAction(form);
-    expect(result).toMatchObject({ params: { notice: "setup_pr_merged" } });
+    expect(result).toMatchObject({
+      params: { error: "github_operation_failed" },
+    });
     expect(findRepository).toHaveBeenCalledWith(
       expect.objectContaining({
         select: expect.objectContaining({
@@ -980,23 +982,12 @@ describe("dashboard setup PR recovery", () => {
         }),
       }),
     );
-    expect(mocks.provisionGatewayReviewV2Repository).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subscriptionAuthMode: "claude-oauth",
-        command: expect.objectContaining({
-          expectedGatewaySource: expect.objectContaining({
-            actionRef,
-            sourceRevision: commitSha,
-          }),
-        }),
-      }),
-    );
+    expect(mocks.provisionGatewayReviewV2Repository).not.toHaveBeenCalled();
     expect(
       mocks.activateConfirmedCodexNamespaceAfterWorkflowMerge,
     ).not.toHaveBeenCalled();
     expect(state.current()).toMatchObject({
-      status: "configured",
-      actionVersion: actionRef,
+      status: "pending",
     });
   });
 
