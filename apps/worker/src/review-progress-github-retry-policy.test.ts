@@ -29,7 +29,8 @@ describe("Review progress GitHub retry policy", () => {
     const fallbackActual = retryBoundary({}, now);
     expect(fallbackActual).toEqual(new Date("2026-08-12T12:00:01.000Z"));
 
-    const staleHeaders = { "retry-after": "Wed, 12 Aug 2026 11:59:59 GMT" };
+    const staleRetryAfter = "Wed, 12 Aug 2026 11:59:59 GMT";
+    const staleHeaders = { "retry-after": staleRetryAfter };
     expect(retryBoundary(staleHeaders, now)).toEqual(now);
   });
 
@@ -43,7 +44,8 @@ describe("Review progress GitHub retry policy", () => {
   });
 
   it("recognizes GitHub secondary limit bodies without headers", () => {
-    const secondary = { message: "You have exceeded a secondary rate limit." };
+    const secondaryMessage = "You have exceeded a secondary rate limit.";
+    const secondary = { message: secondaryMessage };
     const forbidden = { message: "Normal forbidden response" };
     expect(isSecondaryRateLimitResponse(secondary)).toBe(true);
     expect(isSecondaryRateLimitResponse(forbidden)).toBe(false);
