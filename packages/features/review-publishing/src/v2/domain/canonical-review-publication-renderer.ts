@@ -445,7 +445,7 @@ export function verifiedFixThreadReply(targetId: string): Readonly<{
       "This confirmation is separate from GitHub thread resolution; the thread may remain open.",
       "",
       `<!-- ${marker} -->`,
-    ].join("\\n"),
+    ].join("\n"),
   };
 }
 
