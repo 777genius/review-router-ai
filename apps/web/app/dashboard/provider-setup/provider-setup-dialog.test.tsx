@@ -654,6 +654,63 @@ describe("ProviderSetupDialog", () => {
     );
   });
 
+  it("resumes a Claude API key in GitHub Secrets without switching to subscription", async () => {
+    view = {
+      ...view,
+      sources: [
+        ...apiSources(),
+        {
+          key: "user_ci_secret:claude_code_oauth",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_oauth",
+          decision: { allowed: true },
+        },
+        {
+          key: "user_ci_secret:claude_code_api_key",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_api_key",
+          decision: { allowed: true },
+        },
+      ],
+    };
+    renderDialog(repositoryTarget, {
+      initialIntent: {
+        provider: "claude-code",
+        storage: "github_secrets",
+        claudeMethod: "api_key",
+        workspaceId: "workspace_1",
+        repositoryIds: ["repo_1"],
+      },
+    });
+    expect(
+      screen
+        .getByRole("radio", { name: "Anthropic API key" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("radio", { name: "Claude subscription" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
+    await waitFor(() =>
+      expect(saveProviderRosterAction).toHaveBeenCalledWith(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            provider: expect.objectContaining({
+              credential: {
+                kind: "user_ci_secret",
+                authMode: "claude_code_api_key",
+              },
+            }),
+          }),
+        ),
+      ),
+    );
+  });
+
   it("selects Anthropic API-key auth without creating a second Claude provider", async () => {
     view = {
       ...view,
