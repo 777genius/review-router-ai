@@ -746,7 +746,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(publicationUpdate).not.toHaveBeenCalled();
   });
 
-  it("writes terminal progress before publication and stops when progress persistence fails", async () => {
+  it("keeps terminal writes ordered when progress update fails", async () => {
     const mutationOrder: string[] = [];
     const progressUpdate = vi.fn(async () => {
       mutationOrder.push("progress");
