@@ -963,7 +963,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       });
       await returnFromSetupDialog(page, dialog, "Back to repository setup");
       await flow.check("credential verification does not certify an unverified review workflow", async () => {
-        await assertRepositoryExpanded(page, repositoryKey, workspace.installation.accountLogin);
+        await assertRepositoryExpanded(page, repositoryKey, workspace.id);
         await expectEventually(async () =>
           expectMatch(
             await stepTitle(page, repositoryKey),
@@ -2133,9 +2133,23 @@ async function returnFromSetupDialog(
   const link = dialog.getByRole("link", { name: linkName, exact: true });
   const target = new URL((await link.getAttribute("href"))!, page.url());
   const current = new URL(page.url());
+  // The fixture accepts either the workspace ID or its GitHub-org alias.
+  // Both identify the same workspace, but the setup return link can select
+  // the other representation. Compare canonical routes rather than aliases.
+  const canonicalRoute = (url: URL): string => {
+    const route = new URL(url);
+    const workspace = route.searchParams.get("workspace");
+    if (
+      workspace === VISUAL_WORKSPACES.main.installation.accountLogin &&
+      route.searchParams.get("repository")?.startsWith(`${workspace}/`)
+    ) {
+      route.searchParams.set("workspace", VISUAL_WORKSPACES.main.id);
+    }
+    return `${route.origin}${route.pathname}${route.search}`;
+  };
   expectEqual(
-    `${current.origin}${current.pathname}${current.search}`,
-    `${target.origin}${target.pathname}${target.search}`,
+    canonicalRoute(current),
+    canonicalRoute(target),
     "same dashboard route before returning",
   );
   await Promise.all([
