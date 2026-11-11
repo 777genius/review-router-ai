@@ -50,6 +50,15 @@ export async function applyProviderApiKey(
   const providerType = input.providerType;
   const requestedRepositoryIds = [...new Set(input.repositoryIds)];
   const providedApiKey = input.apiKey?.trim();
+  // Do not accept a Claude subscription token in the server-managed API-key
+  // store. A setup-token belongs only to the user's official CLI runtime.
+  if (
+    providerType === "anthropic" &&
+    providedApiKey &&
+    !/^sk-ant-api[0-9]{2}-[A-Za-z0-9._-]{8,}$/.test(providedApiKey)
+  ) {
+    throw new Error("anthropic_api_key_invalid");
+  }
 
   return dependencies.lock.withLock(
     `provider-api-key:${workspaceId}:${providerType}`,
