@@ -716,9 +716,13 @@ stopped-cohort activation, not a mixed-version rolling release:
 3. Only after confirming fleet convergence enable the new v2 producer and
    worker, then qualify a safe GitHub App canary.
 
-If the drain or image match cannot be proven, leave admission disabled. Do not
-restart a pre-000156 worker while `thread_reply` attempts can be claimed.
-A successful PR CI run does not prove that production activation occurred.
+If the drain or image match cannot be proven, leave admission disabled.
+Do not roll back either the API or worker to a pre-000156 image while any
+retained `thread_reply` attempt can still be read, even if terminal or no
+longer claimable: old readers cannot deserialize the persisted enum value.
+Keep compatible readers until those attempts are safely outside retention,
+or fix forward under the stopped-cohort gate. A successful PR CI run does
+not prove that production activation occurred.
 
 ### Workflow provisioning attempt cutover (000089 workflow guard through 000091)
 
