@@ -2861,6 +2861,8 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      // Historical partial checkouts predate Claude API-key migration161.
+      rmSync(join(migrations, claudeApiKeyMigrationName), { recursive: true });
       rmSync(join(migrations, usageMemberReportIndexName), { recursive: true });
       rmSync(join(migrations, gatewayAllocationsMigrationName), {
         recursive: true,
