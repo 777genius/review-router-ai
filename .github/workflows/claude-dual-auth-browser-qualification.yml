@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/claude-dual-auth-browser-qualification.yml
       - scripts/provider-setup-visual/flows.ts
+      - scripts/provider-setup-visual/flows.ts
 
 permissions:
   contents: read
