@@ -570,6 +570,95 @@ describe("ProviderSetupDialog", () => {
     );
   });
 
+  it("stores an Anthropic API key encrypted through the existing managed-key delivery without enabling subscription custody", async () => {
+    const managed = {
+      key: "managed_api_key:claude_code_api_key" as const,
+      credentialKind: "managed_api_key" as const,
+      authMode: "claude_code_api_key" as const,
+      decision: { allowed: true as const },
+      managedKey: {
+        uploaded: false,
+        installedRepositoryIds: [] as string[],
+        install: { allowed: true as const },
+      },
+    };
+    view = {
+      ...view,
+      sources: [
+        ...apiSources(),
+        {
+          key: "user_ci_secret:claude_code_oauth",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_oauth",
+          decision: { allowed: true },
+        },
+        {
+          key: "user_ci_secret:claude_code_api_key",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_api_key",
+          decision: { allowed: true },
+        },
+        managed,
+      ],
+    };
+    const requests: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/dashboard/provider-keys/apply") {
+          requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          managed.managedKey.uploaded = true;
+          managed.managedKey.installedRepositoryIds = ["repo_1"];
+          return {
+            ok: true,
+            json: async () => ({
+              results: [{
+                repositoryId: "repo_1",
+                repositoryFullName: "acme/widget",
+                status: "applied",
+              }],
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => view } as Response;
+      }),
+    );
+    renderDialog(repositoryTarget);
+    await choose("Add a new provider");
+    await chooseSelect("Provider", "Claude Code");
+    fireEvent.click(screen.getByRole("radio", { name: "Anthropic API key" }));
+    fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
+    expect(
+      screen.getByRole("radio", { name: "ReviewRouter" }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.queryByRole("link", { name: "Connect account" })).toBeNull();
+    const field = await screen.findByLabelText(/^Claude Code API key/);
+    fireEvent.change(field, { target: { value: "sk-ant-api03-synthetic-offline-key" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Install key and use for this repository" }),
+    );
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]).toEqual({
+      workspaceId: "workspace_1",
+      providerType: "anthropic",
+      apiKey: "sk-ant-api03-synthetic-offline-key",
+      repositoryIds: ["repo_1"],
+    });
+    await waitFor(() => expect(saveProviderRosterAction).toHaveBeenCalledWith(
+      expect.objectContaining(
+        singletonRosterExpectation({
+          provider: expect.objectContaining({
+            credential: {
+              kind: "managed_api_key",
+              authMode: "claude_code_api_key",
+            },
+          }),
+        }),
+      ),
+    ));
+    expect(screen.queryByDisplayValue("sk-ant-api03-synthetic-offline-key")).toBeNull();
+  });
+
   it("keeps ReviewRouter as the chosen default when enrollment is unavailable instead of switching custody", async () => {
     view = {
       ...view,
