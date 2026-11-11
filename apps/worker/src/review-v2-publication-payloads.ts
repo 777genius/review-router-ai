@@ -53,11 +53,12 @@ export class CanonicalReviewV2ProjectionAdapter
 
   async publicationEnvelope(
     artifact: FinalizedReviewProjectionArtifact,
+    options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
   ): Promise<PublishedReviewProjectionPublicationEnvelope | null> {
     const loaded = await this.loadMatching(artifact.publicationPermit);
     if (!loaded) return null;
     const projection = parseProjection(artifact.projectionEnvelopeJson);
-    const catalog = buildCatalog(projection, artifact);
+    const catalog = buildCatalog(projection, artifact, options);
     const partial = artifact.coverageState === "partial";
     return {
       envelopeVersion: publishedReviewProjectionPublicationEnvelopeVersion,
@@ -234,6 +235,7 @@ type PublicationCatalog = {
 function buildCatalog(
   projection: ProjectionEnvelope,
   artifact: FinalizedReviewProjectionArtifact,
+  options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
 ): PublicationCatalog {
   const rendered = renderCanonicalReviewPublication(
     {
@@ -244,6 +246,7 @@ function buildCatalog(
       renderPolicyVersion: resolveReviewPublicationRenderPolicyVersion(
         artifact.projectionPolicyVersion,
       ),
+      includeVerifiedFixReplies: options?.includeVerifiedFixReplies,
       targetCommitId: artifact.reviewedHeadSha,
       occurrenceStates: projection.occurrences.map((occurrence) =>
         reviewPublicationOccurrenceState(occurrence.state),
