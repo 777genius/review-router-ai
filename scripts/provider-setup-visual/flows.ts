@@ -961,8 +961,8 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         await expectEventually(async () =>
           expectMatch(
             await stepTitle(page, repositoryKey),
-            /^1 of 4 - verification needed$/,
-            "workflow readiness remains unverified",
+            /^1 of 4 - (verification needed|workflow update needed)$/,
+            "workflow must still be verified or updated",
           ),
         );
       });
