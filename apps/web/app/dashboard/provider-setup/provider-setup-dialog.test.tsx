@@ -620,6 +620,7 @@ describe("ProviderSetupDialog", () => {
         repositoryIds: ["repo_1"],
       },
     });
+    await screen.findByRole("radio", { name: "Anthropic API key" });
     expect(
       screen
         .getByRole("radio", { name: "Anthropic API key" })
@@ -684,6 +685,7 @@ describe("ProviderSetupDialog", () => {
         repositoryIds: ["repo_1"],
       },
     });
+    await screen.findByRole("radio", { name: "Anthropic API key" });
     expect(
       screen
         .getByRole("radio", { name: "Anthropic API key" })
