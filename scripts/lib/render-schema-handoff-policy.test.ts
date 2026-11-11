@@ -626,6 +626,9 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           : row,
       ),
       full.filter(
+        (row) => row.migrationName !== usageMemberReportIndexName,
+      ),
+      full.filter(
         (row) => row.migrationName !== unifiedModelDispatchMigrationName,
       ),
       [...full, { migrationName: "000156_unknown", checksum: "0".repeat(64) }],
