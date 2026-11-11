@@ -207,6 +207,14 @@ describe("Claude dual-auth CI templates", () => {
     expect(compatibility(brokenWorkflow).missingRequirements).toContain(
       "secret_pass_through",
     );
+    const missingRuntimeAssignment = workflow.replace(
+      "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
+      "REMOVED_CLAUDE_KEY_ASSIGNMENT: ${{ secrets.ANTHROPIC_API_KEY }}",
+    );
+    expect(missingRuntimeAssignment).toContain("ANTHROPIC_API_KEY_PRESENT:");
+    expect(compatibility(missingRuntimeAssignment).missingRequirements).toContain(
+      "secret_pass_through",
+    );
   });
 
   it("detects Claude API-key selection inside JSON-quoted reusable workflow env", () => {
