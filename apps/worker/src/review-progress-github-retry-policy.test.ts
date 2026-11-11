@@ -14,9 +14,8 @@ describe("Review progress GitHub retry policy", () => {
       "retry-after": "10",
       "x-ratelimit-reset": String(now.getTime() / 1_000 + 60),
     };
-    expect(retryBoundary(headers, now)).toEqual(
-      new Date("2026-08-12T12:00:10.000Z"),
-    );
+    const expected = new Date("2026-08-12T12:00:10.000Z");
+    expect(retryBoundary(headers, now)).toEqual(expected);
   });
 
   it("falls back to reset time or a one-second delay", () => {
@@ -24,12 +23,10 @@ describe("Review progress GitHub retry policy", () => {
       "retry-after": "invalid",
       "x-ratelimit-reset": String(now.getTime() / 1_000 + 20),
     };
-    expect(retryBoundary(headers, now)).toEqual(
-      new Date("2026-08-12T12:00:20.000Z"),
-    );
-    expect(retryBoundary({}, now)).toEqual(
-      new Date("2026-08-12T12:00:01.000Z"),
-    );
+    const expectedReset = new Date("2026-08-12T12:00:20.000Z");
+    expect(retryBoundary(headers, now)).toEqual(expectedReset);
+    const expectedFallback = new Date("2026-08-12T12:00:01.000Z");
+    expect(retryBoundary({}, now)).toEqual(expectedFallback);
     const staleHeaders = {
       "retry-after": "Wed, 12 Aug 2026 11:59:59 GMT",
     };
@@ -37,15 +34,12 @@ describe("Review progress GitHub retry policy", () => {
   });
 
   it("never schedules jitter earlier than the retry boundary", () => {
-    expect(jitterAfter(now, () => -1)).toEqual(
-      new Date("2026-08-12T12:00:00.250Z"),
-    );
-    expect(jitterAfter(now, () => 2)).toEqual(
-      new Date("2026-08-12T12:00:01.000Z"),
-    );
-    expect(fallbackRetryAt(() => now, () => 0)).toEqual(
-      new Date("2026-08-12T12:00:01.250Z"),
-    );
+    const expectedLowJitter = new Date("2026-08-12T12:00:00.250Z");
+    expect(jitterAfter(now, () => -1)).toEqual(expectedLowJitter);
+    const expectedHighJitter = new Date("2026-08-12T12:00:01.000Z");
+    expect(jitterAfter(now, () => 2)).toEqual(expectedHighJitter);
+    const expectedDelay = new Date("2026-08-12T12:00:01.250Z");
+    expect(fallbackRetryAt(() => now, () => 0)).toEqual(expectedDelay);
   });
 
   it("recognizes GitHub secondary limit bodies without headers", () => {
