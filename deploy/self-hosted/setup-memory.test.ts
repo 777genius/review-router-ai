@@ -54,6 +54,23 @@ async function releaseFixture() {
       await readFile(join(sourceRoot, source)),
     );
   }
+  // Test the selected manifest/archive identity, not only provenance metadata.
+  const sdk = JSON.parse(
+    await readFile(
+      join(sourceRoot, conversationReleaseSources.gatewaySdkProvenanceDigest),
+      "utf8",
+    ),
+  ) as { archive: string };
+  for (const source of [
+    "apps/api/package.json",
+    `vendor/account-gateway/${sdk.archive}`,
+  ]) {
+    await mkdir(dirname(join(directory, source)), { recursive: true });
+    await writeFile(
+      join(directory, source),
+      await readFile(join(sourceRoot, source)),
+    );
+  }
   const writeArtifact = async (value: unknown = declaration) => {
     const path = join(directory, conversationReleaseArtifact);
     await mkdir(dirname(path), { recursive: true });
@@ -303,6 +320,45 @@ test("provider/service opt-outs never install release capability", async () => {
         !merged.includes("REVIEW_ROUTER_GATEWAY_INTERACTION_RUNTIME_SHA="),
       );
     }
+  } finally {
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("conversation source identity refuses a different installed SDK or archive bytes", async () => {
+  const f = await releaseFixture();
+  try {
+    await currentConversationSourceStamp(f.directory);
+    const manifestPath = join(f.directory, "apps/api/package.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      dependencies: Record<string, string>;
+    };
+    manifest.dependencies["@agent-teams/account-gateway"] =
+      "file:../../vendor/account-gateway/unqualified.tgz";
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    await assert.rejects(
+      currentConversationSourceStamp(f.directory),
+      /conversation_sdk_manifest_mismatch/,
+    );
+    const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    await writeFile(
+      manifestPath,
+      await readFile(join(sourceRoot, "apps/api/package.json")),
+    );
+    const source = JSON.parse(
+      await readFile(
+        join(f.directory, conversationReleaseSources.gatewaySdkProvenanceDigest),
+        "utf8",
+      ),
+    ) as { archive: string };
+    await writeFile(
+      join(f.directory, "vendor/account-gateway", source.archive),
+      "changed SDK bytes",
+    );
+    await assert.rejects(
+      currentConversationSourceStamp(f.directory),
+      /conversation_sdk_archive_integrity_mismatch/,
+    );
   } finally {
     await rm(f.directory, { recursive: true, force: true });
   }
