@@ -68,16 +68,17 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import hashlib, json, subprocess
+          import base64, hashlib, json, subprocess
           paths = [p for p in subprocess.check_output(
-              ["git", "diff", "--name-only", "-z"]).decode("utf-8").split("\0") if p]
+              ["git", "diff", "--name-only", "-z"]).decode("utf-8").split("\\0") if p]
           data = [{"path": p, "content": open(p, encoding="utf-8").read()}
                   for p in paths]
           payload = json.dumps(data, ensure_ascii=True, separators=(",", ":"))
-          print("RRFMT_HEADER:" + str(len(paths)) + ":" + str(len(payload)))
-          for offset in range(0, len(payload), 3000):
-              print("RRFMT_CHUNK:" + payload[offset:offset+3000])
-          print("RRFMT_SHA256:" + hashlib.sha256(payload.encode()).hexdigest())
+          encoded = base64.b64encode(payload.encode("ascii")).decode("ascii")
+          print("RRFMT64_HEADER:" + str(len(paths)) + ":" + str(len(payload)) + ":" + str(len(encoded)))
+          for offset in range(0, len(encoded), 3000):
+              print("RRFMT64_CHUNK:" + encoded[offset:offset+3000])
+          print("RRFMT64_SHA256:" + hashlib.sha256(payload.encode()).hexdigest())
           PY
       - name: Verify full repository formatting
         run: pnpm exec prettier --check .
