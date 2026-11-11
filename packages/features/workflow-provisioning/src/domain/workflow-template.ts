@@ -1254,7 +1254,14 @@ export function analyzeWorkflowProviderCompatibility(input: {
   }
 
   if (input.providerKind === "claude") {
-    if (!input.workflowYaml.includes("CLAUDE_CODE_OAUTH_TOKEN")) {
+    // A selected API-key workflow must be wired for its own credential;
+    // an unrelated subscription secret cannot satisfy compatibility.
+    const apiKeySelected =
+      /REVIEW_AUTH_MODE:\\s*["']?claude-api-key["']?(?:\\s|$)/m.test(input.workflowYaml);
+    const requiredSecret = apiKeySelected
+      ? "ANTHROPIC_API_KEY"
+      : "CLAUDE_CODE_OAUTH_TOKEN";
+    if (!input.workflowYaml.includes(requiredSecret)) {
       missingRequirements.push("secret_pass_through");
     }
     if (
