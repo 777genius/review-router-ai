@@ -328,8 +328,8 @@ export class ReconcileReviewPublicationOperation {
       }
       if (!hasCurrentOperationObject(inventory, input.operation)) {
         if (
-          input.operation.publicationKind ===
-          ReviewPublicationKind.PrDescription
+          (input.operation.publicationKind === ReviewPublicationKind.PrDescription ||
+            input.operation.publicationKind === ReviewPublicationKind.ThreadReply)
         ) {
           return {
             settled: true,
