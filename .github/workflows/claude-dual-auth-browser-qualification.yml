@@ -5,6 +5,7 @@ on:
     branches: [feat/claude-dual-auth-secrets-20261111]
     paths:
       - .github/workflows/claude-dual-auth-browser-qualification.yml
+      - scripts/provider-setup-visual/flows.ts
 
 permissions:
   contents: read
