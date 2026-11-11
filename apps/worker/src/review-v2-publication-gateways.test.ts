@@ -1218,8 +1218,8 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
                   {
                     id: parentId,
                     databaseId: 4532358290,
-                    viewerDidAuthor: true,
-                    author: { login: "review-router[bot]", __typename: "Bot" },
+                    viewerDidAuthor: false,
+                    author: { login: "review-router-ai", __typename: "Bot" },
                     body: `finding\n<!-- reviewrouter:finding:v2:${fingerprint} -->`,
                   },
                 ],
@@ -1230,7 +1230,12 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
         throw new Error("unexpected_query");
       },
     };
-    const client = githubPublicationClient(octokit, payload);
+    const client = githubPublicationClient(
+      octokit,
+      payload,
+      assertUnreservedCheckIdentity,
+      new Set(["review-router-ai[bot]"]),
+    );
     const publishingOperation = {
       ...operation(),
       publicationKind: ReviewPublicationKind.ThreadReply,
@@ -1669,6 +1674,7 @@ function githubPublicationClient(
   assertCheckIdentityAllowed: (
     name: string,
   ) => void = assertUnreservedCheckIdentity,
+  trustedParentAuthors?: ReadonlySet<string>,
 ) {
   return new GitHubReviewV2PublicationClient({
     octokit,
@@ -1682,6 +1688,7 @@ function githubPublicationClient(
       },
     },
     botLogin: "review-router[bot]",
+    trustedParentAuthors,
   });
 }
 
