@@ -27,6 +27,58 @@ const publicKey = Buffer.from("0123456789abcdef0123456789abcdef").toString(
 );
 
 describe("applyProviderApiKey", () => {
+  it("encrypts an Anthropic API key once and delivers only ANTHROPIC_API_KEY to GitHub", async () => {
+    const key = "sk-ant-api03-synthetic-offline-key";
+    const providerApiKeys = store();
+    const githubSecrets = gateway();
+    const audit = { record: vi.fn(async () => undefined) };
+    const result = await applyProviderApiKey(
+      {
+        workspaceId: "workspace_1",
+        actor: "user:github:owner",
+        providerType: "anthropic",
+        apiKey: key,
+        repositoryIds: ["repo_1", "repo_2"],
+      },
+      dependencies({ githubSecrets, providerApiKeys, audit }),
+    );
+    expect(result.results.map((row) => row.status)).toEqual(["applied", "applied"]);
+    expect(providerApiKeys.prepareApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerType: "anthropic",
+        encryptedApiKey: `encrypted:${key}`,
+      }),
+    );
+    expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledTimes(2);
+    for (const [input] of vi.mocked(githubSecrets.putEncryptedRepositorySecret).mock.calls) {
+      expect(input.secretName).toBe("ANTHROPIC_API_KEY");
+      expect(JSON.stringify(input)).not.toContain(key);
+      expect(input.secretName).not.toBe("CLAUDE_CODE_OAUTH_TOKEN");
+    }
+    expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain(key);
+  });
+
+  it.each([
+    "sk-ant-oat01-synthetic-subscription",
+    "sk-ant-api03-contains whitespace",
+    "not-a-claude-api-key",
+  ])("rejects non-API Claude credentials before custody or GitHub delivery (%s)", async (key) => {
+    const providerApiKeys = store();
+    const githubSecrets = gateway();
+    await expect(applyProviderApiKey(
+      {
+        workspaceId: "workspace_1",
+        actor: "user:github:owner",
+        providerType: "anthropic",
+        apiKey: key,
+        repositoryIds: ["repo_1"],
+      },
+      dependencies({ githubSecrets, providerApiKeys }),
+    )).rejects.toThrow("anthropic_api_key_invalid");
+    expect(providerApiKeys.prepareApply).not.toHaveBeenCalled();
+    expect(githubSecrets.putEncryptedRepositorySecret).not.toHaveBeenCalled();
+  });
+
   it("reuses the encrypted saved key when a later batch omits apiKey", async () => {
     const providerApiKeys = store();
     const githubSecrets = gateway();
