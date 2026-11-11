@@ -629,16 +629,23 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       const repository = VISUAL_REPOSITORIES[repositoryKey];
       const fullName = visualRepositoryFullName(repository);
       const defaultBefore = await defaultProfileId(flow.prisma, workspace.id);
-      const page = await flow.open("owner", repositoryRoute(repositoryKey), {
-        theme: "light",
-      });
+      const page = await flow.open(
+        "owner",
+        workspaceRoute("main", "repositories", {
+          workspace: workspace.installation.accountLogin,
+          repository: fullName,
+        }),
+        { theme: "light" },
+      );
 
-      await flow.check("the unverified runtime does not claim completed setup", async () =>
-        expectMatch(
-          await stepTitle(page, repositoryKey),
-          /^1 of 4 - verification needed$/,
-          "step pill title",
-        ),
+      await flow.check(
+        "the unverified runtime does not claim completed setup",
+        async () =>
+          expectMatch(
+            await stepTitle(page, repositoryKey),
+            /^1 of 4 - verification needed$/,
+            "step pill title",
+          ),
       );
       const panel = repositorySetupPanel(page, repositoryKey);
       if (!(await panel.isVisible())) {
@@ -817,8 +824,9 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         );
       });
       await page.setViewportSize({ width: 390, height: 844 });
-      await flow.check("the repository with confirmed credentials remains usable on mobile", () =>
-        assertNoHorizontalOverflow(page),
+      await flow.check(
+        "the repository with confirmed credentials remains usable on mobile",
+        () => assertNoHorizontalOverflow(page),
       );
       await repositorySetupPanel(page, repositoryKey).scrollIntoViewIfNeeded();
       await flow.shot(page, "stepper-workflow-pending");
