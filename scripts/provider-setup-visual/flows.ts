@@ -830,6 +830,122 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
     },
   },
   {
+    id: "flow-claude-api-key-github-secrets",
+    title:
+      "Claude API key: select the same provider, persist the profile, verify synthetic GitHub Secret and finish repository setup",
+    run: async (flow) => {
+      const repositoryKey: VisualRepositoryKey = "mainNeedsSecret";
+      const workspace = VISUAL_WORKSPACES.main;
+      const repository = VISUAL_REPOSITORIES[repositoryKey];
+      const fullName = visualRepositoryFullName(repository);
+      const defaultBefore = await defaultProfileId(flow.prisma, workspace.id);
+      const page = await flow.open("owner", repositoryRoute(repositoryKey), {
+        theme: "dark",
+      });
+      const dialog = await openDialog(
+        page,
+        repositorySetupPanel(page, repositoryKey).getByRole("button", {
+          name: "Add secret",
+        }),
+      );
+      await dialog.getByRole("button", { name: "1. Provider" }).click();
+      await chooseNewProvider(dialog);
+      await chooseSource(page, dialog, /^Claude Code(?: · GitHub Secrets)?$/);
+
+      await flow.check("Claude is one provider with two explicit credential methods", async () => {
+        await visible(dialog.getByRole("radio", { name: "Claude subscription" }));
+        await visible(dialog.getByRole("radio", { name: "Anthropic API key" }));
+      });
+      await dialog.getByRole("radio", { name: "Anthropic API key" }).click();
+      await flow.check("an API key selects the repository-owned secret, not subscription OAuth", async () => {
+        expectEqual(
+          await dialog.getByRole("radio", { name: "GitHub Secrets" }).getAttribute("aria-checked"),
+          "true",
+          "GitHub Secrets selected",
+        );
+        expectEqual(
+          await dialog.getByRole("radio", { name: "Anthropic API key" }).getAttribute("aria-checked"),
+          "true",
+          "API-key credential selected",
+        );
+        expectEqual(
+          await dialog.getByText(/claude setup-token/).count(),
+          0,
+          "no OAuth setup instructions",
+        );
+        await assertNoHorizontalOverflow(page);
+      });
+      await flow.shot(page, "claude-api-key-selection");
+
+      await dialog.getByRole("button", { name: "Use for this repository" }).click();
+      await flow.check("saving advances to the API-key secret confirmation step", async () => {
+        await expectEventually(async () => {
+          expectEqual(
+            await dialog.getByRole("button", { name: "2. Add secret" }).getAttribute("aria-current"),
+            "step",
+            "selected credential setup step",
+          );
+        });
+        await visible(dialog.getByText(/ANTHROPIC_API_KEY/).first());
+      });
+      const model = getDefaultProviderConfigForAuthMode("claude_code_api_key").model;
+      const created = await flow.prisma.workspaceProviderProfile.findFirst({
+        where: {
+          workspaceId: workspace.id,
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_api_key",
+          model,
+          archivedAt: null,
+        },
+      });
+      await flow.check("database persists the Anthropic API-key profile, not subscription OAuth", async () => {
+        if (!created) throw new Error("Claude API-key profile was not persisted");
+        expectEqual(created.createdByUserId, VISUAL_USERS.owner.id, "credential owner");
+        expectEqual(
+          await repositoryProfileId(flow.prisma, workspace.id, repository.id),
+          created.id,
+          "repository credential binding",
+        );
+        expectEqual(
+          await defaultProfileId(flow.prisma, workspace.id),
+          defaultBefore,
+          "workspace default unaffected",
+        );
+      });
+      await flow.shot(page, "claude-api-key-secret-missing");
+
+      // Fixture writes only GitHub secret metadata, never real secret material.
+      await flow.env.writeGitHubState({
+        repositorySecrets: [
+          ...flow.seed.github.repositorySecrets,
+          visualRepositorySecretKey(fullName, "ANTHROPIC_API_KEY"),
+        ],
+      });
+      await dialog.getByRole("button", { name: "Check GitHub setup" }).click();
+      await flow.check("the synthetic Anthropic secret is confirmed without upstream inference", async () => {
+        await visible(dialog.getByText(`ANTHROPIC_API_KEY is set for ${fullName}.`));
+        expectEqual(
+          await dialog.getByText("Model answered", { exact: true }).count(),
+          0,
+          "no fabricated Anthropic response",
+        );
+      });
+      await returnFromSetupDialog(page, dialog, "Back to repository setup");
+      await flow.check("the repository becomes ready after verifying the selected API secret", async () => {
+        await assertRepositoryExpanded(page, repositoryKey);
+        await expectEventually(async () =>
+          expectMatch(await stepTitle(page, repositoryKey), /^4 of 4/, "ready step"),
+        );
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await flow.check("Claude API-key setup fits a mobile viewport", () =>
+        assertNoHorizontalOverflow(page),
+      );
+      await flow.shot(page, "claude-api-key-repository-ready");
+    },
+  },
+
+  {
     id: "flow-default-inherited",
     title:
       "An admin makes a member's provider the default; repositories without their own provider inherit it",
