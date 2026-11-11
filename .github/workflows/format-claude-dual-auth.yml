@@ -1,0 +1,67 @@
+name: Temporary Claude dual-auth formatting qualification
+on:
+  push:
+    branches:
+      - feat/claude-dual-auth-secrets-20261111
+    paths:
+      - .github/workflows/format-claude-dual-auth.yml
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - run: node scripts/install-private-dependencies.mjs --frozen-lockfile
+      - name: Apply exact pinned Prettier to the failing files
+        shell: bash
+        run: |
+          pnpm exec prettier --write \
+            ai-docs/deployments/2026-11-11-claude-dual-auth.md \
+            apps/web/app/api/dashboard/provider-keys/apply/route.ts \
+            apps/web/app/dashboard/account-gateway-account-controls.oauth.test.tsx \
+            apps/web/app/dashboard/provider-setup/api-key-storage-choice.tsx \
+            apps/web/app/dashboard/provider-setup/provider-credential-delivery.tsx \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx \
+            apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx \
+            apps/web/src/features/provider-setup/provider-list-model.test.ts \
+            apps/web/src/features/provider-setup/provider-setup-model.test.ts \
+            apps/web/src/features/provider-setup/provider-setup-model.ts \
+            apps/web/src/features/provider-setup/setup-provider.test.ts \
+            apps/web/src/features/provider-setup/setup-provider.ts \
+            packages/features/codex-oauth-rotating/src/action/review-runtime-environment.test.ts \
+            packages/features/provider-setup/src/domain/provider-secret-setup.ts \
+            packages/features/provider-setup/src/provider-api-key-management/apply-provider-api-key.test.ts \
+            packages/features/provider-setup/src/provider-api-key-management/provider-api-key.ts \
+            packages/features/provider-setup/src/tests/provider-secret-setup.test.ts \
+            packages/features/review-config/src/tests/review-configuration.test.ts \
+            packages/features/review-providers/src/domain/provider-runtime-plan.ts \
+            packages/features/review-providers/src/tests/provider-catalog.test.ts \
+            packages/features/review-providers/src/tests/provider-runtime-plan.test.ts \
+            packages/features/workflow-provisioning/src/tests/workflow-template.test.ts \
+            scripts/lib/render-schema-handoff-policy.test.ts \
+            scripts/provider-setup-visual/flows.ts \
+            scripts/rehearse-private-pg17-rollout.test.ts 
+      - name: Verify entire checkout formatting
+        run: pnpm format:check
+      - name: Commit and push formatted files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- ai-docs/deployments/2026-11-11-claude-dual-auth.md apps/web/app/api/dashboard/provider-keys/apply/route.ts apps/web/app/dashboard/account-gateway-account-controls.oauth.test.tsx apps/web/app/dashboard/provider-setup/api-key-storage-choice.tsx apps/web/app/dashboard/provider-setup/provider-credential-delivery.tsx apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx apps/web/src/features/provider-setup/provider-list-model.test.ts apps/web/src/features/provider-setup/provider-setup-model.test.ts apps/web/src/features/provider-setup/provider-setup-model.ts apps/web/src/features/provider-setup/setup-provider.test.ts apps/web/src/features/provider-setup/setup-provider.ts packages/features/codex-oauth-rotating/src/action/review-runtime-environment.test.ts packages/features/provider-setup/src/domain/provider-secret-setup.ts packages/features/provider-setup/src/provider-api-key-management/apply-provider-api-key.test.ts packages/features/provider-setup/src/provider-api-key-management/provider-api-key.ts packages/features/provider-setup/src/tests/provider-secret-setup.test.ts packages/features/review-config/src/tests/review-configuration.test.ts packages/features/review-providers/src/domain/provider-runtime-plan.ts packages/features/review-providers/src/tests/provider-catalog.test.ts packages/features/review-providers/src/tests/provider-runtime-plan.test.ts packages/features/workflow-provisioning/src/tests/workflow-template.test.ts scripts/lib/render-schema-handoff-policy.test.ts scripts/provider-setup-visual/flows.ts scripts/rehearse-private-pg17-rollout.test.ts
+          if git diff --cached --quiet; then
+            echo "All reported files already formatted."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style(claude): apply pinned Prettier to dual-auth changes'
+          git fetch origin "${GITHUB_REF_NAME}"
+          test "$(git rev-parse "origin/${GITHUB_REF_NAME}")" = "${GITHUB_SHA}"
+          git push origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
