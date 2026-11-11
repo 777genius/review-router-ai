@@ -161,7 +161,9 @@ describe("Claude dual-auth CI templates", () => {
       "env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' || env.ANTHROPIC_API_KEY_PRESENT == '1'",
     );
     expect(workflow).toContain('REVIEW_AUTH_MODE: "claude-api-key"');
-    expect(workflow).not.toContain("CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && true");
+    expect(workflow).not.toContain(
+      "CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && true",
+    );
   });
 
   it("recognizes API-key-only Claude configuration without a provider list", () => {
@@ -225,7 +227,9 @@ describe("Claude dual-auth CI templates", () => {
         workflowStyle: "reusable",
       });
     expect(workflow).toContain('"REVIEW_AUTH_MODE"');
-    expect(check(workflow).missingRequirements).not.toContain("secret_pass_through");
+    expect(check(workflow).missingRequirements).not.toContain(
+      "secret_pass_through",
+    );
     expect(
       check(workflow.replaceAll("ANTHROPIC_API_KEY", "REMOVED_ANTHROPIC_KEY"))
         .missingRequirements,

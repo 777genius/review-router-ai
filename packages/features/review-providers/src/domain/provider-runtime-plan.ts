@@ -140,7 +140,8 @@ export function buildProviderRuntimePlan(
     // between the subscription and API key of distinct reviewers.
     const claudeModes = new Set(
       claudeProviders.map(
-        (provider) => getProviderAuthModeMetadata(provider.authMode).runtimeAuthMode,
+        (provider) =>
+          getProviderAuthModeMetadata(provider.authMode).runtimeAuthMode,
       ),
     );
     if (claudeModes.size !== 1) {

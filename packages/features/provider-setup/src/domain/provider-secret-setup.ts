@@ -203,25 +203,25 @@ export function buildProviderSecretSetupGuidance(input: {
           "Fork pull requests do not receive secret-backed provider execution.",
         ]
       : isMimoTokenPlan
-      ? [
-          "Run this interactive command on a trusted machine and enter the MiMo Token Plan API key only when GitHub CLI prompts for the secret value.",
-          "The command and ReviewRouter UI/server never contain the key value; ReviewRouter SaaS never receives MIMO_TOKEN_PLAN_API_KEY.",
-          "A missing or invalid MIMO_TOKEN_PLAN_API_KEY fails at the ReviewRouter Action consumer and never silently falls back to Codex or OpenRouter.",
-          "For public repositories, fork pull requests are skipped for secret-backed provider execution by default.",
-        ]
-      : isClaudeCodeOAuth
         ? [
-            "Run claude setup-token on a trusted machine and store only the printed token value.",
-            "Do not store the shell command itself, Claude keychain files, or Claude local config files.",
-            "Do not store ANTHROPIC_API_KEY for Claude Code subscription OAuth; ReviewRouter uses CLAUDE_CODE_OAUTH_TOKEN for this provider.",
-            "Regenerate the token before its roughly one-year expiration or when CI reports Claude auth errors.",
-            "ReviewRouter SaaS never receives CLAUDE_CODE_OAUTH_TOKEN; set it directly in GitHub Actions secrets.",
+            "Run this interactive command on a trusted machine and enter the MiMo Token Plan API key only when GitHub CLI prompts for the secret value.",
+            "The command and ReviewRouter UI/server never contain the key value; ReviewRouter SaaS never receives MIMO_TOKEN_PLAN_API_KEY.",
+            "A missing or invalid MIMO_TOKEN_PLAN_API_KEY fails at the ReviewRouter Action consumer and never silently falls back to Codex or OpenRouter.",
             "For public repositories, fork pull requests are skipped for secret-backed provider execution by default.",
           ]
-        : [
-            "ReviewRouter SaaS does not need to see this key; set it directly in GitHub Actions secrets.",
-            "Prefer organization selected-repository secrets for team-owned repositories.",
-          ],
+        : isClaudeCodeOAuth
+          ? [
+              "Run claude setup-token on a trusted machine and store only the printed token value.",
+              "Do not store the shell command itself, Claude keychain files, or Claude local config files.",
+              "Do not store ANTHROPIC_API_KEY for Claude Code subscription OAuth; ReviewRouter uses CLAUDE_CODE_OAUTH_TOKEN for this provider.",
+              "Regenerate the token before its roughly one-year expiration or when CI reports Claude auth errors.",
+              "ReviewRouter SaaS never receives CLAUDE_CODE_OAUTH_TOKEN; set it directly in GitHub Actions secrets.",
+              "For public repositories, fork pull requests are skipped for secret-backed provider execution by default.",
+            ]
+          : [
+              "ReviewRouter SaaS does not need to see this key; set it directly in GitHub Actions secrets.",
+              "Prefer organization selected-repository secrets for team-owned repositories.",
+            ],
   };
 }
 

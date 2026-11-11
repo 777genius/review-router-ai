@@ -75,7 +75,9 @@ describe("provider catalog", () => {
     expect(getProviderSecretNames("claude_code_api_key")).toEqual([
       "ANTHROPIC_API_KEY",
     ]);
-    expect(toLegacyRuntimeAuthMode("claude_code_api_key")).toBe("claude-api-key");
+    expect(toLegacyRuntimeAuthMode("claude_code_api_key")).toBe(
+      "claude-api-key",
+    );
     expect(toLegacyRuntimeAuthMode("codex_subscription_oauth_rotating")).toBe(
       "codex-oauth-rotating",
     );

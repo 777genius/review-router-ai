@@ -122,33 +122,33 @@ describe("review runtime environment security boundary", () => {
       runtimeMode: "claude-api-key" as const,
       claudeAuthMode: "claude_code_api_key" as const,
     },
-  ])("rejects unqualified Claude API-key Action routing even with a stale OAuth token ($runtimeMode)", ({
-    runtimeMode,
-    claudeAuthMode,
-  }) => {
-    expect(() =>
-      build(
-        {
-          REVIEW_AUTH_MODE: runtimeMode,
-          REVIEW_PROVIDERS: "claude/sonnet",
-          REVIEWROUTER_CLAUDE_AUTH_MODE: claudeAuthMode,
-        },
-        {
-          inputs: {
-            ...inputs,
-            providerSecrets: {
-              claudeCodeOAuthToken: "sk-ant-oat01-synthetic-unselected",
+  ])(
+    "rejects unqualified Claude API-key Action routing even with a stale OAuth token ($runtimeMode)",
+    ({ runtimeMode, claudeAuthMode }) => {
+      expect(() =>
+        build(
+          {
+            REVIEW_AUTH_MODE: runtimeMode,
+            REVIEW_PROVIDERS: "claude/sonnet",
+            REVIEWROUTER_CLAUDE_AUTH_MODE: claudeAuthMode,
+          },
+          {
+            inputs: {
+              ...inputs,
+              providerSecrets: {
+                claudeCodeOAuthToken: "sk-ant-oat01-synthetic-unselected",
+              },
+            },
+            sourceEnv: {
+              PATH: "/usr/bin",
+              ANTHROPIC_API_KEY: "sk-ant-api03-inherited",
+              CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-inherited",
             },
           },
-          sourceEnv: {
-            PATH: "/usr/bin",
-            ANTHROPIC_API_KEY: "sk-ant-api03-inherited",
-            CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-inherited",
-          },
-        },
-      ),
-    ).toThrow("claude_api_key_rotating_transport_unsupported");
-  });
+        ),
+      ).toThrow("claude_api_key_rotating_transport_unsupported");
+    },
+  );
 
   it("does not inject subscription OAuth into a Claude runtime with an unrecognized auth mode", () => {
     const env = build(

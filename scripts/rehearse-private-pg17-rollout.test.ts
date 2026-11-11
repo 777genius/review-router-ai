@@ -1318,9 +1318,7 @@ describe("disposable dual-version rehearsal", () => {
             name === "000137_review_skills_capture",
         ),
     ).toEqual(["000136_review_skills", "000137_review_skills_capture"]);
-    const exclusions = resolvePreReleaseMigrationExclusions(
-      migrationNames,
-    );
+    const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
     const historicalCheckout = legacyMigrationNames.filter(
       (name) =>
         name !== "000125_hosted_codex_device_reconnect" &&

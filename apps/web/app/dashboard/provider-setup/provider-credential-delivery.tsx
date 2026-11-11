@@ -488,7 +488,10 @@ export function ManagedKeyDelivery({
   onInstalled,
 }: DeliveryRepository &
   Readonly<{
-    authMode: "mimo_token_plan_api_key" | "openrouter_api_key" | "claude_code_api_key";
+    authMode:
+      | "mimo_token_plan_api_key"
+      | "openrouter_api_key"
+      | "claude_code_api_key";
     installed: boolean;
     /** Why the viewer cannot install the key; null when they can. */
     installDecisionReason: string | null;
@@ -1104,8 +1107,10 @@ function ciSecretDetails(
     return {
       title: "Add your Anthropic API key",
       body: `Reviews use an Anthropic Console API key. Store ANTHROPIC_API_KEY in the GitHub Actions secrets of ${repositoryFullName}.`,
-      prompt: "Paste only your Anthropic API key when the GitHub CLI command asks for it.",
-      footnote: "Do not paste a Claude subscription setup-token. The selected mode never falls back to a subscription.",
+      prompt:
+        "Paste only your Anthropic API key when the GitHub CLI command asks for it.",
+      footnote:
+        "Do not paste a Claude subscription setup-token. The selected mode never falls back to a subscription.",
       link: null,
     };
   }
@@ -1132,7 +1137,10 @@ function ciSecretDetails(
 
 /** The plain name of a key ReviewRouter saves for a managed provider. */
 export function managedKeyName(
-  authMode: "mimo_token_plan_api_key" | "openrouter_api_key" | "claude_code_api_key",
+  authMode:
+    | "mimo_token_plan_api_key"
+    | "openrouter_api_key"
+    | "claude_code_api_key",
 ): string {
   return authMode === "mimo_token_plan_api_key"
     ? "MiMo Token Plan"

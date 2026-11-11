@@ -134,14 +134,18 @@ describe("Providers list view", () => {
   });
 
   it("exposes key rotation for managed Anthropic API keys, not subscription OAuth", () => {
-    expect(managedKeyAuthModeOf({
-      credentialKind: "managed_api_key",
-      authMode: "claude_code_api_key",
-    })).toBe("claude_code_api_key");
-    expect(managedKeyAuthModeOf({
-      credentialKind: "user_ci_secret",
-      authMode: "claude_code_oauth",
-    })).toBeNull();
+    expect(
+      managedKeyAuthModeOf({
+        credentialKind: "managed_api_key",
+        authMode: "claude_code_api_key",
+      }),
+    ).toBe("claude_code_api_key");
+    expect(
+      managedKeyAuthModeOf({
+        credentialKind: "user_ci_secret",
+        authMode: "claude_code_oauth",
+      }),
+    ).toBeNull();
   });
 
   it("follows Access rights: members lose even their own providers, owners keep everything", () => {

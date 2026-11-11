@@ -2331,16 +2331,18 @@ test("unavailable management refresh retains safe rows with disabled actions whi
 test.each(["workspace", "personal"] as const)(
   "Claude %s has no centralized subscription OAuth enrollment",
   async (managementScope) => {
-    page.profiles = [{
-      id: "anthropic-claude-oauth-messages-v1",
-      label: "Claude",
-      provider: "claude",
-      authKind: "oauth",
-      canReconnect: true,
-      oauthMethods: ["browser"],
-      protocol: "openai-responses",
-      models: ["claude-sonnet-4-6"],
-    }];
+    page.profiles = [
+      {
+        id: "anthropic-claude-oauth-messages-v1",
+        label: "Claude",
+        provider: "claude",
+        authKind: "oauth",
+        canReconnect: true,
+        oauthMethods: ["browser"],
+        protocol: "openai-responses",
+        models: ["claude-sonnet-4-6"],
+      },
+    ];
     page.accounts = [];
     const api = personalApi();
     render(
@@ -2354,7 +2356,9 @@ test.each(["workspace", "personal"] as const)(
     expect(
       screen.queryByRole("button", { name: /Add account|Connect account/ }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: "Sign in to Claude" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Sign in to Claude" }),
+    ).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Provider" })).toBeNull();
     expect(api.beginGatewayOAuth).not.toHaveBeenCalled();
     expect(api.completeGatewayOAuth).not.toHaveBeenCalled();

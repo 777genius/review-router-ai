@@ -104,8 +104,10 @@ export function setupProviderForSource(
     (provider) => provider.githubSource === source.key,
   );
   if (direct) return direct.id;
-  if (source.key === "managed_api_key:claude_code_api_key" ||
-      source.key === "user_ci_secret:claude_code_api_key")
+  if (
+    source.key === "managed_api_key:claude_code_api_key" ||
+    source.key === "user_ci_secret:claude_code_api_key"
+  )
     return "claude-code";
   if (source.key.startsWith("managed_api_key:"))
     return apiKeyProviders.find(

@@ -93,8 +93,12 @@ describe("provider setup registry", () => {
     ]);
     expect(gatewaySetupProvidersForProfiles([claude])).toEqual([]);
     // The user-owned GitHub Secret routes are still available.
-    expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe("claude-code");
-    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe("claude-code");
+    expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe(
+      "claude-code",
+    );
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe(
+      "claude-code",
+    );
   });
 
   it.each([

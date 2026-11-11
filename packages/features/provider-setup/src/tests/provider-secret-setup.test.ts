@@ -154,7 +154,9 @@ describe("provider secret setup guidance", () => {
       provider: "claude_code_api_key",
       repoFullName: "777genius/example",
     });
-    expect(providerSecretKindSchema.safeParse("claude_code_api_key").success).toBe(true);
+    expect(
+      providerSecretKindSchema.safeParse("claude_code_api_key").success,
+    ).toBe(true);
     expect(guidance.commands[0]).toMatchObject({
       secretNames: ["ANTHROPIC_API_KEY"],
       sendsSecretToReviewRouter: false,

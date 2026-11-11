@@ -46,7 +46,8 @@ const usageMemberReportIndexName = "000155_usage_member_report_index";
 const claudeApiKeyMigrationName = "000156_claude_code_api_key_secret";
 const readPreIndexCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
-    (row) => row.migrationName !== usageMemberReportIndexName &&
+    (row) =>
+      row.migrationName !== usageMemberReportIndexName &&
       row.migrationName !== claudeApiKeyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
@@ -593,7 +594,8 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
     expect(withClaude).toHaveLength(161);
     expect(withClaude.at(-1)).toEqual({
       migrationName: claudeApiKeyMigrationName,
-      checksum: "2fbf057867678221b77369316922bfc73851f328959d24933ab3bd543746c03f",
+      checksum:
+        "2fbf057867678221b77369316922bfc73851f328959d24933ab3bd543746c03f",
     });
     expect(partitionRenderSchemaHandoffCheckout(withClaude)).toEqual(catalog);
     // Adding a checkout tail does not authorize arbitrary SQL or an extra

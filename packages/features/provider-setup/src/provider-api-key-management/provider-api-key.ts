@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-export const providerApiKeyProviderSchema = z.enum(["mimo", "openrouter", "anthropic"]);
+export const providerApiKeyProviderSchema = z.enum([
+  "mimo",
+  "openrouter",
+  "anthropic",
+]);
 export type ProviderApiKeyProvider = z.infer<
   typeof providerApiKeyProviderSchema
 >;

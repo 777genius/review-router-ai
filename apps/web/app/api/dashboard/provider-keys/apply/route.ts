@@ -118,7 +118,8 @@ function applyProviderApiKeyErrorCode(error: unknown): string {
 
 function applyProviderApiKeyErrorStatus(error: unknown): number {
   if (error instanceof ProviderApiKeyUnavailableError) return 400;
-  if (error instanceof Error && error.message === "anthropic_api_key_invalid") return 400;
+  if (error instanceof Error && error.message === "anthropic_api_key_invalid")
+    return 400;
   if (!(error instanceof Error)) return 500;
   if (error.message.startsWith("entitlement_")) return 403;
   if (error.message.startsWith("workspace_admin_forbidden:")) return 403;

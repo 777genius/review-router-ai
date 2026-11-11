@@ -10,11 +10,11 @@
 
 ## Environment status
 
-| Environment / target | Status | Actual version/image | Last verified UTC | Next step |
-| --- | --- | --- | --- | --- |
-| Synthetic CI | `pending` | Draft branches, exact HEAD qualification not yet proven | Not verified | Offline two-auth and GitHub App test PR, tests/build/format/security |
-| Staging | `pending` | Not verified | Not verified | Inspect installed baseline, qualified Action and migration readiness before installing |
-| Production | `pending` | Not verified | Not verified | Explicit owner release approval required; no live credentials available for acceptance |
+| Environment / target | Status    | Actual version/image                                    | Last verified UTC | Next step                                                                              |
+| -------------------- | --------- | ------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
+| Synthetic CI         | `pending` | Draft branches, exact HEAD qualification not yet proven | Not verified      | Offline two-auth and GitHub App test PR, tests/build/format/security                   |
+| Staging              | `pending` | Not verified                                            | Not verified      | Inspect installed baseline, qualified Action and migration readiness before installing |
+| Production           | `pending` | Not verified                                            | Not verified      | Explicit owner release approval required; no live credentials available for acceptance |
 
 ## Applicability and prerequisites
 
@@ -62,6 +62,6 @@
 
 ## Execution log
 
-| Time (UTC) | Environment | Operator | Version/image | Observed result | Evidence | Next action |
-| --- | --- | --- | --- | --- | --- | --- |
-| 2026-11-11 | Synthetic source review | GitHub Draft PRs | Not released | Two auth modes and tests submitted; final CI/E2E not yet complete | PRs #385, #857, #855 | Finish required checks before merge or deploy |
+| Time (UTC) | Environment             | Operator         | Version/image | Observed result                                                   | Evidence             | Next action                                   |
+| ---------- | ----------------------- | ---------------- | ------------- | ----------------------------------------------------------------- | -------------------- | --------------------------------------------- |
+| 2026-11-11 | Synthetic source review | GitHub Draft PRs | Not released  | Two auth modes and tests submitted; final CI/E2E not yet complete | PRs #385, #857, #855 | Finish required checks before merge or deploy |

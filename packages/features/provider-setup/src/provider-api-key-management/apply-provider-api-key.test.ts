@@ -27,7 +27,10 @@ const publicKey = Buffer.from("0123456789abcdef0123456789abcdef").toString(
 );
 
 describe("applyProviderApiKey", () => {
-  it.each(["sk-ant-api03-synthetic-offline-key", "sk-ant-api-v4-synthetic-offline-key"])(
+  it.each([
+    "sk-ant-api03-synthetic-offline-key",
+    "sk-ant-api-v4-synthetic-offline-key",
+  ])(
     "encrypts an Anthropic API key without a hardcoded version (%s)",
     async (key) => {
       const providerApiKeys = store();
@@ -53,7 +56,9 @@ describe("applyProviderApiKey", () => {
           encryptedApiKey: `encrypted:${key}`,
         }),
       );
-      expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledTimes(2);
+      expect(githubSecrets.putEncryptedRepositorySecret).toHaveBeenCalledTimes(
+        2,
+      );
       for (const [input] of vi.mocked(
         githubSecrets.putEncryptedRepositorySecret,
       ).mock.calls) {
@@ -61,7 +66,9 @@ describe("applyProviderApiKey", () => {
         expect(JSON.stringify(input)).not.toContain(key);
         expect(input.secretName).not.toBe("CLAUDE_CODE_OAUTH_TOKEN");
       }
-      expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain(key);
+      expect(JSON.stringify(vi.mocked(audit.record).mock.calls)).not.toContain(
+        key,
+      );
     },
   );
 
@@ -69,22 +76,27 @@ describe("applyProviderApiKey", () => {
     "sk-ant-oat01-synthetic-subscription",
     "sk-ant-api03-contains whitespace",
     "short",
-  ])("rejects non-API Claude credentials before custody or GitHub delivery (%s)", async (key) => {
-    const providerApiKeys = store();
-    const githubSecrets = gateway();
-    await expect(applyProviderApiKey(
-      {
-        workspaceId: "workspace_1",
-        actor: "user:github:owner",
-        providerType: "anthropic",
-        apiKey: key,
-        repositoryIds: ["repo_1"],
-      },
-      dependencies({ githubSecrets, providerApiKeys }),
-    )).rejects.toThrow("anthropic_api_key_invalid");
-    expect(providerApiKeys.prepareApply).not.toHaveBeenCalled();
-    expect(githubSecrets.putEncryptedRepositorySecret).not.toHaveBeenCalled();
-  });
+  ])(
+    "rejects non-API Claude credentials before custody or GitHub delivery (%s)",
+    async (key) => {
+      const providerApiKeys = store();
+      const githubSecrets = gateway();
+      await expect(
+        applyProviderApiKey(
+          {
+            workspaceId: "workspace_1",
+            actor: "user:github:owner",
+            providerType: "anthropic",
+            apiKey: key,
+            repositoryIds: ["repo_1"],
+          },
+          dependencies({ githubSecrets, providerApiKeys }),
+        ),
+      ).rejects.toThrow("anthropic_api_key_invalid");
+      expect(providerApiKeys.prepareApply).not.toHaveBeenCalled();
+      expect(githubSecrets.putEncryptedRepositorySecret).not.toHaveBeenCalled();
+    },
+  );
 
   it("reuses the encrypted saved key when a later batch omits apiKey", async () => {
     const providerApiKeys = store();

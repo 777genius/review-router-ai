@@ -272,40 +272,44 @@ describe("review configuration", () => {
         model: "opus",
       },
     ];
-    expect(() => parseReviewConfigurationStrict({
-      ...workspacePolicyFixture,
-      providers,
-      execution: {
-        providerLimit: 2,
-        providerMaxParallel: 1,
-        inlineMinAgreement: 1,
-      },
-    })).toThrow("claude_conflicting_auth_modes");
+    expect(() =>
+      parseReviewConfigurationStrict({
+        ...workspacePolicyFixture,
+        providers,
+        execution: {
+          providerLimit: 2,
+          providerMaxParallel: 1,
+          inlineMinAgreement: 1,
+        },
+      }),
+    ).toThrow("claude_conflicting_auth_modes");
   });
 
   it("refuses Claude API key beside rotating Codex before persisting an unsupported workflow", () => {
-    expect(() => parseReviewConfigurationStrict({
-      ...workspacePolicyFixture,
-      providers: [
-        {
-          ...workspaceProviderFixture,
-          kind: "codex",
-          authMode: "codex_subscription_oauth_rotating",
-          model: "gpt-5.5",
+    expect(() =>
+      parseReviewConfigurationStrict({
+        ...workspacePolicyFixture,
+        providers: [
+          {
+            ...workspaceProviderFixture,
+            kind: "codex",
+            authMode: "codex_subscription_oauth_rotating",
+            model: "gpt-5.5",
+          },
+          {
+            ...workspaceProviderFixture,
+            kind: "claude",
+            authMode: "claude_code_api_key",
+            model: "sonnet",
+          },
+        ],
+        execution: {
+          providerLimit: 2,
+          providerMaxParallel: 1,
+          inlineMinAgreement: 1,
         },
-        {
-          ...workspaceProviderFixture,
-          kind: "claude",
-          authMode: "claude_code_api_key",
-          model: "sonnet",
-        },
-      ],
-      execution: {
-        providerLimit: 2,
-        providerMaxParallel: 1,
-        inlineMinAgreement: 1,
-      },
-    })).toThrow("claude_api_key_rotating_transport_unsupported");
+      }),
+    ).toThrow("claude_api_key_rotating_transport_unsupported");
   });
 
   it("rejects provider auth mode pairs that do not match catalog ownership", () => {

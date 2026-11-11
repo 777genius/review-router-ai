@@ -1672,7 +1672,8 @@ function ProviderChoiceStep({
           {setupProvider &&
           ((keyStorage === "github_secrets" &&
             (getSetupProvider(setupProvider).credentialKind === "api_key" ||
-              (setupProvider === "claude-code" && claudeMethod === "api_key"))) ||
+              (setupProvider === "claude-code" &&
+                claudeMethod === "api_key"))) ||
             (keyStorage === "reviewrouter" &&
               source?.credentialKind === "managed_api_key")) ? (
             <div className="grid gap-3">

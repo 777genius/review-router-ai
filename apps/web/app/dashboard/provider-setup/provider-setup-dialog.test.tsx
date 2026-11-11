@@ -439,7 +439,9 @@ describe("ProviderSetupDialog", () => {
         ]);
         fireEvent.click(storage[1]!);
       } else {
-        expect(screen.queryByRole("link", { name: "Connect account" })).toBeNull();
+        expect(
+          screen.queryByRole("link", { name: "Connect account" }),
+        ).toBeNull();
       }
       fireEvent.click(
         screen.getByRole("button", { name: "Use for this repository" }),
@@ -486,12 +488,15 @@ describe("ProviderSetupDialog", () => {
     fixture.value.nextCursor = null;
     view = {
       ...view,
-      sources: [...apiSources(), {
-        key: "user_ci_secret:claude_code_oauth",
-        credentialKind: "user_ci_secret",
-        authMode: "claude_code_oauth",
-        decision: { allowed: true },
-      }],
+      sources: [
+        ...apiSources(),
+        {
+          key: "user_ci_secret:claude_code_oauth",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_oauth",
+          decision: { allowed: true },
+        },
+      ],
       gatewaySetupProviders: ["claude-code"],
     };
     renderDialog(repositoryTarget, { gatewayAccounts: fixture });
@@ -502,7 +507,9 @@ describe("ProviderSetupDialog", () => {
     const reviewRouter = screen.getByRole("radio", { name: "ReviewRouter" });
     expect(reviewRouter.getAttribute("aria-disabled")).toBe("true");
     expect(
-      screen.getByRole("radio", { name: "GitHub Secrets" }).getAttribute("aria-checked"),
+      screen
+        .getByRole("radio", { name: "GitHub Secrets" })
+        .getAttribute("aria-checked"),
     ).toBe("true");
     fireEvent.click(
       screen.getByRole("button", { name: "Use for this repository" }),
@@ -546,13 +553,23 @@ describe("ProviderSetupDialog", () => {
     renderDialog(repositoryTarget);
     await choose("Add a new provider");
     await chooseSelect("Provider", "Claude Code");
-    expect(screen.getByRole("radio", { name: "Claude subscription" })).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Claude subscription" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Anthropic API key" }));
     expect(
-      screen.getByRole("radio", { name: "GitHub Secrets" }).getAttribute("aria-checked"),
+      screen
+        .getByRole("radio", { name: "GitHub Secrets" })
+        .getAttribute("aria-checked"),
     ).toBe("true");
-    expect(screen.getByRole("radio", { name: "ReviewRouter" }).getAttribute("aria-disabled")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: "Use for this repository" }));
+    expect(
+      screen
+        .getByRole("radio", { name: "ReviewRouter" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    );
     await waitFor(() =>
       expect(saveProviderRosterAction).toHaveBeenCalledWith(
         expect.objectContaining(
@@ -606,17 +623,21 @@ describe("ProviderSetupDialog", () => {
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         if (url === "/api/dashboard/provider-keys/apply") {
-          requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          requests.push(
+            JSON.parse(String(init?.body)) as Record<string, unknown>,
+          );
           managed.managedKey.uploaded = true;
           managed.managedKey.installedRepositoryIds = ["repo_1"];
           return {
             ok: true,
             json: async () => ({
-              results: [{
-                repositoryId: "repo_1",
-                repositoryFullName: "acme/widget",
-                status: "applied",
-              }],
+              results: [
+                {
+                  repositoryId: "repo_1",
+                  repositoryFullName: "acme/widget",
+                  status: "applied",
+                },
+              ],
             }),
           } as Response;
         }
@@ -629,13 +650,19 @@ describe("ProviderSetupDialog", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Anthropic API key" }));
     fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
     expect(
-      screen.getByRole("radio", { name: "ReviewRouter" }).getAttribute("aria-checked"),
+      screen
+        .getByRole("radio", { name: "ReviewRouter" })
+        .getAttribute("aria-checked"),
     ).toBe("true");
     expect(screen.queryByRole("link", { name: "Connect account" })).toBeNull();
     const field = await screen.findByLabelText(/^Claude Code API key/);
-    fireEvent.change(field, { target: { value: "sk-ant-api03-synthetic-offline-key" } });
+    fireEvent.change(field, {
+      target: { value: "sk-ant-api03-synthetic-offline-key" },
+    });
     fireEvent.click(
-      screen.getByRole("button", { name: "Install key and use for this repository" }),
+      screen.getByRole("button", {
+        name: "Install key and use for this repository",
+      }),
     );
     await waitFor(() => expect(requests).toHaveLength(1));
     expect(requests[0]).toEqual({
@@ -644,19 +671,23 @@ describe("ProviderSetupDialog", () => {
       apiKey: "sk-ant-api03-synthetic-offline-key",
       repositoryIds: ["repo_1"],
     });
-    await waitFor(() => expect(saveProviderRosterAction).toHaveBeenCalledWith(
-      expect.objectContaining(
-        singletonRosterExpectation({
-          provider: expect.objectContaining({
-            credential: {
-              kind: "managed_api_key",
-              authMode: "claude_code_api_key",
-            },
+    await waitFor(() =>
+      expect(saveProviderRosterAction).toHaveBeenCalledWith(
+        expect.objectContaining(
+          singletonRosterExpectation({
+            provider: expect.objectContaining({
+              credential: {
+                kind: "managed_api_key",
+                authMode: "claude_code_api_key",
+              },
+            }),
           }),
-        }),
+        ),
       ),
-    ));
-    expect(screen.queryByDisplayValue("sk-ant-api03-synthetic-offline-key")).toBeNull();
+    );
+    expect(
+      screen.queryByDisplayValue("sk-ant-api03-synthetic-offline-key"),
+    ).toBeNull();
   });
 
   it("keeps ReviewRouter as the chosen default when enrollment is unavailable instead of switching custody", async () => {
