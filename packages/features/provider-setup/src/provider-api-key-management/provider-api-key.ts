@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const providerApiKeyProviderSchema = z.enum(["mimo", "openrouter"]);
+export const providerApiKeyProviderSchema = z.enum(["mimo", "openrouter", "anthropic"]);
 export type ProviderApiKeyProvider = z.infer<
   typeof providerApiKeyProviderSchema
 >;
@@ -107,8 +107,10 @@ export type ProviderApiKeyState = {
 
 export function providerApiKeySecretName(
   providerType: ProviderApiKeyProvider,
-): "MIMO_TOKEN_PLAN_API_KEY" | "OPENROUTER_API_KEY" {
+ ): "MIMO_TOKEN_PLAN_API_KEY" | "OPENROUTER_API_KEY" | "ANTHROPIC_API_KEY" {
   return providerType === "mimo"
     ? "MIMO_TOKEN_PLAN_API_KEY"
-    : "OPENROUTER_API_KEY";
+    : providerType === "anthropic"
+      ? "ANTHROPIC_API_KEY"
+      : "OPENROUTER_API_KEY";
 }
