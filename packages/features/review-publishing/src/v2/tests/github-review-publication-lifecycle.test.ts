@@ -13,6 +13,7 @@ import {
 import { ResolveCurrentPublicationLifecycle } from "../application/use-cases/resolve-current-publication-lifecycle";
 import type { ReviewPublicationScope } from "../domain/review-publication-attempt";
 import { canonicalReviewPublicationJson } from "../domain/canonical-review-publication-json";
+import { verifiedFixThreadReply } from "../domain/canonical-review-publication-renderer";
 import { HmacReviewCommandLedgerVerifier } from "../infrastructure/hmac-review-command-ledger-verifier";
 
 const scope: ReviewPublicationScope = {
@@ -106,6 +107,78 @@ describe("GitHubReviewPublicationLifecycleAdapter", () => {
     expect(
       queries.every((query) => query.includes("author { login __typename }")),
     ).toBe(true);
+  });
+
+  it("excludes only exact trusted trailing fix acknowledgements from freshness witnesses", async () => {
+    const threadId = "thread-verified";
+    const parentId = "comment-parent";
+    const parent = comment(
+      parentId,
+      `finding\\n<!-- reviewrouter:finding:v2:${lineageFingerprint} -->`,
+      "2026-07-23T10:00:00Z",
+    );
+    const original = await adapter({
+      async graphql<T>(query: string) {
+        if (query.includes("ReviewRouterPublicationCommandLedger"))
+          return ledgerPage(null, false) as T;
+        return inventoryPage([{
+          id: threadId,
+          isResolved: false,
+          comments: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [parent],
+          },
+        }], false) as T;
+      },
+    }).resolve(scope);
+    if (original.status !== LiveReviewPublicationLifecycleStatus.Available)
+      throw new Error("original_inventory_missing");
+    const originalHash = original.targets[0]!.threadStateHash;
+    const id = targetId(threadId, parentId, lineageFingerprint);
+    const acknowledgement = comment(
+      "comment-confirmation", verifiedFixThreadReply(id).body,
+      "2026-07-23T10:00:10Z",
+    );
+    const inventoryWith = async (withHuman: boolean) => adapter({
+      async graphql<T>(query: string) {
+        if (query.includes("ReviewRouterPublicationCommandLedger"))
+          return ledgerPage(null, false) as T;
+        return inventoryPage([{
+          id: threadId,
+          isResolved: false,
+          comments: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              parent,
+              acknowledgement,
+              ...(withHuman ? [comment(
+                "comment-human",
+                "Please double-check this case",
+                "2026-07-23T10:00:20Z",
+                { viewerDidAuthor: false },
+              )] : []),
+            ],
+          },
+        }], false) as T;
+      },
+    }).resolve(scope);
+    const acknowledged = await inventoryWith(false);
+    expect(acknowledged).toMatchObject({
+      status: LiveReviewPublicationLifecycleStatus.Available,
+      targets: [{
+        targetId: id,
+        isResolved: false,
+        verifiedReplyPrefixHashes: [originalHash],
+      }],
+    });
+    const human = await inventoryWith(true);
+    expect(human).toMatchObject({
+      status: LiveReviewPublicationLifecycleStatus.Available,
+      targets: [{ targetId: id, isResolved: false }],
+    });
+    if (human.status !== LiveReviewPublicationLifecycleStatus.Available)
+      throw new Error("human_inventory_missing");
+    expect(human.targets[0]!.verifiedReplyPrefixHashes).toBeUndefined();
   });
 
   it("recognizes an Action lineage marker in the live inventory", async () => {
