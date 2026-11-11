@@ -66,6 +66,7 @@ export enum ReviewPublicationKind {
   PendingReviewSubmit = "pending_review_submit",
   SubmittedReview = "submitted_review",
   ThreadLifecycle = "thread_lifecycle",
+  ThreadReply = "thread_reply",
 }
 
 export enum ReviewPublicationExternalEffectKind {
@@ -909,6 +910,15 @@ function assertOperationPolicy(
       }
       return;
     case ReviewPublicationKind.SubmittedReview:
+      if (
+        operation.effectStrategy !==
+          ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt ||
+        operation.role !== ReviewPublicationOperationRole.Standalone
+      ) {
+        throw new Error("publication_operation_policy_invalid");
+      }
+      return;
+    case ReviewPublicationKind.ThreadReply:
       if (
         operation.effectStrategy !==
           ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt ||
