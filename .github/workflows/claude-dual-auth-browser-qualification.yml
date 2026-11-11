@@ -1,0 +1,98 @@
+name: Claude dual-auth browser qualification (temporary)
+
+on:
+  push:
+    branches: [feat/claude-dual-auth-secrets-20261111]
+    paths:
+      - .github/workflows/claude-dual-auth-browser-qualification.yml
+      - scripts/provider-setup-visual/flows.ts
+      - apps/web/app/dashboard/provider-setup/provider-setup-dialog.tsx
+      - apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-dual-auth-browser-qualification
+  cancel-in-progress: false
+
+jobs:
+  claude-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: fixture_owner
+          POSTGRES_DB: reviewrouter_provider_setup_visual
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fixture_owner -d reviewrouter_provider_setup_visual"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EXPECTED_REVISION: ${{ github.sha }}
+      PROVIDER_VISUAL_DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5432/reviewrouter_provider_setup_visual
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/claude-dual-auth-browser-cache
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_OPTIONS: --max-old-space-size=4096
+      TZ: UTC
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup pinned Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 26.12.1
+      - name: Install pinned workspace dependencies
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --ignore-scripts --frozen-lockfile
+          pnpm rebuild @prisma/engines
+          node scripts/prepare-pinned-subscription-runtime.ts
+      - name: Generate offline Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Install supported headless Chromium
+        run: |
+          mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
+          node node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+      - name: Run real Next + PG17 Claude API-key setup journey
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REVISION"
+          pnpm provider-setup:visual \
+            --flows-only \
+            --only '^flow-claude-api-key-github-secrets$' \
+            --out "$GITHUB_WORKSPACE/tmp/claude-dual-auth-browser-run"
+      - name: Check exact flow and network evidence
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const manifest = JSON.parse(readFileSync('tmp/claude-dual-auth-browser-run/manifest.json', 'utf8'));
+          const flow = manifest.flows.find(f => f.flow === 'flow-claude-api-key-github-secrets');
+          assert.ok(flow, 'Claude browser journey must exist');
+          assert.equal(flow.status, 'pass', JSON.stringify(flow));
+          assert.equal(flow.checks.filter(c => !c.pass).length, 0);
+          assert.equal(flow.pageErrors.length, 0);
+          assert.equal(flow.blockedRequests.length, 0);
+          NODE
+      - name: Upload screenshots and logs for independent review
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: claude-dual-auth-browser-${{ github.run_id }}
+          path: |
+            tmp/claude-dual-auth-browser-run/*.json
+            tmp/claude-dual-auth-browser-run/*.jsonl
+            tmp/claude-dual-auth-browser-run/*.log
+            tmp/claude-dual-auth-browser-run/flows/*.png
+          if-no-files-found: warn
