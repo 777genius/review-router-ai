@@ -6,6 +6,9 @@ on:
       - feat/claude-dual-auth-secrets-20261111
     paths:
       - .github/workflows/claude-dual-auth-conflict-bundle-qualification.yml
+      - scripts/lib/render-schema-handoff-policy.test.ts
+      - packages/features/codex-oauth-rotating/src/action/review-runtime-environment.ts
+      - packages/features/workflow-provisioning/src/tests/workflow-template.test.ts
 
 permissions:
   contents: write
