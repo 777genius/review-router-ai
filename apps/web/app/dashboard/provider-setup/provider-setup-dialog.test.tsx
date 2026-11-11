@@ -1161,6 +1161,53 @@ describe("ProviderSetupDialog", () => {
     },
   );
 
+  it("shows NVIDIA as Gateway-owned and refuses unqualified tool-using reviews", async () => {
+    const fixture = gatewayFixture();
+    if (fixture.status !== "ok") throw new Error("fixture unavailable");
+    const profile = fixture.value.profiles[0]!;
+    const model = "deepseek-ai/deepseek-v4.1-flash";
+    profile.id = "nvidia-build-chat-apikey-v1";
+    profile.label = "NVIDIA Build (evaluation)";
+    profile.provider = "nvidia";
+    profile.models = [model];
+    profile.connection = {
+      ...profile.connection!,
+      provider: "nvidia",
+      modelSettings: [
+        {
+          modelId: model,
+          reasoning: null,
+          fast: null,
+          tools: { allowed: ["none"], default: "none" },
+        },
+      ],
+    };
+    fixture.value.accounts[0]!.profileId = profile.id;
+    fixture.value.accounts[0]!.modelCatalog = {
+      status: "snapshot",
+      source: "nvidia",
+      models: [model],
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    fixture.value.nextCursor = null;
+    view = { ...view, sources: apiSources(), gatewaySetupProviders: ["nvidia"] };
+    renderDialog(repositoryTarget, { gatewayAccounts: fixture });
+    await choose("Add a new provider");
+    await chooseSelect("Provider", "NVIDIA Build (evaluation)");
+    await screen.findByRole("combobox", { name: "Model" });
+    expect(
+      screen.getByRole("radio", { name: "ReviewRouter" }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("radio", { name: "GitHub Secrets" }).getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", true);
+    expect(saveProviderRosterAction).not.toHaveBeenCalled();
+  });
+
   it("requires an explicit account choice when several matching connections are available", async () => {
     const fixture = gatewayFixture();
     if (fixture.status !== "ok") throw new Error("fixture unavailable");
