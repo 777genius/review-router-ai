@@ -10,58 +10,43 @@ const now = new Date("2026-08-12T12:00:00.000Z");
 
 describe("Review progress GitHub retry policy", () => {
   it("prefers Retry-After over a later rate-limit reset", () => {
-    expect(
-      retryBoundary(
-        {
-          "retry-after": "10",
-          "x-ratelimit-reset": String(now.getTime() / 1_000 + 60),
-        },
-        now,
-      ),
-    ).toEqual(new Date("2026-08-12T12:00:10.000Z"));
+    const headers = {
+      "retry-after": "10",
+      "x-ratelimit-reset": String(now.getTime() / 1_000 + 60),
+    };
+    const actual = retryBoundary(headers, now);
+    expect(actual).toEqual(new Date("2026-08-12T12:00:10.000Z"));
   });
 
   it("falls back to reset time or a one-second delay", () => {
-    expect(
-      retryBoundary(
-        {
-          "retry-after": "invalid",
-          "x-ratelimit-reset": String(now.getTime() / 1_000 + 20),
-        },
-        now,
-      ),
-    ).toEqual(new Date("2026-08-12T12:00:20.000Z"));
-    expect(retryBoundary({}, now)).toEqual(
-      new Date("2026-08-12T12:00:01.000Z"),
-    );
-    expect(
-      retryBoundary({ "retry-after": "Wed, 12 Aug 2026 11:59:59 GMT" }, now),
-    ).toEqual(now);
+    const resetHeaders = {
+      "retry-after": "invalid",
+      "x-ratelimit-reset": String(now.getTime() / 1_000 + 20),
+    };
+    const resetActual = retryBoundary(resetHeaders, now);
+    expect(resetActual).toEqual(new Date("2026-08-12T12:00:20.000Z"));
+
+    const fallbackActual = retryBoundary({}, now);
+    expect(fallbackActual).toEqual(new Date("2026-08-12T12:00:01.000Z"));
+
+    const staleHeaders = { "retry-after": "Wed, 12 Aug 2026 11:59:59 GMT" };
+    expect(retryBoundary(staleHeaders, now)).toEqual(now);
   });
 
   it("never schedules jitter earlier than the retry boundary", () => {
-    expect(jitterAfter(now, () => -1)).toEqual(
-      new Date("2026-08-12T12:00:00.250Z"),
-    );
-    expect(jitterAfter(now, () => 2)).toEqual(
-      new Date("2026-08-12T12:00:01.000Z"),
-    );
-    expect(fallbackRetryAt(() => now, () => 0)).toEqual(
-      new Date("2026-08-12T12:00:01.250Z"),
-    );
+    const minJitter = jitterAfter(now, () => -1);
+    const maxJitter = jitterAfter(now, () => 2);
+    const fallback = fallbackRetryAt(() => now, () => 0);
+    expect(minJitter).toEqual(new Date("2026-08-12T12:00:00.250Z"));
+    expect(maxJitter).toEqual(new Date("2026-08-12T12:00:01.000Z"));
+    expect(fallback).toEqual(new Date("2026-08-12T12:00:01.250Z"));
   });
 
   it("recognizes GitHub secondary limit bodies without headers", () => {
-    expect(
-      isSecondaryRateLimitResponse({
-        message: "You have exceeded a secondary rate limit.",
-      }),
-    ).toBe(true);
-    expect(
-      isSecondaryRateLimitResponse({
-        message: "Normal forbidden response",
-      }),
-    ).toBe(false);
+    const secondary = { message: "You have exceeded a secondary rate limit." };
+    const forbidden = { message: "Normal forbidden response" };
+    expect(isSecondaryRateLimitResponse(secondary)).toBe(true);
+    expect(isSecondaryRateLimitResponse(forbidden)).toBe(false);
     expect(isSecondaryRateLimitResponse(null)).toBe(false);
   });
 });
