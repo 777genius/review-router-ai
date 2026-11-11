@@ -13,7 +13,7 @@
     "sdkArchiveBuilt": true,
     "archiveChecksumVerified": true,
     "pnpmLockfileRegenerated": true,
-    "sdkConsumerChecks": "pending_new_sdk_ci",
+    "sdkConsumerChecks": "pending_full_nondraft_exact_head_ci",
     "independentNativeGoAndPostgresE2E": "passed_synthetic_postgres_and_hosted_streaming_bridge",
     "hostedNvidiaBuildInference": "nemotron_direct_chat_sse_tool_replay_and_protected_native_sse_two_turn_pass",
     "actualGitHubAppReview": "not_qualified"
@@ -27,7 +27,7 @@
   "evidence": {
     "hostedDirectStreaming": "https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43007767383",
     "hostedProtectedNative": "https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43008527694",
-    "visualProviderUI": "https://github.com/777genius/review-router-ai/actions/runs/43006771925",
+    "visualProviderUI": "https://github.com/777genius/review-router-ai/actions/runs/43009941246",
     "nativePostgres": "https://github.com/agent-teams-ai/account-gateway/actions/runs/42922347760"
   }
 }
