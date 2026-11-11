@@ -106,7 +106,7 @@ describe.skipIf(!enabled)(
           .sort();
         // Replay all current migrations, including the concurrent member-report index.
         expect(names).toHaveLength(161);
-        expect(names.slice(-23)).toEqual([
+        expect(names.slice(-24)).toEqual([
           "000136_review_skills",
           "000137_review_skills_capture",
           "000138_pr_description",
