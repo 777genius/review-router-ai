@@ -407,7 +407,6 @@ describe("ReviewProgressPublisher", () => {
     expect(store.suppress).not.toHaveBeenCalled();
   });
 
-
   it.each(["pagination_inconclusive", "rate_limited"] as const)(
     "retains %s retry policy after an ambiguous PATCH reconciliation",
     async (kind) => {

@@ -790,11 +790,10 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
-
   it.each(["pagination_inconclusive", "rate_limited"] as const)(
     "preserves %s after an ambiguous PATCH and an inconclusive rescan",
     async (kind) => {
-      const fixture = githubFixture([{ id: 8, body: `old\n${marker}`}], {
+      const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
         throwAfterPatch: true,
       });
       let commentReads = 0;
