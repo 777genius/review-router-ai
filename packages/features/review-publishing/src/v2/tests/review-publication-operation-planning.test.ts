@@ -132,10 +132,30 @@ describe("review publication operation planning", () => {
         ],
       });
       const planned = await plan(projection, limits(capacity));
-      expect(planned.filter((op) => op.publicationKind === ReviewPublicationKind.Summary)).toHaveLength(1);
-      expect(planned.filter((op) => op.publicationKind === ReviewPublicationKind.ThreadLifecycle)).toHaveLength(2);
-      expect(planned.filter((op) => op.publicationKind === ReviewPublicationKind.ThreadReply)).toHaveLength(expectedReplies);
-      expect(planned.filter((op) => op.publicationKind === ReviewPublicationKind.ThreadReply).every((op) => op.required)).toBe(true);
+      expect(
+        planned.filter(
+          (operation) => operation.publicationKind === ReviewPublicationKind.Summary,
+        ),
+      ).toHaveLength(1);
+      expect(
+        planned.filter(
+          (operation) =>
+            operation.publicationKind === ReviewPublicationKind.ThreadLifecycle,
+        ),
+      ).toHaveLength(2);
+      expect(
+        planned.filter(
+          (operation) => operation.publicationKind === ReviewPublicationKind.ThreadReply,
+        ),
+      ).toHaveLength(expectedReplies);
+      expect(
+        planned
+          .filter(
+            (operation) =>
+              operation.publicationKind === ReviewPublicationKind.ThreadReply,
+          )
+          .every((operation) => operation.required),
+      ).toBe(true);
     },
   );
 
