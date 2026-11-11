@@ -704,6 +704,22 @@ Release order for database-backed changes:
 Do not deploy application code that depends on a schema change before
 `migrate deploy` has succeeded in that environment.
 
+### Verified native thread replies (000156)
+
+Migration `000156_verified_thread_reply` adds the persisted `thread_reply`
+publication kind. Pre-000156 workers cannot deserialize that kind. This is a
+stopped-cohort activation, not a mixed-version rolling release:
+
+1. Keep v2 publication admission disabled; apply the reviewed migration.
+2. Stop and drain old API/worker writers and in-flight publication work.
+   Deploy and attest matching new API and worker images across the cohort.
+3. Only after confirming fleet convergence enable the new v2 producer and
+   worker, then qualify a safe GitHub App canary.
+
+If the drain or image match cannot be proven, leave admission disabled. Do not
+restart a pre-000156 worker while `thread_reply` attempts can be claimed.
+A successful PR CI run does not prove that production activation occurred.
+
 ### Workflow provisioning attempt cutover (000089 workflow guard through 000091)
 
 This batch is a quiesced upgrade. Migration `000090` requires attempt identity

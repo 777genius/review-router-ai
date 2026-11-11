@@ -238,6 +238,65 @@ describe("review v2 worker context adapters", () => {
     ]);
   });
 
+  it("restores lifecycle indexes when all optional replies were excluded by capacity", async () => {
+    const snapshot = executionSnapshot();
+    const attempts = new FakePublicationAttempts();
+    const base = completionProjectionMapper();
+    const seenPolicies: boolean[] = [];
+    const mapper: ReviewCompletionProjectionMapperPort = {
+      ...base,
+      async publicationEnvelope(artifact, options) {
+        seenPolicies.push(options?.includeVerifiedFixReplies === true);
+        const initial = await base.publicationEnvelope(artifact);
+        if (!initial) return null;
+        const resolution = {
+          chunkIndex: 0,
+          semantic: ReviewPublicationLifecycleSemantic.Resolve,
+          ...publicationBody("c", "d"),
+        };
+        return {
+          ...initial,
+          lifecycle:
+            options?.includeVerifiedFixReplies === false
+              ? [resolution]
+              : [
+                  {
+                    chunkIndex: 0,
+                    semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+                    ...publicationBody("e", "f"),
+                  },
+                  { ...resolution, chunkIndex: 1 },
+                ],
+        };
+      },
+    };
+    const limits = {
+      ...publicationLimits(),
+      maxPublicationOperations: 2,
+      maxPublicationChunks: 2,
+    };
+    const factory = new DeterministicReviewPublicationRequestFactory(
+      mapper,
+      new ReviewPublicationOperationPlanningService(
+        new InMemoryReviewPublicationReleaseLimitsQuery([limits]),
+      ),
+      attempts,
+    );
+    const first = await factory.build(snapshot);
+    if (!first) throw new Error("test_publication_command_missing");
+    expect(
+      first.operations.map((operation) => operation.publicationKind),
+    ).toEqual([
+      ReviewPublicationKind.Summary,
+      ReviewPublicationKind.ThreadLifecycle,
+    ]);
+    expect(first.operations[1]?.chunkIndex).toBe(1);
+    attempts.store(publicationView(first));
+    const restored = await factory.build(snapshot);
+    expect(restored).toEqual(first);
+    expect(seenPolicies).toEqual([true, false, true]);
+  });
+
   it("replans against a concurrent legacy winning identity before retrying", async () => {
     const snapshot = executionSnapshot();
     const attempts = new FakePublicationAttempts();
