@@ -321,6 +321,24 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Additive Claude auth-mode CHECK is an application-only checkout tail.
+  // The exact new SQL and full 161-row inventory are required before reducing
+  // to the previously signed checkout160; managed92 is never expanded.
+  const claudeApiKeyMigration = catalog.find(
+    (row) => row.migrationName === "000156_claude_code_api_key_secret",
+  );
+  if (claudeApiKeyMigration) {
+    if (
+      catalog.length !== 161 ||
+      catalog.at(-1) !== claudeApiKeyMigration ||
+      claudeApiKeyMigration.checksum !==
+        "2fbf057867678221b77369316922bfc73851f328959d24933ab3bd543746c03f"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== claudeApiKeyMigration),
+    );
+  }
   // The concurrent member-read index belongs only to ordinary Prisma deploy.
   // Pin its exact SQL and complete checkout160, then retain the unchanged
   // checkout159 -> managed92 admission. It never enters a repair transaction.
