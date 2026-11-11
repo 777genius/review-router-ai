@@ -99,7 +99,9 @@ export function readApiKeySetupIntent(
     storage,
     workspaceId,
     repositoryIds,
-    ...(claudeMethod ? { claudeMethod: claudeMethod as "subscription" | "api_key" } : {}),
+    ...(claudeMethod === "subscription" || claudeMethod === "api_key"
+      ? { claudeMethod }
+      : {}),
   };
 }
 
