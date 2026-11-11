@@ -520,6 +520,27 @@ async function claimPreparedPublication(
     },
     data: { claimId, claimOwnerIdHash: input.ownerIdHash, claimUntil },
   });
+  return buildClaimedReviewProgress({
+    candidate,
+    publication,
+    progress,
+    repository,
+    installation,
+    claim: { claimId, ownerIdHash: input.ownerIdHash, claimUntil },
+  });
+}
+
+/** Build the publication snapshot only after its claim was persisted. */
+function buildClaimedReviewProgress(input: {
+  readonly candidate: ClaimedReviewProgress["scope"];
+  readonly publication: Parameters<typeof claimPreparedPublication>[3];
+  readonly progress: Parameters<typeof claimPreparedPublication>[4];
+  readonly repository: Parameters<typeof claimPreparedPublication>[5];
+  readonly installation: Parameters<typeof claimPreparedPublication>[6];
+  readonly claim: ClaimedReviewProgress["claim"];
+}): ClaimedReviewProgress {
+  const { candidate, publication, progress, repository, installation, claim } =
+    input;
   return {
     scope: candidate,
     executionId: progress.executionId,
@@ -538,7 +559,7 @@ async function claimPreparedPublication(
       name: repository.name,
       githubInstallationId: installation.githubInstallationId,
     },
-    claim: { claimId, ownerIdHash: input.ownerIdHash, claimUntil },
+    claim,
   };
 }
 

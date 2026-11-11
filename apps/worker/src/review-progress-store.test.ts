@@ -568,9 +568,15 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(publication).toMatchObject({
       scope,
       executionId: "execution-1",
+      generation: 7n,
+      headSha: "a".repeat(40),
+      planHash: "b".repeat(64),
       desiredVersion: 73n,
       publishedVersion: 72n,
       commentId: 99n,
+      publishedBodyHash: "c".repeat(64),
+      failureCount: 0,
+      snapshot: { phase: "running" },
       terminal: false,
       repository: {
         owner: "acme",
