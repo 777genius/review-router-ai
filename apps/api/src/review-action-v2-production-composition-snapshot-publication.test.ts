@@ -1572,6 +1572,80 @@ describe("Review Action v2 snapshot/publication production handlers", () => {
     expect(publicationRequestSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("restores a capacity-limited verified lifecycle request without replaying its writes", async () => {
+    const targetId = "rrt_verified_lifecycle";
+    const publishingWithReplies = {
+      ...publishing,
+      summary: {
+        ...publishing.summary,
+        allClear: false,
+        body: "One fix verified",
+      },
+      lifecycleObservationVersion:
+        ReviewPublicationLifecycleObservationVersion.ThreadStateV1,
+      lifecycle: [
+        {
+          targetId,
+          threadId: "thread-verified",
+          verdict: "resolved",
+          mutationEligible: true,
+          reasonCodes: ["verified"],
+          markerFingerprint: `rrl_${"a".repeat(32)}`,
+          threadStateHash: hash("b"),
+          verification: {
+            targetId,
+            semanticVerdict: "resolved",
+            confirmationState: "fix_confirmed_thread_open",
+            severity: "major",
+            observationIds: ["observation-1"],
+            providerVoteKeys: ["verifier/account"],
+            reasonCodes: ["verified"],
+            mutationStatus: "pending",
+          },
+        },
+      ],
+    };
+    const finalized = {
+      ...finalizedArtifactWithPublishing(publishingWithReplies, hash("c")),
+      projectionPolicyVersion:
+        "review-projection-policy.v7-lifecycle-verification",
+    };
+    const repository = new InMemoryReviewPublicationRepository();
+    const requestSpy = vi.spyOn(repository, "request");
+    const policy = { assertCurrentPolicy: vi.fn() };
+    const routes = createRoutes(repository, policy, finalized, {}, {
+      authorization: verifierAuthorization(),
+      limits: {
+        ...protocolLimits,
+        maxPublicationOperations: 3,
+        maxPublicationChunks: 3,
+      },
+    });
+    const permit = await capabilityAdapter().issuePublicationPermit(
+      finalized.publicationPermit,
+      now,
+    );
+    const request = await publicationRequest(
+      permit,
+      canonicalJson(publishingWithReplies),
+      finalized.projectionHash,
+    );
+    const first = await routes.publication.request!.execute(request);
+    expect(first.result.status).toBe(ReviewPublicationRequestResultStatus.Accepted);
+    const stored = await repository.findById(first.result.publicationAttemptId!);
+    expect(stored?.attempt.operations.map((operation) => operation.publicationKind)).toEqual([
+      "summary",
+      "managed_check",
+      "thread_lifecycle",
+    ]);
+    expect(stored?.attempt.operations[2]?.chunkIndex).toBe(1);
+
+    const restored = await routes.publication.request!.execute(request);
+    expect(restored.result.status).toBe(ReviewPublicationRequestResultStatus.Restored);
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    expect(policy.assertCurrentPolicy).toHaveBeenCalledTimes(1);
+  });
+
   it("writes attempt-scoped operation identities for new publication attempts", async () => {
     const publicationRepository = new InMemoryReviewPublicationRepository();
     const routes = createRoutes(publicationRepository);

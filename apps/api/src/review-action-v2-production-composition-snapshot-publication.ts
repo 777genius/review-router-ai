@@ -651,19 +651,20 @@ async function requestPublication(
   });
   const existing =
     await dependencies.publications.findById(publicationAttemptId);
-  const envelope = publishedEnvelope({
-    artifact,
-    projectionCanonicalJson: artifact.projectionEnvelopeJson,
-    requestedPublishingCanonicalJson: request.operationsCanonicalJson,
-    protocolLimitsProfileId: limits.protocolLimitsProfileId,
-    limitsDigest: limits.limitsDigest,
-    includeVerifiedFixReplies:
-      !existing ||
-      existing.attempt.operations.some(
-        (operation) =>
-          operation.publicationKind === ReviewPublicationKind.ThreadReply,
-      ),
-  });
+  const envelopeFor = (includeVerifiedFixReplies: boolean) =>
+    publishedEnvelope({
+      artifact,
+      projectionCanonicalJson: artifact.projectionEnvelopeJson,
+      requestedPublishingCanonicalJson: request.operationsCanonicalJson,
+      protocolLimitsProfileId: limits.protocolLimitsProfileId,
+      limitsDigest: limits.limitsDigest,
+      includeVerifiedFixReplies,
+    });
+  const envelope = envelopeFor(true);
+  const planningLimits = publicationLimits(
+    artifact.publicationPermit.producerReleaseId,
+    limits,
+  );
   await assertPrDescriptionArtifact({
     authorization,
     execution: snapshot.execution,
@@ -723,15 +724,21 @@ async function requestPublication(
   const command = resolvePublicationCommand({
     artifact,
     envelope,
-    limits: publicationLimits(
-      artifact.publicationPermit.producerReleaseId,
-      limits,
-    ),
+    limits: planningLimits,
     publicationAttemptId,
     existing,
   });
   if (existing) {
-    if (existing.attempt.requestHash !== command.requestHash) {
+    if (
+      matchingStoredPublicationCommand({
+        artifact,
+        current: command,
+        existing,
+        publicationAttemptId,
+        limits: planningLimits,
+        legacyEnvelope: () => envelopeFor(false),
+      }) === null
+    ) {
       return {
         statusCode: 200,
         result: {
@@ -770,10 +777,8 @@ async function requestPublication(
       const recovered = await recoverPublicationRequest({
         artifact,
         envelope,
-        limits: publicationLimits(
-          artifact.publicationPermit.producerReleaseId,
-          limits,
-        ),
+        limits: planningLimits,
+        legacyEnvelope: () => envelopeFor(false),
         publicationAttemptId: command.publicationAttemptId,
         command,
         publications: dependencies.publications,
@@ -815,10 +820,8 @@ async function requestPublication(
     const recovered = await recoverPublicationRequest({
       artifact,
       envelope,
-      limits: publicationLimits(
-        artifact.publicationPermit.producerReleaseId,
-        limits,
-      ),
+      limits: planningLimits,
+      legacyEnvelope: () => envelopeFor(false),
       publicationAttemptId: command.publicationAttemptId,
       command,
       publications: dependencies.publications,
@@ -868,6 +871,7 @@ async function requestPublication(
 async function recoverPublicationRequest(input: {
   readonly artifact: FinalizedReviewProjectionArtifact;
   readonly envelope: PublishedReviewProjectionPublicationEnvelope;
+  readonly legacyEnvelope: () => PublishedReviewProjectionPublicationEnvelope;
   readonly limits: ReviewPublicationPlanningLimits;
   readonly publicationAttemptId: string;
   readonly command: ReturnType<typeof resolvePublicationCommand>;
@@ -886,14 +890,25 @@ async function recoverPublicationRequest(input: {
     if (existing.attempt.requestHash === input.command.requestHash) {
       return restoredPublicationRequest(existing);
     }
-    const recovered = resolvePublicationCommand({
+    const current = resolvePublicationCommand({
       artifact: input.artifact,
       envelope: input.envelope,
       limits: input.limits,
       publicationAttemptId: input.publicationAttemptId,
       existing,
     });
-    if (recovered.requestHash === input.command.requestHash) continue;
+    const recovered = matchingStoredPublicationCommand({
+      artifact: input.artifact,
+      current,
+      existing,
+      limits: input.limits,
+      publicationAttemptId: input.publicationAttemptId,
+      legacyEnvelope: input.legacyEnvelope,
+    });
+    if (!recovered) continue;
+    if (recovered.requestHash === input.command.requestHash) {
+      return restoredPublicationRequest(existing);
+    }
     try {
       const result = await input.requestPublication(recovered);
       if (
@@ -1597,6 +1612,30 @@ function resolvePublicationCommand(input: {
     input.artifact,
     operations,
   );
+}
+
+/** Recreate the exact persisted plan, including omitted optional replies. */
+function matchingStoredPublicationCommand(input: {
+  readonly artifact: FinalizedReviewProjectionArtifact;
+  readonly current: ReturnType<typeof resolvePublicationCommand>;
+  readonly existing: ReviewPublicationAttemptView;
+  readonly limits: ReviewPublicationPlanningLimits;
+  readonly publicationAttemptId: string;
+  readonly legacyEnvelope: () => PublishedReviewProjectionPublicationEnvelope;
+}): ReturnType<typeof resolvePublicationCommand> | null {
+  if (input.current.requestHash === input.existing.attempt.requestHash) {
+    return input.current;
+  }
+  const legacy = resolvePublicationCommand({
+    artifact: input.artifact,
+    envelope: input.legacyEnvelope(),
+    limits: input.limits,
+    publicationAttemptId: input.publicationAttemptId,
+    existing: input.existing,
+  });
+  return legacy.requestHash === input.existing.attempt.requestHash
+    ? legacy
+    : null;
 }
 
 function assertArtifactAuthority(input: {
