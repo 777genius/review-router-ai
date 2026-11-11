@@ -680,6 +680,9 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         !isOwnedBody(row, payload.marker, this.options.botLogin)
       ) return [];
       const body = requiredString(row.body, "github_comment_body_invalid");
+      // A bot message containing our marker but edited away from the canonical
+      // acknowledgement is ambiguous. Never create a second reply in that case.
+      if (body !== payload.body) throw new Error("github_verified_reply_body_conflict");
       return [gatewayObject(`review-comment:${numericId(row)}`, payload, sha256(body))];
     });
     return pageResult(objects, page, rows.length);
