@@ -257,6 +257,32 @@ describe("review configuration", () => {
     expect(Object.keys(env).join("\n")).not.toContain("KEY");
   });
 
+  it("rejects mixed Claude subscription and API-key credentials in a single review", () => {
+    const providers = [
+      {
+        ...workspaceProviderFixture,
+        kind: "claude",
+        authMode: "claude_code_oauth",
+        model: "sonnet",
+      },
+      {
+        ...workspaceProviderFixture,
+        kind: "claude",
+        authMode: "claude_code_api_key",
+        model: "opus",
+      },
+    ];
+    expect(() => parseReviewConfigurationStrict({
+      ...workspacePolicyFixture,
+      providers,
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 1,
+        inlineMinAgreement: 1,
+      },
+    })).toThrow("claude_conflicting_auth_modes");
+  });
+
   it("rejects provider auth mode pairs that do not match catalog ownership", () => {
     expect(() =>
       parseReviewConfiguration({
