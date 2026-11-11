@@ -80,9 +80,6 @@ const checkoutOnlyMigrations = Object.freeze([
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
 export function readRenderHistorical96CheckoutInventory() {
   const checkout = readRenderManagedCheckoutInventory();
-  // A full checkout162 is only admissible with the new SQL checksum and the
-  // previously signed checkout160. Historical96 remains completely unchanged.
-  if (checkout.length >= 161) partitionRenderSchemaHandoffCheckout(checkout);
   if (
     checkout.some(
       (row, index) =>
@@ -105,6 +102,9 @@ export function readRenderHistorical96CheckoutInventory() {
     )
   )
     throw new Error("render_historical96_checkout_rejected:count");
+  // Only admit exactly checksum-bound checkout extensions after ruling out
+  // malformed/oversized historical inventories. Preserve the count error contract.
+  if (checkout.length >= 161) partitionRenderSchemaHandoffCheckout(checkout);
   const historical = checkout.filter(
     (row) => !checkoutOnlyMigrations.includes(row.migrationName),
   );
