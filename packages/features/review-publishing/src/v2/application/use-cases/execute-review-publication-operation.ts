@@ -423,7 +423,8 @@ export class ExecuteReviewV2PublicationOperation {
 
       if (
         potentialEffect &&
-        begun.operation.publicationKind === ReviewPublicationKind.PrDescription
+        (begun.operation.publicationKind === ReviewPublicationKind.PrDescription ||
+          begun.operation.publicationKind === ReviewPublicationKind.ThreadReply)
       ) {
         return this.settlement.terminalizeKnownAmbiguity({
           command,
