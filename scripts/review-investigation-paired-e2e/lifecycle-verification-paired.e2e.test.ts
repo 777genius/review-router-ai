@@ -144,6 +144,7 @@ const modelDispatchProfile: ReviewModelDispatchProfileV2 = {
 };
 type Scenario =
   | "success"
+  | "report_only"
   | "denied"
   | "unknown"
   | "missing_verdict"
@@ -175,6 +176,7 @@ lifecycleCase.each([
   ),
   ...(
     [
+      "report_only",
       "paid_unknown",
       "budget_exhausted",
       "stale_head",
@@ -923,7 +925,8 @@ lifecycleCase.each([
           }),
         ),
       });
-      expanded.lifecycleVerification.mode = "resolve";
+      expanded.lifecycleVerification.mode =
+        scenario === "report_only" ? "report" : "resolve";
       expect(
         JSON.parse(expanded.plan.assignmentManifestCanonicalJson)
           .manifestVersion,
@@ -951,7 +954,7 @@ lifecycleCase.each([
         second.exhausted,
       );
       const envelope = JSON.parse(projection.projectionEnvelopeCanonicalJson);
-      const valid = ["success", "denied", "unknown", "stale_head"].includes(
+      const valid = ["success", "report_only", "denied", "unknown", "stale_head"].includes(
         scenario,
       );
       expect(envelope.coverage.state).toBe("complete");
@@ -961,7 +964,7 @@ lifecycleCase.each([
         envelope.publishing.lifecycle.filter(
           (entry: { mutationEligible: boolean }) => entry.mutationEligible,
         ),
-      ).toHaveLength(valid ? 2 : 0);
+      ).toHaveLength(valid && scenario !== "report_only" ? 2 : 0);
       expect(envelope.publishing.summary.body).toContain(
         valid ? "2 fixes verified" : "0 fixes verified",
       );
@@ -1217,6 +1220,19 @@ lifecycleCase.each([
           },
         },
       });
+      if (scenario === "report_only") {
+        expect(operations).toHaveLength(0);
+        expect(receipts).toHaveLength(0);
+        expect(threads.resolveCalls()).toBe(0);
+        expect(threads.closed()).toHaveLength(0);
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toHaveLength(2);
+        const published = threads.verifiedReplies();
+        await owned.runWorkerUntilSettled();
+        expect(threads.verifiedReplyWrites()).toBe(2);
+        expect(threads.verifiedReplies()).toEqual(published);
+        expect(threads.closed()).toHaveLength(0);
+      }
       if (scenario === "success") {
         expect(threads.verifiedReplyWrites()).toBe(2);
         expect(threads.verifiedReplies()).toHaveLength(2);
