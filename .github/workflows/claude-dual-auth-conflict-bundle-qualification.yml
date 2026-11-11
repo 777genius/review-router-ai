@@ -8,7 +8,9 @@ on:
       - .github/workflows/claude-dual-auth-conflict-bundle-qualification.yml
       - scripts/lib/render-schema-handoff-policy.test.ts
       - packages/features/codex-oauth-rotating/src/action/review-runtime-environment.ts
+      - packages/features/workflow-provisioning/src/domain/workflow-template.ts
       - packages/features/workflow-provisioning/src/tests/workflow-template.test.ts
+      - apps/web/app/dashboard/provider-setup/provider-setup-dialog.test.tsx
 
 permissions:
   contents: write
