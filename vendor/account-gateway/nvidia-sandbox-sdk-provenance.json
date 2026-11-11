@@ -8,14 +8,14 @@
   "artifactRun": "https://github.com/agent-teams-ai/account-gateway/actions/runs/43008848474",
   "artifactId": 13849063492,
   "nativeSourceRepository": "agent-teams-ai/sub2api",
-  "nativeSourceE2ECommit": "28402d51121ee3f75db74e0416bdce6194a98449",
+  "nativeSourceE2ECommit": "a19cbcbedda8eccbe82bb24224052a1e9eaab309",
   "qualification": {
     "sdkArchiveBuilt": true,
     "archiveChecksumVerified": true,
     "pnpmLockfileRegenerated": true,
-    "sdkConsumerChecks": "pending_exact_head",
-    "independentNativeGoAndPostgresE2E": "passed_synthetic_only",
-    "hostedNvidiaBuildInference": "nemotron_direct_chat_and_stream_two_turn_pass; protected_bridge_pending",
+    "sdkConsumerChecks": "pending_new_sdk_ci",
+    "independentNativeGoAndPostgresE2E": "passed_synthetic_postgres_and_hosted_streaming_bridge",
+    "hostedNvidiaBuildInference": "nemotron_direct_chat_sse_tool_replay_and_protected_native_sse_two_turn_pass",
     "actualGitHubAppReview": "not_qualified"
   },
   "rollout": {
@@ -23,5 +23,11 @@
     "publicPublished": false,
     "productionActivated": false
   },
-  "previousProvenance": "provider-connections-provenance.json"
+  "previousProvenance": "provider-connections-provenance.json",
+  "evidence": {
+    "hostedDirectStreaming": "https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43007767383",
+    "hostedProtectedNative": "https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43008527694",
+    "visualProviderUI": "https://github.com/777genius/review-router-ai/actions/runs/43006771925",
+    "nativePostgres": "https://github.com/agent-teams-ai/account-gateway/actions/runs/42922347760"
+  }
 }
