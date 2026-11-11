@@ -17,7 +17,7 @@ import {
 const NVIDIA_EVAL_PROFILE = {
   profileId: "nvidia-build-chat-apikey-v1",
   protocol: "openai-responses",
-  modelIds: ["deepseek-ai/deepseek-v4.1-flash", "z-ai/glm-5.3-flash"],
+  modelIds: ["nvidia/nemotron-3.5-super-vl-120b-a12b"],
   authKinds: ["api_key"],
 } as const;
 
@@ -39,8 +39,8 @@ const NVIDIA_EVAL_CAPABILITY = {
     modelId,
     reasoning: null,
     fast: null,
-    // No live NVIDIA tool qualification yet; review tools fail closed.
-    tools: { allowed: ["none"], default: "none" },
+    // Matches the independently tested sandbox function-call contract.
+    tools: { allowed: ["function"], default: "function" },
   })),
 } as const;
 

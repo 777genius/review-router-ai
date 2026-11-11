@@ -1161,11 +1161,11 @@ describe("ProviderSetupDialog", () => {
     },
   );
 
-  it("shows NVIDIA as Gateway-owned and refuses unqualified tool-using reviews", async () => {
+  it("shows NVIDIA as Gateway-owned and requires a saved credential before account creation", async () => {
     const fixture = gatewayFixture();
     if (fixture.status !== "ok") throw new Error("fixture unavailable");
     const profile = fixture.value.profiles[0]!;
-    const model = "deepseek-ai/deepseek-v4.1-flash";
+    const model = "nvidia/nemotron-3.5-super-vl-120b-a12b";
     profile.id = "nvidia-build-chat-apikey-v1";
     profile.label = "NVIDIA Build (evaluation)";
     profile.provider = "nvidia";
@@ -1178,7 +1178,7 @@ describe("ProviderSetupDialog", () => {
           modelId: model,
           reasoning: null,
           fast: null,
-          tools: { allowed: ["none"], default: "none" },
+          tools: { allowed: ["function"], default: "function" },
         },
       ],
     };

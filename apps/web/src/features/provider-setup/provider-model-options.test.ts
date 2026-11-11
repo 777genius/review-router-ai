@@ -101,8 +101,8 @@ describe("Gateway model catalog presentation", () => {
     expect(option?.description).not.toContain("not confirmed");
   });
 
-  it("keeps NVIDIA sandbox models disabled for tool-using review until tools are certified", () => {
-    const modelId = "deepseek-ai/deepseek-v4.1-flash";
+  it("admits only the live-qualified NVIDIA Nemotron tool model with its own fresh account proof", () => {
+    const modelId = "nvidia/nemotron-3.5-super-vl-120b-a12b";
     const profile = {
       models: [modelId],
       connection: {
@@ -114,7 +114,7 @@ describe("Gateway model catalog presentation", () => {
         limitsContract: "none" as const,
         modelSettings: [{
           modelId, reasoning: null, fast: null,
-          tools: { allowed: ["none"] as const, default: "none" as const },
+          tools: { allowed: ["function"] as const, default: "function" as const },
         }],
       },
     };
@@ -122,24 +122,45 @@ describe("Gateway model catalog presentation", () => {
       status: "snapshot" as const,
       source: "nvidia" as const,
       fetchedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
       models: [modelId],
     };
-    const [refused] = gatewayProviderModelOptions([], profile, { catalog, requiresTools: true });
-    expect(refused?.provider).toBe("nvidia");
-    expect(refused?.disabled).toBe(true);
-    expect(refused?.description).toContain("Tool calling is not supported");
-    const [allowed] = gatewayProviderModelOptions([], profile, { catalog, requiresTools: false });
-    expect(allowed?.disabled).toBe(false);
-    const [untrusted] = gatewayProviderModelOptions([], profile, {
-      catalog: { ...catalog, source: "openrouter" }, requiresTools: false,
+    const [approved] = gatewayProviderModelOptions([], profile, {
+      catalog, requiresTools: true,
     });
-    expect(untrusted?.disabled).toBe(true);
-    expect(untrusted?.description).toContain("NVIDIA account model qualification unavailable");
-    const [stillRefused] = gatewayProviderModelOptions([], profile, {
+    expect(approved?.provider).toBe("nvidia");
+    expect(approved?.disabled).toBe(false);
+
+    const [wrongSource] = gatewayProviderModelOptions([], profile, {
       catalog: { ...catalog, source: "openrouter" }, requiresTools: true,
     });
-    expect(stillRefused?.disabled).toBe(true);
+    expect(wrongSource?.disabled).toBe(true);
+    expect(wrongSource?.description).toContain("NVIDIA account model qualification unavailable.");
+
+    const [expired] = gatewayProviderModelOptions([], profile, {
+      catalog: { ...catalog, expiresAt: new Date(Date.now() - 60_000).toISOString() },
+      requiresTools: true,
+    });
+    expect(expired?.disabled).toBe(true);
+
+    const noTools = {
+      ...profile,
+      connection: {
+        ...profile.connection,
+        modelSettings: [{
+          modelId, reasoning: null, fast: null,
+          tools: { allowed: ["none"] as const, default: "none" as const },
+        }],
+      },
+    };
+    const [notToolQualified] = gatewayProviderModelOptions([], noTools, {
+      catalog, requiresTools: true,
+    });
+    expect(notToolQualified?.disabled).toBe(true);
+    const [textOnly] = gatewayProviderModelOptions([], noTools, {
+      catalog, requiresTools: false,
+    });
+    expect(textOnly?.disabled).toBe(false);
   });
 
   it("keeps true native tools:none unavailable for a tool-using review", () => {

@@ -126,7 +126,7 @@ function fixture(
         protocol: "openai-responses",
         provider: source,
         authKind: source === "codex" ? "oauth" : "api_key",
-        models: source === "nvidia" ? ["deepseek-ai/deepseek-v4.1-flash"] : ["old-seed"],
+        models: source === "nvidia" ? ["nvidia/nemotron-3.5-super-vl-120b-a12b"] : ["old-seed"],
       },
     ],
     gateway: { get, readAccountModels },
@@ -312,7 +312,7 @@ test("NVIDIA trial denies unavailable catalog and never offers the enrollment an
     models: [],
   });
   await expect(
-    f.api.resolveProbe("binding", "deepseek-ai/deepseek-v4.1-flash"),
+    f.api.resolveProbe("binding", "nvidia/nemotron-3.5-super-vl-120b-a12b"),
   ).rejects.toMatchObject({ code: "binding_unavailable" });
   expect(f.readAccountModels).toHaveBeenCalledWith(
     expect.objectContaining({ profileId: "nvidia-build-chat-apikey-v1" }),
