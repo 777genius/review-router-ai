@@ -1020,6 +1020,20 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           );
         },
       );
+      await dialog.getByRole("button", { name: "Check GitHub setup" }).click();
+      await flow.check(
+        "GitHub secret check rejects the missing Anthropic key before fixture injection",
+        async () => {
+          await visible(
+            dialog.getByText("ANTHROPIC_API_KEY is not set for this repository yet."),
+          );
+          expectEqual(
+            await dialog.getByText(`ANTHROPIC_API_KEY is set for ${fullName}.`).count(),
+            0,
+            "no false positive for missing API-key secret",
+          );
+        },
+      );
       await flow.shot(page, "claude-api-key-secret-missing");
 
       // Fixture writes only GitHub secret metadata, never real secret material.
