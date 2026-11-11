@@ -32,6 +32,7 @@ export enum ReviewPublicationLifecycleSemantic {
   Resolve = "resolve",
   Reopen = "reopen",
   MarkStale = "mark_stale",
+  ConfirmReply = "confirm_reply",
 }
 
 export enum ReviewPublicationOperationIdentityVersion {
@@ -269,11 +270,17 @@ export function planReviewPublicationOperations(input: {
   for (const lifecycle of envelope.lifecycle) {
     assertLifecycleSemantic(lifecycle.semantic);
     chunkCount += 1;
+    const isReply =
+      lifecycle.semantic === ReviewPublicationLifecycleSemantic.ConfirmReply;
     append({
-      publicationKind: ReviewPublicationKind.ThreadLifecycle,
+      publicationKind: isReply
+        ? ReviewPublicationKind.ThreadReply
+        : ReviewPublicationKind.ThreadLifecycle,
       chunkIndex: lifecycle.chunkIndex,
       facts: lifecycle,
-      effectStrategy: ReviewPublicationEffectStrategy.ReversibleLifecycle,
+      effectStrategy: isReply
+        ? ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt
+        : ReviewPublicationEffectStrategy.ReversibleLifecycle,
       role: ReviewPublicationOperationRole.Standalone,
       dependsOnOperationId: null,
     });
@@ -517,6 +524,7 @@ function assertLifecycleSemantic(
     case ReviewPublicationLifecycleSemantic.Resolve:
     case ReviewPublicationLifecycleSemantic.Reopen:
     case ReviewPublicationLifecycleSemantic.MarkStale:
+    case ReviewPublicationLifecycleSemantic.ConfirmReply:
       return;
     default:
       fail(ReviewPublicationPlanningErrorCode.LifecycleSemanticUnsupported);
