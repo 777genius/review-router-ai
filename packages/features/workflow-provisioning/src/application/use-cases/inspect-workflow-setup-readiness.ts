@@ -354,15 +354,14 @@ export async function isWorkflowSetupAlreadyCurrent(
 
   let expectedInteractionWorkflow: string;
   try {
-    expectedInteractionWorkflow =
-      renderCodexRotatingInteractionWorkflow({
-        actionRef: input.actionRef,
-        apiUrl: expectedPublicApiUrl!,
-        runtimeConfigMode: "oidc",
-        ...(input.discussionMode !== undefined
-          ? { discussionMode: input.discussionMode }
-          : {}),
-      });
+    expectedInteractionWorkflow = renderCodexRotatingInteractionWorkflow({
+      actionRef: input.actionRef,
+      apiUrl: expectedPublicApiUrl!,
+      runtimeConfigMode: "oidc",
+      ...(input.discussionMode !== undefined
+        ? { discussionMode: input.discussionMode }
+        : {}),
+    });
   } catch {
     return false;
   }

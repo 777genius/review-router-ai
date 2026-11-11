@@ -886,7 +886,8 @@ describe("renderReviewRouterWorkflow", () => {
 
   it("keeps v3 interaction bytes stable and installs v4 only for author-gated replies", () => {
     const options = {
-      actionRef: "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+      actionRef:
+        "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
       apiUrl: "https://reviewrouter.org",
       runtimeConfigMode: "oidc" as const,
       discussionMode: "suggest" as const,
