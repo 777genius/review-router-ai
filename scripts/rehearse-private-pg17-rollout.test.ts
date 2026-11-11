@@ -1923,6 +1923,7 @@ describe("disposable dual-version rehearsal", () => {
     "000152_memory_automatic_source",
     "000152_review_run_gateway_allocations",
     "000153_conversation_processing",
+    "000156_claude_code_api_key_secret",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -2000,6 +2001,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
+                name !== "000156_claude_code_api_key_secret" &&
                 name !== "000155_usage_member_report_index" &&
                 name !== "000154_unified_model_dispatch" &&
                 name !== "000152_review_run_gateway_allocations" &&
