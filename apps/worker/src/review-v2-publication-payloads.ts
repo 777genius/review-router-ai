@@ -246,7 +246,9 @@ function buildCatalog(
       renderPolicyVersion: resolveReviewPublicationRenderPolicyVersion(
         artifact.projectionPolicyVersion,
       ),
-      includeVerifiedFixReplies: options?.includeVerifiedFixReplies,
+      ...(options?.includeVerifiedFixReplies === undefined
+        ? {}
+        : { includeVerifiedFixReplies: options.includeVerifiedFixReplies }),
       targetCommitId: artifact.reviewedHeadSha,
       occurrenceStates: projection.occurrences.map((occurrence) =>
         reviewPublicationOccurrenceState(occurrence.state),
