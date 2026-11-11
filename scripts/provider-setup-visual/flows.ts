@@ -957,7 +957,9 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
             "subscription method is visible but not selected",
           );
           expectEqual(
-            await dialog.getByRole("radiogroup", { name: "GitHub secret delivery" }).count(),
+            await dialog
+              .getByRole("radiogroup", { name: "GitHub secret delivery" })
+              .count(),
             0,
             "Claude setup must not duplicate the key-storage choice",
           );
