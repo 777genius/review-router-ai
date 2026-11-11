@@ -73,6 +73,10 @@ function facts(
         uploaded: true,
         installedRepositoryIds: new Set(["repo_a"]),
       },
+      claude_code_api_key: {
+        uploaded: false,
+        installedRepositoryIds: new Set(),
+      },
     },
     claudeCodeEnabled: true,
     ...overrides,
