@@ -832,7 +832,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
   {
     id: "flow-claude-api-key-github-secrets",
     title:
-      "Claude API key: select the same provider, persist the profile, verify synthetic GitHub Secret and finish repository setup",
+      "Claude API key: select one provider, persist its profile and verify synthetic GitHub Secret without claiming workflow readiness",
     run: async (flow) => {
       const repositoryKey: VisualRepositoryKey = "mainNeedsSecret";
       const workspace = VISUAL_WORKSPACES.main;
@@ -847,11 +847,11 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       await page
         .getByRole("searchbox", { name: "Find repository" })
         .fill(repository.name);
-      await flow.check("the requested repository has the pending secret step", async () => {
+      await flow.check("the repository is visible but does not claim verified workflow readiness", async () => {
         await visible(repositoryRowHeader(page, repositoryKey));
         return expectMatch(
           await stepTitle(page, repositoryKey),
-          /^3 of 4/,
+          /^1 of 4 - verification needed$/,
           "repository setup step",
         );
       });
@@ -860,9 +860,16 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         await (await repositoryStepPill(page, repositoryKey)).click();
       }
       await visible(panel);
+      // This fixture's workflow has not been verified. The credential-step
+      // button is intentionally unavailable until workflow verification.
+      // Use the provider-line action, which remains available to configure
+      // the next provider without pretending the repository is ready.
       const dialog = await openDialog(
         page,
-        panel.getByRole("button", { name: "Add secret" }),
+        panel.getByRole("button", {
+          name: "Use a different provider",
+          exact: true,
+        }),
       );
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
@@ -947,17 +954,21 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         );
       });
       await returnFromSetupDialog(page, dialog, "Back to repository setup");
-      await flow.check("the repository becomes ready after verifying the selected API secret", async () => {
+      await flow.check("credential verification does not certify an unverified review workflow", async () => {
         await assertRepositoryExpanded(page, repositoryKey);
         await expectEventually(async () =>
-          expectMatch(await stepTitle(page, repositoryKey), /^4 of 4/, "ready step"),
+          expectMatch(
+            await stepTitle(page, repositoryKey),
+            /^1 of 4 - verification needed$/,
+            "workflow readiness remains unverified",
+          ),
         );
       });
       await page.setViewportSize({ width: 390, height: 844 });
       await flow.check("Claude API-key setup fits a mobile viewport", () =>
         assertNoHorizontalOverflow(page),
       );
-      await flow.shot(page, "claude-api-key-repository-ready");
+      await flow.shot(page, "claude-api-key-credential-verified-workflow-pending");
     },
   },
 
