@@ -622,7 +622,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
   {
     id: "flow-step3-create-attach",
     title:
-      "Step 3 opens the dialog for the repository; a new provider is attached, listed and not the default; the stepper reaches Ready",
+      "A repository without verified runtime can save a provider and verify its secret, but cannot claim Ready",
     run: async (flow) => {
       const repositoryKey: VisualRepositoryKey = "mainNeedsSecret";
       const workspace = VISUAL_WORKSPACES.main;
@@ -633,21 +633,30 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         theme: "light",
       });
 
-      await flow.check("the repository waits on step 3", async () =>
+      await flow.check("the unverified runtime does not claim completed setup", async () =>
         expectMatch(
           await stepTitle(page, repositoryKey),
-          /^3 of 4/,
+          /^1 of 4 - verification needed$/,
           "step pill title",
         ),
       );
+      const panel = repositorySetupPanel(page, repositoryKey);
+      if (!(await panel.isVisible())) {
+        await (await repositoryStepPill(page, repositoryKey)).click();
+      }
+      await visible(panel);
       const dialog = await openDialog(
         page,
-        repositorySetupPanel(page, repositoryKey).getByRole("button", {
-          name: "Add secret",
+        panel.getByRole("button", {
+          name: "Use a different provider",
+          exact: true,
         }),
       );
+      // The provider line is available even while workflow attestation is
+      // pending; its credentials tab remains a real user-accessible step.
+      await dialog.getByRole("button", { name: "2. Add secret" }).click();
       await flow.check(
-        "the step button opens the one provider dialog fixed to this repository, on its secret",
+        "the provider line opens the one dialog fixed to this repository, on its secret",
         async () => {
           await visible(
             dialog.getByRole("heading", { name: `Provider for ${fullName}` }),
@@ -692,7 +701,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           );
           expectMatch(
             await stepTitle(page, repositoryKey),
-            /^3 of 4/,
+            /^1 of 4 - verification needed$/,
             "step with missing secret",
           );
         },
@@ -787,14 +796,14 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         () => returnFromSetupDialog(page, dialog, "Back to repository setup"),
       );
       await flow.check(
-        "returning reloads the same repository and preserves confirmed readiness",
+        "returning confirms the secret without qualifying an unverified workflow",
         async () => {
           await assertRepositoryExpanded(page, repositoryKey);
           await expectEventually(async () =>
             expectMatch(
               await stepTitle(page, repositoryKey),
-              /^4 of 4/,
-              "step pill title",
+              /^1 of 4 - (verification needed|workflow update needed)$/,
+              "workflow verification remains pending",
             ),
           );
         },
@@ -808,11 +817,11 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         );
       });
       await page.setViewportSize({ width: 390, height: 844 });
-      await flow.check("the ready repository remains usable on mobile", () =>
+      await flow.check("the repository with confirmed credentials remains usable on mobile", () =>
         assertNoHorizontalOverflow(page),
       );
       await repositorySetupPanel(page, repositoryKey).scrollIntoViewIfNeeded();
-      await flow.shot(page, "stepper-ready");
+      await flow.shot(page, "stepper-workflow-pending");
 
       await gotoDashboard(page, workspaceRoute("main", "providers"));
       const row = providerListRow(page, created!.label);
