@@ -63,7 +63,7 @@ describe("applyProviderApiKey", () => {
   it.each([
     "sk-ant-oat01-synthetic-subscription",
     "sk-ant-api03-contains whitespace",
-    "not-a-claude-api-key",
+    "short",
   ])("rejects non-API Claude credentials before custody or GitHub delivery (%s)", async (key) => {
     const providerApiKeys = store();
     const githubSecrets = gateway();
