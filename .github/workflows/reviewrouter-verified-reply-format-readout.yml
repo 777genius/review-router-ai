@@ -70,7 +70,7 @@ jobs:
           python3 - <<'PY'
           import base64, hashlib, json, subprocess
           paths = [p for p in subprocess.check_output(
-              ["git", "diff", "--name-only", "-z"]).decode("utf-8").split("\\0") if p]
+              ["git", "diff", "--name-only", "-z"]).decode("utf-8").split(chr(0)) if p]
           data = [{"path": p, "content": open(p, encoding="utf-8").read()}
                   for p in paths]
           payload = json.dumps(data, ensure_ascii=True, separators=(",", ":"))
