@@ -17,5 +17,10 @@ ALTER TABLE "WorkspaceProviderProfile"
         'mimo_token_plan_api_key', 'claude_code_oauth', 'claude_code_api_key',
         'openrouter_api_key', 'kimi_code_api_key'
       ))
-  );
+  ) NOT VALID;
 COMMIT;
+
+-- New CHECK applies to new/updated rows immediately. Validation scans old
+-- rows under SHARE UPDATE EXCLUSIVE, avoiding a long ACCESS EXCLUSIVE scan.
+ALTER TABLE "WorkspaceProviderProfile"
+  VALIDATE CONSTRAINT "WorkspaceProviderProfile_auth_mode";
