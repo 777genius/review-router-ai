@@ -132,10 +132,22 @@ export function buildProviderRuntimePlan(
     runtimeEnv.CODEX_FAST_MODE = String(codexBackedProvider.fastMode);
   }
 
-  const claudeProvider = providers.find(
+  const claudeProviders = providers.filter(
     (provider) => provider.kind === "claude",
   );
-  if (claudeProvider) {
+  if (claudeProviders.length > 0) {
+    // A single process-level Claude CLI credential must not silently switch
+    // between the subscription and API key of distinct reviewers.
+    const claudeModes = new Set(
+      claudeProviders.map(
+        (provider) => getProviderAuthModeMetadata(provider.authMode).runtimeAuthMode,
+      ),
+    );
+    if (claudeModes.size !== 1) {
+      throw new Error("claude_conflicting_auth_modes");
+    }
+    const claudeProvider = claudeProviders[0]!;
+    runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE = [...claudeModes][0]!;
     runtimeEnv.CLAUDE_MODEL = claudeProvider.model;
     runtimeEnv.CLAUDE_AGENTIC_CONTEXT = String(claudeProvider.agenticContext);
   }
