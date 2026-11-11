@@ -1257,7 +1257,9 @@ export function analyzeWorkflowProviderCompatibility(input: {
     // A selected API-key workflow must be wired for its own credential;
     // an unrelated subscription secret cannot satisfy compatibility.
     const apiKeySelected =
-      /REVIEW_AUTH_MODE:\s*["']?claude-api-key["']?(?:\s|$)/m.test(input.workflowYaml);
+      /["']?REVIEW_AUTH_MODE["']?\s*:\s*["']?claude-api-key["']?(?:\s|[,}]|$)/m.test(
+        input.workflowYaml,
+      );
     const requiredSecret = apiKeySelected
       ? "ANTHROPIC_API_KEY"
       : "CLAUDE_CODE_OAUTH_TOKEN";
