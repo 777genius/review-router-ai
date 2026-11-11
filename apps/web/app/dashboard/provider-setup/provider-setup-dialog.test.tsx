@@ -768,6 +768,49 @@ describe("ProviderSetupDialog", () => {
     );
   });
 
+  it("keeps ReviewRouter encrypted-key custody in Claude repository-selection links", async () => {
+    view = {
+      ...view,
+      target: "workspace",
+      sources: [
+        ...apiSources(),
+        {
+          key: "user_ci_secret:claude_code_oauth",
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_oauth",
+          decision: { allowed: true },
+        },
+        {
+          key: "managed_api_key:claude_code_api_key",
+          credentialKind: "managed_api_key",
+          authMode: "claude_code_api_key",
+          decision: { allowed: true },
+          managedKey: {
+            uploaded: true,
+            installedRepositoryIds: ["repo_1"],
+            install: { allowed: true },
+          },
+        },
+      ],
+    };
+    renderDialog({ kind: "workspace" }, { mode: "add" });
+    await chooseSelect("Provider", "Claude Code");
+    fireEvent.click(screen.getByRole("radio", { name: "Anthropic API key" }));
+    fireEvent.click(screen.getByRole("radio", { name: "ReviewRouter" }));
+    const link = screen.getByRole("link", {
+      name: "Choose repositories for key installation",
+    });
+    const target = new URL(link.getAttribute("href")!, "https://example.test");
+    expect(target.searchParams.get("keyProvider")).toBe("claude-code");
+    expect(target.searchParams.get("keyStorage")).toBe("reviewrouter");
+    expect(target.searchParams.get("keyClaudeMethod")).toBe("api_key");
+    expect(
+      screen
+        .getByRole("radio", { name: "Claude subscription" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+  });
+
   it("stores an Anthropic API key encrypted through the existing managed-key delivery without enabling subscription custody", async () => {
     const managed = {
       key: "managed_api_key:claude_code_api_key" as const,
