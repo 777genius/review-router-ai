@@ -232,13 +232,10 @@ export function createReviewRunGatewayRelay(input: {
   /** Deny NVIDIA trial relay before preparing or dispatching for non-fixture SCM sources. */
   readonly resolveNvidiaRepository?: (
     authorization: ReviewRunAuthorization,
-  ) => Promise<
-    | {
-        readonly githubRepositoryId: string;
-        readonly repositoryFullName: string;
-      }
-    | null
-  >;
+  ) => Promise<{
+    readonly githubRepositoryId: string;
+    readonly repositoryFullName: string;
+  } | null>;
   // Full SCM freshness at phase boundaries; opaque chunks keep every local guard.
   readonly checkAuthority: (
     authorization: ReviewRunAuthorization,
@@ -1193,9 +1190,7 @@ export function createReviewRunGatewayRelay(input: {
       // repository restriction at the actual inference admission boundary.
       if (gateway.profileRef === "nvidia-build-chat-apikey-v1") {
         const source = await input.resolveNvidiaRepository?.(auth);
-        if (
-          !isQualifiedNvidiaSandboxRepository(source)
-        )
+        if (!isQualifiedNvidiaSandboxRepository(source))
           throw new RelayFailure("authorization_denied", 403);
       }
       // Parent headers are untrusted until the existing authority read selects

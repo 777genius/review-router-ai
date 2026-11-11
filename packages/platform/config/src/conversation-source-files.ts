@@ -5,5 +5,6 @@ export const conversationSourceFiles = {
   gatewayPreviewSourceDigest:
     "apps/api/src/action-conversation-memory-preview.ts",
   accountPolicySourceDigest: "apps/api/src/action-conversation-policy.ts",
-  gatewaySdkProvenanceDigest: "vendor/account-gateway/nvidia-sandbox-sdk-provenance.json",
+  gatewaySdkProvenanceDigest:
+    "vendor/account-gateway/nvidia-sandbox-sdk-provenance.json",
 } as const;

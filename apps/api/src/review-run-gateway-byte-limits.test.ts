@@ -1270,8 +1270,17 @@ it("refuses NVIDIA relay from other repositories before any SDK prepare, while a
     },
   ]) {
     const f = await fixture(
-      32768, 0, 2, 5000, undefined, undefined, 128,
-      selection, undefined, undefined, repository,
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      undefined,
+      128,
+      selection,
+      undefined,
+      undefined,
+      repository,
     );
     try {
       await expect(
@@ -1293,8 +1302,17 @@ it("refuses NVIDIA relay from other repositories before any SDK prepare, while a
   }
 
   const allowed = await fixture(
-    32768, 0, 2, 5000, undefined, undefined, 128,
-    selection, undefined, undefined, {
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    128,
+    selection,
+    undefined,
+    undefined,
+    {
       githubRepositoryId: "1390973362",
       repositoryFullName: "777genius/rr-hosted-pool-e2e-20260927",
     },
@@ -1863,10 +1881,11 @@ async function fixture(
             protocol: "openai-responses",
             modelIds: [
               ...(multi?.profileModelIds ??
-                multi?.models ??
-                [selection.profileId === "nvidia-build-chat-apikey-v1"
-                  ? selection.model
-                  : "gpt-5.6-sol"]),
+                multi?.models ?? [
+                  selection.profileId === "nvidia-build-chat-apikey-v1"
+                    ? selection.model
+                    : "gpt-5.6-sol",
+                ]),
             ],
             authKinds: [selection.authKind ?? "oauth"],
           },

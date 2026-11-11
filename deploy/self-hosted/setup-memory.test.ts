@@ -340,14 +340,20 @@ test("conversation source identity refuses a different installed SDK or archive 
       currentConversationSourceStamp(f.directory),
       /conversation_sdk_manifest_mismatch/,
     );
-    const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    const sourceRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
     await writeFile(
       manifestPath,
       await readFile(join(sourceRoot, "apps/api/package.json")),
     );
     const source = JSON.parse(
       await readFile(
-        join(f.directory, conversationReleaseSources.gatewaySdkProvenanceDigest),
+        join(
+          f.directory,
+          conversationReleaseSources.gatewaySdkProvenanceDigest,
+        ),
         "utf8",
       ),
     ) as { archive: string };
