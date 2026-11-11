@@ -2343,7 +2343,17 @@ test.each(["workspace", "personal"] as const)(
     }];
     page.accounts = [];
     const api = personalApi();
-    await mount({ api, managementScope });
+    render(
+      <AccountGatewayControls
+        bootstrap={{ context, page: { status: "ok", value: page } }}
+        api={api}
+        managementScope={managementScope}
+      />,
+    );
+    await screen.findByRole("button", { name: "Refresh connections" });
+    expect(
+      screen.queryByRole("button", { name: /Add account|Connect account/ }),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: "Sign in to Claude" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Provider" })).toBeNull();
     expect(api.beginGatewayOAuth).not.toHaveBeenCalled();
