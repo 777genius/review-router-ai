@@ -1294,8 +1294,10 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
   it("refuses an unproven parent before writing a verified-fix reply", async () => {
     const sha = (value: string) =>
       createHash("sha256").update(value).digest("hex");
-    const body = "Verified fix\n<!-- reviewrouter:fix-verified:v1:rrt_fake -->";
-    const marker = "reviewrouter:fix-verified:v1:rrt_fake";
+    const fingerprint = "rrl_0123456789abcdef0123456789abcdef";
+    const targetId = `rrt_${sha(`thread-1\nforged-parent\n${fingerprint}`).slice(0, 16)}`;
+    const marker = `reviewrouter:fix-verified:v1:${targetId}`;
+    const body = `Verified fix\n<!-- ${marker} -->`;
     const payload = {
       kind: ReviewV2PublicationPayloadKind.ThreadReply,
       marker,
@@ -1304,7 +1306,7 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
       bodyByteCount: Buffer.byteLength(body),
       body,
       threadId: "thread-1",
-      targetId: "rrt_fake",
+      targetId,
     } as const;
     let mutations = 0;
     const client = githubPublicationClient(
@@ -1334,9 +1336,9 @@ describe("protocol v2 provider-neutral SCM gateways", () => {
                   {
                     id: "forged-parent",
                     databaseId: 100,
-                    body: "not a ReviewRouter finding",
+                    body: `finding\n<!-- reviewrouter:finding:v2:${fingerprint} -->`,
                     viewerDidAuthor: false,
-                    author: { login: "human", __typename: "User" },
+                    author: { login: "untrusted-app", __typename: "Bot" },
                   },
                 ],
               },
