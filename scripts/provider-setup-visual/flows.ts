@@ -717,6 +717,25 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
       await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await flow.check(
+        "subscription selection remains OAuth, never the Anthropic API-key source",
+        async () => {
+          expectEqual(
+            await dialog
+              .getByRole("radio", { name: "Claude subscription" })
+              .getAttribute("aria-checked"),
+            "true",
+            "subscription selected",
+          );
+          expectEqual(
+            await dialog
+              .getByRole("radio", { name: "Anthropic API key" })
+              .getAttribute("aria-checked"),
+            "false",
+            "API key unselected",
+          );
+        },
+      );
       const model =
         getDefaultProviderConfigForAuthMode("claude_code_oauth").model;
       await flow.check(
