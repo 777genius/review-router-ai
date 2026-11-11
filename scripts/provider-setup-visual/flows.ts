@@ -842,11 +842,27 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       const page = await flow.open("owner", repositoryRoute(repositoryKey), {
         theme: "dark",
       });
+      // Search and expand through the same controls as a user. On long lists
+      // the selected row may render as a collapsed summary after hydration.
+      await page
+        .getByRole("searchbox", { name: "Find repository" })
+        .fill(repository.name);
+      await flow.check("the requested repository has the pending secret step", async () => {
+        await visible(repositoryRowHeader(page, repositoryKey));
+        return expectMatch(
+          await stepTitle(page, repositoryKey),
+          /^3 of 4/,
+          "repository setup step",
+        );
+      });
+      const panel = repositorySetupPanel(page, repositoryKey);
+      if (!(await panel.isVisible())) {
+        await (await repositoryStepPill(page, repositoryKey)).click();
+      }
+      await visible(panel);
       const dialog = await openDialog(
         page,
-        repositorySetupPanel(page, repositoryKey).getByRole("button", {
-          name: "Add secret",
-        }),
+        panel.getByRole("button", { name: "Add secret" }),
       );
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
