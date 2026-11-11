@@ -164,6 +164,22 @@ describe("Claude dual-auth CI templates", () => {
     expect(workflow).not.toContain("CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && true");
   });
 
+  it("recognizes API-key-only Claude configuration without a provider list", () => {
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: { REVIEW_AUTH_MODE: "claude-api-key" },
+    });
+    expect(workflowStep(workflow, "Install Claude Code CLI")?.if).toContain(
+      "&& true",
+    );
+    expect(workflowStep(workflow, "Install Codex CLI")?.if).toContain(
+      "env.CODEX_AUTH_JSON_PRESENT == '1' && false",
+    );
+    expect(workflow).toContain('REVIEW_AUTH_MODE: "claude-api-key"');
+  });
+
   it("preserves required workflow support for both approved Claude credentials", () => {
     const workflow = renderReviewRouterRequiredWorkflow({
       actionRef,
