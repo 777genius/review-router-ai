@@ -40,7 +40,9 @@ jobs:
             apps/api/src/review-run-gateway-checkout.ts \
             apps/api/src/review-run-gateway-relay.ts \
             apps/api/src/review-run-gateway-byte-limits.test.ts \
-            apps/api/src/review-run-gateway-multi-checkout.test.ts
+            apps/api/src/review-run-gateway-multi-checkout.test.ts \
+            deploy/self-hosted/setup-memory.test.ts \
+            packages/platform/config/src/conversation-source-files.ts
           pnpm format:check
       - name: Commit deterministic formatting and remove this workflow
         shell: bash
@@ -51,7 +53,9 @@ jobs:
             apps/api/src/review-run-gateway-checkout.ts \
             apps/api/src/review-run-gateway-relay.ts \
             apps/api/src/review-run-gateway-byte-limits.test.ts \
-            apps/api/src/review-run-gateway-multi-checkout.test.ts
+            apps/api/src/review-run-gateway-multi-checkout.test.ts \
+            deploy/self-hosted/setup-memory.test.ts \
+            packages/platform/config/src/conversation-source-files.ts
           git rm -- .github/workflows/nvidia-sandbox-format-once.yml
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "style(nvidia): normalize sandbox admission tests and remove one-time formatter"
           git push origin HEAD:refs/heads/feat/nvidia-build-gateway-sandbox
