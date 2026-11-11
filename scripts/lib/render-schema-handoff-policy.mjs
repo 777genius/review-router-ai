@@ -331,7 +331,9 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     if (
       verifiedReplyMigration.checksum !==
         "690327803b321cad8914c1ac489751ad140e7b39126115bf826138959b3f3888" ||
-      catalog.at(-1) !== verifiedReplyMigration
+      catalog.at(-1) !== verifiedReplyMigration ||
+      manifest(catalog.slice(0, -1)) !==
+        "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54"
     )
       fail("checkout_extension");
     return partitionRenderSchemaHandoffCheckout(
