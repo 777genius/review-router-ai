@@ -200,6 +200,8 @@ export function renderCanonicalReviewPublication(
   input: {
     readonly coverage: ReviewPublicationProjectionCoverage;
     readonly renderPolicyVersion: CanonicalReviewPublicationRenderPolicyVersion;
+    /** Preserve the original plan for publication attempts created before replies existed. */
+    readonly includeVerifiedFixReplies?: boolean;
     readonly targetCommitId: string;
     readonly occurrenceStates: readonly ReviewPublicationOccurrenceState[];
     readonly source: ReviewPublicationRenderingSource;
@@ -376,7 +378,8 @@ export function renderCanonicalReviewPublication(
   // repository remains report-only. Do not turn that evidence into resolve permission.
   const replies =
     input.renderPolicyVersion ===
-    CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6
+      CanonicalReviewPublicationRenderPolicyVersion.LifecycleVerificationV6 &&
+    input.includeVerifiedFixReplies !== false
       ? input.source.lifecycle
           .filter(
             (entry) =>
