@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { conversationSourceFiles } from "./conversation-source-files.ts";
-
 /** Source identity must describe the actual installed API SDK, not an older
  * quota-only archive. Archive changes without provenance cannot retain evidence. */
-export async function assertInstalledConversationSdk(sourceRoot: string) {
+export async function assertInstalledConversationSdk(
+  sourceRoot: string,
+  provenancePath: string,
+) {
   const provenance = JSON.parse(
     await readFile(
-      join(sourceRoot, conversationSourceFiles.gatewaySdkProvenanceDigest),
+      join(sourceRoot, provenancePath),
       "utf8",
     ),
   ) as { contract?: string; archive?: string; sha256?: string };

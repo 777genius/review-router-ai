@@ -11,7 +11,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Source coherence metadata only. No model result, proof, scope or permission. */
 export async function currentConversationSourceStamp(sourceRoot: string) {
-  await assertInstalledConversationSdk(sourceRoot);
+  await assertInstalledConversationSdk(
+    sourceRoot,
+    conversationSourceFiles.gatewaySdkProvenanceDigest,
+  );
   const sourceProfile = {} as Record<
     keyof typeof conversationSourceFiles,
     string

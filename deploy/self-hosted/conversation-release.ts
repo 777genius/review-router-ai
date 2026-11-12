@@ -109,7 +109,10 @@ export async function readConversationRelease(
   // Provenance metadata is insufficient without matching installed archive
   // and API package selection. Fail closed on missing or mismatched bytes.
   try {
-    await assertInstalledConversationSdk(installedSourceRoot);
+    await assertInstalledConversationSdk(
+      installedSourceRoot,
+      conversationReleaseSources.gatewaySdkProvenanceDigest,
+    );
   } catch {
     return { status: "unqualified", reason: "release_source_mismatch" };
   }
