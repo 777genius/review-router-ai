@@ -1,6 +1,4 @@
-import type {
-  UpsertReviewProgressCommentInput,
-} from "./review-progress-github-input-policy";
+import type { UpsertReviewProgressCommentInput } from "./review-progress-github-input-policy";
 
 export type ReviewProgressComment = {
   readonly id: number;
