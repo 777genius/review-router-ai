@@ -49,4 +49,18 @@ describe("Review progress GitHub retry policy", () => {
     expect(isSecondaryRateLimitResponse(forbidden)).toBe(false);
     expect(isSecondaryRateLimitResponse(null)).toBe(false);
   });
+
+  // Temporary CI-only formatter probe: remove after capturing pinned Prettier output.
+  it("reports the exact formatter diff for the retry policy tests", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const prettier = await import("prettier");
+    const file = new URL(import.meta.url);
+    const source = await readFile(file, "utf8");
+    const formatted = await prettier.format(source, { filepath: file.pathname });
+    if (formatted !== source) {
+      console.error("PRETTIER_CANONICAL_SOURCE_BEGIN\\n" + formatted + "\\nPRETTIER_CANONICAL_SOURCE_END");
+    }
+    expect(formatted).toBe(source);
+  });
+
 });
