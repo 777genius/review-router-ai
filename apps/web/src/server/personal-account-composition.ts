@@ -2,6 +2,7 @@ import {
   connectionProfiles,
   connectionView,
 } from "./account-connection-catalog";
+import { gatewayAPIKeyProviderKinds } from "../features/provider-setup/provider-identity";
 import { createAccountLimitsService } from "./account-limits-service";
 import {
   accountLimitsReader,
@@ -110,12 +111,7 @@ export async function productionPersonalAccounts() {
   > = [...settings.apiKeyProfiles].map(([id, name]) => ({
     id,
     label: name,
-    provider:
-      name === "MiMo"
-        ? "codex-mimo"
-        : name === "OpenRouter"
-          ? "openrouter"
-          : "nvidia",
+    provider: gatewayAPIKeyProviderKinds[name],
     authKind: "api_key" as "api_key" | "oauth",
     canReconnect: true,
     ...(settings.apiKeyProfileBaseURLs.has(id)

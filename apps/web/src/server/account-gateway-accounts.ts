@@ -44,6 +44,10 @@ import {
   canonicalMimoBaseURL,
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
+import {
+  gatewayAPIKeyProviderKinds,
+  type GatewayAPIKeyProfileName,
+} from "../features/provider-setup/provider-identity";
 import type { AccountUsageView } from "./account-usage";
 import type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
 export type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
@@ -402,7 +406,7 @@ export function createAccountsAdapter(input: {
   synchronization: ProviderAccountSynchronizationPort;
   bindingDependencies: ProviderAccountDependencies;
   fences?: WorkspaceBindingFenceRepositoryPort;
-  apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter" | "NVIDIA Build">;
+  apiKeyProfiles: ReadonlyMap<string, GatewayAPIKeyProfileName>;
   apiKeyProfileBaseURLs?: ReadonlyMap<string, string>;
   codexOAuthProfileId?: typeof codexOAuthProfileId;
   claudeOAuthProfileId?: typeof claudeOAuthProfileId;
@@ -422,12 +426,7 @@ export function createAccountsAdapter(input: {
       id,
       {
         label: name,
-        provider:
-          name === "MiMo"
-            ? "codex-mimo"
-            : name === "OpenRouter"
-              ? "openrouter"
-              : "nvidia",
+        provider: gatewayAPIKeyProviderKinds[name],
         authKind: "api_key",
         canReconnect: true,
       },
@@ -2088,10 +2087,7 @@ export function accountGatewayProfilesConfiguration() {
   const contextKey =
     process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET ?? "";
   if (contextKey.length < 32) throw new Error("accounts_unavailable");
-  const apiKeyProfiles = new Map<
-    string,
-    "MiMo" | "OpenRouter" | "NVIDIA Build"
-  >();
+  const apiKeyProfiles = new Map<string, GatewayAPIKeyProfileName>();
   for (const [value, name] of [
     [process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID, "MiMo"],
     [
