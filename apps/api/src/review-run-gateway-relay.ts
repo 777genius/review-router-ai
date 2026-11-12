@@ -1170,29 +1170,35 @@ export function createReviewRunGatewayRelay(input: {
         if (controller.signal.aborted) aborted();
       });
       let auth: ReviewRunAuthorization;
+      let lane: ReturnType<typeof selected>;
       try {
-        // This phase reads authority only. A caller cancellation releases the
-        // incoming reservation; a late read must never continue into session
-        // creation, capability preparation or inference. Do not race effectful
-        // prepare/close work or discard a retained native capability here.
+        // Authority and repository reads remain cancellable, so an aborted
+        // preflight cannot retain capacity or proceed into native inference.
         auth = await Promise.race([
           resolve(token, "full", reviewerId),
           cancelled,
         ]);
+        if (controller.signal.aborted)
+          throw new RelayFailure("authorization_denied", 401);
+        lane = selected(auth, reviewerId);
+        // Checkout is not mandatory for every relay caller: repeat the trusted
+        // repository restriction at the actual inference admission boundary.
+        if (lane.gateway.profileRef === "nvidia-build-chat-apikey-v1") {
+          const source = await Promise.race([
+            input.resolveNvidiaRepository?.(auth) ?? Promise.resolve(null),
+            cancelled,
+          ]);
+          if (controller.signal.aborted)
+            throw new RelayFailure("authorization_denied", 401);
+          if (!isQualifiedNvidiaSandboxRepository(source))
+            throw new RelayFailure("authorization_denied", 403);
+        }
       } finally {
         controller.signal.removeEventListener("abort", aborted);
       }
       if (controller.signal.aborted)
         throw new RelayFailure("authorization_denied", 401);
-      const lane = selected(auth, reviewerId);
       const { snapshot, gateway } = lane;
-      // Checkout is not mandatory for every relay caller: repeat the trusted
-      // repository restriction at the actual inference admission boundary.
-      if (gateway.profileRef === "nvidia-build-chat-apikey-v1") {
-        const source = await input.resolveNvidiaRepository?.(auth);
-        if (!isQualifiedNvidiaSandboxRepository(source))
-          throw new RelayFailure("authorization_denied", 403);
-      }
       // Parent headers are untrusted until the existing authority read selects
       // the frozen route. Reject out-of-budget contexts before native prepare.
       const companion = validateReviewRunCompanionDispatchContext(

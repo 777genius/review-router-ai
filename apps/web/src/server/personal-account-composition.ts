@@ -1,4 +1,4 @@
-import { connectionProfiles } from "./account-connection-catalog";
+import { connectionProfiles, connectionView } from "./account-connection-catalog";
 import { createAccountLimitsService } from "./account-limits-service";
 import {
   accountLimitsReader,
@@ -168,6 +168,35 @@ export async function productionPersonalAccounts() {
         profile.authKind ? [{ ...profile, authKind: profile.authKind }] : [],
       ),
     );
+  }
+  // Personal enrollment shares the model picker's qualified vendor identity.
+  // An absent or incompatible capability must not advertise trial enrollment.
+  if (connectionCapabilities) {
+    const catalog = c.providerConnectionCapabilities.parse(
+      await connectionCapabilities,
+    );
+    const nvidia = catalog.capabilities.find(
+      (wire) =>
+        wire.profileId === "nvidia-build-chat-apikey-v1" &&
+        wire.provider.identity === "nvidia" &&
+        wire.protocol === "openai-responses" &&
+        wire.authMethods.includes("api_key") &&
+        wire.availability === "enabled",
+    );
+    if (nvidia) {
+      const index = profiles.findIndex(
+        (profile) =>
+          profile.id === nvidia.profileId &&
+          profile.authKind === "api_key" &&
+          profile.provider === "nvidia",
+      );
+      if (index !== -1)
+        profiles[index] = {
+          ...profiles[index]!,
+          availability: nvidia.availability,
+          connection: connectionView(nvidia),
+        };
+    }
   }
   const ingress = new Map(
     profiles.map((profile) => [

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { conversationSourceFiles } from "../../packages/platform/config/src/conversation-source-files.ts";
+import { assertInstalledConversationSdk } from "../../packages/platform/config/src/conversation-sdk-identity.ts";
 import {
   readConversationQualification,
   conversationSourceProfileMatches,
@@ -104,6 +105,13 @@ export async function readConversationRelease(
     } catch {
       return { status: "unqualified", reason: "release_source_unavailable" };
     }
+  }
+  // Provenance metadata is insufficient without matching installed archive
+  // and API package selection. Fail closed on missing or mismatched bytes.
+  try {
+    await assertInstalledConversationSdk(installedSourceRoot);
+  } catch {
+    return { status: "unqualified", reason: "release_source_mismatch" };
   }
   if (!conversationSourceProfileMatches(qualification.sourceProfile))
     return { status: "unqualified", reason: "release_source_mismatch" };

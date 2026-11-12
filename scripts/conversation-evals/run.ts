@@ -176,16 +176,16 @@ if (args.includes("--validate")) {
   }
   report.profile.storageProfile =
     process.env.REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE ?? null;
-  // Use the same checked installed SDK identity as the deployment stamp.
-  const sourceProfile = (
-    await currentConversationSourceStamp(
-      fileURLToPath(new URL("../..", import.meta.url)),
-    )
-  ).sourceProfile;
-  Object.assign(report.profile, sourceProfile);
   let prisma: PrismaClient | undefined;
   let phase: EvaluationPhase = "configuration";
   try {
+    // Source integrity errors are UNAVAILABLE but must still write --out.
+    const sourceProfile = (
+      await currentConversationSourceStamp(
+        fileURLToPath(new URL("../..", import.meta.url)),
+      )
+    ).sourceProfile;
+    Object.assign(report.profile, sourceProfile);
     if (split === "holdout" && !report.holdoutCheckpoint)
       throw new Error("eval_holdout_checkpoint_required");
     const threads = corpus.threads.filter(

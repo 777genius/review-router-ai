@@ -3,44 +3,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { conversationSourceFiles } from "../packages/platform/config/src/conversation-source-files.ts";
+import { assertInstalledConversationSdk } from "../packages/platform/config/src/conversation-sdk-identity.ts";
 
 export const conversationSourceStampPath =
   "packages/platform/config/src/conversation-source-stamp.json";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-
-/** Source identity must describe the actual installed API SDK, not an older
- * quota-only archive. Archive changes without provenance cannot retain evidence. */
-async function assertInstalledConversationSdk(sourceRoot: string) {
-  const provenance = JSON.parse(
-    await readFile(
-      join(sourceRoot, conversationSourceFiles.gatewaySdkProvenanceDigest),
-      "utf8",
-    ),
-  ) as { contract?: string; archive?: string; sha256?: string };
-  if (
-    provenance.contract !== "nvidia-sandbox-sdk-provenance/v1" ||
-    !provenance.archive ||
-    !/^agent-teams-account-gateway-0[.]1[.]0-nvidia-[a-f0-9]+[.]tgz$/.test(
-      provenance.archive,
-    ) ||
-    !provenance.sha256 ||
-    !/^[a-f0-9]{64}$/.test(provenance.sha256)
-  )
-    throw new Error("conversation_sdk_provenance_invalid");
-  const manifest = JSON.parse(
-    await readFile(join(sourceRoot, "apps/api/package.json"), "utf8"),
-  ) as { dependencies?: Record<string, string> };
-  if (
-    manifest.dependencies?.["@agent-teams/account-gateway"] !==
-    `file:../../vendor/account-gateway/${provenance.archive}`
-  )
-    throw new Error("conversation_sdk_manifest_mismatch");
-  const archive = await readFile(
-    join(sourceRoot, "vendor/account-gateway", provenance.archive),
-  );
-  if (createHash("sha256").update(archive).digest("hex") !== provenance.sha256)
-    throw new Error("conversation_sdk_archive_integrity_mismatch");
-}
 
 /** Source coherence metadata only. No model result, proof, scope or permission. */
 export async function currentConversationSourceStamp(sourceRoot: string) {

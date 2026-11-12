@@ -115,7 +115,7 @@ export async function connectionProfiles(input: {
   }
   return result;
 }
-function connectionView(
+export function connectionView(
   wire: c.ProviderConnectionCapability,
 ): NonNullable<AccountProfileView["connection"]> {
   return {
