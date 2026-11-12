@@ -861,6 +861,19 @@ function Controls({
     page.isError ||
     Boolean(failure) ||
     data?.status !== "ok";
+  // Fresh enrollment requires verified NVIDIA authority; existing-account
+  // lifecycle/reconnect still use the complete profile catalog above.
+  const enrollmentProfiles =
+    data?.status === "ok"
+      ? data.value.profiles.filter(
+          (profile) =>
+            (personal || !profile.connection?.personalOnly) &&
+            (profile.provider !== "nvidia" ||
+              (profile.id === "nvidia-build-chat-apikey-v1" &&
+                profile.availability === "enabled" &&
+                profile.connection?.provider === "nvidia")),
+        )
+      : [];
   function renderActions(account: AccountView) {
     if (data?.status !== "ok") return null;
     const sourceBusy =
@@ -968,33 +981,33 @@ function Controls({
   return (
     <div className="space-y-4">
       {connectOnly && data?.status === "ok" && !activeNonce ? (
-        <ConnectionForm
-          profiles={data.value.profiles.filter(
-            (p) => personal || !p.connection?.personalOnly,
-          )}
-          accounts={data.value.accounts}
-          disabled={disabled}
-          managementScope={managementScope}
-          begin={beginOAuth}
-          submit={submit}
-        />
+        enrollmentProfiles.length > 0 ? (
+          <ConnectionForm
+            profiles={enrollmentProfiles}
+            accounts={data.value.accounts}
+            disabled={disabled}
+            managementScope={managementScope}
+            begin={beginOAuth}
+            submit={submit}
+          />
+        ) : (
+          <p className="text-sm text-slate-400">
+            No providers are available for a new connection.
+          </p>
+        )
       ) : null}
       <div className="flex flex-wrap gap-3">
         {!connectOnly &&
         !hideConnect &&
         (!initiallyOpenConnect || ready) &&
         data?.status === "ok" &&
-        data.value.profiles.some(
-          (p) =>
-            (p.authKind === "api_key" || p.authKind === "oauth") &&
-            (personal || !p.connection?.personalOnly),
+        enrollmentProfiles.some(
+          (p) => p.authKind === "api_key" || p.authKind === "oauth",
         ) ? (
           <ConnectAccountDialog
             initiallyOpen={initiallyOpenConnect && !activeNonce}
-            profiles={data.value.profiles.filter(
-              (p) =>
-                (p.authKind === "api_key" || p.authKind === "oauth") &&
-                (personal || !p.connection?.personalOnly),
+            profiles={enrollmentProfiles.filter(
+              (p) => p.authKind === "api_key" || p.authKind === "oauth",
             )}
             accounts={data.value.accounts}
             disabled={disabled}
