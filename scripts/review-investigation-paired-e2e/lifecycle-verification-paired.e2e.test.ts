@@ -1799,7 +1799,8 @@ lifecycleCase.each([
               // The real runner polls the publication receipt. Its real worker
               // must consume the finalized outbox while that promise is active.
               await owned.processFinalizedOutbox();
-              await owned.runWorkerUntilSettled(32);
+              // Pending publication is valid until the runner finishes.
+              await owned.runWorkerMaintenanceOnce();
               if (!done)
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }

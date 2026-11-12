@@ -98,7 +98,11 @@ describe("canonical release migration transition", () => {
 
   it("keeps checkout160, merged checkout159 and published checkout158/157/156/155 admission separate from historical96 and managed92", () => {
     type Row = { migrationName: string; checksum: string };
-    const names: readonly string[] = canonicalPrismaMigrationNames;
+    // Historical signed checkout160 remains unchanged by additive app-only
+    // Claude credential migration161.
+    const names: readonly string[] = canonicalPrismaMigrationNames.filter(
+      (name) => name !== "000157_claude_code_api_key_secret",
+    );
     const checkout161 = names.map((migrationName) => ({
       migrationName,
       checksum: sha256(
@@ -433,7 +437,13 @@ describe("canonical release migration transition", () => {
     expect(manifest(historicalFull)).toBe(
       "sha256:f9d5fc4e689c9373e0b1a56e8e41aa71af2d247bb55227ca4394b13a5d52b398",
     );
-    expect(checkout161).toEqual(readRenderManagedCheckoutInventory());
+    expect(checkout160).toEqual(
+      readRenderManagedCheckoutInventory().filter(
+        (row) =>
+          row.migrationName !== "000157_claude_code_api_key_secret" &&
+          row.migrationName !== "000156_verified_thread_reply",
+      ),
+    );
     expect(full.slice(-35).map((row) => row.migrationName)).toEqual([
       "000110_historical_unknown_scope_barrier",
       "000110_provider_api_key_workspace_management",

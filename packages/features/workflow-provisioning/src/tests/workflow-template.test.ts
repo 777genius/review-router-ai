@@ -141,6 +141,135 @@ function getWorkflowJobSection(workflow: string, jobId: string): string {
   return workflow.slice(start, end);
 }
 
+describe("Claude dual-auth CI templates", () => {
+  const actionRef =
+    "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
+
+  it("installs the existing Claude CLI with an Anthropic key and no OAuth token", () => {
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-api-key",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+    expect(workflow).toContain("ANTHROPIC_API_KEY_PRESENT:");
+    expect(workflow).toContain("ANTHROPIC_API_KEY:");
+    expect(workflow).toContain("Install Claude Code CLI");
+    expect(workflow).toContain(
+      "env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' || env.ANTHROPIC_API_KEY_PRESENT == '1'",
+    );
+    expect(workflow).toContain('REVIEW_AUTH_MODE: "claude-api-key"');
+    expect(workflow).not.toContain(
+      "CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && true",
+    );
+  });
+
+  it("recognizes API-key-only Claude configuration without a provider list", () => {
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: { REVIEW_AUTH_MODE: "claude-api-key" },
+    });
+    expect(workflowStep(workflow, "Install Claude Code CLI")?.if).toContain(
+      "&& true",
+    );
+    expect(workflowStep(workflow, "Install Codex CLI")?.if).toContain(
+      "env.CODEX_AUTH_JSON_PRESENT == '1' && false",
+    );
+    expect(workflow).toContain('REVIEW_AUTH_MODE: "claude-api-key"');
+  });
+
+  it("rejects API-key workflows with only an unrelated OAuth secret wired", () => {
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: { REVIEW_AUTH_MODE: "claude-api-key" },
+    });
+    const compatibility = (workflowYaml: string) =>
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml,
+        workflowStyle: "explicit",
+        providerKind: "claude",
+        expectedActionRef: actionRef,
+      });
+
+    expect(compatibility(workflow).missingRequirements).not.toContain(
+      "secret_pass_through",
+    );
+    for (const quote of ['"', "'"]) {
+      const quotedWorkflow = workflow.replace(
+        "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
+        `ANTHROPIC_API_KEY: ${quote}\${{ secrets.ANTHROPIC_API_KEY }}${quote}`,
+      );
+      expect(compatibility(quotedWorkflow).missingRequirements).not.toContain(
+        "secret_pass_through",
+      );
+    }
+    const brokenWorkflow = workflow.replaceAll(
+      "ANTHROPIC_API_KEY",
+      "REMOVED_ANTHROPIC_CREDENTIAL",
+    );
+    expect(compatibility(brokenWorkflow).missingRequirements).toContain(
+      "secret_pass_through",
+    );
+    const missingRuntimeAssignment = workflow.replace(
+      "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
+      "REMOVED_CLAUDE_KEY_ASSIGNMENT: ${{ secrets.ANTHROPIC_API_KEY }}",
+    );
+    expect(missingRuntimeAssignment).toContain("ANTHROPIC_API_KEY_PRESENT:");
+    expect(
+      compatibility(missingRuntimeAssignment).missingRequirements,
+    ).toContain("secret_pass_through");
+  });
+
+  it("detects Claude API-key selection inside JSON-quoted reusable workflow env", () => {
+    const workflow = renderReviewRouterReusableWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      workflowStyle: "reusable",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-api-key",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+    const check = (workflowYaml: string) =>
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml,
+        providerKind: "claude",
+        workflowStyle: "reusable",
+      });
+    expect(workflow).toContain('"REVIEW_AUTH_MODE"');
+    expect(check(workflow).missingRequirements).not.toContain(
+      "secret_pass_through",
+    );
+    expect(
+      check(workflow.replaceAll("ANTHROPIC_API_KEY", "REMOVED_ANTHROPIC_KEY"))
+        .missingRequirements,
+    ).toContain("secret_pass_through");
+  });
+
+  it("preserves required workflow support for both approved Claude credentials", () => {
+    const workflow = renderReviewRouterRequiredWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-api-key",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+    expect(workflow).toContain("ANTHROPIC_API_KEY_PRESENT:");
+    expect(workflow).toContain("ANTHROPIC_API_KEY:");
+    expect(workflow).toContain("Install Claude Code CLI");
+  });
+});
+
 describe("renderReviewRouterWorkflow", () => {
   it("recognizes the pinned checkout and execution in a generated explicit review job", () => {
     const actionRef =

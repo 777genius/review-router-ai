@@ -113,6 +113,89 @@ describe("review runtime environment security boundary", () => {
     expect(env.MIMO_TOKEN_PLAN_API_KEY).toBe("mimo-private");
   });
 
+  it("forwards only the planner-selected Claude OAuth secret in rotating runtime", () => {
+    const env = build(
+      {
+        REVIEW_PROVIDERS: "claude/sonnet",
+        REVIEWROUTER_CLAUDE_AUTH_MODE: "claude-oauth",
+      },
+      {
+        inputs: {
+          ...inputs,
+          providerSecrets: {
+            claudeCodeOAuthToken: "sk-ant-oat01-selected-synthetic",
+          },
+        },
+        sourceEnv: {
+          PATH: "/usr/bin",
+          ANTHROPIC_API_KEY: "sk-ant-api03-stale-synthetic",
+        },
+      },
+    );
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat01-selected-synthetic");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it.each([
+    {
+      runtimeMode: "codex-oauth" as const,
+      claudeAuthMode: "claude_code_api_key" as const,
+    },
+    {
+      runtimeMode: "claude-api-key" as const,
+      claudeAuthMode: "claude_code_api_key" as const,
+    },
+    {
+      runtimeMode: "codex-oauth" as const,
+      claudeAuthMode: "claude-api-key" as const,
+    },
+  ])(
+    "rejects unqualified Claude API-key Action routing even with a stale OAuth token ($runtimeMode)",
+    ({ runtimeMode, claudeAuthMode }) => {
+      expect(() =>
+        build(
+          {
+            REVIEW_AUTH_MODE: runtimeMode,
+            REVIEW_PROVIDERS: "claude/sonnet",
+            REVIEWROUTER_CLAUDE_AUTH_MODE: claudeAuthMode,
+          },
+          {
+            inputs: {
+              ...inputs,
+              providerSecrets: {
+                claudeCodeOAuthToken: "sk-ant-oat01-synthetic-unselected",
+              },
+            },
+            sourceEnv: {
+              PATH: "/usr/bin",
+              ANTHROPIC_API_KEY: "sk-ant-api03-inherited",
+              CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-inherited",
+            },
+          },
+        ),
+      ).toThrow("claude_api_key_rotating_transport_unsupported");
+    },
+  );
+
+  it("does not inject subscription OAuth into a Claude runtime with an unrecognized auth mode", () => {
+    const env = build(
+      {
+        REVIEW_PROVIDERS: "claude/sonnet",
+        REVIEWROUTER_CLAUDE_AUTH_MODE: "unqualified",
+      },
+      {
+        inputs: {
+          ...inputs,
+          providerSecrets: {
+            claudeCodeOAuthToken: "sk-ant-oat01-not-selected",
+          },
+        },
+      },
+    );
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
   it("rejects missing required mimo-token-plan credentials before launching a runtime", () => {
     expect(() => build({ REVIEW_PROVIDERS: "codex-mimo/model" })).toThrow(
       "missing_mimo_token_plan_api_key",

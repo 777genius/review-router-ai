@@ -263,6 +263,7 @@ export function credentialSourceFixture(
     case "kimi_code_api_key":
     case "mimo_token_plan_api_key":
     case "claude_code_oauth":
+    case "claude_code_api_key":
       return { kind: "user_ci_secret", authMode: provider.authMode };
   }
 }

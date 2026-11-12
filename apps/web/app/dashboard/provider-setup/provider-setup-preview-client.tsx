@@ -191,6 +191,10 @@ function facts(
         uploaded: true,
         installedRepositoryIds: new Set(),
       },
+      claude_code_api_key: {
+        uploaded: false,
+        installedRepositoryIds: new Set(),
+      },
     },
     claudeCodeEnabled: true,
   };

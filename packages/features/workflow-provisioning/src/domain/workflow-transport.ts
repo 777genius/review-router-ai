@@ -202,12 +202,16 @@ export function renderedWorkflowRequirement(
       transport,
       secrets.mimoTokenPlanApiKeySecret
         ? ["codex-mimo"]
-        : secrets.claudeCodeOAuthTokenSecret
+        : secrets.claudeCodeOAuthTokenSecret ||
+            staticRuntimeEnv?.REVIEW_AUTH_MODE === "claude-api-key"
           ? ["claude"]
           : [],
     );
   return workflowRequirement(transport, [
-    ...(secrets.claudeCodeOAuthTokenSecret ? (["claude"] as const) : []),
+    ...(secrets.claudeCodeOAuthTokenSecret ||
+    staticRuntimeEnv?.REVIEW_AUTH_MODE === "claude-api-key"
+      ? (["claude"] as const)
+      : []),
     ...(secrets.mimoTokenPlanApiKeySecret ? (["codex-mimo"] as const) : []),
     ...(secrets.openRouterApiKeySecret ? (["openrouter"] as const) : []),
   ]);

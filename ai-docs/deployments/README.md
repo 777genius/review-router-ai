@@ -17,6 +17,8 @@ AI discussion default-on onboarding: [qualified, author-only rotating Codex setu
 
 get-tok onboarding and analytics: [PR #853 delivery and UX audit](2026-11-11-get-tok-onboarding.md) — production `deployed`; two pre-deployment real reviews and their eventual Statistics/Usage verified. The existing Codex connection was used by explicit owner choice; fresh OAuth identity conflict and listed UX follow-ups remain open.
 
+Claude Code dual authentication: [customer subscription and Anthropic API-key delivery](2026-11-11-claude-dual-auth.md) — [SaaS Draft #857](https://github.com/777genius/review-router-ai/pull/857), [Action Draft #385](https://github.com/777genius/review-router/pull/385), [plan #855](https://github.com/777genius/review-router-ai/pull/855). Staging/production `pending`; exact-head E2E, immutable Action build and Gateway API-key qualification remain unproven. No deployment or live credentials authorized.
+
 Action232 and SaaS Usage/stream delivery: [production and live canary record](2026-11-10-action232-usage-and-stream.md) — #849/#850 and Action232 `deployed`; Codex review, Statistics and Usage verified. Two earlier ambiguous lifecycle attempts remain unknown; disk and durable fact-budget follow-up remain open.
 
 Gateway diagnostic stream recovery: [PR #103 and #104 follow-through](2026-11-09-gateway-diagnostic-stream.md) — staging `pending`, production `installed`; failure restart policy enabled with retained-child limitations; account-list verification remains pending.

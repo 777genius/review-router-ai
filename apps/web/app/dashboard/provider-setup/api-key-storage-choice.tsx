@@ -23,10 +23,13 @@ export function ApiKeyStorageChoice({
     | "api_key"
     | "codex_session"
     | "claude_subscription"
+    | "claude_api_key"
     | "subscription";
 }): React.ReactElement {
   const label =
-    credentialKind === "api_key" ? "Key storage" : "Credential storage";
+    credentialKind === "api_key" || credentialKind === "claude_api_key"
+      ? "Key storage"
+      : "Credential storage";
   return (
     <fieldset className="grid gap-2">
       <legend className="mb-2 text-sm font-semibold text-cyan-50">
@@ -54,15 +57,19 @@ export function ApiKeyStorageChoice({
                   ? option.value === "reviewrouter"
                     ? "Sign in to Codex once and reuse the connection across repositories."
                     : "Keep this repository's Codex session (auth.json) in GitHub Secrets with automatic refresh."
-                  : credentialKind === "claude_subscription"
+                  : credentialKind === "claude_api_key"
                     ? option.value === "reviewrouter"
-                      ? "Connect your Claude Code subscription once and reuse it across repositories."
-                      : "Add your Claude Code subscription token to each repository on GitHub."
-                    : credentialKind === "subscription"
+                      ? "ReviewRouter encrypts your API key and installs it into selected repositories' GitHub Secrets."
+                      : "Manage your Anthropic API key yourself in each repository's GitHub Secrets."
+                    : credentialKind === "claude_subscription"
                       ? option.value === "reviewrouter"
-                        ? "Connect this subscription once and reuse it across repositories."
-                        : "GitHub Secrets storage is not available for this subscription."
-                      : option.description
+                        ? "Connect your Claude Code subscription once and reuse it across repositories."
+                        : "Add your Claude Code subscription token to each repository on GitHub."
+                      : credentialKind === "subscription"
+                        ? option.value === "reviewrouter"
+                          ? "Connect this subscription once and reuse it across repositories."
+                          : "GitHub Secrets storage is not available for this subscription."
+                        : option.description
               }
               disabled={Boolean(reason)}
               disabledReason={reason}

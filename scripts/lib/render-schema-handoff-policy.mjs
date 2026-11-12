@@ -321,6 +321,24 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Additive Claude auth-mode CHECK is an application-only checkout tail.
+  // The exact new SQL and full 162-row inventory are required before reducing
+  // to the previously signed checkout160; managed92 is never expanded.
+  const claudeApiKeyMigration = catalog.find(
+    (row) => row.migrationName === "000157_claude_code_api_key_secret",
+  );
+  if (claudeApiKeyMigration) {
+    if (
+      catalog.length !== 162 ||
+      catalog.at(-1) !== claudeApiKeyMigration ||
+      claudeApiKeyMigration.checksum !==
+        "f329d536172a46caef5ebe37fd76dc398394141052bd9271819a4bee881bc89e"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== claudeApiKeyMigration),
+    );
+  }
   // Only the exact review-thread reply enum migration may extend this
   // checkout. Remove it for the immutable historical handoff verification,
   // which still pins the full prior inventory and every earlier checksum.

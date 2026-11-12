@@ -579,92 +579,38 @@ test("workspace device polling uses the original owner operation and never polls
   expect(f.counts().pollCount).toBe(1);
 });
 
-// A saved personal intent must select the sensitive credential shape. A wrong
-// callback, owner switch, or device method must never enter completion ingress.
-test("Claude personal browser completion is bound to the saved profile and owner without persisting its code", async () => {
+// Legacy Claude OAuth accounts may be displayed diagnostically; no new
+// third-party subscription credentials are accepted by either SaaS ingress.
+test("Claude personal enrollment fails closed before OAuth begin or custody", async () => {
   const f = await fixture(claudeProfileId);
   const nonce = randomUUID();
-  const fresh = await f.personal().connect({
-    nonce,
-    profileId: claudeProfileId,
-    label: "My Claude",
-    method: "browser",
-  });
-  expect(fresh.authorizationURL).toContain(
-    "https://claude.com/cai/oauth/authorize?",
-  );
   await expect(
-    f.personal().completeOAuth({
+    f.personal().connect({
       nonce,
-      callbackURL: `http://localhost:1455/auth/callback?code=synthetic&state=${"c".repeat(64)}`,
+      profileId: claudeProfileId,
+      label: "My Claude",
+      method: "browser",
     }),
-  ).rejects.toMatchObject({ code: "connection_unavailable" });
+  ).rejects.toMatchObject({ code: "invalid_input" });
+  expect(f.begins).toHaveLength(0);
   expect(f.completions).toHaveLength(0);
-  await expect(
-    f
-      .personal()
-      .completeOAuth({ nonce, authorizationCode: "synthetic-grok-plain-code" }),
-  ).rejects.toMatchObject({ code: "connection_unavailable" });
-  expect(f.completions).toHaveLength(0);
-  f.actor("foreign-owner");
-  await expect(
-    f.personal().completeOAuth({ nonce, authorizationCode }),
-  ).rejects.toMatchObject({ code: "connection_unavailable" });
-  f.actor("device-owner");
-  await expect(f.personal().pollOAuth(nonce)).rejects.toMatchObject({
-    code: "connection_unavailable",
-  });
-  expect(f.polls).toHaveLength(0);
-  expect(
-    (await f.personal().completeOAuth({ nonce, authorizationCode })).phase,
-  ).toBe("submitted");
-  expect(f.completions).toEqual([
-    {
-      operationId: personalOperationId("device-owner", nonce),
-      ownerRef: accountGatewayUserOwnerRef("device-owner"),
-      authorizationCode,
-    },
-  ]);
-  expect(JSON.stringify([...f.rows.values()])).not.toMatch(
-    /synthetic-claude-code|authorizationCode|claude.com|cccccccc/,
-  );
+  expect(f.rows.size).toBe(0);
 });
 
-test("Claude workspace enrollment defaults to browser, denies device, and forwards only its explicit code ingress", async () => {
+test("Claude workspace enrollment denies both browser and device before OAuth begin", async () => {
   const f = await fixture(claudeProfileId);
-  expect(
-    await f.workspace.beginOAuth("workspace", {
-      nonce: randomUUID(),
-      profileId: claudeProfileId,
-      method: "device_code",
-    }),
-  ).toMatchObject({ status: "denied" });
+  for (const method of ["browser", "device_code"] as const) {
+    const nonce = randomUUID();
+    expect(
+      await f.workspace.beginOAuth("workspace", {
+        nonce,
+        profileId: claudeProfileId,
+        method,
+      }),
+    ).toMatchObject({ status: "denied" });
+  }
   expect(f.begins).toHaveLength(0);
-  const nonce = randomUUID();
-  expect(
-    await f.workspace.beginOAuth("workspace", {
-      nonce,
-      profileId: claudeProfileId,
-    }),
-  ).toMatchObject({ status: "ok", value: { operation: { state: "pending" } } });
-  expect(f.begins[0]?.method).toBe("browser");
-  expect(
-    await f.workspace.completeOAuth("workspace", { nonce, authorizationCode }),
-  ).toMatchObject({ status: "ok", value: { nonce, state: "pending" } });
-  expect(f.completions).toEqual([
-    {
-      operationId: f.begins[0]!.operationId,
-      ownerRef: accountGatewayWorkspaceOwnerRef("device-workspace"),
-      authorizationCode,
-    },
-  ]);
-  expect(
-    await f.workspace.completeOAuth("workspace", {
-      nonce,
-      authorizationCode: "invalid#state",
-    }),
-  ).toMatchObject({ status: "invalid" });
-  expect(f.completions).toHaveLength(1);
+  expect(f.completions).toHaveLength(0);
 });
 
 test.each(["plain_code", "callback_url"] as const)(

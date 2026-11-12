@@ -104,9 +104,9 @@ describe.skipIf(!enabled)(
         const names = (await readdir(migrations))
           .filter((name) => /^\d{6}_/.test(name))
           .sort();
-        // Replay all current migrations, including the concurrent member-report index.
-        expect(names).toHaveLength(161);
-        expect(names.slice(-24)).toEqual([
+        // Replay all current migrations, including the additive Claude API-key profile.
+        expect(names).toHaveLength(162);
+        expect(names.slice(-25)).toEqual([
           "000136_review_skills",
           "000137_review_skills_capture",
           "000138_pr_description",
@@ -131,6 +131,7 @@ describe.skipIf(!enabled)(
           "000154_unified_model_dispatch",
           "000155_usage_member_report_index",
           "000156_verified_thread_reply",
+          "000157_claude_code_api_key_secret",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

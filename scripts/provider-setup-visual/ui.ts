@@ -158,7 +158,7 @@ export async function chooseSource(
 
 /** Source titles as `sourceTitle` renders them. */
 export const SOURCE = {
-  claudeSecret: /^Claude Code · GitHub Secrets/,
+  claudeSecret: /^Claude Code(?: · GitHub Secrets)?$/,
   mimoSecret: /^MiMo Token Plan/,
   openRouterKey: /^OpenRouter/,
   mimoKey: /^MiMo Token Plan/,

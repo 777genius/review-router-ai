@@ -55,6 +55,7 @@ describe("provider setup registry", () => {
   it.each([
     ["repository_rotating", "codex"],
     ["user_ci_secret:claude_code_oauth", "claude-code"],
+    ["user_ci_secret:claude_code_api_key", "claude-code"],
     ["user_ci_secret:openrouter_api_key", "openrouter"],
     ["managed_api_key:openrouter_api_key", "openrouter"],
     ["user_ci_secret:mimo_token_plan_api_key", "mimo"],
@@ -81,13 +82,23 @@ describe("provider setup registry", () => {
     expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe(
       "claude-code",
     );
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe(
+      "claude-code",
+    );
   });
 
-  it("advertises Codex and Claude enrollment before any accounts exist", () => {
+  it("never advertises central Claude subscription OAuth enrollment", () => {
     expect(gatewaySetupProvidersForProfiles([codex, claude])).toEqual([
       "codex",
-      "claude-code",
     ]);
+    expect(gatewaySetupProvidersForProfiles([claude])).toEqual([]);
+    // The user-owned GitHub Secret routes are still available.
+    expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe(
+      "claude-code",
+    );
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe(
+      "claude-code",
+    );
   });
 
   it.each([
@@ -201,7 +212,7 @@ describe("provider setup registry", () => {
 
   it("maps qualified connection metadata and ignores editable labels or models", () => {
     expect(setupProviderForGatewayProfile(codex)).toBe("codex");
-    expect(setupProviderForGatewayProfile(claude)).toBe("claude-code");
+    expect(setupProviderForGatewayProfile(claude)).toBeUndefined();
     expect(
       setupProviderForGatewayProfile(
         profile({

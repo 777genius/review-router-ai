@@ -236,6 +236,34 @@ export const reviewConfigurationSchema = z
   .strict()
   .superRefine((configuration, context) => {
     assertProviderRowsAreExplicitAndUnique(configuration.providers, context);
+    const claudeAuthModes = new Set(
+      configuration.providers
+        .filter((provider) => provider.kind === "claude")
+        .map((provider) => provider.authMode),
+    );
+    if (claudeAuthModes.size > 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["providers"],
+        message: "claude_conflicting_auth_modes",
+      });
+    }
+    // The rotating Codex workflow currently forwards only Claude subscription
+    // OAuth, never ANTHROPIC_API_KEY. Do not offer an unqualified combination.
+    if (
+      configuration.providers.some(
+        (provider) => provider.authMode === "codex_subscription_oauth_rotating",
+      ) &&
+      configuration.providers.some(
+        (provider) => provider.authMode === "claude_code_api_key",
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["providers"],
+        message: "claude_api_key_rotating_transport_unsupported",
+      });
+    }
     if (
       configuration.execution.providerLimit !==
         configuration.providers.length ||

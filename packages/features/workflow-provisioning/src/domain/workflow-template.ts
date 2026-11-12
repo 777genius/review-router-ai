@@ -396,6 +396,7 @@ jobs:
       CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
       CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
       CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
       OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
       MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}
@@ -530,6 +531,7 @@ jobs:
       OPENAI_API_KEY_PRESENT: \${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
       OPENROUTER_API_KEY_PRESENT: \${{ secrets.OPENROUTER_API_KEY != '' && '1' || '0' }}
       CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}
+      ANTHROPIC_API_KEY_PRESENT: \${{ secrets.ANTHROPIC_API_KEY != '' && '1' || '0' }}
       MIMO_TOKEN_PLAN_API_KEY_PRESENT: \${{ secrets.${mimoTokenPlanApiKeySecretName} != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
     steps:
       - name: Checkout pull request code
@@ -576,7 +578,7 @@ ${
 }
 
       - name: Install Claude Code CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && ${claudeCliCondition} }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && (env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' || env.ANTHROPIC_API_KEY_PRESENT == '1') && ${claudeCliCondition} }}
         shell: bash
         run: |
           curl -fsSL https://claude.ai/install.sh | bash -s stable
@@ -649,6 +651,7 @@ ${template.oidcStep}      - name: Run ReviewRouter
           CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
           OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}${mimoTokenPlanMayBeSelected ? `\n          MIMO_TOKEN_PLAN_API_KEY: \${{ secrets.MIMO_TOKEN_PLAN_API_KEY }}` : ""}
 `;
 }
@@ -1006,6 +1009,7 @@ ${template.staticRuntimeEnvJsonBlock}
       CODEX_AUTH_JSON: \${{ secrets.CODEX_AUTH_JSON }}
       CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
       CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
       OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}${
         mimoTokenPlanSelected
@@ -1137,7 +1141,8 @@ jobs:
       CODEX_AUTH_JSON_PRESENT: \${{ secrets.CODEX_AUTH_JSON != '' && '1' || '0' }}
       OPENAI_API_KEY_PRESENT: \${{ secrets.OPENAI_API_KEY != '' && '1' || '0' }}
       OPENROUTER_API_KEY_PRESENT: \${{ secrets.OPENROUTER_API_KEY != '' && '1' || '0' }}
-      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
+      CLAUDE_CODE_OAUTH_TOKEN_PRESENT: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' && '1' || '0' }}
+      ANTHROPIC_API_KEY_PRESENT: \${{ secrets.ANTHROPIC_API_KEY != '' && '1' || '0' }}${reviewMemoryRuntimeEnvBlock}
     steps:
       - name: Pass merge queue check
         if: \${{ github.event_name == 'merge_group' }}
@@ -1169,7 +1174,7 @@ jobs:
         run: npm install -g @openai/codex@${defaultCodexCliVersion}
 
       - name: Install Claude Code CLI
-        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && github.event_name != 'merge_group' && env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' }}
+        if: \${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot')) && github.event_name != 'merge_group' && (env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' || env.ANTHROPIC_API_KEY_PRESENT == '1') }}
         shell: bash
         run: |
           curl -fsSL https://claude.ai/install.sh | bash -s stable
@@ -1227,6 +1232,7 @@ ${template.oidcStep}      - name: Run ReviewRouter
           CODEX_CONFIG_TOML: \${{ secrets.CODEX_CONFIG_TOML }}
           OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: \${{ secrets.OPENROUTER_API_KEY }}
 `;
 }
@@ -1273,7 +1279,23 @@ export function analyzeWorkflowProviderCompatibility(input: {
   }
 
   if (input.providerKind === "claude") {
-    if (!input.workflowYaml.includes("CLAUDE_CODE_OAUTH_TOKEN")) {
+    // A selected API-key workflow must be wired for its own credential;
+    // an unrelated subscription secret cannot satisfy compatibility.
+    const apiKeySelected =
+      /["']?REVIEW_AUTH_MODE["']?\s*:\s*["']?claude-api-key["']?(?:\s|[,}]|$)/m.test(
+        input.workflowYaml,
+      );
+    const requiredSecret = apiKeySelected
+      ? "ANTHROPIC_API_KEY"
+      : "CLAUDE_CODE_OAUTH_TOKEN";
+    const secretIsForwarded =
+      input.workflowYaml.includes(requiredSecret) &&
+      (workflowStyle !== "explicit" ||
+        !apiKeySelected ||
+        /^\s*ANTHROPIC_API_KEY:\s*(["']?)\$\{\{\s*secrets\.ANTHROPIC_API_KEY\s*\}\}\1\s*$/m.test(
+          input.workflowYaml,
+        ));
+    if (!secretIsForwarded) {
       missingRequirements.push("secret_pass_through");
     }
     if (
@@ -2141,8 +2163,11 @@ function reviewRouterProviderSelectionForRuntimeEnv(
   );
   if (authModeProvider) selectedKinds.add(authModeProvider);
 
-  const claudeCodeOAuthTokenSecret =
+  const claudeSelected =
     selectedKinds.has("claude") || authModeProvider === "claude";
+  // Auth mode, not the provider display name, decides which secret is needed.
+  const claudeCodeOAuthTokenSecret =
+    claudeSelected && authMode !== "claude-api-key";
   const openRouterApiKeySecret =
     selectedKinds.has("openrouter") || authModeProvider === "openrouter";
   const mimoTokenPlanApiKeySecret =
@@ -2169,7 +2194,7 @@ function reviewRouterProviderSelectionForRuntimeEnv(
     codexCliWithoutSecret,
     codexSubscriptionAuth,
     codexApiKey,
-    claudeCli: claudeCodeOAuthTokenSecret,
+    claudeCli: claudeSelected,
     selectionKnown: true,
   };
 }
@@ -2206,7 +2231,9 @@ function providerKindForRuntimeAuthMode(
     case "mimo_token_plan_api_key":
       return "codex-mimo";
     case "claude-oauth":
+    case "claude-api-key":
     case "claude_code_oauth":
+    case "claude_code_api_key":
       return "claude";
     case "openrouter-api":
     case "openrouter_api_key":

@@ -770,9 +770,16 @@ function ProviderChoiceStep({
   const initialChoice = useMemo<Choice | null>(() => {
     if (initialIntent) {
       const key =
-        initialIntent.storage === "reviewrouter"
-          ? "gateway_binding"
-          : githubSourceFor(initialIntent.provider);
+        initialIntent.provider === "claude-code"
+          ? initialIntent.storage === "reviewrouter"
+            ? "managed_api_key:claude_code_api_key"
+            : githubSourceFor(
+                "claude-code",
+                initialIntent.claudeMethod ?? "subscription",
+              )
+          : initialIntent.storage === "reviewrouter"
+            ? "gateway_binding"
+            : githubSourceFor(initialIntent.provider);
       if (key && view.sources.some((source) => source.key === key))
         return { kind: "new", source: key };
     }
@@ -859,6 +866,16 @@ function ProviderChoiceStep({
   );
   const [keyStorage, setKeyStorage] = useState<ApiKeyStorage>(
     initialIntent?.storage ?? "reviewrouter",
+  );
+  const [claudeMethod, setClaudeMethod] = useState<"subscription" | "api_key">(
+    (initialIntent?.provider === "claude-code" &&
+      (initialIntent.storage === "reviewrouter" ||
+        initialIntent.claudeMethod === "api_key")) ||
+      (initialChoice?.kind === "new" &&
+        (initialChoice.source === "user_ci_secret:claude_code_api_key" ||
+          initialChoice.source === "managed_api_key:claude_code_api_key"))
+      ? "api_key"
+      : "subscription",
   );
   const [draft, setDraft] = useState<DraftProvider>(
     () => startOf(initialChoice).draft,
@@ -1056,7 +1073,14 @@ function ProviderChoiceStep({
 
   function githubSourceFor(
     provider: SetupProviderId,
+    method: "subscription" | "api_key" = "subscription",
   ): ProviderSourceKey | null {
+    // Claude subscription must never resolve to a previously installed
+    // managed Anthropic API key: that changes the selected credential.
+    if (provider === "claude-code")
+      return method === "api_key"
+        ? "user_ci_secret:claude_code_api_key"
+        : "user_ci_secret:claude_code_oauth";
     const managed = managedSourceFor(provider);
     return automaticDeliveryAvailable(managed)
       ? managed!.key
@@ -1067,27 +1091,39 @@ function ProviderChoiceStep({
     provider: SetupProviderId,
     storage: ApiKeyStorage,
     delivery?: "automatic" | "manual",
+    method: "subscription" | "api_key" = claudeMethod,
   ): void {
+    if (provider === "claude-code") setClaudeMethod(method);
+    // A Claude subscription remains in the user's CI; an Anthropic API key
+    // can reuse our existing encrypted workspace-key/Secrets delivery.
+    const resolvedStorage =
+      provider === "claude-code" && method === "subscription"
+        ? "github_secrets"
+        : storage;
     choose(
       {
         kind: "new",
         source:
-          storage === "reviewrouter"
-            ? "gateway_binding"
-            : delivery === "manual"
-              ? getSetupProvider(provider).githubSource
-              : delivery === "automatic"
+          provider === "claude-code" && method === "subscription"
+            ? githubSourceFor(provider, method)
+            : resolvedStorage === "reviewrouter"
+              ? provider === "claude-code" && method === "api_key"
                 ? (managedSourceFor(provider)?.key ?? null)
-                : githubSourceFor(provider),
+                : "gateway_binding"
+              : delivery === "manual"
+                ? githubSourceFor(provider, method)
+                : delivery === "automatic"
+                  ? (managedSourceFor(provider)?.key ?? null)
+                  : githubSourceFor(provider, method),
       },
       provider,
-      storage,
+      resolvedStorage,
     );
   }
 
   function storageAvailabilityFor(provider: SetupProviderId) {
     const githubSource = view.sources.find(
-      (option) => option.key === getSetupProvider(provider).githubSource,
+      (option) => option.key === githubSourceFor(provider, claudeMethod),
     );
     const gatewayAllowed = view.sources.some(
       (option) => option.key === "gateway_binding" && option.decision.allowed,
@@ -1109,11 +1145,18 @@ function ProviderChoiceStep({
             : provider === "codex"
               ? "Codex in GitHub Secrets is available only for a repository with automatic session refresh enabled."
               : "GitHub Secrets is not available for this provider here.",
-      reviewRouterUnavailable: !gatewayAllowed
-        ? "You cannot use a connected account here."
-        : gatewaySupported
-          ? undefined
-          : "ReviewRouter storage is not available for this provider yet.",
+      reviewRouterUnavailable:
+        provider === "claude-code"
+          ? claudeMethod === "subscription"
+            ? "Claude subscription tokens must stay in GitHub Secrets."
+            : automaticDeliveryAvailable(managedSourceFor(provider))
+              ? undefined
+              : "Choose repositories for encrypted API-key storage and installation."
+          : !gatewayAllowed
+            ? "You cannot use a connected account here."
+            : gatewaySupported
+              ? undefined
+              : "ReviewRouter storage is not available for this provider yet.",
     };
   }
 
@@ -1282,7 +1325,8 @@ function ProviderChoiceStep({
           workspaceId,
           authMode: source.authMode as
             | "mimo_token_plan_api_key"
-            | "openrouter_api_key",
+            | "openrouter_api_key"
+            | "claude_code_api_key",
           ...(needsKeyUpload ? { apiKey } : {}),
           repositoryIds,
         });
@@ -1589,6 +1633,33 @@ function ProviderChoiceStep({
               chooseSetupProvider(value as SetupProviderId, "reviewrouter")
             }
           />
+          {setupProvider === "claude-code" ? (
+            <RadioCardGroup
+              label="Claude authentication"
+              value={claudeMethod}
+              disabled={pending}
+              className="sm:grid-cols-2"
+              onValueChange={(next) =>
+                chooseSetupProvider(
+                  "claude-code",
+                  "github_secrets",
+                  undefined,
+                  next as "subscription" | "api_key",
+                )
+              }
+            >
+              <RadioCard
+                value="subscription"
+                title="Claude subscription"
+                description="Use your Claude Code setup-token in this repository's GitHub Actions Secrets."
+              />
+              <RadioCard
+                value="api_key"
+                title="Anthropic API key"
+                description="Use your own Claude Console API key in GitHub Actions Secrets."
+              />
+            </RadioCardGroup>
+          ) : null}
           {setupProvider ? (
             <ApiKeyStorageChoice
               value={keyStorage}
@@ -1600,7 +1671,9 @@ function ProviderChoiceStep({
                 setupProvider === "codex"
                   ? "codex_session"
                   : setupProvider === "claude-code"
-                    ? "claude_subscription"
+                    ? claudeMethod === "subscription"
+                      ? "claude_subscription"
+                      : "claude_api_key"
                     : getSetupProvider(setupProvider).credentialKind ===
                         "subscription"
                       ? "subscription"
@@ -1610,10 +1683,16 @@ function ProviderChoiceStep({
             />
           ) : null}
           {setupProvider &&
-          keyStorage === "github_secrets" &&
-          getSetupProvider(setupProvider).credentialKind === "api_key" ? (
+          ((keyStorage === "github_secrets" &&
+            (getSetupProvider(setupProvider).credentialKind === "api_key" ||
+              (setupProvider === "claude-code" &&
+                claudeMethod === "api_key"))) ||
+            (keyStorage === "reviewrouter" &&
+              source?.credentialKind === "managed_api_key")) ? (
             <div className="grid gap-3">
-              {managedSourceFor(setupProvider) ? (
+              {keyStorage === "github_secrets" &&
+              setupProvider !== "claude-code" &&
+              managedSourceFor(setupProvider) ? (
                 <RadioCardGroup
                   label="GitHub secret delivery"
                   value={
@@ -1662,11 +1741,17 @@ function ProviderChoiceStep({
                       !view.sources.find(
                         (candidate) =>
                           candidate.key ===
-                          getSetupProvider(setupProvider).githubSource,
+                          githubSourceFor(setupProvider, claudeMethod),
                       )?.decision.allowed
                     }
                   />
                 </RadioCardGroup>
+              ) : source?.credentialKind === "managed_api_key" ? (
+                <p className="text-sm leading-6 text-slate-300">
+                  ReviewRouter encrypts this API key and installs it as a GitHub
+                  Actions secret in each selected repository. Claude Code runs
+                  in the repository's CI, not on ReviewRouter servers.
+                </p>
               ) : (
                 <p className="text-sm leading-6 text-slate-300">
                   Add the API key directly in each repository's GitHub Actions
@@ -1681,9 +1766,15 @@ function ProviderChoiceStep({
                     className="font-semibold text-cyan-200 underline"
                     href={apiKeySetupHref("repositories", {
                       provider: setupProvider,
-                      storage: "github_secrets",
+                      storage:
+                        setupProvider === "claude-code"
+                          ? keyStorage
+                          : "github_secrets",
                       workspaceId,
                       repositoryIds: [],
+                      ...(setupProvider === "claude-code"
+                        ? { claudeMethod }
+                        : {}),
                     })}
                   >
                     Choose repositories for key installation
@@ -1713,6 +1804,7 @@ function ProviderChoiceStep({
           ) : null}
           {setupProvider &&
           keyStorage === "reviewrouter" &&
+          source?.key === "gateway_binding" &&
           !storageAvailability?.reviewRouterUnavailable &&
           gatewayInventoryEmpty ? (
             <div className="grid gap-2 text-sm text-slate-300">
@@ -2182,7 +2274,8 @@ function CredentialStep({
     case "managed_key": {
       const managedAuthMode = authMode as
         | "mimo_token_plan_api_key"
-        | "openrouter_api_key";
+        | "openrouter_api_key"
+        | "claude_code_api_key";
       const option = view?.sources.find(
         (candidate) => candidate.key === `managed_api_key:${managedAuthMode}`,
       );

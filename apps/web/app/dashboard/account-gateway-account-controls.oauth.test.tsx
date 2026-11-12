@@ -2326,15 +2326,14 @@ test("unavailable management refresh retains safe rows with disabled actions whi
   await waitFor(() => expect(screen.queryByText("Workspace Codex")).toBeNull());
 });
 
-// Real primitives and cache custody: Claude must select browser-only enrollment
-// and send code#state through the one-off sensitive completion action.
+// The legacy OAuth profile remains readable for diagnostics, but no new
+// subscription-token flow may be advertised in either Accounts scope.
 test.each(["workspace", "personal"] as const)(
-  "Claude %s sign-in defaults to browser and clears its code before completion settles",
+  "Claude %s has no centralized subscription OAuth enrollment",
   async (managementScope) => {
-    const claudeProfileId = "anthropic-claude-oauth-messages-v1";
     page.profiles = [
       {
-        id: claudeProfileId,
+        id: "anthropic-claude-oauth-messages-v1",
         label: "Claude",
         provider: "claude",
         authKind: "oauth",
@@ -2346,68 +2345,23 @@ test.each(["workspace", "personal"] as const)(
     ];
     page.accounts = [];
     const api = personalApi();
-    api.readGatewayOperation.mockImplementation(async (_scope, nonce) =>
-      safeOperation(nonce),
+    render(
+      <AccountGatewayControls
+        bootstrap={{ context, page: { status: "ok", value: page } }}
+        api={api}
+        managementScope={managementScope}
+      />,
     );
-    let settle!: (result: AccountsResult<AccountOperationView>) => void;
-    api.completeGatewayOAuth.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          settle = resolve;
-        }),
-    );
-    await mount({ api, managementScope });
-    const enrollment = await openConnectionDialog();
+    await screen.findByRole("button", { name: "Refresh connections" });
     expect(
-      within(enrollment).queryByRole("combobox", { name: "Sign-in method" }),
+      screen.queryByRole("button", { name: /Add account|Connect account/ }),
     ).toBeNull();
-    expect(within(enrollment).getByText("Browser sign-in")).toBeTruthy();
-    expect(within(enrollment).queryByText(/ChatGPT Settings/)).toBeNull();
-    fireEvent.click(
-      within(enrollment).getByRole("button", { name: "Sign in to Claude" }),
-    );
-    await waitFor(() => expect(api.beginGatewayOAuth).toHaveBeenCalledTimes(1));
-    const intent = api.beginGatewayOAuth.mock.calls[0]![1];
-    expect(intent).toMatchObject({
-      profileId: claudeProfileId,
-      method: "browser",
-      label: "Claude Account 1",
-    });
-    expect(handoff).toHaveBeenCalledTimes(1);
-    const completion = await screen.findByRole("dialog", {
-      name: "Complete authorization",
-    });
-    const field = within(completion).getByLabelText(
-      "Authorization code",
-    ) as HTMLInputElement;
-    const authorizationCode = `synthetic-claude-sensitive-code#${"d".repeat(64)}`;
-    fireEvent.change(field, { target: { value: `  ${authorizationCode}\t ` } });
-    fireEvent.click(
-      within(completion).getByRole("button", {
-        name: "Complete authorization",
-      }),
-    );
-    expect(field.value).toBe("");
-    await waitFor(() =>
-      expect(api.completeGatewayOAuth).toHaveBeenCalledWith(context, {
-        nonce: intent.nonce,
-        authorizationCode,
-      }),
-    );
-    const custody = () =>
-      [
-        ...cacheSnapshots,
-        ...[...clients].map(caches),
-        JSON.stringify(storageWrites.mock.calls),
-        JSON.stringify({ ...sessionStorage, ...browserLocalStorage }),
-        document.body.innerHTML,
-      ].join("\n");
-    expect(custody()).not.toContain(authorizationCode);
-    expect(custody()).not.toContain("synthetic-claude-sensitive-code");
-    await act(async () => settle(safeOperation(intent.nonce, "applied")));
-    expect(custody()).not.toContain(authorizationCode);
-    expect(api.completeGatewayOAuth).toHaveBeenCalledTimes(1);
-    assertNoCapability();
+    expect(
+      screen.queryByRole("button", { name: "Sign in to Claude" }),
+    ).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Provider" })).toBeNull();
+    expect(api.beginGatewayOAuth).not.toHaveBeenCalled();
+    expect(api.completeGatewayOAuth).not.toHaveBeenCalled();
   },
 );
 

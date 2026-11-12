@@ -520,4 +520,89 @@ databaseTests("WorkspaceProviderProfile PostgreSQL storage", () => {
       },
     ]);
   });
+
+  it("persists the encrypted workspace-key source as a Claude API-key profile", async () => {
+    await prisma.providerApiKeyConnection.create({
+      data: {
+        workspaceId: workspaceA,
+        providerType: "anthropic",
+        encryptedApiKey: "synthetic-encrypted-key-ciphertext",
+        keyVersion: 1,
+        latestOperationId: `${prefix}-anthropic-key`,
+      },
+    });
+    const saved = await createWorkspaceProviderProfile(
+      {
+        workspaceId: workspaceA,
+        actor: owner,
+        credential: {
+          kind: "managed_api_key",
+          authMode: "claude_code_api_key",
+        },
+        model: "sonnet",
+        label: "Claude workspace key test",
+      },
+      deps(),
+    );
+    expect(saved.profile.credential).toMatchObject({
+      kind: "managed_api_key",
+      authMode: "claude_code_api_key",
+    });
+    const stored = await prisma.workspaceProviderProfile.findUniqueOrThrow({
+      where: { id: saved.profile.id },
+      select: {
+        credentialKind: true,
+        authMode: true,
+        apiKeyConnectionId: true,
+      },
+    });
+    expect(stored).toMatchObject({
+      credentialKind: "managed_api_key",
+      authMode: "claude_code_api_key",
+    });
+    expect(stored.apiKeyConnectionId).toEqual(expect.any(String));
+  });
+
+  it("persists the new Claude API-key CI-secret mode without changing old OAuth profiles", async () => {
+    const created = await createWorkspaceProviderProfile(
+      {
+        workspaceId: workspaceA,
+        actor: owner,
+        credential: {
+          kind: "user_ci_secret",
+          authMode: "claude_code_api_key",
+        },
+        model: "sonnet",
+        label: "Claude API key test",
+      },
+      deps(),
+    );
+    expect(created.profile.credential).toEqual({
+      kind: "user_ci_secret",
+      authMode: "claude_code_api_key",
+    });
+    const stored = await prisma.workspaceProviderProfile.findUniqueOrThrow({
+      where: { id: created.profile.id },
+      select: { authMode: true, credentialKind: true },
+    });
+    expect(stored).toEqual({
+      authMode: "claude_code_api_key",
+      credentialKind: "user_ci_secret",
+    });
+    // The database, not merely the TypeScript validator, refuses an
+    // incompatible auth-mode and credential-kind combination.
+    await expect(
+      prisma.workspaceProviderProfile.create({
+        data: {
+          workspaceId: workspaceA,
+          createdByUserId: owner.userId,
+          credentialKind: "user_ci_secret",
+          authMode: "codex_account_gateway",
+          identityKey: "bad-claude-credential-kind",
+          model: "sonnet",
+          label: "Invalid auth pair",
+        },
+      }),
+    ).rejects.toThrow();
+  });
 });

@@ -77,7 +77,9 @@ export type ProviderSourceKey =
   | "gateway_binding"
   | "managed_api_key:mimo_token_plan_api_key"
   | "managed_api_key:openrouter_api_key"
+  | "managed_api_key:claude_code_api_key"
   | "user_ci_secret:claude_code_oauth"
+  | "user_ci_secret:claude_code_api_key"
   | "user_ci_secret:mimo_token_plan_api_key"
   | "user_ci_secret:openrouter_api_key"
   | "user_ci_secret:kimi_code_api_key"
@@ -190,6 +192,7 @@ const allowed: ProviderSetupDecision = { allowed: true };
 
 const ciSecretSources = [
   "user_ci_secret:claude_code_oauth",
+  "user_ci_secret:claude_code_api_key",
   ...apiKeyProviders.map(
     (provider) => `user_ci_secret:${provider.directAuthMode}` as const,
   ),
@@ -351,8 +354,18 @@ export function buildProviderSetupView(
         repositoryId: null,
       }),
     },
-    ...(["mimo_token_plan_api_key", "openrouter_api_key"] as const).map(
-      (authMode): ProviderSourceOption => {
+    ...(
+      [
+        "mimo_token_plan_api_key",
+        "openrouter_api_key",
+        "claude_code_api_key",
+      ] as const
+    )
+      .filter(
+        (authMode) =>
+          authMode !== "claude_code_api_key" || facts.claudeCodeEnabled,
+      )
+      .map((authMode): ProviderSourceOption => {
         const key = facts.managedKeys[authMode];
         const install = admin
           ? decide({ kind: "manage_managed_key" })
@@ -388,12 +401,12 @@ export function buildProviderSetupView(
             install,
           },
         };
-      },
-    ),
+      }),
     ...ciSecretSources
       .filter(
         (key) =>
-          key !== "user_ci_secret:claude_code_oauth" || facts.claudeCodeEnabled,
+          !key.startsWith("user_ci_secret:claude_code_") ||
+          facts.claudeCodeEnabled,
       )
       .map((key): ProviderSourceOption => {
         const authMode = key.slice(
@@ -475,7 +488,8 @@ function managedKeyInstalled(
 ): boolean {
   return (
     (authMode === "mimo_token_plan_api_key" ||
-      authMode === "openrouter_api_key") &&
+      authMode === "openrouter_api_key" ||
+      authMode === "claude_code_api_key") &&
     facts.managedKeys[authMode].installedRepositoryIds.has(repositoryId)
   );
 }

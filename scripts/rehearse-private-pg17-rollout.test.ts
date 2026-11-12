@@ -1282,7 +1282,12 @@ describe("disposable dual-version rehearsal", () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
 
-    const currentMigrationNames = migrationNames;
+    // The new application-only Claude CHECK is excluded from the historical
+    // signed checkout160 manifest, but included in the live source boundary.
+    const currentMigrationNames = migrationNames.filter(
+      (name) => name !== "000157_claude_code_api_key_secret",
+    );
+    expect(migrationNames).toHaveLength(162);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
@@ -1314,9 +1319,7 @@ describe("disposable dual-version rehearsal", () => {
             name === "000137_review_skills_capture",
         ),
     ).toEqual(["000136_review_skills", "000137_review_skills_capture"]);
-    const exclusions = resolvePreReleaseMigrationExclusions(
-      currentMigrationNames,
-    );
+    const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
     const historicalCheckout = legacyMigrationNames.filter(
       (name) =>
         name !== "000125_hosted_codex_device_reconnect" &&
@@ -1652,6 +1655,7 @@ describe("disposable dual-version rehearsal", () => {
       "000154_unified_model_dispatch",
       "000155_usage_member_report_index",
       "000156_verified_thread_reply",
+      "000157_claude_code_api_key_secret",
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
@@ -1933,6 +1937,7 @@ describe("disposable dual-version rehearsal", () => {
     "000152_memory_automatic_source",
     "000152_review_run_gateway_allocations",
     "000153_conversation_processing",
+    "000157_claude_code_api_key_secret",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -2010,6 +2015,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
+                name !== "000157_claude_code_api_key_secret" &&
                 name !== "000155_usage_member_report_index" &&
                 name !== "000156_verified_thread_reply" &&
                 name !== "000154_unified_model_dispatch" &&
