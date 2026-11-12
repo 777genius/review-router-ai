@@ -9,9 +9,11 @@ export function parseSnapshot(value: unknown): ProgressSnapshot {
   if (
     typeof value.generation !== "number" ||
     !Number.isSafeInteger(value.generation) ||
+    value.generation < 0 ||
     !isPhase(value.phase) ||
     !isTerminal(value.terminal) ||
-    typeof value.updatedAt !== "string" ||
+    (value.phase === "terminal") !== (value.terminal !== "none") ||
+    !isCanonicalInstant(value.updatedAt) ||
     !isRecord(counts) ||
     !validCounts(counts) ||
     !validCoverage(fileCoverage) ||
@@ -33,7 +35,7 @@ function validOptionalSourceIdentity(value: unknown): boolean {
 }
 
 function validCounts(value: Record<string, unknown>): boolean {
-  return [
+  const keys = [
     "total",
     "completed",
     "exhausted",
@@ -48,15 +50,47 @@ function validCounts(value: Record<string, unknown>): boolean {
     "requiredCancelled",
     "optionalTotal",
     "optionalCompleted",
-  ].every((key) => isNonNegativeSafeInteger(value[key]));
+  ];
+  if (!keys.every((key) => isNonNegativeSafeInteger(value[key]))) return false;
+
+  const counts = value as unknown as ProgressSnapshot["counts"];
+  return (
+    counts.requiredTotal + counts.optionalTotal === counts.total &&
+    counts.requiredCompleted + counts.optionalCompleted === counts.completed &&
+    counts.completed +
+      counts.exhausted +
+      counts.cancelled +
+      counts.running +
+      counts.pending ===
+      counts.total &&
+    counts.requiredCompleted +
+      counts.requiredExhausted +
+      counts.requiredCancelled <=
+      counts.requiredTotal &&
+    counts.requiredExhausted <= counts.exhausted &&
+    counts.requiredCancelled <= counts.cancelled &&
+    counts.retrying <= counts.running &&
+    counts.recovered <= counts.completed
+  );
 }
 
 function validCoverage(value: unknown): boolean {
   if (!isRecord(value) || typeof value.valid !== "boolean") return false;
   if (value.valid === false) return true;
-  return ["total", "covered", "uncovered", "excluded"].every((key) =>
-    isNonNegativeSafeInteger(value[key]),
+  return (
+    isNonNegativeSafeInteger(value.total) &&
+    isNonNegativeSafeInteger(value.covered) &&
+    isNonNegativeSafeInteger(value.uncovered) &&
+    isNonNegativeSafeInteger(value.excluded) &&
+    value.covered <= value.total &&
+    value.uncovered <= value.total
   );
+}
+
+function isCanonicalInstant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {

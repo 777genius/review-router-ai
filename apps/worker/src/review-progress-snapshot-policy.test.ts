@@ -94,4 +94,56 @@ describe("Review progress snapshot policy", () => {
       }),
     ).toThrow("review_progress_snapshot_invalid");
   });
+  it("rejects inconsistent lifecycle states and noncanonical timestamps", () => {
+    for (const invalid of [
+      { ...validSnapshot, phase: "terminal" },
+      { ...validSnapshot, terminal: "failed" },
+      { ...validSnapshot, updatedAt: "not-a-date" },
+      { ...validSnapshot, updatedAt: "2026-08-12T12:00:00Z" },
+      { ...validSnapshot, generation: -1 },
+    ]) {
+      expect(() => parseSnapshot(invalid)).toThrow(
+        "review_progress_snapshot_invalid",
+      );
+    }
+    const terminal = { ...validSnapshot, phase: "terminal", terminal: "failed" };
+    expect(parseSnapshot(terminal)).toBe(terminal);
+  });
+
+  it("rejects inconsistent aggregate and required progress counts", () => {
+    const counts = validSnapshot.counts;
+    for (const invalid of [
+      { ...counts, requiredCompleted: 2 },
+      { ...counts, optionalTotal: 1 },
+      { ...counts, running: 0 },
+      { ...counts, requiredExhausted: 1 },
+      { ...counts, retrying: 2 },
+      { ...counts, recovered: 2 },
+    ]) {
+      expect(() =>
+        parseSnapshot({ ...validSnapshot, counts: invalid }),
+      ).toThrow("review_progress_snapshot_invalid");
+    }
+  });
+
+  it("rejects impossible file coverage while preserving valid bounds", () => {
+    const fileCoverage = {
+      valid: true,
+      total: 2,
+      covered: 1,
+      uncovered: 1,
+      excluded: 0,
+    };
+    expect(
+      parseSnapshot({ ...validSnapshot, fileCoverage }).fileCoverage,
+    ).toEqual(fileCoverage);
+    for (const invalid of [
+      { ...fileCoverage, covered: 3 },
+      { ...fileCoverage, uncovered: 3 },
+    ]) {
+      expect(() =>
+        parseSnapshot({ ...validSnapshot, fileCoverage: invalid }),
+      ).toThrow("review_progress_snapshot_invalid");
+    }
+  });
 });
