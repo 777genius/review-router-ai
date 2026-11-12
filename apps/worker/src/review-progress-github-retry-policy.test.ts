@@ -42,7 +42,8 @@ describe("Review progress GitHub retry policy", () => {
   });
 
   it("recognizes GitHub secondary limit bodies without headers", () => {
-    const secondary = { message: "You have exceeded a secondary rate limit." };
+    const secondaryMessage = "You have exceeded a secondary rate limit.";
+    const secondary = { message: secondaryMessage };
     const forbidden = { message: "Normal forbidden response" };
     expect(isSecondaryRateLimitResponse(secondary)).toBe(true);
     expect(isSecondaryRateLimitResponse(forbidden)).toBe(false);
