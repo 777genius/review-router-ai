@@ -43,9 +43,14 @@ const skillsCatalogMigrationName = "000150_skills_catalog_security";
 const reviewHistoryMigrationName = "000151_review_history";
 const unifiedModelDispatchMigrationName = "000154_unified_model_dispatch";
 const usageMemberReportIndexName = "000155_usage_member_report_index";
+const verifiedReplyMigrationName = "000156_verified_thread_reply";
+const claudeApiKeyMigrationName = "000157_claude_code_api_key_secret";
 const readPreIndexCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
-    (row) => row.migrationName !== usageMemberReportIndexName,
+    (row) =>
+      row.migrationName !== usageMemberReportIndexName &&
+      row.migrationName !== claudeApiKeyMigrationName &&
+      row.migrationName !== verifiedReplyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
   rows: readonly T[],
@@ -199,7 +204,9 @@ const historicalMigration119Sql = correctedMigration119Sql.replaceAll(
 const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
+      name !== claudeApiKeyMigrationName &&
       name !== usageMemberReportIndexName &&
+      name !== verifiedReplyMigrationName &&
       name !== gatewayAllocationsMigrationName &&
       !renderConversationalMemoryCheckoutExtension.some(
         (row) => row.migrationName === name,
@@ -586,9 +593,42 @@ const canonicalPrefix = (count: number) =>
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
-    const full = readRenderManagedCheckoutInventory();
-    expect(full).toHaveLength(160);
+    const withClaude = readRenderManagedCheckoutInventory();
+    expect(withClaude).toHaveLength(162);
+    expect(withClaude.at(-1)).toEqual({
+      migrationName: claudeApiKeyMigrationName,
+      checksum:
+        "f329d536172a46caef5ebe37fd76dc398394141052bd9271819a4bee881bc89e",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(withClaude)).toEqual(catalog);
+    // Adding a checkout tail does not authorize arbitrary SQL or an extra
+    // directory: every newly admitted row stays checksum-bound, fail closed.
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withClaude.slice(0, -1),
+        { ...withClaude.at(-1)!, checksum: "0".repeat(64) },
+      ]),
+    ).toThrow("checkout_extension");
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withClaude,
+        { migrationName: "000158_unknown", checksum: "0".repeat(64) },
+      ]),
+    ).toThrow();
+    const full = withClaude.filter(
+      (row) => row.migrationName !== claudeApiKeyMigrationName,
+    );
+    expect(full).toHaveLength(161);
     expect(full.at(-1)).toEqual({
+      migrationName: verifiedReplyMigrationName,
+      checksum:
+        "690327803b321cad8914c1ac489751ad140e7b39126115bf826138959b3f3888",
+    });
+    const fullWithoutReply = full.filter(
+      (row) => row.migrationName !== verifiedReplyMigrationName,
+    );
+    expect(fullWithoutReply).toHaveLength(160);
+    expect(fullWithoutReply.at(-1)).toEqual({
       migrationName: usageMemberReportIndexName,
       checksum:
         "3f443fcdc18924dd5f1bf3c6eacbbc68969ce26811975206261b3aca014dcfd7",
@@ -612,6 +652,7 @@ describe("explicit checkout partition with an unchanged managed92 validator", ()
           ? { ...row, migrationName: "000155_relabelled_index" }
           : row,
       ),
+      full.filter((row) => row.migrationName !== usageMemberReportIndexName),
       full.filter(
         (row) => row.migrationName !== unifiedModelDispatchMigrationName,
       ),
@@ -2835,6 +2876,9 @@ describe("complete filesystem checkout inventory", () => {
       { recursive: true },
     );
     if (count !== undefined) {
+      rmSync(join(migrations, verifiedReplyMigrationName), { recursive: true });
+      // Historical partial checkouts predate Claude API-key migration161.
+      rmSync(join(migrations, claudeApiKeyMigrationName), { recursive: true });
       rmSync(join(migrations, usageMemberReportIndexName), { recursive: true });
       rmSync(join(migrations, gatewayAllocationsMigrationName), {
         recursive: true,
@@ -2934,7 +2978,17 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(160);
+    expect(inventory).toHaveLength(162);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, claudeApiKeyMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(161);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, verifiedReplyMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(160);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, usageMemberReportIndexName), {
       recursive: true,
@@ -3294,11 +3348,9 @@ describe("complete filesystem checkout inventory", () => {
         join(fixture.migrations, row.migrationName, "migration.sql"),
       ),
     );
-    const accepted = [
-      0, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095, 8191, 16383, 32767,
-      65535, 131071, 262143, 524287, 1048575, 2097151, 4194303, 8388607,
-      16777215, 33554431, 67108863, 134217727,
-    ];
+    const accepted = Array.from({ length: tail.length - 1 }, (_, index) =>
+      index === 0 ? 0 : 2 ** (index + 2) - 1,
+    );
     const fullMask = (1 << tail.length) - 1;
     const masks = [
       ...accepted,
@@ -3376,11 +3428,35 @@ describe("complete filesystem checkout inventory", () => {
       rmSync(sql);
       expect(() => fixture.read()).toThrow("checkout_inventory");
       rmSync(directory, { recursive: true });
-      // Removing only the concurrent index restores exact reviewed checkout159.
-      // A partial memory pair or an unpublished combination stays rejected.
-      if (name === usageMemberReportIndexName)
+      // Each additive checkout tail is checksum-bound. Missing the member
+      // index leaves both successor migrations present and must fail closed.
+      if (name === usageMemberReportIndexName) {
+        expect(() => fixture.read()).toThrow("checkout_extension");
+        const extensions = [
+          claudeApiKeyMigrationName,
+          verifiedReplyMigrationName,
+        ];
+        const saved = extensions.map((migrationName) => {
+          const extensionDirectory = join(fixture.migrations, migrationName);
+          const extensionBytes = readFileSync(
+            join(extensionDirectory, "migration.sql"),
+          );
+          rmSync(extensionDirectory, { recursive: true });
+          return { extensionDirectory, extensionBytes };
+        });
         expect(fixture.read()).toEqual(catalog);
-      else expect(() => fixture.read()).toThrow();
+        for (const { extensionDirectory, extensionBytes } of saved) {
+          mkdirSync(extensionDirectory);
+          writeFileSync(
+            join(extensionDirectory, "migration.sql"),
+            extensionBytes,
+          );
+        }
+      } else if (name === claudeApiKeyMigrationName) {
+        // Removing only the newest, unpublished Claude tail restores the
+        // checksum-pinned verified-reply checkout161.
+        expect(fixture.read()).toEqual(catalog);
+      } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);
       writeFileSync(sql, bytes);
     }

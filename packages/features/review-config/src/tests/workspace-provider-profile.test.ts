@@ -156,6 +156,7 @@ it.each([
   "openrouter_api_key",
   "mimo_token_plan_api_key",
   "kimi_code_api_key",
+  "claude_code_api_key",
 ] as const)(
   "registers a user-managed repository secret without a saved workspace key: %s",
   (authMode) => {

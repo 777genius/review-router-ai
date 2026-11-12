@@ -9,6 +9,7 @@ import {
 import {
   RequestReviewPublicationStatus,
   ReviewPublicationAttemptState,
+  ReviewPublicationKind,
   ReviewPublicationProjectionCoverage,
   ReviewPublicationTerminalOutcome,
   effectiveReviewPublicationOutcome,
@@ -103,6 +104,7 @@ export type ReviewCompletionSnapshotProjection = {
 export interface ReviewCompletionProjectionMapperPort {
   publicationEnvelope(
     artifact: FinalizedReviewProjectionArtifact,
+    options?: Readonly<{ includeVerifiedFixReplies?: boolean }>,
   ): Promise<PublishedReviewProjectionPublicationEnvelope | null>;
   snapshotProjection(
     artifact: FinalizedReviewProjectionArtifact,
@@ -129,9 +131,6 @@ export class DeterministicReviewPublicationRequestFactory {
     snapshot: ReviewExecutionSnapshot,
   ): Promise<RequestReviewPublicationCommand | null> {
     const artifact = requireFinalizedArtifact(snapshot);
-    const envelope = await this.projections.publicationEnvelope(artifact);
-    if (!envelope) return null;
-    assertPublicationEnvelopeMatchesArtifact(envelope, artifact);
     const publicationAttemptId = reviewPublicationAttemptId({
       executionId: artifact.executionId,
       artifactId: artifact.artifactId,
@@ -139,43 +138,63 @@ export class DeterministicReviewPublicationRequestFactory {
       digestUtf8: sha256,
     });
     const existing = await this.attempts.findById(publicationAttemptId);
-    const operations = await this.operationPlanner.plan({
-      identity: resolveCurrentReviewPublicationOperationIdentity({
-        publicationAttemptId,
-        projectionHash: artifact.projectionHash,
-        existingOperationIds:
-          existing?.attempt.operations.map(
-            (operation) => operation.publicationOperationId,
-          ) ?? null,
-      }),
-      envelope,
+    const identity = resolveCurrentReviewPublicationOperationIdentity({
+      publicationAttemptId,
+      projectionHash: artifact.projectionHash,
+      existingOperationIds:
+        existing?.attempt.operations.map(
+          (operation) => operation.publicationOperationId,
+        ) ?? null,
     });
-    if (operations.length === 0) {
-      throw new Error("review_completion_publication_operations_empty");
-    }
-
     const requestIdHash = sha256(
       `rr.publication-request.v2\0${publicationAttemptId}`,
     );
-    const requestHash = sha256(
-      canonicalJson({
+    // Existing requests may have omitted every optional reply. Their
+    // lifecycle indexes still include the rendered reply positions.
+    // Match the persisted request rather than guessing from its operation kinds.
+    const includesStoredReply =
+      existing?.attempt.operations.some(
+        (operation) =>
+          operation.publicationKind === ReviewPublicationKind.ThreadReply,
+      ) ?? false;
+    const renderOptions = existing
+      ? [includesStoredReply, !includesStoredReply]
+      : [true];
+    for (const includeVerifiedFixReplies of renderOptions) {
+      const envelope = await this.projections.publicationEnvelope(artifact, {
+        includeVerifiedFixReplies,
+      });
+      if (!envelope) return null;
+      assertPublicationEnvelopeMatchesArtifact(envelope, artifact);
+      const operations = await this.operationPlanner.plan({
+        identity,
+        envelope,
+      });
+      if (operations.length === 0) {
+        throw new Error("review_completion_publication_operations_empty");
+      }
+      const requestHash = sha256(
+        canonicalJson({
+          publicationAttemptId,
+          requestIdHash,
+          permit: artifact.publicationPermit,
+          operations,
+          createdAt: artifact.createdAt,
+          retainUntil: artifact.retainUntil,
+        }),
+      );
+      if (existing && requestHash !== existing.attempt.requestHash) continue;
+      return {
         publicationAttemptId,
         requestIdHash,
+        requestHash,
         permit: artifact.publicationPermit,
         operations,
-        createdAt: artifact.createdAt,
-        retainUntil: artifact.retainUntil,
-      }),
-    );
-    return {
-      publicationAttemptId,
-      requestIdHash,
-      requestHash,
-      permit: artifact.publicationPermit,
-      operations,
-      createdAt: new Date(artifact.createdAt),
-      retainUntil: new Date(artifact.retainUntil),
-    };
+        createdAt: new Date(artifact.createdAt),
+        retainUntil: new Date(artifact.retainUntil),
+      };
+    }
+    throw new Error("review_completion_publication_existing_plan_mismatch");
   }
 }
 

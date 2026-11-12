@@ -34,6 +34,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV1,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCanonicalCodexRotatingInteractionWorkflowV4,
   renderCodexRotatingInteractionWorkflow,
   scanCodexRotatingAdvisoryWorkflow,
   workflowChecksOutReviewRouterRuntime,
@@ -139,6 +140,135 @@ function getWorkflowJobSection(workflow: string, jobId: string): string {
   const end = nextJobMatch ? afterStart + nextJobMatch.index : workflow.length;
   return workflow.slice(start, end);
 }
+
+describe("Claude dual-auth CI templates", () => {
+  const actionRef =
+    "777genius/review-router@0123456789abcdef0123456789abcdef01234567";
+
+  it("installs the existing Claude CLI with an Anthropic key and no OAuth token", () => {
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-api-key",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+    expect(workflow).toContain("ANTHROPIC_API_KEY_PRESENT:");
+    expect(workflow).toContain("ANTHROPIC_API_KEY:");
+    expect(workflow).toContain("Install Claude Code CLI");
+    expect(workflow).toContain(
+      "env.CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' || env.ANTHROPIC_API_KEY_PRESENT == '1'",
+    );
+    expect(workflow).toContain('REVIEW_AUTH_MODE: "claude-api-key"');
+    expect(workflow).not.toContain(
+      "CLAUDE_CODE_OAUTH_TOKEN_PRESENT == '1' && true",
+    );
+  });
+
+  it("recognizes API-key-only Claude configuration without a provider list", () => {
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: { REVIEW_AUTH_MODE: "claude-api-key" },
+    });
+    expect(workflowStep(workflow, "Install Claude Code CLI")?.if).toContain(
+      "&& true",
+    );
+    expect(workflowStep(workflow, "Install Codex CLI")?.if).toContain(
+      "env.CODEX_AUTH_JSON_PRESENT == '1' && false",
+    );
+    expect(workflow).toContain('REVIEW_AUTH_MODE: "claude-api-key"');
+  });
+
+  it("rejects API-key workflows with only an unrelated OAuth secret wired", () => {
+    const workflow = renderReviewRouterWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: { REVIEW_AUTH_MODE: "claude-api-key" },
+    });
+    const compatibility = (workflowYaml: string) =>
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml,
+        workflowStyle: "explicit",
+        providerKind: "claude",
+        expectedActionRef: actionRef,
+      });
+
+    expect(compatibility(workflow).missingRequirements).not.toContain(
+      "secret_pass_through",
+    );
+    for (const quote of ['"', "'"]) {
+      const quotedWorkflow = workflow.replace(
+        "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
+        `ANTHROPIC_API_KEY: ${quote}\${{ secrets.ANTHROPIC_API_KEY }}${quote}`,
+      );
+      expect(compatibility(quotedWorkflow).missingRequirements).not.toContain(
+        "secret_pass_through",
+      );
+    }
+    const brokenWorkflow = workflow.replaceAll(
+      "ANTHROPIC_API_KEY",
+      "REMOVED_ANTHROPIC_CREDENTIAL",
+    );
+    expect(compatibility(brokenWorkflow).missingRequirements).toContain(
+      "secret_pass_through",
+    );
+    const missingRuntimeAssignment = workflow.replace(
+      "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}",
+      "REMOVED_CLAUDE_KEY_ASSIGNMENT: ${{ secrets.ANTHROPIC_API_KEY }}",
+    );
+    expect(missingRuntimeAssignment).toContain("ANTHROPIC_API_KEY_PRESENT:");
+    expect(
+      compatibility(missingRuntimeAssignment).missingRequirements,
+    ).toContain("secret_pass_through");
+  });
+
+  it("detects Claude API-key selection inside JSON-quoted reusable workflow env", () => {
+    const workflow = renderReviewRouterReusableWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      workflowStyle: "reusable",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-api-key",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+    const check = (workflowYaml: string) =>
+      analyzeWorkflowProviderCompatibility({
+        workflowYaml,
+        providerKind: "claude",
+        workflowStyle: "reusable",
+      });
+    expect(workflow).toContain('"REVIEW_AUTH_MODE"');
+    expect(check(workflow).missingRequirements).not.toContain(
+      "secret_pass_through",
+    );
+    expect(
+      check(workflow.replaceAll("ANTHROPIC_API_KEY", "REMOVED_ANTHROPIC_KEY"))
+        .missingRequirements,
+    ).toContain("secret_pass_through");
+  });
+
+  it("preserves required workflow support for both approved Claude credentials", () => {
+    const workflow = renderReviewRouterRequiredWorkflow({
+      actionRef,
+      apiUrl: "https://api.reviewrouter.org",
+      runtimeConfigMode: "static",
+      staticRuntimeEnv: {
+        REVIEW_AUTH_MODE: "claude-api-key",
+        REVIEW_PROVIDERS: "claude/sonnet",
+      },
+    });
+    expect(workflow).toContain("ANTHROPIC_API_KEY_PRESENT:");
+    expect(workflow).toContain("ANTHROPIC_API_KEY:");
+    expect(workflow).toContain("Install Claude Code CLI");
+  });
+});
 
 describe("renderReviewRouterWorkflow", () => {
   it("recognizes the pinned checkout and execution in a generated explicit review job", () => {
@@ -883,6 +1013,52 @@ describe("renderReviewRouterWorkflow", () => {
     });
   });
 
+  it("keeps v3 interaction bytes stable and installs v4 only for author-gated replies", () => {
+    const options = {
+      actionRef:
+        "777genius/review-router@0123456789abcdef0123456789abcdef01234567",
+      apiUrl: "https://reviewrouter.org",
+      runtimeConfigMode: "oidc" as const,
+      discussionMode: "suggest" as const,
+    };
+    const legacy = renderCanonicalCodexRotatingInteractionWorkflowV3(options);
+    const newDefault =
+      renderCanonicalCodexRotatingInteractionWorkflowV4(options);
+    expect(legacy).toContain(
+      "REVIEW_ROUTER_DISCUSSION_MODE: ${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest' }}",
+    );
+    expect(legacy).not.toContain("github.event.comment.user.id");
+    expect(newDefault).toContain(
+      "github.event.comment.user.id == github.event.pull_request.user.id",
+    );
+    expect(newDefault).toContain(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    );
+    expect(newDefault).toContain("github.event.action == 'created'");
+    expect(newDefault).toContain("github.event.pull_request.user.id > 0");
+    expect(newDefault).not.toContain(
+      "vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest'",
+    );
+    expect(newDefault.match(/github.event.comment.user.id/g)).toHaveLength(2);
+    expect(renderCodexRotatingInteractionWorkflow(options)).toBe(newDefault);
+    expect(() =>
+      renderCanonicalCodexRotatingInteractionWorkflowV4({
+        ...options,
+        discussionMode: "off",
+      }),
+    ).toThrow("codex_interaction_v4_requires_suggest");
+    const files = renderReviewRouterWorkflowFiles({
+      ...options,
+      codexRotatingProviderInstanceId: "codex-rotating:123456",
+      staticRuntimeEnv: { REVIEW_AUTH_MODE: "codex-oauth-rotating" },
+    });
+    expect(
+      workflowFileContent(
+        files.find((file) => file.path === defaultInteractionWorkflowPath),
+      ),
+    ).toBe(newDefault);
+  });
+
   it("renders the dedicated rotating Codex interaction workflow", () => {
     const workflow = renderCodexRotatingInteractionWorkflow({
       actionRef:
@@ -1307,7 +1483,16 @@ describe("renderReviewRouterWorkflow", () => {
     );
 
     expect(interactionWorkflowContent).toContain(
-      "discussion_mode: ${{ vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest' }}",
+      "discussion_mode: ${{ github.event_name == 'pull_request_review_comment'",
+    );
+    expect(interactionWorkflowContent).toContain(
+      "github.event.comment.user.id == github.event.pull_request.user.id",
+    );
+    expect(interactionWorkflowContent).toContain(
+      "(vars.REVIEW_ROUTER_DISCUSSION_MODE == '' || vars.REVIEW_ROUTER_DISCUSSION_MODE == 'suggest')",
+    );
+    expect(interactionWorkflowContent).not.toContain(
+      "vars.REVIEW_ROUTER_DISCUSSION_MODE || 'suggest'",
     );
   });
 

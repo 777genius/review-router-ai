@@ -127,6 +127,11 @@ export type AccountRowsRenderer = (
 
 type ManagementScope = "workspace" | "personal";
 
+// Legacy Claude OAuth accounts remain readable, but customers may only enroll
+// subscription credentials locally in their own GitHub Actions CLI workflow.
+const centrallyEnrollAllowed = (profile: AccountProfileView) =>
+  profile.id !== "anthropic-claude-oauth-messages-v1";
+
 // Small safe keys: scoped stable user/workspace locator; no signature or secret.
 const pageKey = (scope: string, cursor: string | null) =>
   ["gateway-accounts", scope, "page", cursor] as const;
@@ -861,19 +866,6 @@ function Controls({
     page.isError ||
     Boolean(failure) ||
     data?.status !== "ok";
-  // Fresh enrollment requires verified NVIDIA authority; existing-account
-  // lifecycle/reconnect still use the complete profile catalog above.
-  const enrollmentProfiles =
-    data?.status === "ok"
-      ? data.value.profiles.filter(
-          (profile) =>
-            (personal || !profile.connection?.personalOnly) &&
-            (profile.provider !== "nvidia" ||
-              (profile.id === "nvidia-build-chat-apikey-v1" &&
-                profile.availability === "enabled" &&
-                profile.connection?.provider === "nvidia")),
-        )
-      : [];
   function renderActions(account: AccountView) {
     if (data?.status !== "ok") return null;
     const sourceBusy =
@@ -925,6 +917,7 @@ function Controls({
           />
         ) : null}
         {account.authKind === "oauth" &&
+        account.profileId !== "anthropic-claude-oauth-messages-v1" &&
         account.state !== "disabled" &&
         account.state !== "tombstoned" &&
         data.value.profiles.find((p) => p.id === account.profileId)
@@ -978,29 +971,35 @@ function Controls({
       </>
     );
   }
+  const enrollmentProfiles =
+    data?.status === "ok"
+      ? data.value.profiles.filter(
+          (p) =>
+            centrallyEnrollAllowed(p) &&
+            (personal || !p.connection?.personalOnly) &&
+            (p.provider !== "nvidia" ||
+              (p.id === "nvidia-build-chat-apikey-v1" &&
+                p.availability === "enabled" &&
+                p.connection?.provider === "nvidia")),
+        )
+      : [];
+  const enrollmentAccounts = data?.status === "ok" ? data.value.accounts : [];
   return (
     <div className="space-y-4">
-      {connectOnly && data?.status === "ok" && !activeNonce ? (
-        enrollmentProfiles.length > 0 ? (
-          <ConnectionForm
-            profiles={enrollmentProfiles}
-            accounts={data.value.accounts}
-            disabled={disabled}
-            managementScope={managementScope}
-            begin={beginOAuth}
-            submit={submit}
-          />
-        ) : (
-          <p className="text-sm text-slate-400">
-            No providers are available for a new connection.
-          </p>
-        )
+      {connectOnly && !activeNonce && enrollmentProfiles.length > 0 ? (
+        <ConnectionForm
+          profiles={enrollmentProfiles}
+          accounts={enrollmentAccounts}
+          disabled={disabled}
+          managementScope={managementScope}
+          begin={beginOAuth}
+          submit={submit}
+        />
       ) : null}
       <div className="flex flex-wrap gap-3">
         {!connectOnly &&
         !hideConnect &&
         (!initiallyOpenConnect || ready) &&
-        data?.status === "ok" &&
         enrollmentProfiles.some(
           (p) => p.authKind === "api_key" || p.authKind === "oauth",
         ) ? (
@@ -1009,7 +1008,7 @@ function Controls({
             profiles={enrollmentProfiles.filter(
               (p) => p.authKind === "api_key" || p.authKind === "oauth",
             )}
-            accounts={data.value.accounts}
+            accounts={enrollmentAccounts}
             disabled={disabled}
             managementScope={managementScope}
             begin={beginOAuth}

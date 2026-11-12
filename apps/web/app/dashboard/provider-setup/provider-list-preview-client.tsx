@@ -251,6 +251,10 @@ function dialogFacts(state: ProviderListPreviewState): ProviderSetupFacts {
         uploaded: true,
         installedRepositoryIds: new Set(),
       },
+      claude_code_api_key: {
+        uploaded: false,
+        installedRepositoryIds: new Set(),
+      },
     },
     claudeCodeEnabled: true,
   };

@@ -115,6 +115,11 @@ export function setupProviderForSource(
     (provider) => provider.githubSource === source.key,
   );
   if (direct) return direct.id;
+  if (
+    source.key === "managed_api_key:claude_code_api_key" ||
+    source.key === "user_ci_secret:claude_code_api_key"
+  )
+    return "claude-code";
   if (source.key.startsWith("managed_api_key:"))
     return apiKeyProviders.find(
       (provider) => source.key === `managed_api_key:${provider.directAuthMode}`,
@@ -172,12 +177,8 @@ export function setupProviderForGatewayProfile(
     (!profile.provider || profile.provider === "codex")
   )
     return "codex";
-  if (
-    profile.id === "anthropic-claude-oauth-messages-v1" &&
-    (!profile.connection || profile.connection.provider === "anthropic") &&
-    (!profile.provider || profile.provider === "claude")
-  )
-    return "claude-code";
+  // An existing Claude OAuth account may be shown in diagnostic account
+  // views, but must not become a new SaaS enrollment/provider choice.
   return undefined;
 }
 
@@ -203,6 +204,7 @@ export function setupProviderForDirectAuthMode(
   authMode: ProviderSourceOption["authMode"],
 ): SetupProviderId | undefined {
   if (authMode === "codex_subscription_oauth_rotating") return "codex";
-  if (authMode === "claude_code_oauth") return "claude-code";
+  if (authMode === "claude_code_oauth" || authMode === "claude_code_api_key")
+    return "claude-code";
   return apiKeyProviderForAuthMode(authMode);
 }

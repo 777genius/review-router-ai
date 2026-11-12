@@ -29,6 +29,7 @@ import {
   type ReviewV2ProviderCredentialPort,
 } from "../../application/ports/review-publication-provider-ports";
 import { canonicalReviewPublicationJson } from "../../domain/canonical-review-publication-json";
+import { extractUniqueReviewFindingFingerprint } from "../../domain/review-finding-marker";
 
 export type ReviewV2GitHubRepository = {
   readonly githubInstallationId: string;
@@ -66,6 +67,7 @@ export class GitHubAppReviewV2CredentialProvider
     private readonly repositories: ReviewV2GitHubRepositoryQueryPort,
     private readonly payloads: ReviewV2PublicationPayloadPort,
     private readonly assertCheckIdentityAllowed?: (name: string) => void,
+    private readonly trustedParentAuthors?: ReadonlySet<string>,
   ) {
     this.app = new App(options);
   }
@@ -95,6 +97,7 @@ export class GitHubAppReviewV2CredentialProvider
         payloads: this.payloads,
         assertCheckIdentityAllowed: this.assertCheckIdentityAllowed,
         botLogin,
+        trustedParentAuthors: this.trustedParentAuthors,
       }),
       close: async () => undefined,
     };
@@ -199,6 +202,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       readonly capability: ReviewPublicationOperationCapabilityFacts;
       readonly payloads: ReviewV2PublicationPayloadPort;
       readonly botLogin: string;
+      readonly trustedParentAuthors?: ReadonlySet<string> | undefined;
       readonly assertCheckIdentityAllowed?:
         | ((name: string) => void)
         | undefined;
@@ -224,6 +228,8 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         return this.findSubmittedReview(payload, input.operation);
       case ReviewV2PublicationPayloadKind.ThreadLifecycle:
         return this.findLifecycle(payload);
+      case ReviewV2PublicationPayloadKind.ThreadReply:
+        return this.findThreadReplies(payload, input.cursor);
     }
   }
 
@@ -254,6 +260,8 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
           );
         case ReviewV2PublicationPayloadKind.ThreadLifecycle:
           return await this.mutateLifecycle(payload, input.operation);
+        case ReviewV2PublicationPayloadKind.ThreadReply:
+          return await this.createThreadReply(payload, input.operation);
       }
     } catch (error) {
       if (error instanceof ReviewV2ScmMutationError) throw error;
@@ -362,6 +370,9 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
           : ReviewPublicationReceiptStatus.Succeeded;
       case ReviewV2PublicationPayloadKind.PendingReviewSubmit:
       case ReviewV2PublicationPayloadKind.SubmittedReview:
+      case ReviewV2PublicationPayloadKind.ThreadReply:
+        // A verified acknowledgement is a historical observation; never delete it
+        // merely because an attempt was superseded or an effect became uncertain.
         return ReviewPublicationReceiptStatus.StaleVisible;
     }
   }
@@ -650,6 +661,150 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
           nextCursor: null,
         }
       : { objects: [], nextCursor: null };
+  }
+
+  private async findThreadReplies(
+    payload: Extract<
+      ReviewV2PublicationPayload,
+      { readonly kind: ReviewV2PublicationPayloadKind.ThreadReply }
+    >,
+    cursor: string | null,
+  ) {
+    const parentId = await this.loadProvenThreadReplyParent(payload);
+    const page = parsePage(cursor);
+    const response = await this.request(
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments",
+      {
+        pull_number: this.options.permit.pullRequestNumber,
+        per_page: 100,
+        page,
+      },
+    );
+    const rows = requireArray(response.data, "github_review_comments_invalid");
+    const objects = rows.flatMap((row) => {
+      if (
+        row.in_reply_to_id !== parentId ||
+        !isOwnedBody(row, payload.marker, this.options.botLogin)
+      )
+        return [];
+      const body = requiredString(row.body, "github_comment_body_invalid");
+      // A bot message containing our marker but edited away from the canonical
+      // acknowledgement is ambiguous. Never create a second reply in that case.
+      if (body !== payload.body)
+        throw new Error("github_verified_reply_body_conflict");
+      return [
+        gatewayObject(
+          `review-comment:${numericId(row)}`,
+          payload,
+          sha256(body),
+        ),
+      ];
+    });
+    return pageResult(objects, page, rows.length);
+  }
+
+  private async createThreadReply(
+    payload: Extract<
+      ReviewV2PublicationPayload,
+      { readonly kind: ReviewV2PublicationPayloadKind.ThreadReply }
+    >,
+    operation: ReviewPublicationOperation,
+  ) {
+    const commentId = await this.loadProvenThreadReplyParent(payload);
+    const response = await this.request(
+      "POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies",
+      {
+        pull_number: this.options.permit.pullRequestNumber,
+        comment_id: commentId,
+        body: payload.body,
+      },
+    );
+    try {
+      const row = requireRecord(response.data, "github_review_reply_invalid");
+      if (
+        row.body !== payload.body ||
+        row.in_reply_to_id !== commentId ||
+        !isOwnedBody(row, payload.marker, this.options.botLogin)
+      )
+        throw new Error("github_review_reply_ack_mismatch");
+      return gatewayObject(
+        `review-comment:${numericId(row)}`,
+        payload,
+        operation.bodyHash,
+      );
+    } catch (error) {
+      throw githubPostMutationObservationError(error);
+    }
+  }
+
+  /** Verify native thread, original finding and author before targeting a REST reply. */
+  private async loadProvenThreadReplyParent(
+    payload: Extract<
+      ReviewV2PublicationPayload,
+      { readonly kind: ReviewV2PublicationPayloadKind.ThreadReply }
+    >,
+  ): Promise<number> {
+    await this.loadProvenLifecycleThread(payload.threadId);
+    const response = await this.options.octokit.graphql<{
+      readonly node?: {
+        readonly id?: string;
+        readonly comments?: {
+          readonly nodes?:
+            | readonly {
+                readonly id?: string;
+                readonly databaseId?: number | null;
+                readonly body?: string;
+                readonly viewerDidAuthor?: boolean | null;
+                readonly author?: {
+                  readonly login?: string | null;
+                  readonly __typename?: string | null;
+                } | null;
+              }[]
+            | null;
+        } | null;
+      } | null;
+    }>(
+      "query ReviewRouterVerifiedReplyParent($id: ID!) { node(id: $id) { ... on PullRequestReviewThread { id comments(first: 1) { nodes { id databaseId body viewerDidAuthor author { login __typename } } } } } }",
+      { id: payload.threadId },
+    );
+    const node = response.node;
+    const parent = node?.comments?.nodes?.[0];
+    const fingerprint = extractUniqueReviewFindingFingerprint(
+      parent?.body ?? "",
+    );
+    const bot = this.options.botLogin.toLowerCase().replace(/\[bot\]$/u, "");
+    const authorLogin = parent?.author?.login?.trim().toLowerCase();
+    const author = authorLogin?.replace(/\[bot\]$/u, "");
+    const trusted =
+      authorLogin !== undefined &&
+      (this.options.trustedParentAuthors?.has(authorLogin) === true ||
+        this.options.trustedParentAuthors?.has(`${author}[bot]`) === true);
+    const owned =
+      parent?.viewerDidAuthor === true ||
+      (parent?.author?.__typename === "Bot" && (author === bot || trusted));
+    const parentIdentity =
+      parent?.id && fingerprint
+        ? `${payload.threadId}\n${parent.id}\n${fingerprint}`
+        : null;
+    const expectedTargetId =
+      parentIdentity === null
+        ? null
+        : `rrt_${sha256(parentIdentity).slice(0, 16)}`;
+    if (
+      node?.id !== payload.threadId ||
+      !parent ||
+      !owned ||
+      !Number.isSafeInteger(parent.databaseId) ||
+      (parent.databaseId ?? 0) <= 0 ||
+      expectedTargetId !== payload.targetId
+    ) {
+      throw new ReviewV2ScmMutationError(
+        "github_review_reply_parent_provenance_mismatch",
+        ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+        false,
+      );
+    }
+    return parent.databaseId as number;
   }
 
   private async createIssueComment(

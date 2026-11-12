@@ -1552,6 +1552,11 @@ export class ReviewActionV2E2EHarness {
     );
   }
 
+  /** Pump one maintenance pass while a review runner is still in progress. */
+  async runWorkerMaintenanceOnce(): Promise<void> {
+    await this.worker.runMaintenance();
+  }
+
   async runWorkerUntilSettled(maxPasses = 12): Promise<void> {
     for (let pass = 0; pass < maxPasses; pass += 1) {
       await this.worker.runMaintenance();
@@ -1568,6 +1573,26 @@ export class ReviewActionV2E2EHarness {
       });
       if (active === 0) return;
     }
+    // Retain safe publication state diagnostics for paired CI failures.
+    // No receipt bodies, credentials, repository identifiers or secrets.
+    const pending = await this.prisma.reviewPublicationOperationV2.findMany({
+      select: {
+        publicationKind: true,
+        state: true,
+        lastErrorCode: true,
+        nextEligibleAt: true,
+      },
+      take: 24,
+    });
+    console.error(
+      "review_v2_e2e_worker_stalled",
+      pending.map((operation) => ({
+        kind: operation.publicationKind,
+        state: operation.state,
+        code: operation.lastErrorCode,
+        eligibleInMs: operation.nextEligibleAt.getTime() - Date.now(),
+      })),
+    );
     throw new Error("review_v2_e2e_worker_did_not_settle");
   }
 

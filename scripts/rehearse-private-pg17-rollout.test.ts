@@ -1282,10 +1282,16 @@ describe("disposable dual-version rehearsal", () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
 
-    const currentMigrationNames = migrationNames;
+    // The new application-only Claude CHECK is excluded from the historical
+    // signed checkout160 manifest, but included in the live source boundary.
+    const currentMigrationNames = migrationNames.filter(
+      (name) => name !== "000157_claude_code_api_key_secret",
+    );
+    expect(migrationNames).toHaveLength(162);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
+        name !== "000156_verified_thread_reply" &&
         name !== "000154_unified_model_dispatch" &&
         name !== "000152_review_run_gateway_allocations" &&
         name !== "000152_memory_automatic_source" &&
@@ -1303,7 +1309,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000136_review_skills" &&
         name !== "000137_review_skills_capture",
     );
-    expect(currentMigrationNames).toHaveLength(160);
+    expect(currentMigrationNames).toHaveLength(161);
     expect(
       [...currentMigrationNames]
         .sort()
@@ -1313,9 +1319,7 @@ describe("disposable dual-version rehearsal", () => {
             name === "000137_review_skills_capture",
         ),
     ).toEqual(["000136_review_skills", "000137_review_skills_capture"]);
-    const exclusions = resolvePreReleaseMigrationExclusions(
-      currentMigrationNames,
-    );
+    const exclusions = resolvePreReleaseMigrationExclusions(migrationNames);
     const historicalCheckout = legacyMigrationNames.filter(
       (name) =>
         name !== "000125_hosted_codex_device_reconnect" &&
@@ -1341,6 +1345,7 @@ describe("disposable dual-version rehearsal", () => {
         name !== "000143_workspace_draft_review_setting" &&
         name !== "000145_workspace_provider_profiles" &&
         name !== "000155_usage_member_report_index" &&
+        name !== "000156_verified_thread_reply" &&
         name !== "000154_unified_model_dispatch" &&
         name !== "000152_review_run_gateway_allocations" &&
         name !== "000152_memory_automatic_source" &&
@@ -1410,13 +1415,21 @@ describe("disposable dual-version rehearsal", () => {
     // Both published, independently reviewed manifests remain byte-exact.
     // Strip only the new reviewed tail before comparing the existing published
     // checkout manifests; managed/historical release-policy baselines stay fixed.
-    expect(migrationManifestIdentity(currentMigrationNames)).toBe(
+    expect(
+      migrationManifestIdentity(
+        currentMigrationNames.filter(
+          (name) => name !== "000156_verified_thread_reply",
+        ),
+      ),
+    ).toBe(
       "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54",
     );
     expect(
       migrationManifestIdentity(
         currentMigrationNames.filter(
-          (name) => name !== "000155_usage_member_report_index",
+          (name) =>
+            name !== "000155_usage_member_report_index" &&
+            name !== "000156_verified_thread_reply",
         ),
       ),
     ).toBe(
@@ -1427,6 +1440,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1441,6 +1455,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1457,6 +1472,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1474,6 +1490,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1493,6 +1510,7 @@ describe("disposable dual-version rehearsal", () => {
         currentMigrationNames.filter(
           (name) =>
             name !== "000155_usage_member_report_index" &&
+            name !== "000156_verified_thread_reply" &&
             name !== "000154_unified_model_dispatch" &&
             name !== "000152_review_run_gateway_allocations" &&
             name !== "000152_memory_automatic_source" &&
@@ -1636,6 +1654,8 @@ describe("disposable dual-version rehearsal", () => {
       "000149_api_key_repository_secret_profiles",
       "000154_unified_model_dispatch",
       "000155_usage_member_report_index",
+      "000156_verified_thread_reply",
+      "000157_claude_code_api_key_secret",
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
@@ -1766,7 +1786,7 @@ describe("disposable dual-version rehearsal", () => {
   it("rejects missing, duplicate, renamed, and arbitrary future boundary entries", () => {
     const names = readdirSync("packages/platform/db/prisma/migrations");
     const exactTail = "000121_review_run_gateway_execution_binding";
-    const currentTail = "000155_usage_member_report_index";
+    const currentTail = "000156_verified_thread_reply";
     for (const candidate of [
       names.filter((name) => name !== currentTail),
       names.filter((name) => name !== "000154_unified_model_dispatch"),
@@ -1917,6 +1937,7 @@ describe("disposable dual-version rehearsal", () => {
     "000152_memory_automatic_source",
     "000152_review_run_gateway_allocations",
     "000153_conversation_processing",
+    "000157_claude_code_api_key_secret",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -1994,7 +2015,9 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000144_review_statistics" &&
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
+                name !== "000157_claude_code_api_key_secret" &&
                 name !== "000155_usage_member_report_index" &&
+                name !== "000156_verified_thread_reply" &&
                 name !== "000154_unified_model_dispatch" &&
                 name !== "000152_review_run_gateway_allocations" &&
                 name !== "000152_memory_automatic_source" &&

@@ -295,7 +295,8 @@ export function managedKeyAuthModeOf(
 ): ManagedApiKeyAuthMode | null {
   return row.credentialKind === "managed_api_key" &&
     (row.authMode === "mimo_token_plan_api_key" ||
-      row.authMode === "openrouter_api_key")
+      row.authMode === "openrouter_api_key" ||
+      row.authMode === "claude_code_api_key")
     ? row.authMode
     : null;
 }

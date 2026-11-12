@@ -488,7 +488,10 @@ export function ManagedKeyDelivery({
   onInstalled,
 }: DeliveryRepository &
   Readonly<{
-    authMode: "mimo_token_plan_api_key" | "openrouter_api_key";
+    authMode:
+      | "mimo_token_plan_api_key"
+      | "openrouter_api_key"
+      | "claude_code_api_key";
     installed: boolean;
     /** Why the viewer cannot install the key; null when they can. */
     installDecisionReason: string | null;
@@ -1100,6 +1103,17 @@ function ciSecretDetails(
   footnote: string;
   link: Readonly<{ label: string; url: string }> | null;
 }> {
+  if (authMode === "claude_code_api_key") {
+    return {
+      title: "Add your Anthropic API key",
+      body: `Reviews use an Anthropic Console API key. Store ANTHROPIC_API_KEY in the GitHub Actions secrets of ${repositoryFullName}.`,
+      prompt:
+        "Paste only your Anthropic API key when the GitHub CLI command asks for it.",
+      footnote:
+        "Do not paste a Claude subscription setup-token. The selected mode never falls back to a subscription.",
+      link: null,
+    };
+  }
   const provider = apiKeyProviderForAuthMode(authMode);
   if (provider) {
     const label = getApiKeyProvider(provider).label;
@@ -1123,11 +1137,16 @@ function ciSecretDetails(
 
 /** The plain name of a key ReviewRouter saves for a managed provider. */
 export function managedKeyName(
-  authMode: "mimo_token_plan_api_key" | "openrouter_api_key",
+  authMode:
+    | "mimo_token_plan_api_key"
+    | "openrouter_api_key"
+    | "claude_code_api_key",
 ): string {
   return authMode === "mimo_token_plan_api_key"
     ? "MiMo Token Plan"
-    : "OpenRouter";
+    : authMode === "claude_code_api_key"
+      ? "Anthropic"
+      : "OpenRouter";
 }
 
 function secretScopeOptions(input: {
@@ -1276,6 +1295,8 @@ export function managedKeyErrorText(code: string): string {
       return "Only workspace owners and admins install keys.";
     case "stored_api_key_unavailable":
       return "There is no saved key yet. Add the provider again with its key.";
+    case "anthropic_api_key_invalid":
+      return "Enter an Anthropic Console API key, not a Claude subscription token.";
     case "repository_not_available_to_github_app":
       return "The ReviewRouter GitHub App cannot reach this repository.";
     case "insufficient_permissions":

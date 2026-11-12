@@ -56,7 +56,7 @@ describe("explicit provider connection continuation", () => {
       }),
     ).toEqual({ autoOpen: true, ownership: "organization", view: "available" });
   });
-  it("keeps a personal-only provider personal instead of selecting a different workspace provider", () => {
+  it("does not navigate into legacy central Claude subscription OAuth enrollment", () => {
     const claude: AccountProfileView = {
       id: "anthropic-claude-oauth-messages-v1",
       label: "Claude",
@@ -80,7 +80,7 @@ describe("explicit provider connection continuation", () => {
         workspace: page(),
         personal: page([claude]),
       }),
-    ).toEqual({ autoOpen: true, ownership: "personal", view: "available" });
+    ).toEqual({ autoOpen: false, ownership: "personal", view: "available" });
   });
   it("shows existing personal connections for explicit access instead of prompting for another key", () => {
     expect(

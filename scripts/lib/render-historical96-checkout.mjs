@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { readRenderManagedCheckoutInventory } from "./render-schema-handoff-policy.mjs";
+import {
+  partitionRenderSchemaHandoffCheckout,
+  readRenderManagedCheckoutInventory,
+} from "./render-schema-handoff-policy.mjs";
 
 // Historical execution consumes exactly this manifest. Checkout-only additions
 // remain subject to complete source admission before this boundary is applied.
@@ -70,6 +73,8 @@ const checkoutOnlyMigrations = Object.freeze([
   "000153_conversation_processing",
   "000154_unified_model_dispatch",
   "000155_usage_member_report_index",
+  "000156_verified_thread_reply",
+  "000157_claude_code_api_key_secret",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -88,7 +93,7 @@ export function readRenderHistorical96CheckoutInventory() {
       111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
       126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
       141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155,
-      156, 157, 158, 159,
+      156, 157, 158, 159, 160, 161,
     ].includes(
       checkout.filter(
         (row) =>
@@ -97,6 +102,9 @@ export function readRenderHistorical96CheckoutInventory() {
     )
   )
     throw new Error("render_historical96_checkout_rejected:count");
+  // Only admit exactly checksum-bound checkout extensions after ruling out
+  // malformed/oversized historical inventories. Preserve the count error contract.
+  if (checkout.length >= 161) partitionRenderSchemaHandoffCheckout(checkout);
   const historical = checkout.filter(
     (row) => !checkoutOnlyMigrations.includes(row.migrationName),
   );

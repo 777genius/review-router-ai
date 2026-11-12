@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   comparableWorkflowRequirement,
+  defaultReviewDiscussionMode,
   renderedWorkflowRequirement,
   inspectRequiredWorkflowTransport,
   inspectRequiredWorkflowRequirement,
@@ -53,6 +54,14 @@ const claude = config([
     ...settings,
   },
 ]);
+const claudeApiKey = config([
+  {
+    kind: "claude",
+    authMode: "claude_code_api_key",
+    model: "sonnet",
+    ...settings,
+  },
+]);
 const mimo = config([
   {
     kind: "codex-mimo",
@@ -78,6 +87,18 @@ const hybridRotating = config([
 ]);
 
 describe("workflow requirement", () => {
+  it("enables new discussion replies only for rotating Codex setup", () => {
+    expect(defaultReviewDiscussionMode("rotating")).toBe("suggest");
+    for (const transport of [
+      "gateway",
+      "provider_api",
+      "ci_secrets",
+      "hosted_pool",
+    ] as const) {
+      expect(defaultReviewDiscussionMode(transport)).toBe("off");
+    }
+  });
+
   it("accepts every all-Gateway roster and rejects a mixed transport without reducing it", () => {
     const gateway = {
       kind: "codex",
@@ -100,12 +121,14 @@ describe("workflow requirement", () => {
     expect(requiredWorkflowTransport(claude)).toBe("ci_secrets");
     expect(requiredWorkflowTransport(mimo)).toBe("provider_api");
     expect(requiredWorkflowRequirement(claude)).toBe("ci_secrets+claude");
+    expect(requiredWorkflowTransport(claudeApiKey)).toBe("ci_secrets");
+    expect(requiredWorkflowRequirement(claudeApiKey)).toBe("ci_secrets+claude");
     expect(requiredWorkflowRequirement(mimo)).toBe("provider_api+codex-mimo");
     expect(requiredWorkflowRequirement(hybridRotating)).toBe("rotating+claude");
   });
 
   it("records for an attempt what its rendered workflow requires", () => {
-    for (const candidate of [claude, mimo, hybridRotating])
+    for (const candidate of [claude, claudeApiKey, mimo, hybridRotating])
       expect(
         renderedWorkflowRequirement(
           requiredWorkflowTransport(candidate),

@@ -22,6 +22,7 @@ import {
 import {
   readManagedReviewRouterCallerSource,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCanonicalCodexRotatingInteractionWorkflowV4,
 } from "../../domain/workflow-template";
 
 type InstallationTokenResponse = {
@@ -938,19 +939,33 @@ function inspectReviewV2InteractionWorkflow(
     };
   }
 
-  const expectedWorkflow =
+  const expectedWorkflows =
     !currentCaller && expectedActionRef && expectedActionCommitSha
-      ? renderCanonicalCodexRotatingInteractionWorkflowV3({
-          actionRef: expectedActionRef,
-          apiUrl: expectedApiUrl,
-          runtimeConfigMode: "oidc",
-        })
-      : null;
-  const errors =
-    expectedWorkflow &&
-    areManagedWorkflowDocumentsAttested(workflow, expectedWorkflow)
-      ? []
-      : ["interaction_workflow_source_mismatch"];
+      ? [
+          renderCanonicalCodexRotatingInteractionWorkflowV3({
+            actionRef: expectedActionRef,
+            apiUrl: expectedApiUrl,
+            runtimeConfigMode: "oidc",
+          }),
+          renderCanonicalCodexRotatingInteractionWorkflowV3({
+            actionRef: expectedActionRef,
+            apiUrl: expectedApiUrl,
+            runtimeConfigMode: "oidc",
+            discussionMode: "suggest",
+          }),
+          renderCanonicalCodexRotatingInteractionWorkflowV4({
+            actionRef: expectedActionRef,
+            apiUrl: expectedApiUrl,
+            runtimeConfigMode: "oidc",
+            discussionMode: "suggest",
+          }),
+        ]
+      : [];
+  const errors = expectedWorkflows.some((expected) =>
+    areManagedWorkflowDocumentsAttested(workflow, expected),
+  )
+    ? []
+    : ["interaction_workflow_source_mismatch"];
   return {
     path: managedInteractionWorkflowPath,
     present: true,

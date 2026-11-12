@@ -1,6 +1,6 @@
 /** The bounded onboarding acceptance set; an exit code alone is insufficient. */
 export const ONBOARDING_REQUIRED_SHOTS = {
-  "flow-step3-create-attach": ["step3-dialog", "stepper-ready"],
+  "flow-step3-create-attach": ["step3-dialog", "stepper-workflow-pending"],
   "flow-no-default": ["default-saved-next-step"],
   "flow-codex-repository-setup": [
     "codex-initial",

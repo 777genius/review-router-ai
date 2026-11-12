@@ -133646,7 +133646,7 @@ function buildFullReviewRuntimeEnv(input) {
 function buildProviderSecretEnvForRuntime(input) {
   assertProviderSecretInputsForRuntime(input);
   const env = {};
-  if (runtimeProvidersInclude(input.runtimeEnv, "claude/") && input.providerSecrets.claudeCodeOAuthToken) {
+  if (runtimeProvidersInclude(input.runtimeEnv, "claude/") && (!input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE || input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_oauth" || input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude-oauth") && input.providerSecrets.claudeCodeOAuthToken) {
     env.CLAUDE_CODE_OAUTH_TOKEN = input.providerSecrets.claudeCodeOAuthToken;
   }
   if (runtimeProvidersInclude(input.runtimeEnv, "openrouter/") && input.providerSecrets.openRouterApiKey) {
@@ -133658,6 +133658,9 @@ function buildProviderSecretEnvForRuntime(input) {
   return env;
 }
 function assertProviderSecretInputsForRuntime(input) {
+  if ((runtimeProvidersInclude(input.runtimeEnv, "claude/") || input.runtimeEnv.REVIEW_AUTH_MODE === "claude-api-key") && (input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude_code_api_key" || input.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE === "claude-api-key" || input.runtimeEnv.REVIEW_AUTH_MODE === "claude-api-key")) {
+    throw new Error("claude_api_key_rotating_transport_unsupported");
+  }
   if (runtimeProvidersInclude(input.runtimeEnv, "codex-mimo/") && !input.providerSecrets.mimoTokenPlanApiKey) {
     throw new Error("missing_mimo_token_plan_api_key");
   }

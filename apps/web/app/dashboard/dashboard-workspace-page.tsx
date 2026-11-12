@@ -2756,6 +2756,7 @@ function repositoryProviderContext(input: {
           (
             [
               "claude_code_oauth",
+              "claude_code_api_key",
               ...apiKeyProviders.map((provider) => provider.directAuthMode),
             ] as UserCiSecretAuthMode[]
           ).map((authMode) => [

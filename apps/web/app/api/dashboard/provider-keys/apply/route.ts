@@ -107,6 +107,7 @@ function applyProviderApiKeyErrorCode(error: unknown): string {
     case "github_app_private_key_not_configured":
     case "missing_env:GITHUB_APP_PRIVATE_KEY":
     case "provider_key_request_failed":
+    case "anthropic_api_key_invalid":
       return error.message;
     case "missing_env:REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY":
       return "provider_key_storage_not_configured";
@@ -117,6 +118,8 @@ function applyProviderApiKeyErrorCode(error: unknown): string {
 
 function applyProviderApiKeyErrorStatus(error: unknown): number {
   if (error instanceof ProviderApiKeyUnavailableError) return 400;
+  if (error instanceof Error && error.message === "anthropic_api_key_invalid")
+    return 400;
   if (!(error instanceof Error)) return 500;
   if (error.message.startsWith("entitlement_")) return 403;
   if (error.message.startsWith("workspace_admin_forbidden:")) return 403;

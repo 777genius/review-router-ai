@@ -173,6 +173,103 @@ describe("provider runtime plan", () => {
     expect(plan.requiredCliTools).toEqual(["claude"]);
   });
 
+  it("refuses an API-key Claude in a rotating Codex hybrid rather than falling back to OAuth", () => {
+    expect(() =>
+      buildProviderRuntimePlan({
+        ...baseInput,
+        execution: {
+          providerLimit: 2,
+          providerMaxParallel: 1,
+          inlineMinAgreement: 1,
+        },
+        providers: [
+          {
+            kind: "codex",
+            authMode: "codex_subscription_oauth_rotating",
+            model: "gpt-5.5",
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+          },
+          {
+            kind: "claude",
+            authMode: "claude_code_api_key",
+            model: "sonnet",
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+          },
+        ],
+      }),
+    ).toThrow("claude_api_key_rotating_transport_unsupported");
+  });
+
+  it("selects one explicit API-key credential for multiple Claude models", () => {
+    const plan = buildProviderRuntimePlan({
+      ...baseInput,
+      execution: {
+        providerLimit: 2,
+        providerMaxParallel: 2,
+        inlineMinAgreement: 1,
+      },
+      providers: [
+        {
+          kind: "claude",
+          authMode: "claude_code_api_key",
+          model: "sonnet",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+        },
+        {
+          kind: "claude",
+          authMode: "claude_code_api_key",
+          model: "opus",
+          reasoningEffort: "medium",
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+    expect(plan.runtimeEnv.REVIEWROUTER_CLAUDE_AUTH_MODE).toBe(
+      "claude-api-key",
+    );
+    expect(plan.requiredSecretNames).toEqual(["ANTHROPIC_API_KEY"]);
+    expect(plan.requiredSecretNames).not.toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(plan.requiredCliTools).toEqual(["claude"]);
+  });
+
+  it("refuses conflicting Claude credential kinds in one process before execution", () => {
+    expect(() =>
+      buildProviderRuntimePlan({
+        ...baseInput,
+        execution: {
+          providerLimit: 2,
+          providerMaxParallel: 2,
+          inlineMinAgreement: 1,
+        },
+        providers: [
+          {
+            kind: "claude",
+            authMode: "claude_code_oauth",
+            model: "sonnet",
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+          },
+          {
+            kind: "claude",
+            authMode: "claude_code_api_key",
+            model: "opus",
+            reasoningEffort: "medium",
+            agenticContext: true,
+            fastMode: false,
+          },
+        ],
+      }),
+    ).toThrow("claude_conflicting_auth_modes");
+  });
+
   it("keeps OpenRouter as the public provider while planning Codex agent runtime", () => {
     const plan = buildProviderRuntimePlan({
       ...baseInput,

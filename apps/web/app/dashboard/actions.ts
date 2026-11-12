@@ -40,15 +40,12 @@ import {
 import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
 import type { PrismaClient } from "@reviewrouter/platform-db";
 import { resolveApprovedSecretsRuntimeActionRef } from "../../src/server/workflow-provisioning/approved-secrets-action-ref";
-import { resolveApprovedClaudeSubscriptionActionRef } from "../../src/server/workflow-provisioning/approved-claude-subscription-action-ref";
-import { readDashboardRuntimeReleases } from "../../src/server/review-runtime-readiness";
 import {
   continueCodexRuntimeMigrationSetup,
   readCodexRuntimeMigrationCandidateActionRef,
   readPendingCodexRuntimeMigration,
   withCodexRuntimeMigrationCleanup,
 } from "../../src/server/codex-runtime-migration-setup";
-import { createPrismaReviewRunControlRepositories } from "@reviewrouter/features-review-run-control/composition";
 import {
   CodexDeviceAuthGateway,
   PrismaHostedCodexDeviceLoginStore,
@@ -91,6 +88,7 @@ import {
   type ReviewRouterWorkflowStyle,
   type WorkflowSetupGatewayPort,
   ciSecretsWorkflowProviderKind,
+  defaultReviewDiscussionMode,
   isClaudeSubscriptionConfiguration,
   readManagedReviewRouterCallerSource,
   requiredWorkflowTransport,
@@ -162,7 +160,6 @@ import {
   readProviderSetupSelection,
   readRepositoryReviewSettingsForm,
   readReviewPolicyExpectedVersion,
-  readReviewDiscussionMode,
   readWorkflowStyle,
   readWorkspaceReviewSettingsForm,
 } from "./dashboard-action-form-readers";
@@ -1199,7 +1196,6 @@ async function createSetupPullRequestMutation(
   const repositoryId = readFormString(formData, "repositoryId");
   const workspaceId = readFormString(formData, "workspaceId");
   const workflowStyle = readWorkflowStyle(formData);
-  const discussionMode = readReviewDiscussionMode(formData);
   let params: Record<string, string>;
   let auditSubject: {
     readonly actor: string;
@@ -1260,6 +1256,7 @@ async function createSetupPullRequestMutation(
       repositoryId,
     });
     const transport = requiredWorkflowTransport(resolvedRuntime.config);
+    const discussionMode = defaultReviewDiscussionMode(transport);
     const accountGateway = transport === "gateway";
     const gatewayInteractionRuntimeSha = accountGateway
       ? qualifiedGatewayInteractionRuntimeSha(process.env, {
@@ -1478,40 +1475,10 @@ async function createSetupPullRequestMutation(
             },
           })
         : undefined;
-    const claudeSubscriptionActionRef =
-      !managedReview &&
-      isClaudeSubscriptionConfiguration(resolvedRuntime.config) &&
-      !conflictReviewFallbackAllowed &&
-      workflowStyle === "reusable" &&
-      discussionMode !== "suggest"
-        ? await resolveApprovedClaudeSubscriptionActionRef(
-            {
-              actionRef,
-              configuration: resolvedRuntime.config,
-              releases: await readDashboardRuntimeReleases({
-                env: process.env,
-                releases:
-                  createPrismaReviewRunControlRepositories(prisma)
-                    .producerReleases,
-              }),
-            },
-            {
-              readExecutionWorkflow: async (commitSha) => {
-                const result = await octokit.request(
-                  "GET /repos/{owner}/{repo}/contents/{path}",
-                  {
-                    owner: "777genius",
-                    repo: "review-router",
-                    path: ".github/workflows/reviewrouter-execution-reusable.yml",
-                    ref: commitSha,
-                    request: { timeout: 15000 },
-                  },
-                );
-                return readGitHubWorkflowBlob(result.data).source;
-              },
-            },
-          )
-        : undefined;
+    // Do not newly provision the prepared raw-OAuth Messages transport for a
+    // third-party Claude subscription. The approved direct subscription path
+    // is the user's GitHub Actions Secret + unmodified Claude Code CLI.
+    const claudeSubscriptionActionRef: string | undefined = undefined;
     const workflowPath =
       managedReview || claudeSubscriptionActionRef
         ? reviewRouterWorkflowContract.callerPath
@@ -1941,6 +1908,12 @@ async function confirmSetupPullRequestMergedMutation(
         }
       }
     }
+    // Confirmation/repair must not re-authorize a legacy prepared Messages
+    // caller that executes a Claude subscription token outside the official
+    // customer-owned CLI. It may remain readable as historical evidence, but
+    // a new setup PR must use the GitHub Secrets CLI route.
+    if (claudeSubscriptionActionRef)
+      throw new Error("workflow_provisioning_match_not_found");
     const managedReview =
       accountGateway || openRouterDirect || !!claudeSubscriptionActionRef;
     const gatewayActionRef = accountGateway

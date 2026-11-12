@@ -124,6 +124,7 @@ const providerRegistryMigrations = Object.freeze([
   "000145_workspace_provider_profiles",
   "000146_drop_review_configuration_projection",
   "000149_api_key_repository_secret_profiles",
+  "000157_claude_code_api_key_secret",
 ]);
 
 const codexOAuthV5Migrations = [

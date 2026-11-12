@@ -20,6 +20,7 @@ import {
   claimCapabilityFacts,
   hasEveryRequiredCanonicalReceipt,
   hasPendingPrDescriptionContinuation,
+  mayCloseAmbiguousOptionalDescription,
   isOptionalPrDescriptionContinuation,
   hasPublicationExternalEffectRisk,
   isActiveReviewPublicationOperation,
@@ -1460,6 +1461,12 @@ export class PrismaReviewPublicationRepository
       );
       if (
         finalOutcome === ReviewPublicationTerminalOutcome.TerminalUnknown &&
+        !mayCloseAmbiguousOptionalDescription({
+          publicationOperationId: command.publicationOperationId,
+          operations: domainOperations,
+          receipts: domainReceipts,
+          lastErrorCode: command.lastErrorCode,
+        }) &&
         [toDomainOperation(operationRow), ...riskOperations].some(
           (candidate) => now < candidate.reconcileUntil,
         )
