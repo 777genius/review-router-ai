@@ -62,10 +62,10 @@ vi.mock("@reviewrouter/features-provider-accounts/synchronization", () => ({
 }));
 vi.mock("./account-gateway-accounts", () => ({
   accountGatewayProfilesConfiguration: () => ({
-    apiKeyProfiles: new Map([
+    apiKeyProfiles: new Map<string, "MiMo" | "NVIDIA Build">([
       ["profile", "MiMo"],
       ...(h.nvidiaProfile
-        ? [["nvidia-build-chat-apikey-v1", "NVIDIA Build"]]
+        ? ([["nvidia-build-chat-apikey-v1", "NVIDIA Build"]] as const)
         : []),
     ]),
     apiKeyProfileBaseURLs: new Map(),
