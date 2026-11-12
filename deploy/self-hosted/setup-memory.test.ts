@@ -83,8 +83,14 @@ test("release admission refuses a changed SDK manifest or archive even with matc
   const f = await releaseFixture();
   try {
     await f.writeArtifact();
-    assert.equal((await readConversationRelease(f.directory)).status, "available");
-    const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+    assert.equal(
+      (await readConversationRelease(f.directory)).status,
+      "available",
+    );
+    const sourceRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
     const manifestPath = join(f.directory, "apps/api/package.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
       dependencies: Record<string, string>;
@@ -102,7 +108,10 @@ test("release admission refuses a changed SDK manifest or archive even with matc
     );
     const provenance = JSON.parse(
       await readFile(
-        join(f.directory, conversationReleaseSources.gatewaySdkProvenanceDigest),
+        join(
+          f.directory,
+          conversationReleaseSources.gatewaySdkProvenanceDigest,
+        ),
         "utf8",
       ),
     ) as { archive: string };

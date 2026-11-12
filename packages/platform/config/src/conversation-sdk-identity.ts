@@ -8,10 +8,7 @@ export async function assertInstalledConversationSdk(
   provenancePath: string,
 ) {
   const provenance = JSON.parse(
-    await readFile(
-      join(sourceRoot, provenancePath),
-      "utf8",
-    ),
+    await readFile(join(sourceRoot, provenancePath), "utf8"),
   ) as { contract?: string; archive?: string; sha256?: string };
   if (
     provenance.contract !== "nvidia-sandbox-sdk-provenance/v1" ||
@@ -37,4 +34,3 @@ export async function assertInstalledConversationSdk(
   if (createHash("sha256").update(archive).digest("hex") !== provenance.sha256)
     throw new Error("conversation_sdk_archive_integrity_mismatch");
 }
-

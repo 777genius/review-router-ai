@@ -1,4 +1,7 @@
-import { connectionProfiles, connectionView } from "./account-connection-catalog";
+import {
+  connectionProfiles,
+  connectionView,
+} from "./account-connection-catalog";
 import { createAccountLimitsService } from "./account-limits-service";
 import {
   accountLimitsReader,
