@@ -491,28 +491,27 @@ describe("personal canonical UI server boundary", () => {
     expect(listed.value.accounts[0]?.profileId).toBe(
       "nvidia-build-chat-apikey-v1",
     );
-    expect(
-      (await f.api.submitGatewayApiKey("", f.request, "synthetic-reconnect-key"))
-        .status,
-    ).toBe("ok");
+    const reconnected = await f.api.submitGatewayApiKey(
+      "",
+      f.request,
+      "synthetic-reconnect-key",
+    );
+    expect(reconnected.status).toBe("ok");
   });
 
   it("permits qualified NVIDIA fresh enrollment only through the existing Gateway account adapter", async () => {
     const f = fixture({ nvidia: "qualified" });
-    expect(
-      (
-        await f.api.submitGatewayApiKey(
-          "",
-          {
-            kind: "connect",
-            nonce,
-            profileId: "nvidia-build-chat-apikey-v1",
-            label: "Synthetic NVIDIA",
-          },
-          "synthetic-qualified-key",
-        )
-      ).status,
-    ).toBe("ok");
+    const enrolled = await f.api.submitGatewayApiKey(
+      "",
+      {
+        kind: "connect",
+        nonce,
+        profileId: "nvidia-build-chat-apikey-v1",
+        label: "Synthetic NVIDIA",
+      },
+      "synthetic-qualified-key",
+    );
+    expect(enrolled.status).toBe("ok");
     expect(f.delegate.connect).toHaveBeenCalledOnce();
   });
 
