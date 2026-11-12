@@ -18,6 +18,41 @@ describe("Review progress GitHub retry policy", () => {
     expect(actual).toBe(now.getTime() + 10_000);
   });
 
+  it("uses the later GitHub boundary when primary quota is exhausted", () => {
+    const headers = {
+      "retry-after": "10",
+      "x-ratelimit-reset": "1786536060",
+      "x-ratelimit-remaining": "0",
+    };
+    expect(retryBoundary(headers, now, "rate_limit").getTime()).toBe(
+      now.getTime() + 60_000,
+    );
+  });
+
+  it("honors Retry-After for secondary throttling with quota remaining", () => {
+    const headers = {
+      "retry-after": "10",
+      "x-ratelimit-reset": "1786536060",
+      "x-ratelimit-remaining": "42",
+    };
+    expect(retryBoundary(headers, now, "rate_limit").getTime()).toBe(
+      now.getTime() + 10_000,
+    );
+  });
+
+  it("applies a minimum minute for throttling without Retry-After", () => {
+    const headers = {
+      "x-ratelimit-reset": "1786536020",
+      "x-ratelimit-remaining": "42",
+    };
+    expect(retryBoundary(headers, now, "rate_limit").getTime()).toBe(
+      now.getTime() + 60_000,
+    );
+    expect(retryBoundary({}, now, "rate_limit").getTime()).toBe(
+      now.getTime() + 60_000,
+    );
+  });
+
   it("falls back to reset time or a one-second delay", () => {
     const headers = {
       "retry-after": "invalid",

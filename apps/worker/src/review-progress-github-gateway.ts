@@ -430,7 +430,7 @@ function classifyRetryableHttpFailure(
         headers["retry-after"] !== undefined ||
         isSecondaryRateLimitResponse(responseData)));
   if (isRateLimit) {
-    const retryNotBefore = retryBoundary(headers, now(), 60_000);
+    const retryNotBefore = retryBoundary(headers, now(), "rate_limit");
     const retryAt = jitterAfter(retryNotBefore, random);
     return new ReviewProgressGitHubError(
       "rate_limited",

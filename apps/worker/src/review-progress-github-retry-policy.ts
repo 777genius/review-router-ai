@@ -24,22 +24,44 @@ export function isSecondaryRateLimitResponse(
 export function retryBoundary(
   headers: Readonly<Record<string, string>>,
   now: Date,
-  fallbackDelayMs = 1_000,
+  kind: "rate_limit" | "server_unavailable" = "server_unavailable",
 ): Date {
   const retryAfter = headers["retry-after"];
+  let retryAfterTime: number | null = null;
   if (retryAfter) {
     const seconds = Number(retryAfter);
     if (Number.isFinite(seconds) && seconds >= 0) {
-      return new Date(now.getTime() + seconds * 1_000);
+      retryAfterTime = now.getTime() + seconds * 1_000;
+    } else {
+      const date = Date.parse(retryAfter);
+      if (Number.isFinite(date)) {
+        retryAfterTime = Math.max(now.getTime(), date);
+      }
     }
-    const date = Date.parse(retryAfter);
-    if (Number.isFinite(date)) return new Date(Math.max(now.getTime(), date));
   }
+
   const resetSeconds = Number(headers["x-ratelimit-reset"]);
-  if (Number.isFinite(resetSeconds) && resetSeconds >= 0) {
-    return new Date(Math.max(now.getTime(), resetSeconds * 1_000));
+  const resetTime =
+    Number.isFinite(resetSeconds) && resetSeconds >= 0
+      ? Math.max(now.getTime(), resetSeconds * 1_000)
+      : null;
+
+  // Exhausted primary quota must not retry before either GitHub boundary.
+  if (
+    kind === "rate_limit" &&
+    headers["x-ratelimit-remaining"] === "0" &&
+    resetTime !== null
+  ) {
+    return new Date(Math.max(retryAfterTime ?? now.getTime(), resetTime));
   }
-  return new Date(now.getTime() + fallbackDelayMs);
+  if (retryAfterTime !== null) return new Date(retryAfterTime);
+
+  // A secondary throttle without Retry-After has at least a one-minute delay.
+  if (kind === "rate_limit") {
+    return new Date(Math.max(now.getTime() + 60_000, resetTime ?? 0));
+  }
+  if (resetTime !== null) return new Date(resetTime);
+  return new Date(now.getTime() + 1_000);
 }
 
 export function jitterAfter(boundary: Date, random: () => number): Date {
