@@ -98,11 +98,15 @@ export async function prepareFirstInstallInputs(
 ) {
   await mkdir(join(work, "temp"), { recursive: true, mode: 0o700 });
   await mkdir(join(work, "cache"), { recursive: true, mode: 0o700 });
+  let setupPhase = 0;
   const run = async (
     command: string,
     args: string[],
     env: NodeJS.ProcessEnv = {},
   ) => {
+    // An ordinal and exit status identify the failing setup command without
+    // exposing its arguments, environment, file paths or private output.
+    const phase = ++setupPhase;
     const log = await open(join(work, "setup.log"), "a", 0o600);
     try {
       await new Promise<void>((done, reject) => {
@@ -119,7 +123,7 @@ export async function prepareFirstInstallInputs(
         child.once("error", () =>
           reject(
             new Error(
-              "Setup executable unavailable; inspect private setup.log",
+              `Setup phase ${phase}: executable unavailable; inspect private setup.log`,
             ),
           ),
         );
@@ -128,7 +132,7 @@ export async function prepareFirstInstallInputs(
             ? done()
             : reject(
                 new Error(
-                  "Setup phase failed; inspect private setup.log and retained artifacts",
+                  `Setup phase ${phase} failed (exit ${code ?? "signal"}); inspect private setup.log and retained artifacts`,
                 ),
               ),
         );
