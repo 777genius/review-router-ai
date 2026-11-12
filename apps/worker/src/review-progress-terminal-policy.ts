@@ -65,7 +65,8 @@ function assertTerminalCounts(
     throw new Error("review_progress_complete_outcome_inconsistent");
   if (
     terminal === "complete_with_gaps" &&
-    requiredExhausted + requiredCancelled < 1
+    (requiredExhausted + requiredCancelled < 1 ||
+      requiredCompleted === requiredTotal)
   )
     throw new Error("review_progress_partial_outcome_inconsistent");
 }

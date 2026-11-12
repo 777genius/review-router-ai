@@ -55,4 +55,44 @@ describe("Review progress terminal policy", () => {
       ),
     ).toThrow("review_progress_complete_outcome_inconsistent");
   });
+
+  it("rejects a partial outcome after all required work is complete", () => {
+    for (const gaps of [
+      { requiredExhausted: 1, requiredCancelled: 0 },
+      { requiredExhausted: 0, requiredCancelled: 1 },
+    ]) {
+      expect(() =>
+        terminalSnapshot(
+          {
+            schemaVersion: 1,
+            counts: {
+              requiredCompleted: 1,
+              requiredTotal: 1,
+              ...gaps,
+            },
+          },
+          "complete_with_gaps",
+          now,
+        ),
+      ).toThrow("review_progress_partial_outcome_inconsistent");
+    }
+  });
+
+  it("accepts a genuine partially completed required outcome", () => {
+    const snapshot = {
+      schemaVersion: 1,
+      counts: {
+        requiredCompleted: 1,
+        requiredTotal: 2,
+        requiredExhausted: 1,
+        requiredCancelled: 0,
+      },
+    };
+    const actual = terminalSnapshot(snapshot, "complete_with_gaps", now);
+    expect(actual).toMatchObject({
+      ...snapshot,
+      phase: "terminal",
+      terminal: "complete_with_gaps",
+    });
+  });
 });
