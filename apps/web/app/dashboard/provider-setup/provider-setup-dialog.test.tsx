@@ -1194,7 +1194,10 @@ describe("ProviderSetupDialog", () => {
     renderDialog(repositoryTarget, { gatewayAccounts: fixture });
     await choose("Add a new provider");
     await chooseSelect("Provider", "NVIDIA Build (evaluation)");
-    await screen.findByRole("combobox", { name: "Model" });
+    // A discovered NVIDIA profile is not a saved account: the model picker
+    // must remain hidden until an authorized connection exists.
+    await screen.findByRole("link", { name: "Connect account" });
+    expect(screen.queryByRole("combobox", { name: "Model" })).toBeNull();
     expect(
       screen
         .getByRole("radio", { name: "ReviewRouter" })
