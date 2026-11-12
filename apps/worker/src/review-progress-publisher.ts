@@ -10,6 +10,7 @@ import {
   type ReviewProgressGitHubRequester,
   type UpsertReviewProgressCommentResult,
 } from "./review-progress-github-gateway";
+import { publicationRetryPlan } from "./review-progress-publication-retry-policy";
 import { parseSnapshot } from "./review-progress-snapshot-policy";
 import {
   PrismaReviewProgressPublicationStore,
@@ -276,43 +277,6 @@ export class ReviewProgressPublisher {
       result.failed += 1;
     }
   }
-}
-
-/** Derive retry metadata separately from persistence and result counters. */
-function publicationRetryPlan(
-  error: unknown,
-  now: () => Date,
-  retryDelayMs: number,
-): {
-  readonly safeCode: string;
-  readonly retryAt: Date;
-  readonly installationCooldownUntil?: Date;
-  readonly countFailure?: false;
-} {
-  const githubError = error instanceof ReviewProgressGitHubError ? error : null;
-  let retryAt = githubError?.metadata.retryAt;
-  if (!retryAt) {
-    // A capped scan is structural, not a transient GitHub outage: avoid hot retries.
-    retryAt = new Date(
-      now().getTime() +
-        (githubError?.kind === "pagination_inconclusive"
-          ? Math.max(retryDelayMs, 60 * 60_000)
-          : retryDelayMs),
-    );
-  }
-  return {
-    safeCode: githubError
-      ? `review_progress_${githubError.kind}`
-      : "review_progress_publish_failed",
-    retryAt,
-    ...(githubError?.kind === "rate_limited"
-      ? { installationCooldownUntil: retryAt }
-      : {}),
-    // A bounded duplicate scan must never mutate comments or exhaust retries.
-    ...(githubError?.kind === "pagination_inconclusive"
-      ? { countFailure: false as const }
-      : {}),
-  };
 }
 
 function sha256(value: string): string {
