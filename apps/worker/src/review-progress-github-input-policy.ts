@@ -57,4 +57,3 @@ export function validateReviewProgressInput(
     throw new Error("review_progress_marker_invalid");
   }
 }
-
