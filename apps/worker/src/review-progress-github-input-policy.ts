@@ -57,3 +57,49 @@ export function validateReviewProgressInput(
     throw new Error("review_progress_marker_invalid");
   }
 }
+
+/** Classify the GitHub target and head fence without performing I/O. */
+export function pullRequestIdentityViolation(
+  value: unknown,
+  input: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "expectedHeadSha"
+  >,
+): Readonly<{
+  kind: "invalid_response" | "stale_head" | "repository_mismatch";
+  message: string;
+}> | null {
+  const row = record(value);
+  const head = record(row?.head);
+  const base = record(row?.base);
+  const repository = record(base?.repo);
+  if (
+    !row ||
+    typeof head?.sha !== "string" ||
+    typeof repository?.full_name !== "string"
+  ) {
+    return { kind: "invalid_response", message: "github_pull_request_invalid" };
+  }
+  if (row.state !== "open") {
+    return { kind: "stale_head", message: "github_pull_request_not_open" };
+  }
+  if (
+    repository.full_name.toLowerCase() !==
+    `${input.owner}/${input.repo}`.toLowerCase()
+  ) {
+    return {
+      kind: "repository_mismatch",
+      message: "github_pull_request_repository_mismatch",
+    };
+  }
+  if (head.sha !== input.expectedHeadSha) {
+    return { kind: "stale_head", message: "github_pull_request_head_stale" };
+  }
+  return null;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}

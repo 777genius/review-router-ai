@@ -7,6 +7,7 @@ import {
 } from "./review-progress-github-comment-policy";
 import {
   formatReviewProgressComment,
+  pullRequestIdentityViolation,
   validateReviewProgressInput,
   type UpsertReviewProgressCommentInput,
 } from "./review-progress-github-input-policy";
@@ -246,7 +247,8 @@ export class ReviewProgressGitHubGateway {
     } catch (error) {
       throw this.classify(error);
     }
-    assertCurrentPullRequestData(response.data, input);
+    const violation = pullRequestIdentityViolation(response.data, input);
+    if (violation) throw failure(violation.kind, violation.message, false);
   }
 
   private async findMarkedComments(
@@ -454,43 +456,6 @@ function classifyRetryableHttpFailure(
     );
   }
   return null;
-}
-
-/** Validate the remote pull identity independently of the GitHub request. */
-function assertCurrentPullRequestData(
-  value: unknown,
-  input: Pick<
-    UpsertReviewProgressCommentInput,
-    "owner" | "repo" | "expectedHeadSha"
-  >,
-): void {
-  const row = record(value);
-  const head = record(row?.head);
-  const base = record(row?.base);
-  const repository = record(base?.repo);
-  if (
-    !row ||
-    typeof head?.sha !== "string" ||
-    typeof repository?.full_name !== "string"
-  ) {
-    throw failure("invalid_response", "github_pull_request_invalid", false);
-  }
-  if (row.state !== "open") {
-    throw failure("stale_head", "github_pull_request_not_open", false);
-  }
-  if (
-    repository.full_name.toLowerCase() !==
-    `${input.owner}/${input.repo}`.toLowerCase()
-  ) {
-    throw failure(
-      "repository_mismatch",
-      "github_pull_request_repository_mismatch",
-      false,
-    );
-  }
-  if (head.sha !== input.expectedHeadSha) {
-    throw failure("stale_head", "github_pull_request_head_stale", false);
-  }
 }
 
 function repositoryParameters(
