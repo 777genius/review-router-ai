@@ -51,6 +51,17 @@ describe("Review progress snapshot policy", () => {
     );
   });
 
+  it("rejects array-valued phase and terminal enum payloads", () => {
+    const arrayPhase = { ...validSnapshot, phase: ["reviewing"] };
+    const arrayTerminal = { ...validSnapshot, terminal: ["none"] };
+    expect(() => parseSnapshot(arrayPhase)).toThrow(
+      "review_progress_snapshot_invalid",
+    );
+    expect(() => parseSnapshot(arrayTerminal)).toThrow(
+      "review_progress_snapshot_invalid",
+    );
+  });
+
   it("rejects negative counters and invalid valid-coverage fields", () => {
     expect(() =>
       parseSnapshot({

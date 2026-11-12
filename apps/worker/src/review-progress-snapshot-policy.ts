@@ -64,16 +64,18 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
 }
 
 function isPhase(value: unknown): value is ProgressSnapshot["phase"] {
+  if (typeof value !== "string") return false;
   return [
     "preparing",
     "reviewing",
     "assembling",
     "publishing",
     "terminal",
-  ].includes(String(value));
+  ].includes(value);
 }
 
 function isTerminal(value: unknown): value is ProgressSnapshot["terminal"] {
+  if (typeof value !== "string") return false;
   return [
     "none",
     "complete",
@@ -81,7 +83,7 @@ function isTerminal(value: unknown): value is ProgressSnapshot["terminal"] {
     "failed",
     "cancelled",
     "superseded",
-  ].includes(String(value));
+  ].includes(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
