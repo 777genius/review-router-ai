@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   confirmedReconciliation,
   hasNextCommentPage,
+  ownsMarker,
+  parseCommentOrNull,
 } from "./review-progress-github-comment-policy";
 
 const desired = "published progress";
@@ -55,5 +57,28 @@ describe("Review progress GitHub comment policy", () => {
     expect(hasNextCommentPage({ link: "" })).toBe("invalid");
     expect(hasNextCommentPage({ link: malformed })).toBe("invalid");
     expect(hasNextCommentPage({ link: 42 })).toBe("invalid");
+  });
+
+  it("parses only comments with safe IDs, bodies and author logins", () => {
+    const raw = { id: 7, body: desired, user: { login: "review-router[bot]" } };
+    expect(parseCommentOrNull(raw)).toEqual(marked(7, desired));
+    expect(parseCommentOrNull({ ...raw, id: "7" })).toBeNull();
+    expect(parseCommentOrNull({ ...raw, body: 42 })).toBeNull();
+    expect(parseCommentOrNull({ ...raw, user: null })).toBeNull();
+  });
+
+  it("matches markers only for the expected bot", () => {
+    const input = {
+      expectedBotLogin: "Review-Router[bot]",
+      marker: "<!-- review-router:progress:review -->",
+    };
+    expect(ownsMarker(marked(7, `body\n${input.marker}`), input)).toBe(true);
+    expect(ownsMarker(marked(7, "body"), input)).toBe(false);
+    expect(
+      ownsMarker(
+        { ...marked(7, input.marker), authorLogin: "other[bot]" },
+        input,
+      ),
+    ).toBe(false);
   });
 });

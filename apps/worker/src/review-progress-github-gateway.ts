@@ -1,6 +1,8 @@
 import {
   confirmedReconciliation,
   hasNextCommentPage,
+  ownsMarker,
+  parseCommentOrNull,
   type ReviewProgressComment,
 } from "./review-progress-github-comment-policy";
 import {
@@ -503,28 +505,6 @@ function parseComment(value: unknown): ReviewProgressComment {
   if (!comment)
     throw failure("invalid_response", "github_issue_comment_invalid", false);
   return comment;
-}
-
-function parseCommentOrNull(value: unknown): ReviewProgressComment | null {
-  const row = record(value);
-  const user = record(row?.user);
-  return row &&
-    Number.isSafeInteger(row.id) &&
-    typeof row.body === "string" &&
-    typeof user?.login === "string"
-    ? { id: row.id as number, body: row.body, authorLogin: user.login }
-    : null;
-}
-
-function ownsMarker(
-  comment: ReviewProgressComment,
-  input: Pick<UpsertReviewProgressCommentInput, "expectedBotLogin" | "marker">,
-): boolean {
-  return (
-    comment.authorLogin.toLowerCase() ===
-      input.expectedBotLogin.toLowerCase() &&
-    comment.body.includes(input.marker)
-  );
 }
 
 function record(value: unknown): Record<string, unknown> | null {

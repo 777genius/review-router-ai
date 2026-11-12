@@ -1,3 +1,7 @@
+import type {
+  UpsertReviewProgressCommentInput,
+} from "./review-progress-github-input-policy";
+
 export type ReviewProgressComment = {
   readonly id: number;
   readonly body: string;
@@ -44,4 +48,34 @@ export function hasNextCommentPage(
     return "invalid";
   }
   return entries.some((entry) => /;\s*rel="next"/iu.test(entry));
+}
+
+export function parseCommentOrNull(
+  value: unknown,
+): ReviewProgressComment | null {
+  const row = record(value);
+  const user = record(row?.user);
+  return row &&
+    Number.isSafeInteger(row.id) &&
+    typeof row.body === "string" &&
+    typeof user?.login === "string"
+    ? { id: row.id as number, body: row.body, authorLogin: user.login }
+    : null;
+}
+
+export function ownsMarker(
+  comment: ReviewProgressComment,
+  input: Pick<UpsertReviewProgressCommentInput, "expectedBotLogin" | "marker">,
+): boolean {
+  return (
+    comment.authorLogin.toLowerCase() ===
+      input.expectedBotLogin.toLowerCase() &&
+    comment.body.includes(input.marker)
+  );
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
 }
