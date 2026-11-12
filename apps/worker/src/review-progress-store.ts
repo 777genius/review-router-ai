@@ -5,6 +5,10 @@ import {
   terminalSnapshot,
   type TerminalOutcome,
 } from "./review-progress-terminal-policy";
+import {
+  isPublishableGitHubRepository,
+  matchesActiveProgressIdentity,
+} from "./review-progress-claim-eligibility-policy";
 
 export type ClaimedReviewProgress = Readonly<{
   scope: Readonly<{
@@ -456,55 +460,6 @@ async function loadPublishableGitHubRepository(
     return null;
   }
   return { repository, installation: repository.installation };
-}
-
-/** Validate a candidate against the exact active progress generation. */
-function matchesActiveProgressIdentity(
-  progress: {
-    readonly generation: bigint;
-    readonly headSha: string;
-    readonly planHash: string;
-    readonly desiredVersion: bigint;
-  },
-  publication: {
-    readonly activeGeneration: bigint;
-    readonly activeHeadSha: string;
-    readonly activePlanHash: string;
-    readonly desiredVersion: bigint;
-  },
-): boolean {
-  return (
-    progress.generation === publication.activeGeneration &&
-    progress.headSha === publication.activeHeadSha &&
-    progress.planHash === publication.activePlanHash &&
-    progress.desiredVersion === publication.desiredVersion
-  );
-}
-
-/** Keep GitHub repository eligibility separate from the claim write. */
-function isPublishableGitHubRepository(
-  repository: {
-    readonly workspaceId: string;
-    readonly scmRepositoryIdentityId: string | null;
-    readonly selected: boolean;
-    readonly archived: boolean;
-    readonly provider: string;
-  },
-  installationStatus: string,
-  publication: {
-    readonly workspaceId: string;
-    readonly scmRepositoryIdentityId: string;
-  },
-): boolean {
-  return (
-    repository.workspaceId === publication.workspaceId &&
-    repository.scmRepositoryIdentityId ===
-      publication.scmRepositoryIdentityId &&
-    installationStatus === "active" &&
-    repository.selected === true &&
-    repository.archived === false &&
-    repository.provider === "github"
-  );
 }
 
 /** Persist the fenced claim and construct its owned publication projection. */
