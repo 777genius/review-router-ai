@@ -15,6 +15,7 @@ import {
   fallbackRetryAt,
   isSecondaryRateLimitResponse,
   jitterAfter,
+  normalizeHeaders,
   retryBoundary,
 } from "./review-progress-github-retry-policy";
 
@@ -482,20 +483,6 @@ function number(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
-}
-
-function normalizeHeaders(
-  value: Record<string, unknown> | null,
-): Record<string, string> {
-  if (!value) return {};
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(
-        (entry): entry is [string, string | number] =>
-          typeof entry[1] === "string" || typeof entry[1] === "number",
-      )
-      .map(([key, header]) => [key.toLowerCase(), String(header)]),
-  );
 }
 
 function failure(

@@ -3,6 +3,7 @@ import {
   fallbackRetryAt,
   isSecondaryRateLimitResponse,
   jitterAfter,
+  normalizeHeaders,
   retryBoundary,
 } from "./review-progress-github-retry-policy";
 
@@ -98,5 +99,22 @@ describe("Review progress GitHub retry policy", () => {
     expect(isSecondaryRateLimitResponse(secondary)).toBe(true);
     expect(isSecondaryRateLimitResponse(forbidden)).toBe(false);
     expect(isSecondaryRateLimitResponse(null)).toBe(false);
+  });
+
+  it("normalizes GitHub error headers without interpreting unknown values", () => {
+    expect(normalizeHeaders(null)).toEqual({});
+    expect(
+      normalizeHeaders({
+        "Retry-After": 10,
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": 1786536060,
+        ignored: false,
+        absent: undefined,
+      }),
+    ).toEqual({
+      "retry-after": "10",
+      "x-ratelimit-remaining": "0",
+      "x-ratelimit-reset": "1786536060",
+    });
   });
 });

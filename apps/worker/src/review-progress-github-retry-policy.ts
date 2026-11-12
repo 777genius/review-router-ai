@@ -69,3 +69,18 @@ export function jitterAfter(boundary: Date, random: () => number): Date {
   const boundedRandom = Math.min(1, Math.max(0, random()));
   return new Date(boundary.getTime() + 250 + Math.floor(boundedRandom * 750));
 }
+
+/** Normalize GitHub response headers before retry decisions. */
+export function normalizeHeaders(
+  value: Record<string, unknown> | null,
+): Record<string, string> {
+  if (!value) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(
+        (entry): entry is [string, string | number] =>
+          typeof entry[1] === "string" || typeof entry[1] === "number",
+      )
+      .map(([key, header]) => [key.toLowerCase(), String(header)]),
+  );
+}
