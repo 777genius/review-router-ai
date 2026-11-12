@@ -53,6 +53,18 @@ describe("Review progress GitHub retry policy", () => {
     );
   });
 
+  it("treats blank primary reset headers as absent", () => {
+    for (const reset of ["", " ", "\t"]) {
+      expect(
+        retryBoundary(
+          { "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset },
+          now,
+          "rate_limit",
+        ).getTime(),
+      ).toBe(now.getTime() + 60_000);
+    }
+  });
+
   it("falls back to reset time or a one-second delay", () => {
     const headers = {
       "retry-after": "invalid",
