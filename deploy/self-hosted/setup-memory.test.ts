@@ -561,6 +561,7 @@ test("fresh dependency-free checkout consumes a source-coherent synthetic artifa
       "deploy/self-hosted/conversation-release.ts",
       "deploy/self-hosted/conversation-verifier.mjs",
       "packages/platform/config/src/conversation-source-files.ts",
+      "packages/platform/config/src/conversation-sdk-identity.ts",
     ]) {
       await mkdir(dirname(join(f.directory, path)), { recursive: true });
       await writeFile(
