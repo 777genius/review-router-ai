@@ -94,7 +94,7 @@ describe("Review progress snapshot policy", () => {
       }),
     ).toThrow("review_progress_snapshot_invalid");
   });
-  it("rejects inconsistent lifecycle states and noncanonical timestamps", () => {
+  it("rejects inconsistent lifecycle and timestamps", () => {
     for (const invalid of [
       { ...validSnapshot, phase: "terminal" },
       { ...validSnapshot, terminal: "failed" },
@@ -106,7 +106,11 @@ describe("Review progress snapshot policy", () => {
         "review_progress_snapshot_invalid",
       );
     }
-    const terminal = { ...validSnapshot, phase: "terminal", terminal: "failed" };
+    const terminal = {
+      ...validSnapshot,
+      phase: "terminal",
+      terminal: "failed",
+    };
     expect(parseSnapshot(terminal)).toBe(terminal);
   });
 
@@ -124,6 +128,52 @@ describe("Review progress snapshot policy", () => {
         parseSnapshot({ ...validSnapshot, counts: invalid }),
       ).toThrow("review_progress_snapshot_invalid");
     }
+  });
+
+  it("enforces terminal required-count outcomes", () => {
+    const complete = {
+      ...validSnapshot,
+      phase: "terminal",
+      terminal: "complete",
+      counts: {
+        ...validSnapshot.counts,
+        completed: 2,
+        requiredCompleted: 2,
+        running: 0,
+      },
+    };
+    expect(parseSnapshot(complete)).toBe(complete);
+
+    const incomplete = {
+      ...complete,
+      counts: {
+        ...complete.counts,
+        completed: 1,
+        requiredCompleted: 1,
+        pending: 1,
+      },
+    };
+    expect(() => parseSnapshot(incomplete)).toThrow(
+      "review_progress_snapshot_invalid",
+    );
+
+    const partial = {
+      ...complete,
+      terminal: "complete_with_gaps",
+      counts: {
+        ...complete.counts,
+        completed: 1,
+        requiredCompleted: 1,
+        exhausted: 1,
+        requiredExhausted: 1,
+      },
+    };
+    expect(parseSnapshot(partial)).toBe(partial);
+
+    const falsePartial = { ...complete, terminal: "complete_with_gaps" };
+    expect(() => parseSnapshot(falsePartial)).toThrow(
+      "review_progress_snapshot_invalid",
+    );
   });
 
   it("rejects impossible file coverage while preserving valid bounds", () => {

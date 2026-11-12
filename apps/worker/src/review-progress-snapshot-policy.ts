@@ -16,6 +16,7 @@ export function parseSnapshot(value: unknown): ProgressSnapshot {
     !isCanonicalInstant(value.updatedAt) ||
     !isRecord(counts) ||
     !validCounts(counts) ||
+    !validTerminalCounts(value.terminal, counts) ||
     !validCoverage(fileCoverage) ||
     !validOptionalSourceIdentity(value.sourceIdentity)
   )
@@ -72,6 +73,27 @@ function validCounts(value: Record<string, unknown>): boolean {
     counts.retrying <= counts.running &&
     counts.recovered <= counts.completed
   );
+}
+
+function validTerminalCounts(
+  terminal: unknown,
+  value: Record<string, unknown>,
+): boolean {
+  const counts = value as unknown as ProgressSnapshot["counts"];
+  if (terminal === "complete") {
+    return (
+      counts.requiredCompleted === counts.requiredTotal &&
+      counts.requiredExhausted === 0 &&
+      counts.requiredCancelled === 0
+    );
+  }
+  if (terminal === "complete_with_gaps") {
+    return (
+      counts.requiredCompleted !== counts.requiredTotal &&
+      counts.requiredExhausted + counts.requiredCancelled > 0
+    );
+  }
+  return true;
 }
 
 function validCoverage(value: unknown): boolean {
