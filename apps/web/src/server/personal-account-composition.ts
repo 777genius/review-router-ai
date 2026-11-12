@@ -14,6 +14,7 @@ import {
   createLifecycleClient,
   createConsumerControlClient,
   createManagementClient,
+  GatewayError,
 } from "@agent-teams/account-gateway/http";
 import {
   PrismaProviderAccountRepository,
@@ -175,10 +176,23 @@ export async function productionPersonalAccounts() {
   // Personal enrollment shares the model picker's qualified vendor identity.
   // An absent or incompatible capability must not advertise trial enrollment.
   if (connectionCapabilities) {
-    const catalog = c.providerConnectionCapabilities.parse(
-      await connectionCapabilities,
-    );
-    const nvidia = catalog.capabilities.find(
+    let catalog: c.ProviderConnectionCapabilities | null = null;
+    try {
+      catalog = c.providerConnectionCapabilities.parse(
+        await connectionCapabilities,
+      );
+    } catch (error) {
+      // Only an absent optional endpoint permits legacy accounts.
+      // Never mask denied, malformed or failed provider authority.
+      if (
+        !(
+          error instanceof GatewayError &&
+          (error as GatewayError & { httpStatus?: number }).httpStatus === 404
+        )
+      )
+        throw error;
+    }
+    const nvidia = catalog?.capabilities.find(
       (wire) =>
         wire.profileId === "nvidia-build-chat-apikey-v1" &&
         wire.provider.identity === "nvidia" &&

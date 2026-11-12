@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
 import { accountModelCatalogResponseBytes } from "@reviewrouter/features-provider-accounts/composition";
-import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import {
+  createConsumerControlClient,
+  GatewayError,
+} from "@agent-teams/account-gateway/http";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import * as composition from "./personal-account-composition";
 import { detachRecipientPersonalAccount } from "../../app/dashboard/personal-account-actions";
@@ -399,6 +402,29 @@ it("advertises personal NVIDIA enrollment only with the verified vendor capabili
       ?.connection,
   ).toBeUndefined();
 });
+
+it.each([404, 403] as const)(
+  "personal capability HTTP %i preserves legacy only for absent endpoint",
+  async (httpStatus) => {
+    h.subscriptionProfileIds = [];
+    h.nvidiaProfile = true;
+    h.capabilities.mockRejectedValue(
+      Object.assign(new GatewayError("safe_error", "not_dispatched"), {
+        httpStatus,
+      }),
+    );
+    if (httpStatus === 404) {
+      await expect(
+        composition.productionPersonalAccounts(),
+      ).resolves.not.toBeNull();
+      expect(createPersonalCanonicalAccounts).toHaveBeenCalledOnce();
+    } else {
+      await expect(composition.productionPersonalAccounts()).rejects.toThrow();
+      expect(createPersonalCanonicalAccounts).not.toHaveBeenCalled();
+    }
+    expect(h.capabilities).toHaveBeenCalledOnce();
+  },
+);
 
 it("revalidates the current actor after the awaited capability read", async () => {
   h.subscriptionProfileIds = [glmCapability.profileId];
