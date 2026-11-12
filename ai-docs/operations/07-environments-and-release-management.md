@@ -710,9 +710,10 @@ Migration `000156_verified_thread_reply` adds the persisted `thread_reply`
 publication kind. Pre-000156 workers cannot deserialize that kind. This is a
 stopped-cohort activation, not a mixed-version rolling release:
 
-1. Keep v2 publication admission disabled; apply the reviewed migration.
-2. Stop and drain old API/worker writers and in-flight publication work.
-   Deploy and attest matching new API and worker images across the cohort.
+1. Keep v2 publication admission disabled. Stop and drain old API/worker
+   writers and in-flight publication work before changing the schema.
+2. Apply the reviewed migration, then deploy and attest matching new API
+   and worker images across the stopped cohort.
 3. Only after confirming fleet convergence enable the new v2 producer and
    worker, then qualify a safe GitHub App canary.
 
