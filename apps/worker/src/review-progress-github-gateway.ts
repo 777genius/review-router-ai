@@ -4,6 +4,11 @@ import {
   type ReviewProgressComment,
 } from "./review-progress-github-comment-policy";
 import {
+  formatReviewProgressComment,
+  validateReviewProgressInput,
+  type UpsertReviewProgressCommentInput,
+} from "./review-progress-github-input-policy";
+import {
   fallbackRetryAt,
   isSecondaryRateLimitResponse,
   jitterAfter,
@@ -11,6 +16,11 @@ import {
 } from "./review-progress-github-retry-policy";
 
 export type { ReviewProgressComment } from "./review-progress-github-comment-policy";
+export type { UpsertReviewProgressCommentInput } from "./review-progress-github-input-policy";
+export {
+  createReviewProgressMarker,
+  formatReviewProgressComment,
+} from "./review-progress-github-input-policy";
 
 export type ReviewProgressGitHubRequester = (
   route: string,
@@ -19,17 +29,6 @@ export type ReviewProgressGitHubRequester = (
   readonly data: unknown;
   readonly headers?: Readonly<Record<string, string | number | undefined>>;
 }>;
-
-export type UpsertReviewProgressCommentInput = {
-  readonly owner: string;
-  readonly repo: string;
-  readonly pullNumber: number;
-  readonly expectedHeadSha: string;
-  readonly expectedBotLogin: string;
-  readonly knownCommentId?: number;
-  readonly marker: string;
-  readonly body: string;
-};
 
 export type UpsertReviewProgressCommentResult = {
   readonly commentId: number;
@@ -71,22 +70,6 @@ export class ReviewProgressGitHubError extends Error {
   }
 }
 
-export function createReviewProgressMarker(stableId: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(stableId)) {
-    throw new Error("review_progress_marker_id_invalid");
-  }
-  return `<!-- review-router:progress:${stableId} -->`;
-}
-
-/** Formats exactly one stable marker regardless of untrusted body contents. */
-export function formatReviewProgressComment(
-  body: string,
-  marker: string,
-): string {
-  const withoutMarker = body.split(marker).join("").trimEnd();
-  return withoutMarker ? `${withoutMarker}\n\n${marker}` : marker;
-}
-
 export class ReviewProgressGitHubGateway {
   private readonly maxCommentPages: number;
   private readonly now: () => Date;
@@ -111,7 +94,7 @@ export class ReviewProgressGitHubGateway {
   async upsert(
     input: UpsertReviewProgressCommentInput,
   ): Promise<UpsertReviewProgressCommentResult> {
-    validateInput(input);
+    validateReviewProgressInput(input);
     await this.assertCurrentPullRequest(input);
     // Only comments listed under this PR can be canonical.
     const existing = await this.findMarkedComments(input);
@@ -505,36 +488,6 @@ function assertCurrentPullRequestData(
   }
   if (head.sha !== input.expectedHeadSha) {
     throw failure("stale_head", "github_pull_request_head_stale", false);
-  }
-}
-
-function validateInput(input: UpsertReviewProgressCommentInput): void {
-  if (
-    !input.owner ||
-    !input.repo ||
-    !Number.isInteger(input.pullNumber) ||
-    input.pullNumber < 1
-  ) {
-    throw new Error("review_progress_github_target_invalid");
-  }
-  if (!/^[0-9a-f]{40}$/iu.test(input.expectedHeadSha)) {
-    throw new Error("review_progress_expected_head_invalid");
-  }
-  if (!input.expectedBotLogin || !input.expectedBotLogin.endsWith("[bot]")) {
-    throw new Error("review_progress_expected_bot_login_invalid");
-  }
-  if (
-    input.knownCommentId !== undefined &&
-    (!Number.isSafeInteger(input.knownCommentId) || input.knownCommentId < 1)
-  ) {
-    throw new Error("review_progress_known_comment_id_invalid");
-  }
-  if (
-    !input.marker ||
-    !input.marker.startsWith("<!--") ||
-    !input.marker.endsWith("-->")
-  ) {
-    throw new Error("review_progress_marker_invalid");
   }
 }
 
