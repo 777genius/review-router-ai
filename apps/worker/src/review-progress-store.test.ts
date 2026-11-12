@@ -965,6 +965,54 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(progressUpdate).not.toHaveBeenCalled();
     expect(publicationUpdate).not.toHaveBeenCalled();
   });
+
+  it("attempts later independent settlements after a failed transaction", async () => {
+    const firstFailure = new Error("first_settlement_failed");
+    const transaction = vi
+      .fn()
+      .mockRejectedValueOnce(firstFailure)
+      .mockResolvedValueOnce(true);
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: transaction,
+    } as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [
+          { executionId: "execution-1", outcome: "failed" },
+          { executionId: "execution-2", outcome: "succeeded" },
+        ],
+        now,
+      }),
+    ).rejects.toBe(firstFailure);
+    expect(transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports multiple failed settlements without hiding later failures", async () => {
+    const firstFailure = new Error("first_settlement_failed");
+    const secondFailure = new Error("second_settlement_failed");
+    const transaction = vi
+      .fn()
+      .mockRejectedValueOnce(firstFailure)
+      .mockRejectedValueOnce(secondFailure);
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: transaction,
+    } as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [
+          { executionId: "execution-1", outcome: "failed" },
+          { executionId: "execution-2", outcome: "superseded" },
+        ],
+        now,
+      }),
+    ).rejects.toMatchObject({
+      message: "review_progress_settlements_failed",
+      errors: [firstFailure, secondFailure],
+    });
+    expect(transaction).toHaveBeenCalledTimes(2);
+  });
 });
 
 function claimed() {
