@@ -1026,7 +1026,16 @@ export function createAccountsAdapter(input: {
         const profile = catalogue.find(
           (p) => p.id === intent.profileId && p.authKind === "api_key",
         );
-        if (!profile) throw new Denied();
+        if (
+          !profile ||
+          // Fresh NVIDIA enrollment requires qualified upstream capabilities.
+          // Reconnect remains on the separate existing-account path.
+          (profile.id === "nvidia-build-chat-apikey-v1" &&
+            (profile.provider !== "nvidia" ||
+              profile.availability !== "enabled" ||
+              profile.connection?.provider !== "nvidia"))
+        )
+          throw new Denied();
         if (
           intent.baseURL !== undefined &&
           (!profile.dedicatedBaseURL ||

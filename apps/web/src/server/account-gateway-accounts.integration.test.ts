@@ -43,6 +43,7 @@ function ok<T>(result: AccountsResult<T>): T {
 // This uses the real SDK wire contract and starts no provider or database.
 test("Accounts connect binds dedicated URL to the configured profile and freezes a blank label", async () => {
   const profileId = "fixture-mimo-responses";
+  const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
   const baseURL = "https://token-plan-sgp.xiaomimimo.com/v1";
   const submitted: ReturnType<typeof secretSubmission.connect.parse>[] = [];
   let receipt: c.Operation | undefined;
@@ -71,6 +72,12 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
                     protocol: "openai-responses",
                     authKinds: ["api_key"],
                     modelIds: ["fixture-mimo"],
+                  },
+                  {
+                    profileId: nvidiaProfileId,
+                    protocol: "openai-chat",
+                    authKinds: ["api_key"],
+                    modelIds: ["nvidia/nemotron-3.5-super-vl-120b-a12b"],
                   },
                 ],
               }
@@ -123,7 +130,10 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
     accounts: unused as Input["accounts"],
     synchronization: unused as Input["synchronization"],
     bindingDependencies: unused as Input["bindingDependencies"],
-    apiKeyProfiles: new Map([[profileId, "MiMo"]]),
+    apiKeyProfiles: new Map<string, "MiMo" | "NVIDIA Build">([
+      [profileId, "MiMo"],
+      [nvidiaProfileId, "NVIDIA Build"],
+    ]),
     apiKeyProfileBaseURLs: new Map([[profileId, baseURL]]),
   });
   const intent = {
@@ -150,6 +160,23 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
         "denied",
       );
     }
+    assert.equal(submitted.length, 0);
+    // A configured but unqualified NVIDIA profile cannot reach SDK secret ingress.
+    assert.equal(
+      (
+        await adapter.mutate(
+          "context",
+          {
+            kind: "connect",
+            nonce: randomUUID(),
+            profileId: nvidiaProfileId,
+            label: "Synthetic NVIDIA",
+          },
+          "synthetic-nvidia-key",
+        )
+      ).status,
+      "denied",
+    );
     assert.equal(submitted.length, 0);
     const result = ok(
       await adapter.mutate(
