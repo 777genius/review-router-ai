@@ -94,3 +94,26 @@ This reverses the earlier unconditional “Dusk wins” narrative: **if integrat
 ## Updated recommendation
 
 **Do not clone one full marketing site into ReviewRouter.** Compare **Launch UI and Tailark Dusk 7 as alternative layout donors**, implement one bounded 4-state findings demo using existing React/Radix UI, show one real analytics dashboard preview, and use custom CSS or a single MIT Motion primitive for animation. This best balances visual originality, shipping safety, accessibility, and reusability. The current Draft PR is research-only; no candidate has an E2E-qualified implementation and none should be merged as a landing change.
+
+
+## November 14 follow-up: two previously missed complete-site sources
+
+### Forge by freedesignmd: unusually relevant, check it before selecting Dusk
+
+- [Live developer-tools/code-review demo](https://freedesignmd.com/landingpage/forge-devtool) and [MIT source](https://github.com/tammo1007/freedesignmd-library/blob/main/landingpages/forge-devtool/Page.tsx). Source is a single **1,571-line / ~83.8 KB TSX** file importing only React plus a matching `DESIGN.md`. The parent GitHub project is small (~12 stars on Nov 14 2026) with a MIT license and no conventional CI workflow located in the tree; vendor "pixel-perfect" claims were not independently verified.
+- Genuine product-motivated animations: terminal typing, scroll-drawn PR timeline, staged findings, scroll-scrubbed execution graph and cursor-lighted integration borders; uses 7 `useEffect` calls, `IntersectionObserver` and rAF throttling with explicit cleanup for relevant event listeners, and `prefers-reduced-motion` CSS. Not a measured Core Web Vitals result or functional live ReviewRouter demo.
+- Critical fit problem: default hero is a **terminal**, plus an annotated **diff with text comments**, both explicitly unwanted. It claims unverified "merge in ~90 seconds", 2.1 million PRs/month, 3,400 customers, 96.4% cache hits, and has unrelated per-seat billing calculator and photos. **All must go.** No customer logos or fake success metrics may carry over.
+- Architectural fit problem: TSX file has React state/hooks but no Next.js App Router `"use client"` directive; copying it directly into the server root page would break the boundary. Prefer extracting only product animation primitives as small isolated client islands. It includes its own `Nav`, `<main>`, `Footer` and embedded styles and would duplicate the real app shell.
+- Provisional **whole-layout fit ~7.70/10** under the same subjective weights as above (hierarchy 9.5, integration 6, reusable code 7, functional motion 9, license/maturity 6). **Launch UI was 7.75** and Tailark Dusk shell 7.55, within evaluation noise. Thus Forge joins the head-to-head prototype shortlist; the rankings are not proven without renders.
+
+### InstaLanding.ai: visual diversity, poor direct Next.js integration
+
+- [Live gallery](https://instalanding.ai/pages) and [MIT source](https://github.com/RayVelez27/instalanding.ai); **95 complete single-file HTML page directories** in the November 9 2026 GitHub README (library has ~136 stars on Nov 14), including `mirador-observability-page`, `hazard-terminal-security-page`, `corelane-build-cluster-page`, `monax-analytics-landing-page`, and `tessel-ai-infrastructure-page`. There are also motion studies and design-token system references.
+- These are visually interesting because they demonstrate moving product interfaces, not just generic SaaS logos. However some include Google Fonts, GSAP/ScrollTrigger and Lenis over CDN; "one HTML file/no build" does **not** necessarily mean zero network or zero JS dependencies.
+- Source audits found examples of **~81 KB** (`tessel`), **~99 KB** (`hazard-terminal`), **~133 KB** (`monax`), **~169 KB** (`mirador`) and a **~459 KB** single-file `corelane` HTML. These are **source file sizes, NOT compressed transferred assets**. A network-free local render and bundle measurement are still required.
+- These pages are **reference-only** until selectively ported to React/Next and checked for accessibility, authorship/asset provenance, responsive behavior and performance. The repository README itself notes that some demos incorporate external third-party works and their own terms.
+- Ranking: best for **original visual inspiration** but below Forge/Tailark/Launch as direct implementation source for a mature React monorepo.
+
+### Revised short experiment
+
+Build three **same-brand/same-content** isolated preview routes using the true ReviewRouter product, not template marketing examples: **A) Launch UI shell**, **B) Tailark Dusk 7 shell**, **C) freedesignmd Forge's review/CI interaction architecture with code/diff/terminal removed**. Add a fourth baseline only if the native existing page refactor remains plausible. Run the same a11y/performance and real CTA tests, then select; don't infer a winner from popularity or source scores. Velora remains optional motion donor. All must keep the actual logo, ReviewRouter typography and palette, real user install/auth flow, and accurate upstream benchmark and usage limitations.
