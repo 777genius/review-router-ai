@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import {
+  persistInstallationCooldown,
+  reserveInstallationBudgetMutation,
+} from "./review-progress-installation-budget";
 import { promoteSettledExecution } from "./review-progress-terminal-persistence";
 import {
+  claimedPublicationFence,
   isPublishableGitHubRepository,
   matchesActiveProgressIdentity,
 } from "./review-progress-claim-eligibility-policy";
@@ -232,92 +237,6 @@ async function retryPublicationMutation(
   }
   if (updated.count !== 1) return "stale";
   return mutation.reachesLimit ? "suppressed" : "retried";
-}
-
-/** Persist a GitHub installation cooldown monotonically in the retry transaction. */
-async function persistInstallationCooldown(
-  transaction: Prisma.TransactionClient,
-  installationId: bigint,
-  cooldownUntil: Date,
-  now: Date,
-): Promise<void> {
-  await transaction.$executeRaw(Prisma.sql`
-    INSERT INTO "ReviewProgressInstallationBudgetV1"
-      ("githubInstallationId", "nextMutationAt", "cooldownUntil", "updatedAt")
-    VALUES (
-      ${installationId},
-      ${cooldownUntil},
-      ${cooldownUntil},
-      ${now}
-    )
-    ON CONFLICT ("githubInstallationId") DO UPDATE SET
-      "nextMutationAt" = GREATEST(
-        "ReviewProgressInstallationBudgetV1"."nextMutationAt",
-        EXCLUDED."nextMutationAt"
-      ),
-      "cooldownUntil" = GREATEST(
-        "ReviewProgressInstallationBudgetV1"."cooldownUntil",
-        EXCLUDED."cooldownUntil"
-      ),
-      "updatedAt" = EXCLUDED."updatedAt"
-  `);
-}
-
-/** Reserve the installation budget inside the same serializable transaction. */
-async function reserveInstallationBudgetMutation(
-  transaction: Prisma.TransactionClient,
-  input: Parameters<
-    PrismaReviewProgressPublicationStore["reserveInstallationMutation"]
-  >[0],
-): Promise<{ allowed: true } | { allowed: false; retryAt: Date }> {
-  const budget = await lockInstallationBudget(
-    transaction,
-    input.publication.repository.githubInstallationId,
-    input.now,
-  );
-  const stillClaimed = await transaction.reviewProgressPublicationV1.count({
-    where: {
-      ...claimedPublicationFence(input.publication),
-      claimUntil: { gt: input.now },
-    },
-  });
-  if (stillClaimed !== 1)
-    return { allowed: false as const, retryAt: input.now };
-  const availableAt = maxDate(budget.nextMutationAt, budget.cooldownUntil);
-  if (availableAt > input.now)
-    return { allowed: false as const, retryAt: availableAt };
-  await transaction.reviewProgressInstallationBudgetV1.update({
-    where: {
-      githubInstallationId: input.publication.repository.githubInstallationId,
-    },
-    data: {
-      nextMutationAt: new Date(input.now.getTime() + input.minimumIntervalMs),
-      updatedAt: input.now,
-    },
-  });
-  return { allowed: true as const };
-}
-
-/** Acquire the installation row lock before inspecting its budget. */
-async function lockInstallationBudget(
-  transaction: Prisma.TransactionClient,
-  installationId: bigint,
-  now: Date,
-) {
-  await transaction.$executeRaw(Prisma.sql`
-  INSERT INTO "ReviewProgressInstallationBudgetV1"
-    ("githubInstallationId", "nextMutationAt", "updatedAt")
-  VALUES (${installationId}, ${now}, ${now})
-  ON CONFLICT DO NOTHING
-`);
-  await transaction.$queryRaw(Prisma.sql`
-  SELECT 1 FROM "ReviewProgressInstallationBudgetV1"
-  WHERE "githubInstallationId" = ${installationId}
-  FOR UPDATE
-`);
-  return transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow({
-    where: { githubInstallationId: installationId },
-  });
 }
 
 /** Select one due publication scope under the existing row lock and priority policy. */
@@ -566,20 +485,6 @@ function retryMutationData(
   };
 }
 
-/** Keep the optimistic claim fence identical across progress mutations. */
-function claimedPublicationFence(publication: ClaimedReviewProgress) {
-  return {
-    ...publication.scope,
-    activeExecutionId: publication.executionId,
-    activeGeneration: publication.generation,
-    activeHeadSha: publication.headSha,
-    activePlanHash: publication.planHash,
-    desiredVersion: publication.desiredVersion,
-    claimId: publication.claim.claimId,
-    claimOwnerIdHash: publication.claim.ownerIdHash,
-  };
-}
-
 async function deferUnavailablePublication(
   transaction: Prisma.TransactionClient,
   scope: {
@@ -612,9 +517,6 @@ function assertOwner(value: string): void {
 function assertDuration(value: number): void {
   if (!Number.isSafeInteger(value) || value < 1)
     throw new Error("review_progress_duration_invalid");
-}
-function maxDate(first: Date, second: Date | null): Date {
-  return second && second > first ? second : first;
 }
 function safeCode(value: string): string {
   return /^[a-z0-9_]{1,120}$/.test(value)

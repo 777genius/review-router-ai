@@ -1,3 +1,5 @@
+import type { ClaimedReviewProgress } from "./review-progress-store";
+
 /** Validate a candidate against the exact active progress generation. */
 export function matchesActiveProgressIdentity(
   progress: {
@@ -46,3 +48,18 @@ export function isPublishableGitHubRepository(
     repository.provider === "github"
   );
 }
+
+/** Keep the optimistic claim fence identical across progress mutations. */
+export function claimedPublicationFence(publication: ClaimedReviewProgress) {
+  return {
+    ...publication.scope,
+    activeExecutionId: publication.executionId,
+    activeGeneration: publication.generation,
+    activeHeadSha: publication.headSha,
+    activePlanHash: publication.planHash,
+    desiredVersion: publication.desiredVersion,
+    claimId: publication.claim.claimId,
+    claimOwnerIdHash: publication.claim.ownerIdHash,
+  };
+}
+
