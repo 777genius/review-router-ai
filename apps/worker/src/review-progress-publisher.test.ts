@@ -692,9 +692,7 @@ function fakeStore(publication: ClaimedReviewProgress) {
     ),
     complete: vi.fn(async () => true),
     retry: vi.fn(
-      async (
-        _input: Parameters<PrismaReviewProgressPublicationStore["retry"]>[0],
-      ): Promise<"retried" | "suppressed" | "stale"> => "retried",
+      async (): Promise<"retried" | "suppressed" | "stale"> => "retried",
     ),
     suppress: vi.fn(async () => true),
   };
