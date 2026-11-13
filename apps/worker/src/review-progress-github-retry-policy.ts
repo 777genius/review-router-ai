@@ -311,10 +311,28 @@ export function reconciliationFailure(
       { cause: { mutationError, observationError } },
     );
   }
+  const observationFailure = classifyGitHubFailure(
+    observationError,
+    "github_request_failed",
+    now,
+    random,
+  );
+  const retryAt = laterRetryBoundary(
+    mutationFailure.metadata.retryAt,
+    observationFailure.metadata.retryAt,
+  );
+  const retryNotBefore = laterRetryBoundary(
+    mutationFailure.metadata.retryNotBefore,
+    observationFailure.metadata.retryNotBefore,
+  );
   return new ReviewProgressGitHubError(
     "ambiguous_mutation",
     "github_progress_comment_mutation_ambiguous",
-    { retryable: true, retryAt: fallbackRetryAt(now, random) },
+    {
+      retryable: true,
+      retryAt: retryAt ?? fallbackRetryAt(now, random),
+      ...(retryNotBefore ? { retryNotBefore } : {}),
+    },
     { cause: { mutationError, observationError } },
   );
 }

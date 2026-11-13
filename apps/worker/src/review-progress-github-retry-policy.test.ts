@@ -222,4 +222,34 @@ describe("Review progress GitHub retry policy", () => {
       new Date("2026-08-12T12:01:00.250Z"),
     );
   });
+  it("keeps the later of PATCH and GET outage boundaries", () => {
+    for (const [mutationDelay, observationDelay] of [
+      ["7200", "60"],
+      ["60", "7200"],
+    ] as const) {
+      const mutationError = {
+        status: 503,
+        response: { headers: { "retry-after": mutationDelay } },
+      };
+      const observationError = {
+        status: 502,
+        response: { headers: { "retry-after": observationDelay } },
+      };
+      const result = reconciliationFailure(
+        mutationError,
+        observationError,
+        () => now,
+        () => 0,
+      );
+      expect(result.kind).toBe("ambiguous_mutation");
+      expect(result.metadata.retryAt).toEqual(
+        new Date("2026-08-12T14:00:00.250Z"),
+      );
+      expect(result.metadata.retryNotBefore).toEqual(
+        new Date("2026-08-12T14:00:00.000Z"),
+      );
+      expect(result.metadata.installationCooldownUntil).toBeUndefined();
+    }
+  });
+
 });

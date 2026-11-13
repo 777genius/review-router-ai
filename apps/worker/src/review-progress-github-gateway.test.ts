@@ -1118,6 +1118,49 @@ describe("ReviewProgressGitHubGateway", () => {
       metadata: { status: 404, retryable: true },
     });
   });
+  it("preserves outage retry bounds after an ambiguous PATCH and failed GET", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    let commentReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route.startsWith("PATCH ")) {
+        throw { status: 503, response: { headers: { "retry-after": "7200" } } };
+      }
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        commentReads += 1;
+        if (commentReads === 2) {
+          throw { status: 502, response: { headers: { "retry-after": "60" } } };
+        }
+      }
+      return fixture.request(route, parameters);
+    };
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    const caught = await gateway(request, {
+      now: () => now,
+      random: () => 0,
+    })
+      .upsert(input())
+      .catch((error: unknown) => error);
+
+    expect(caught).toBeInstanceOf(ReviewProgressGitHubError);
+    expect(caught).toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: {
+        retryAt: new Date("2026-08-12T14:00:00.250Z"),
+        retryNotBefore: new Date("2026-08-12T14:00:00.000Z"),
+      },
+    });
+    expect(publicationRetryPlan(caught, () => now, 1_000)).toMatchObject({
+      safeCode: "review_progress_ambiguous_mutation",
+      retryAt: new Date("2026-08-12T14:00:00.250Z"),
+    });
+    expect(commentReads).toBe(2);
+  });
+
 });
 
 function input() {
