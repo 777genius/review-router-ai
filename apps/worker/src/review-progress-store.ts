@@ -180,6 +180,8 @@ function repositoryCohortPredicate(
   allowedRepositoryFullNames: ReadonlySet<string> | null,
 ): Prisma.Sql {
   if (!allowedRepositoryFullNames) return Prisma.empty;
+  // An explicitly empty cohort must reject all claims without Prisma.join([]).
+  if (allowedRepositoryFullNames.size === 0) return Prisma.sql`AND FALSE`;
   return Prisma.sql`
           AND EXISTS (
             SELECT 1 FROM "RepositoryConnection" repository
