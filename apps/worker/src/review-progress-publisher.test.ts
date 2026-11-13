@@ -679,6 +679,8 @@ function createPublisher(
 
 function fakeStore(publication: ClaimedReviewProgress) {
   let claimedOnce = false;
+  const mockRetry: PrismaReviewProgressPublicationStore["retry"] = async () =>
+    "retried";
   return {
     claimNext: vi.fn(async () => {
       if (claimedOnce) return null;
@@ -691,9 +693,7 @@ function fakeStore(publication: ClaimedReviewProgress) {
       > => ({ allowed: true as const }),
     ),
     complete: vi.fn(async () => true),
-    retry: vi.fn<PrismaReviewProgressPublicationStore["retry"]>(
-      async (): Promise<"retried" | "suppressed" | "stale"> => "retried",
-    ),
+    retry: vi.fn(mockRetry),
     suppress: vi.fn(async () => true),
   };
 }
