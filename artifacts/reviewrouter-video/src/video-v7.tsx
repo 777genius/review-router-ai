@@ -358,8 +358,9 @@ const MusicAndSfx: React.FC<{duration: number}> = ({duration}) => {
   const volume = .36 * Math.min(1, f / 18, (duration - f) / 30);
   return <>
     <Audio src={staticFile('music.m4a')} volume={Math.max(0, volume)}/>
-    <Audio src={staticFile('v7-sfx/click.wav')} from={198} volume={.4}/>
-    <Audio src={staticFile('v7-sfx/click.wav')} from={305} volume={.25}/>
+    <Audio src={staticFile('v7-sfx/click.wav')} from={135} volume={.4}/>
+    <Audio src={staticFile('v7-sfx/click.wav')} from={220} volume={.33}/>
+    <Audio src={staticFile('v7-sfx/click.wav')} from={308} volume={.25}/>
     <Audio src={staticFile('v7-sfx/success.wav')} from={406} volume={.45}/>
     <Audio src={staticFile('v7-sfx/finding.wav')} from={466} volume={.4}/>
   </>;
@@ -383,6 +384,10 @@ export const VideoV7: React.FC = () => <AbsoluteFill className="v7">
 /** A small, real 216-frame Remotion composition to verify semantic motion before full video. */
 export const VideoV7Proof: React.FC = () => <AbsoluteFill className="v7">
   <Backdrop/>
+  <Audio src={staticFile('music.m4a')} volume={.18}/>
+  <Audio src={staticFile('v7-sfx/click.wav')} from={29} volume={.42}/>
+  <Audio src={staticFile('v7-sfx/click.wav')} from={71} volume={.3}/>
+  <Audio src={staticFile('v7-sfx/finding.wav')} from={166} volume={.45}/>
   <Sequence from={0} durationInFrames={55}><Scene length={55} label="PROVIDERS"><Providers compact/></Scene></Sequence>
   <Sequence from={55} durationInFrames={95}><Scene length={95} label="REPOSITORY"><Repository compact/></Scene></Sequence>
   <Sequence from={150} durationInFrames={66}><Scene length={66} label="FINDING"><Review compact/></Scene></Sequence>
