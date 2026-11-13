@@ -11,6 +11,7 @@ import {
   type UpsertReviewProgressCommentResult,
 } from "./review-progress-github-gateway";
 import { publicationRetryPlan } from "./review-progress-publication-retry-policy";
+import { classifyGitHubFailure } from "./review-progress-github-retry-policy";
 import { parseSnapshot } from "./review-progress-snapshot-policy";
 import {
   PrismaReviewProgressPublicationStore,
@@ -138,9 +139,25 @@ export class ReviewProgressPublisher {
     publication: ClaimedReviewProgress,
     body: string,
   ): Promise<UpsertReviewProgressCommentResult> {
-    const installation = await this.requestForInstallation(
-      publication.repository.githubInstallationId,
-    );
+    let installation: Awaited<
+      ReturnType<ReviewProgressInstallationRequesterFactory>
+    >;
+    try {
+      installation = await this.requestForInstallation(
+        publication.repository.githubInstallationId,
+      );
+    } catch (error) {
+      // The requester factory can fail before the GitHub gateway is created.
+      // Retain Octokit's HTTP retry boundary instead of using the generic delay.
+      const classified = classifyGitHubFailure(
+        error,
+        "github_request_failed",
+        () => this.clock.now(),
+        Math.random,
+      );
+      if ((classified.metadata.status ?? 0) >= 400) throw classified;
+      throw error;
+    }
     const gateway = new ReviewProgressGitHubGateway(installation.request, {
       maxCommentPages: this.options.maxCommentPages,
       now: () => this.clock.now(),

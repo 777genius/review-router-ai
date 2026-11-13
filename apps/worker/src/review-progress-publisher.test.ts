@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { ProgressSnapshot } from "@reviewrouter/features-review-progress";
 import { ReviewProgressGitHubError } from "./review-progress-github-gateway";
 import { ReviewProgressPublisher } from "./review-progress-publisher";
-import type { ClaimedReviewProgress } from "./review-progress-store";
+import type {
+  ClaimedReviewProgress,
+  PrismaReviewProgressPublicationStore,
+} from "./review-progress-store";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
 
@@ -526,6 +529,45 @@ describe("ReviewProgressPublisher", () => {
     expect(store.suppress).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { status: 503, code: "review_progress_github_unavailable" },
+    { status: 429, code: "review_progress_rate_limited" },
+  ])(
+    "honors raw factory HTTP $status Retry-After before the gateway exists",
+    async ({ status, code }) => {
+      const publication = claimed();
+      const store = fakeStore(publication);
+      const factory = vi.fn(async () => {
+        throw Object.assign(new Error("requester_factory_http_failure"), {
+          response: {
+            status,
+            headers: { "retry-after": "7200" },
+          },
+        });
+      });
+
+      await expect(
+        createPublisher(store, factory).runMaintenance(),
+      ).resolves.toMatchObject({ claimed: 1, failed: 1, suppressed: 0 });
+
+      expect(store.retry).toHaveBeenCalledOnce();
+      const retry = store.retry.mock.calls[0]?.[0];
+      expect(retry).toMatchObject({ publication, safeCode: code, now });
+      expect(retry?.retryAt.getTime()).toBeGreaterThanOrEqual(
+        now.getTime() + 7_200_000,
+      );
+      expect(retry?.retryAt.getTime()).toBeLessThan(
+        now.getTime() + 7_201_000,
+      );
+      if (status === 429) {
+        expect(retry?.installationCooldownUntil).toEqual(retry?.retryAt);
+      } else {
+        expect(retry?.installationCooldownUntil).toBeUndefined();
+      }
+      expect(store.suppress).not.toHaveBeenCalled();
+    },
+  );
+
   it("retries unknown failures using the fallback delay", async () => {
     const publication = claimed();
     const store = fakeStore(publication);
@@ -650,7 +692,9 @@ function fakeStore(publication: ClaimedReviewProgress) {
     ),
     complete: vi.fn(async () => true),
     retry: vi.fn(
-      async (): Promise<"retried" | "suppressed" | "stale"> => "retried",
+      async (
+        _input: Parameters<PrismaReviewProgressPublicationStore["retry"]>[0],
+      ): Promise<"retried" | "suppressed" | "stale"> => "retried",
     ),
     suppress: vi.fn(async () => true),
   };
