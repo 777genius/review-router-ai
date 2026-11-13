@@ -1,14 +1,22 @@
-# ReviewRouter design baseline (not selected landing direction)
+# ReviewRouter design direction — preserve established cyberpunk identity
 
-The authenticated product already has a coherent dark/light design system in `apps/web/app/globals.css`, `@reviewrouter/ui`, and the local Space Grotesk and JetBrains Mono fonts. Preserve it outside an explicitly approved redesign. Existing visual guidance lives at `ai-docs/product/08-visual-direction.md`.
+## Locked product identity
+**Do not redesign the color palette or establish a new brand.** The current landing and authenticated dashboard already have the user's preferred high-contrast, futuristic command-center look. Study `apps/web/app/dashboard/`, `apps/web/src/features/review-statistics/interface/statistics.module.css`, `apps/web/app/globals.css`, `@reviewrouter/ui`, and `ai-docs/product/08-visual-direction.md` before working on the landing.
 
-The **public landing is being redesigned**. Its current appearance must not restrict the replacement. Three separate visual concepts are awaiting user selection:
+Existing visual DNA:
+- Dark graphite/near-black void surfaces, bright cyan (#00e5ff), lime (#a6ff00), restrained magenta (#ff2bd6), severity amber/red and lucid pale text.
+- Space Grotesk for headings/UI and JetBrains Mono for code and measurements (both already self-hosted), light/dark theme behavior and subtle grid/routing traces.
+- Thin borders, code surfaces, restrained status chips, practical diagrams and analytics from the actual dashboard; sharp technical but human-readable; no unrelated color themes.
+- No generic white SaaS rebrand, template purple gradients, glow on every tile, dense icon cards or walls of copy.
 
-- **A — Signal Flow:** split hero, deep ink-green, sharp lime accent, visible inline review finding and compact CI pipeline.
-- **B — Quiet Confidence:** warm editorial light canvas, cobalt action, wide side-by-side review artifact and calm composition.
-- **C — Merge Signal:** high-impact aubergine/coral type, risk-first story, evidence-focused two-column cockpit.
+## Only the public landing's hierarchy/composition changes
+Three **layout variants using the exact same brand language** are being prepared; they are not competing palettes:
 
-Do not commit a chosen landing palette or change the live homepage until the user selects one. Once approved, document chosen tokens, hierarchy, type, motion and responsive rules here. Keep dashboard global tokens stable unless explicitly asked to unify them.
+- **A — Engine First:** concise left hero; impactful OpenCodeReview performance proof and real-review example on the right; ownership/usage strip underneath.
+- **B — Control Room:** UI preview as the dominant hero; headline plus clear free/open source CTA; spend/model control and review stats demonstrated inside the product.
+- **C — Open Platform:** powerful typographic headline, open-source/source + hosting badges, center CI control flow and targeted review artifact, with performance as a proof element.
 
-### Quality floor
-Contrast ≥4.5:1 for regular text, visible focus, reduced-motion support, no overflow at 390px/768px/1440px, review examples explicitly illustrative, accessible CTA semantics and legal/security discoverability. Avoid large text walls, repeated icon-card grids, gradients as decoration and needless animations.
+User will pick composition A/B/C. Do not replace production homepage until selection. Preserve same navigation/footer and dashboard design tokens unless explicit change is approved.
+
+## Verification
+1440px, 768px and 390px, both existing themes, keyboard/focus, reduced motion, WCAG contrast, accurate source-backed performance disclaimer, source/license links, no mobile scroll overflow. No fake production metrics. A marketing mockup can show example UI values only with visible "Illustrative preview" disclosure.
