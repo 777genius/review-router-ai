@@ -142,9 +142,7 @@ describe("Review progress GitHub retry policy", () => {
     expect(result.metadata.retryNotBefore?.getTime()).toBe(
       now.getTime() + 60_000,
     );
-    expect(result.metadata.retryAt?.getTime()).toBe(
-      now.getTime() + 60_250,
-    );
+    expect(result.metadata.retryAt?.getTime()).toBe(now.getTime() + 60_250);
   });
 
   it("preserves permanent and transient HTTP classifications", () => {
