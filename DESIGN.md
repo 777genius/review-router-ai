@@ -1,5 +1,7 @@
 # ReviewRouter design direction — preserve established cyberpunk identity
 
+Updated 2026-11-13: **template-first** replaces earlier generated standalone concepts. Select a permissively licensed, complete landing structure from ai-docs/design/landing-template-research.md; then reuse actual brand colors, logo, existing dashboard, auth and controls. No template is selected yet.
+
 ## Locked product identity
 **Do not redesign the color palette or establish a new brand.** The current landing and authenticated dashboard already have the user's preferred high-contrast, futuristic command-center look. Study `apps/web/app/dashboard/`, `apps/web/src/features/review-statistics/interface/statistics.module.css`, `apps/web/app/globals.css`, `@reviewrouter/ui`, and `ai-docs/product/08-visual-direction.md` before working on the landing.
 

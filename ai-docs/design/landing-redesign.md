@@ -1,5 +1,7 @@
 # ReviewRouter landing redesign — approved positioning / unselected composition
 
+Updated 2026-11-13: **template-first research supersedes custom-image comps.** Read ai-docs/design/landing-template-research.md before implementation. Prior A/B/C are historical explorations, not approved code designs.
+
 ## User direction
 Preserve the **current cyberpunk colors and dashboard visual language**. The problem is information hierarchy, not branding: current homepage is too text-heavy and leads with setup mechanics. Build a highly visual explanation of an **open-source, free-to-start platform** giving the developer **choice of AI subscription/model, visible tokens/costs and hosting control**, powered by **OpenCodeReview**.
 
