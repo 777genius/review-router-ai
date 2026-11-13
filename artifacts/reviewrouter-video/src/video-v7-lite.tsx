@@ -257,7 +257,7 @@ const Cue:React.FC<{at:number;filename:string;volume:number}> =({at,filename,vol
   <Sequence from={at}><Audio src={staticFile('v7-sfx/'+filename)} volume={volume}/></Sequence>;
 export const VideoV7Lite:React.FC =()=> <AbsoluteFill style={canvas}>
   <Bg/>
-  <Audio src={staticFile('music.m4a')} volume={.30}/>
+  <Audio src={staticFile('music.m4a')} volume={frame=>Math.max(0,Math.min(.30,.30*frame/18,.30*(V7_LITE_FRAMES-frame)/25))}/>
   <Cue at={146} filename="click.wav" volume={.48}/>
   <Cue at={350} filename="click.wav" volume={.33}/>
   <Cue at={494} filename="success.wav" volume={.39}/>
