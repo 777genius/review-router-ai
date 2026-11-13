@@ -226,4 +226,3 @@ function number(value: unknown): number | undefined {
     ? value
     : undefined;
 }
-
