@@ -1,4 +1,4 @@
-import { ReviewProgressGitHubError } from "./review-progress-github-gateway";
+import { ReviewProgressGitHubError } from "./review-progress-github-retry-policy";
 
 /** Derive retry metadata separately from persistence and result counters. */
 export function publicationRetryPlan(
