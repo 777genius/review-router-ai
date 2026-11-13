@@ -900,13 +900,14 @@ describe("ReviewProgressGitHubGateway", () => {
         retryAt: new Date("2026-08-12T12:01:00.250Z"),
       },
     });
-    expect((caught as ReviewProgressGitHubError).cause).toMatchObject({
-      mutationError: expect.objectContaining({ status: 429 }),
-      observationError: expect.objectContaining({
-        kind: "github_unavailable",
-        metadata: { status: 502 },
-      }),
-    });
+    const cause = (caught as ReviewProgressGitHubError).cause as {
+      mutationError: unknown;
+      observationError: unknown;
+    };
+    expect(cause.mutationError).toMatchObject({ status: 429 });
+    expect(cause.observationError).toBeInstanceOf(ReviewProgressGitHubError);
+    expect(cause.observationError).toHaveProperty("kind", "github_unavailable");
+    expect(cause.observationError).toHaveProperty("metadata.status", 502);
     expect(publicationRetryPlan(caught, () => now, 1_000)).toMatchObject({
       safeCode: "review_progress_rate_limited",
       retryAt: new Date("2026-08-12T12:01:00.250Z"),
@@ -972,10 +973,13 @@ describe("ReviewProgressGitHubGateway", () => {
         kind,
         metadata: { retryable: true, installationCooldownUntil: cooldown },
       });
-      expect((caught as ReviewProgressGitHubError).cause).toMatchObject({
-        mutationError: expect.objectContaining({ status: 429 }),
-        observationError: expect.objectContaining({ kind }),
-      });
+      const cause = (caught as ReviewProgressGitHubError).cause as {
+        mutationError: unknown;
+        observationError: unknown;
+      };
+      expect(cause.mutationError).toMatchObject({ status: 429 });
+      expect(cause.observationError).toBeInstanceOf(ReviewProgressGitHubError);
+      expect(cause.observationError).toHaveProperty("kind", kind);
       expect(publicationRetryPlan(caught, () => now, 1_000)).toMatchObject({
         safeCode: `review_progress_${kind}`,
         retryAt: cooldown,
