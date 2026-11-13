@@ -62,4 +62,3 @@ export function claimedPublicationFence(publication: ClaimedReviewProgress) {
     claimOwnerIdHash: publication.claim.ownerIdHash,
   };
 }
-
