@@ -1457,6 +1457,8 @@ export function composeReviewActionV2ProductionRoutes(input: {
   const accountGatewayRelay = accountGatewayRelayPolicy
     ? createReviewRunGatewayRelay({
         policy: accountGatewayRelayPolicy,
+        resolveNvidiaRepository: (authorization) =>
+          readCheckoutTarget(prisma, authorization),
         isSourceRunTerminal: createReviewRunGatewayTerminalRunReader({
           appId: githubAppId,
           privateKey: githubAppPrivateKey,

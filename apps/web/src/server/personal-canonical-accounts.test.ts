@@ -25,9 +25,11 @@ function fixture(
     lifecycleWritable?: boolean;
     grok?: boolean;
     disabled?: boolean;
+    nvidia?: "qualified" | "unqualified";
   } = {},
 ) {
   const grokProfileId = "grok-subscription-responses-oauth-v1";
+  const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
   let oauthBegun = false;
   let actor = "user-u",
     acknowledged = false,
@@ -37,7 +39,11 @@ function fixture(
     owner: { kind: "user", userId: actor },
     gatewayAccountRef: "private-account",
     gatewayOperationRef: null,
-    profileRef: options.grok ? grokProfileId : "profile-mimo",
+    profileRef: options.nvidia
+      ? nvidiaProfileId
+      : options.grok
+        ? grokProfileId
+        : "profile-mimo",
     displayName: "Personal",
     state: "active",
     metadataRevision: 10,
@@ -47,7 +53,11 @@ function fixture(
   let account = {
     accountRef: source.gatewayAccountRef,
     ownerRef: `rru_${createHash("sha256").update(`rr-user-owner-v1\0${actor}`).digest("hex")}`,
-    profileId: options.grok ? grokProfileId : "profile-mimo",
+    profileId: options.nvidia
+      ? nvidiaProfileId
+      : options.grok
+        ? grokProfileId
+        : "profile-mimo",
     displayName: "Personal",
     state: "active" as const,
     metadataRevision: 23,
@@ -149,6 +159,16 @@ function fixture(
                 protocol: "openai-responses" as const,
                 modelIds: ["grok-4.3"],
                 authKinds: ["oauth" as const],
+              },
+            ]
+          : []),
+        ...(options.nvidia
+          ? [
+              {
+                profileId: nvidiaProfileId,
+                protocol: "openai-responses" as const,
+                modelIds: ["nvidia/nemotron-3.5-super-vl-120b-a12b"],
+                authKinds: ["api_key" as const],
               },
             ]
           : []),
@@ -332,6 +352,31 @@ function fixture(
     canonical,
     control,
     profiles: [
+      ...(options.nvidia
+        ? [
+            {
+              id: nvidiaProfileId,
+              label: "NVIDIA Build",
+              provider: "nvidia" as const,
+              authKind: "api_key" as const,
+              canReconnect: true,
+              ...(options.nvidia === "qualified"
+                ? {
+                    availability: "enabled" as const,
+                    connection: {
+                      provider: "nvidia" as const,
+                      planLabel: "Trial",
+                      regionLabel: "Global",
+                      completionInputKind: "none" as const,
+                      personalOnly: false,
+                      limitsContract: "none" as const,
+                      modelSettings: [],
+                    },
+                  }
+                : {}),
+            },
+          ]
+        : []),
       ...(options.grok
         ? [
             {
@@ -425,6 +470,51 @@ function fixture(
 }
 
 describe("personal canonical UI server boundary", () => {
+  it("denies fresh unqualified NVIDIA enrollment but preserves existing account lifecycle", async () => {
+    const f = fixture({ nvidia: "unqualified" });
+    expect(
+      await f.api.submitGatewayApiKey(
+        "",
+        {
+          kind: "connect",
+          nonce,
+          profileId: "nvidia-build-chat-apikey-v1",
+          label: "Synthetic NVIDIA",
+        },
+        "synthetic-unqualified-key",
+      ),
+    ).toEqual({ status: "denied" });
+    expect(f.delegate.connect).not.toHaveBeenCalled();
+    const listed = await f.api.listGatewayAccounts("", null);
+    expect(listed.status).toBe("ok");
+    if (listed.status !== "ok") throw new Error("expected existing account");
+    expect(listed.value.accounts[0]?.profileId).toBe(
+      "nvidia-build-chat-apikey-v1",
+    );
+    const reconnected = await f.api.submitGatewayApiKey(
+      "",
+      f.request,
+      "synthetic-reconnect-key",
+    );
+    expect(reconnected.status).toBe("ok");
+  });
+
+  it("permits qualified NVIDIA fresh enrollment only through the existing Gateway account adapter", async () => {
+    const f = fixture({ nvidia: "qualified" });
+    const enrolled = await f.api.submitGatewayApiKey(
+      "",
+      {
+        kind: "connect",
+        nonce,
+        profileId: "nvidia-build-chat-apikey-v1",
+        label: "Synthetic NVIDIA",
+      },
+      "synthetic-qualified-key",
+    );
+    expect(enrolled.status).toBe("ok");
+    expect(f.delegate.connect).toHaveBeenCalledOnce();
+  });
+
   it.each(["api_key", "oauth"] as const)(
     "recovers an original %s connect nonce before catalog discovery without replay",
     async (authKind) => {

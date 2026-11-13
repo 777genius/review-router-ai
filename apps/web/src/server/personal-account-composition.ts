@@ -1,4 +1,8 @@
-import { connectionProfiles } from "./account-connection-catalog";
+import {
+  connectionProfiles,
+  connectionView,
+} from "./account-connection-catalog";
+import { gatewayAPIKeyProviderKinds } from "../features/provider-setup/provider-identity";
 import { createAccountLimitsService } from "./account-limits-service";
 import {
   accountLimitsReader,
@@ -11,6 +15,7 @@ import {
   createLifecycleClient,
   createConsumerControlClient,
   createManagementClient,
+  GatewayError,
 } from "@agent-teams/account-gateway/http";
 import {
   PrismaProviderAccountRepository,
@@ -106,7 +111,7 @@ export async function productionPersonalAccounts() {
   > = [...settings.apiKeyProfiles].map(([id, name]) => ({
     id,
     label: name,
-    provider: name === "MiMo" ? "codex-mimo" : "openrouter",
+    provider: gatewayAPIKeyProviderKinds[name],
     authKind: "api_key" as "api_key" | "oauth",
     canReconnect: true,
     ...(settings.apiKeyProfileBaseURLs.has(id)
@@ -163,6 +168,48 @@ export async function productionPersonalAccounts() {
         profile.authKind ? [{ ...profile, authKind: profile.authKind }] : [],
       ),
     );
+  }
+  // Personal enrollment shares the model picker's qualified vendor identity.
+  // An absent or incompatible capability must not advertise trial enrollment.
+  if (connectionCapabilities) {
+    let catalog: c.ProviderConnectionCapabilities | null = null;
+    try {
+      catalog = c.providerConnectionCapabilities.parse(
+        await connectionCapabilities,
+      );
+    } catch (error) {
+      // Only an absent optional endpoint permits legacy accounts.
+      // Never mask denied, malformed or failed provider authority.
+      if (
+        !(
+          error instanceof GatewayError &&
+          (error as GatewayError & { httpStatus?: number }).httpStatus === 404
+        )
+      )
+        throw error;
+    }
+    const nvidia = catalog?.capabilities.find(
+      (wire) =>
+        wire.profileId === "nvidia-build-chat-apikey-v1" &&
+        wire.provider.identity === "nvidia" &&
+        wire.protocol === "openai-responses" &&
+        wire.authMethods.includes("api_key") &&
+        wire.availability === "enabled",
+    );
+    if (nvidia) {
+      const index = profiles.findIndex(
+        (profile) =>
+          profile.id === nvidia.profileId &&
+          profile.authKind === "api_key" &&
+          profile.provider === "nvidia",
+      );
+      if (index !== -1)
+        profiles[index] = {
+          ...profiles[index]!,
+          availability: nvidia.availability,
+          connection: connectionView(nvidia),
+        };
+    }
   }
   const ingress = new Map(
     profiles.map((profile) => [

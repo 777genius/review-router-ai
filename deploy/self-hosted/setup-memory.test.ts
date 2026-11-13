@@ -54,6 +54,23 @@ async function releaseFixture() {
       await readFile(join(sourceRoot, source)),
     );
   }
+  // Test the selected manifest/archive identity, not only provenance metadata.
+  const sdk = JSON.parse(
+    await readFile(
+      join(sourceRoot, conversationReleaseSources.gatewaySdkProvenanceDigest),
+      "utf8",
+    ),
+  ) as { archive: string };
+  for (const source of [
+    "apps/api/package.json",
+    `vendor/account-gateway/${sdk.archive}`,
+  ]) {
+    await mkdir(dirname(join(directory, source)), { recursive: true });
+    await writeFile(
+      join(directory, source),
+      await readFile(join(sourceRoot, source)),
+    );
+  }
   const writeArtifact = async (value: unknown = declaration) => {
     const path = join(directory, conversationReleaseArtifact);
     await mkdir(dirname(path), { recursive: true });
@@ -61,6 +78,55 @@ async function releaseFixture() {
   };
   return { directory, declaration, writeArtifact };
 }
+
+test("release admission refuses a changed SDK manifest or archive even with matching provenance", async () => {
+  const f = await releaseFixture();
+  try {
+    await f.writeArtifact();
+    assert.equal(
+      (await readConversationRelease(f.directory)).status,
+      "available",
+    );
+    const sourceRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
+    const manifestPath = join(f.directory, "apps/api/package.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      dependencies: Record<string, string>;
+    };
+    manifest.dependencies["@agent-teams/account-gateway"] =
+      "file:../../vendor/account-gateway/unqualified.tgz";
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    assert.deepEqual(await readConversationRelease(f.directory), {
+      status: "unqualified",
+      reason: "release_source_mismatch",
+    });
+    await writeFile(
+      manifestPath,
+      await readFile(join(sourceRoot, "apps/api/package.json")),
+    );
+    const provenance = JSON.parse(
+      await readFile(
+        join(
+          f.directory,
+          conversationReleaseSources.gatewaySdkProvenanceDigest,
+        ),
+        "utf8",
+      ),
+    ) as { archive: string };
+    await writeFile(
+      join(f.directory, "vendor/account-gateway", provenance.archive),
+      "tampered archive",
+    );
+    assert.deepEqual(await readConversationRelease(f.directory), {
+      status: "unqualified",
+      reason: "release_source_mismatch",
+    });
+  } finally {
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
 
 test("absent release artifact leaves ordinary storage setup available without a conversation default", async () => {
   const f = await releaseFixture();
@@ -308,6 +374,51 @@ test("provider/service opt-outs never install release capability", async () => {
   }
 });
 
+test("conversation source identity refuses a different installed SDK or archive bytes", async () => {
+  const f = await releaseFixture();
+  try {
+    await currentConversationSourceStamp(f.directory);
+    const manifestPath = join(f.directory, "apps/api/package.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      dependencies: Record<string, string>;
+    };
+    manifest.dependencies["@agent-teams/account-gateway"] =
+      "file:../../vendor/account-gateway/unqualified.tgz";
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    await assert.rejects(
+      currentConversationSourceStamp(f.directory),
+      /conversation_sdk_manifest_mismatch/,
+    );
+    const sourceRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../..",
+    );
+    await writeFile(
+      manifestPath,
+      await readFile(join(sourceRoot, "apps/api/package.json")),
+    );
+    const source = JSON.parse(
+      await readFile(
+        join(
+          f.directory,
+          conversationReleaseSources.gatewaySdkProvenanceDigest,
+        ),
+        "utf8",
+      ),
+    ) as { archive: string };
+    await writeFile(
+      join(f.directory, "vendor/account-gateway", source.archive),
+      "changed SDK bytes",
+    );
+    await assert.rejects(
+      currentConversationSourceStamp(f.directory),
+      /conversation_sdk_archive_integrity_mismatch/,
+    );
+  } finally {
+    await rm(f.directory, { recursive: true, force: true });
+  }
+});
+
 test("source stamp is metadata only; stale existing v2 configuration stays intact but cannot authorize automatic capability", async () => {
   const f = await releaseFixture();
   try {
@@ -450,6 +561,7 @@ test("fresh dependency-free checkout consumes a source-coherent synthetic artifa
       "deploy/self-hosted/conversation-release.ts",
       "deploy/self-hosted/conversation-verifier.mjs",
       "packages/platform/config/src/conversation-source-files.ts",
+      "packages/platform/config/src/conversation-sdk-identity.ts",
     ]) {
       await mkdir(dirname(join(f.directory, path)), { recursive: true });
       await writeFile(

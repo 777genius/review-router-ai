@@ -288,7 +288,10 @@ export class PrismaUsageReportReader implements UsageReportReader {
           })),
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        timeout: 15_000,
+      },
     );
   }
   read(q: UsageReportQuery): Promise<readonly UsageProjection[]> {

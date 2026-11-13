@@ -246,7 +246,9 @@ export function createGatewayModelAccountOptions(input: {
           provider:
             discoverySource === "codex"
               ? ("openai" as const)
-              : ("openrouter" as const),
+              : discoverySource === "nvidia"
+                ? ("nvidia" as const)
+                : ("openrouter" as const),
           planLabel: profile.label,
           regionLabel: "Global",
           completionInputKind: "none" as const,
@@ -270,7 +272,9 @@ export function createGatewayModelAccountOptions(input: {
         // Only the Gateway's unavailable fallback admits the configured anchor.
         // Unsupported/unknown discovery cannot authorize profile seed models.
         const legacyModels =
-          models.status === "unavailable" ? [...profile.models] : [];
+          models.status === "unavailable" && discoverySource !== "nvidia"
+            ? [...profile.models]
+            : [];
         scopedProfile = {
           ...profile,
           models: legacyModels,

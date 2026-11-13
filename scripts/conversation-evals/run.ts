@@ -1,7 +1,8 @@
 import { randomUUID, createHash } from "node:crypto";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { currentConversationSourceStamp } from "../check-conversation-source-stamp.ts";
 import type { PrismaClient } from "@prisma/client";
 import {
   loadCorpus,
@@ -175,49 +176,16 @@ if (args.includes("--validate")) {
   }
   report.profile.storageProfile =
     process.env.REVIEW_ROUTER_MEMORY_PROVIDER_PROFILE ?? null;
-  report.profile.commonPromptSourceDigest = createHash("sha256")
-    .update(
-      await readFile(
-        new URL(
-          "../../packages/features/conversations/src/application/process-conversation.ts",
-          import.meta.url,
-        ),
-      ),
-    )
-    .digest("hex");
-  report.profile.gatewayPreviewSourceDigest = createHash("sha256")
-    .update(
-      await readFile(
-        new URL(
-          "../../apps/api/src/action-conversation-memory-preview.ts",
-          import.meta.url,
-        ),
-      ),
-    )
-    .digest("hex");
-  report.profile.accountPolicySourceDigest = createHash("sha256")
-    .update(
-      await readFile(
-        new URL(
-          "../../apps/api/src/action-conversation-policy.ts",
-          import.meta.url,
-        ),
-      ),
-    )
-    .digest("hex");
-  report.profile.gatewaySdkProvenanceDigest = createHash("sha256")
-    .update(
-      await readFile(
-        new URL(
-          "../../vendor/account-gateway/llm-sdk-provenance.json",
-          import.meta.url,
-        ),
-      ),
-    )
-    .digest("hex");
   let prisma: PrismaClient | undefined;
   let phase: EvaluationPhase = "configuration";
   try {
+    // Source integrity errors are UNAVAILABLE but must still write --out.
+    const sourceProfile = (
+      await currentConversationSourceStamp(
+        fileURLToPath(new URL("../..", import.meta.url)),
+      )
+    ).sourceProfile;
+    Object.assign(report.profile, sourceProfile);
     if (split === "holdout" && !report.holdoutCheckpoint)
       throw new Error("eval_holdout_checkpoint_required");
     const threads = corpus.threads.filter(

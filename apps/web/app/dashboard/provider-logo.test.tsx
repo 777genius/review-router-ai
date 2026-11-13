@@ -63,6 +63,31 @@ describe("provider display identity", () => {
     ).toContain('data-provider-logo="unknown"');
   });
 
+  it("preserves independent NVIDIA identity throughout shared account controls", () => {
+    const connection: AccountConnectionView = {
+      provider: "nvidia",
+      planLabel: "NVIDIA Build evaluation",
+      regionLabel: "Global",
+      completionInputKind: "none",
+      personalOnly: false,
+      limitsContract: "none",
+      modelSettings: [],
+    };
+    const html = renderToStaticMarkup(
+      <AccountIdentity
+        label="Synthetic sandbox"
+        profileLabel="NVIDIA Build"
+        provider="nvidia"
+        connection={connection}
+      />,
+    );
+    expect(html).toContain('data-provider-logo="nvidia"');
+    expect(html).not.toContain('data-provider-logo="openrouter"');
+    expect(
+      renderToStaticMarkup(<AccountProviderLogo provider="nvidia" />),
+    ).toContain('data-provider-logo="nvidia"');
+  });
+
   it("uses local path-only MiMo geometry and a distinct neutral fallback", () => {
     const mimo = renderToStaticMarkup(<ProviderLogo providerId="mimo" />);
     expect(mimo).toContain('viewBox="72 0 60 16"');

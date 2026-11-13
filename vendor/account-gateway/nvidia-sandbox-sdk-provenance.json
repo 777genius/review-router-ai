@@ -1,0 +1,33 @@
+{
+  "contract": "nvidia-sandbox-sdk-provenance/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz",
+  "sha256": "db48123fb46dc59b025af4a43a5b8d8af1230c14ed066b3225ca7a9d2d290ba9",
+  "integrity": "sha512-FB0Lhl+Di6I2xZ822/tOmjiY1NI8vq6qrOWo03aBjHrYOcU5tbQR46kjqMG5Fe4b5r+0TWwuN0EPtbAvAahWvA==",
+  "sdkSourceRepository": "agent-teams-ai/account-gateway",
+  "sdkSourceCommit": "c32ef9ed3360d2632a403be6c8e7e3bcf2780439",
+  "artifactRun": "https://github.com/agent-teams-ai/account-gateway/actions/runs/43008848474",
+  "artifactId": 13849063492,
+  "nativeSourceRepository": "agent-teams-ai/sub2api",
+  "nativeSourceE2ECommit": "a19cbcbedda8eccbe82bb24224052a1e9eaab309",
+  "qualification": {
+    "sdkArchiveBuilt": true,
+    "archiveChecksumVerified": true,
+    "pnpmLockfileRegenerated": true,
+    "sdkConsumerChecks": "pending_full_nondraft_exact_head_ci",
+    "independentNativeGoAndPostgresE2E": "passed_synthetic_postgres_and_hosted_streaming_bridge",
+    "hostedNvidiaBuildInference": "nemotron_direct_chat_sse_tool_replay_and_protected_native_sse_two_turn_pass",
+    "actualGitHubAppReview": "not_qualified"
+  },
+  "rollout": {
+    "syntheticSandboxOnly": true,
+    "publicPublished": false,
+    "productionActivated": false
+  },
+  "previousProvenance": "provider-connections-provenance.json",
+  "evidence": {
+    "hostedDirectStreaming": "https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43007767383",
+    "hostedProtectedNative": "https://github.com/777genius/rr-hosted-pool-e2e-20260927/actions/runs/43008527694",
+    "visualProviderUI": "https://github.com/777genius/review-router-ai/actions/runs/43009941246",
+    "nativePostgres": "https://github.com/agent-teams-ai/account-gateway/actions/runs/42922347760"
+  }
+}

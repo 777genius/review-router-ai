@@ -15,7 +15,7 @@ export function AccountProviderLogo({
   profileLabel?: string | undefined;
   providerId?: ProviderIdentity | undefined;
   connection?: AccountConnectionView | undefined;
-  provider?: ProviderKind | undefined;
+  provider?: ProviderKind | "nvidia" | undefined;
 }) {
   return (
     <ProviderLogo
@@ -35,7 +35,7 @@ export function AccountIdentity({
 }: {
   label: string;
   profileLabel?: string;
-  provider?: ProviderKind | undefined;
+  provider?: ProviderKind | "nvidia" | undefined;
   authKind?: string | undefined;
   connection?: AccountConnectionView | undefined;
 }) {

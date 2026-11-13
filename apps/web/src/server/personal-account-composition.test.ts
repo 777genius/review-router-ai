@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProviderAccountError } from "@reviewrouter/features-provider-accounts";
 import { accountModelCatalogResponseBytes } from "@reviewrouter/features-provider-accounts/composition";
-import { createConsumerControlClient } from "@agent-teams/account-gateway/http";
+import {
+  createConsumerControlClient,
+  GatewayError,
+} from "@agent-teams/account-gateway/http";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import * as composition from "./personal-account-composition";
 import { detachRecipientPersonalAccount } from "../../app/dashboard/personal-account-actions";
@@ -15,6 +18,7 @@ const h = vi.hoisted(() => ({
   models: vi.fn(),
   capabilities: vi.fn(),
   subscriptionProfileIds: undefined as string[] | undefined,
+  nvidiaProfile: false,
   control: {
     profiles: vi.fn(),
     get: vi.fn(),
@@ -61,7 +65,12 @@ vi.mock("@reviewrouter/features-provider-accounts/synchronization", () => ({
 }));
 vi.mock("./account-gateway-accounts", () => ({
   accountGatewayProfilesConfiguration: () => ({
-    apiKeyProfiles: new Map([["profile", "MiMo"]]),
+    apiKeyProfiles: new Map<string, "MiMo" | "NVIDIA Build">([
+      ["profile", "MiMo"],
+      ...(h.nvidiaProfile
+        ? ([["nvidia-build-chat-apikey-v1", "NVIDIA Build"]] as const)
+        : []),
+    ]),
     apiKeyProfileBaseURLs: new Map(),
     ...(h.subscriptionProfileIds
       ? { subscriptionProfileIds: h.subscriptionProfileIds }
@@ -96,6 +105,7 @@ const scopeRow = (
 beforeEach(() => {
   vi.clearAllMocks();
   h.subscriptionProfileIds = undefined;
+  h.nvidiaProfile = false;
   h.capabilities.mockReset();
   h.actor.mockReset().mockResolvedValue({ userId: "actual-u" });
   h.workspace.mockReset().mockResolvedValue(scopeRow());
@@ -344,6 +354,78 @@ it("applies qualified model settings to existing API-key profiles as well as sub
   expect(h.control.get).not.toHaveBeenCalled();
   expect(h.control.operation).not.toHaveBeenCalled();
 });
+it("advertises personal NVIDIA enrollment only with the verified vendor capability", async () => {
+  h.subscriptionProfileIds = [];
+  h.nvidiaProfile = true;
+  const nvidiaCapability = {
+    ...glmCapability,
+    profileId: "nvidia-build-chat-apikey-v1",
+    provider: { identity: "nvidia", label: "NVIDIA Build" },
+    plan: { identity: "unknown", label: "NVIDIA trial" },
+    modelIds: ["nvidia/nemotron-3.5-super-vl-120b-a12b"],
+    models: [
+      {
+        ...glmCapability.models[0]!,
+        modelId: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+      },
+    ],
+  };
+  h.capabilities.mockResolvedValue({
+    contract: "provider-connections/v1",
+    capabilities: [nvidiaCapability],
+  });
+  await composition.productionPersonalAccounts();
+  let input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
+  expect(input.profiles).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: nvidiaCapability.profileId,
+        connection: expect.objectContaining({ provider: "nvidia" }),
+        availability: "enabled",
+      }),
+    ]),
+  );
+  vi.mocked(createPersonalCanonicalAccounts).mockClear();
+  h.capabilities.mockResolvedValue({
+    contract: "provider-connections/v1",
+    capabilities: [
+      {
+        ...nvidiaCapability,
+        provider: { identity: "openrouter", label: "OpenRouter" },
+      },
+    ],
+  });
+  await composition.productionPersonalAccounts();
+  input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
+  expect(
+    input.profiles.find((profile) => profile.id === nvidiaCapability.profileId)
+      ?.connection,
+  ).toBeUndefined();
+});
+
+it.each([404, 403] as const)(
+  "personal capability HTTP %i preserves legacy only for absent endpoint",
+  async (httpStatus) => {
+    h.subscriptionProfileIds = [];
+    h.nvidiaProfile = true;
+    h.capabilities.mockRejectedValue(
+      Object.assign(new GatewayError("safe_error", "not_dispatched"), {
+        httpStatus,
+      }),
+    );
+    if (httpStatus === 404) {
+      await expect(
+        composition.productionPersonalAccounts(),
+      ).resolves.not.toBeNull();
+      expect(createPersonalCanonicalAccounts).toHaveBeenCalledOnce();
+    } else {
+      await expect(composition.productionPersonalAccounts()).rejects.toThrow();
+      expect(createPersonalCanonicalAccounts).not.toHaveBeenCalled();
+    }
+    expect(h.capabilities).toHaveBeenCalledOnce();
+  },
+);
+
 it("revalidates the current actor after the awaited capability read", async () => {
   h.subscriptionProfileIds = [glmCapability.profileId];
   h.capabilities.mockImplementation(async () => {

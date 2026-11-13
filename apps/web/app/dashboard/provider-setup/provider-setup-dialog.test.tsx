@@ -1572,6 +1572,59 @@ describe("ProviderSetupDialog", () => {
     },
   );
 
+  it("shows NVIDIA as Gateway-owned and requires a saved credential before account creation", async () => {
+    const fixture = gatewayFixture();
+    if (fixture.status !== "ok") throw new Error("fixture unavailable");
+    const profile = fixture.value.profiles[0]!;
+    const model = "nvidia/nemotron-3.5-super-vl-120b-a12b";
+    profile.id = "nvidia-build-chat-apikey-v1";
+    profile.label = "NVIDIA Build (evaluation)";
+    profile.provider = "nvidia";
+    profile.models = [model];
+    profile.connection = {
+      ...profile.connection!,
+      provider: "nvidia",
+      modelSettings: [
+        {
+          modelId: model,
+          reasoning: null,
+          fast: null,
+          tools: { allowed: ["function"], default: "function" },
+        },
+      ],
+    };
+    // This fixture has a discoverable provider profile, but no saved account.
+    // A provider catalog alone must not allow repository assignment.
+    fixture.value.accounts = [];
+    fixture.value.nextCursor = null;
+    view = {
+      ...view,
+      sources: apiSources(),
+      gatewaySetupProviders: ["nvidia"],
+    };
+    renderDialog(repositoryTarget, { gatewayAccounts: fixture });
+    await choose("Add a new provider");
+    await chooseSelect("Provider", "NVIDIA Build (evaluation)");
+    // A discovered NVIDIA profile is not a saved account: the model picker
+    // must remain hidden until an authorized connection exists.
+    await screen.findByRole("link", { name: "Connect account" });
+    expect(screen.queryByRole("combobox", { name: "Model" })).toBeNull();
+    expect(
+      screen
+        .getByRole("radio", { name: "ReviewRouter" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("radio", { name: "GitHub Secrets" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "Use for this repository" }),
+    ).toHaveProperty("disabled", true);
+    expect(saveProviderRosterAction).not.toHaveBeenCalled();
+  });
+
   it("requires an explicit account choice when several matching connections are available", async () => {
     const fixture = gatewayFixture();
     if (fixture.status !== "ok") throw new Error("fixture unavailable");

@@ -101,6 +101,88 @@ describe("Gateway model catalog presentation", () => {
     expect(option?.description).not.toContain("not confirmed");
   });
 
+  it("admits only the live-qualified NVIDIA Nemotron tool model with its own fresh account proof", () => {
+    const modelId = "nvidia/nemotron-3.5-super-vl-120b-a12b";
+    const profile = {
+      models: [modelId],
+      connection: {
+        provider: "nvidia" as const,
+        planLabel: "Trial",
+        regionLabel: "Global",
+        completionInputKind: "none" as const,
+        personalOnly: false,
+        limitsContract: "none" as const,
+        modelSettings: [
+          {
+            modelId,
+            reasoning: null,
+            fast: null,
+            tools: {
+              allowed: ["function"] as const,
+              default: "function" as const,
+            },
+          },
+        ],
+      },
+    };
+    const catalog = {
+      status: "snapshot" as const,
+      source: "nvidia" as const,
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      models: [modelId],
+    };
+    const [approved] = gatewayProviderModelOptions([], profile, {
+      catalog,
+      requiresTools: true,
+    });
+    expect(approved?.provider).toBe("nvidia");
+    expect(approved?.disabled).toBe(false);
+
+    const [wrongSource] = gatewayProviderModelOptions([], profile, {
+      catalog: { ...catalog, source: "openrouter" },
+      requiresTools: true,
+    });
+    expect(wrongSource?.disabled).toBe(true);
+    expect(wrongSource?.description).toContain(
+      "NVIDIA account model qualification unavailable.",
+    );
+
+    const [expired] = gatewayProviderModelOptions([], profile, {
+      catalog: {
+        ...catalog,
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+      requiresTools: true,
+    });
+    expect(expired?.disabled).toBe(true);
+
+    const noTools = {
+      ...profile,
+      connection: {
+        ...profile.connection,
+        modelSettings: [
+          {
+            modelId,
+            reasoning: null,
+            fast: null,
+            tools: { allowed: ["none"] as const, default: "none" as const },
+          },
+        ],
+      },
+    };
+    const [notToolQualified] = gatewayProviderModelOptions([], noTools, {
+      catalog,
+      requiresTools: true,
+    });
+    expect(notToolQualified?.disabled).toBe(true);
+    const [textOnly] = gatewayProviderModelOptions([], noTools, {
+      catalog,
+      requiresTools: false,
+    });
+    expect(textOnly?.disabled).toBe(false);
+  });
+
   it("keeps true native tools:none unavailable for a tool-using review", () => {
     const [option] = gatewayProviderModelOptions(
       [{ ...stalePublic, disabled: false, badge: "PAID" }],

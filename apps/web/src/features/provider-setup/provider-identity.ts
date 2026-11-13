@@ -11,8 +11,19 @@ import type {
 /** Display identity only. An engine, model or editable label is not a brand. */
 export type ProviderIdentity = AccountUpstreamProvider;
 
+/** One trusted label-to-runtime-kind mapping for configured Gateway API keys.
+ * The upstream identity still comes from the account's verified capability;
+ * this mapping grants neither model nor credential authority. */
+export const gatewayAPIKeyProviderKinds = {
+  MiMo: "codex-mimo",
+  OpenRouter: "openrouter",
+  "NVIDIA Build": "nvidia",
+} as const satisfies Readonly<Record<string, ProviderKind | "nvidia">>;
+
+export type GatewayAPIKeyProfileName = keyof typeof gatewayAPIKeyProviderKinds;
+
 export function providerIdentityForKind(
-  kind: ProviderKind | undefined,
+  kind: ProviderKind | "nvidia" | undefined,
 ): ProviderIdentity | undefined {
   switch (kind) {
     case "codex":
@@ -22,6 +33,7 @@ export function providerIdentityForKind(
     case "claude":
       return "anthropic";
     case "openrouter":
+    case "nvidia":
     case "kimi":
       return kind;
     default:
@@ -42,7 +54,7 @@ export function accountProviderIdentity(
   profile:
     | Readonly<{
         connection?: AccountConnectionView | undefined;
-        provider?: ProviderKind | undefined;
+        provider?: ProviderKind | "nvidia" | undefined;
       }>
     | undefined,
 ): ProviderIdentity | undefined {

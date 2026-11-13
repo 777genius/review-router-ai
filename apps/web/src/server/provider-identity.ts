@@ -1,6 +1,8 @@
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
 import {
   providerIdentityForAuthMode,
+  providerIdentityForKind,
+  gatewayAPIKeyProviderKinds,
   type ProviderIdentity,
 } from "../features/provider-setup/provider-identity";
 import { subscriptionProfileProviders } from "./account-connection-catalog";
@@ -26,11 +28,9 @@ export function savedProviderIdentity(input: {
   try {
     const provider =
       accountGatewayProfilesConfiguration().apiKeyProfiles.get(ref);
-    return provider === "MiMo"
-      ? "mimo"
-      : provider === "OpenRouter"
-        ? "openrouter"
-        : undefined;
+    return provider
+      ? providerIdentityForKind(gatewayAPIKeyProviderKinds[provider])
+      : undefined;
   } catch {
     // An unavailable/retired catalog cannot justify guessing from a label/model.
     return undefined;

@@ -46,7 +46,10 @@ export class PrismaOperatorUsageReportReader implements UsageOperatorReportReade
           })),
         };
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        timeout: 15_000,
+      },
     );
   }
 }

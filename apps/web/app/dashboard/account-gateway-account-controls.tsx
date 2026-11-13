@@ -976,7 +976,11 @@ function Controls({
       ? data.value.profiles.filter(
           (p) =>
             centrallyEnrollAllowed(p) &&
-            (personal || !p.connection?.personalOnly),
+            (personal || !p.connection?.personalOnly) &&
+            (p.provider !== "nvidia" ||
+              (p.id === "nvidia-build-chat-apikey-v1" &&
+                p.availability === "enabled" &&
+                p.connection?.provider === "nvidia")),
         )
       : [];
   const enrollmentAccounts = data?.status === "ok" ? data.value.accounts : [];

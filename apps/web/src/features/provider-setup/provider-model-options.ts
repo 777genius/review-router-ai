@@ -16,9 +16,11 @@ export function gatewayProviderModelOptions(
   const nativeSource =
     profile?.connection?.provider === "openrouter"
       ? "openrouter"
-      : profile?.connection?.provider === "openai"
-        ? "codex"
-        : undefined;
+      : profile?.connection?.provider === "nvidia"
+        ? "nvidia"
+        : profile?.connection?.provider === "openai"
+          ? "codex"
+          : undefined;
   const now = Date.now();
   const freshNative =
     catalog?.status === "snapshot" &&
@@ -33,7 +35,8 @@ export function gatewayProviderModelOptions(
         (value): ReviewModelOption => ({
           value,
           label: value,
-          provider: "codex",
+          provider:
+            profile?.connection?.provider === "nvidia" ? "nvidia" : "codex",
         }),
       ),
   ].map((option): ReviewModelOption => {
@@ -51,7 +54,22 @@ export function gatewayProviderModelOptions(
             (setting) => setting.modelId === option.value,
           )
         : undefined;
-    if (!native) return option;
+    if (!native) {
+      // Trial model membership must come from this exact NVIDIA account,
+      // not a public model name or a stale/cross-vendor snapshot.
+      return profile?.connection?.provider === "nvidia"
+        ? {
+            ...option,
+            disabled: true,
+            description: [
+              option.description,
+              "NVIDIA account model qualification unavailable.",
+            ]
+              .filter(Boolean)
+              .join(" "),
+          }
+        : option;
+    }
     const refused =
       capability?.requiresTools !== false &&
       !native.tools.allowed.some(
