@@ -53,3 +53,28 @@ The current main-branch README and capabilities document describe OpenCodeReview
 ## Focused current cut
 
 `ReviewRouterV6` is the current edit; render it with `npm run render:latest`. Repository setup now shows one stage at a time beside the selected GitHub repository, with a large icon and a simple five-position progress line. NVIDIA appears in the same provider grid as the other choices, explicitly labelled as a free model via OpenRouter. The GitHub sign-in cursor is aligned to the button. MCP tools and review skills feed into ReviewRouter through animated paths rather than separate cards. Findings and usage remain illustrative; the benchmark remains the upstream OpenCodeReview comparison described above.
+
+## ReviewRouter V7 (greenfield visual version, isolated)
+
+V7 keeps the V6 story and demo data caveats but creates a separate nine-scene visual system. It does **not** overwrite V6. The 216-frame motion proof is an independent composition for reviewing the provider → repository → finding transition before accepting the full movie.
+
+Requirements: a checkout of this repository with Node.js, npm, and a supported browser. Run from `artifacts/reviewrouter-video`:
+
+```sh
+npm ci
+npm run prepare:v7
+npm run studio:v7
+npm run render:v7-proof
+npm run render:v7
+```
+
+- `ReviewRouterV7Proof`: 216 frames (7.2 s), 1920×1080, 30fps; output `out/reviewrouter-v7-proof.mp4`.
+- `ReviewRouterV7`: 1002 frames (33.4 s), 1920×1080, 30fps; output `out/reviewrouter-v7.mp4`.
+- `npm run render:latest` still targets V6 and must remain unchanged until V7 is explicitly accepted.
+- `scripts/prepare-v7-assets.mjs` copies the existing OFL-licensed product fonts into local `public/v7-fonts` and synthesizes three original local SFX into `public/v7-sfx`. Both generated directories are ignored by Git. The original font license is at `apps/web/app/fonts/OFL.txt`.
+- Current scene content is a **concept visualization**, not a recording of an authorized user account or an actual repository setup. Demo PR, finding and dashboard numbers are illustrative.
+- “~9.5× faster” references upstream OpenCodeReview AACR-Bench with Claude 4.6 Opus (1:23 vs 13:06). “~14.7× fewer tokens” uses 385K vs 5,664K. Neither is an independently measured ReviewRouter result. Source: https://arxiv.org/abs/2608.09290.
+- Exact high-level design decisions and four criticism/revision rounds: [V7-PRODUCTION-PLAN.md](V7-PRODUCTION-PLAN.md). Component research: [V7-DEEP-MOTION-RESEARCH.md](V7-DEEP-MOTION-RESEARCH.md).
+- Native CI artifact workflow: [reviewrouter-video-v7-preview.yml](../../.github/workflows/reviewrouter-video-v7-preview.yml). This link is illustrative from the video folder; GitHub workflow runs appear under the repository Actions tab.
+
+**Acceptance gate:** TypeScript pass, three proof frame previews, rendered 7.2-second proof, full native MP4 and manual viewing at full and half-size. A successful command alone is not sufficient. If the GitHub Actions runner is queued, that is not evidence of a passed render.

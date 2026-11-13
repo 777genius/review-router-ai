@@ -19,8 +19,6 @@ const C = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
 const ease = Easing.bezier(0, 0, 0.2, 1);
 const prog = (f: number, a: number, b: number) =>
   interpolate(f, [a, b], [0, 1], {...C, easing: ease});
-const exit = (f: number, a: number, b: number) =>
-  interpolate(f, [a, b], [0, 1], {...C, easing: Easing.bezier(0.4, 0, 1, 1)});
 const lift = (f: number, start: number, distance = 36) =>
   `translateY(${(1 - prog(f, start, start + 19)) * distance}px)`;
 const COLOR = {cyan: '#00e5ff', lime: '#a6ff00', magenta: '#ff2bd6', mute: '#8ea4b8'} as const;
@@ -76,7 +74,7 @@ const Footer: React.FC<{detail?: string}> = ({detail = 'ILLUSTRATIVE DEMO · NO 
 
 const Scene: React.FC<{length: number; children: React.ReactNode; label: string}> = ({length, children, label}) => {
   const f = useCurrentFrame();
-  const alpha = Math.min(prog(f, 0, 9), 1 - exit(f, length - 9, length));
+  const alpha = prog(f, 0, 7); // Keep the departing scene fully visible until the overlap completes.
   return <AbsoluteFill style={{opacity: alpha}}>
     <TopBar count={String(Math.max(1, SECTIONS.findIndex(s => s.name === label) + 1)).padStart(2, '0')} caption={label}/>
     {children}
@@ -344,6 +342,17 @@ const Outro: React.FC = () => {
   </>;
 };
 
+/** A single authored signal connects the provider action to the repository choice. */
+const SignalBridge: React.FC = () => {
+  const f = useCurrentFrame();
+  const visibility = prog(f, 240, 251) * (1 - prog(f, 310, 325));
+  const draw = prog(f, 252, 304);
+  return <svg aria-hidden="true" viewBox="0 0 1920 1080" width="1920" height="1080" style={{position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 30, opacity: visibility}}>
+    <path d="M305 738 C530 795 700 800 810 728 S1210 605 1320 618" fill="none" stroke="#00e5ff" strokeWidth="2.8" strokeLinecap="round" opacity=".22"/>
+    <path d="M305 738 C530 795 700 800 810 728 S1210 605 1320 618" fill="none" stroke="#71ecf3" strokeWidth="4" strokeLinecap="round" strokeDasharray="1500" strokeDashoffset={1500 * (1 - draw)} style={{filter: 'drop-shadow(0 0 11px #00e5ff)'}}/>
+  </svg>;
+};
+
 const MusicAndSfx: React.FC<{duration: number}> = ({duration}) => {
   const f = useCurrentFrame();
   const volume = .36 * Math.min(1, f / 18, (duration - f) / 30);
@@ -368,6 +377,7 @@ export const VideoV7: React.FC = () => <AbsoluteFill className="v7">
   <Sequence from={SECTIONS[6].from} durationInFrames={SECTIONS[6].frames}><Scene length={SECTIONS[6].frames} label="INSIGHTS"><Stats/></Scene></Sequence>
   <Sequence from={SECTIONS[7].from} durationInFrames={SECTIONS[7].frames}><Scene length={SECTIONS[7].frames} label="BENCHMARK"><Bench/></Scene></Sequence>
   <Sequence from={SECTIONS[8].from} durationInFrames={SECTIONS[8].frames}><Scene length={SECTIONS[8].frames} label="OUTRO"><Outro/></Scene></Sequence>
+<SignalBridge/>
 </AbsoluteFill>;
 
 /** A small, real 216-frame Remotion composition to verify semantic motion before full video. */
