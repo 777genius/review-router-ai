@@ -84,6 +84,13 @@ Use **exactly the same** copy, screenshots, sections and palette in all 3. Only 
 - Check external asset licenses per image/video/font; pin source commit and preserve MIT copyright notice. A repository MIT license does not automatically license arbitrary imported third-party artwork.
 - After page selection: run `impeccable audit` and `detect` with target and 390 mobile viewport as a **supporting QA tool**, never treat its score as evidence of conversion or user comprehension.
 
+
+### Weighted-score sanity check (important correction)
+
+Using the declared 30/25/20/15/10 weights above and the subjective 1–10 category scores, the **computed** full-shell scores are: **Launch UI 7.75; Dusk 7 shell 7.55; Dusk 2 shell 7.40; Tailark Dusk 7 complete site 6.38; Velora whole site 6.45; Page UI whole site 5.65**. Velora selected screenshot/motion blocks score 7.53, but this is a **component-donor** evaluation rather than a complete page candidate; likewise the Page UI product-tour interaction is not comparable with a full layout. These ratings have no controlled user-study or browser-performance evidence.
+
+This reverses the earlier unconditional “Dusk wins” narrative: **if integration risk and clarity carry the declared weights, Launch UI narrowly leads**. Tailark may still win a *visual-authenticity* evaluation after real side-by-side prototypes, but it is not proven from the source alone. Our recommended next decision is therefore **compare Launch UI vs Tailark Dusk 7 visually with the same real product assets and content**; keep Velora as the animation-only fallback rather than assuming a full-site transplant is better.
+
 ## Updated recommendation
 
-**Do not clone one full marketing site into ReviewRouter.** Select **Tailark Dusk 7 or Launch UI as a layout donor**, implement one bounded 4-state findings demo using existing React/Radix UI, show one real analytics dashboard preview, and use custom CSS or a single MIT Motion primitive for animation. This best balances visual originality, shipping safety, accessibility, and reusability. The current Draft PR is research-only; no candidate has an E2E-qualified implementation and none should be merged as a landing change.
+**Do not clone one full marketing site into ReviewRouter.** Compare **Launch UI and Tailark Dusk 7 as alternative layout donors**, implement one bounded 4-state findings demo using existing React/Radix UI, show one real analytics dashboard preview, and use custom CSS or a single MIT Motion primitive for animation. This best balances visual originality, shipping safety, accessibility, and reusability. The current Draft PR is research-only; no candidate has an E2E-qualified implementation and none should be merged as a landing change.
