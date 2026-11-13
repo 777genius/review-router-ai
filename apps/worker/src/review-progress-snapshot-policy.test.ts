@@ -118,6 +118,7 @@ describe("Review progress snapshot policy", () => {
     const counts = validSnapshot.counts;
     for (const invalid of [
       { ...counts, requiredCompleted: 2 },
+      { ...counts, requiredCompleted: 0, optionalCompleted: 1 },
       { ...counts, optionalTotal: 1 },
       { ...counts, running: 0 },
       { ...counts, requiredExhausted: 1 },

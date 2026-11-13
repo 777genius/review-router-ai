@@ -57,6 +57,10 @@ function assertTerminalCounts(
   )
     throw new Error("review_progress_snapshot_invalid");
   if (
+    requiredCompleted + requiredExhausted + requiredCancelled > requiredTotal
+  )
+    throw new Error("review_progress_snapshot_invalid");
+  if (
     terminal === "complete" &&
     (requiredCompleted !== requiredTotal ||
       requiredExhausted !== 0 ||

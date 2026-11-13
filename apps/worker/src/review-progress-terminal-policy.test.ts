@@ -78,6 +78,24 @@ describe("Review progress terminal policy", () => {
     }
   });
 
+  it("rejects required gap counts exceeding the declared total", () => {
+    expect(() =>
+      terminalSnapshot(
+        {
+          schemaVersion: 1,
+          counts: {
+            requiredCompleted: 0,
+            requiredTotal: 1,
+            requiredExhausted: 1,
+            requiredCancelled: 1,
+          },
+        },
+        "complete_with_gaps",
+        now,
+      ),
+    ).toThrow("review_progress_snapshot_invalid");
+  });
+
   it("accepts a genuine partially completed required outcome", () => {
     const snapshot = {
       schemaVersion: 1,
