@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  commentPageScanDecision,
   confirmedReconciliation,
   hasNextCommentPage,
   ownsMarker,
@@ -51,6 +52,23 @@ describe("Review progress GitHub comment policy", () => {
     expect(hasNextCommentPage({ LINK: `${previous}, ${next}` })).toBe(true);
     expect(hasNextCommentPage({})).toBeUndefined();
   });
+
+  it.each([
+    [false, 100, 5, 5, "complete"],
+    [undefined, 99, 5, 5, "complete"],
+    [undefined, 100, 1, 5, "continue"],
+    [true, 100, 1, 5, "continue"],
+    [true, 100, 5, 5, "inconclusive"],
+    [undefined, 100, 5, 5, "inconclusive"],
+    ["invalid", 1, 1, 5, "inconclusive"],
+  ] as const)(
+    "classifies a bounded page scan with Link %s, %i comments on page %i/%i",
+    (hasNextPage, count, page, maxPages, expected) => {
+      expect(
+        commentPageScanDecision(hasNextPage, count, page, maxPages),
+      ).toBe(expected);
+    },
+  );
 
   it("rejects empty, malformed and non-string Link headers", () => {
     const malformed = `<https://api.github.com/comments?page=2>; rel=next`;

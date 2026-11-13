@@ -1,4 +1,5 @@
 import {
+  commentPageScanDecision,
   confirmedReconciliation,
   hasNextCommentPage,
   ownsMarker,
@@ -237,14 +238,14 @@ export class ReviewProgressGitHubGateway {
         const comment = parseCommentOrNull(value);
         if (comment && ownsMarker(comment, input)) matches.push(comment);
       }
-      // Trust a complete GitHub Link header; without one, stay fail-closed at the cap.
-      if (
-        hasNextPage === false ||
-        (hasNextPage === undefined && comments.length < 100)
-      ) {
-        break;
-      }
-      if (hasNextPage === "invalid" || page === this.maxCommentPages) {
+      const decision = commentPageScanDecision(
+        hasNextPage,
+        comments.length,
+        page,
+        this.maxCommentPages,
+      );
+      if (decision === "complete") break;
+      if (decision === "inconclusive") {
         throw failure(
           "pagination_inconclusive",
           "github_issue_comments_pagination_inconclusive",

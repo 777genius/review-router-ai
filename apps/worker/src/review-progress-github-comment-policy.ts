@@ -28,6 +28,26 @@ export function confirmedReconciliation(
   });
 }
 
+/** Decide whether a bounded GitHub issue-comment scan is complete. */
+export function commentPageScanDecision(
+  hasNextPage: boolean | "invalid" | undefined,
+  commentsOnPage: number,
+  page: number,
+  maxPages: number,
+): "complete" | "continue" | "inconclusive" {
+  // Without a complete Link header, a full page is not proof of completion.
+  if (
+    hasNextPage === false ||
+    (hasNextPage === undefined && commentsOnPage < 100)
+  ) {
+    return "complete";
+  }
+  if (hasNextPage === "invalid" || page === maxPages) {
+    return "inconclusive";
+  }
+  return "continue";
+}
+
 /** Only complete pagination on a well-formed GitHub Link header. */
 export function hasNextCommentPage(
   headers: Readonly<Record<string, string | number | undefined>> | undefined,
