@@ -22,6 +22,11 @@ export function publicationRetryPlan(
           : retryDelayMs),
     );
   }
+  // Never retry before GitHub's hard boundary, even after an inconclusive scan.
+  const retryNotBefore = githubError?.metadata.retryNotBefore;
+  if (retryNotBefore && retryNotBefore.getTime() > retryAt.getTime()) {
+    retryAt = retryNotBefore;
+  }
   const mutationCooldown = githubError?.metadata.installationCooldownUntil;
   if (mutationCooldown && mutationCooldown.getTime() > retryAt.getTime()) {
     retryAt = mutationCooldown;

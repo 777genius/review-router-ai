@@ -54,4 +54,17 @@ describe("Review progress publication retry policy", () => {
       retryAt: new Date("2026-11-12T12:00:05.000Z"),
     });
   });
+  it("honors a later hard boundary for inconclusive scans", () => {
+    const retryNotBefore = new Date("2026-11-12T14:00:00.000Z");
+    const error = new ReviewProgressGitHubError(
+      "pagination_inconclusive",
+      "github_issue_comments_pagination_inconclusive",
+      { retryable: true, retryNotBefore },
+    );
+    expect(publicationRetryPlan(error, now, 2_000)).toEqual({
+      safeCode: "review_progress_pagination_inconclusive",
+      retryAt: retryNotBefore,
+      countFailure: false,
+    });
+  });
 });

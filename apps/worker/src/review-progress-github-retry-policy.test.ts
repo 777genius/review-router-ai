@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyGitHubFailure,
+  reconciliationFailure,
   ReviewProgressGitHubError,
   fallbackRetryAt,
   isSecondaryRateLimitResponse,
@@ -164,5 +165,34 @@ describe("Review progress GitHub retry policy", () => {
     expect(revoked.metadata.retryable).toBe(false);
     expect(outage.kind).toBe("github_unavailable");
     expect(outage.metadata.retryable).toBe(true);
+  });
+  it("keeps a long PATCH outage boundary after a rate-limited GET", () => {
+    const mutationError = {
+      status: 503,
+      response: { headers: { "retry-after": "7200" } },
+    };
+    const observationError = new ReviewProgressGitHubError(
+      "rate_limited",
+      "github_progress_comment_rate_limited",
+      {
+        status: 429,
+        retryable: true,
+        retryNotBefore: new Date("2026-08-12T12:01:00.000Z"),
+        retryAt: new Date("2026-08-12T12:01:00.250Z"),
+      },
+    );
+    const result = reconciliationFailure(
+      mutationError,
+      observationError,
+      () => now,
+      () => 0,
+    );
+    expect(result.kind).toBe("rate_limited");
+    expect(result.metadata.retryAt).toEqual(
+      new Date("2026-08-12T14:00:00.250Z"),
+    );
+    expect(result.metadata.retryNotBefore).toEqual(
+      new Date("2026-08-12T14:00:00.000Z"),
+    );
   });
 });

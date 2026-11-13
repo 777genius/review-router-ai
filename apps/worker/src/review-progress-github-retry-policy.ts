@@ -238,10 +238,15 @@ export function reconciliationFailure(
       mutationFailure.kind === "rate_limited"
         ? mutationFailure.metadata.retryAt
         : undefined;
+    const mutationRetryAt =
+      mutationFailure.kind === "rate_limited" ||
+      mutationFailure.kind === "github_unavailable"
+        ? mutationFailure.metadata.retryAt
+        : undefined;
     const observationRetryAt = observationError.metadata.retryAt;
     const retryAt =
       observationError.kind === "rate_limited"
-        ? laterRetryBoundary(mutationCooldown, observationRetryAt)
+        ? laterRetryBoundary(mutationRetryAt, observationRetryAt)
         : observationRetryAt;
     const retryNotBefore = laterRetryBoundary(
       mutationFailure.metadata.retryNotBefore,
