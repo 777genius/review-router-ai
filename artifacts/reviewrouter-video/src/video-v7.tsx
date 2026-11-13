@@ -1,12 +1,12 @@
 import React from 'react';
 import {
-  AbsoluteFill, Img, Sequence, Interactive, interpolate, Easing,
+  AbsoluteFill, Img, Sequence, interpolate, Easing,
   staticFile, useCurrentFrame,
 } from 'remotion';
 import {Audio} from '@remotion/media';
 import {
-  ArrowRight, Check, GitBranch, GitPullRequest, ShieldCheck,
-  MousePointer2, Zap, PlugZap, Sparkles, Eye, Code2,
+  ArrowRight, Check, GitBranch, ShieldCheck,
+  PlugZap, Sparkles, Code2,
   CircleCheck, Search, AlertTriangle,
 } from 'lucide-react';
 import {ProviderMark} from './provider-logo';
@@ -22,8 +22,7 @@ const prog = (f: number, a: number, b: number) =>
 const exit = (f: number, a: number, b: number) =>
   interpolate(f, [a, b], [0, 1], {...C, easing: Easing.bezier(0.4, 0, 1, 1)});
 const lift = (f: number, start: number, distance = 36) =>
-  `translateY(\${(1 - prog(f, start, start + 19)) * distance}px)`;
-const fmt = (s: string) => s;
+  `translateY(${(1 - prog(f, start, start + 19)) * distance}px)`;
 const COLOR = {cyan: '#00e5ff', lime: '#a6ff00', magenta: '#ff2bd6', mute: '#8ea4b8'} as const;
 
 const SECTIONS = [
@@ -44,7 +43,7 @@ const Backdrop: React.FC = () => {
   const f = useCurrentFrame();
   return <AbsoluteFill className="v7">
     <div className="v7-grid"/>
-    <div className="v7-glow" style={{transform: `translateX(\${Math.sin(f / 85) * 100}px)`}}/>
+    <div className="v7-glow" style={{transform: `translateX(${Math.sin(f / 85) * 100}px)`}}/>
     <div style={{position: 'absolute', top: 0, left: 0, right: 0, height: 14, background: 'linear-gradient(90deg, #00e5ff 0%, #7a99e8 51%, #ff2bd6 100%)', opacity: .35}}/>
   </AbsoluteFill>;
 };
@@ -107,11 +106,11 @@ const Intro: React.FC = () => {
       </div>
     </div>
     <div style={{position: 'absolute', right: 80, top: 235, width: 800, height: 590, perspective: 1350}}>
-      <div className="v7-hero-glass" style={{width: 720, height: 450, top: 90, left: 45, opacity: p * .5, transform: `rotateY(\${-11 + p * 2}deg) rotateX(8deg) translate(-52px, 44px)`}}/>
-      <div className="v7-hero-glass" style={{width: 720, height: 450, top: 66, left: 24, opacity: p * .74, transform: `rotateY(\${-10 + p * 2}deg) rotateX(7deg) translate(-22px, 24px)`}}/>
+      <div className="v7-hero-glass" style={{width: 720, height: 450, top: 90, left: 45, opacity: p * .5, transform: `rotateY(${-11 + p * 2}deg) rotateX(8deg) translate(-52px, 44px)`}}/>
+      <div className="v7-hero-glass" style={{width: 720, height: 450, top: 66, left: 24, opacity: p * .74, transform: `rotateY(${-10 + p * 2}deg) rotateX(7deg) translate(-22px, 24px)`}}/>
       <div className="v7-hero-glass" style={{
         width: 720, height: 450, top: 43, left: 10,
-        transform: `rotateY(\${-15 + p * 9}deg) rotateX(\${8 - p * 4}deg) translateY(\${(1 - p) * 125}px)`,
+        transform: `rotateY(${-15 + p * 9}deg) rotateX(${8 - p * 4}deg) translateY(${(1 - p) * 125}px)`,
         opacity: prog(f, 13, 38), boxShadow: '0 45px 120px #000b, 0 0 100px #00e5ff1a',
       }}>
         <BrowserHeader url="reviewrouter.org / pull requests"/>
@@ -124,7 +123,7 @@ const Intro: React.FC = () => {
             ['01','Authorization check', '#ffb000'],
             ['02','Missing error handling', '#00e5ff'],
             ['03','Unsafe fallback', '#ff2bd6'],
-          ].map(([n, text, c], i) => <div key={n} style={{borderLeft: `3px solid \${c}`, background: '#182536', marginBottom: 12, padding: '14px 17px', fontSize: 19, opacity: prog(f, 38 + i * 8, 53 + i * 8)}}>{n} <span style={{marginLeft: 17}}>{text}</span><span style={{float: 'right', color: c}}>●</span></div>)}
+          ].map(([n, text, c], i) => <div key={n} style={{borderLeft: `3px solid ${c}`, background: '#182536', marginBottom: 12, padding: '14px 17px', fontSize: 19, opacity: prog(f, 38 + i * 8, 53 + i * 8)}}>{n} <span style={{marginLeft: 17}}>{text}</span><span style={{float: 'right', color: c}}>●</span></div>)}
         </div>
       </div>
       <div style={{position: 'absolute', top: 4, right: 9, font: '15px "RR Mono",monospace', color: COLOR.cyan, opacity: prog(f, 52, 72)}}>REVIEW SIGNAL / ACTIVE</div>
@@ -169,9 +168,9 @@ const Providers: React.FC<{compact?: boolean}> = ({compact = false}) => {
       {PROVIDERS.map((v, i) => {
         const inc = prog(f, 8 + i * (compact ? 3 : 5), 18 + i * (compact ? 3 : 5));
         const active = i === 0 && f >= selected;
-        return <div className={`v7-provider \${active ? 'active' : ''}`} key={v.name} style={{
+        return <div className={`v7-provider ${active ? 'active' : ''}`} key={v.name} style={{
           opacity: inc * (f >= selected && i !== 0 ? .4 : 1),
-          transform: `translateY(\${(1 - inc) * 45 - (active ? 8 : 0)}px)`,
+          transform: `translateY(${(1 - inc) * 45 - (active ? 8 : 0)}px)`,
         }}>
           <div className="v7-provider-icon" style={{borderColor: v.color + '88'}}>{v.kind === 'nvidia' ? <b style={{color: v.color, fontSize: 41}}>N</b> : <ProviderMark providerId={v.kind}/>}</div>
           <strong>{v.name}</strong><small>{v.mode}</small>{active && <div className="v7-provider-selected"><Check size={30}/></div>}
@@ -187,7 +186,7 @@ const Providers: React.FC<{compact?: boolean}> = ({compact = false}) => {
       clickFrames={[selected]}
       color="#f3ffff" accent="#00e5ff" size={39}/>
     <div style={{position: 'absolute', left: 305, top: 740, width: 920, height: 4, borderRadius: 4, background: '#244b57', opacity: prog(f, selected + 7, selected + 14)}}>
-      <div style={{height: 4, width: `\${prog(f, selected + 7, compact ? 53 : 112) * 100}%`, background: '#00e5ff', boxShadow: '0 0 23px #00e5ff'}}/>
+      <div style={{height: 4, width: `${prog(f, selected + 7, compact ? 53 : 112) * 100}%`, background: '#00e5ff', boxShadow: '0 0 23px #00e5ff'}}/>
     </div>
     <Footer detail="DEMONSTRATION · FREE MODEL LIMITS MAY CHANGE"/>
   </>;
@@ -224,7 +223,7 @@ const Repository: React.FC<{compact?: boolean}> = ({compact = false}) => {
         <div className="v7-repo-stages">{STAGES.map((label, i) => <div key={label} className={'v7-repo-stage ' + (i < phase ? 'done' : i === phase ? 'current' : '')}>
           <span className="circle">{i < phase ? <Check size={24}/> : i + 1}</span><span>{label}</span>
         </div>)}</div>
-        <div style={{height: 4, marginTop: 28, background: '#29475b', borderRadius: 4}}><div style={{height: '100%', background: 'linear-gradient(90deg,#59e8ef,#a6ff00)', boxShadow: '0 0 21px #00e5ff55', width: `\${Math.max(0,done) / 4 * 100}%`}}/></div>
+        <div style={{height: 4, marginTop: 28, background: '#29475b', borderRadius: 4}}><div style={{height: '100%', background: 'linear-gradient(90deg,#59e8ef,#a6ff00)', boxShadow: '0 0 21px #00e5ff55', width: `${Math.max(0,done) / 4 * 100}%`}}/></div>
         <div className="v7-stage-caption" style={{color: phase === 4 ? '#a6ff00' : '#e1f5f8'}}>{phase + 1} / 5 — {STAGES[phase]}</div>
       </div>
     </div>
@@ -246,7 +245,7 @@ const Review: React.FC<{compact?: boolean}> = ({compact = false}) => {
   const annotation = compact ? 16 : 42;
   return <>
     <Title n="04 / PULL REQUEST REVIEW" headline="Issues. With evidence." description="Precise, actionable comments where they belong." compact={compact}/>
-    <div className="v7-code-wrap" style={{transform: `translateY(\${(1 - prog(f, 1, 17)) * 60}px)`, opacity: prog(f, 0, 15)}}>
+    <div className="v7-code-wrap" style={{transform: `translateY(${(1 - prog(f, 1, 17)) * 60}px)`, opacity: prog(f, 0, 15)}}>
       <div className="v7-panel" style={{overflow: 'hidden', borderRadius: 18}}>
         <BrowserHeader url="github.com / demo / storefront / pull / 42"/>
         <div className="v7-code-screen">
@@ -256,7 +255,7 @@ const Review: React.FC<{compact?: boolean}> = ({compact = false}) => {
           </div>
           {code.map(row => <div key={row.n} className={'v7-code-row ' + (row.flagged && f >= annotation - 6 ? 'highlight' : '')}
             style={{opacity: row.flagged ? 1 : .78}}><span className="n">{row.n}</span>{row.text}</div>)}
-          {f >= annotation && <div className="v7-review-comment" style={{opacity: prog(f, annotation, annotation + 12), transform: `translateY(\${(1 - prog(f, annotation, annotation + 20)) * 36}px)`}}>
+          {f >= annotation && <div className="v7-review-comment" style={{opacity: prog(f, annotation, annotation + 12), transform: `translateY(${(1 - prog(f, annotation, annotation + 20)) * 36}px)`}}>
             <div className="v7-review-comment-head"><span className="v7-review-avatar"><Img src={staticFile('logo.png')}/></span> ReviewRouter <span>reviewer · suggested finding</span></div>
             <strong><AlertTriangle size={25} color="#ffb000" style={{verticalAlign: 'middle', marginRight: 10}}/> Missing authorization check</strong>
             <p>Return an explicit unauthorized response when the session is missing. The current branch continues without authentication.</p>
@@ -297,14 +296,14 @@ const Stats: React.FC = () => {
       <small>{label.toUpperCase()}</small><strong style={{color: i === 1 ? '#a6ff00' : '#e8f9ff'}}>{num}</strong></div>)}</div>
     <div className="v7-panel v7-stats-chart">
       <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, fontSize: 23, fontWeight: 650}}>Daily token usage <span className="v7-micro" style={{fontSize: 13}}>30 DAYS</span></div>
-      <div className="v7-chart-bars">{BARS.map((h,i) => <span key={i} style={{height: `\${h / 1.2 * prog(f, 21 + i * 1.4, 54 + i * 1.4)}%`}}/>)}</div>
+      <div className="v7-chart-bars">{BARS.map((h,i) => <span key={i} style={{height: `${h / 1.2 * prog(f, 21 + i * 1.4, 54 + i * 1.4)}%`}}/>)}</div>
       <div style={{display: 'flex', gap: 30, marginTop: 15, color: '#92b8c7', font: '16px "RR Mono",monospace'}}><span style={{color: '#59e9ee'}}>● Codex</span><span style={{color: '#b79afa'}}>● MiMo</span><span style={{color: '#a6ffba'}}>● Kimi</span></div>
     </div>
     <div className="v7-panel v7-stats-aside">
       <div style={{fontSize: 23, fontWeight: 650}}>Tokens by provider</div>
       {[['Codex',94,'1.42M'],['MiMo',58,'850K'],['Kimi',39,'570K']].map(([name,percentage,value],i) => <div className="v7-aside-row" key={name}>
         <div style={{display: 'flex', justifyContent: 'space-between'}}><span>{name}</span><span style={{color: '#94b2bf'}}>{value}</span></div>
-        <span className="track"><b style={{width: `\${Number(percentage) * prog(f, 35 + i * 11, 80 + i * 11)}%`, background: ['#59e9ee','#ac9bf5','#a6ffab'][i]}}/></span>
+        <span className="track"><b style={{width: `${Number(percentage) * prog(f, 35 + i * 11, 80 + i * 11)}%`, background: ['#59e9ee','#ac9bf5','#a6ffab'][i]}}/></span>
       </div>)}
     </div>
     <Footer detail="SAMPLE DATA · PROVIDER REPORTING COVERAGE VARIES"/>
@@ -322,9 +321,9 @@ const Bench: React.FC = () => {
     <div className="v7-bench-grid">{groups.map((g,i) => <div className="v7-panel v7-bench-card" key={g.title}>
       <h3>{g.title}</h3>
       <div className="v7-bench-row"><span>OpenCodeReview</span><span>{g.left}</span></div>
-      <div className="v7-track"><b style={{width: `\${g.pct * prog(f, 17 + i * 8, 55 + i * 8)}%`, minWidth: 8}}/></div>
+      <div className="v7-track"><b style={{width: `${g.pct * prog(f, 17 + i * 8, 55 + i * 8)}%`, minWidth: 8}}/></div>
       <div className="v7-bench-row"><span>Claude Code</span><span>{g.right}</span></div>
-      <div className="v7-track"><b className="agent" style={{width: `\${100 * prog(f, 18 + i * 8, 56 + i * 8)}%`}}/></div>
+      <div className="v7-track"><b className="agent" style={{width: `${100 * prog(f, 18 + i * 8, 56 + i * 8)}%`}}/></div>
       <div className="v7-bench-badge" style={{opacity: prog(f, 68 + i * 9, 82 + i * 9)}}>{g.accent}</div>
     </div>)}</div>
     <Footer detail="UPSTREAM AACR-BENCH · arxiv.org/abs/2608.09290 · NOT A REVIEWROUTER BENCHMARK"/>
@@ -335,7 +334,7 @@ const Outro: React.FC = () => {
   const f = useCurrentFrame();
   return <>
     <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',textAlign:'center'}}>
-      <div style={{opacity: prog(f, 4, 22), transform: `scale(\${.75 + .25 * prog(f, 3, 40)})`, filter:'drop-shadow(0 0 80px #00e5ff3d)'}}><Img src={staticFile('logo.png')} width={138}/></div>
+      <div style={{opacity: prog(f, 4, 22), transform: `scale(${.75 + .25 * prog(f, 3, 40)})`, filter:'drop-shadow(0 0 80px #00e5ff3d)'}}><Img src={staticFile('logo.png')} width={138}/></div>
       <h1 className="v7-outro-title" style={{marginTop: 30, opacity: prog(f, 15, 36), transform: lift(f, 16, 44)}}>ReviewRouter.</h1>
       <div className="v7-outro-sub" style={{opacity: prog(f, 31, 47)}}>Your AI. Your CI. Better reviews.</div>
       <div className="v7-outro-link" style={{opacity: prog(f, 47, 59)}}>Get started free <ArrowRight size={32} style={{marginLeft: 18}}/></div>
