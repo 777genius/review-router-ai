@@ -1,0 +1,58 @@
+name: ReviewRouter V7 video (isolated proof and full render)
+on:
+  push:
+    branches:
+      - feat/reviewrouter-video-v7
+    paths:
+      - "artifacts/reviewrouter-video/**"
+      - ".github/workflows/reviewrouter-video-v7-preview.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  render-v7:
+    name: V7 typecheck, proof, full video
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: artifacts/reviewrouter-video
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: artifacts/reviewrouter-video/package-lock.json
+      - name: Install locked video dependencies
+        run: npm ci
+      - name: Prepare brand fonts and original SFX
+        run: npm run prepare:v7
+      - name: Typecheck video sources
+        run: npx tsc --noEmit
+      - name: Render proof key frames
+        run: |
+          mkdir -p out/qa
+          npx remotion still src/index.ts ReviewRouterV7Proof out/qa/provider.png --frame=32 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV7Proof out/qa/repository.png --frame=116 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV7Proof out/qa/finding.png --frame=193 --concurrency=2
+      - name: Render 7.2s proof
+        run: npm run render:v7-proof
+      - name: Render full V7 (1920×1080, 30fps)
+        run: npm run render:v7
+      - name: Verify MP4 streams
+        run: |
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v7.mp4
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v7-proof.mp4
+      - name: Upload V7 MP4, proof and keyframes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewrouter-v7-video
+          path: |
+            artifacts/reviewrouter-video/out/reviewrouter-v7.mp4
+            artifacts/reviewrouter-video/out/reviewrouter-v7-proof.mp4
+            artifacts/reviewrouter-video/out/qa/*.png
+          if-no-files-found: warn
+          retention-days: 14
