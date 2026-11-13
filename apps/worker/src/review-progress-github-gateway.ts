@@ -306,6 +306,16 @@ export class ReviewProgressGitHubGateway {
           { cause: { mutationError, observationError } },
         );
       }
+      // A failed observation must not erase the PATCH rate-limit boundary.
+      const mutationFailure = this.classify(mutationError, "ambiguous_mutation");
+      if (mutationFailure.kind === "rate_limited") {
+        throw new ReviewProgressGitHubError(
+          mutationFailure.kind,
+          mutationFailure.message,
+          mutationFailure.metadata,
+          { cause: { mutationError, observationError } },
+        );
+      }
       throw new ReviewProgressGitHubError(
         "ambiguous_mutation",
         "github_progress_comment_mutation_ambiguous",

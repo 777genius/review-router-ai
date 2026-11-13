@@ -56,7 +56,7 @@ describe("Review progress terminal policy", () => {
     ).toThrow("review_progress_complete_outcome_inconsistent");
   });
 
-  it("rejects a partial outcome after all required work is complete", () => {
+  it("rejects over-total required settlements before partial-outcome checks", () => {
     for (const gaps of [
       { requiredExhausted: 1, requiredCancelled: 0 },
       { requiredExhausted: 0, requiredCancelled: 1 },
@@ -74,8 +74,26 @@ describe("Review progress terminal policy", () => {
           "complete_with_gaps",
           now,
         ),
-      ).toThrow("review_progress_partial_outcome_inconsistent");
+      ).toThrow("review_progress_snapshot_invalid");
     }
+  });
+
+  it("rejects a partial outcome without any required gap", () => {
+    expect(() =>
+      terminalSnapshot(
+        {
+          schemaVersion: 1,
+          counts: {
+            requiredCompleted: 1,
+            requiredTotal: 2,
+            requiredExhausted: 0,
+            requiredCancelled: 0,
+          },
+        },
+        "complete_with_gaps",
+        now,
+      ),
+    ).toThrow("review_progress_partial_outcome_inconsistent");
   });
 
   it("rejects required gap counts exceeding the declared total", () => {
