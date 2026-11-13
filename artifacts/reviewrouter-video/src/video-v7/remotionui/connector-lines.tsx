@@ -6,7 +6,7 @@
  */
 import { interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 import {Easing} from "remotion";
-const EASING={enter:Easing.bezier(0,0,0.2,1),exit:Easing.bezier(0.4,0,1,1)} as const;
+const EASING={enter:Easing.bezier(0,0,0.2,1),exit:Easing.bezier(0.4,0,1,1),editorial:Easing.bezier(0.45,0,0.55,1)} as const;
 
 export type ConnectorAnchor = {
   /** Name the edges refer to. */
