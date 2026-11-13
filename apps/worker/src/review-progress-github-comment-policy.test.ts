@@ -64,9 +64,13 @@ describe("Review progress GitHub comment policy", () => {
       ["invalid", 1, 1, 5, "inconclusive"],
     ] as const;
     for (const [hasNextPage, count, page, maxPages, expected] of scenarios) {
-      expect(
-        commentPageScanDecision(hasNextPage, count, page, maxPages),
-      ).toBe(expected);
+      const actualScanDecision = commentPageScanDecision(
+        hasNextPage,
+        count,
+        page,
+        maxPages,
+      );
+      expect(actualScanDecision).toBe(expected);
     }
   });
 

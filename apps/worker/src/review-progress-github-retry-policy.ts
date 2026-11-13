@@ -244,11 +244,11 @@ export function reconciliationFailure(
         ? mutationFailure.metadata.retryAt
         : undefined;
     const observationRetryAt = observationError.metadata.retryAt;
-    const observationCooldown =
-      observationError.kind === "rate_limited"
-        ? (observationError.metadata.installationCooldownUntil ??
-            observationRetryAt)
-        : undefined;
+    let observationCooldown: Date | undefined;
+    if (observationError.kind === "rate_limited") {
+      observationCooldown = observationError.metadata.installationCooldownUntil;
+      observationCooldown ??= observationRetryAt;
+    }
     const installationCooldownUntil = laterRetryBoundary(
       mutationCooldown,
       observationCooldown,
