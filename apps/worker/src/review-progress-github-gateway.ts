@@ -80,7 +80,12 @@ export class ReviewProgressGitHubGateway {
     const desiredBody = formatReviewProgressComment(input.body, input.marker);
 
     if (canonical) {
-      return this.updateExistingComment(input, canonical, duplicates, desiredBody);
+      return this.updateExistingComment(
+        input,
+        canonical,
+        duplicates,
+        desiredBody,
+      );
     }
     return this.createComment(input, desiredBody);
   }
@@ -302,7 +307,10 @@ export class ReviewProgressGitHubGateway {
         );
       }
       // A failed observation must not erase the PATCH rate-limit boundary.
-      const mutationFailure = this.classify(mutationError, "ambiguous_mutation");
+      const mutationFailure = this.classify(
+        mutationError,
+        "ambiguous_mutation",
+      );
       if (mutationFailure.kind === "rate_limited") {
         throw new ReviewProgressGitHubError(
           mutationFailure.kind,
