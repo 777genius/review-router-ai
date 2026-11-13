@@ -1,5 +1,5 @@
-@font-face{font-family:"RR Space";src:url("/v7-fonts/space-grotesk-latin-variable.woff2") format("woff2");font-weight:400 700;font-display:block}
-@font-face{font-family:"RR Mono";src:url("/v7-fonts/jetbrains-mono-latin-variable.woff2") format("woff2");font-weight:400 700;font-display:block}
+@font-face{font-family:"RR Space";src:url("../public/v7-fonts/space-grotesk-latin-variable.woff2") format("woff2");font-weight:400 700;font-display:block}
+@font-face{font-family:"RR Mono";src:url("../public/v7-fonts/jetbrains-mono-latin-variable.woff2") format("woff2");font-weight:400 700;font-display:block}
 .v7{position:absolute;inset:0;overflow:hidden;color:#e6f7ff;font-family:"RR Space",Arial,sans-serif;background:#05070d}
 .v7 *{box-sizing:border-box}
 .v7-grid{position:absolute;inset:0;background-image:linear-gradient(#75dfff0a 1px,transparent 1px),linear-gradient(90deg,#75dfff0a 1px,transparent 1px);background-size:56px 56px;pointer-events:none}
