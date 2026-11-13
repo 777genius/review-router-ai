@@ -247,7 +247,7 @@ export function reconciliationFailure(
     const observationCooldown =
       observationError.kind === "rate_limited"
         ? (observationError.metadata.installationCooldownUntil ??
-          observationRetryAt)
+            observationRetryAt)
         : undefined;
     const installationCooldownUntil = laterRetryBoundary(
       mutationCooldown,
@@ -268,9 +268,7 @@ export function reconciliationFailure(
         ...observationError.metadata,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
-        ...(installationCooldownUntil
-          ? { installationCooldownUntil }
-          : {}),
+        ...(installationCooldownUntil ? { installationCooldownUntil } : {}),
       },
       { cause: { mutationError, observationError } },
     );

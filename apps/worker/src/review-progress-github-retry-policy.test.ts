@@ -222,6 +222,7 @@ describe("Review progress GitHub retry policy", () => {
       new Date("2026-08-12T12:01:00.250Z"),
     );
   });
+
   it("keeps the later of PATCH and GET outage boundaries", () => {
     for (const [mutationDelay, observationDelay] of [
       ["7200", "60"],
@@ -251,5 +252,4 @@ describe("Review progress GitHub retry policy", () => {
       expect(result.metadata.installationCooldownUntil).toBeUndefined();
     }
   });
-
 });

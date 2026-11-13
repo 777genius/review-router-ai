@@ -1118,6 +1118,7 @@ describe("ReviewProgressGitHubGateway", () => {
       metadata: { status: 404, retryable: true },
     });
   });
+
   it("preserves outage retry bounds after an ambiguous PATCH and failed GET", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     let commentReads = 0;
@@ -1160,7 +1161,6 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(commentReads).toBe(2);
   });
-
 });
 
 function input() {

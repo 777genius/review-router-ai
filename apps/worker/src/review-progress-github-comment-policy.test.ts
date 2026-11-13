@@ -53,22 +53,22 @@ describe("Review progress GitHub comment policy", () => {
     expect(hasNextCommentPage({})).toBeUndefined();
   });
 
-  it.each([
-    [false, 100, 5, 5, "complete"],
-    [undefined, 99, 5, 5, "complete"],
-    [undefined, 100, 1, 5, "continue"],
-    [true, 100, 1, 5, "continue"],
-    [true, 100, 5, 5, "inconclusive"],
-    [undefined, 100, 5, 5, "inconclusive"],
-    ["invalid", 1, 1, 5, "inconclusive"],
-  ] as const)(
-    "classifies a bounded page scan with Link %s, %i comments on page %i/%i",
-    (hasNextPage, count, page, maxPages, expected) => {
+  it("classifies bounded page scan outcomes", () => {
+    const scenarios = [
+      [false, 100, 5, 5, "complete"],
+      [undefined, 99, 5, 5, "complete"],
+      [undefined, 100, 1, 5, "continue"],
+      [true, 100, 1, 5, "continue"],
+      [true, 100, 5, 5, "inconclusive"],
+      [undefined, 100, 5, 5, "inconclusive"],
+      ["invalid", 1, 1, 5, "inconclusive"],
+    ] as const;
+    for (const [hasNextPage, count, page, maxPages, expected] of scenarios) {
       expect(
         commentPageScanDecision(hasNextPage, count, page, maxPages),
       ).toBe(expected);
-    },
-  );
+    }
+  });
 
   it("rejects empty, malformed and non-string Link headers", () => {
     const malformed = `<https://api.github.com/comments?page=2>; rel=next`;
