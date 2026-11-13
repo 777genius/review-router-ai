@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import {
+  ReviewPublicationAttemptStateV2,
+  ReviewPublicationOperationStateV2,
+  ReviewPublicationTerminalOutcomeV2,
+  type Prisma,
+} from "@prisma/client";
 import {
   executionStateTerminal,
   terminalSnapshot,
@@ -39,24 +44,96 @@ async function loadPromotableProgress(
   return { progress, scope, publication };
 }
 
-/** Promote one settlement only when its active progress still owns the projection. */
+/** Trust the current durable attempt, not an individual operation's hint. */
+async function durableSettledPublicationOutcome(
+  transaction: Prisma.TransactionClient,
+  executionId: string,
+  progress: { readonly generation: bigint; readonly headSha: string },
+): Promise<"succeeded" | "failed" | "superseded" | null> {
+  const process = await transaction.reviewCompletionProcess.findUnique({
+    where: { executionId },
+    select: { publicationAttemptId: true },
+  });
+  if (!process?.publicationAttemptId) return null;
+  const attempt = await transaction.reviewPublicationAttemptV2.findUnique({
+    where: { publicationAttemptId: process.publicationAttemptId },
+    select: {
+      executionId: true,
+      generation: true,
+      reviewedHeadSha: true,
+      state: true,
+      terminalOutcome: true,
+    },
+  });
+  if (
+    !attempt ||
+    attempt.executionId !== executionId ||
+    attempt.generation !== progress.generation ||
+    attempt.reviewedHeadSha !== progress.headSha ||
+    attempt.state !== ReviewPublicationAttemptStateV2.terminal
+  )
+    return null;
+
+  // The publisher can settle one due operation while required siblings remain
+  // deferred. Read the durable attempt/operation states under this transaction.
+  const settledStates =
+    attempt.terminalOutcome === ReviewPublicationTerminalOutcomeV2.succeeded
+      ? [ReviewPublicationOperationStateV2.completed]
+      : [
+          ReviewPublicationOperationStateV2.completed,
+          ReviewPublicationOperationStateV2.superseded_no_effect,
+          ReviewPublicationOperationStateV2.failed_no_effect,
+          ReviewPublicationOperationStateV2.stale_compensated,
+          ReviewPublicationOperationStateV2.stale_visible,
+        ];
+  const pendingRequired = await transaction.reviewPublicationOperationV2.count({
+    where: {
+      publicationAttemptId: process.publicationAttemptId,
+      required: true,
+      state: { notIn: settledStates },
+    },
+  });
+  if (pendingRequired !== 0) return null;
+
+  switch (attempt.terminalOutcome) {
+    case ReviewPublicationTerminalOutcomeV2.succeeded:
+      return "succeeded";
+    case ReviewPublicationTerminalOutcomeV2.superseded_no_effect:
+    case ReviewPublicationTerminalOutcomeV2.stale_compensated:
+      return "superseded";
+    case ReviewPublicationTerminalOutcomeV2.failed_no_effect:
+    case ReviewPublicationTerminalOutcomeV2.stale_visible:
+      return "failed";
+    default:
+      // terminal_unknown cannot make progress terminal.
+      return null;
+  }
+}
+
+/** Promote only a fully settled current attempt that still owns progress. */
 export async function promoteSettledExecution(
   transaction: Prisma.TransactionClient,
   executionId: string,
-  publicationOutcome: "succeeded" | "failed" | "superseded",
   now: Date,
 ): Promise<boolean> {
   const execution = await transaction.reviewExecutionV2.findUnique({
     where: { executionId },
     select: { executionId: true, state: true },
   });
-  const terminalOutcome = executionStateTerminal(
-    execution?.state,
-    publicationOutcome,
-  );
-  if (!execution || !terminalOutcome) return false;
+  if (!execution) return false;
   const promotable = await loadPromotableProgress(transaction, executionId);
   if (!promotable) return false;
+  const publicationOutcome = await durableSettledPublicationOutcome(
+    transaction,
+    executionId,
+    promotable.progress,
+  );
+  if (!publicationOutcome) return false;
+  const terminalOutcome = executionStateTerminal(
+    execution.state,
+    publicationOutcome,
+  );
+  if (!terminalOutcome) return false;
   await persistTerminalPromotion(transaction, {
     executionId,
     scope: promotable.scope,

@@ -3,6 +3,17 @@ import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
 
+function settledAttempt(outcome: "succeeded" | "failed_no_effect") {
+  return {
+    publicationAttemptId: "attempt-1",
+    executionId: "execution-1",
+    generation: 7n,
+    reviewedHeadSha: "a".repeat(40),
+    state: "terminal",
+    terminalOutcome: outcome,
+  };
+}
+
 describe("PrismaReviewProgressPublicationStore fencing", () => {
   it("does not complete a stale claim after a newer generation wins the scope", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
@@ -820,6 +831,15 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               state: "completed",
             }),
           },
+          reviewCompletionProcess: {
+            findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
+          },
+          reviewPublicationAttemptV2: {
+            findUnique: async () => settledAttempt("failed_no_effect"),
+          },
+          reviewPublicationOperationV2: {
+            count: async () => 0,
+          },
           reviewExecutionProgressV1: {
             findUnique: async () => ({
               executionId: "execution-1",
@@ -947,6 +967,15 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               state: "partial",
             }),
           },
+          reviewCompletionProcess: {
+            findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
+          },
+          reviewPublicationAttemptV2: {
+            findUnique: async () => settledAttempt("succeeded"),
+          },
+          reviewPublicationOperationV2: {
+            count: async () => 0,
+          },
           reviewExecutionProgressV1: {
             findUnique: async () => ({
               executionId: "execution-1",
@@ -993,6 +1022,85 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     ).rejects.toThrow(error);
     expect(progressUpdate).not.toHaveBeenCalled();
     expect(publicationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("defers partial settlement and ignores a stale outcome hint", async () => {
+    let pendingRequired = 1;
+    const progressUpdate = vi.fn(async () => ({}));
+    const publicationUpdate = vi.fn(async () => ({}));
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewExecutionV2: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              state: "completed",
+            }),
+          },
+          reviewCompletionProcess: {
+            findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
+          },
+          reviewPublicationAttemptV2: {
+            findUnique: async () => settledAttempt("failed_no_effect"),
+          },
+          reviewPublicationOperationV2: {
+            count: async () => pendingRequired,
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              workspaceId: "workspace-1",
+              repositoryConnectionId: "repository-1",
+              scmRepositoryIdentityId: "identity-1",
+              pullRequestNumber: 42,
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              terminalOutcome: null,
+              snapshotJson: {
+                schemaVersion: 1,
+                phase: "publishing",
+                counts: {
+                  requiredTotal: 1,
+                  requiredCompleted: 1,
+                  requiredExhausted: 0,
+                  requiredCancelled: 0,
+                },
+              },
+            }),
+            update: progressUpdate,
+          },
+          reviewProgressPublicationV1: {
+            findUnique: async () => ({
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              desiredVersion: 73n,
+            }),
+            update: publicationUpdate,
+          },
+        }),
+    } as never);
+
+    const settlement = {
+      settlements: [
+        { executionId: "execution-1", outcome: "succeeded" as const },
+      ],
+      now,
+    };
+    await expect(store.promoteSettledExecutions(settlement)).resolves.toBe(0);
+    expect(progressUpdate).not.toHaveBeenCalled();
+    expect(publicationUpdate).not.toHaveBeenCalled();
+
+    pendingRequired = 0;
+    await expect(store.promoteSettledExecutions(settlement)).resolves.toBe(1);
+    expect(progressUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ terminalOutcome: "failed" }),
+      }),
+    );
+    expect(publicationUpdate).toHaveBeenCalledTimes(1);
   });
 
   it("attempts later independent settlements after a failed transaction", async () => {

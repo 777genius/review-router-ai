@@ -145,22 +145,12 @@ export class PrismaReviewProgressPublicationStore {
   }): Promise<number> {
     let promoted = 0;
     const failures: unknown[] = [];
-    const settlements = new Map(
-      input.settlements.map((settlement) => [
-        settlement.executionId,
-        settlement.outcome,
-      ]),
-    );
-    for (const [executionId, publicationOutcome] of settlements) {
+    const executionIds = new Set(input.settlements.map((s) => s.executionId));
+    for (const executionId of executionIds) {
       try {
         const changed = await this.prisma.$transaction(
           (transaction) =>
-            promoteSettledExecution(
-              transaction,
-              executionId,
-              publicationOutcome,
-              input.now,
-            ),
+            promoteSettledExecution(transaction, executionId, input.now),
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         );
         if (changed) promoted += 1;
