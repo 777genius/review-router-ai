@@ -216,6 +216,102 @@ function classifyRetryableHttpFailure(
   return null;
 }
 
+/** Merge failed mutation and reconciliation retries without dropping GitHub bounds. */
+export function reconciliationFailure(
+  mutationError: unknown,
+  observationError: unknown,
+  now: () => Date,
+  random: () => number,
+): ReviewProgressGitHubError {
+  if (
+    observationError instanceof ReviewProgressGitHubError &&
+    (observationError.kind === "pagination_inconclusive" ||
+      observationError.kind === "rate_limited")
+  ) {
+    const mutationFailure = classifyGitHubFailure(
+      mutationError,
+      "ambiguous_mutation",
+      now,
+      random,
+    );
+    const mutationCooldown =
+      mutationFailure.kind === "rate_limited"
+        ? mutationFailure.metadata.retryAt
+        : undefined;
+    const observationRetryAt = observationError.metadata.retryAt;
+    const retryAt =
+      observationError.kind === "rate_limited"
+        ? laterRetryBoundary(mutationCooldown, observationRetryAt)
+        : observationRetryAt;
+    const retryNotBefore = laterRetryBoundary(
+      mutationFailure.metadata.retryNotBefore,
+      observationError.metadata.retryNotBefore,
+    );
+    return new ReviewProgressGitHubError(
+      observationError.kind,
+      observationError.message,
+      {
+        ...observationError.metadata,
+        ...(retryAt ? { retryAt } : {}),
+        ...(retryNotBefore ? { retryNotBefore } : {}),
+        ...(mutationCooldown
+          ? { installationCooldownUntil: mutationCooldown }
+          : {}),
+      },
+      { cause: { mutationError, observationError } },
+    );
+  }
+  // A failed observation must not erase the PATCH rate-limit boundary.
+  const mutationFailure = classifyGitHubFailure(
+    mutationError,
+    "ambiguous_mutation",
+    now,
+    random,
+  );
+  if (mutationFailure.kind === "rate_limited") {
+    const observationFailure = classifyGitHubFailure(
+      observationError,
+      "github_request_failed",
+      now,
+      random,
+    );
+    const retryAt = laterRetryBoundary(
+      mutationFailure.metadata.retryAt,
+      observationFailure.metadata.retryAt,
+    );
+    const retryNotBefore = laterRetryBoundary(
+      mutationFailure.metadata.retryNotBefore,
+      observationFailure.metadata.retryNotBefore,
+    );
+    return new ReviewProgressGitHubError(
+      mutationFailure.kind,
+      mutationFailure.message,
+      {
+        ...mutationFailure.metadata,
+        ...(retryAt ? { retryAt } : {}),
+        ...(retryNotBefore ? { retryNotBefore } : {}),
+      },
+      { cause: { mutationError, observationError } },
+    );
+  }
+  return new ReviewProgressGitHubError(
+    "ambiguous_mutation",
+    "github_progress_comment_mutation_ambiguous",
+    { retryable: true, retryAt: fallbackRetryAt(now, random) },
+    { cause: { mutationError, observationError } },
+  );
+}
+
+/** Preserve the later GitHub retry boundary without shortening cooldowns. */
+function laterRetryBoundary(
+  left: Date | undefined,
+  right: Date | undefined,
+): Date | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  return left.getTime() >= right.getTime() ? left : right;
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
