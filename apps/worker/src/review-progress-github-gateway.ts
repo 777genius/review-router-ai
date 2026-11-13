@@ -80,12 +80,7 @@ export class ReviewProgressGitHubGateway {
     const desiredBody = formatReviewProgressComment(input.body, input.marker);
 
     if (canonical) {
-      return this.updateExistingComment(
-        input,
-        canonical,
-        duplicates,
-        desiredBody,
-      );
+      return this.updateExistingComment(input, canonical, duplicates, desiredBody);
     }
     return this.createComment(input, desiredBody);
   }

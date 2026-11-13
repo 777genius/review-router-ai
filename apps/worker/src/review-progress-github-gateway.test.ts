@@ -899,13 +899,13 @@ describe("ReviewProgressGitHubGateway", () => {
         retryNotBefore: new Date("2026-08-12T12:01:00.000Z"),
         retryAt: new Date("2026-08-12T12:01:00.250Z"),
       },
-      cause: {
-        mutationError: expect.objectContaining({ status: 429 }),
-        observationError: expect.objectContaining({
-          kind: "github_unavailable",
-          metadata: { status: 502 },
-        }),
-      },
+    });
+    expect((caught as ReviewProgressGitHubError).cause).toMatchObject({
+      mutationError: expect.objectContaining({ status: 429 }),
+      observationError: expect.objectContaining({
+        kind: "github_unavailable",
+        metadata: { status: 502 },
+      }),
     });
     expect(publicationRetryPlan(caught, () => now, 1_000)).toMatchObject({
       safeCode: "review_progress_rate_limited",
