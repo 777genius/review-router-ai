@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyGitHubFailure,
+  ReviewProgressGitHubError,
   fallbackRetryAt,
   isSecondaryRateLimitResponse,
   jitterAfter,
@@ -116,5 +118,53 @@ describe("Review progress GitHub retry policy", () => {
       "x-ratelimit-remaining": "0",
       "x-ratelimit-reset": "1786536060",
     });
+  });
+
+  it("classifies primary throttling without early retry", () => {
+    const transportError = {
+      response: {
+        status: 403,
+        headers: {
+          "retry-after": "10",
+          "x-ratelimit-reset": "1786536060",
+          "x-ratelimit-remaining": "0",
+        },
+      },
+    };
+    const result = classifyGitHubFailure(
+      transportError,
+      "github_request_failed",
+      () => now,
+      () => 0,
+    );
+    expect(result).toBeInstanceOf(ReviewProgressGitHubError);
+    expect(result.kind).toBe("rate_limited");
+    expect(result.metadata.retryNotBefore?.getTime()).toBe(
+      now.getTime() + 60_000,
+    );
+    expect(result.metadata.retryAt?.getTime()).toBe(
+      now.getTime() + 60_250,
+    );
+  });
+
+  it("preserves permanent and transient HTTP classifications", () => {
+    const current = () => now;
+    const random = () => 0;
+    const revoked = classifyGitHubFailure(
+      { status: 403 },
+      "github_request_failed",
+      current,
+      random,
+    );
+    const outage = classifyGitHubFailure(
+      { status: 502 },
+      "github_request_failed",
+      current,
+      random,
+    );
+    expect(revoked.kind).toBe("revoked_app");
+    expect(revoked.metadata.retryable).toBe(false);
+    expect(outage.kind).toBe("github_unavailable");
+    expect(outage.metadata.retryable).toBe(true);
   });
 });

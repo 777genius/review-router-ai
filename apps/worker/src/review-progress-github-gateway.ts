@@ -12,15 +12,16 @@ import {
   type UpsertReviewProgressCommentInput,
 } from "./review-progress-github-input-policy";
 import {
+  classifyGitHubFailure,
   fallbackRetryAt,
-  isSecondaryRateLimitResponse,
-  jitterAfter,
-  normalizeHeaders,
-  retryBoundary,
+  ReviewProgressGitHubError,
+  type ReviewProgressGitHubFailureKind,
 } from "./review-progress-github-retry-policy";
 
 export type { ReviewProgressComment } from "./review-progress-github-comment-policy";
 export type { UpsertReviewProgressCommentInput } from "./review-progress-github-input-policy";
+export { ReviewProgressGitHubError };
+export type { ReviewProgressGitHubFailureKind };
 export {
   createReviewProgressMarker,
   formatReviewProgressComment,
@@ -44,35 +45,6 @@ export type UpsertReviewProgressCommentResult = {
     | "unchanged";
   readonly duplicateCommentIds: readonly number[];
 };
-
-export type ReviewProgressGitHubFailureKind =
-  | "stale_head"
-  | "repository_mismatch"
-  | "revoked_app"
-  | "rate_limited"
-  | "github_unavailable"
-  | "github_request_failed"
-  | "ambiguous_mutation"
-  | "pagination_inconclusive"
-  | "invalid_response";
-
-export class ReviewProgressGitHubError extends Error {
-  constructor(
-    readonly kind: ReviewProgressGitHubFailureKind,
-    message: string,
-    readonly metadata: {
-      readonly status?: number;
-      readonly retryable: boolean;
-      /** A jittered instant that is never earlier than GitHub's reset boundary. */
-      readonly retryAt?: Date;
-      readonly retryNotBefore?: Date;
-    },
-    options?: { readonly cause?: unknown },
-  ) {
-    super(message, options);
-    this.name = "ReviewProgressGitHubError";
-  }
-}
 
 export class ReviewProgressGitHubGateway {
   private readonly maxCommentPages: number;
@@ -358,107 +330,6 @@ export class ReviewProgressGitHubGateway {
   }
 }
 
-/** Classify GitHub transport failures without coupling policy to the gateway. */
-function classifyGitHubFailure(
-  error: unknown,
-  fallbackKind: ReviewProgressGitHubFailureKind,
-  now: () => Date,
-  random: () => number,
-): ReviewProgressGitHubError {
-  if (error instanceof ReviewProgressGitHubError) return error;
-  const value = record(error);
-  const response = record(value?.response);
-  const status = number(value?.status) ?? number(response?.status);
-  const headers = normalizeHeaders(
-    record(value?.headers) ?? record(response?.headers),
-  );
-  const responseData = record(response?.data);
-  const retryable = classifyRetryableHttpFailure(
-    error,
-    status,
-    headers,
-    responseData,
-    now,
-    random,
-  );
-  if (retryable) return retryable;
-  return fallbackGitHubFailure(error, fallbackKind, status, now, random);
-}
-
-/** Preserve non-rate-limit transport and ambiguous-mutation fallbacks. */
-function fallbackGitHubFailure(
-  error: unknown,
-  fallbackKind: ReviewProgressGitHubFailureKind,
-  status: number | undefined,
-  now: () => Date,
-  random: () => number,
-): ReviewProgressGitHubError {
-  if (status === 403) {
-    return new ReviewProgressGitHubError(
-      "revoked_app",
-      "github_app_access_revoked",
-      { status, retryable: false },
-      { cause: error },
-    );
-  }
-  return new ReviewProgressGitHubError(
-    fallbackKind,
-    fallbackKind === "ambiguous_mutation"
-      ? "github_progress_comment_mutation_ambiguous"
-      : "github_progress_comment_request_failed",
-    {
-      ...(status === undefined ? {} : { status }),
-      retryable: fallbackKind === "ambiguous_mutation",
-      ...(fallbackKind === "ambiguous_mutation"
-        ? { retryAt: fallbackRetryAt(now, random) }
-        : {}),
-    },
-    { cause: error },
-  );
-}
-
-/** Isolate retry scheduling for GitHub throttling and server outages. */
-function classifyRetryableHttpFailure(
-  error: unknown,
-  status: number | undefined,
-  headers: Readonly<Record<string, string>>,
-  responseData: Record<string, unknown> | null,
-  now: () => Date,
-  random: () => number,
-): ReviewProgressGitHubError | null {
-  const isRateLimit =
-    status === 429 ||
-    (status === 403 &&
-      (headers["x-ratelimit-remaining"] === "0" ||
-        headers["retry-after"] !== undefined ||
-        isSecondaryRateLimitResponse(responseData)));
-  if (isRateLimit) {
-    const retryNotBefore = retryBoundary(headers, now(), "rate_limit");
-    const retryAt = jitterAfter(retryNotBefore, random);
-    return new ReviewProgressGitHubError(
-      "rate_limited",
-      "github_progress_comment_rate_limited",
-      { status, retryable: true, retryAt, retryNotBefore },
-      { cause: error },
-    );
-  }
-  if (status !== undefined && status >= 500) {
-    const retryNotBefore = retryBoundary(headers, now());
-    return new ReviewProgressGitHubError(
-      "github_unavailable",
-      "github_progress_comment_unavailable",
-      {
-        status,
-        retryable: true,
-        retryNotBefore,
-        retryAt: jitterAfter(retryNotBefore, random),
-      },
-      { cause: error },
-    );
-  }
-  return null;
-}
-
 function repositoryParameters(
   input: Pick<UpsertReviewProgressCommentInput, "owner" | "repo">,
   extra: Readonly<Record<string, unknown>>,
@@ -471,18 +342,6 @@ function parseComment(value: unknown): ReviewProgressComment {
   if (!comment)
     throw failure("invalid_response", "github_issue_comment_invalid", false);
   return comment;
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function number(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
 }
 
 function failure(
