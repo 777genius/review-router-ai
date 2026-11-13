@@ -1,0 +1,18 @@
+@import 'tailwindcss';
+@import '../../../packages/ui/src/tokens/tokens.css';
+@source '../../../apps/web/app/dashboard/provider-secret-setup-chooser.tsx';
+@source '../../../apps/web/app/dashboard/provider-auth-logo.tsx';
+@source '../../../apps/web/app/dashboard/repository-live-search.tsx';
+@source '../../../apps/web/app/dashboard/repository-setup-optimistic-status.tsx';
+@source '../../../packages/ui/src';
+@source './app.tsx';
+html, body, #root { width: 100%; min-height: 100%; background: #0a0a0f; }
+body { margin: 0; font-family: 'Space Grotesk',system-ui,sans-serif; color: #e0e6ff; }
+body:before { position:fixed; inset:0; content:''; pointer-events:none; background-image:linear-gradient(rgba(0,240,255,.03) 1px, transparent 1px),linear-gradient(90deg, rgba(0,240,255,.03) 1px,transparent 1px), radial-gradient(circle at 75% 0%,rgba(0,240,255,.10),transparent 32rem); background-size:60px 60px,60px 60px,auto; }
+.capture { position:relative; padding:78px 115px; }
+.capture-provider [role=tablist] { padding:8px; }
+.capture-provider [role=tab] { min-height:105px; }
+.provider-crop { max-height: 122px; overflow: hidden; }
+.capture-provider { padding-top: 190px; }
+
+.capture img[src*="/service-icons/github.svg"] { filter: brightness(0) invert(1); }

@@ -1,0 +1,35 @@
+{
+  "name": "reviewrouter-video",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts ReviewRouter out/reviewrouter-preview.mp4 --codec h264",
+    "still": "remotion still src/index.ts ReviewRouter",
+    "render:real": "remotion render src/index.ts ReviewRouterReal out/reviewrouter-real-frontend.mp4 --codec h264 --concurrency 2",
+    "render:latest": "remotion render src/index.ts ReviewRouterV6 out/reviewrouter-v6.mp4 --codec h264 --concurrency 2",
+    "capture:studio": "vite --config capture/vite.config.ts"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.543",
+    "@remotion/media": "4.0.543",
+    "@remotion/transitions": "4.0.543",
+    "lucide-react": "1.14.0",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "remotion": "4.0.543"
+  },
+  "devDependencies": {
+    "@base-ui/react": "1.9.0",
+    "@tailwindcss/vite": "4.2.4",
+    "@types/react": "19.2.14",
+    "clsx": "2.1.1",
+    "playwright": "1.65.0",
+    "tailwind-merge": "3.5.0",
+    "tailwind-variants": "3.2.2",
+    "tailwindcss": "4.2.4",
+    "typescript": "6.0.3",
+    "vite": "8.3.8"
+  }
+}
