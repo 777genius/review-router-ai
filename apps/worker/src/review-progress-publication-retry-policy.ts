@@ -32,7 +32,8 @@ export function publicationRetryPlan(
     retryAt = mutationCooldown;
   }
   const installationCooldownUntil =
-    githubError?.kind === "rate_limited" ? retryAt : mutationCooldown;
+    mutationCooldown ??
+    (githubError?.kind === "rate_limited" ? retryAt : undefined);
   return {
     safeCode: githubError
       ? `review_progress_${githubError.kind}`

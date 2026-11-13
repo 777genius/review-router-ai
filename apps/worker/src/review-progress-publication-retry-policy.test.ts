@@ -35,6 +35,21 @@ describe("Review progress publication retry policy", () => {
     });
   });
 
+  it("keeps a worker outage delay separate from the GitHub cooldown", () => {
+    const retryAt = new Date("2026-11-12T14:00:00.000Z");
+    const installationCooldownUntil = new Date("2026-11-12T12:01:00.000Z");
+    const error = new ReviewProgressGitHubError(
+      "rate_limited",
+      "github_progress_comment_rate_limited",
+      { retryable: true, retryAt, installationCooldownUntil },
+    );
+    expect(publicationRetryPlan(error, now, 5_000)).toEqual({
+      safeCode: "review_progress_rate_limited",
+      retryAt,
+      installationCooldownUntil,
+    });
+  });
+
   it("preserves transport retry dates without installation cooldown", () => {
     const retryAt = new Date("2026-11-12T12:03:00.000Z");
     const error = new ReviewProgressGitHubError(

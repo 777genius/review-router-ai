@@ -244,6 +244,15 @@ export function reconciliationFailure(
         ? mutationFailure.metadata.retryAt
         : undefined;
     const observationRetryAt = observationError.metadata.retryAt;
+    const observationCooldown =
+      observationError.kind === "rate_limited"
+        ? (observationError.metadata.installationCooldownUntil ??
+          observationRetryAt)
+        : undefined;
+    const installationCooldownUntil = laterRetryBoundary(
+      mutationCooldown,
+      observationCooldown,
+    );
     const retryAt =
       observationError.kind === "rate_limited"
         ? laterRetryBoundary(mutationRetryAt, observationRetryAt)
@@ -259,8 +268,8 @@ export function reconciliationFailure(
         ...observationError.metadata,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
-        ...(mutationCooldown
-          ? { installationCooldownUntil: mutationCooldown }
+        ...(installationCooldownUntil
+          ? { installationCooldownUntil }
           : {}),
       },
       { cause: { mutationError, observationError } },
@@ -295,6 +304,9 @@ export function reconciliationFailure(
         ...mutationFailure.metadata,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
+        ...(mutationFailure.metadata.retryAt
+          ? { installationCooldownUntil: mutationFailure.metadata.retryAt }
+          : {}),
       },
       { cause: { mutationError, observationError } },
     );

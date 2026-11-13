@@ -194,5 +194,32 @@ describe("Review progress GitHub retry policy", () => {
     expect(result.metadata.retryNotBefore).toEqual(
       new Date("2026-08-12T14:00:00.000Z"),
     );
+    expect(result.metadata.installationCooldownUntil).toEqual(
+      new Date("2026-08-12T12:01:00.250Z"),
+    );
+  });
+
+  it("keeps PATCH throttling cooldown separate from a later GET outage", () => {
+    const mutationError = {
+      status: 429,
+      response: { headers: { "retry-after": "60" } },
+    };
+    const observationError = {
+      status: 503,
+      response: { headers: { "retry-after": "7200" } },
+    };
+    const result = reconciliationFailure(
+      mutationError,
+      observationError,
+      () => now,
+      () => 0,
+    );
+    expect(result.kind).toBe("rate_limited");
+    expect(result.metadata.retryAt).toEqual(
+      new Date("2026-08-12T14:00:00.250Z"),
+    );
+    expect(result.metadata.installationCooldownUntil).toEqual(
+      new Date("2026-08-12T12:01:00.250Z"),
+    );
   });
 });
