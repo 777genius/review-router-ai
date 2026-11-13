@@ -9,7 +9,11 @@
     "still": "remotion still src/index.ts ReviewRouter",
     "render:real": "remotion render src/index.ts ReviewRouterReal out/reviewrouter-real-frontend.mp4 --codec h264 --concurrency 2",
     "render:latest": "remotion render src/index.ts ReviewRouterV6 out/reviewrouter-v6.mp4 --codec h264 --concurrency 2",
-    "capture:studio": "vite --config capture/vite.config.ts"
+    "capture:studio": "vite --config capture/vite.config.ts",
+    "studio:v7": "node scripts/prepare-v7-assets.mjs && remotion studio src/index.ts",
+    "render:v7-proof": "node scripts/prepare-v7-assets.mjs && remotion render src/index.ts ReviewRouterV7Proof out/reviewrouter-v7-proof.mp4 --codec h264 --concurrency 2",
+    "render:v7": "node scripts/prepare-v7-assets.mjs && remotion render src/index.ts ReviewRouterV7 out/reviewrouter-v7.mp4 --codec h264 --concurrency 2",
+    "prepare:v7": "node scripts/prepare-v7-assets.mjs"
   },
   "dependencies": {
     "@remotion/cli": "4.0.543",
