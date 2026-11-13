@@ -17,7 +17,7 @@ import './video-v7.css';
  * - Independent of V6 and V7 for comparison.
  */
 export const V7_LITE_FRAMES = 1005;
-export const V7_LITE_PROOF_FRAMES = 216;
+export const V7_LITE_PROOF_FRAMES = 276;
 const FPS = 30;
 const X = {left: 'clamp', right: 'clamp'} as const;
 const t = (frame:number, a:number, b:number) =>
@@ -128,7 +128,7 @@ const Providers:React.FC=()=>{
       {PROVIDERS.map((p,i)=><div key={p.name} style={{...panel,width:240,height:289,
         borderColor:i===0?CYAN:BORDER,display:'flex',flexDirection:'column',gap:24,
         alignItems:'center',justifyContent:'center',background:i===0?'#153239':SURF,
-        opacity:t(f,122,147)}}>
+        opacity:t(f,114,123)}}>
         <ProviderGlyph id={p.id} size={107}/>
         <b style={{fontSize:27,textAlign:'center'}}>{p.name}</b>
       </div>)}
@@ -248,6 +248,11 @@ const CUTS=[
   {from:813,duration:114,component:Benchmark},
   {from:927,duration:78,component:Outro},
 ] as const;
+/** Preserve the previous state while the next chapter fades in. */
+const Reveal:React.FC<{initial:boolean;children:React.ReactNode}>=({initial,children})=>{
+  const f=useCurrentFrame();
+  return <AbsoluteFill style={{opacity:initial?1:t(f,0,12)}}>{children}</AbsoluteFill>;
+};
 const Cue:React.FC<{at:number;filename:string;volume:number}> =({at,filename,volume})=>
   <Sequence from={at}><Audio src={staticFile('v7-sfx/'+filename)} volume={volume}/></Sequence>;
 export const VideoV7Lite:React.FC =()=> <AbsoluteFill style={canvas}>
@@ -258,11 +263,13 @@ export const VideoV7Lite:React.FC =()=> <AbsoluteFill style={canvas}>
   <Cue at={494} filename="success.wav" volume={.39}/>
   <Cue at={600} filename="finding.wav" volume={.45}/>
   {CUTS.map(({from,duration,component:Component})=>
-    <Sequence key={from} from={from} durationInFrames={duration}><Component/></Sequence>)}
+    <Sequence key={from} from={from} durationInFrames={duration+(from===927?0:12)}>
+      <Reveal initial={from===0}><Component/></Reveal>
+    </Sequence>)}
 </AbsoluteFill>;
 /** Short proof of the new hierarchy: one provider pair → compact icon row → one finding. */
 export const VideoV7LiteProof:React.FC =()=> <AbsoluteFill style={canvas}>
   <Bg/>
-  <Sequence from={0} durationInFrames={121}><Providers/></Sequence>
-  <Sequence from={121} durationInFrames={95}><Review/></Sequence>
+  <Sequence from={0} durationInFrames={180}><Providers/></Sequence>
+  <Sequence from={180} durationInFrames={96}><Review/></Sequence>
 </AbsoluteFill>;
