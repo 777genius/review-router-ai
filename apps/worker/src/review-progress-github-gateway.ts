@@ -309,20 +309,20 @@ export class ReviewProgressGitHubGateway {
             : undefined;
         const observationRetryAt = observationError.metadata.retryAt;
         const retryAt =
-          observationError.kind === "rate_limited" && mutationCooldown
-            ? new Date(
-                Math.max(
-                  mutationCooldown.getTime(),
-                  observationRetryAt?.getTime() ?? 0,
-                ),
-              )
+          observationError.kind === "rate_limited"
+            ? laterRetryBoundary(mutationCooldown, observationRetryAt)
             : observationRetryAt;
+        const retryNotBefore = laterRetryBoundary(
+          mutationFailure.metadata.retryNotBefore,
+          observationError.metadata.retryNotBefore,
+        );
         throw new ReviewProgressGitHubError(
           observationError.kind,
           observationError.message,
           {
             ...observationError.metadata,
             ...(retryAt ? { retryAt } : {}),
+            ...(retryNotBefore ? { retryNotBefore } : {}),
             ...(mutationCooldown
               ? { installationCooldownUntil: mutationCooldown }
               : {}),
@@ -336,10 +336,23 @@ export class ReviewProgressGitHubGateway {
         "ambiguous_mutation",
       );
       if (mutationFailure.kind === "rate_limited") {
+        const observationFailure = this.classify(observationError);
+        const retryAt = laterRetryBoundary(
+          mutationFailure.metadata.retryAt,
+          observationFailure.metadata.retryAt,
+        );
+        const retryNotBefore = laterRetryBoundary(
+          mutationFailure.metadata.retryNotBefore,
+          observationFailure.metadata.retryNotBefore,
+        );
         throw new ReviewProgressGitHubError(
           mutationFailure.kind,
           mutationFailure.message,
-          mutationFailure.metadata,
+          {
+            ...mutationFailure.metadata,
+            ...(retryAt ? { retryAt } : {}),
+            ...(retryNotBefore ? { retryNotBefore } : {}),
+          },
           { cause: { mutationError, observationError } },
         );
       }
@@ -365,6 +378,16 @@ export class ReviewProgressGitHubGateway {
   ): ReviewProgressGitHubError {
     return classifyGitHubFailure(error, fallbackKind, this.now, this.random);
   }
+}
+
+/** Preserve the later GitHub retry boundary without shortening cooldowns. */
+function laterRetryBoundary(
+  left: Date | undefined,
+  right: Date | undefined,
+): Date | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  return left.getTime() >= right.getTime() ? left : right;
 }
 
 function repositoryParameters(
