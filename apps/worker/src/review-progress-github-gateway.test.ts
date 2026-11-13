@@ -923,7 +923,7 @@ describe("ReviewProgressGitHubGateway", () => {
   ])(
     "keeps the later GET $getStatus retry boundary after PATCH 429",
     async ({ getStatus, getRetryAfter, expected }) => {
-      const fixture = githubFixture([{ id: 8, body: `old\\n${marker}` }]);
+      const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
       let commentReads = 0;
       let patchAttempts = 0;
       const request: ReviewProgressGitHubRequester = async (
