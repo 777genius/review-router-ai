@@ -78,3 +78,21 @@ npm run render:v7
 - Native CI artifact workflow: [reviewrouter-video-v7-preview.yml](../../.github/workflows/reviewrouter-video-v7-preview.yml). This link is illustrative from the video folder; GitHub workflow runs appear under the repository Actions tab.
 
 **Acceptance gate:** TypeScript pass, three proof frame previews, rendered 7.2-second proof, full native MP4 and manual viewing at full and half-size. A successful command alone is not sufficient. If the GitHub Actions runner is queued, that is not evidence of a passed render.
+
+## V7 Lite (revised after viewer feedback)
+
+The earlier V7 is kept for comparison. `ReviewRouterV7Lite` is an independent **minimal information** cut: providers enter two at a time, then shrink into a six-logo row; one repo setup state changes in place; one code line lights before its only reviewer comment; metrics and the benchmark are simplified. Native Remotion pulls the **real ReviewRouter logo** from `public/logo.png` and reuses exact `ProviderMark` paths from the dashboard; NVIDIA uses the CC0 Simple Icons brand mark.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run render:v7-lite-proof
+npm run render:v7-lite
+npm run studio:v7
+```
+
+- `ReviewRouterV7Lite`: 1005 frames (33.5s) at 1920×1080 / 30fps.
+- The shorter `ReviewRouterV7LiteProof` is a separate visual smoke test.
+- Static sources: `src/video-v7-lite.tsx`. Logo and brand marks are real assets, not the stylized approximations used by the optional local preview prototype.
+- The 33.5s preview MP4 supplied in ChatGPT was rendered by an offline vector compositor, **not** by the native Remotion runtime; visual quality of the native export still requires an actual CI render and human viewing.
+- No modifications to V6 or `render:latest`. This is not a claim of actual repository reviews or ReviewRouter benchmark performance.

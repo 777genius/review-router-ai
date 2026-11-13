@@ -1,4 +1,4 @@
-name: ReviewRouter V7 video (isolated proof and full render)
+name: ReviewRouter V7 Lite native video render
 on:
   push:
     branches:
@@ -9,10 +9,8 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-
 jobs:
-  render-v7:
-    name: V7 typecheck, proof, full video
+  render-lite:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -25,34 +23,36 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: artifacts/reviewrouter-video/package-lock.json
-      - name: Install locked video dependencies
+      - name: Install locked dependencies
         run: npm ci
-      - name: Prepare brand fonts and original SFX
+      - name: Prepare authentic font and original audio cues
         run: npm run prepare:v7
-      - name: Typecheck video sources
+      - name: TypeScript verification
         run: npx tsc --noEmit
-      - name: Render proof key frames
+      - name: Verify selected frames
         run: |
           mkdir -p out/qa
-          npx remotion still src/index.ts ReviewRouterV7Proof out/qa/provider.png --frame=32 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV7Proof out/qa/repository.png --frame=116 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV7Proof out/qa/finding.png --frame=193 --concurrency=2
-      - name: Render 7.2s proof
-        run: npm run render:v7-proof
-      - name: Render full V7 (1920×1080, 30fps)
-        run: npm run render:v7
-      - name: Verify MP4 streams
+          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/entry.png --frame=45 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/providers.png --frame=331 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/repository.png --frame=495 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/finding.png --frame=630 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/benchmark.png --frame=879 --concurrency=2
+      - name: Render Lite motion proof
+        run: npm run render:v7-lite-proof
+      - name: Render full Lite MP4 1920x1080 30fps
+        run: npm run render:v7-lite
+      - name: Inspect video and audio streams
         run: |
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v7.mp4
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v7-proof.mp4
-      - name: Upload V7 MP4, proof and keyframes
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v7-lite.mp4
+          ffmpeg -v error -i out/reviewrouter-v7-lite.mp4 -f null -
+      - name: Upload native MP4, proof and stills
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: reviewrouter-v7-video
+          name: reviewrouter-v7-lite-native
           path: |
-            artifacts/reviewrouter-video/out/reviewrouter-v7.mp4
-            artifacts/reviewrouter-video/out/reviewrouter-v7-proof.mp4
+            artifacts/reviewrouter-video/out/reviewrouter-v7-lite.mp4
+            artifacts/reviewrouter-video/out/reviewrouter-v7-lite-proof.mp4
             artifacts/reviewrouter-video/out/qa/*.png
           if-no-files-found: warn
           retention-days: 14
