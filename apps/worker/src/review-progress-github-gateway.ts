@@ -299,10 +299,34 @@ export class ReviewProgressGitHubGateway {
         (observationError.kind === "pagination_inconclusive" ||
           observationError.kind === "rate_limited")
       ) {
+        const mutationFailure = this.classify(
+          mutationError,
+          "ambiguous_mutation",
+        );
+        const mutationCooldown =
+          mutationFailure.kind === "rate_limited"
+            ? mutationFailure.metadata.retryAt
+            : undefined;
+        const observationRetryAt = observationError.metadata.retryAt;
+        const retryAt =
+          observationError.kind === "rate_limited" && mutationCooldown
+            ? new Date(
+                Math.max(
+                  mutationCooldown.getTime(),
+                  observationRetryAt?.getTime() ?? 0,
+                ),
+              )
+            : observationRetryAt;
         throw new ReviewProgressGitHubError(
           observationError.kind,
           observationError.message,
-          observationError.metadata,
+          {
+            ...observationError.metadata,
+            ...(retryAt ? { retryAt } : {}),
+            ...(mutationCooldown
+              ? { installationCooldownUntil: mutationCooldown }
+              : {}),
+          },
           { cause: { mutationError, observationError } },
         );
       }

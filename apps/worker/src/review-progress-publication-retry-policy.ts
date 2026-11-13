@@ -22,14 +22,18 @@ export function publicationRetryPlan(
           : retryDelayMs),
     );
   }
+  const mutationCooldown = githubError?.metadata.installationCooldownUntil;
+  if (mutationCooldown && mutationCooldown.getTime() > retryAt.getTime()) {
+    retryAt = mutationCooldown;
+  }
+  const installationCooldownUntil =
+    githubError?.kind === "rate_limited" ? retryAt : mutationCooldown;
   return {
     safeCode: githubError
       ? `review_progress_${githubError.kind}`
       : "review_progress_publish_failed",
     retryAt,
-    ...(githubError?.kind === "rate_limited"
-      ? { installationCooldownUntil: retryAt }
-      : {}),
+    ...(installationCooldownUntil ? { installationCooldownUntil } : {}),
     // A bounded duplicate scan must never mutate comments or exhaust retries.
     ...(githubError?.kind === "pagination_inconclusive"
       ? { countFailure: false as const }

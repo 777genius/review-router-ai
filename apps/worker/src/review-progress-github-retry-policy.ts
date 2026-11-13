@@ -106,6 +106,7 @@ export class ReviewProgressGitHubError extends Error {
       /** A jittered instant that is never earlier than GitHub's reset boundary. */
       readonly retryAt?: Date;
       readonly retryNotBefore?: Date;
+      readonly installationCooldownUntil?: Date;
     },
     options?: { readonly cause?: unknown },
   ) {
