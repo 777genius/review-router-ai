@@ -691,7 +691,7 @@ function fakeStore(publication: ClaimedReviewProgress) {
       > => ({ allowed: true as const }),
     ),
     complete: vi.fn(async () => true),
-    retry: vi.fn(
+    retry: vi.fn<PrismaReviewProgressPublicationStore["retry"]>(
       async (): Promise<"retried" | "suppressed" | "stale"> => "retried",
     ),
     suppress: vi.fn(async () => true),
