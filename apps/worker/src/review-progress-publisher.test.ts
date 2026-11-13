@@ -556,9 +556,7 @@ describe("ReviewProgressPublisher", () => {
       expect(retry?.retryAt.getTime()).toBeGreaterThanOrEqual(
         now.getTime() + 7_200_000,
       );
-      expect(retry?.retryAt.getTime()).toBeLessThan(
-        now.getTime() + 7_201_000,
-      );
+      expect(retry?.retryAt.getTime()).toBeLessThan(now.getTime() + 7_201_000);
       if (status === 429) {
         expect(retry?.installationCooldownUntil).toEqual(retry?.retryAt);
       } else {
@@ -679,6 +677,8 @@ function createPublisher(
 
 function fakeStore(publication: ClaimedReviewProgress) {
   let claimedOnce = false;
+  const retry = vi.fn<PrismaReviewProgressPublicationStore["retry"]>();
+  retry.mockResolvedValue("retried");
   return {
     claimNext: vi.fn(async () => {
       if (claimedOnce) return null;
@@ -691,9 +691,7 @@ function fakeStore(publication: ClaimedReviewProgress) {
       > => ({ allowed: true as const }),
     ),
     complete: vi.fn(async () => true),
-    retry: vi.fn<PrismaReviewProgressPublicationStore["retry"]>(
-      async () => "retried",
-    ),
+    retry,
     suppress: vi.fn(async () => true),
   };
 }
