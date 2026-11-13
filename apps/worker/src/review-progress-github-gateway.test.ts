@@ -918,11 +918,21 @@ describe("ReviewProgressGitHubGateway", () => {
   });
 
   it.each([
-    { getStatus: 502, getRetryAfter: "7200", expected: "2026-08-12T14:00:00" },
-    { getStatus: 403, getRetryAfter: "10800", expected: "2026-08-12T15:00:00" },
+    {
+      getStatus: 502,
+      getRetryAfter: "7200",
+      expected: "2026-08-12T14:00:00",
+      expectedCooldown: "2026-08-12T12:01:00",
+    },
+    {
+      getStatus: 403,
+      getRetryAfter: "10800",
+      expected: "2026-08-12T15:00:00",
+      expectedCooldown: "2026-08-12T15:00:00",
+    },
   ])(
     "keeps the later GET $getStatus retry boundary after PATCH 429",
-    async ({ getStatus, getRetryAfter, expected }) => {
+    async ({ getStatus, getRetryAfter, expected, expectedCooldown }) => {
       const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
       let commentReads = 0;
       let patchAttempts = 0;
@@ -965,12 +975,59 @@ describe("ReviewProgressGitHubGateway", () => {
       expect(publicationRetryPlan(caught, () => now, 1_000)).toMatchObject({
         safeCode: "review_progress_rate_limited",
         retryAt,
-        installationCooldownUntil: retryAt,
+        installationCooldownUntil: new Date(`${expectedCooldown}.250Z`),
       });
       expect(patchAttempts).toBe(1);
       expect(commentReads).toBe(2);
     },
   );
+
+  it("does not extend installation cooldown for a long PATCH 503 outage", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    let commentReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route.startsWith("PATCH ")) {
+        throw { status: 503, response: { headers: { "retry-after": "7200" } } };
+      }
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        commentReads += 1;
+        if (commentReads === 2) {
+          throw { status: 429, response: { headers: { "retry-after": "60" } } };
+        }
+      }
+      return fixture.request(route, parameters);
+    };
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    const caught = await gateway(request, {
+      now: () => now,
+      random: () => 0,
+    })
+      .upsert(input())
+      .catch((error: unknown) => error);
+    const workerRetryAt = new Date("2026-08-12T14:00:00.250Z");
+    const cooldownUntil = new Date("2026-08-12T12:01:00.250Z");
+
+    expect(caught).toBeInstanceOf(ReviewProgressGitHubError);
+    expect(caught).toMatchObject({
+      kind: "rate_limited",
+      metadata: {
+        retryAt: workerRetryAt,
+        retryNotBefore: new Date("2026-08-12T14:00:00.000Z"),
+        installationCooldownUntil: cooldownUntil,
+      },
+    });
+    expect(publicationRetryPlan(caught, () => now, 1_000)).toMatchObject({
+      safeCode: "review_progress_rate_limited",
+      retryAt: workerRetryAt,
+      installationCooldownUntil: cooldownUntil,
+    });
+    expect(commentReads).toBe(2);
+  });
 
   it.each(["rate_limited", "pagination_inconclusive"] as const)(
     "preserves PATCH 429 cooldown after a %s reconciliation failure",
