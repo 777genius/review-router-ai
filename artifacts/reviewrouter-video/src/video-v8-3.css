@@ -23,3 +23,6 @@
 .v83-reuse-panel small{font-size:21px;color:#9db7c4}
 .v83-root .v8-outro-brand{z-index:4}
 .v83-root .v8-deploy-choices{z-index:4}
+
+/* Prevent fragments of the previous headline showing through a shape-reveal. */
+.v83-root .v83-exit-hide-copy .v8-title,.v83-root .v83-exit-hide-copy .v8-title-eyebrow,.v83-root .v83-exit-hide-copy .v8-title-sub{opacity:0!important}
