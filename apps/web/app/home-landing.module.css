@@ -106,9 +106,14 @@
 }
 .sourceLink:hover, .textLink:hover { color: var(--landing-cyan); }
 .heroFootnote { margin: 12px 0 0; color: var(--landing-muted); font-size: .75rem; line-height: 1.6; }
-.heroTrust { display: flex; flex-wrap: wrap; gap: 9px 22px; margin-top: 46px; }
-.heroTrust span { display: inline-flex; align-items: center; gap: 7px; font-size: .76rem; color: var(--landing-muted); }
-.heroTrust svg { color: var(--landing-lime); }
+.heroProof { margin-top:40px; max-width:480px; }
+.heroProof > a { display:flex; align-items:center; gap:clamp(18px,2.3vw,42px); text-decoration:none; color:var(--landing-text); border-top:1px solid var(--rr-color-border); padding:24px 0 10px; }
+.heroProof > a > span { display:flex; flex-direction:column; gap:2px; }
+.heroProof strong { font-size:clamp(2rem,2.6vw,2.65rem); line-height:1; font-weight:740; letter-spacing:-.04em; color:var(--landing-cyan); font-variant-numeric:tabular-nums; }
+.heroProof > a > span:nth-child(2) strong { color:var(--landing-lime); }
+.heroProof small { color:var(--landing-muted); font-size:.7rem; }
+.heroProof > a > svg { margin-left:auto; color:var(--landing-cyan); }
+.heroProof > p { margin:0; font-size:.65rem; line-height:1.6; color:var(--landing-muted); }
 
 .heroVisual { min-width: 0; }
 .reviewFrame {
@@ -401,7 +406,7 @@
   .heroDescription { font-size:1rem; }
   .openSourceTag { font-size:.56rem; letter-spacing:.08em; margin-bottom:22px; }
   .heroActions { align-items:flex-start; flex-direction:column; gap:8px; }
-  .heroTrust { margin-top:30px; gap:8px 18px; }
+  .heroProof { margin-top:30px; }
   .heroBottom { width:calc(100% - 36px); }
   .heroBottomNote { display:none; }
   .reviewMeta { padding:18px 15px 15px; gap:9px; }

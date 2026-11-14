@@ -67,10 +67,13 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
             <p className={styles.heroFootnote}>
               Free under fair-use limits. AI provider and CI costs are separate.
             </p>
-            <div className={styles.heroTrust}>
-              <span><Check aria-hidden="true" size={14} /> Apache-2.0</span>
-              <span><Check aria-hidden="true" size={14} /> Hosted or self-hosted</span>
-              <span><Check aria-hidden="true" size={14} /> Your model choice</span>
+            <div className={styles.heroProof}>
+              <a href="#efficiency" aria-label="View upstream benchmark of faster review and fewer tokens">
+                <span><strong>9.5×</strong><small>faster*</small></span>
+                <span><strong>14.7×</strong><small>fewer tokens*</small></span>
+                <ArrowRight aria-hidden="true" size={18} />
+              </a>
+              <p>*OpenCodeReview AACR-Bench vs Claude Code (Claude 4.6 Opus); not a ReviewRouter service measurement.</p>
             </div>
           </div>
           <div className={styles.heroVisual}>
