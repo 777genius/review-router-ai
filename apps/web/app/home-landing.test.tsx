@@ -11,7 +11,8 @@ describe("ReviewRouter landing presentation", () => {
     expect(html).toContain("Error path needs handling");
     expect(html.match(/class="rr-home-finding__severity /g)).toHaveLength(3);
     expect(html).toContain("Illustrative product interaction");
-    expect(html).not.toContain("&lt;code&gt;");
+    expect(html).not.toMatch(/<pre(?:\\s|>)/);
+    expect(html).not.toContain("<code");
     expect(html).toContain("/review-router-logo.png");
   });
 

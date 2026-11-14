@@ -77,7 +77,7 @@ try {
       const errors = [];
       try {
         await context.addInitScript((preference) => {
-          localStorage.setItem("reviewrouter-theme", preference);
+          window.localStorage.setItem("reviewrouter-theme", preference);
         }, theme);
         const page = await context.newPage();
         page.on("pageerror", (error) => errors.push(error.message));
@@ -108,14 +108,14 @@ try {
           await page.locator("html").getAttribute("data-theme"),
           theme,
         );
-        const logoLoaded = await page
-          .locator(".rr-home-window__identity img")
-          .evaluate(
-            (img) =>
-              img instanceof HTMLImageElement &&
-              img.complete &&
-              img.naturalWidth > 0,
-          );
+        const logoLoaded = await page.waitForFunction(
+          () => {
+            const logo = document.querySelector(".rr-home-window__identity img");
+            return logo instanceof HTMLImageElement && logo.complete && logo.naturalWidth > 0;
+          },
+          undefined,
+          { timeout: 15_000 },
+        ).then(() => true, () => false);
         assert.ok(logoLoaded, "The actual ReviewRouter logo must load");
         const select = async (tab, needle) => {
           for (let attempt = 0; attempt < 4; attempt += 1) {
