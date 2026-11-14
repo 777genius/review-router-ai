@@ -122,6 +122,8 @@ describe("Review progress snapshot policy", () => {
       { ...counts, optionalTotal: 1 },
       { ...counts, running: 0 },
       { ...counts, requiredExhausted: 1 },
+      { ...counts, exhausted: 1, running: 0 },
+      { ...counts, cancelled: 1, running: 0 },
       { ...counts, retrying: 2 },
       { ...counts, recovered: 2 },
     ]) {
@@ -129,6 +131,29 @@ describe("Review progress snapshot policy", () => {
         parseSnapshot({ ...validSnapshot, counts: invalid }),
       ).toThrow("review_progress_snapshot_invalid");
     }
+  });
+
+  it("accepts optional gaps within the optional slot capacity", () => {
+    const withOptionalExhaustion = {
+      ...validSnapshot.counts,
+      requiredTotal: 1,
+      optionalTotal: 1,
+      running: 0,
+      exhausted: 1,
+    };
+    expect(
+      parseSnapshot({ ...validSnapshot, counts: withOptionalExhaustion }).counts,
+    ).toBe(withOptionalExhaustion);
+
+    const withOptionalCancellation = {
+      ...withOptionalExhaustion,
+      exhausted: 0,
+      cancelled: 1,
+    };
+    expect(
+      parseSnapshot({ ...validSnapshot, counts: withOptionalCancellation })
+        .counts,
+    ).toBe(withOptionalCancellation);
   });
 
   it("enforces terminal required-count outcomes", () => {

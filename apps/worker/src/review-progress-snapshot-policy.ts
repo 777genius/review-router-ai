@@ -59,6 +59,10 @@ function validCounts(value: Record<string, unknown>): boolean {
     counts.requiredTotal + counts.optionalTotal === counts.total &&
     counts.requiredCompleted + counts.optionalCompleted === counts.completed &&
     counts.optionalCompleted <= counts.optionalTotal &&
+    counts.optionalCompleted +
+      (counts.exhausted - counts.requiredExhausted) +
+      (counts.cancelled - counts.requiredCancelled) <=
+      counts.optionalTotal &&
     counts.completed +
       counts.exhausted +
       counts.cancelled +
