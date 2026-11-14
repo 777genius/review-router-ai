@@ -368,6 +368,23 @@ const PARTS=[
   {from:1013,dur:113},  // 1013..1125 benchmark
   {from:1126,dur:117},  // 1126..1242 CTA
 ] as const;
+type RevealOrigin='provider-card'|'full-context'|'tokens-kpi';
+/** A grounded match-cut: new UI grows out of a real object in the preceding scene. */
+const SemanticReveal:React.FC<{origin:RevealOrigin;children:React.ReactNode}>=({origin,children})=>{
+  const f=useCurrentFrame();
+  const frames=origin==='full-context'?21:origin==='tokens-kpi'?20:18;
+  const q=p(f,0,frames);
+  // Inset origins correspond to the actual source card/KPI coordinates at 1920x1080.
+  let mask:string;
+  if(origin==='provider-card'){
+    mask=`inset(${(1-q)*44}% ${(1-q)*72}% ${(1-q)*32}% ${(1-q)*9}% round ${Math.round((1-q)*16)}px)`;
+  }else if(origin==='full-context'){
+    mask=`circle(${(2700*q).toFixed(1)}px at 72% 77%)`;
+  }else{
+    mask=`inset(${(1-q)*44}% ${(1-q)*10}% ${(1-q)*28}% ${(1-q)*70}% round ${Math.round((1-q)*22)}px)`;
+  }
+  return <AbsoluteFill style={{clipPath:mask}}>{children}</AbsoluteFill>;
+};
 const Sfx:React.FC<{at:number;name:'click.wav'|'success.wav'|'finding.wav';gain?:number}> =({at,name,gain=.35})=>
   <Sequence from={at}><Audio src={staticFile('v7-sfx/'+name)} volume={gain}/></Sequence>;
 export const ReviewRouterV83Video:React.FC=()=> <AbsoluteFill className="v8-root v81-root v82-root v83-root">
@@ -382,13 +399,13 @@ export const ReviewRouterV83Video:React.FC=()=> <AbsoluteFill className="v8-root
   <Sfx at={863} name="success.wav" gain={.18}/>
   <Sequence from={PARTS[0].from} durationInFrames={PARTS[0].dur}><Hero/></Sequence>
   <Sequence from={PARTS[1].from} durationInFrames={PARTS[1].dur}><SignIn/></Sequence>
-  <Sequence from={PARTS[2].from} durationInFrames={PARTS[2].dur}><Providers/></Sequence>
-  <Sequence from={PARTS[3].from} durationInFrames={PARTS[3].dur}><Repository/></Sequence>
-  <Sequence from={PARTS[4].from} durationInFrames={PARTS[4].dur}><Finding/></Sequence>
-  <Sequence from={PARTS[5].from} durationInFrames={PARTS[5].dur}><MCPTools/></Sequence>
+  <Sequence from={PARTS[2].from} durationInFrames={PARTS[2].dur+18}><Providers/></Sequence>
+  <Sequence from={PARTS[3].from} durationInFrames={PARTS[3].dur}><SemanticReveal origin="provider-card"><Repository/></SemanticReveal></Sequence>
+  <Sequence from={PARTS[4].from} durationInFrames={PARTS[4].dur+21}><Finding/></Sequence>
+  <Sequence from={PARTS[5].from} durationInFrames={PARTS[5].dur}><SemanticReveal origin="full-context"><MCPTools/></SemanticReveal></Sequence>
   <Sequence from={PARTS[6].from} durationInFrames={PARTS[6].dur}><ReviewSkills/></Sequence>
   <Sequence from={PARTS[7].from} durationInFrames={PARTS[7].dur}><Incremental/></Sequence>
-  <Sequence from={PARTS[8].from} durationInFrames={PARTS[8].dur}><Insights/></Sequence>
-  <Sequence from={PARTS[9].from} durationInFrames={PARTS[9].dur}><Benchmark/></Sequence>
+  <Sequence from={PARTS[8].from} durationInFrames={PARTS[8].dur+20}><Insights/></Sequence>
+  <Sequence from={PARTS[9].from} durationInFrames={PARTS[9].dur}><SemanticReveal origin="tokens-kpi"><Benchmark/></SemanticReveal></Sequence>
   <Sequence from={PARTS[10].from} durationInFrames={PARTS[10].dur}><Outro/></Sequence>
 </AbsoluteFill>;
