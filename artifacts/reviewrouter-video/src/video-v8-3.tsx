@@ -154,22 +154,38 @@ const Finding:React.FC=()=>{
     {severity:'MEDIUM',title:'Unsafe fallback',at:77},
     {severity:'MEDIUM',title:'Missing error handling',at:110},
   ] as const;
+  const visibleCount = f>=110?3:f>=77?2:f>=43?1:0;
+  // The stack has weight. Each new message physically shifts all settled cards upward.
+  const stackShift = 51*p(f,77,92)+51*p(f,110,125);
+  const compress = (at:number):number => {
+    const age=f-at;
+    return age>=0&&age<9?Math.sin(Math.PI*age/9)*5:0;
+  };
   return <Scene scene={5} name="REVIEW COMMENTS">
     <ChapterTitle eyebrow="GITHUB CODE REVIEW" title="Findings. With full context."/>
     <div className="v82-code" style={move(f,3,17,24)}>
-      <div className="v8-filehead"><FileCode2 size={24}/> src/server/auth.ts <span>PR #42 · +84 / −21</span></div>
+      <div className="v8-filehead"><FileCode2 size={24}/> src/server/auth.ts
+        <span>PR #42 · +84 / −21 <b className="v83-comment-counter">{visibleCount}/3 findings</b></span>
+      </div>
       <div className="v82-code-lines">{LINES.map((row,i)=>
         <div key={row.line} className={'v8-codeline'+(i===2&&f>23?' v8-codeline-focus':'')}
           style={{opacity:i===2?1:1-.28*p(f,25,40)}}>
           <span>{row.line}</span>{row.code}
         </div>)}</div>
     </div>
-    <div className="v82-comment-list">
+    <div className="v82-comment-list v83-reflow-stack" style={{top:790-stackShift}}>
       {comments.map((item,i)=>{
         const entering=p(f,item.at,item.at+16);
-        const nudge=i===0?4*p(f,77,91)+4*p(f,110,124):i===1?4*p(f,110,124):0;
-        return <div className="v82-comment" key={item.title}
-          style={{opacity:entering,transform:'translateY('+((1-entering)*31-nudge)+'px)'}}>
+        const pressed = (i===0?compress(77)+compress(110):i===1?compress(110):0);
+        const y=(1-entering)*78+pressed;
+        const rotation=(1-entering)*(i%2===0?1.4:-1.4);
+        const scale=.94+.06*entering;
+        return <div className="v82-comment" key={item.title} style={{
+          opacity:entering,
+          transform:`translateY(${y.toFixed(1)}px) rotate(${rotation.toFixed(2)}deg) scale(${scale.toFixed(3)})`,
+          transformOrigin:'center bottom',
+          boxShadow:enteredShadow(entering),
+        }}>
           <div className="v82-comment-head">
             <span className="v82-avatar"><RR size={36}/></span>
             <strong>reviewrouter</strong><span className="v82-bot">bot</span>
@@ -186,6 +202,7 @@ const Finding:React.FC=()=>{
     <Foot>Illustrative PR and findings. Severity and context shown in each comment.</Foot>
   </Scene>;
 };
+const enteredShadow=(t:number)=>`0 ${Math.round(25-15*t)}px ${Math.round(55-17*t)}px rgba(0,0,0,${(0.65-0.13*t).toFixed(3)})`;
 
 /** Approved HTTPS MCP tools are optional and profile-bound, not automatic. */
 const MCPTools:React.FC=()=>{
