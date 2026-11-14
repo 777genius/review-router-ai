@@ -1,4 +1,4 @@
-name: ReviewRouter V7 Lite native video render
+name: ReviewRouter V8 — native video and visual QA
 on:
   push:
     branches:
@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
 jobs:
-  render-lite:
+  render-v8:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -25,34 +25,42 @@ jobs:
           cache-dependency-path: artifacts/reviewrouter-video/package-lock.json
       - name: Install locked dependencies
         run: npm ci
-      - name: Prepare authentic font and original audio cues
+      - name: Prepare original product fonts and synthesized SFX
         run: npm run prepare:v7
-      - name: TypeScript verification
+      - name: Type-check all compositions
         run: npx tsc --noEmit
-      - name: Verify selected frames
+      - name: Prepare QA stills
         run: |
           mkdir -p out/qa
-          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/entry.png --frame=45 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/providers.png --frame=331 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/repository.png --frame=495 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/finding.png --frame=630 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV7Lite out/qa/benchmark.png --frame=879 --concurrency=2
-      - name: Render Lite motion proof
-        run: npm run render:v7-lite-proof
-      - name: Render full Lite MP4 1920x1080 30fps
-        run: npm run render:v7-lite
-      - name: Inspect video and audio streams
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/01-hero.png --frame=72 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/02-github.png --frame=141 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/03-providers.png --frame=238 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/04-repository.png --frame=385 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/05-finding.png --frame=527 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/06-new-commit.png --frame=655 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/07-insights.png --frame=757 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/08-benchmark.png --frame=871 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV8 out/qa/09-deploy.png --frame=984 --concurrency=2
+      - name: Render entire 34-second V8
+        run: npm run render:v8
+      - name: Ensure ffprobe is available for media validation
         run: |
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v7-lite.mp4
-          ffmpeg -v error -i out/reviewrouter-v7-lite.mp4 -f null -
-      - name: Upload native MP4, proof and stills
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+      - name: Decode and assert MP4/audio properties
+        run: |
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v8.mp4
+          ffmpeg -v error -i out/reviewrouter-v8.mp4 -f null -
+          node scripts/check-v8-media.mjs out/reviewrouter-v8.mp4
+      - name: Upload full native video and QA frames
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: reviewrouter-v7-lite-native
+          name: reviewrouter-v8-native-video
           path: |
-            artifacts/reviewrouter-video/out/reviewrouter-v7-lite.mp4
-            artifacts/reviewrouter-video/out/reviewrouter-v7-lite-proof.mp4
+            artifacts/reviewrouter-video/out/reviewrouter-v8.mp4
             artifacts/reviewrouter-video/out/qa/*.png
-          if-no-files-found: warn
           retention-days: 14
+          if-no-files-found: warn

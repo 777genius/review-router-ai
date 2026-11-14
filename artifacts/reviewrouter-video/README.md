@@ -96,3 +96,18 @@ npm run studio:v7
 - Static sources: `src/video-v7-lite.tsx`. Logo and brand marks are real assets, not the stylized approximations used by the optional local preview prototype.
 - The 33.5s preview MP4 supplied in ChatGPT was rendered by an offline vector compositor, **not** by the native Remotion runtime; visual quality of the native export still requires an actual CI render and human viewing.
 - No modifications to V6 or `render:latest`. This is not a claim of actual repository reviews or ReviewRouter benchmark performance.
+
+## V8 — positioning-led production cut (separate from V6/V7)
+
+V8 responds to the next editorial review: **open source and upstream 9× benchmark** first; no GitHub post-click success; all provider logos immediately with subscription/API emphasis; one code finding with context and fix; new-commit compatible snapshot optimization; benchmark time/tokens and potential cost reduction; dual hosted/self-hosted CTA. Real product logo and provider vector marks are reused, and V7 variants remain available for comparison.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v8
+npm run render:v8
+```
+
+Composition: `ReviewRouterV8`, 1920×1080, 30fps, 1020 frames (34s). MP4: `out/reviewrouter-v8.mp4`. Animation source: `src/video-v8.tsx`, styles: `src/video-v8.css`. Existing product fonts and original synth UI SFX are generated locally by `prepare:v7` (reused, no duplication).
+
+**Claim boundaries:** upstream OpenCodeReview AACR-Bench, Claude 4.6 Opus: 1:23 vs 13:06 (~9.5× faster) and 385K vs 5,664K (~14.7× fewer tokens). This is *not* a separately measured ReviewRouter result; actual paid model invoices differ by pricing, output tokens, subscription and cache. ReviewRouter's control plane itself is free and open-source with fair-use limits; providers and CI may incur costs. Self-hosted is an alternative to the hosted control plane. Snapshot reuse is conditional on compatible completed state (initially supported via Codex rotating path); no claim that every runtime skips unchanged files. Example PRs, comments, and statistics are fictional. Source evidence and step-by-step creative critique: `V8-POSITIONING-AND-STORYBOARD.md`.
