@@ -546,7 +546,8 @@ describeWithDatabase.sequential(
       // Other due publications in this disposable fixture may take priority
       // over the older PATCH. Park them only for the claim and restore their
       // original deadlines immediately afterward.
-      const competing = await fixture.prisma.reviewProgressPublicationV1.findMany({
+      const competing =
+        await fixture.prisma.reviewProgressPublicationV1.findMany({
         where: {
           repositoryConnectionId: fixture.repositoryConnectionId,
           activeExecutionId: { not: flow.executionId },
@@ -558,6 +559,7 @@ describeWithDatabase.sequential(
           scmRepositoryIdentityId: true,
           pullRequestNumber: true,
           nextPublishAt: true,
+          updatedAt: true,
         },
       });
       const parkedUntil = new Date(claimAt.getTime() + 120_000);
@@ -586,7 +588,7 @@ describeWithDatabase.sequential(
               pullRequestNumber: row.pullRequestNumber,
               nextPublishAt: parkedUntil,
             },
-            data: { nextPublishAt: row.nextPublishAt },
+            data: { nextPublishAt: row.nextPublishAt, updatedAt: row.updatedAt },
           });
         }
       }
