@@ -374,7 +374,7 @@ type RevealOrigin='provider-card'|'full-context'|'tokens-kpi';
 const ExitSettle:React.FC<{after:number;children:React.ReactNode}>=({after,children})=>{
   const f=useCurrentFrame();
   const q=p(f,after,after+11);
-  return <AbsoluteFill style={{opacity:1-q,transform:`scale(${(1+.014*q).toFixed(3)})`,filter:`brightness(${(1-.3*q).toFixed(3)})`}}>{children}</AbsoluteFill>;
+  return <AbsoluteFill className={f>=after?"v83-exit-hide-copy":undefined} style={{opacity:1-q,transform:`scale(${(1+.014*q).toFixed(3)})`,filter:`brightness(${(1-.3*q).toFixed(3)})`}}>{children}</AbsoluteFill>;
 };
 const SemanticReveal:React.FC<{origin:RevealOrigin;children:React.ReactNode}>=({origin,children})=>{
   const f=useCurrentFrame();
