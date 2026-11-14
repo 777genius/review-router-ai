@@ -111,3 +111,16 @@ npm run render:v8
 Composition: `ReviewRouterV8`, 1920×1080, 30fps, 1020 frames (34s). MP4: `out/reviewrouter-v8.mp4`. Animation source: `src/video-v8.tsx`, styles: `src/video-v8.css`. Existing product fonts and original synth UI SFX are generated locally by `prepare:v7` (reused, no duplication).
 
 **Claim boundaries:** upstream OpenCodeReview AACR-Bench, Claude 4.6 Opus: 1:23 vs 13:06 (~9.5× faster) and 385K vs 5,664K (~14.7× fewer tokens). This is *not* a separately measured ReviewRouter result; actual paid model invoices differ by pricing, output tokens, subscription and cache. ReviewRouter's control plane itself is free and open-source with fair-use limits; providers and CI may incur costs. Self-hosted is an alternative to the hosted control plane. Snapshot reuse is conditional on compatible completed state (initially supported via Codex rotating path); no claim that every runtime skips unchanged files. Example PRs, comments, and statistics are fictional. Source evidence and step-by-step creative critique: `V8-POSITIONING-AND-STORYBOARD.md`.
+
+## V8.1 — UX polish and GitHub-native review comments
+
+This is a new, independent composition `ReviewRouterV81` (1020 frames, 34.0 seconds, 1920×1080 at 30fps) based on the reviewed V8 without overwriting previous cuts. See [V8.1-UX-REVISION.md](V8.1-UX-REVISION.md). Full changes: upfront **9.5× faster / 14.7× fewer tokens** (upstream engine benchmark), FREE MODELS banners on OpenRouter and NVIDIA (via OpenRouter), four checkbox repositories with real GitHub marks, visible connected setup steps, GitHub-style bot threads with original ReviewRouter logo and CRITICAL/MEDIUM, sample **2.84M known tokens** in Insights, and a shared provider→repository motion bridge. All demo data is illustrative; not proof of ReviewRouter's independent measured cost or specific customer use. Free service control plane does not include every third-party model's costs.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v81
+npm run render:v81
+```
+
+Source: `src/video-v8-1.tsx` and `src/video-v8-1.css` (imports existing brand assets, provider marks and earlier motion styling). CI renders the full native video and exports 9 stills. Native media claim requires inspecting the actual file, not a mock vector rendition. No changes to `ReviewRouterV8`, V6/V7 or `render:latest`.
