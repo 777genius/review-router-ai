@@ -57,7 +57,7 @@ try{
      });
      if(!seo.title.includes("Open-source AI code review"))throw Error("SEO title missing: "+seo.title);
      if(!seo.description.includes("self-hosted"))throw Error("SEO description missing");
-     if(!seo.canonical.startsWith("https://"))throw Error("SEO canonical missing: "+seo.canonical);
+     if(new URL(seo.canonical,url).pathname!=="/"||new URL(seo.canonical,url).origin!==new URL(url).origin)throw Error("SEO canonical not aligned with isolated Next origin: "+seo.canonical);
      if(!seo.graph.some(n=>n.type==="Organization")||!seo.graph.some(n=>n.type==="WebSite"))throw Error("SEO organization/website schema missing");
      if(!seo.graph.some(n=>n.type==="WebApplication"&&n.price==="0"&&n.currency==="USD"))throw Error("Free control-plane offer schema missing");
      if(!(await page.getByText("Lower recall in this comparison.",{exact:false}).count()))throw Error("Benchmark recall caveat missing");
