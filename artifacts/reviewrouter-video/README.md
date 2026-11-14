@@ -139,3 +139,18 @@ npm run render:v82
 Examples are illustrative: Sentry (production errors), Context7 (current API docs), **Custom HTTPS MCP**; review skills are repository-scoped Markdown instructions such as **No breaking API changes**, **Keep changes small**, **Security & edge cases**. Remote MCP is limited to approved HTTPS tools and compatible execution profiles. Review skills also require a compatible profile. Nothing is auto-connected. This does not promise that all subscription/CI/model bills are zero.
 
 Design and checks: [V8.2-MOTION-AND-MCP-PLAN.md](V8.2-MOTION-AND-MCP-PLAN.md). Native E2E workflow builds all 11 scenes, renders and inspects actual H.264/AAC. Full MP4 is the deliverable; contact sheet and GIF are supporting previews.
+
+## V8.3 — meaningful transition grammar, growing comment and commit lists
+
+Adds **ReviewRouterV83**, a separate 1243-frame (41.43s), 1920×1080 30fps Remotion composition. Keeps V6 through V8.2 intact; **does not** repoint `render:latest`. Full technical plan and evidence: [V8.3-MOTION-REVISION.md](V8.3-MOTION-REVISION.md).
+
+Changes: comments physically move up to make room for each newly arriving GitHub bot comment, with a gentle landing press; "New commits" now has a three-row progressive commit history with conditional reuse results; removes the unexpected top hairline (including repository setup and final CTA) while keeping the setup-step arrows; three anchored match-cut transitions grow the next scene from a selected provider, Full context action, or Tokens used KPI. The final screen keeps **one central logo only**.
+
+```bash
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v83
+npm run render:v83
+```
+
+All example repositories, findings, numbers, MCP and skills selections are illustrative. 9.5× time and 14.7× tokens refer to upstream OpenCodeReview AACR-Bench vs Claude Code with Claude 4.6 Opus, not an independently measured ReviewRouter SaaS speed/cost figure. Free ReviewRouter control plane may still incur third-party model/API/CI charges. Incremental snapshot reuse is conditional on a compatible runtime.
