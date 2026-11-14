@@ -188,3 +188,16 @@ npm run render:v85
 ```
 
 Source: `src/video-v8-5.tsx` and `src/video-v8-5.css`. Design and four critique passes: `V8.5-MINIMAL-UI-FINAL-PASS.md`. This revision does not add npm dependencies. The upstream OpenCodeReview AACR-Bench scope/limitations remain unchanged. Local hybrid MP4 preview is not interchangeable with native Remotion E2E evidence.
+
+## V8.6 — selected-repository review polish and subtle space motion
+
+Independent **ReviewRouterV86** (1243f @30fps = 41.43 seconds, 1920×1080). Preserves V6–V8.5 and keeps `render:latest` on V6. Adds immediate total `3 commits` with changing progress as the list fills; fixed alignment and centered real ReviewRouter avatars for CRITICAL/MEDIUM messages; hard unmount of code at local frame 50, before the first message at frame 52. The provider title is now exactly `subscription / API`. A seventh **Custom endpoint** tile is marked **PLANNED**, since arbitrary upstream LLM providers are not currently qualified; existing HTTPS MCP custom endpoints are supported separately. A small **or** separates hosted/self-hosted. Subtle deterministic parallax stars/soft glows never touch network, GPU shaders or time-based CSS animations.
+
+```bash
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v86
+npm run render:v86
+```
+
+See `V8.6-UX-IMPLEMENTATION-PLAN.md` for four critique rounds and checks. The native workflow `.github/workflows/reviewrouter-video-v84.yml` now targets the latest V8.6 and exports H264/AAC 1920x1080, control frames, ffprobe and full ffmpeg decode. MP4 created by local Python/FFmpeg is a **hybrid preview**, not native Remotion validation. All displayed repositories and counts are illustrative; upstream AACR-Bench results and caveats unchanged.

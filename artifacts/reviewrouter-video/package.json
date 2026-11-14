@@ -29,7 +29,9 @@
     "studio:v84": "node scripts/prepare-v7-assets.mjs && remotion studio src/index.ts",
     "render:v84": "node scripts/prepare-v7-assets.mjs && remotion render src/index.ts ReviewRouterV84 out/reviewrouter-v84.mp4 --codec h264 --concurrency 2",
     "studio:v85": "node scripts/prepare-v7-assets.mjs && remotion studio src/index.ts",
-    "render:v85": "node scripts/prepare-v7-assets.mjs && remotion render src/index.ts ReviewRouterV85 out/reviewrouter-v85.mp4 --codec h264 --concurrency 2"
+    "render:v85": "node scripts/prepare-v7-assets.mjs && remotion render src/index.ts ReviewRouterV85 out/reviewrouter-v85.mp4 --codec h264 --concurrency 2",
+    "studio:v86": "node scripts/prepare-v7-assets.mjs && remotion studio src/index.ts",
+    "render:v86": "node scripts/prepare-v7-assets.mjs && remotion render src/index.ts ReviewRouterV86 out/reviewrouter-v86.mp4 --codec h264 --concurrency 2"
   },
   "dependencies": {
     "@remotion/cli": "4.0.543",
