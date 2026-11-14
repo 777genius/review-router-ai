@@ -566,10 +566,17 @@ describeWithDatabase.sequential(
         completed: 3,
       });
       await fixture.terminalizeProgressSlot(flow.executionId, 3);
-      await fixture.setExecutionProgressState(flow.executionId, "partial");
+      // An individual settlement is insufficient without a durable terminal
+      // attempt. Exercise the actual finalized-outbox and publication path.
       await expect(
         fixture.promoteProgress(flow.executionId, "succeeded"),
-      ).resolves.toBe(1);
+      ).resolves.toBe(0);
+      const finalized = await fixture.finalize(flow, { allowPartial: true });
+      expect(finalized.result.status).toBe(
+        ReviewExecutionMutationResultStatus.Applied,
+      );
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
       await fixture.makeProgressDue();
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
