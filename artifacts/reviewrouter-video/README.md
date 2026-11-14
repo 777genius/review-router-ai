@@ -154,3 +154,50 @@ npm run render:v83
 ```
 
 All example repositories, findings, numbers, MCP and skills selections are illustrative. 9.5× time and 14.7× tokens refer to upstream OpenCodeReview AACR-Bench vs Claude Code with Claude 4.6 Opus, not an independently measured ReviewRouter SaaS speed/cost figure. Free ReviewRouter control plane may still incur third-party model/API/CI charges. Incremental snapshot reuse is conditional on a compatible runtime.
+
+## V8.4 — premium motion, one-second counters and cleaner GitHub review flow
+
+A new independent `ReviewRouterV84` Remotion composition with 1243 frames / 41.43 seconds, 1920×1080 at 30 FPS. Older V6–V8.3 remain unchanged. Source is `src/video-v8-4.tsx`, `src/video-v8-4.css` and the pure-frame `src/video-v8-4/magnetic-cursor.tsx` component.
+
+- The hero shows 0,0× → **9,5× faster** and 0,0× → **14,7× fewer tokens** in 30 frames; the benchmark repeats the same deterministic count-up alongside the comparison bars. Figures are upstream OpenCodeReview AACR-Bench vs Claude Code on Claude 4.6 Opus, not measured ReviewRouter SaaS speed/cost.
+- GitHub sign-in gets an authored curved magnetic cursor trajectory, subtle trail, hover and press (no generic success screen).
+- The code panel **fades/blurs away before** the second and third GitHub bot comments move into its area; no text/card overlap.
+- Commit history and reuse results use **flat timeline rows** and dividers instead of nested cards.
+- Removed repeating bottom explanatory captions. Source remains next to the benchmark and the CTA still qualifies external model/API/CI costs.
+- No GSAP/Motion dependencies were installed: frame-driven Remotion springs/interpolations are reliable for parallel rendering.
+
+Run:
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v84
+npm run render:v84
+```
+Source research and four critique rounds: [V8.4-PREMIUM-MOTION-PLAN.md](V8.4-PREMIUM-MOTION-PLAN.md).
+CI workflow: `.github/workflows/reviewrouter-video-v84.yml`. Produces actual native H264/AAC MP4 and keyframe stills after npm CI, typecheck, media probe and full decode. Hybrid local Python preview must be labeled separately from native Remotion output.
+
+## V8.5 minimal UI polish (independent 41.43s composition)
+
+This is a new `ReviewRouterV85` composition. Previous V6–V8.4 and `render:latest` remain unchanged. The specific feedback addressed: remove the misleading animated underline in the hybrid hero, hide the top-right scene label and header divider, guarantee code unmounts before the first review bot comment (code no longer returns at the end), align the three messages without rotation, remove horizontal commit/reuse separator lines, and remove the cards around the benchmark comparison. Keep genuine Claude and ReviewRouter brand symbols, 9,5× and 14,7× counts, Sentry/Context7/custom MCP, review skills and hosted/self-hosted ending.
+
+```bash
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v85
+npm run render:v85
+```
+
+Source: `src/video-v8-5.tsx` and `src/video-v8-5.css`. Design and four critique passes: `V8.5-MINIMAL-UI-FINAL-PASS.md`. This revision does not add npm dependencies. The upstream OpenCodeReview AACR-Bench scope/limitations remain unchanged. Local hybrid MP4 preview is not interchangeable with native Remotion E2E evidence.
+
+## V8.6 — selected-repository review polish and subtle space motion
+
+Independent **ReviewRouterV86** (1243f @30fps = 41.43 seconds, 1920×1080). Preserves V6–V8.5 and keeps `render:latest` on V6. Adds immediate total `3 commits` with changing progress as the list fills; fixed alignment and centered real ReviewRouter avatars for CRITICAL/MEDIUM messages; hard unmount of code at local frame 50, before the first message at frame 52. The provider title is now exactly `subscription / API`. A seventh **Custom endpoint** tile is marked **PLANNED**, since arbitrary upstream LLM providers are not currently qualified; existing HTTPS MCP custom endpoints are supported separately. A small **or** separates hosted/self-hosted. Subtle deterministic parallax stars/soft glows never touch network, GPU shaders or time-based CSS animations.
+
+```bash
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v86
+npm run render:v86
+```
+
+See `V8.6-UX-IMPLEMENTATION-PLAN.md` for four critique rounds and checks. The native workflow `.github/workflows/reviewrouter-video-v84.yml` now targets the latest V8.6 and exports H264/AAC 1920x1080, control frames, ffprobe and full ffmpeg decode. MP4 created by local Python/FFmpeg is a **hybrid preview**, not native Remotion validation. All displayed repositories and counts are illustrative; upstream AACR-Bench results and caveats unchanged.

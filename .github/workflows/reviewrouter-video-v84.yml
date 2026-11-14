@@ -1,0 +1,82 @@
+name: ReviewRouter V8.6 native video QA
+on:
+  push:
+    branches:
+      - feat/reviewrouter-video-v84-motion
+    paths:
+      - "artifacts/reviewrouter-video/**"
+      - ".github/workflows/reviewrouter-video-v84.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  render-v86:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: artifacts/reviewrouter-video
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: artifacts/reviewrouter-video/package-lock.json
+      - name: Locked dependencies
+        run: npm ci
+      - name: Prepare brand fonts and authored SFX
+        run: npm run prepare:v7
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Capture 25 visual QA stills
+        run: |
+          mkdir -p out/qa
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/01-hero-start.png --frame=5 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/02-hero-count.png --frame=28 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/03-hero-final.png --frame=71 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/04-cursor-click.png --frame=144 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/05-six-plus-custom.png --frame=234 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/06-planned-endpoint.png --frame=258 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/07-repositories.png --frame=346 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/08-code-line.png --frame=441 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/09-code-unmount.png --frame=451 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/10-comment-first.png --frame=464 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/11-comment-second.png --frame=503 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/12-comment-third.png --frame=543 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/13-comments-settled.png --frame=559 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/14-mcp.png --frame=629 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/15-skills.png --frame=750 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/16-commits-total.png --frame=788 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/17-first-commit.png --frame=812 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/18-second-commit.png --frame=847 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/19-third-commit.png --frame=868 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/20-commit-fully-settled.png --frame=901 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/21-tokens.png --frame=958 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/22-benchmark-count.png --frame=1031 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/23-benchmark-final.png --frame=1102 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/24-outro-or.png --frame=1183 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV86 out/qa/25-outro-final.png --frame=1220 --concurrency=2
+      - name: Render full V8.5 H264/AAC
+        run: npm run render:v86
+      - name: Install probe if missing
+        run: |
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+      - name: Verify video and audio streams, duration, decode
+        run: |
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v86.mp4
+          ffmpeg -v error -i out/reviewrouter-v86.mp4 -f null -
+          node scripts/check-v8-media.mjs out/reviewrouter-v86.mp4 1243
+      - name: Upload complete MP4 and keyframes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewrouter-v86-native-video
+          path: |
+            artifacts/reviewrouter-video/out/reviewrouter-v86.mp4
+            artifacts/reviewrouter-video/out/qa/*.png
+          retention-days: 14
+          if-no-files-found: warn
