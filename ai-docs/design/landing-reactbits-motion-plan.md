@@ -76,3 +76,5 @@ Use `LogoMark`, `/review-router-logo.png`, existing `SourceProviderLabel`/`Provi
 Estimated net new code: **450–850 TSX/CSS lines**, delete/reduce ~300–700 existing landing lines only as required, complexity **5/10**, expected reliability **8/10**, design confidence **8/10**, implementation confidence before E2E **6/10**. Do not expand into dashboard redesign or pricing/billing.
 
 **R6 — Navigation regression (implementation review):** Removing home-embedded compare left global nav/footer and two information pages pointing at `/#compare`. Fix the four real links to existing `/compare` route, retaining `activePath` semantics; this is a scoped navigational repair, not a dashboard refactor.
+
+**R7 — Existing deployed web smoke contract:** `scripts/check-web-pages.mjs` still asserted the removed hero text `Free privacy-first` and `that stays inside your CI`. These are intentionally superseded. Updated the smoke oracle to `Your model. Your budget.` and `OpenCodeReview`, retaining install CTA and all existing session/install redirect tests. CI needs to run the real `web:smoke` to qualify it.
