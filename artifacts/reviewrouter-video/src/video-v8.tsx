@@ -223,17 +223,19 @@ const Outro:React.FC=()=>{
   </Scene>;
 };
 
-/** Timeline overlaps are intentional. The next scene overlays the previous one via 9-frame reveal. */
+/** Keep chapter intervals disjoint: crossfading fully composed scenes produced
+ * overlapping headlines and navigation labels during the 7–9-frame transitions.
+ * Each new scene now eases in over the ambient background, never above old text. */
 const PARTS=[
-  {from:0,dur:128},     // 0..127 hero
-  {from:120,dur:45},    // 120..164 github
-  {from:158,dur:134},   // 158..291 providers
-  {from:284,dur:125},   // 284..408 repo
-  {from:401,dur:171},   // 401..571 finding
-  {from:564,dur:134},   // 564..697 incremental
-  {from:690,dur:100},   // 690..789 insights
-  {from:782,dur:129},   // 782..910 benchmark
-  {from:903,dur:117},   // 903..1019 outro
+  {from:0,dur:120},     // 0..119 hero
+  {from:120,dur:38},    // 120..157 GitHub
+  {from:158,dur:126},   // 158..283 providers
+  {from:284,dur:117},   // 284..400 repository
+  {from:401,dur:163},   // 401..563 finding
+  {from:564,dur:126},   // 564..689 incremental
+  {from:690,dur:100},   // 690..789 insights (allow last bar to complete)
+  {from:790,dur:113},   // 790..902 benchmark
+  {from:903,dur:117},   // 903..1019 CTA
 ] as const;
 const Sfx:React.FC<{at:number;name:'click.wav'|'success.wav'|'finding.wav';gain?:number}> =({at,name,gain=.35})=>
   <Sequence from={at}><Audio src={staticFile('v7-sfx/'+name)} volume={gain}/></Sequence>;
