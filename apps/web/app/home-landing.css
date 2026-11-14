@@ -423,3 +423,34 @@ html[data-theme="light"] .rr-home-finding__severity--major { color: #805000; }
   }
   .rr-home-hosting__card:hover { transform: none; }
 }
+
+/* Readable section breathing room around existing FAQ and final CTA. */
+.rr-home-faq-wrap {
+  border-top: 1px solid var(--rr-home-outline);
+  padding: clamp(5rem, 8vw, 8rem) 1.5rem;
+}
+.rr-landing > section:last-child {
+  padding: 0 1.5rem;
+  margin: 0 auto clamp(4rem, 6vw, 7rem);
+  width: 100%;
+}
+html[data-theme="light"] .rr-home-window {
+  background: linear-gradient(140deg, #ffffff, #eef9fb 88%);
+}
+html[data-theme="light"] .rr-home-insights__choice,
+html[data-theme="light"] .rr-home-benchmark {
+  background: linear-gradient(115deg, rgba(45,128,146,.06), #ffffff 94%);
+}
+html[data-theme="light"] .rr-home-finding {
+  background: rgba(13, 118, 146, .035);
+}
+html[data-theme="light"] .rr-home-dashboard__sidebar {
+  background: rgba(10, 108, 129, .045);
+}
+html[data-theme="light"] .rr-home-hero__signal {
+  opacity: .17;
+}
+@media (max-width: 760px) {
+  .rr-home-faq-wrap { padding: 4.8rem 1.15rem; }
+  .rr-landing > section:last-child { padding: 0 1.15rem; }
+}
