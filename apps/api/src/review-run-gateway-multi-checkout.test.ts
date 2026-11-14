@@ -19,7 +19,9 @@ import type { ReadSelectedGatewayModelSettings } from "./review-run-gateway-mode
 function fixture(
   count = 2,
   sharedAllocation = false,
-  profileRef = "openrouter-openai-responses-apikey-v1",
+  profileRef:
+    | string
+    | readonly string[] = "openrouter-openai-responses-apikey-v1",
   repositoryFullName = "owner/repo",
   githubRepositoryId = "456",
 ) {
@@ -34,7 +36,8 @@ function fixture(
       fastMode: false,
       requiredHealthy: true,
       gatewayBindingId: `binding-${sharedAllocation ? 0 : index}`,
-      gatewayProfileRef: profileRef,
+      gatewayProfileRef:
+        typeof profileRef === "string" ? profileRef : profileRef[index]!,
     })),
     execution: {
       providerLimit: count,
@@ -99,7 +102,8 @@ function fixture(
         policySubject: `binding-${index}`,
         policyRevision: 1,
         permittedAccountRef: `private-account-${index}`,
-        profileRef,
+        profileRef:
+          typeof profileRef === "string" ? profileRef : profileRef[index]!,
         invocationId: `invocation-${index}`,
         attemptId: `attempt-${index}`,
         operationId: `operation-${index}`,
@@ -184,6 +188,7 @@ function fixture(
   });
   return {
     snapshot,
+    configuration,
     authorization,
     deniedAllocations,
     settings,
@@ -200,6 +205,96 @@ function fixture(
 }
 
 describe("multi-reviewer checkout projection", () => {
+  it("exports each authorized profile by exact reviewer despite later config and environment changes", async () => {
+    const profiles = [
+      "openrouter-openai-responses-apikey-v1",
+      "openai-codex-oauth-responses-v1",
+    ];
+    const f = fixture(2, false, profiles);
+    // Saved configuration can change after authorization; checkout uses its snapshot.
+    f.configuration.providers.reverse();
+    vi.stubEnv(
+      "REVIEW_ROUTER_GATEWAY_PROFILE_REF",
+      "unrelated-current-profile",
+    );
+    vi.stubEnv(
+      "REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON",
+      '{"reviewer-0":"unrelated-current-profile"}',
+    );
+    try {
+      const result = await f.issue();
+      const env = result.runtimeConfig.runtimeEnv;
+      expect(
+        JSON.parse(env.REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON!),
+      ).toEqual({
+        "reviewer-0": profiles[0],
+        "reviewer-1": profiles[1],
+      });
+      expect(env).not.toHaveProperty("REVIEW_ROUTER_GATEWAY_PROFILE_REF");
+      // Existing clients still receive strings and the unchanged strict reviewer plan.
+      expect(
+        Object.values(env).every((value) => typeof value === "string"),
+      ).toBe(true);
+      const plan = parseReviewReviewerPlan(
+        JSON.parse(env[reviewerPlanContract.runtimeEnvKey]!),
+      );
+      expect(plan.reviewers.map((reviewer) => reviewer.reviewerId)).toEqual([
+        "reviewer-0",
+        "reviewer-1",
+      ]);
+      expect(
+        plan.reviewers.every((reviewer) => !("gatewayProfileRef" in reviewer)),
+      ).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("private-account");
+      expect(JSON.stringify(result)).not.toContain("private-connection");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("exports the captured legacy profile without inventing a reviewer map", async () => {
+    const f = fixture(1);
+    const {
+      primaryReviewerId: _primary,
+      maxParallelReviewers: _parallel,
+      inlineMinAgreement: _agreement,
+      reviewers,
+      allocations,
+      ...common
+    } = f.snapshot;
+    const { allocationId: _allocation, ...gateway } = allocations[0]!;
+    void _primary;
+    void _parallel;
+    void _agreement;
+    void _allocation;
+    const legacy = {
+      ...common,
+      snapshotVersion: 3,
+      agent: reviewers[0]!.agentProfile,
+      agentProfileDigest: reviewers[0]!.agentProfileDigest,
+      gateway: { ...gateway, providerIndex: 0 },
+    };
+    Object.assign(f.authorization, {
+      runtimeSnapshotCanonicalJson: canonicalJson(legacy),
+    });
+    f.settings.mockResolvedValue({
+      authorizationEpoch: 7,
+      settings: undefined,
+    });
+    f.configuration.providers[0]!.gatewayProfileRef =
+      "unrelated-current-profile";
+    const result = await f.issue();
+    expect(
+      result.runtimeConfig.runtimeEnv.REVIEW_ROUTER_GATEWAY_PROFILE_REF,
+    ).toBe("openrouter-openai-responses-apikey-v1");
+    expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
+      "REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON",
+    );
+    expect(result.runtimeConfig.runtimeEnv).not.toHaveProperty(
+      reviewerPlanContract.runtimeEnvKey,
+    );
+  });
+
   it("reads each captured model by exact reviewer and shares one SCM checkout", async () => {
     const f = fixture();
     const result = await f.issue();
