@@ -588,7 +588,10 @@ describeWithDatabase.sequential(
               pullRequestNumber: row.pullRequestNumber,
               nextPublishAt: parkedUntil,
             },
-            data: { nextPublishAt: row.nextPublishAt, updatedAt: row.updatedAt },
+            data: {
+              nextPublishAt: row.nextPublishAt,
+              updatedAt: row.updatedAt,
+            },
           });
         }
       }
