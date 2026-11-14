@@ -1,0 +1,20 @@
+/* V8.4 premium motion. Earlier compositions are untouched. */
+.v84-root .v8-disclaimer{display:none!important}
+.v84-root .v8-hero-number,.v84-root .v8-bench-large{font-variant-numeric:tabular-nums;white-space:nowrap}
+.v84-count{font-variant-numeric:tabular-nums;will-change:transform,filter;transform-origin:bottom center}
+.v84-source-in-hero{margin-top:22px;text-align:center;color:#819fac;font:17px "RR Mono",monospace;letter-spacing:.01em}
+.v84-source-in-benchmark{position:absolute;top:370px;left:220px;right:220px;text-align:center;color:#91b0bc;font:17px "RR Mono",monospace;letter-spacing:.003em}
+.v84-price-in-cta{position:absolute;top:846px;left:250px;right:250px;color:#84a7b7;font:18px "RR Mono",monospace;text-align:center}
+.v84-root .v83-commit-history{position:relative;gap:0;padding-left:8px}
+.v84-root .v83-commit-history:before{content:"";position:absolute;top:84px;bottom:32px;left:47px;width:2px;background:linear-gradient(#517388,#76e3e8)}
+.v84-root .v83-commit-row{height:91px;position:relative;background:transparent;border:0;border-bottom:1px solid #456271;border-radius:0;box-shadow:none;padding:0 19px 0 19px;transform-origin:left center}
+.v84-root .v83-commit-node{z-index:2;width:42px;height:42px;flex:0 0 42px;border:2px solid #68c9c4;background:#143931}
+.v84-root .v83-review-reuse{gap:12px;padding-top:38px}
+.v84-root .v83-reuse-panel,.v84-root .v83-reuse-panel.current{border:0;border-bottom:1px solid #416579;border-radius:0;background:transparent;box-shadow:none;padding:14px 5px;min-height:126px}
+.v84-root .v83-reuse-number{font-size:78px;line-height:1}
+.v84-root .v83-reuse-panel small{font-size:20px}
+.v84-root .v83-commit-row:last-child{border-color:#7fdfe2}
+.v84-root .v83-review-reuse>div:last-child{border-color:#7fdfe2}
+.v84-root .v83-reflow-stack{will-change:top}
+.v84-root .v82-code{transform-origin:center top;will-change:opacity,transform,filter}
+.v84-root .v8-signin-button{will-change:transform,box-shadow}
