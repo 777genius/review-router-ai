@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProgressSnapshot } from "@reviewrouter/features-review-progress";
+import { ReviewProgressGitHubError } from "./review-progress-github-gateway";
 import { ReviewProgressPublisher } from "./review-progress-publisher";
-import type { ClaimedReviewProgress } from "./review-progress-store";
+import type {
+  ClaimedReviewProgress,
+  PrismaReviewProgressPublicationStore,
+} from "./review-progress-store";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
 
@@ -58,6 +62,91 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("updates a known comment through the installation gateway", async () => {
+    const publication = { ...claimed(), commentId: 77n };
+    const store = fakeStore(publication);
+    const routes: string[] = [];
+    const publisher = createPublisher(store, async (installationId) => {
+      expect(installationId).toBe(9n);
+      return {
+        botLogin: "review-router[bot]",
+        request: async (route, parameters = {}) => {
+          routes.push(route);
+          if (route.includes("/pulls/")) return pull();
+          if (route.startsWith("GET")) {
+            return {
+              data: [
+                {
+                  id: 77,
+                  body: "<!-- review-router-live-progress -->",
+                  user: { login: "review-router[bot]" },
+                },
+              ],
+            };
+          }
+          if (route.startsWith("PATCH")) {
+            expect(parameters.comment_id).toBe(77);
+            expect(parameters.body).toContain(
+              "<!-- review-router-live-progress -->",
+            );
+            return { data: { id: 77 } };
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      };
+    });
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 1,
+      deferred: 0,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(routes).toEqual([
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+    expect(store.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ publication, commentId: 77n }),
+    );
+  });
+
+  it("does not report a stale fenced completion as published", async () => {
+    const store = fakeStore(claimed());
+    store.complete.mockResolvedValue(false);
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) return { data: [] };
+        if (route.startsWith("POST")) {
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+            },
+          };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.complete).toHaveBeenCalledOnce();
+    expect(store.retry).not.toHaveBeenCalled();
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
   it("defers without touching GitHub when the installation budget is busy", async () => {
     const publication = claimed();
     const store = fakeStore(publication);
@@ -77,8 +166,17 @@ describe("ReviewProgressPublisher", () => {
     });
     expect(factory).not.toHaveBeenCalled();
     expect(store.retry).toHaveBeenCalledWith(
-      expect.objectContaining({ retryAt }),
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_installation_budget_wait",
+        retryAt,
+        now,
+        maxFailures: 3,
+        countFailure: false,
+      }),
     );
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.suppress).not.toHaveBeenCalled();
   });
 
   it("suppresses a corrupt durable snapshot without affecting the review", async () => {
@@ -97,6 +195,58 @@ describe("ReviewProgressPublisher", () => {
         safeCode: "review_progress_snapshot_invalid",
       }),
     );
+  });
+
+  it("suppresses negative valid coverage counts before GitHub access", async () => {
+    const publication = claimed({
+      ...progressSnapshot(),
+      fileCoverage: {
+        valid: true,
+        total: 1,
+        covered: -1,
+        uncovered: 0,
+        excluded: 0,
+      },
+    });
+    const store = fakeStore(publication);
+    const factory = vi.fn();
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 0,
+      suppressed: 1,
+      failed: 0,
+    });
+    expect(store.reserveInstallationMutation).not.toHaveBeenCalled();
+    expect(factory).not.toHaveBeenCalled();
+  });
+
+  it("defers a corrupt snapshot when stale-claim suppression is fenced out", async () => {
+    const publication = { ...claimed(), snapshot: { schemaVersion: 9 } };
+    const store = fakeStore(publication);
+    store.suppress.mockResolvedValue(false);
+    const factory = vi.fn();
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.suppress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_snapshot_invalid",
+      }),
+    );
+    expect(factory).not.toHaveBeenCalled();
+    expect(store.retry).not.toHaveBeenCalled();
   });
 
   it("publishes a legacy v1 snapshot without a source marker", async () => {
@@ -174,6 +324,218 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("defers completion while marked duplicates remain for cleanup", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const comment = {
+      body: "<!-- review-router-live-progress -->",
+      user: { login: "review-router[bot]" },
+    };
+    const firstComment = { ...comment, id: 77 };
+    const secondComment = { ...comment, id: 78 };
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) {
+          return { data: [firstComment, secondComment] };
+        }
+        if (route.startsWith("PATCH")) return { data: {} };
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_duplicate_cleanup_pending",
+        retryAt: new Date(now.getTime() + 1_000),
+        countFailure: false,
+        maxFailures: 3,
+      }),
+    );
+  });
+
+  it("requeues a stale PATCH while keeping duplicate cleanup pending", async () => {
+    const publication = { ...claimed(), commentId: 77n };
+    const store = fakeStore(publication);
+    store.retry.mockResolvedValue("stale");
+    store.complete.mockResolvedValue(false);
+    const comment = {
+      body: "<!-- review-router-live-progress -->",
+      user: { login: "review-router[bot]" },
+    };
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) {
+          return {
+            data: [
+              { ...comment, id: 77 },
+              { ...comment, id: 78 },
+            ],
+          };
+        }
+        if (route.startsWith("PATCH")) return { data: {} };
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_duplicate_cleanup_pending",
+        countFailure: false,
+      }),
+    );
+    expect(store.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        commentId: 77n,
+        bodyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        now,
+      }),
+    );
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
+  it("backs off capped scans for an hour without exhausting retries", async () => {
+    const publication = { ...claimed(), failureCount: 2 };
+    const store = fakeStore(publication);
+    const pages: number[] = [];
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+        ) {
+          const page = Number(parameters.page);
+          pages.push(page);
+          return {
+            data: Array.from({ length: 100 }, (_, index) => ({
+              id: page * 100 + index,
+              body: "unrelated",
+              user: { login: "someone-else" },
+            })),
+          };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(pages).toEqual([1, 2]);
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_pagination_inconclusive",
+        retryAt: new Date(now.getTime() + 60 * 60_000),
+        countFailure: false,
+        maxFailures: 3,
+      }),
+    );
+    expect(store.complete).not.toHaveBeenCalled();
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
+  it.each(["pagination_inconclusive", "rate_limited"] as const)(
+    "retains %s retry policy after an ambiguous PATCH reconciliation",
+    async (kind) => {
+      const publication = { ...claimed(), commentId: 77n, failureCount: 2 };
+      const store = fakeStore(publication);
+      let commentReads = 0;
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route) => {
+          if (route.includes("/pulls/")) return pull();
+          if (
+            route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+          ) {
+            commentReads += 1;
+            if (commentReads === 1) {
+              return {
+                data: [
+                  {
+                    id: 77,
+                    body: "<!-- review-router-live-progress -->",
+                    user: { login: "review-router[bot]" },
+                  },
+                ],
+              };
+            }
+            if (kind === "rate_limited") {
+              throw {
+                status: 403,
+                response: { headers: { "retry-after": "60" } },
+              };
+            }
+            return {
+              data: Array.from({ length: 100 }, (_, index) => ({
+                id: index + 1,
+                body: "unrelated",
+                user: { login: "other" },
+              })),
+            };
+          }
+          if (route.startsWith("PATCH")) {
+            throw new Error("transport_outcome_unknown");
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      }));
+      const outcome = await publisher.runMaintenance();
+      expect(outcome).toEqual({
+        claimed: 1,
+        published: 0,
+        deferred: kind === "pagination_inconclusive" ? 1 : 0,
+        suppressed: 0,
+        failed: kind === "rate_limited" ? 1 : 0,
+      });
+      expect(commentReads).toBe(kind === "rate_limited" ? 2 : 3);
+      expect(store.retry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publication,
+          safeCode: `review_progress_${kind}`,
+          ...(kind === "pagination_inconclusive"
+            ? {
+                countFailure: false,
+                retryAt: new Date(now.getTime() + 60 * 60_000),
+              }
+            : {
+                installationCooldownUntil: expect.any(Date),
+                retryAt: expect.any(Date),
+              }),
+          maxFailures: 3,
+        }),
+      );
+      expect(store.complete).not.toHaveBeenCalled();
+      expect(store.suppress).not.toHaveBeenCalled();
+    },
+  );
+
   it("suppresses a poison publication at the retry bound", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);
@@ -190,6 +552,158 @@ describe("ReviewProgressPublisher", () => {
     expect(store.retry).toHaveBeenCalledWith(
       expect.objectContaining({ maxFailures: 3 }),
     );
+  });
+
+  it("uses the GitHub rate-limit retry boundary as installation cooldown", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const retryAt = new Date(now.getTime() + 60_000);
+    const factory = vi.fn(async () => {
+      throw new ReviewProgressGitHubError("rate_limited", "limited", {
+        retryable: true,
+        retryAt,
+      });
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toMatchObject({ claimed: 1, failed: 1, suppressed: 0 });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_rate_limited",
+        retryAt,
+        installationCooldownUntil: retryAt,
+        maxFailures: 3,
+      }),
+    );
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { status: 408, code: "review_progress_github_unavailable" },
+    { status: 503, code: "review_progress_github_unavailable" },
+    { status: 429, code: "review_progress_rate_limited" },
+  ])(
+    "honors raw factory HTTP $status Retry-After before the gateway exists",
+    async ({ status, code }) => {
+      const publication = claimed();
+      const store = fakeStore(publication);
+      const factory = vi.fn(async () => {
+        throw Object.assign(new Error("requester_factory_http_failure"), {
+          response: {
+            status,
+            headers: { "retry-after": "7200" },
+          },
+        });
+      });
+
+      await expect(
+        createPublisher(store, factory).runMaintenance(),
+      ).resolves.toMatchObject({ claimed: 1, failed: 1, suppressed: 0 });
+
+      expect(store.retry).toHaveBeenCalledOnce();
+      const retry = store.retry.mock.calls[0]?.[0];
+      expect(retry).toMatchObject({ publication, safeCode: code, now });
+      expect(retry?.retryAt.getTime()).toBeGreaterThanOrEqual(
+        now.getTime() + 7_200_000,
+      );
+      expect(retry?.retryAt.getTime()).toBeLessThan(now.getTime() + 7_201_000);
+      if (status === 429) {
+        expect(retry?.installationCooldownUntil).toEqual(retry?.retryAt);
+      } else {
+        expect(retry?.installationCooldownUntil).toBeUndefined();
+      }
+      expect(store.suppress).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retries unknown failures using the fallback delay", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const publisher = createPublisher(store, async () => {
+      throw new Error("installation_transient");
+    });
+
+    await expect(publisher.runMaintenance()).resolves.toMatchObject({
+      claimed: 1,
+      failed: 1,
+      suppressed: 0,
+    });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_publish_failed",
+        retryAt: new Date(now.getTime() + 5_000),
+        now,
+      }),
+    );
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
+  it("defers a retry when another worker owns the claim", async () => {
+    const store = fakeStore(claimed());
+    store.retry.mockResolvedValue("stale");
+    const factory = vi.fn(async () => {
+      throw new Error("installation_transient");
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({ safeCode: "review_progress_publish_failed" }),
+    );
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a non-retryable GitHub error without scheduling retry", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const factory = vi.fn(async () => {
+      throw new ReviewProgressGitHubError("revoked_app", "revoked", {
+        retryable: false,
+      });
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toMatchObject({ claimed: 1, suppressed: 1, failed: 0 });
+    expect(store.suppress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_revoked_app",
+      }),
+    );
+    expect(store.retry).not.toHaveBeenCalled();
+  });
+
+  it("defers non-retryable failures if stale-claim suppression loses the fence", async () => {
+    const store = fakeStore(claimed());
+    store.suppress.mockResolvedValue(false);
+    const factory = vi.fn(async () => {
+      throw new ReviewProgressGitHubError("revoked_app", "revoked", {
+        retryable: false,
+      });
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.suppress).toHaveBeenCalledOnce();
+    expect(store.retry).not.toHaveBeenCalled();
   });
 });
 
@@ -215,6 +729,8 @@ function createPublisher(
 
 function fakeStore(publication: ClaimedReviewProgress) {
   let claimedOnce = false;
+  const retry = vi.fn<PrismaReviewProgressPublicationStore["retry"]>();
+  retry.mockResolvedValue("retried");
   return {
     claimNext: vi.fn(async () => {
       if (claimedOnce) return null;
@@ -227,7 +743,7 @@ function fakeStore(publication: ClaimedReviewProgress) {
       > => ({ allowed: true as const }),
     ),
     complete: vi.fn(async () => true),
-    retry: vi.fn(async (): Promise<"retried" | "suppressed"> => "retried"),
+    retry,
     suppress: vi.fn(async () => true),
   };
 }

@@ -3,11 +3,24 @@ import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
 
+function settledAttempt(outcome: "succeeded" | "failed_no_effect") {
+  return {
+    publicationAttemptId: "attempt-1",
+    executionId: "execution-1",
+    generation: 7n,
+    reviewedHeadSha: "a".repeat(40),
+    state: "terminal",
+    terminalOutcome: outcome,
+  };
+}
+
 describe("PrismaReviewProgressPublicationStore fencing", () => {
   it("does not complete a stale claim after a newer generation wins the scope", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
+    const repair = vi.fn<(query: unknown) => Promise<number>>(async () => 1);
     const store = new PrismaReviewProgressPublicationStore({
       reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
     } as never);
 
     await expect(
@@ -30,6 +43,204 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         }),
       }),
     );
+    expect(repair).toHaveBeenCalledTimes(1);
+    const sql = repair.mock.calls[0]![0] as {
+      strings: readonly string[];
+      values: readonly unknown[];
+    };
+    const statement = sql.strings.join(" ");
+    expect(statement).toContain('"publishedVersion" = CASE');
+    expect(statement).toContain('"publishedVersion" - 1');
+    expect(statement).toContain('"claimId" = NULL');
+    expect(sql.values).toEqual([
+      now,
+      now,
+      "workspace-1",
+      "repository-1",
+      "identity-1",
+      42,
+    ]);
+  });
+
+  it.each([
+    { mode: "ongoing", terminal: false, delayMs: 60_000 },
+    { mode: "terminal", terminal: true, delayMs: 0 },
+  ])("settles $mode claims", async ({ terminal, delayMs }) => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+    } as never);
+    const publication = { ...claimed(), terminal };
+    const bodyHash = "c".repeat(64);
+
+    await expect(
+      store.complete({ publication, commentId: 42n, bodyHash, now }),
+    ).resolves.toBe(true);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        ...publication.scope,
+        activeExecutionId: publication.executionId,
+        activeGeneration: publication.generation,
+        activeHeadSha: publication.headSha,
+        activePlanHash: publication.planHash,
+        desiredVersion: publication.desiredVersion,
+        claimId: publication.claim.claimId,
+        claimOwnerIdHash: publication.claim.ownerIdHash,
+      },
+      data: {
+        publishedVersion: publication.desiredVersion,
+        commentId: 42n,
+        publishedBodyHash: bodyHash,
+        lastPublishedAt: now,
+        nextPublishAt: new Date(now.getTime() + delayMs),
+        claimId: null,
+        claimOwnerIdHash: null,
+        claimUntil: null,
+        failureCount: 0,
+        lastErrorCode: null,
+        updatedAt: now,
+      },
+    });
+  });
+
+  it("fences every progress mutation to the same claim identity", async () => {
+    const publication = claimed();
+    const whereClauses: unknown[] = [];
+    const updateMany = vi.fn(async ({ where }: { readonly where: unknown }) => {
+      whereClauses.push(where);
+      return { count: 1 };
+    });
+    const count = vi.fn(async ({ where }: { readonly where: unknown }) => {
+      whereClauses.push(where);
+      return 1;
+    });
+    const prisma = {
+      reviewProgressPublicationV1: { updateMany },
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async () => 1,
+          $queryRaw: async () => [],
+          reviewProgressPublicationV1: { updateMany, count },
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: async () => ({
+              nextMutationAt: now,
+              cooldownUntil: null,
+            }),
+            update: async () => ({}),
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        publication,
+        now,
+        minimumIntervalMs: 1_000,
+      }),
+    ).resolves.toEqual({ allowed: true });
+    await store.complete({
+      publication,
+      commentId: 42n,
+      bodyHash: "c".repeat(64),
+      now,
+    });
+    await store.retry({
+      publication,
+      safeCode: "retryable",
+      retryAt: new Date(now.getTime() + 1_000),
+      now,
+      maxFailures: 3,
+    });
+    await store.suppress({ publication, safeCode: "suppressed", now });
+
+    const fence = {
+      ...publication.scope,
+      activeExecutionId: publication.executionId,
+      activeGeneration: publication.generation,
+      activeHeadSha: publication.headSha,
+      activePlanHash: publication.planHash,
+      desiredVersion: publication.desiredVersion,
+      claimId: publication.claim.claimId,
+      claimOwnerIdHash: publication.claim.ownerIdHash,
+    };
+    expect(whereClauses).toEqual([
+      { ...fence, claimUntil: { gt: now } },
+      fence,
+      fence,
+      fence,
+    ]);
+  });
+
+  it("locks the installation budget before reserving it", async () => {
+    const calls: string[] = [];
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async () => {
+            calls.push("insert");
+            return 1;
+          },
+          $queryRaw: async () => {
+            calls.push("lock");
+            return [];
+          },
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: async () => {
+              calls.push("read");
+              return { nextMutationAt: now, cooldownUntil: null };
+            },
+            update: async () => {
+              calls.push("reserve");
+              return {};
+            },
+          },
+          reviewProgressPublicationV1: {
+            count: async () => {
+              calls.push("fence");
+              return 1;
+            },
+          },
+        }),
+    } as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        publication: claimed(),
+        now,
+        minimumIntervalMs: 1_000,
+      }),
+    ).resolves.toEqual({ allowed: true });
+    expect(calls).toEqual(["insert", "lock", "read", "fence", "reserve"]);
+  });
+
+  it("does not consume installation budget after losing the claim fence", async () => {
+    const budgetUpdate = vi.fn();
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async () => 1,
+          $queryRaw: async () => [],
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: async () => ({
+              nextMutationAt: now,
+              cooldownUntil: null,
+            }),
+            update: budgetUpdate,
+          },
+          reviewProgressPublicationV1: { count: async () => 0 },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        publication: claimed(),
+        now,
+        minimumIntervalMs: 1_000,
+      }),
+    ).resolves.toEqual({ allowed: false, retryAt: now });
+    expect(budgetUpdate).not.toHaveBeenCalled();
   });
 
   it("persists installation cooldown with monotonic database GREATEST", async () => {
@@ -48,22 +259,98 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     };
     const store = new PrismaReviewProgressPublicationStore(prisma as never);
 
+    const cooldownUntil = new Date(now.getTime() + 60_000);
     await store.retry({
       publication: claimed(),
       safeCode: "review_progress_rate_limited",
       retryAt: new Date(now.getTime() + 1_000),
-      installationCooldownUntil: new Date(now.getTime() + 60_000),
+      installationCooldownUntil: cooldownUntil,
       now,
       maxFailures: 10,
     });
 
-    const query = rawQueries[0] as { strings: readonly string[] };
+    const query = rawQueries[0] as {
+      strings: readonly string[];
+      values: readonly unknown[];
+    };
     expect(query.strings.join(" ")).toContain('"nextMutationAt" = GREATEST');
     expect(query.strings.join(" ")).toContain('"cooldownUntil" = GREATEST');
+    expect(query.values).toEqual([17n, cooldownUntil, cooldownUntil, now]);
+  });
+
+  it("fails retry when installation cooldown persistence fails", async () => {
+    const calls: string[] = [];
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewProgressPublicationV1: {
+            updateMany: async () => {
+              calls.push("publication");
+              return { count: 1 };
+            },
+          },
+          $executeRaw: async () => {
+            calls.push("cooldown");
+            throw new Error("cooldown_failed");
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.retry({
+        publication: claimed(),
+        safeCode: "review_progress_rate_limited",
+        retryAt: new Date(now.getTime() + 1_000),
+        installationCooldownUntil: new Date(now.getTime() + 60_000),
+        now,
+        maxFailures: 3,
+      }),
+    ).rejects.toThrow("cooldown_failed");
+    expect(calls).toEqual(["publication", "cooldown"]);
+  });
+
+  it("reports a stale retry fence at the failure limit and preserves rate-limit cooldown", async () => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const cooldownQueries: unknown[] = [];
+    const cooldownWrite = vi.fn(async (query: unknown) => {
+      cooldownQueries.push(query);
+      return 1;
+    });
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewProgressPublicationV1: { updateMany },
+          $executeRaw: cooldownWrite,
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+    const publication = { ...claimed(), failureCount: 2 };
+    const cooldownUntil = new Date(now.getTime() + 60_000);
+
+    await expect(
+      store.retry({
+        publication,
+        safeCode: "review_progress_rate_limited",
+        retryAt: new Date(now.getTime() + 1_000),
+        installationCooldownUntil: cooldownUntil,
+        now,
+        maxFailures: 3,
+      }),
+    ).resolves.toBe("stale");
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ claimId: "claim-1" }),
+      }),
+    );
+    expect(cooldownWrite).toHaveBeenCalledOnce();
+    const query = cooldownQueries[0] as { values: readonly unknown[] };
+    expect(query.values).toEqual([17n, cooldownUntil, cooldownUntil, now]);
   });
 
   it("orders terminal snapshots before ordinary due progress", async () => {
     const rawQueries: unknown[] = [];
+    const publicationLookup = vi.fn();
     const prisma = {
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
@@ -71,6 +358,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
             rawQueries.push(query);
             return [];
           },
+          reviewProgressPublicationV1: { findUniqueOrThrow: publicationLookup },
         }),
     };
     const store = new PrismaReviewProgressPublicationStore(prisma as never);
@@ -82,11 +370,266 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         claimDurationMs: 60_000,
       }),
     ).resolves.toBeNull();
+    expect(publicationLookup).not.toHaveBeenCalled();
     const query = rawQueries[0] as { strings: readonly string[] };
     expect(query.strings.join(" ")).toContain(
       'progress."terminalOutcome" IS NOT NULL',
     );
     expect(query.strings.join(" ")).toContain("THEN 0 ELSE 1 END");
+    expect(query.strings.join(" ")).toContain("FOR UPDATE SKIP LOCKED");
+  });
+
+  it.each([
+    { caseName: "missing progress", mismatch: "missing" },
+    { caseName: "changed generation", mismatch: "generation" },
+    { caseName: "changed desired version", mismatch: "desiredVersion" },
+  ] as const)(
+    "defers a stale projection ($caseName) before repository lookup",
+    async ({ mismatch }) => {
+      const scope = {
+        workspaceId: "workspace-1",
+        repositoryConnectionId: "repository-1",
+        scmRepositoryIdentityId: "identity-1",
+        pullRequestNumber: 42,
+      };
+      const deferUpdate = vi.fn(async () => ({}));
+      const repositoryLookup = vi.fn();
+      const prisma = {
+        $transaction: async (operation: (transaction: unknown) => unknown) =>
+          operation({
+            $queryRaw: async () => [scope],
+            reviewProgressPublicationV1: {
+              findUniqueOrThrow: async () => ({
+                ...scope,
+                activeExecutionId: "execution-1",
+                activeGeneration: 7n,
+                activeHeadSha: "a".repeat(40),
+                activePlanHash: "b".repeat(64),
+                desiredVersion: 73n,
+              }),
+              update: deferUpdate,
+            },
+            reviewExecutionProgressV1: {
+              findUnique: async () =>
+                mismatch === "missing"
+                  ? null
+                  : {
+                      generation: mismatch === "generation" ? 8n : 7n,
+                      headSha: "a".repeat(40),
+                      planHash: "b".repeat(64),
+                      desiredVersion: mismatch === "desiredVersion" ? 74n : 73n,
+                    },
+            },
+            repositoryConnection: { findUnique: repositoryLookup },
+          }),
+      };
+      const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+      await expect(
+        store.claimNext({
+          ownerIdHash: "d".repeat(64),
+          now,
+          claimDurationMs: 60_000,
+        }),
+      ).resolves.toBeNull();
+      expect(repositoryLookup).not.toHaveBeenCalled();
+      expect(deferUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            lastErrorCode: "review_progress_projection_identity_corrupted",
+          }),
+        }),
+      );
+    },
+  );
+
+  it.each([
+    {
+      name: "an inactive GitHub installation",
+      status: "suspended",
+      workspaceId: "workspace-1",
+      identityId: "identity-1",
+    },
+    {
+      name: "a cross-workspace GitHub repository",
+      status: "active",
+      workspaceId: "other-workspace",
+      identityId: "identity-1",
+    },
+    {
+      name: "a mismatched GitHub repository identity",
+      status: "active",
+      workspaceId: "workspace-1",
+      identityId: "other-identity",
+    },
+  ])(
+    "defers $name before writing a claim",
+    async ({ status, workspaceId, identityId }) => {
+      const scope = {
+        workspaceId: "workspace-1",
+        repositoryConnectionId: "repository-1",
+        scmRepositoryIdentityId: "identity-1",
+        pullRequestNumber: 42,
+      };
+      const publicationUpdate = vi.fn(async () => ({}));
+      const prisma = {
+        $transaction: async (operation: (transaction: unknown) => unknown) =>
+          operation({
+            $queryRaw: async () => [scope],
+            reviewProgressPublicationV1: {
+              findUniqueOrThrow: async () => ({
+                ...scope,
+                activeExecutionId: "execution-1",
+                activeGeneration: 7n,
+                activeHeadSha: "a".repeat(40),
+                activePlanHash: "b".repeat(64),
+                desiredVersion: 73n,
+              }),
+              update: publicationUpdate,
+            },
+            reviewExecutionProgressV1: {
+              findUnique: async () => ({
+                generation: 7n,
+                headSha: "a".repeat(40),
+                planHash: "b".repeat(64),
+                desiredVersion: 73n,
+              }),
+            },
+            repositoryConnection: {
+              findUnique: async () => ({
+                workspaceId,
+                scmRepositoryIdentityId: identityId,
+                selected: true,
+                archived: false,
+                provider: "github",
+                installation: {
+                  githubInstallationId: 112n,
+                  status,
+                },
+              }),
+            },
+          }),
+      };
+      const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+      await expect(
+        store.claimNext({
+          ownerIdHash: "d".repeat(64),
+          now,
+          claimDurationMs: 60_000,
+        }),
+      ).resolves.toBeNull();
+      expect(publicationUpdate).toHaveBeenCalledTimes(1);
+      expect(publicationUpdate).toHaveBeenCalledWith({
+        where: {
+          workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+            scope,
+        },
+        data: {
+          failureCount: { increment: 1 },
+          lastErrorCode: "review_progress_github_repository_unavailable",
+          nextPublishAt: new Date(now.getTime() + 60_000),
+          updatedAt: now,
+        },
+      });
+    },
+  );
+
+  it("writes a fenced claim before returning the matching publication", async () => {
+    const scope = {
+      workspaceId: "workspace-1",
+      repositoryConnectionId: "repository-1",
+      scmRepositoryIdentityId: "identity-1",
+      pullRequestNumber: 42,
+    };
+    const claimUpdate = vi.fn(async () => ({}));
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $queryRaw: async () => [scope],
+          reviewProgressPublicationV1: {
+            findUniqueOrThrow: async () => ({
+              ...scope,
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              desiredVersion: 73n,
+              publishedVersion: 72n,
+              commentId: 99n,
+              publishedBodyHash: "c".repeat(64),
+              failureCount: 0,
+            }),
+            update: claimUpdate,
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              desiredVersion: 73n,
+              snapshotJson: { phase: "running" },
+              terminalOutcome: null,
+            }),
+          },
+          repositoryConnection: {
+            findUnique: async () => ({
+              workspaceId: "workspace-1",
+              scmRepositoryIdentityId: "identity-1",
+              selected: true,
+              archived: false,
+              provider: "github",
+              owner: "acme",
+              name: "rocket",
+              installation: { githubInstallationId: 112n, status: "active" },
+            }),
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    const publication = await store.claimNext({
+      ownerIdHash: "d".repeat(64),
+      now,
+      claimDurationMs: 60_000,
+    });
+
+    expect(publication).toMatchObject({
+      scope,
+      executionId: "execution-1",
+      generation: 7n,
+      headSha: "a".repeat(40),
+      planHash: "b".repeat(64),
+      desiredVersion: 73n,
+      publishedVersion: 72n,
+      commentId: 99n,
+      publishedBodyHash: "c".repeat(64),
+      failureCount: 0,
+      snapshot: { phase: "running" },
+      terminal: false,
+      repository: {
+        owner: "acme",
+        name: "rocket",
+        githubInstallationId: 112n,
+      },
+      claim: {
+        claimId: expect.any(String),
+        ownerIdHash: "d".repeat(64),
+        claimUntil: new Date(now.getTime() + 60_000),
+      },
+    });
+    expect(claimUpdate).toHaveBeenCalledWith({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          scope,
+      },
+      data: {
+        claimId: publication?.claim.claimId,
+        claimOwnerIdHash: "d".repeat(64),
+        claimUntil: new Date(now.getTime() + 60_000),
+      },
+    });
   });
 
   it("suppresses when the desired version reaches its retry bound", async () => {
@@ -118,6 +661,94 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
+  it("does not exhaust a claim or increment failures for budget deferrals", async () => {
+    const recorded: Record<string, unknown>[] = [];
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewProgressPublicationV1: {
+            updateMany: async (input: { data: Record<string, unknown> }) => {
+              recorded.push(input.data);
+              return { count: 1 };
+            },
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.retry({
+        publication: { ...claimed(), failureCount: 2 },
+        safeCode: "review_progress_installation_budget_wait",
+        retryAt: new Date(now.getTime() + 5_000),
+        now,
+        maxFailures: 3,
+        countFailure: false,
+      }),
+    ).resolves.toBe("retried");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      lastErrorCode: "review_progress_installation_budget_wait",
+    });
+    expect(recorded[0]).not.toHaveProperty("publishedVersion");
+    expect(recorded[0]).not.toHaveProperty("failureCount");
+  });
+
+  it("does not add a cohort restriction for an unrestricted publisher", async () => {
+    const rawQueries: unknown[] = [];
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $queryRaw: async (query: unknown) => {
+            rawQueries.push(query);
+            return [];
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.claimNext({
+        ownerIdHash: "d".repeat(64),
+        now,
+        claimDurationMs: 60_000,
+      }),
+    ).resolves.toBeNull();
+    const query = rawQueries[0] as { strings: readonly string[] };
+    expect(query.strings.join(" ")).not.toContain(
+      'LOWER(repository."fullName") IN',
+    );
+  });
+
+  it("rejects an explicitly empty repository cohort without an invalid SQL join", async () => {
+    const rawQueries: unknown[] = [];
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $queryRaw: async (query: unknown) => {
+            rawQueries.push(query);
+            return [];
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never, {
+      allowedRepositoryFullNames: new Set<string>(),
+    });
+
+    await expect(
+      store.claimNext({
+        ownerIdHash: "d".repeat(64),
+        now,
+        claimDurationMs: 60_000,
+      }),
+    ).resolves.toBeNull();
+    const query = rawQueries[0] as { strings: readonly string[] };
+    expect(query.strings.join(" ")).toContain("AND FALSE");
+    expect(query.strings.join(" ")).not.toContain(
+      'LOWER(repository."fullName") IN',
+    );
+  });
+
   it("limits hosted claims to the explicit repository cohort", async () => {
     const rawQueries: unknown[] = [];
     const prisma = {
@@ -145,9 +776,14 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     );
   });
 
-  it("publishes a failed terminal state when final review publication failed", async () => {
-    const progressUpdate = vi.fn(async () => ({}));
-    const publicationUpdate = vi.fn(async () => ({}));
+  it.each([
+    { name: "execution ID", override: { activeExecutionId: "execution-2" } },
+    { name: "generation", override: { activeGeneration: 8n } },
+    { name: "head SHA", override: { activeHeadSha: "c".repeat(40) } },
+    { name: "plan hash", override: { activePlanHash: "d".repeat(64) } },
+  ])("rejects mismatched $name fence", async ({ override }) => {
+    const progressUpdate = vi.fn();
+    const publicationUpdate = vi.fn();
     const prisma = {
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
@@ -156,6 +792,72 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               executionId: "execution-1",
               state: "completed",
             }),
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              workspaceId: "workspace-1",
+              repositoryConnectionId: "repository-1",
+              scmRepositoryIdentityId: "identity-1",
+              pullRequestNumber: 42,
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              terminalOutcome: null,
+            }),
+            update: progressUpdate,
+          },
+          reviewProgressPublicationV1: {
+            findUnique: async () => ({
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              ...override,
+            }),
+            update: publicationUpdate,
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
+        now,
+      }),
+    ).resolves.toBe(0);
+    expect(progressUpdate).not.toHaveBeenCalled();
+    expect(publicationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("keeps terminal writes ordered when progress update fails", async () => {
+    const mutationOrder: string[] = [];
+    const progressUpdate = vi.fn(async () => {
+      mutationOrder.push("progress");
+      return {};
+    });
+    const publicationUpdate = vi.fn(async () => {
+      mutationOrder.push("publication");
+      return {};
+    });
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewExecutionV2: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              state: "completed",
+            }),
+          },
+          reviewCompletionProcess: {
+            findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
+          },
+          reviewPublicationAttemptV2: {
+            findUnique: async () => settledAttempt("failed_no_effect"),
+          },
+          reviewPublicationOperationV2: {
+            count: async () => 0,
           },
           reviewExecutionProgressV1: {
             findUnique: async () => ({
@@ -201,14 +903,271 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         now,
       }),
     ).resolves.toBe(1);
+    expect(mutationOrder).toEqual(["progress", "publication"]);
+    expect(progressUpdate).toHaveBeenCalledWith({
+      where: { executionId: "execution-1" },
+      data: {
+        phase: "terminal",
+        terminalOutcome: "failed",
+        snapshotJson: {
+          schemaVersion: 1,
+          phase: "terminal",
+          terminal: "failed",
+          counts: {
+            requiredTotal: 1,
+            requiredCompleted: 1,
+            requiredExhausted: 0,
+            requiredCancelled: 0,
+          },
+          updatedAt: now.toISOString(),
+        },
+        snapshotHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        desiredVersion: 74n,
+        updatedAt: now,
+      },
+    });
+    expect(publicationUpdate).toHaveBeenCalledWith({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          {
+            workspaceId: "workspace-1",
+            repositoryConnectionId: "repository-1",
+            scmRepositoryIdentityId: "identity-1",
+            pullRequestNumber: 42,
+          },
+      },
+      data: {
+        version: { increment: 1n },
+        desiredVersion: 74n,
+        nextPublishAt: now,
+        updatedAt: now,
+      },
+    });
+    progressUpdate.mockRejectedValueOnce(new Error("progress-update-failed"));
+    publicationUpdate.mockClear();
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [{ executionId: "execution-1", outcome: "failed" }],
+        now,
+      }),
+    ).rejects.toThrow("progress-update-failed");
+    expect(publicationUpdate).not.toHaveBeenCalled();
+  });
+  it.each([
+    {
+      name: "without gaps",
+      values: [0, 0],
+      error: "review_progress_partial_outcome_inconsistent",
+    },
+    {
+      name: "with a negative required count",
+      values: [-1, 2],
+      error: "review_progress_snapshot_invalid",
+    },
+    {
+      name: "with a fractional required count",
+      values: [0.5, 0.5],
+      error: "review_progress_snapshot_invalid",
+    },
+    {
+      name: "with an unsafe required count",
+      values: [Number.MAX_SAFE_INTEGER + 1, 0],
+      error: "review_progress_snapshot_invalid",
+    },
+  ])("rejects partial terminal $name", async ({ values, error }) => {
+    const progressUpdate = vi.fn();
+    const publicationUpdate = vi.fn();
+    const prisma = {
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewExecutionV2: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              state: "partial",
+            }),
+          },
+          reviewCompletionProcess: {
+            findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
+          },
+          reviewPublicationAttemptV2: {
+            findUnique: async () => settledAttempt("succeeded"),
+          },
+          reviewPublicationOperationV2: {
+            count: async () => 0,
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              workspaceId: "workspace-1",
+              repositoryConnectionId: "repository-1",
+              scmRepositoryIdentityId: "identity-1",
+              pullRequestNumber: 42,
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              terminalOutcome: null,
+              snapshotJson: {
+                schemaVersion: 1,
+                phase: "publishing",
+                counts: {
+                  requiredTotal: 1,
+                  requiredCompleted: 1,
+                  requiredExhausted: values[0],
+                  requiredCancelled: values[1],
+                },
+              },
+            }),
+            update: progressUpdate,
+          },
+          reviewProgressPublicationV1: {
+            findUnique: async () => ({
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              desiredVersion: 73n,
+            }),
+            update: publicationUpdate,
+          },
+        }),
+    };
+    const store = new PrismaReviewProgressPublicationStore(prisma as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [{ executionId: "execution-1", outcome: "succeeded" }],
+        now,
+      }),
+    ).rejects.toThrow(error);
+    expect(progressUpdate).not.toHaveBeenCalled();
+    expect(publicationUpdate).not.toHaveBeenCalled();
+  });
+
+  it("defers partial settlement and ignores a stale outcome hint", async () => {
+    let pendingRequired = 1;
+    const progressUpdate = vi.fn(async () => ({}));
+    const publicationUpdate = vi.fn(async () => ({}));
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          reviewExecutionV2: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              state: "completed",
+            }),
+          },
+          reviewCompletionProcess: {
+            findUnique: async () => ({ publicationAttemptId: "attempt-1" }),
+          },
+          reviewPublicationAttemptV2: {
+            findUnique: async () => settledAttempt("failed_no_effect"),
+          },
+          reviewPublicationOperationV2: {
+            count: async () => pendingRequired,
+          },
+          reviewExecutionProgressV1: {
+            findUnique: async () => ({
+              executionId: "execution-1",
+              workspaceId: "workspace-1",
+              repositoryConnectionId: "repository-1",
+              scmRepositoryIdentityId: "identity-1",
+              pullRequestNumber: 42,
+              generation: 7n,
+              headSha: "a".repeat(40),
+              planHash: "b".repeat(64),
+              terminalOutcome: null,
+              snapshotJson: {
+                schemaVersion: 1,
+                phase: "publishing",
+                counts: {
+                  requiredTotal: 1,
+                  requiredCompleted: 1,
+                  requiredExhausted: 0,
+                  requiredCancelled: 0,
+                },
+              },
+            }),
+            update: progressUpdate,
+          },
+          reviewProgressPublicationV1: {
+            findUnique: async () => ({
+              activeExecutionId: "execution-1",
+              activeGeneration: 7n,
+              activeHeadSha: "a".repeat(40),
+              activePlanHash: "b".repeat(64),
+              desiredVersion: 73n,
+            }),
+            update: publicationUpdate,
+          },
+        }),
+    } as never);
+
+    const settlement = {
+      settlements: [
+        { executionId: "execution-1", outcome: "succeeded" as const },
+      ],
+      now,
+    };
+    await expect(store.promoteSettledExecutions(settlement)).resolves.toBe(0);
+    expect(progressUpdate).not.toHaveBeenCalled();
+    expect(publicationUpdate).not.toHaveBeenCalled();
+
+    pendingRequired = 0;
+    await expect(store.promoteSettledExecutions(settlement)).resolves.toBe(1);
     expect(progressUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          phase: "terminal",
-          terminalOutcome: "failed",
-        }),
+        data: expect.objectContaining({ terminalOutcome: "failed" }),
       }),
     );
+    expect(publicationUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("attempts later independent settlements after a failed transaction", async () => {
+    const firstFailure = new Error("first_settlement_failed");
+    const transaction = vi
+      .fn()
+      .mockRejectedValueOnce(firstFailure)
+      .mockResolvedValueOnce(true);
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: transaction,
+    } as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [
+          { executionId: "execution-1", outcome: "failed" },
+          { executionId: "execution-2", outcome: "succeeded" },
+        ],
+        now,
+      }),
+    ).rejects.toBe(firstFailure);
+    expect(transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports multiple failed settlements without hiding later failures", async () => {
+    const firstFailure = new Error("first_settlement_failed");
+    const secondFailure = new Error("second_settlement_failed");
+    const transaction = vi
+      .fn()
+      .mockRejectedValueOnce(firstFailure)
+      .mockRejectedValueOnce(secondFailure);
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: transaction,
+    } as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [
+          { executionId: "execution-1", outcome: "failed" },
+          { executionId: "execution-2", outcome: "superseded" },
+        ],
+        now,
+      }),
+    ).rejects.toMatchObject({
+      message: "review_progress_settlements_failed",
+      errors: [firstFailure, secondFailure],
+    });
+    expect(transaction).toHaveBeenCalledTimes(2);
   });
 });
 
