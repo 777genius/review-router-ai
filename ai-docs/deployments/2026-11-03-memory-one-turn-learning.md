@@ -1,5 +1,9 @@
 # One-turn source-fenced conversational Memory: deployment and qualification
 
+## Current ordinary-code reconciliation (2026-11-14)
+
+The historical installed tuples below are superseded for ordinary application delivery by [signed 234/source Ebe](README.md#current-coordinated-rollout-reconciliation-2026-11-14), which retains #804/#805/#807 and #806 code ancestry already present in d2f. No semantic capability, official score or new activation follows from ancestry. The latest retained semantic state remains UNAVAILABLE/unqualified; stand/holdout and old unknown facts remain preserved without replay. No repeat ordinary deployment is required to close those qualification gaps.
+
 - Task ID: `2026-11-03-memory-one-turn-learning`.
 - Goal: qualify one normal selected-account Gateway parent request that emits an
   independently validated decision and optional observations, preserving the
@@ -135,9 +139,9 @@ is authorized by this record.
 1. The earlier #804/#805/#807 ordinary code is installed on a3/image0ff.
    Preserve actual source/image evidence and settings; there is no reason to
    redeploy it solely to close semantic qualification.
-2. PR #806 remains a **pending source candidate**, not an installation.
-   After exact-head CI and code merge, arrange ordinary rollout only with
-   separate release-owner authorization and an installed-image inventory.
+2. PR #806 ordinary code ancestry is included in installed d2f and retained
+   signed 234/source Ebe. No repeat ordinary deployment is needed merely to
+   close a semantic qualification gap.
    Staging and self-hosted require their own acceptance records.
 3. Reconcile the missing endorsement and invalid-output evidence against the
    actual current source before any newly authorized qualification. Retain all
@@ -165,17 +169,18 @@ semantic qualification.
 
 ## Historical human-evidence source correction (PR #806)
 
-[PR #806](https://github.com/777genius/review-router-ai/pull/806) is a **pending
-ordinary-code candidate**, not an installation. Its original source commit was
+[PR #806](https://github.com/777genius/review-router-ai/pull/806) ordinary code is
+included in installed d2f and retained signed 234/source Ebe. This does not prove
+semantic activation or live qualification. The following source identities are historical. Its original source commit was
 `f650bd229f4fdf3e23276d46b1bbafb266d4f5c9`; the current combined candidate
 and exact-head CI are tracked by that PR. The confirmed #804/#805/#807
 production tuple above remains historical installed evidence.
 
-| Environment / target          | PR #806 status | Actual candidate installation |
-| ----------------------------- | -------------- | ----------------------------- |
-| staging                       | `pending`      | None verified                 |
-| production / ordinary code    | `pending`      | Not installed                 |
-| self-hosted / qualified input | `pending`      | No qualified artifact issued  |
+| Environment / target          | PR #806 status | Actual candidate installation                                                   |
+| ----------------------------- | -------------- | ------------------------------------------------------------------------------- |
+| staging                       | `pending`      | None verified                                                                   |
+| production / ordinary code    | `installed`    | d2f ancestry retained in signed 234/source Ebe; semantic capability unqualified |
+| self-hosted / qualified input | `pending`      | No qualified artifact issued                                                    |
 
 No rollout, account/model switch, schema migration or capability activation is
 authorized by source merge. A future release owner must check current images,

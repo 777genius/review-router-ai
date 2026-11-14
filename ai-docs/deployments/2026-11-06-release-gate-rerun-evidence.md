@@ -1,5 +1,9 @@
 # Release-gate proof across partial CI reruns
 
+## Current GitHub publication evidence (2026-11-14)
+
+Normal exact-main [CI 43558212571](https://github.com/777genius/review-router-ai/actions/runs/43558212571) succeeded on `ebeee1710f497b1953492efd67dca9055bc8f047`, with both mandatory PG release gates. The matching normal signed private 234 [Release 43561561896](https://github.com/777genius/review-router-ai/actions/runs/43561561896) succeeded and published the source-bound runtime image; signature/source/workflow verification is retained in the [FILE record](2026-11-14-producer-registry-file.md#234-final-rollout-and-canary-evidence). GitHub release authority/publication is therefore verified for this exact release; no extra fleet deployment is required for the workflow verifier itself. This is not a claim that 234 is live, that the current release used a mixed-attempt path, or that a separate GitLab/staging runtime is qualified. The original mixed-attempt incident and refusal invariants remain historical evidence.
+
 - Task ID: `2026-11-06-release-gate-rerun-evidence`
 - Goal: preserve exact successful PG17 release-gate evidence across partial GitHub Actions reruns.
 - Affected targets: GitHub Actions verification, automatic public Action sync and GitLab runtime image gates.
@@ -9,11 +13,12 @@
 
 ## Environment status
 
-| Environment / target       | Status    | Actual version | Verified UTC | Evidence / next step                |
-| -------------------------- | --------- | -------------- | ------------ | ----------------------------------- |
-| GitHub Actions / main      | `pending` | Not verified   | Not verified | Exact-head CI and gate proof        |
-| Staging                    | `pending` | Not verified   | Not verified | Reconcile deployed version          |
-| Production / Action / GHCR | `pending` | Not verified   | Not verified | Separate authorization and evidence |
+| Environment / target      | Status     | Actual version                | Verified UTC | Evidence / next step                                                          |
+| ------------------------- | ---------- | ----------------------------- | ------------ | ----------------------------------------------------------------------------- |
+| GitHub Actions / main     | `deployed` | Exact main Ebe CI 43558212571 | 2026-11-14   | Mandatory PG gates and signed publication succeeded                           |
+| Staging                   | `pending`  | Not verified                  | Not verified | Reconcile deployed version                                                    |
+| GitHub publication / GHCR | `deployed` | Signed private 234 image 9b62 | 2026-11-14   | Release 43561561896 and signer/source binding PASS; fleet activation separate |
+| GitLab runtime            | `pending`  | Not verified                  | Not verified | Separate external cohort, not inferred from GitHub publication                |
 
 `pending` does not assert the code is absent. The registry does not authorize deployment.
 
@@ -50,4 +55,4 @@ if any verification fails; use the existing release rollback procedure.
 
 ## Execution log
 
-No staging or production rollout has been performed for this change.
+The historical source task performed no fleet rollout. Current exact GitHub CI/publication is verified above; staging and GitLab retain their own statuses; actual 234 activation is recorded in the [FILE task](2026-11-14-producer-registry-file.md#234-final-rollout-and-canary-evidence).
