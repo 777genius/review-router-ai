@@ -158,15 +158,27 @@ function fallbackGitHubFailure(
       { cause: error },
     );
   }
+  if (fallbackKind === "github_unavailable" && status === undefined) {
+    return new ReviewProgressGitHubError(
+      "github_unavailable",
+      "github_progress_comment_unavailable",
+      { retryable: true, retryAt: fallbackRetryAt(now, random) },
+      { cause: error },
+    );
+  }
+  const kind =
+    fallbackKind === "github_unavailable"
+      ? "github_request_failed"
+      : fallbackKind;
   return new ReviewProgressGitHubError(
-    fallbackKind,
-    fallbackKind === "ambiguous_mutation"
+    kind,
+    kind === "ambiguous_mutation"
       ? "github_progress_comment_mutation_ambiguous"
       : "github_progress_comment_request_failed",
     {
       ...(status === undefined ? {} : { status }),
-      retryable: fallbackKind === "ambiguous_mutation",
-      ...(fallbackKind === "ambiguous_mutation"
+      retryable: kind === "ambiguous_mutation",
+      ...(kind === "ambiguous_mutation"
         ? { retryAt: fallbackRetryAt(now, random) }
         : {}),
     },

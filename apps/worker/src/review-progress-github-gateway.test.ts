@@ -643,6 +643,56 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(fixture.calls).toHaveLength(1);
   });
 
+  it.each([
+    "GET /repos/{owner}/{repo}/pulls/{pull_number}",
+    "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+  ])("retries statusless transport errors during %s", async (failedRoute) => {
+    const fixture = githubFixture([]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route === failedRoute) throw new Error("ECONNRESET");
+      return fixture.request(route, parameters);
+    };
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    const caught = await gateway(request, {
+      now: () => now,
+      random: () => 0,
+    })
+      .upsert(input())
+      .catch((error: unknown) => error);
+
+    expect(caught).toMatchObject({
+      kind: "github_unavailable",
+      metadata: {
+        retryable: true,
+        retryAt: new Date(now.getTime() + 1_250),
+      },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("keeps definite comment-list 404 failures non-retryable", async () => {
+    const fixture = githubFixture([]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        throw { status: 404 };
+      }
+      return fixture.request(route, parameters);
+    };
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "github_request_failed",
+      metadata: { status: 404, retryable: false },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("classifies revoked GitHub App access as terminal", async () => {
     const request: ReviewProgressGitHubRequester = vi.fn(async () => {
       throw { status: 403, response: { headers: {} } };

@@ -219,7 +219,7 @@ export class ReviewProgressGitHubGateway {
         repositoryParameters(input, { pull_number: input.pullNumber }),
       );
     } catch (error) {
-      throw this.classify(error);
+      throw this.classify(error, "github_unavailable");
     }
     const violation = pullRequestIdentityViolation(response.data, input);
     if (violation) throw failure(violation.kind, violation.message, false);
@@ -274,7 +274,7 @@ export class ReviewProgressGitHubGateway {
         }),
       );
     } catch (error) {
-      throw this.classify(error);
+      throw this.classify(error, "github_unavailable");
     }
     if (!Array.isArray(response.data)) {
       throw failure("invalid_response", "github_issue_comments_invalid", false);
