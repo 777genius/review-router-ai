@@ -10,6 +10,8 @@
   "type": "module",
   "packageManager": "pnpm@11.28.7",
   "scripts": {
+    "design:impeccable:install": "npx --yes impeccable@4.8.2 install --providers=claude,codex,cursor,opencode --scope=project",
+    "design:impeccable:detect": "npx --yes impeccable@4.8.2 detect apps/web/app",
     "dev": "node scripts/run-with-env.mjs turbo run dev --parallel",
     "web:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/web dev",
     "api:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/api dev",
