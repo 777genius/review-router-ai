@@ -1,5 +1,5 @@
 import {
-  Activity, ArrowRight, BarChart3, Check, Github, GitPullRequest, Server, ShieldCheck,
+  Activity, ArrowRight, BarChart3, Check, GitPullRequest, Server, ShieldCheck,
 } from "lucide-react";
 import { HomeCtaCluster, type HomeCtaClusterProps } from "./home-cta-cluster";
 import { HomeFindingsPreview } from "./home-findings-preview";
@@ -33,9 +33,9 @@ export function HomeExperience(props: HomeCtaClusterProps): React.ReactElement {
             subscription or API key. See the usage you can measure.
           </p>
           <div className={styles.heroActions}>
-            <HomeCtaCluster {...props} showGitLab={false} className={styles.ctaPrimary} />
+            <HomeCtaCluster {...props} showGitLab={false} className={styles.ctaPrimary ?? ""} />
             <a className={styles.sourceButton} href={sourceUrl}>
-              <Github aria-hidden="true" size={18} />
+              <GitPullRequest aria-hidden="true" size={18} />
               View source <ArrowRight aria-hidden="true" size={15} />
             </a>
           </div>
