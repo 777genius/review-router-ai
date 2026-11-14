@@ -493,16 +493,6 @@ describeWithDatabase.sequential(
         completed: 0,
       });
       await fixture.makeProgressDue();
-      await expect(fixture.publishProgress()).resolves.toMatchObject({
-        published: 1,
-      });
-      const oldBody = progressComments(fixture)[0]!.body;
-
-      await fixture.setProgressFixture({
-        executionId: flow.executionId,
-        completed: 1,
-      });
-      await fixture.makeProgressDue();
       const store = new PrismaReviewProgressPublicationStore(fixture.prisma);
       const stale = await store.claimNext({
         ownerIdHash: "a".repeat(64),
@@ -510,12 +500,16 @@ describeWithDatabase.sequential(
         claimDurationMs: 60_000,
       });
       if (!stale) throw new Error("review_progress_e2e_stale_claim_missing");
-      // Explicitly expire the old claim without deleting its fence:
-      // a second publisher must now be able to claim the newer version.
+      // Claim the initial snapshot before any GitHub write; expire it while
+      // keeping its original fence so a newer worker can publish first.
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: stale.scope,
         data: { claimUntil: new Date(Date.now() - 1_000) },
       });
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      const oldBody = progressComments(fixture)[0]!.body;
 
       await fixture.setProgressFixture({
         executionId: flow.executionId,

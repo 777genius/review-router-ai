@@ -17,7 +17,7 @@ function settledAttempt(outcome: "succeeded" | "failed_no_effect") {
 describe("PrismaReviewProgressPublicationStore fencing", () => {
   it("does not complete a stale claim after a newer generation wins the scope", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
-    const repair = vi.fn(async (_query: unknown) => 1);
+    const repair = vi.fn<(query: unknown) => Promise<number>>(async () => 1);
     const store = new PrismaReviewProgressPublicationStore({
       reviewProgressPublicationV1: { updateMany },
       $executeRaw: repair,
