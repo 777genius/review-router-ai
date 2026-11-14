@@ -1,0 +1,25 @@
+/* V8.3 motion-only refinements: no changes to previous versions. */
+.v83-root .v8-hairline{display:none!important}
+.v83-root .v83-comment-counter{display:inline-block;margin-left:19px;padding:4px 8px;border-radius:5px;color:#b2ffa7;background:#234534;font:700 16px "RR Mono",monospace}
+.v83-root .v83-reflow-stack{position:absolute;left:350px;width:1220px;transition:none!important;will-change:top}
+.v83-root .v83-reflow-stack .v82-comment{will-change:transform,opacity}
+.v83-commit-layout{position:absolute;left:174px;right:174px;top:425px;display:grid;grid-template-columns:1.05fr .95fr;gap:37px}
+.v83-commit-history,.v83-review-reuse{min-width:0;display:flex;flex-direction:column;gap:14px}
+.v83-history-title{height:41px;display:flex;align-items:center;gap:12px;color:#9bd9e6;font:20px "RR Mono",monospace;letter-spacing:.02em}
+.v83-history-title span{margin-left:auto;color:#9cbbca}
+.v83-commit-row{height:73px;display:flex;align-items:center;gap:23px;padding:0 22px;border-radius:13px;background:#102435;border:1px solid #436477;box-shadow:0 12px 35px #0005;transform-origin:center bottom}
+.v83-commit-node{height:39px;width:39px;display:grid;place-items:center;background:#193d38;color:#a6ff9a;border:1px solid #6cb09b;border-radius:50%;flex:0 0 39px}
+.v83-commit-name{display:flex;flex:1;flex-direction:column;gap:4px}
+.v83-commit-name strong{font-size:23px;font-weight:650;letter-spacing:-.03em;color:#edf9ff}
+.v83-commit-name small{font:15px "RR Mono",monospace;color:#8eabbc}
+.v83-commit-new{font:700 15px "RR Mono",monospace;color:#071c20;background:#a6ff9a;border-radius:5px;padding:5px 9px}
+.v83-review-reuse{justify-content:center;padding-top:26px}
+.v83-reuse-panel{min-height:132px;display:flex;align-items:center;gap:19px;background:#102435;border:1px solid #4b6475;border-radius:15px;padding:17px 23px}
+.v83-reuse-panel.current{border-color:#6ae4e3;background:#14323b}
+.v83-reuse-number{font:750 73px "RR Space",sans-serif;letter-spacing:-.06em;color:#a6ff9a;width:97px;text-align:center}
+.v83-reuse-panel.current .v83-reuse-number{color:#76eef1}
+.v83-reuse-panel div{display:flex;flex:1;flex-direction:column;gap:5px}
+.v83-reuse-panel strong{font:700 21px "RR Mono",monospace;color:#c8e4e9}
+.v83-reuse-panel small{font-size:21px;color:#9db7c4}
+.v83-root .v8-outro-brand{z-index:4}
+.v83-root .v8-deploy-choices{z-index:4}
