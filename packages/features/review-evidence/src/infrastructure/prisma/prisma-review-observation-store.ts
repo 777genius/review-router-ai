@@ -409,6 +409,7 @@ const decodableQualityFlags = {
   [ReviewObservationQualityFlag.ContextAttestationUnavailable]: true,
   [ReviewObservationQualityFlag.CrossRevisionReuseDisabled]: true,
   [ReviewObservationQualityFlag.InvestigationFindings]: true,
+  [ReviewObservationQualityFlag.InvestigationVerifiedClean]: true,
   [ReviewObservationQualityFlag.InvestigationInconclusive]: true,
   [ReviewObservationQualityFlag.Unknown]: false,
 } as const satisfies Record<ReviewObservationQualityFlag, boolean>;

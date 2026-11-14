@@ -411,7 +411,7 @@ describe("ReviewReuseEligibilityPolicy", () => {
         observationId: "observation-clean-new",
         attemptId: "attempt-clean-new",
         createdAtMs: nowMs + 2,
-        qualityFlags: [],
+        qualityFlags: [ReviewObservationQualityFlag.InvestigationVerifiedClean],
         payloadHash: hash("1"),
       }),
     ];

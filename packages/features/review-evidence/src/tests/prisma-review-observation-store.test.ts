@@ -18,6 +18,7 @@ describe("Prisma review observation store", () => {
       ReviewObservationQualityFlag.ContextAttestationUnavailable,
       ReviewObservationQualityFlag.CrossRevisionReuseDisabled,
       ReviewObservationQualityFlag.UnverifiedNativeSpan,
+      ReviewObservationQualityFlag.InvestigationVerifiedClean,
     ] as const;
     let row: unknown = null;
     const create = vi.fn(async ({ data }: { data: unknown }) => {

@@ -49,6 +49,7 @@ export enum ReviewObservationQualityFlag {
   ContextAttestationUnavailable = "context_attestation_unavailable",
   CrossRevisionReuseDisabled = "cross_revision_reuse_disabled",
   InvestigationFindings = "investigation_findings",
+  InvestigationVerifiedClean = "investigation_verified_clean",
   InvestigationInconclusive = "investigation_inconclusive",
   Unknown = "unknown",
 }
