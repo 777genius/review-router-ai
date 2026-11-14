@@ -37,7 +37,7 @@ Claude Code dual authentication: [#857/Action 385 delivery](2026-11-11-claude-du
 
 Action232 and SaaS Usage/stream delivery: [production and live canary record](2026-11-10-action232-usage-and-stream.md) — #849/#850 and Action232 `deployed`; Codex review, Statistics and Usage verified. Two earlier ambiguous lifecycle attempts remain unknown; disk and durable fact-budget follow-up remain open.
 
-Gateway diagnostic stream recovery: [installed 106/native 95 and fixture proof](2026-11-09-gateway-diagnostic-stream.md) - ledger 318/ready, old recovery artifacts retained; NVIDIA remains unconfigured outside fixture. Actual fixture App publication succeeded, lifecycle INCOMPLETE/not_verified1, historical cutoff UNKNOWN.
+Gateway diagnostic stream recovery: [installed 106/native 95 and fixture proof](2026-11-09-gateway-diagnostic-stream.md) - ledger 318/ready, old recovery artifacts retained; NVIDIA remains unconfigured outside fixture. Actual fixture App publication succeeded, lifecycle INCOMPLETE/not_verified1, historical cutoff UNKNOWN. A fresh post-106 follow-up was refused before PostgreSQL/model work by the worker containerd runtime; no clean post-106 result is claimed.
 
 Usage recovery and Gateway capacity: [PR #847, #848 and phase-1 gate incident](2026-11-10-usage-reconciliation-and-gateway-budget.md) — #847/#848 production `installed`, automatic Usage refresh, failed-workflow recovery, workflow promotion and a Codex review canary confirmed. OpenRouter's earlier canary failed on exhausted free quota; alert delivery and a durable fact-retention solution remain open.
 
@@ -51,7 +51,7 @@ Release-gate rerun proof: [exact GitHub publication evidence](2026-11-06-release
 
 Review execution architecture: [#819 code reconciliation](2026-11-06-review-execution-boundaries.md) - private code ancestry included in installed d2f and retained in current 234/source Ebe; no separate migration/activation or repeat deployment. Named live qualification remains distinct.
 
-Action runtime ownership: [#815 code reconciliation](2026-11-05-action-runtime-ownership.md) - private runtime code included in d2f/current 233; public Action/feature acceptance is not inferred from ancestry. No separate rollout merely to clear stale pending status.
+Action runtime ownership: [#815 code reconciliation](2026-11-05-action-runtime-ownership.md) - private runtime code included in d2f/current 234/source Ebe; public Action/feature acceptance is not inferred from ancestry. No separate rollout merely to clear stale pending status.
 Action comment-create safety: [uncertain transport response guard](2026-11-05-action-comment-create-no-replay.md), #816/#817 - private code installed in 234/source Ebe, public 234 distribution published. No repeat application deployment; live ambiguous-write qualification remains unclaimed, unknown effects never replayed.
 Account refresh and diagnostics: [#831 code reconciliation](2026-11-05-account-diagnostics-and-refresh.md) - installed in 234/source Ebe; old merge-only hold superseded by coherent deploy authorization. Authenticated client refresh/safe-diagnosis verification remains pending, not another code rollout.
 
@@ -65,9 +65,9 @@ Earlier provider-error batch: [provider errors and findings](2026-11-04-provider
 
 Dashboard extraction: [dashboard read boundaries](2026-11-03-dashboard-read-boundaries.md), [#798](https://github.com/777genius/review-router-ai/pull/798) merge 06ab562, was confirmed in installed856 and is retained in current bb077/image5d. Production code is `installed`; the live authenticated workspace/repository/plan-guidance journey remains pending. No repeat deployment is required for that verification gap. Staging remains unverified.
 
-Memory: [one-turn source-fenced learning](2026-11-03-memory-one-turn-learning.md), #804/#805/#807 code is installed in current bb077/image5d (previously verified856) while the semantic capability remains unqualified. Latest isolated r2 observed all 50 events: 46 complete calls, three no-call outcomes and one `catalogUnavailable`. Missing endorsement and invalid output leave it UNAVAILABLE with no official score. Stand/holdout and prior failed/unavailable observations remain preserved; ordinary review delivery is independent.
+Memory: [one-turn source-fenced learning](2026-11-03-memory-one-turn-learning.md), #804/#805/#807 code is installed in current 234/source Ebe (earlier bb077/image5d and verified856 are historical) while the semantic capability remains unqualified. Latest isolated r2 observed all 50 events: 46 complete calls, three no-call outcomes and one `catalogUnavailable`. Missing endorsement and invalid output leave it UNAVAILABLE with no official score. Stand/holdout and prior failed/unavailable observations remain preserved; ordinary review delivery is independent.
 
-Memory PR #806: [human-evidence source correction](2026-11-03-memory-one-turn-learning.md#historical-human-evidence-source-correction-pr-806) - ordinary code ancestry included in d2f/current 233; semantic capability remains UNAVAILABLE/unqualified and stands preserved. No semantic activation or repeat deployment.
+Memory PR #806: [human-evidence source correction](2026-11-03-memory-one-turn-learning.md#historical-human-evidence-source-correction-pr-806) - ordinary code ancestry included in d2f/current 234/source Ebe; semantic capability remains UNAVAILABLE/unqualified and stands preserved. No semantic activation or repeat deployment.
 
 Hosted test infrastructure: [stock self-hosted network isolation](2026-11-03-selfhost-test-network-isolation.md) — test target `pending`: continuous configured-HTTPS acceptance PASS on b361; source merged in PR803/543869f7a, without merged-source target installation evidence. Product networks and production services are outside this test-harness change.
 
