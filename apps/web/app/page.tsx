@@ -11,10 +11,7 @@ import {
 import { countConnectedGitHubInstallations } from "../src/server/connected-installations";
 import { getGitHubAppInstallUrl } from "../src/server/github-app-install-url";
 import { reviewRouterGitHubRepoUrl, reviewRouterWebUrl } from "./public-urls";
-import {
-  createPublicPageMetadata,
-  siteName,
-} from "./seo";
+import { createPublicPageMetadata, siteName } from "./seo";
 
 const homeSeoDescription =
   "Open-source AI code review, free to start. Use your own subscription or API key, review in your CI, and see token usage and known costs. Hosted or self-hosted.";
@@ -34,7 +31,10 @@ const structuredData = {
       name: siteName,
       url: reviewRouterWebUrl,
       logo: `${reviewRouterWebUrl}/review-router-icon.png`,
-      sameAs: [reviewRouterGitHubRepoUrl, "https://github.com/777genius/review-router-ai"],
+      sameAs: [
+        reviewRouterGitHubRepoUrl,
+        "https://github.com/777genius/review-router-ai",
+      ],
     },
     {
       "@type": "WebSite",
@@ -112,7 +112,9 @@ export default async function HomePage(): Promise<React.ReactElement> {
       />
       <HomeHero {...ctaContext} />
       <HomeFeatures />
-      <div className="rr-home-faq-wrap rr-home-motion"><HomeFaq /></div>
+      <div className="rr-home-faq-wrap rr-home-motion">
+        <HomeFaq />
+      </div>
       <HomeFinalCta {...ctaContext} />
     </main>
   );

@@ -793,7 +793,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-
       - name: Hosted readiness smoke
         run: pnpm hosted:check:smoke
 

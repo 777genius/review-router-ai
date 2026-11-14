@@ -31,8 +31,8 @@ export function HomeFinalCta({
           <span className="text-lime-300">Your review platform.</span>
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-300">
-          Start free in your CI with your own model and settings. The platform is
-          hosted or self-hosted — your choice.
+          Start free in your CI with your own model and settings. The platform
+          is hosted or self-hosted — your choice.
         </p>
 
         <HomeCtaCluster

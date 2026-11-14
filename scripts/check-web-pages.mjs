@@ -20,12 +20,7 @@ const githubSignInText = isGitHubAuthConfigured(process.env)
 const pages = [
   [
     "/",
-    [
-      landingHeroText,
-      "AI code review",
-      "OpenCodeReview",
-      "Install GitHub App",
-    ],
+    [landingHeroText, "AI code review", "OpenCodeReview", "Install GitHub App"],
   ],
   [
     "/auth/signin",

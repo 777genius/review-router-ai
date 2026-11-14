@@ -18,9 +18,13 @@ export function HomeHero({
       <div aria-hidden="true" className="rr-home-hero__signal" />
       <div className="rr-home-hero__grid">
         <div className="rr-home-hero__intro rr-home-motion">
-          <p className="rr-home-kicker"><RadioTower size={14} aria-hidden="true" /> OPEN SOURCE · FREE TO START</p>
+          <p className="rr-home-kicker">
+            <RadioTower size={14} aria-hidden="true" /> OPEN SOURCE · FREE TO
+            START
+          </p>
           <h1 id="rr-home-title">
-            Open-source<br />
+            Open-source
+            <br />
             <span>AI code review.</span>
             <strong>Your model. Your budget.</strong>
           </h1>
@@ -47,7 +51,8 @@ export function HomeHero({
             </a>
           </div>
           <p className="rr-home-hero__fine">
-            Hosted or self-hosted · No seat pricing · Provider and CI usage are separate
+            Hosted or self-hosted · No seat pricing · Provider and CI usage are
+            separate
           </p>
         </div>
         <div className="rr-home-hero__visual rr-home-motion">
@@ -55,7 +60,9 @@ export function HomeHero({
         </div>
       </div>
       <div className="rr-home-hero__bottom">
-        <span>POWERED BY <b>OpenCodeReview</b></span>
+        <span>
+          POWERED BY <b>OpenCodeReview</b>
+        </span>
         <span className="rr-home-hero__divider" aria-hidden="true" />
         <span>RUNS IN YOUR CI</span>
         <span className="rr-home-hero__divider" aria-hidden="true" />
