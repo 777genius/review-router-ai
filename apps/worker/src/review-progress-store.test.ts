@@ -17,8 +17,10 @@ function settledAttempt(outcome: "succeeded" | "failed_no_effect") {
 describe("PrismaReviewProgressPublicationStore fencing", () => {
   it("does not complete a stale claim after a newer generation wins the scope", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
+    const repair = vi.fn(async (_query: unknown) => 1);
     const store = new PrismaReviewProgressPublicationStore({
       reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
     } as never);
 
     await expect(
@@ -41,6 +43,23 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         }),
       }),
     );
+    expect(repair).toHaveBeenCalledTimes(1);
+    const sql = repair.mock.calls[0]![0] as {
+      strings: readonly string[];
+      values: readonly unknown[];
+    };
+    const statement = sql.strings.join(" ");
+    expect(statement).toContain('"publishedVersion" = CASE');
+    expect(statement).toContain('"publishedVersion" - 1');
+    expect(statement).toContain('"claimId" = NULL');
+    expect(sql.values).toEqual([
+      now,
+      now,
+      "workspace-1",
+      "repository-1",
+      "identity-1",
+      42,
+    ]);
   });
 
   it.each([

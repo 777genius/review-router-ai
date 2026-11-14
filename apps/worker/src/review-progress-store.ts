@@ -102,6 +102,32 @@ export class PrismaReviewProgressPublicationStore {
       },
       data: completionMutationData(input),
     });
+    if (result.count !== 1) {
+      // A stale GitHub PATCH may have landed after a newer publication.
+      // Requeue the current scope without changing its desired version:
+      // progress.desiredVersion must still match publication.desiredVersion.
+      // Invalidate any in-flight claim so its delayed settlement cannot
+      // silently erase this repair after an older PATCH overwrites the body.
+      const scope = input.publication.scope;
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE "ReviewProgressPublicationV1"
+        SET "publishedVersion" = CASE
+              WHEN "publishedVersion" = "desiredVersion"
+                AND "publishedVersion" > 0
+              THEN "publishedVersion" - 1
+              ELSE "publishedVersion"
+            END,
+            "claimId" = NULL,
+            "claimOwnerIdHash" = NULL,
+            "claimUntil" = NULL,
+            "nextPublishAt" = ${input.now},
+            "updatedAt" = ${input.now}
+        WHERE "workspaceId" = ${scope.workspaceId}
+          AND "repositoryConnectionId" = ${scope.repositoryConnectionId}
+          AND "scmRepositoryIdentityId" = ${scope.scmRepositoryIdentityId}
+          AND "pullRequestNumber" = ${scope.pullRequestNumber}
+      `);
+    }
     return result.count === 1;
   }
 
