@@ -50,7 +50,7 @@ export function HomeFindingsPreview(): React.ReactElement {
       </div>
       <div className={styles.reviewFooter}>
         <span className={styles.reviewPulse} aria-hidden="true" />
-        <output aria-live="polite">{findings[selected].label} selected / review insight</output>
+        <output aria-live="polite">{findings[selected]?.label ?? "Critical"} selected / review insight</output>
         <span className={styles.reviewPowered}>OpenCodeReview engine</span>
       </div>
     </div>
