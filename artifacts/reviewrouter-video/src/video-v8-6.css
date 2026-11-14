@@ -1,0 +1,35 @@
+/* ReviewRouter V8.6: isolated UX fixes and a deliberately quiet animated space field. */
+.v86-root .v8-provider-row{left:103px;right:103px;grid-template-columns:repeat(7,minmax(0,1fr));gap:13px}
+.v86-root .v8-provider-card{height:258px;padding:14px 4px;gap:12px}
+.v86-root .v8-provider-card strong{font-size:23px;letter-spacing:-.045em}
+.v86-root .v8-provider-card small{font-size:11px}
+.v86-root .v8-provider-emblem{height:93px;width:115px;margin-top:4px}
+.v86-root .v8-agent-mark{height:90px;width:90px}
+.v86-root .v8-agent-mark svg{height:86px!important;width:86px!important;max-height:86px!important;max-width:86px!important}
+.v86-root .v8-agent-mark.v8-mimo svg{width:110px!important;max-width:110px!important;height:70px!important;max-height:70px!important}
+.v86-root .v86-custom-card{border-style:dashed;border-color:#607589aa;background:#0d1828}
+.v86-root .v86-custom-card strong{font-size:21px;white-space:nowrap}
+.v86-custom-symbol{display:grid;place-items:center;color:#a8cbd6;opacity:.9;width:99px;height:92px}
+.v86-planned-ribbon{position:absolute;top:10px;left:10px;font:700 12px "RR Mono",monospace;color:#b4cad5;background:#1b2a37;padding:5px 8px;border:1px solid #587080;border-radius:5px}
+.v86-root .v81-free-ribbon{font-size:11px;padding:6px 8px}
+.v86-root .v86-review-thread{left:350px!important;width:1220px!important;gap:10px!important}
+.v86-root .v86-review-comment{height:98px!important;min-height:98px!important;border-radius:10px!important;overflow:hidden}
+.v86-root .v86-comment-head{height:45px!important;display:grid!important;grid-template-columns:36px max-content 42px 1fr max-content;align-items:center;gap:12px!important;padding:0 16px!important;line-height:1.1}
+.v86-root .v86-comment-head>strong{font-size:20px;line-height:1}
+.v86-root .v86-bot-avatar{width:36px!important;height:36px!important;min-width:36px;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden;padding:2px!important}
+.v86-root .v86-bot-avatar img{display:block;width:29px!important;height:29px!important;object-fit:contain!important;margin:0!important}
+.v86-root .v86-comment-head .v82-bot{margin:0;font-size:14px;text-align:center;line-height:1.15}
+.v86-root .v86-comment-head .v82-comment-time{margin:0;align-self:center}
+.v86-root .v86-comment-head .v82-severity{margin-left:auto;justify-self:end;align-self:center}
+.v86-root .v86-comment-body{height:51px!important;display:flex!important;align-items:center!important;justify-content:space-between!important;padding:0 19px 0 64px!important;gap:25px}
+.v86-root .v86-comment-body>strong{font-size:21px;line-height:1.15;white-space:nowrap}
+.v86-root .v86-comment-body .v82-comment-tags{display:flex;align-items:center;gap:10px}
+.v86-root .v86-commit-count{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:210px;white-space:nowrap}
+.v86-root .v86-commit-count strong{color:#e5f8fc;font:700 21px "RR Mono",monospace}
+.v86-root .v86-commit-count small{color:#89aebb;font:15px "RR Mono",monospace}
+.v86-choice-or{position:absolute;z-index:6;left:calc(50% - 30px);top:666px;width:60px;height:60px;display:grid;place-items:center;border-radius:50%;background:#0c1726;border:1px solid #375164;color:#a8c5d0;font:20px "RR Mono",monospace}
+.v86-space-layer{z-index:0;opacity:.34;overflow:hidden}
+.v86-star{display:block;box-shadow:0 0 3px #a7e7ff44}
+.v86-space-glow{position:absolute;width:750px;height:680px;border-radius:50%;pointer-events:none;opacity:.18}
+.v86-space-glow-left{left:-350px;top:-215px;background:radial-gradient(ellipse,#23537a80,transparent 66%)}
+.v86-space-glow-right{right:-260px;bottom:-350px;background:radial-gradient(ellipse,#473b8870,transparent 68%)}
