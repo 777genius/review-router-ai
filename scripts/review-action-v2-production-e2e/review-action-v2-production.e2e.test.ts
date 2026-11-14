@@ -533,9 +533,10 @@ describeWithDatabase.sequential(
       );
       expect(duePublication.claimUntil).toBeNull();
       const store = new PrismaReviewProgressPublicationStore(fixture.prisma);
+      const claimAt = new Date();
       const stale = await store.claimNext({
         ownerIdHash: "a".repeat(64),
-        now: new Date(),
+        now: claimAt,
         claimDurationMs: 60_000,
       });
       if (!stale) {
@@ -543,8 +544,33 @@ describeWithDatabase.sequential(
           await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
             where: { activeExecutionId: flow.executionId },
           });
+        const dueCandidates = await fixture.prisma.$queryRaw<
+          Array<{ activeExecutionId: string }>
+        >`
+          SELECT "activeExecutionId"
+          FROM "ReviewProgressPublicationV1"
+          WHERE "desiredVersion" > "publishedVersion"
+            AND "nextPublishAt" <= ${claimAt}
+            AND ("claimUntil" IS NULL OR "claimUntil" <= ${claimAt})
+          ORDER BY "nextPublishAt", "updatedAt"
+          LIMIT 3
+        `;
         throw new Error(
-          `review_progress_e2e_stale_claim_missing:${deferred.lastErrorCode ?? "not_deferred"}`,
+          `review_progress_e2e_stale_claim_missing:${JSON.stringify({
+            lastErrorCode: deferred.lastErrorCode ?? "not_deferred",
+            expectedDue: deferred.desiredVersion > deferred.publishedVersion &&
+              deferred.nextPublishAt !== null &&
+              deferred.nextPublishAt <= claimAt &&
+              (deferred.claimUntil === null || deferred.claimUntil <= claimAt),
+            expectedIdentity:
+              dueProgress.generation === deferred.activeGeneration &&
+              dueProgress.headSha === deferred.activeHeadSha &&
+              dueProgress.planHash === deferred.activePlanHash &&
+              dueProgress.desiredVersion === deferred.desiredVersion,
+            dueCandidateIsTarget:
+              dueCandidates[0]?.activeExecutionId === flow.executionId,
+            dueCandidateCount: dueCandidates.length,
+          })}`,
         );
       }
       expect(stale.commentId).not.toBeNull();
