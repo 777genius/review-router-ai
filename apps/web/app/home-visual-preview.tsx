@@ -29,7 +29,7 @@ export function HomeVisualPreview(): React.ReactElement {
 
   useEffect(() => {
     if (!("IntersectionObserver" in window)) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     const elements = document.querySelectorAll<HTMLElement>(".rr-home-motion");
     const observer = new IntersectionObserver(
