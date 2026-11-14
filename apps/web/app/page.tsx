@@ -1,9 +1,5 @@
 import type { Metadata } from "next";
-import { CompareSection } from "./compare-section";
-import { HomeFaq } from "./home-faq";
-import { HomeFeatures } from "./home-features";
-import { HomeFinalCta } from "./home-final-cta";
-import { HomeHero } from "./home-hero";
+import { HomeLanding } from "./home-landing";
 import {
   getDashboardMutationStatus,
   getDashboardWorkspaceScope,
@@ -19,8 +15,9 @@ import {
 } from "./seo";
 
 export const metadata: Metadata = createPublicPageMetadata({
-  title: "Free privacy-first AI code review in CI",
-  description: defaultSeoDescription,
+  title: "Open-source AI code review with your own models",
+  description:
+    "Free open-source AI code review platform powered by OpenCodeReview. Bring supported AI subscriptions or API keys, see known tokens and costs, and choose hosted or self-hosted.",
   path: "/",
 });
 
@@ -104,16 +101,12 @@ export default async function HomePage(): Promise<React.ReactElement> {
   };
 
   return (
-    <main className="home-shell flex min-h-screen w-full flex-col gap-12 pb-10 md:gap-16 md:pb-14">
+    <main className="home-shell min-h-screen w-full">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <HomeHero {...ctaContext} />
-      <HomeFeatures />
-      <CompareSection />
-      <HomeFaq />
-      <HomeFinalCta {...ctaContext} />
+      <HomeLanding {...ctaContext} />
     </main>
   );
 }

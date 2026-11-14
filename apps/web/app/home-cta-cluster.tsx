@@ -12,6 +12,7 @@ export type HomeCtaClusterProps = {
   className?: string;
   ctaClassName?: string;
   labelClassName?: string;
+  showGitLabBeta?: boolean;
 };
 
 export function HomeCtaCluster({
@@ -23,6 +24,7 @@ export function HomeCtaCluster({
   className = "",
   ctaClassName = "home-install-cta",
   labelClassName = "relative z-10 inline-flex items-center gap-2",
+  showGitLabBeta = true,
 }: HomeCtaClusterProps): React.ReactElement {
   return (
     <div className={`flex flex-wrap items-center gap-3 ${className}`}>
@@ -54,12 +56,12 @@ export function HomeCtaCluster({
           />
         </LoadingLinkButton>
       )}
-      <GitLabBetaConnectButton
+      {showGitLabBeta && <GitLabBetaConnectButton
         size={size}
         variant="solid"
         className={`${ctaClassName} home-install-cta--gitlab`}
         labelClassName={labelClassName}
-      />
+      />}
     </div>
   );
 }
