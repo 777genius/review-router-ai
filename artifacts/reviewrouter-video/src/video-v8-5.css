@@ -1,0 +1,26 @@
+/* V8.5: minimal interface polish. Scoped, preserves V8.4 and previous versions. */
+.v85-root .v8-step{display:none!important}
+.v85-root .v8-hairline{display:none!important}
+.v85-root .v8-dual-divider{display:none!important}
+.v85-root .v8-center-hero:after{content:none!important}
+.v85-root .v8-nav{right:108px}
+.v85-root .v83-commit-row,.v85-root .v83-commit-row:last-child{
+  border:0!important;border-bottom:0!important;background:transparent!important;
+}
+.v85-root .v83-reuse-panel,.v85-root .v83-reuse-panel.current,
+.v85-root .v83-review-reuse>div:last-child{
+  border:0!important;border-bottom:0!important;background:transparent!important;
+}
+.v85-root .v83-reuse-panel:not(:first-child){margin-top:8px}
+.v85-root .v8-benchmark-grid{gap:64px;top:410px}
+.v85-root .v8-benchmark-card{
+  border:0!important;border-radius:0!important;background:transparent!important;
+  box-shadow:none!important;padding:18px 25px!important;height:432px!important;
+}
+.v85-root .v8-benchmark-card:before,.v85-root .v8-benchmark-card:after{display:none!important}
+.v85-root .v8-bench-large{font-weight:750;line-height:1}
+.v85-root .v8-meter{background:#1a2a38aa}
+.v85-root .v83-reflow-stack{left:350px;width:1220px}
+.v85-root .v82-comment{transform-origin:center!important;will-change:opacity,transform}
+.v85-root .v82-comment-head,.v85-root .v82-comment-body{transform:none!important}
+.v85-root .v82-code{transform-origin:center top}
