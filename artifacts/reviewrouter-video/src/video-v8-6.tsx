@@ -143,7 +143,7 @@ const Providers:React.FC=()=>{
   return <Scene scene={3} name="YOUR AI">
     <ChapterTitle eyebrow="BRING YOUR OWN AI" title="subscription / API" sub="Use the AI you already have."/>
     <div className="v8-provider-row">
-      {PROVIDERS.map((item,i)=><div key={item.name} className={'v8-provider-card'+(i===0&&f>=62?' v8-selected':'')+(item.id==='custom'?' v86-custom-card':'')} style={{opacity:item.id==='custom'?.66:i===0?1:f>=62?0.74:1}}>
+      {PROVIDERS.map((item,i)=><div key={item.name} className={'v8-provider-card'+(i===0&&f>=62?' v8-selected':'')+(item.id==='custom'?' v86-custom-card':'')} style={{opacity:item.id==='custom'?0.66:i===0?1:f>=62?0.74:1}}>
         {(item.id==='nvidia'||item.id==='openrouter')&&
           <span className="v81-free-ribbon">FREE MODELS</span>}
         {item.id==='custom'&&<span className="v86-planned-ribbon">PLANNED</span>}
