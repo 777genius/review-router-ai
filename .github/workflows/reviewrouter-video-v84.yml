@@ -1,16 +1,16 @@
-name: ReviewRouter V8.4 native video QA
+name: ReviewRouter V8.5 native video QA
 on:
   push:
     branches:
-      - feat/reviewrouter-video-v84-motion
+      - feat/reviewrouter-video-v85-motion
     paths:
       - "artifacts/reviewrouter-video/**"
-      - ".github/workflows/reviewrouter-video-v84.yml"
+      - ".github/workflows/reviewrouter-video-v85.yml"
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  render-v84:
+  render-v85:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     defaults:
@@ -29,33 +29,37 @@ jobs:
         run: npm run prepare:v7
       - name: TypeScript
         run: npx tsc --noEmit
-      - name: Preview 22 key frames
+      - name: Preview 26 key frames
         run: |
           mkdir -p out/qa
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/hero-0.png --frame=5 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/hero-rising.png --frame=17 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/hero-settled.png --frame=38 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/cursor-approach.png --frame=137 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/cursor-click.png --frame=144 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/providers.png --frame=232 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/repo.png --frame=310 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/finding-code.png --frame=438 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/finding-first.png --frame=468 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/finding-code-fade.png --frame=477 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/finding-second.png --frame=489 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/finding-stack.png --frame=536 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/mcp.png --frame=650 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/skills.png --frame=753 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/commits-1.png --frame=817 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/commits-2.png --frame=858 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/commits-flat.png --frame=899 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/tokens.png --frame=968 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/benchmark-0.png --frame=1022 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/benchmark-rise.png --frame=1038 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/benchmark-final.png --frame=1069 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV84 out/qa/outro.png --frame=1192 --concurrency=2
-      - name: Render full V8.4 H264/AAC
-        run: npm run render:v84
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/hero-0.png --frame=5 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/hero-rising.png --frame=17 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/hero-settled.png --frame=38 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/cursor-approach.png --frame=137 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/cursor-click.png --frame=144 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/providers.png --frame=232 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/repo.png --frame=310 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-code.png --frame=438 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-first.png --frame=468 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-code-fade.png --frame=477 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-second.png --frame=489 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-stack.png --frame=536 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/mcp.png --frame=650 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/skills.png --frame=753 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/commits-1.png --frame=817 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/commits-2.png --frame=858 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/commits-flat.png --frame=899 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/tokens.png --frame=968 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/benchmark-0.png --frame=1022 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/benchmark-rise.png --frame=1038 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/benchmark-final.png --frame=1069 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/outro.png --frame=1192 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-code-exit.png --frame=449 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-unmounted.png --frame=459 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-second-settled.png --frame=508 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV85 out/qa/finding-list-aligned.png --frame=543 --concurrency=2
+      - name: Render full V8.5 H264/AAC
+        run: npm run render:v85
       - name: Install probe if missing
         run: |
           if ! command -v ffprobe >/dev/null 2>&1; then
@@ -64,16 +68,16 @@ jobs:
           fi
       - name: Verify video and audio streams, duration, decode
         run: |
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v84.mp4
-          ffmpeg -v error -i out/reviewrouter-v84.mp4 -f null -
-          node scripts/check-v8-media.mjs out/reviewrouter-v84.mp4 1243
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v85.mp4
+          ffmpeg -v error -i out/reviewrouter-v85.mp4 -f null -
+          node scripts/check-v8-media.mjs out/reviewrouter-v85.mp4 1243
       - name: Upload complete MP4 and keyframes
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: reviewrouter-v84-native-video
+          name: reviewrouter-v85-native-video
           path: |
-            artifacts/reviewrouter-video/out/reviewrouter-v84.mp4
+            artifacts/reviewrouter-video/out/reviewrouter-v85.mp4
             artifacts/reviewrouter-video/out/qa/*.png
           retention-days: 14
           if-no-files-found: warn

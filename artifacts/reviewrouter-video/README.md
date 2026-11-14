@@ -175,3 +175,16 @@ npm run render:v84
 ```
 Source research and four critique rounds: [V8.4-PREMIUM-MOTION-PLAN.md](V8.4-PREMIUM-MOTION-PLAN.md).
 CI workflow: `.github/workflows/reviewrouter-video-v84.yml`. Produces actual native H264/AAC MP4 and keyframe stills after npm CI, typecheck, media probe and full decode. Hybrid local Python preview must be labeled separately from native Remotion output.
+
+## V8.5 minimal UI polish (independent 41.43s composition)
+
+This is a new `ReviewRouterV85` composition. Previous V6–V8.4 and `render:latest` remain unchanged. The specific feedback addressed: remove the misleading animated underline in the hybrid hero, hide the top-right scene label and header divider, guarantee code unmounts before the first review bot comment (code no longer returns at the end), align the three messages without rotation, remove horizontal commit/reuse separator lines, and remove the cards around the benchmark comparison. Keep genuine Claude and ReviewRouter brand symbols, 9,5× and 14,7× counts, Sentry/Context7/custom MCP, review skills and hosted/self-hosted ending.
+
+```bash
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v85
+npm run render:v85
+```
+
+Source: `src/video-v8-5.tsx` and `src/video-v8-5.css`. Design and four critique passes: `V8.5-MINIMAL-UI-FINAL-PASS.md`. This revision does not add npm dependencies. The upstream OpenCodeReview AACR-Bench scope/limitations remain unchanged. Local hybrid MP4 preview is not interchangeable with native Remotion E2E evidence.
