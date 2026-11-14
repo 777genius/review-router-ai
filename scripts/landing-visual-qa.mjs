@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "playwright-core";
 
 const dir="tmp/landing-visual-qa", port=3187, url="http://127.0.0.1:3187";
-const shots=[], errors=[], logs=[];
+const shots=[], errors=[], logs=[], backgrounds=new Map();
 await mkdir(dir,{recursive:true});
 const child=spawn("pnpm",["--filter","@reviewrouter/web","exec","next","dev","--webpack","--hostname","127.0.0.1","-p",String(port)],{
  env:{...process.env,NEXT_TELEMETRY_DISABLED:"1",NEXTAUTH_URL:url,REVIEW_ROUTER_WEB_URL:url,REVIEW_ROUTER_PUBLIC_WEB_URL:url},
@@ -38,6 +38,12 @@ try{
      // The preview sets this marker only after hydration, so interaction assertions
      // verify real browser behavior instead of racing the Next.js boot process.
      await page.locator('[aria-label="Illustrative AI review preview"][data-interactive-ready="true"]').waitFor({timeout:60000});
+     // The legacy home-shell applies a fixed dark-green mobile gradient even in light mode.
+     // Preserve the same theme-aware branded backdrop at mobile, tablet and desktop widths.
+     const background=await page.locator("main.landing-shell").evaluate(el=>getComputedStyle(el).backgroundImage);
+     if(!background.includes("linear-gradient"))throw Error("Branded background missing");
+     if(width===1440)backgrounds.set(theme,background);
+     else if(background!==backgrounds.get(theme))throw Error("Responsive backdrop differs from desktop in "+theme+" mode");
      const name="homepage-"+theme+"-"+width+".png";
      await page.screenshot({path:dir+"/"+name,fullPage:true,animations:"disabled"});
      shots.push(name);console.log("CAPTURED "+name);

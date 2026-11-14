@@ -327,7 +327,8 @@ canvas {
   box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.28);
 }
 
-.home-shell {
+.home-shell,
+.landing-shell {
   background:
     linear-gradient(var(--rr-page-grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--rr-page-grid) 1px, transparent 1px),
@@ -1601,7 +1602,8 @@ canvas {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .home-shell {
+  .home-shell,
+  .landing-shell {
     animation: rr-home-grid-drift 36s linear infinite;
   }
 

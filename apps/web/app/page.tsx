@@ -101,7 +101,7 @@ export default async function HomePage(): Promise<React.ReactElement> {
   };
 
   return (
-    <main className="home-shell flex min-h-screen w-full flex-col">
+    <main className="landing-shell flex min-h-screen w-full flex-col">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
