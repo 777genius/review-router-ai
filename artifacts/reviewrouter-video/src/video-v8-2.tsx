@@ -323,12 +323,14 @@ const PARTS=[
   {from:0,dur:120},     // 0..119 hero
   {from:120,dur:38},    // 120..157 GitHub
   {from:158,dur:126},   // 158..283 providers
-  {from:284,dur:117},   // 284..400 repository
-  {from:401,dur:163},   // 401..563 finding
-  {from:564,dur:126},   // 564..689 incremental
-  {from:690,dur:100},   // 690..789 insights (allow last bar to complete)
-  {from:790,dur:113},   // 790..902 benchmark
-  {from:903,dur:117},   // 903..1019 CTA
+  {from:284,dur:117},   // 284..400 repositories
+  {from:401,dur:163},   // 401..563 findings
+  {from:564,dur:111},   // 564..674 MCP examples
+  {from:675,dur:112},   // 675..786 review skills
+  {from:787,dur:126},   // 787..912 incremental
+  {from:913,dur:100},   // 913..1012 insight
+  {from:1013,dur:113},  // 1013..1125 benchmark
+  {from:1126,dur:117},  // 1126..1242 CTA
 ] as const;
 const Sfx:React.FC<{at:number;name:'click.wav'|'success.wav'|'finding.wav';gain?:number}> =({at,name,gain=.35})=>
   <Sequence from={at}><Audio src={staticFile('v7-sfx/'+name)} volume={gain}/></Sequence>;
@@ -338,15 +340,19 @@ export const ReviewRouterV82Video:React.FC=()=> <AbsoluteFill className="v8-root
   <Sfx at={144} name="click.wav" gain={.39}/>
   <Sfx at={224} name="click.wav" gain={.24}/>
   <Sfx at={375} name="success.wav" gain={.28}/>
-  <Sfx at={475} name="finding.wav" gain={.32}/>
-  <Sfx at={640} name="success.wav" gain={.18}/>
+  <Sfx at={454} name="finding.wav" gain={.27}/>
+  <Sfx at={586} name="click.wav" gain={.18}/>
+  <Sfx at={710} name="click.wav" gain={.18}/>
+  <Sfx at={863} name="success.wav" gain={.18}/>
   <Sequence from={PARTS[0].from} durationInFrames={PARTS[0].dur}><Hero/></Sequence>
   <Sequence from={PARTS[1].from} durationInFrames={PARTS[1].dur}><SignIn/></Sequence>
   <Sequence from={PARTS[2].from} durationInFrames={PARTS[2].dur}><Providers/></Sequence>
   <Sequence from={PARTS[3].from} durationInFrames={PARTS[3].dur}><Repository/></Sequence>
   <Sequence from={PARTS[4].from} durationInFrames={PARTS[4].dur}><Finding/></Sequence>
-  <Sequence from={PARTS[5].from} durationInFrames={PARTS[5].dur}><Incremental/></Sequence>
-  <Sequence from={PARTS[6].from} durationInFrames={PARTS[6].dur}><Insights/></Sequence>
-  <Sequence from={PARTS[7].from} durationInFrames={PARTS[7].dur}><Benchmark/></Sequence>
-  <Sequence from={PARTS[8].from} durationInFrames={PARTS[8].dur}><Outro/></Sequence>
+  <Sequence from={PARTS[5].from} durationInFrames={PARTS[5].dur}><MCPTools/></Sequence>
+  <Sequence from={PARTS[6].from} durationInFrames={PARTS[6].dur}><ReviewSkills/></Sequence>
+  <Sequence from={PARTS[7].from} durationInFrames={PARTS[7].dur}><Incremental/></Sequence>
+  <Sequence from={PARTS[8].from} durationInFrames={PARTS[8].dur}><Insights/></Sequence>
+  <Sequence from={PARTS[9].from} durationInFrames={PARTS[9].dur}><Benchmark/></Sequence>
+  <Sequence from={PARTS[10].from} durationInFrames={PARTS[10].dur}><Outro/></Sequence>
 </AbsoluteFill>;
