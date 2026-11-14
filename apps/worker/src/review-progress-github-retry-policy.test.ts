@@ -199,6 +199,37 @@ describe("Review progress GitHub retry policy", () => {
     );
   });
 
+  it("keeps PATCH cooldown on a typed inconclusive scan", () => {
+    const mutationError = {
+      status: 429,
+      response: { headers: { "retry-after": "7200" } },
+    };
+    const observationError = new ReviewProgressGitHubError(
+      "pagination_inconclusive",
+      "github_comment_scan_inconclusive",
+      {
+        retryable: true,
+        retryAt: new Date("2026-08-12T13:00:00.000Z"),
+      },
+    );
+    const result = reconciliationFailure(
+      mutationError,
+      observationError,
+      () => now,
+      () => 0,
+    );
+    expect(result.kind).toBe("pagination_inconclusive");
+    expect(result.metadata.retryAt).toEqual(
+      new Date("2026-08-12T14:00:00.250Z"),
+    );
+    expect(result.metadata.retryNotBefore).toEqual(
+      new Date("2026-08-12T14:00:00.000Z"),
+    );
+    expect(result.metadata.installationCooldownUntil).toEqual(
+      new Date("2026-08-12T14:00:00.250Z"),
+    );
+  });
+
   it("keeps PATCH throttling cooldown separate from a later GET outage", () => {
     const mutationError = {
       status: 429,
