@@ -163,22 +163,18 @@ const LINES=[
 const Finding:React.FC=()=>{
   const f=useCurrentFrame();
   const comments=[
-    {severity:'CRITICAL',title:'Missing authorization check',at:43},
-    {severity:'MEDIUM',title:'Unsafe fallback',at:77},
-    {severity:'MEDIUM',title:'Missing error handling',at:110},
+    {severity:'CRITICAL',title:'Missing authorization check',at:52},
+    {severity:'MEDIUM',title:'Unsafe fallback',at:86},
+    {severity:'MEDIUM',title:'Missing error handling',at:120},
   ] as const;
-  const visibleCount = f>=110?3:f>=77?2:f>=43?1:0;
+  const visibleCount = f>=120?3:f>=86?2:f>=52?1:0;
   // The stack has weight. Each new message physically shifts all settled cards upward.
-  const stackShift = 111*p(f,77,92)+111*p(f,110,125);
-  const codeExit=p(f,54,77);
+  const stackShift = 111*p(f,86,101)+111*p(f,120,135);
+  const codeExit=p(f,29,50);
   const codeEnter=p(f,3,17);
-  const compress = (at:number):number => {
-    const age=f-at;
-    return age>=0&&age<9?Math.sin(Math.PI*age/9)*5:0;
-  };
   return <Scene scene={5} name="REVIEW COMMENTS">
     <ChapterTitle eyebrow="GITHUB CODE REVIEW" title="Findings. With full context."/>
-    <div className="v82-code" style={{
+    {f<51&&<div className="v82-code" style={{
       opacity:codeEnter*(1-codeExit),
       transform:'translateY('+(((1-codeEnter)*24)-codeExit*22).toFixed(1)+'px) scale('+(1-.04*codeExit).toFixed(3)+')',
       filter:'blur('+(9*codeExit).toFixed(1)+'px)',
@@ -191,17 +187,15 @@ const Finding:React.FC=()=>{
           style={{opacity:i===2?1:1-.28*p(f,25,40)}}>
           <span>{row.line}</span>{row.code}
         </div>)}</div>
-    </div>
+    </div>}
     <div className="v82-comment-list v83-reflow-stack" style={{top:780-stackShift}}>
       {comments.map((item,i)=>{
         const entering=p(f,item.at,item.at+16);
-        const pressed = (i===0?compress(77)+compress(110):i===1?compress(110):0);
-        const y=(1-entering)*78+pressed;
-        const rotation=(1-entering)*(i%2===0?1.4:-1.4);
-        const scale=.94+.06*entering;
-        return <div className="v82-comment" key={item.title} style={{
+        const pressed = 0; // Stable aligned rows instead of an uneven impact wobble.
+        const y=(1-entering)*38+pressed;
+                return <div className="v82-comment" key={item.title} style={{
           opacity:entering,
-          transform:`translateY(${y.toFixed(1)}px) rotate(${rotation.toFixed(2)}deg) scale(${scale.toFixed(3)})`,
+          transform:`translateY(${y.toFixed(1)}px)`,
           transformOrigin:'center bottom',
           boxShadow:enteredShadow(entering),
         }}>
