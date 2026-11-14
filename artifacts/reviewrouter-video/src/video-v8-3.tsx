@@ -389,7 +389,24 @@ const SemanticReveal:React.FC<{origin:RevealOrigin;children:React.ReactNode}>=({
   }else{
     mask=`inset(${(1-q)*44}% ${(1-q)*10}% ${(1-q)*28}% ${(1-q)*70}% round ${Math.round((1-q)*22)}px)`;
   }
-  return <AbsoluteFill style={{clipPath:mask}}>{children}</AbsoluteFill>;
+  const accent=origin==='tokens-kpi'?'#a6ff9a':'#76eef1';
+  const borderOpacity=(q>0&&q<.97)?Math.sin(Math.PI*q)*.72:0;
+  let outline:React.ReactNode=null;
+  if(borderOpacity>0){
+    if(origin==='full-context'){
+      const radius=2700*q;
+      outline=<div style={{position:'absolute',left:`calc(72% - ${radius}px)`,top:`calc(77% - ${radius}px)`,
+        width:radius*2,height:radius*2,borderRadius:'50%',border:`2px solid ${accent}`,
+        opacity:borderOpacity,boxShadow:`0 0 28px ${accent}44`,pointerEvents:'none'}}/>;
+    }else{
+      const left=origin==='provider-card'?9:70,top=44,right=origin==='provider-card'?72:10,bottom=origin==='provider-card'?32:28;
+      outline=<div style={{position:'absolute',
+        left:`${left*(1-q)}%`,top:`${top*(1-q)}%`,right:`${right*(1-q)}%`,bottom:`${bottom*(1-q)}%`,
+        borderRadius:Math.round((1-q)*18),border:`3px solid ${accent}`,
+        opacity:borderOpacity,boxShadow:`0 0 30px ${accent}44`,pointerEvents:'none'}}/>;
+    }
+  }
+  return <>{<AbsoluteFill style={{clipPath:mask}}>{children}</AbsoluteFill>}{outline}</>;
 };
 const Sfx:React.FC<{at:number;name:'click.wav'|'success.wav'|'finding.wav';gain?:number}> =({at,name,gain=.35})=>
   <Sequence from={at}><Audio src={staticFile('v7-sfx/'+name)} volume={gain}/></Sequence>;
