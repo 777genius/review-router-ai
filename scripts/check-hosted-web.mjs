@@ -26,6 +26,7 @@ assertIncludesAny(
   dashboard.html,
   [
     "AI code review.",
+    "Free privacy-first",
     "Manage repository review rollout",
     "ReviewRouter is a metadata control plane",
     "ReviewRouter is an open-source metadata control plane",
@@ -160,6 +161,7 @@ assertIncludesAny(
   setupPrDashboardNotice.html,
   [
     "AI code review.",
+    "Free privacy-first",
     "Manage repository review rollout",
     "ReviewRouter is a metadata control plane",
     "ReviewRouter is an open-source metadata control plane",
@@ -178,6 +180,7 @@ assertIncludesAny(
   syncDashboardNotice.html,
   [
     "AI code review.",
+    "Free privacy-first",
     "Manage repository review rollout",
     "ReviewRouter is a metadata control plane",
     "ReviewRouter is an open-source metadata control plane",
