@@ -117,3 +117,70 @@ This reverses the earlier unconditional “Dusk wins” narrative: **if integrat
 ### Revised short experiment
 
 Build three **same-brand/same-content** isolated preview routes using the true ReviewRouter product, not template marketing examples: **A) Launch UI shell**, **B) Tailark Dusk 7 shell**, **C) freedesignmd Forge's review/CI interaction architecture with code/diff/terminal removed**. Add a fourth baseline only if the native existing page refactor remains plausible. Run the same a11y/performance and real CTA tests, then select; don't infer a winner from popularity or source scores. Velora remains optional motion donor. All must keep the actual logo, ReviewRouter typography and palette, real user install/auth flow, and accurate upstream benchmark and usage limitations.
+
+
+## Second independent audit — 2026-11-14, latest main and public homepage
+
+**Inputs:** public page https://reviewrouter.org opened as rendered-page text (NOT a visual/interactive browser capture); ReviewRouter GitHub main `b0b47c82d422289ff966d92660ddb037ec0448f8`, specific `apps/web/app/*` paths read through the connected GitHub account; template sources and primary UX/accessibility/performance references.
+
+### A. Why the live page is cognitively crowded (verified content structure)
+
+The root App Router page `apps/web/app/page.tsx` renders `HomeHero`, `HomeFeatures`, `CompareSection`, `HomeFaq`, `HomeFinalCta` in sequence. The corresponding 7 TSX source files including `HomeCtaCluster` total ~58 KB **source text** (NOT network payload), and the main public `compare-section.tsx` is ~25 KB source. The page has:
+- The hero contains three setup steps with explanatory paragraphs, three extra security/status signals and GitHub/GitLab calls to action. Desktop/mobile step markups both exist in source for breakpoints; do NOT count both as simultaneously visible.
+- Six feature rows repeat privacy, keys and source themes, each with explanatory copy, plus a separate boundary diagram.
+- A long eight-competitor matrix and execution-boundary comparison consume homepage real estate despite a dedicated `/compare` page already rendering `CompareSection` with heading-level support.
+- Six FAQ questions and a separate final CTA repeat many explanations.
+- Styling across a ~2,042-line global stylesheet, with `home-shell` grid/glows and extensive `setup-blueprint` classes, makes simple copy replacement alone insufficient. Do not delete a large unreviewed CSS range: dashboard and landing styling are interleaved.
+
+**Recommended highest-value change before ANY template transplant:** remove full `CompareSection` from homepage and link to `/compare`; reduce hero to the proposition + real product preview, move setup explanation to short three-stage visual lower down, keep 3–4 essential FAQs with a full-doc link, and show one benefit per visually separated section. **Update BOTH** primary navigation `/#compare` and footer `/#compare` links to `/compare` before deleting the anchor; otherwise links break.
+
+### B. Actual product flow and marketing truth (important contradictions)
+
+- `HomeCtaCluster` shows a real authentication-aware GitHub App install permission dialog (or workspace dashboard for connected sessions), **and a second prominent solid-style disabled GitLab button**. The underlying `GitLabBetaConnectButton` is explicitly disabled with "In development". This competing dead CTA should not visually equal the primary start action. Reposition as small status info without removing codepath; the current README explicitly says GitLab in development. A code-level GitLab wizard is not evidence that it is ready for public conversion.
+- Existing `public-urls.ts` maps `reviewRouterGitHubRepoUrl` to **777genius/review-router** (Action/runtime), not **777genius/review-router-ai** (the full application). Both are valid projects but an "Open source platform" CTA must clearly link to the PLATFORM repository as well; link Action and upstream Alibaba OCR separately. Do not silently repoint support issue links that intentionally use the Action repository.
+- Existing dashboard usage code explicitly has `unknown` and `partial` coverage and shows known/estimated costs, not always dollar-accurate bills. "Full spend control" is not the same as an enforceable budget or provider-native quota guarantee. Avoid a fake "set $10 monthly limit" interface if there is no qualified command implementing it.
+- The default GitHub code checkout/review runs in customer-authorized CI; the **chosen AI provider** still receives the supplied review context. The optional encrypted hosted-account pool differs in credential/data boundaries. Do not use "100% never leaves your network" language or assume every provider mode is available for everyone.
+- Current hosted UI is free-to-start subject to fair-use quotas, while third-party AI subscription/API use and CI may incur charges.
+- OpenCodeReview's published benchmark is *upstream*, ~one-ninth the tokens under compared conditions versus Claude Code and faster average time, but has **lower recall**; it does not certify 9× wall-clock speed or guaranteed ReviewRouter billing reduction.
+
+### C. Newly discovered competitor pitfalls
+
+- [Shadcnblocks Mainline GitHub](https://github.com/shadcnblocks/mainline-nextjs-template) has ~374 GitHub stars and a real complete multi-page design. Its public marketing page describes **Next.js 16** but the current source package specifies **Next.js ^15.5.5**. LICENSE is **MIT + Commons Clause** (main restriction: not selling template substantially unchanged). Extra `next-themes`, MDX, forms, server-actions and Motion would duplicate our app infrastructure. This is not automatically ineligible, but scores below Launch/Tailark for reuse.
+- [Kairo UI](https://www.kairoui.online/templates) presents ~13 published designs and MIT/source-install claims through mutable shadcn registry JSON endpoints. An independently pinned public GitHub source repository for these specific templates was not established here; the author says some designs are inspired/adapted from others. **No automatic copy until exact license, author provenance and content hash are captured.** Interesting reference, not a stronger production candidate on current evidence.
+- **Tailark source-to-site drift:** the OSS GitHub tree's last push observed July 29 2026, while its official site changelog mentions further September 2026 content. Version matching between web preview/registry and GitHub source is not established. Pin exact source commit instead of treating newest site preview as matching repository files.
+- **Velora source-to-platform drift:** full SaaS page has many example testimonials, pricing, logos and gradient/marquees; importing its page and replacing everything is likely more work than porting 1–2 selected screenshot/motion blocks. No controlled Lighthouse results verified.
+- **Forge** has stronger PR/CI animation than generic SaaS templates, but its React-only single-file code has its own header/footer/main, includes hypothetical company numbers/pricing and needs client/server separation. Treat Forge as an interaction reference, not a literal site.
+- **Mainline, Kairo, React Bits, Animate UI** include permissions or additional non-standard redistribution constraints not implied by "open source" alone; treat embedded application use and component-library redistribution separately. Read final license at the pinned version.
+
+### D. Independent usability/performance evidence and consequences
+
+- [NN/G progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/): initially show essential choices, put advanced features behind clearly labeled paths. **Applying here:** review sample, own AI and source link on first screen; comparison, privacy/legal detail and long FAQ elsewhere. But don't delete all descriptive copy: the headline must say "AI code review for pull requests" plainly, not merely "On your terms".
+- [NN/G information scent](https://www.nngroup.com/articles/information-scent/): too little introductory context behind generic imagery makes users leave before scrolling. **Applying here:** one H1 with category/value + one short sentence + recognizable PR/finding UI and labeled action. "Free" needs scope: free platform, not necessarily free inference.
+- [NN/G motion](https://www.nngroup.com/articles/animation-purpose-ux/) and [scroll animation study](https://www.nngroup.com/articles/scroll-animations/): motion is attention-grabbing; animate meaningful state changes only, never require visitors to wait for each paragraph to appear. Effects triggered by scroll should appear once on supplemental graphics, not primary H1/copy.
+- [W3C WCAG 2.2 animation from interactions](https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions) (AAA) advocates disabling non-essential motion, e.g. `prefers-reduced-motion`; [web.dev](https://web.dev/articles/css-web-vitals) discourages layout-affecting animation. User can understand static/frozen page equally well.
+- [Chrome UX Report thresholds](https://developer.chrome.com/docs/crux/guides/pagespeed-insights): evaluate LCP <=2.5 seconds, INP <=200 ms, CLS <=0.1 at 75th-percentile *field data*. Lighthouse lab measurements are diagnostic and CANNOT prove field p75.
+
+### E. Do not overpay for proving a template
+
+Previous plans suggested three **complete** template prototypes; that would be inefficient given a mature Next.js production app. Instead:
+1. Record screenshots/current behavior of baseline (not yet done). Freeze same brand, copy, logo and sanitized fixture in each candidate.
+2. Build only **two first-viewport prototypes**: native-layout simplification vs Launch UI section shell. Dusk 7 is challenger if it materially improves hierarchy/visual identity in source/wireframe evaluation; Forge only donates one interaction concept.
+3. Run one desktop+one mobile accessibility/legibility pass; show user the two actual browser captures. Short 5-second comprehension review by non-contributor readers (what is it, free vs paid, what CTA does) helps judge hierarchy; tiny samples are qualitative, not statistical A/B results.
+4. Lock a single layout, implement all 5 major sections in a single route with existing Server Components. Add one isolated Client Component for selectable severity findings (button with `aria-pressed`, keyboard focus) and possibly simple CSS graph animation.
+5. End-to-end test signed-out, auth-connected, install-url unavailable, reduced motion, both themes, navigation `/compare`, GitLab disabled, self-host links and source license links; run actual browser screenshot comparison and focused typecheck/lint. No queued or skipped CI counts as success.
+
+**Selection principle:** choose smallest change that demonstrably improves first-viewport comprehension, real product visibility and responsive design. There is *no verified winner* from source stars/subjective 7.75 scores. Native re-layout is a real candidate; if layout-donor source does not prove better, don't copy it.
+
+### F. Suggested architecture sketch (no code committed)
+
+- `page.tsx`: retain async server auth/installation computations, JSON-LD and metadata.
+- `home-hero.tsx`: small Server Component with headline, primary CTA and sample visual.
+- `home-review-demo.tsx`: single tiny client island with four short severity titles, no code diff/comment paragraphs, no auth API and no private workspace queries; label it *illustrative*.
+- `home-efficiency.tsx`: static, sourced ~9× tokens chart and caveat. Use SVG/CSS, not a new charts dependency for two bars.
+- `home-product-proof.tsx`: approved, sanitized actual dashboard image(s), one changeable tab only if useful; private authenticated dashboard React Query components are NOT marketing primitives and must not be imported wholesale.
+- `home-how-it-works.tsx`: three-step review pipeline, source boundary labels and CI/provider split.
+- `home-hosting.tsx`: two choices hosted/fair use and guided self-hosted, + source CTA.
+- `/compare`: retain full existing comparison content, independently accessible; adjust nav and footer links.
+- Shared UI and CSS only; preserve `next/font/local`, existing global header/footer and all other private feature routes.
+
+**Estimate before actual implementation:** native refactor 400–900 lines of meaningful UI/CSS change (including careful cleanup of old `setup-blueprint` CSS), selected Launch UI shell 500–1,000, Dusk shell 650–1,200, Forge copy-and-refactor 800–1,600; these are **planning ranges, not measured diffs**. Complexity native 4/10, Launch 5/10, Dusk 6/10, Forge 7/10. Confidence in *ranking* medium until actual browser render. No production deployment authorized by research task.
