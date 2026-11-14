@@ -2,10 +2,10 @@ name: ReviewRouter V8.5 native video QA
 on:
   push:
     branches:
-      - feat/reviewrouter-video-v85-motion
+      - feat/reviewrouter-video-v84-motion
     paths:
       - "artifacts/reviewrouter-video/**"
-      - ".github/workflows/reviewrouter-video-v85.yml"
+      - ".github/workflows/reviewrouter-video-v84.yml"
   workflow_dispatch:
 permissions:
   contents: read
