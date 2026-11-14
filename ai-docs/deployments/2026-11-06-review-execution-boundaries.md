@@ -1,5 +1,9 @@
 # Review execution / API legacy boundary refactor rollout
 
+## Current code reconciliation (2026-11-14)
+
+PR #819 is merged. Its private code ancestry is included in installed d2f and retained signed 234/source Ebe, as reconciled in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Earlier pending-source/no-installation statements below describe historical delivery checkpoints. There is no new schema/configuration/activation step or reason to redeploy this behavior-preserving code merely to clear a stale task status. This is **installed ordinary code**, not a claim of feature activation, independent live qualification or public Action artifact proof inferred from ancestry. Preserve separate semantic Memory, public distribution, self-hosted and GitLab acceptance boundaries.
+
 - Task ID: `2026-11-06-review-execution-boundaries`
 - Goal: deliver behavior-preserving owner boundaries for review-execution persistence and qualified selected API Review Action v2 helpers, if implemented.
 - Affected services/targets: API and worker Review Execution feature runtime; Web only if optional workflow write packet is justified and implemented.
@@ -7,14 +11,14 @@
 - Implementation reference: initial code candidate [43694373dee4b2827fcd22aac3e896525f108e86](https://github.com/777genius/review-router-ai/commit/43694373dee4b2827fcd22aac3e896525f108e86). This does not mean selected for release or installed.
 - Plan: [post-#818 legacy-boundary plan](../plans/2026-11-06-post-818-legacy-boundaries.md).
 - Dependencies: repository release/rollback procedures, current deployment registry, exact release image selection, and applicable pre-existing migration/cutover tasks. No new migrations.
-- Last updated: 2026-11-06.
+- Last updated: 2026-11-14.
 
 ## Environment status
 
-| Environment / target                           | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                           |
-| ---------------------------------------------- | --------- | ------------------------------- | ------------------- | -------------------------------------------------------------- |
-| staging API/worker (+ Web only if in scope)    | `pending` | Not verified                    | Not verified        | Qualify source and select release after separate authorization |
-| production API/worker (+ Web only if in scope) | `pending` | Not verified                    | Not verified        | Do not assume main or the PR commit is installed               |
+| Environment / target                           | Status      | Actual deployed version / image | Last verified (UTC) | Evidence / next step                                           |
+| ---------------------------------------------- | ----------- | ------------------------------- | ------------------- | -------------------------------------------------------------- |
+| staging API/worker (+ Web only if in scope)    | `pending`   | Not verified                    | Not verified        | Qualify source and select release after separate authorization |
+| production API/worker (+ Web only if in scope) | `installed` | Signed 234/source Ebe           | 2026-11-14          | Ordinary code included; no separate activation/live claim      |
 
 `pending` does not assert absence. An implementation PR or green tests never amount to an installed version.
 

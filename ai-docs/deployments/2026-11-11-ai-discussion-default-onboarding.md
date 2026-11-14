@@ -1,16 +1,22 @@
 # AI finding discussion default-on onboarding rollout
 
+## Current production reconciliation (2026-11-14)
+
+Confirmed application delivery is the compatible signed 234/source Ebe fleet described in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Code installation, feature activation and live qualification are separate. Actual 234 FILE 62 activation and normal producer materialization passed with zero migrations; preserve the already-applied 000156/157 ledger and all producer authority. Workflow promotion passed; feature canary qualification remains separate. This reconciliation supersedes the initial pending/no-rollout statements in the historical implementation sections below.
+
+#856 code and v4 source readers are installed. No newly generated/approved v4 author-only interaction caller or live subscription discussion is qualified by this record. Existing customer callers/defaults are not automatically rewritten. Qualification still needs its own scoped setup approval, author/non-author/off guards and real App readback; do not redeploy the installed code for that gap.
+
 - Task ID: `2026-11-11-ai-discussion-default-onboarding`
 - Goal: remove the setup checkbox and make newly approved, qualified rotating Codex interaction callers default to safe, author-only suggest replies.
 - Implementation: [PR #856](https://github.com/777genius/review-router-ai/pull/856), [reviewed plan](../plans/2026-11-11-ai-discussion-default-onboarding.md).
-- Last updated: 2026-11-11.
+- Last updated: 2026-11-14.
 
 ## Environment status
 
-| Target     | Status    | Actual release/image | Evidence                                          |
-| ---------- | --------- | -------------------- | ------------------------------------------------- |
-| Staging    | `pending` | Not verified         | Source CI is not a staged deployment              |
-| Production | `pending` | Not verified         | No deployment or new setup PR approval authorized |
+| Target     | Status      | Actual release/image  | Evidence                                                       |
+| ---------- | ----------- | --------------------- | -------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified          | Source CI is not a staged deployment                           |
+| Production | `installed` | Signed 234/source Ebe | v4 caller activation and live author-only reply remain pending |
 
 ## Rollout dependencies
 
