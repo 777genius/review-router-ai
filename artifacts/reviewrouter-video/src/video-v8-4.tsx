@@ -168,14 +168,20 @@ const Finding:React.FC=()=>{
   ] as const;
   const visibleCount = f>=110?3:f>=77?2:f>=43?1:0;
   // The stack has weight. Each new message physically shifts all settled cards upward.
-  const stackShift = 51*p(f,77,92)+51*p(f,110,125);
+  const stackShift = 111*p(f,77,92)+111*p(f,110,125);
+  const codeExit=p(f,54,77);
+  const codeEnter=p(f,3,17);
   const compress = (at:number):number => {
     const age=f-at;
     return age>=0&&age<9?Math.sin(Math.PI*age/9)*5:0;
   };
   return <Scene scene={5} name="REVIEW COMMENTS">
     <ChapterTitle eyebrow="GITHUB CODE REVIEW" title="Findings. With full context."/>
-    <div className="v82-code" style={move(f,3,17,24)}>
+    <div className="v82-code" style={{
+      opacity:codeEnter*(1-codeExit),
+      transform:'translateY('+(((1-codeEnter)*24)-codeExit*22).toFixed(1)+'px) scale('+(1-.04*codeExit).toFixed(3)+')',
+      filter:'blur('+(9*codeExit).toFixed(1)+'px)',
+    }}>
       <div className="v8-filehead"><FileCode2 size={24}/> src/server/auth.ts
         <span>PR #42 · +84 / −21 <b className="v83-comment-counter">{visibleCount}/3 findings</b></span>
       </div>
@@ -185,7 +191,7 @@ const Finding:React.FC=()=>{
           <span>{row.line}</span>{row.code}
         </div>)}</div>
     </div>
-    <div className="v82-comment-list v83-reflow-stack" style={{top:790-stackShift}}>
+    <div className="v82-comment-list v83-reflow-stack" style={{top:780-stackShift}}>
       {comments.map((item,i)=>{
         const entering=p(f,item.at,item.at+16);
         const pressed = (i===0?compress(77)+compress(110):i===1?compress(110):0);
