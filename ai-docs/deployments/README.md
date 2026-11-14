@@ -25,7 +25,7 @@ User-declined legacy Statistics/DL backfill remains excluded. Old unknown effect
 
 ## Task index
 
-Large producer registry configuration: [FILE input and successor 234](2026-11-14-producer-registry-file.md) - #865 merged; production `deployed` in signed 234/source Ebe; actual four-role FILE 62/normal producer registration and ungated readiness PASS. Channel promotion and the bounded native-reply/settlement canary PASS; do not repeat 000156/157.
+Large producer registry configuration: [FILE input and successor 234](2026-11-14-producer-registry-file.md) - #865 merged; production `deployed` in signed 234/source Ebe; actual four-role FILE 62/normal producer registration and ungated readiness PASS. Channel promotion and the bounded native-reply/settlement canary PASS; standalone admin CLI FILE parsing is accepted but full readiness lacks the existing operator credential. No repeat 000156/157 or new credential is needed.
 
 AI discussion default-on onboarding: [qualified author-only rotating Codex setup](2026-11-11-ai-discussion-default-onboarding.md), #856 - code `installed` in 234/source Ebe; new v4 interaction caller and live author-only reply qualification `pending`. No automatic customer workflow replacement.
 
