@@ -13,7 +13,6 @@ import { getGitHubAppInstallUrl } from "../src/server/github-app-install-url";
 import { reviewRouterGitHubRepoUrl, reviewRouterWebUrl } from "./public-urls";
 import {
   createPublicPageMetadata,
-  defaultSeoTitle,
   siteName,
 } from "./seo";
 
@@ -69,7 +68,7 @@ const structuredData = {
     {
       "@type": "WebPage",
       "@id": `${reviewRouterWebUrl}/#webpage`,
-      name: defaultSeoTitle,
+      name: "ReviewRouter | Open-source AI code review",
       url: reviewRouterWebUrl,
       description: homeSeoDescription,
       isPartOf: {

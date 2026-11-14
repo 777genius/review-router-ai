@@ -464,3 +464,14 @@ html[data-theme="light"] .rr-home-faq-wrap .home-faq-item {
 html[data-theme="light"] .rr-home-faq-wrap .home-faq-item p {
   color: var(--rr-home-muted);
 }
+
+/* Landing footer CTA uses the actual site CTA components; restore contrast in light mode. */
+html[data-theme="light"] .rr-landing #home-final-title {
+  color: var(--rr-home-text);
+}
+html[data-theme="light"] .rr-landing #home-final-title span {
+  color: var(--rr-home-lime);
+}
+html[data-theme="light"] .rr-landing > section:last-child p {
+  color: var(--rr-home-muted);
+}
