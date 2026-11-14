@@ -47,7 +47,19 @@ const ChapterTitle:React.FC<{eyebrow:string;title:string;sub?:string}>=({eyebrow
   <div className="v8-title">{title}</div>
   {sub&&<div className="v8-title-sub">{sub}</div>}
 </>;
-const Foot:React.FC<{children:React.ReactNode}>=({children})=><div className="v8-disclaimer">{children}</div>;
+
+
+/** Pure frame-driven count-up. Final value is exact, reached in 30 frames. */
+const AnimatedMultiplier:React.FC<{target:number;start:number;duration?:number}>=({target,start,duration=30})=>{
+  const f=useCurrentFrame();
+  const t=Math.max(0,Math.min(1,(f-start)/duration));
+  const eased=1-Math.pow(1-t,4);
+  return <span className="v84-count" style={{display:'inline-block',
+    fontVariantNumeric:'tabular-nums',
+    transform:'translateY('+((1-eased)*14).toFixed(1)+'px)',
+    filter:'blur('+((1-eased)*1.8).toFixed(1)+'px)',
+  }}>{(target*eased).toFixed(1).replace('.',',')}×</span>;
+};
 
 const Hero:React.FC=()=>{
   const f=useCurrentFrame();
@@ -55,13 +67,13 @@ const Hero:React.FC=()=>{
     <div className="v8-center-hero">
       <div className="v8-open-source" style={{opacity:p(f,0,9)}}><span className="v8-open-dot"/>100% OPEN SOURCE <span className="v8-open-sep">/</span> FREE CONTROL PLANE</div>
       <div className="v8-dual">
-        <div style={move(f,6,27,48)}><div className="v8-hero-number">9,5×</div><div className="v8-hero-label">FASTER</div></div>
+        <div style={move(f,2,13,18)}><div className="v8-hero-number"><AnimatedMultiplier target={9.5} start={6}/></div><div className="v8-hero-label">FASTER</div></div>
         <div className="v8-dual-divider" style={{opacity:p(f,22,36)}}/>
-        <div style={move(f,27,49,48)}><div className="v8-hero-number" style={{color:C.lime}}>14,7×</div><div className="v8-hero-label">FEWER TOKENS</div></div>
+        <div style={move(f,8,19,18)}><div className="v8-hero-number" style={{color:C.lime}}><AnimatedMultiplier target={14.7} start={12}/></div><div className="v8-hero-label">FEWER TOKENS</div></div>
       </div>
       <div className="v8-vs" style={{opacity:p(f,49,67)}}>REVIEWROUTER ENGINE <span className="v82-vs-brand"><ClaudeMark size={36}/> VS CLAUDE CODE*</span></div>
+      <div className="v84-source-in-hero" style={{opacity:p(f,56,67)}}>OpenCodeReview AACR-Bench · Claude 4.6 Opus</div>
     </div>
-    <Foot>* ReviewRouter engine: upstream OpenCodeReview AACR-Bench (Claude 4.6 Opus), not a separate service benchmark. Token count is not a guaranteed bill.</Foot>
   </Scene>;
 };
 
@@ -69,11 +81,12 @@ const SignIn:React.FC=()=>{
   const f=useCurrentFrame();
   return <Scene scene={2} name="SIGN IN">
     <div className="v8-single-title" style={move(f,0,11,18)}>Connect GitHub.</div>
-    <div className="v8-signin-button" style={{opacity:p(f,2,13),transform:'scale('+(0.95+0.05*p(f,3,16))+')'}}>
+    <div className="v8-signin-button" style={{opacity:p(f,2,13),transform:'scale('+(0.95+.05*p(f,3,16)+.016*p(f,13,19)-.045*Math.max(0,1-Math.abs(f-22)/3)).toFixed(3)+')',
+      boxShadow:'0 25px 80px #0008, 0 0 '+(30+50*p(f,14,20)).toFixed(0)+'px #57e6ef44'}}>
       <svg width="51" height="51" viewBox="0 0 24 24" fill="#081a23"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
       Continue with GitHub <ArrowRight size={38}/>
     </div>
-    <SimulatedCursor points={[{x:69,y:74,frame:0},{x:53,y:56,frame:20,target:60}]} clickFrames={[22]} color="#f9ffff" accent={C.cyan} size={44}/>
+    <MagneticCursor from={{x:1340,y:860}} to={{x:1014,y:576}} startAt={0} arriveAt={20} clickAt={22} accent={C.cyan}/>
   </Scene>;
 };
 
@@ -103,7 +116,6 @@ const Providers:React.FC=()=>{
       </div>)}
     </div>
     <div className="v8-provider-bottom"><span style={move(f,10,25)}>Use your subscription or API key</span><span style={{...move(f,72,87),color:C.cyan}}>Codex selected <Check size={24}/></span></div>
-    <Foot>NVIDIA Build and OpenRouter free model availability depends on each provider and account.</Foot>
   </Scene>;
 };
 
@@ -137,7 +149,6 @@ const Repository:React.FC=()=>{
         </div>
       </React.Fragment>)}
     </div>
-    <Foot>Illustrative selection and setup. No GitHub repository was modified.</Foot>
   </Scene>;
 };
 
@@ -200,7 +211,6 @@ const Finding:React.FC=()=>{
         </div>;
       })}
     </div>
-    <Foot>Illustrative PR and findings. Severity and context shown in each comment.</Foot>
   </Scene>;
 };
 const enteredShadow=(t:number)=>`0 ${Math.round(25-15*t)}px ${Math.round(55-17*t)}px rgba(0,0,0,${(0.65-0.13*t).toFixed(3)})`;
@@ -230,7 +240,6 @@ const MCPTools:React.FC=()=>{
         <span className="v82-add-label">+ Add</span>
       </div>
     </div>
-    <Foot>Example connections only. HTTPS tools require approval and a compatible review profile.</Foot>
   </Scene>;
 };
 
@@ -256,7 +265,6 @@ const ReviewSkills:React.FC=()=>{
       })}
     </div>
     <div className="v82-skill-caption" style={{opacity:p(f,85,101)}}><ListChecks size={23}/> Versioned SKILL.md · assigned to your repo</div>
-    <Foot>Illustrative Markdown review instructions; availability depends on the review profile.</Foot>
   </Scene>;
 };
 
@@ -295,7 +303,6 @@ const Incremental:React.FC=()=>{
         </div>
       </div>
     </div>
-    <Foot>Compatible completed snapshots only; otherwise full review. Numbers illustrative.</Foot>
   </Scene>;
 };
 
@@ -311,7 +318,6 @@ const Insights:React.FC=()=>{
     </div>
     <div className="v8-chart v81-chart">{BARS.map((h,i)=><span key={i}
       style={{height:(h*p(f,42+i*2.7,72+i*2.7))+'%',background:i%3===1?C.violet:C.cyan}}/>)}</div>
-    <Foot>All metrics are illustrative sample data. Actual token reporting varies by provider.</Foot>
   </Scene>;
 };
 
@@ -321,22 +327,22 @@ const Benchmark:React.FC=()=>{
     <div style={{opacity:p(f,17,30)}}><ChapterTitle eyebrow="UPSTREAM RESEARCH / SAME MODEL" title="More speed. Fewer tokens."/></div>
     <div className="v8-benchmark-grid">
       <div className="v8-benchmark-card" style={move(f,4,18)}>
-        <div className="v8-bench-large">9,5×</div><strong>FASTER</strong>
+        <div className="v8-bench-large"><AnimatedMultiplier target={9.5} start={8}/></div><strong>FASTER</strong>
         <div className="v8-bench-compare"><span>OpenCodeReview</span><b>1:23</b></div>
-        <div className="v8-meter"><span style={{width:(p(f,23,48)*10.56)+'%'}}/></div>
+        <div className="v8-meter"><span style={{width:(p(f,8,38)*10.56)+'%'}}/></div>
         <div className="v8-bench-compare"><span className="v82-benchmark-claude"><ClaudeMark size={27}/> Claude Code</span><b>13:06</b></div>
-        <div className="v8-meter"><span className="v8-baseline" style={{width:(p(f,23,48)*100)+'%'}}/></div>
+        <div className="v8-meter"><span className="v8-baseline" style={{width:(p(f,8,38)*100)+'%'}}/></div>
       </div>
       <div className="v8-benchmark-card" style={move(f,19,34)}>
-        <div className="v8-bench-large" style={{color:C.lime}}>14,7×</div><strong>FEWER TOKENS</strong>
+        <div className="v8-bench-large" style={{color:C.lime}}><AnimatedMultiplier target={14.7} start={22}/></div><strong>FEWER TOKENS</strong>
         <div className="v8-bench-compare"><span>OpenCodeReview</span><b>385K</b></div>
-        <div className="v8-meter"><span style={{width:(p(f,38,65)*6.8)+'%',background:C.lime}}/></div>
+        <div className="v8-meter"><span style={{width:(p(f,22,52)*6.8)+'%',background:C.lime}}/></div>
         <div className="v8-bench-compare"><span className="v82-benchmark-claude"><ClaudeMark size={27}/> Claude Code</span><b>5,664K</b></div>
-        <div className="v8-meter"><span className="v8-baseline" style={{width:(p(f,38,65)*100)+'%'}}/></div>
+        <div className="v8-meter"><span className="v8-baseline" style={{width:(p(f,22,52)*100)+'%'}}/></div>
       </div>
     </div>
     <div className="v8-cost-note" style={{opacity:p(f,75,92)}}><CircleDollarSign size={27} color={C.lime}/> Fewer tokens can lower model charges at comparable pricing.</div>
-    <Foot>AACR-Bench, Claude 4.6 Opus; upstream OpenCodeReview, not ReviewRouter's own benchmark. Actual costs vary.</Foot>
+    <div className="v84-source-in-benchmark" style={{opacity:p(f,65,85)}}>Source: upstream AACR-Bench · Claude 4.6 Opus · not a separate SaaS benchmark</div>
   </Scene>;
 };
 
@@ -349,7 +355,7 @@ const Outro:React.FC=()=>{
       <div style={move(f,23,40)}><Cloud size={52} color={C.cyan}/><strong>Start online</strong><small>reviewrouter.org</small></div>
       <div style={move(f,40,58)}><Server size={52} color={C.lime}/><strong>Self-host</strong><small>Full control</small></div>
     </div>
-    <Foot>Free ReviewRouter control plane; provider subscriptions, API usage and CI runners may have separate costs.</Foot>
+    <div className="v84-price-in-cta">Provider/API/CI costs may apply</div>
   </Scene>;
 };
 
