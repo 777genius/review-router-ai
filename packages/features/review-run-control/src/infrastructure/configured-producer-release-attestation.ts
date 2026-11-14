@@ -1,3 +1,6 @@
+import { Buffer } from "node:buffer";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { parseReviewModelDispatchProfile } from "@reviewrouter/shared";
 import type { ProducerReleaseQueryPort } from "../application/ports/producer-release-ports";
 import { parseReviewAgentProfiles } from "../domain/review-agent-profile";
@@ -27,6 +30,38 @@ import {
 
 export const reviewRunProducerReleaseAttestationsEnv =
   "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON";
+export const reviewRunProducerReleaseAttestationsFileEnv =
+  "REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE";
+
+function readAttestationsFile(path: string): string {
+  try {
+    if (!isAbsolute(path)) throw new Error();
+    const fd = openSync(
+      path,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    try {
+      const maximum = 1024 * 1024;
+      const metadata = fstatSync(fd);
+      if (!metadata.isFile() || metadata.size > maximum) throw new Error();
+      const bytes = Buffer.alloc(maximum + 1);
+      let size = 0;
+      for (;;) {
+        const count = readSync(fd, bytes, size, bytes.length - size, size);
+        if (count === 0) break;
+        size += count;
+        if (size > maximum) throw new Error();
+      }
+      return new TextDecoder("utf-8", { fatal: true }).decode(
+        bytes.subarray(0, size),
+      );
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    throw new Error("producer_release_attestations_file_invalid");
+  }
+}
 
 export class ConfiguredProducerReleaseAttestationRegistry implements ProducerReleaseAttestationPort {
   private readonly byActionCommitSha: ReadonlyMap<
@@ -175,7 +210,11 @@ export class ConfiguredProducerReleaseAttestationRegistry implements ProducerRel
 export function readConfiguredProducerReleaseAttestations(
   env: Readonly<Record<string, string | undefined>>,
 ): readonly TrustedProducerReleaseAttestation[] {
-  const raw = env[reviewRunProducerReleaseAttestationsEnv];
+  const inline = env[reviewRunProducerReleaseAttestationsEnv];
+  const file = env[reviewRunProducerReleaseAttestationsFileEnv];
+  if (inline !== undefined && file !== undefined)
+    throw new Error("producer_release_attestations_sources_conflict");
+  const raw = file === undefined ? inline : readAttestationsFile(file);
   if (!raw) throw new Error("producer_release_attestations_env_missing");
   let parsed: unknown;
   try {

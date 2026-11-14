@@ -107,7 +107,10 @@ export async function provisionGatewayReviewV2Repository(input: {
     !input.env.GITHUB_APP_ID
   )
     return { status: "blocked", issue: "gateway_review_v2_runtime_not_ready" };
-  if (!input.env.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON)
+  if (
+    !input.env.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON &&
+    !input.env.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE
+  )
     return {
       status: "blocked",
       issue: "gateway_review_v2_release_registry_missing",

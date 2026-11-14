@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { reviewerPlanDescriptorDigest } from "@reviewrouter/shared";
 import { describe, expect, it, vi } from "vitest";
 
@@ -103,7 +106,7 @@ describe("review action v2 operator CLI", () => {
 
   it("reports only missing or malformed environment variable names", () => {
     const credential = "operator-secret";
-    const result = inspectEnvironment({
+    const environment: Record<string, string | undefined> = {
       DATABASE_URL: "postgresql://example.invalid/reviewrouter",
       GITHUB_APP_ID: "123",
       GITHUB_APP_PRIVATE_KEY: "private-key",
@@ -119,7 +122,8 @@ describe("review action v2 operator CLI", () => {
       REVIEW_ROUTER_REVIEW_V2_OPERATOR_CREDENTIAL_SHA256: createHash("sha256")
         .update(credential, "utf8")
         .digest("hex"),
-    });
+    };
+    const result = inspectEnvironment(environment);
 
     expect(result).toEqual({
       ready: false,
@@ -127,6 +131,41 @@ describe("review action v2 operator CLI", () => {
       invalid: ["REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON"],
     });
     expect(JSON.stringify(result)).not.toContain(credential);
+    const directory = mkdtempSync(join(tmpdir(), "producer-cli-"));
+    try {
+      const path = join(directory, "registry.json");
+      writeFileSync(path, "[]");
+      delete environment.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON;
+      environment.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE =
+        path;
+      environment.REVIEW_ROUTER_REVIEW_V2_PROVIDER_VOTE_LANES_JSON = "[]";
+      expect(inspectEnvironment(environment)).toEqual({
+        ready: true,
+        missing: [],
+        invalid: [],
+      });
+      environment.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON =
+        "[]";
+      expect(inspectEnvironment(environment)).toEqual({
+        ready: false,
+        missing: [],
+        invalid: ["REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE"],
+      });
+      delete environment.REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON;
+      writeFileSync(path, "private-malformed-marker");
+      const rejected = inspectEnvironment(environment);
+      expect(rejected).toEqual({
+        ready: false,
+        missing: [],
+        invalid: ["REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE"],
+      });
+      expect(JSON.stringify(rejected)).not.toContain(
+        "private-malformed-marker",
+      );
+      expect(JSON.stringify(rejected)).not.toContain(path);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("preflights release registration without unrelated runtime secrets", () => {

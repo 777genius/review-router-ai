@@ -12,6 +12,8 @@ export {
 export {
   ConfiguredProducerReleaseAttestationRegistry,
   readConfiguredProducerReleaseAttestations,
+  reviewRunProducerReleaseAttestationsEnv,
+  reviewRunProducerReleaseAttestationsFileEnv,
 } from "../infrastructure/configured-producer-release-attestation";
 export { producerReleaseToDomain } from "../infrastructure/prisma/prisma-review-run-control-mappers";
 
