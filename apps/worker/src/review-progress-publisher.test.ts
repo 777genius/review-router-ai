@@ -530,6 +530,7 @@ describe("ReviewProgressPublisher", () => {
   });
 
   it.each([
+    { status: 408, code: "review_progress_github_unavailable" },
     { status: 503, code: "review_progress_github_unavailable" },
     { status: 429, code: "review_progress_rate_limited" },
   ])(

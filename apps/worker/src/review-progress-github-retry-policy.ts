@@ -199,7 +199,7 @@ function classifyRetryableHttpFailure(
       { cause: error },
     );
   }
-  if (status !== undefined && status >= 500) {
+  if (status === 408 || (status !== undefined && status >= 500)) {
     const retryNotBefore = retryBoundary(headers, now());
     return new ReviewProgressGitHubError(
       "github_unavailable",

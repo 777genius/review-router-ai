@@ -166,6 +166,21 @@ describe("Review progress GitHub retry policy", () => {
     expect(outage.kind).toBe("github_unavailable");
     expect(outage.metadata.retryable).toBe(true);
   });
+  it("retries GitHub HTTP 408 without suppressing transient timeouts", () => {
+    const timeout = classifyGitHubFailure(
+      { status: 408, response: { headers: { "retry-after": "30" } } },
+      "github_request_failed",
+      () => now,
+      () => 0,
+    );
+    expect(timeout.kind).toBe("github_unavailable");
+    expect(timeout.metadata.retryable).toBe(true);
+    expect(timeout.metadata.retryNotBefore).toEqual(
+      new Date(now.getTime() + 30_000),
+    );
+    expect(timeout.metadata.retryAt).toEqual(new Date(now.getTime() + 30_250));
+  });
+
   it("keeps a long PATCH outage boundary after a rate-limited GET", () => {
     const mutationError = {
       status: 503,
