@@ -124,3 +124,18 @@ npm run render:v81
 ```
 
 Source: `src/video-v8-1.tsx` and `src/video-v8-1.css` (imports existing brand assets, provider marks and earlier motion styling). CI renders the full native video and exports 9 stills. Native media claim requires inspecting the actual file, not a mock vector rendition. No changes to `ReviewRouterV8`, V6/V7 or `render:latest`.
+
+## V8.2: MCP, review skills and motion polish
+
+New independent `ReviewRouterV82` composition (1243 frames / 41.43s, 1920×1080 at 30fps). V6, V7, V7Lite, V8 and V8.1 remain registered and renderable. It removes the two decorative SVG bridges, renames the KPI to **Tokens used**, adds genuine Claude marks to hero/benchmark, grows a three-comment GitHub bot stack from one CRITICAL to two MEDIUM messages, removes the duplicate top-left brand/header from final CTA, and adds dedicated, clear MCP and review-skills scenes.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v82
+npm run render:v82
+```
+
+Examples are illustrative: Sentry (production errors), Context7 (current API docs), **Custom HTTPS MCP**; review skills are repository-scoped Markdown instructions such as **No breaking API changes**, **Keep changes small**, **Security & edge cases**. Remote MCP is limited to approved HTTPS tools and compatible execution profiles. Review skills also require a compatible profile. Nothing is auto-connected. This does not promise that all subscription/CI/model bills are zero.
+
+Design and checks: [V8.2-MOTION-AND-MCP-PLAN.md](V8.2-MOTION-AND-MCP-PLAN.md). Native E2E workflow builds all 11 scenes, renders and inspects actual H.264/AAC. Full MP4 is the deliverable; contact sheet and GIF are supporting previews.
