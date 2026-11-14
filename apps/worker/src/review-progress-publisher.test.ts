@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ProgressSnapshot } from "@reviewrouter/features-review-progress";
-import { ReviewProgressGitHubError } from "./review-progress-github-gateway";
+import {
+  formatGithubProgressComment,
+  githubProgressCommentMarker,
+  type ProgressSnapshot,
+} from "@reviewrouter/features-review-progress";
+import {
+  formatReviewProgressComment,
+  ReviewProgressGitHubError,
+} from "./review-progress-github-gateway";
 import { ReviewProgressPublisher } from "./review-progress-publisher";
 import type {
   ClaimedReviewProgress,
@@ -413,6 +420,58 @@ describe("ReviewProgressPublisher", () => {
       }),
     );
     expect(store.suppress).not.toHaveBeenCalled();
+  });
+
+  it("keeps a newer claim intact after stale duplicate-only deletion", async () => {
+    const publication = { ...claimed(), commentId: 77n };
+    const store = fakeStore(publication);
+    store.retry.mockResolvedValue("stale");
+    const canonicalBody = formatReviewProgressComment(
+      formatGithubProgressComment(progressSnapshot()),
+      githubProgressCommentMarker,
+    );
+    const comment = {
+      body: canonicalBody,
+      user: { login: "review-router[bot]" },
+    };
+    const deletedIds: number[] = [];
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) {
+          return {
+            data: [
+              { ...comment, id: 77 },
+              { ...comment, id: 78 },
+              { ...comment, id: 79 },
+            ],
+          };
+        }
+        if (route.startsWith("DELETE")) {
+          deletedIds.push(Number(parameters.comment_id));
+          return { data: {} };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(deletedIds).toEqual([78]);
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_duplicate_cleanup_pending",
+        countFailure: false,
+      }),
+    );
+    expect(store.complete).not.toHaveBeenCalled();
   });
 
   it("backs off capped scans for an hour without exhausting retries", async () => {

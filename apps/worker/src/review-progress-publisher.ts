@@ -221,8 +221,12 @@ export class ReviewProgressPublisher {
         maxFailures: this.options.maxFailures,
         countFailure: false,
       });
-      if (retryOutcome === "stale") {
-        // An older PATCH may have overwritten a newer publication.
+      if (
+        retryOutcome === "stale" &&
+        (published.operation === "updated" ||
+          published.operation === "reconciled")
+      ) {
+        // Only a PATCH that reached GitHub can overwrite newer content.
         // A fenced-out completion schedules durable repair of the current body.
         await this.store.complete({
           publication,
