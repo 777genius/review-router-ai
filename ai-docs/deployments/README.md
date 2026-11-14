@@ -13,6 +13,8 @@ They do not grant deployment permission or replace existing operational runbooks
 
 ## Task index
 
+Homepage visual redesign: [Draft PR #870 pending Web rollout](2026-11-14-landing-visual.md) - staging/production pending. No approval, exact-source browser screenshot pass, merge or deployment proof yet. Verify before authorized release.
+
 Large producer registry configuration: [bounded file-backed registry input](2026-11-14-producer-registry-file.md) — staging/production `pending`; preserves all retained producer rows and avoids Linux per-environment-string startup limits without inflating child environments. Requires the normal signed paired successor and a read-only registry mount; no migration or rollout claimed.
 
 AI discussion default-on onboarding: [qualified, author-only rotating Codex setup](2026-11-11-ai-discussion-default-onboarding.md), [PR #856](https://github.com/777genius/review-router-ai/pull/856) — staging/production `pending`; coordinate web/API attestation rollout before any new v4 caller activation. No deployment or Action release claimed.

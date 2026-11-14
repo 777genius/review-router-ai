@@ -1,9 +1,5 @@
 import type { Metadata } from "next";
-import { CompareSection } from "./compare-section";
-import { HomeFaq } from "./home-faq";
-import { HomeFeatures } from "./home-features";
-import { HomeFinalCta } from "./home-final-cta";
-import { HomeHero } from "./home-hero";
+import { HomeExperience } from "./home-experience";
 import {
   getDashboardMutationStatus,
   getDashboardWorkspaceScope,
@@ -13,14 +9,15 @@ import { getGitHubAppInstallUrl } from "../src/server/github-app-install-url";
 import { reviewRouterGitHubRepoUrl, reviewRouterWebUrl } from "./public-urls";
 import {
   createPublicPageMetadata,
-  defaultSeoDescription,
-  defaultSeoTitle,
   siteName,
 } from "./seo";
 
+const landingDescription =
+  "Open-source AI code review on your terms. Use your supported AI subscription or API key, see known token and cost usage, and choose hosted or self-hosted.";
+
 export const metadata: Metadata = createPublicPageMetadata({
-  title: "Free privacy-first AI code review in CI",
-  description: defaultSeoDescription,
+  title: "Open-source AI code review with your models",
+  description: landingDescription,
   path: "/",
 });
 
@@ -40,7 +37,7 @@ const structuredData = {
       "@id": `${reviewRouterWebUrl}/#website`,
       name: siteName,
       url: reviewRouterWebUrl,
-      description: defaultSeoDescription,
+      description: landingDescription,
       inLanguage: "en-US",
       publisher: {
         "@id": `${reviewRouterWebUrl}/#organization`,
@@ -67,9 +64,9 @@ const structuredData = {
     {
       "@type": "WebPage",
       "@id": `${reviewRouterWebUrl}/#webpage`,
-      name: defaultSeoTitle,
+      name: "ReviewRouter | Open-source AI code review with your models",
       url: reviewRouterWebUrl,
-      description: defaultSeoDescription,
+      description: landingDescription,
       isPartOf: {
         "@id": `${reviewRouterWebUrl}/#website`,
       },
@@ -104,16 +101,12 @@ export default async function HomePage(): Promise<React.ReactElement> {
   };
 
   return (
-    <main className="home-shell flex min-h-screen w-full flex-col gap-12 pb-10 md:gap-16 md:pb-14">
+    <main className="home-shell flex min-h-screen w-full flex-col">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <HomeHero {...ctaContext} />
-      <HomeFeatures />
-      <CompareSection />
-      <HomeFaq />
-      <HomeFinalCta {...ctaContext} />
+      <HomeExperience {...ctaContext} />
     </main>
   );
 }
