@@ -1,0 +1,57 @@
+name: Temporary landing Prettier evidence
+on:
+  push:
+    branches:
+      - feat/landing-visual-motion-20261114
+    paths:
+      - .github/workflows/landing-format-evidence.yml
+permissions:
+  contents: read
+jobs:
+  format-evidence:
+    runs-on: ubuntu-slim
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Format changed landing files and emit bounded evidence chunks
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const { execFileSync } = require("node:child_process");
+          const paths = [
+            ".github/workflows/ci.yml",
+            "ai-docs/design/landing-reactbits-motion-plan.md",
+            "apps/web/app/getting-started/page.tsx",
+            "apps/web/app/home-faq.tsx",
+            "apps/web/app/home-features.tsx",
+            "apps/web/app/home-final-cta.tsx",
+            "apps/web/app/home-hero.tsx",
+            "apps/web/app/home-landing.css",
+            "apps/web/app/home-landing.test.tsx",
+            "apps/web/app/home-visual-preview.test.tsx",
+            "apps/web/app/home-visual-preview.tsx",
+            "apps/web/app/layout.tsx",
+            "apps/web/app/opengraph-image.tsx",
+            "apps/web/app/page.tsx",
+            "apps/web/app/primary-nav.tsx",
+            "apps/web/app/security/page.tsx",
+            "scripts/check-hosted-web.mjs",
+            "scripts/check-web-pages.mjs",
+            "scripts/landing-browser-e2e.mjs",
+          ];
+          execFileSync("npx", ["--yes", "prettier@3.8.3", "--write", ...paths], { stdio: "inherit", maxBuffer: 8 * 1024 * 1024 });
+          for (const path of paths) {
+            const b64 = fs.readFileSync(path).toString("base64");
+            const chunk = 12000;
+            const total = Math.ceil(b64.length / chunk);
+            for (let i = 0; i < total; i += 1) {
+              process.stdout.write(["FORMAT_PART", path, String(i), String(total), b64.slice(i * chunk, (i + 1) * chunk)].join("|") + "\n");
+            }
+          }
+          process.stdout.write("FORMAT_FINISHED|" + paths.length + "\n");
+          NODE
