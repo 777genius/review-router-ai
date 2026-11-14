@@ -548,20 +548,20 @@ describeWithDatabase.sequential(
       // original deadlines immediately afterward.
       const competing =
         await fixture.prisma.reviewProgressPublicationV1.findMany({
-        where: {
-          repositoryConnectionId: fixture.repositoryConnectionId,
-          activeExecutionId: { not: flow.executionId },
-          nextPublishAt: { lte: claimAt },
-        },
-        select: {
-          workspaceId: true,
-          repositoryConnectionId: true,
-          scmRepositoryIdentityId: true,
-          pullRequestNumber: true,
-          nextPublishAt: true,
-          updatedAt: true,
-        },
-      });
+          where: {
+            repositoryConnectionId: fixture.repositoryConnectionId,
+            activeExecutionId: { not: flow.executionId },
+            nextPublishAt: { lte: claimAt },
+          },
+          select: {
+            workspaceId: true,
+            repositoryConnectionId: true,
+            scmRepositoryIdentityId: true,
+            pullRequestNumber: true,
+            nextPublishAt: true,
+            updatedAt: true,
+          },
+        });
       const parkedUntil = new Date(claimAt.getTime() + 120_000);
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: {
