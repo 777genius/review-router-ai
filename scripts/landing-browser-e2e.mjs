@@ -49,7 +49,7 @@ try {
   while (Date.now() < deadline) {
     if (server.exitCode !== null)
       throw new Error("Next server exited: " + server.exitCode);
-    ready = await fetch(origin).then(
+    ready = await globalThis.fetch(origin).then(
       (r) => r.ok,
       () => false,
     );
@@ -108,14 +108,25 @@ try {
           await page.locator("html").getAttribute("data-theme"),
           theme,
         );
-        const logoLoaded = await page.waitForFunction(
-          () => {
-            const logo = document.querySelector(".rr-home-window__identity img");
-            return logo instanceof HTMLImageElement && logo.complete && logo.naturalWidth > 0;
-          },
-          undefined,
-          { timeout: 15_000 },
-        ).then(() => true, () => false);
+        const logoLoaded = await page
+          .waitForFunction(
+            () => {
+              const logo = document.querySelector(
+                ".rr-home-window__identity img",
+              );
+              return (
+                logo instanceof window.HTMLImageElement &&
+                logo.complete &&
+                logo.naturalWidth > 0
+              );
+            },
+            undefined,
+            { timeout: 15_000 },
+          )
+          .then(
+            () => true,
+            () => false,
+          );
         assert.ok(logoLoaded, "The actual ReviewRouter logo must load");
         const select = async (tab, needle) => {
           for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -137,10 +148,10 @@ try {
         const measurements = await page.evaluate(() => ({
           documentWidth: document.documentElement.scrollWidth,
           viewportWidth: document.documentElement.clientWidth,
-          animation: getComputedStyle(
+          animation: window.getComputedStyle(
             document.querySelector(".rr-home-finding"),
           ).animationName,
-          stylesheet: getComputedStyle(
+          stylesheet: window.getComputedStyle(
             document.querySelector(".rr-home-window"),
           ).borderTopWidth,
         }));
