@@ -23,9 +23,10 @@ const C = {
 const fMono: React.CSSProperties={fontFamily:'"RR Mono", monospace'};
 const fMain: React.CSSProperties={fontFamily:'"RR Space", sans-serif'};
 const RR:React.FC<{size?:number}> = ({size=60})=><Img src={staticFile('logo.png')} style={{width:size,height:size,objectFit:'contain'}}/>;
+const ClaudeMark:React.FC<{size?:number}>=({size=36})=><Img src={staticFile('claude.svg')} style={{width:size,height:size,objectFit:'contain'}}/>;
 const Navi:React.FC<{label:string;scene:number}> = ({label,scene})=>
   <div className="v8-nav"><div className="v8-brand"><RR size={46}/><span>ReviewRouter</span></div>
-    <div className="v8-step">{String(scene).padStart(2,'0')} / 09 <span> {label}</span></div>
+    <div className="v8-step">{String(scene).padStart(2,'0')} / 11 <span> {label}</span></div>
   </div>;
 const Bg:React.FC =()=> <AbsoluteFill className="v8-root">
   <div className="v8-ambient"/><div className="v8-hairline"/>
@@ -33,7 +34,7 @@ const Bg:React.FC =()=> <AbsoluteFill className="v8-root">
 const Scene:React.FC<{scene:number;name:string;children:React.ReactNode;first?:boolean}>=({scene,name,children,first})=>{
   const f=useCurrentFrame();
   return <AbsoluteFill style={{...fMain,color:C.text,opacity:first?1:p(f,0,9)}}>
-    <Navi scene={scene} label={name}/>
+    {scene!==11&&<Navi scene={scene} label={name}/>}
     {children}
   </AbsoluteFill>;
 };
@@ -56,7 +57,7 @@ const Hero:React.FC=()=>{
         <div className="v8-dual-divider" style={{opacity:p(f,22,36)}}/>
         <div style={move(f,27,49,48)}><div className="v8-hero-number" style={{color:C.lime}}>14,7×</div><div className="v8-hero-label">FEWER TOKENS</div></div>
       </div>
-      <div className="v8-vs" style={{opacity:p(f,49,67)}}>REVIEWROUTER ENGINE <span>VS CLAUDE CODE*</span></div>
+      <div className="v8-vs" style={{opacity:p(f,49,67)}}>REVIEWROUTER ENGINE <span className="v82-vs-brand"><ClaudeMark size={36}/> VS CLAUDE CODE*</span></div>
     </div>
     <Foot>* ReviewRouter engine: upstream OpenCodeReview AACR-Bench (Claude 4.6 Opus), not a separate service benchmark. Token count is not a guaranteed bill.</Foot>
   </Scene>;
@@ -191,7 +192,7 @@ const Finding:React.FC=()=>{
 const Incremental:React.FC=()=>{
   const f=useCurrentFrame();
   const highlighted = p(f,29,47);
-  return <Scene scene={6} name="NEW COMMITS">
+  return <Scene scene={8} name="NEW COMMITS">
     <ChapterTitle eyebrow="REVISION-AWARE OPTIMIZATION" title="New commit. Less repeat work."/>
     <div className="v8-incremental">
       <div className="v8-commit-source" style={move(f,5,20)}>
@@ -212,12 +213,12 @@ const Incremental:React.FC=()=>{
 const BARS=[21,31,25,43,40,55,48,69,58,83,72,91];
 const Insights:React.FC=()=>{
   const f=useCurrentFrame();
-  return <Scene scene={7} name="INSIGHTS">
+  return <Scene scene={9} name="INSIGHTS">
     <ChapterTitle eyebrow="REVIEW STATISTICS" title="See the impact."/>
     <div className="v8-stat-kpis v81-stat-kpis">
       <div style={move(f,8,24)}><strong style={{color:C.lime}}>{Math.round(128*p(f,8,41))}</strong><span>Findings</span></div>
       <div style={move(f,23,40)}><strong>{Math.round(34*p(f,24,62))}</strong><span>Reviews</span></div>
-      <div style={move(f,38,55)}><strong style={{color:C.cyan}}>2.84M</strong><span>Known tokens used</span></div>
+      <div style={move(f,38,55)}><strong style={{color:C.cyan}}>2.84M</strong><span>Tokens used</span></div>
     </div>
     <div className="v8-chart v81-chart">{BARS.map((h,i)=><span key={i}
       style={{height:(h*p(f,42+i*2.7,72+i*2.7))+'%',background:i%3===1?C.violet:C.cyan}}/>)}</div>
@@ -227,21 +228,21 @@ const Insights:React.FC=()=>{
 
 const Benchmark:React.FC=()=>{
   const f=useCurrentFrame();
-  return <Scene scene={8} name="AACR-BENCH">
+  return <Scene scene={10} name="AACR-BENCH">
     <ChapterTitle eyebrow="UPSTREAM RESEARCH / SAME MODEL" title="More speed. Fewer tokens."/>
     <div className="v8-benchmark-grid">
       <div className="v8-benchmark-card" style={move(f,4,18)}>
         <div className="v8-bench-large">9,5×</div><strong>FASTER</strong>
         <div className="v8-bench-compare"><span>OpenCodeReview</span><b>1:23</b></div>
         <div className="v8-meter"><span style={{width:(p(f,23,48)*10.56)+'%'}}/></div>
-        <div className="v8-bench-compare"><span>Claude Code</span><b>13:06</b></div>
+        <div className="v8-bench-compare"><span className="v82-benchmark-claude"><ClaudeMark size={27}/> Claude Code</span><b>13:06</b></div>
         <div className="v8-meter"><span className="v8-baseline" style={{width:(p(f,23,48)*100)+'%'}}/></div>
       </div>
       <div className="v8-benchmark-card" style={move(f,19,34)}>
         <div className="v8-bench-large" style={{color:C.lime}}>14,7×</div><strong>FEWER TOKENS</strong>
         <div className="v8-bench-compare"><span>OpenCodeReview</span><b>385K</b></div>
         <div className="v8-meter"><span style={{width:(p(f,38,65)*6.8)+'%',background:C.lime}}/></div>
-        <div className="v8-bench-compare"><span>Claude Code</span><b>5,664K</b></div>
+        <div className="v8-bench-compare"><span className="v82-benchmark-claude"><ClaudeMark size={27}/> Claude Code</span><b>5,664K</b></div>
         <div className="v8-meter"><span className="v8-baseline" style={{width:(p(f,38,65)*100)+'%'}}/></div>
       </div>
     </div>
@@ -252,7 +253,7 @@ const Benchmark:React.FC=()=>{
 
 const Outro:React.FC=()=>{
   const f=useCurrentFrame();
-  return <Scene scene={9} name="START FREE">
+  return <Scene scene={11} name="START FREE">
     <div className="v8-outro-brand" style={move(f,3,23,30)}><RR size={102}/> <span>ReviewRouter</span></div>
     <div className="v8-outro-pitch" style={move(f,11,29)}>Free. Open source. Your control.</div>
     <div className="v8-deploy-choices">
@@ -277,19 +278,6 @@ const PARTS=[
   {from:790,dur:113},   // 790..902 benchmark
   {from:903,dur:117},   // 903..1019 CTA
 ] as const;
-/** Shared signal draws from selected provider toward GitHub repository selection. */
-const ProviderToRepositoryBridge:React.FC=()=>{
-  const f=useCurrentFrame();
-  const showing=p(f,0,8)*(1-p(f,55,67));
-  const draw=p(f,7,37);
-  return <svg aria-hidden="true" width="1920" height="1080" viewBox="0 0 1920 1080"
-    style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:49,opacity:showing}}>
-    <path d="M270 752 C480 885 520 735 585 650" fill="none" stroke="#79eef0" strokeWidth="5"
-      strokeLinecap="round" strokeDasharray="520" strokeDashoffset={520*(1-draw)}
-      style={{filter:'drop-shadow(0 0 13px #00e5ff99)'}}/>
-    <circle cx={585} cy={650} r={7+5*draw} fill="#a6ff9a" opacity={draw}/>
-  </svg>;
-};
 const Sfx:React.FC<{at:number;name:'click.wav'|'success.wav'|'finding.wav';gain?:number}> =({at,name,gain=.35})=>
   <Sequence from={at}><Audio src={staticFile('v7-sfx/'+name)} volume={gain}/></Sequence>;
 export const ReviewRouterV82Video:React.FC=()=> <AbsoluteFill className="v8-root v81-root v82-root">
@@ -309,5 +297,4 @@ export const ReviewRouterV82Video:React.FC=()=> <AbsoluteFill className="v8-root
   <Sequence from={PARTS[6].from} durationInFrames={PARTS[6].dur}><Insights/></Sequence>
   <Sequence from={PARTS[7].from} durationInFrames={PARTS[7].dur}><Benchmark/></Sequence>
   <Sequence from={PARTS[8].from} durationInFrames={PARTS[8].dur}><Outro/></Sequence>
-  <Sequence from={251} durationInFrames={67}><ProviderToRepositoryBridge/></Sequence>
 </AbsoluteFill>;
