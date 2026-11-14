@@ -32,8 +32,40 @@ const Navi:React.FC<{label:string;scene:number}> = ({label,scene})=>
   <div className="v8-nav"><div className="v8-brand"><RR size={46}/><span>ReviewRouter</span></div>
     <div className="v8-step">{String(scene).padStart(2,'0')} / 11 <span> {label}</span></div>
   </div>;
+/** Bounded deterministic star positions. No runtime random, timers or canvas/GPU. */
+const starUnit=(n:number):number=>(((Math.imul(n,1664525)+1013904223)>>>0)/4294967296);
+const V86_STARS=Array.from({length:68},(_,i)=>({
+  x:25+starUnit(i*17+5)*1870,
+  y:20+starUnit(i*37+19)*1035,
+  size:0.9+starUnit(i*113+6)*1.9,
+  brightness:0.25+starUnit(i*61+11)*0.47,
+  depth:0.25+starUnit(i*29+8)*0.75,
+  phase:starUnit(i*97+7)*Math.PI*2,
+}));
+const SpaceBackdrop:React.FC=()=>{
+  const frame=useCurrentFrame();
+  return <AbsoluteFill className="v86-space-layer" style={{pointerEvents:'none'}}>
+    <div className="v86-space-glow v86-space-glow-left" style={{
+      transform:'translate('+(Math.sin(frame/270)*35).toFixed(1)+'px,'+(Math.cos(frame/290)*25).toFixed(1)+'px)',
+    }}/>
+    <div className="v86-space-glow v86-space-glow-right" style={{
+      transform:'translate('+(Math.cos(frame/340)*38).toFixed(1)+'px,'+(Math.sin(frame/310)*22).toFixed(1)+'px)',
+    }}/>
+    {V86_STARS.map((s,i)=>{
+      const dx=Math.sin(frame/350+s.phase)*s.depth*9;
+      const dy=(frame/1243)*s.depth*27;
+      const flicker=0.78+0.12*Math.sin(frame/87+s.phase);
+      return <span key={i} className="v86-star" style={{
+        position:'absolute',left:s.x+dx,top:s.y+dy,
+        width:s.size,height:s.size,
+        borderRadius:'50%',background:'#c5edff',
+        opacity:s.brightness*flicker,
+      }}/>;
+    })}
+  </AbsoluteFill>;
+};
 const Bg:React.FC =()=> <AbsoluteFill className="v8-root">
-  <div className="v8-ambient"/><div className="v8-hairline"/>
+  <div className="v8-ambient"/><SpaceBackdrop/><div className="v8-hairline"/>
 </AbsoluteFill>;
 const Scene:React.FC<{scene:number;name:string;children:React.ReactNode;first?:boolean}>=({scene,name,children,first})=>{
   const f=useCurrentFrame();
