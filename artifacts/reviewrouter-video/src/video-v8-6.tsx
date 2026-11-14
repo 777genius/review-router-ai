@@ -100,24 +100,27 @@ const PROVIDERS = [
   {name:'OpenRouter',id:'openrouter',tag:'API KEY'},
   {name:'Kimi Code',id:'kimi',tag:'API KEY'},
   {name:'NVIDIA Build',id:'nvidia',tag:'API KEY'},
+  {name:'Custom endpoint',id:'custom',tag:'PLANNED'},
 ] as const;
 const ProviderGlyph:React.FC<{id:typeof PROVIDERS[number]['id']}>=({id})=>
-  id==='nvidia'?<svg viewBox="0 0 24 24" width="92" height="92" fill="#76B900"><path d={NVIDIA_LOGO}/></svg>
+  id==='custom'?<div className="v86-custom-symbol"><PlugZap size={75} strokeWidth={1.65}/></div>
+    :id==='nvidia'?<svg viewBox="0 0 24 24" width="92" height="92" fill="#76B900"><path d={NVIDIA_LOGO}/></svg>
     :<div className={'v8-agent-mark '+(id==='mimo'?'v8-mimo':'')}><ProviderMark providerId={id}/></div>;
 const Providers:React.FC=()=>{
   const f=useCurrentFrame();
   return <Scene scene={3} name="YOUR AI">
-    <ChapterTitle eyebrow="BRING YOUR OWN AI" title="Subscription or API key." sub="Use the AI you already have."/>
+    <ChapterTitle eyebrow="BRING YOUR OWN AI" title="subscription / API" sub="Use the AI you already have."/>
     <div className="v8-provider-row">
-      {PROVIDERS.map((item,i)=><div key={item.name} className={'v8-provider-card'+(i===0&&f>=62?' v8-selected':'')} style={{opacity:i===0?1:f>=62?0.74:1}}>
+      {PROVIDERS.map((item,i)=><div key={item.name} className={'v8-provider-card'+(i===0&&f>=62?' v8-selected':'')+(item.id==='custom'?' v86-custom-card':'')} style={{opacity:item.id==='custom'?.66:i===0?1:f>=62?0.74:1}}>
         {(item.id==='nvidia'||item.id==='openrouter')&&
           <span className="v81-free-ribbon">FREE MODELS</span>}
+        {item.id==='custom'&&<span className="v86-planned-ribbon">PLANNED</span>}
         <div className="v8-provider-emblem"><ProviderGlyph id={item.id}/></div>
         <strong>{item.name}</strong><small>{item.tag}</small>
         {i===0&&f>=62&&<span className="v8-selection-check"><Check size={24}/></span>}
       </div>)}
     </div>
-    <div className="v8-provider-bottom"><span style={move(f,10,25)}>Use your subscription or API key</span><span style={{...move(f,72,87),color:C.cyan}}>Codex selected <Check size={24}/></span></div>
+    <div className="v8-provider-bottom"><span style={move(f,10,25)}>Connect an existing plan or key</span><span style={{...move(f,72,87),color:C.cyan}}>Codex selected <Check size={24}/></span></div>
   </Scene>;
 };
 
@@ -358,6 +361,7 @@ const Outro:React.FC=()=>{
       <div style={move(f,23,40)}><Cloud size={52} color={C.cyan}/><strong>Start online</strong><small>reviewrouter.org</small></div>
       <div style={move(f,40,58)}><Server size={52} color={C.lime}/><strong>Self-host</strong><small>Full control</small></div>
     </div>
+    <span className="v86-choice-or" style={{opacity:p(f,37,55)}}>or</span>
     <div className="v84-price-in-cta">Provider/API/CI costs may apply</div>
   </Scene>;
 };
