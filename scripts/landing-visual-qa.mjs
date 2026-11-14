@@ -33,7 +33,7 @@ try{
      await page.getByRole("heading",{level:1,name:/AI code review/i}).waitFor();
      const resolvedTheme=await page.locator("html").getAttribute("data-theme");
      if(resolvedTheme!==theme)throw Error("Expected "+theme+" theme, got "+resolvedTheme);
-     if(!(await page.getByRole("button",{name:(theme==="dark"?"Dark":"Light")+" theme"}).count()))throw Error("Theme toggle mismatch");
+     await page.getByRole("button",{name:(theme==="dark"?"Dark":"Light")+" theme"}).waitFor({timeout:10000});
      const major=page.getByRole("button",{name:"Preview Major finding"});
      await major.click();
      if((await major.getAttribute("aria-pressed"))!=="true")throw Error("Severity click failed");
