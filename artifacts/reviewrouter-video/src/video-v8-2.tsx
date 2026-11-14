@@ -148,44 +148,41 @@ const LINES=[
 ];
 const Finding:React.FC=()=>{
   const f=useCurrentFrame();
-  const focus=p(f,25,39);
-  return <Scene scene={5} name="REVIEW CONTEXT">
-    <ChapterTitle eyebrow="GITHUB-STYLE CODE REVIEW" title="Findings with full context."/>
-    <div className="v8-code v81-code" style={move(f,3,17,28)}>
+  const comments=[
+    {severity:'CRITICAL',title:'Missing authorization check',at:43},
+    {severity:'MEDIUM',title:'Unsafe fallback',at:77},
+    {severity:'MEDIUM',title:'Missing error handling',at:110},
+  ] as const;
+  return <Scene scene={5} name="REVIEW COMMENTS">
+    <ChapterTitle eyebrow="GITHUB CODE REVIEW" title="Findings. With full context."/>
+    <div className="v82-code" style={move(f,3,17,24)}>
       <div className="v8-filehead"><FileCode2 size={24}/> src/server/auth.ts <span>PR #42 · +84 / −21</span></div>
-      <div className="v8-lines">{LINES.map((l,i)=>
-        <div className={'v8-codeline'+(i===2&&f>23?' v8-codeline-focus':'')} key={l.line}
-          style={{opacity:i===2?1:(1-.3*focus)}}><span>{l.line}</span>{l.code}</div>)}</div>
+      <div className="v82-code-lines">{LINES.map((row,i)=>
+        <div key={row.line} className={'v8-codeline'+(i===2&&f>23?' v8-codeline-focus':'')}
+          style={{opacity:i===2?1:1-.28*p(f,25,40)}}>
+          <span>{row.line}</span>{row.code}
+        </div>)}</div>
     </div>
-    <svg className="v81-thread-leader" width="1920" height="1080" viewBox="0 0 1920 1080" fill="none"
-      style={{opacity:p(f,37,52)}}>
-      <path d="M690 697 V734 H740" stroke="#71dae5" strokeWidth="3" strokeLinecap="round"
-        strokeDasharray="100" strokeDashoffset={100*(1-p(f,38,55))}/>
-    </svg>
-    <div className="v81-thread" style={{opacity:p(f,49,66),transform:'translateY('+((1-p(f,49,66))*25)+'px)'}}>
-      <div className="v81-comment critical">
-        <div className="v81-comment-header">
-          <span className="v81-avatar"><RR size={36}/></span>
-          <strong>reviewrouter</strong><span className="v81-bot">bot</span><span className="v81-time">2m ago</span>
-          <span className="v81-severity critical">CRITICAL</span>
-        </div>
-        <div className="v81-comment-body">
-          <strong>Missing authorization check</strong>
-          <div><span>Full context</span><span>Suggested fix</span></div>
-        </div>
-      </div>
-      <div className="v81-comment medium" style={{opacity:p(f,86,105),transform:'translateY('+((1-p(f,86,105))*16)+'px)'}}>
-        <div className="v81-comment-header">
-          <span className="v81-avatar"><RR size={36}/></span>
-          <strong>reviewrouter</strong><span className="v81-bot">bot</span><span className="v81-time">1m ago</span>
-          <span className="v81-severity medium">MEDIUM</span>
-        </div>
-        <div className="v81-comment-body">
-          <strong>Unsafe fallback</strong><div><span>Full context</span><span>Suggested fix</span></div>
-        </div>
-      </div>
+    <div className="v82-comment-list">
+      {comments.map((item,i)=>{
+        const entering=p(f,item.at,item.at+16);
+        const nudge=i===0?4*p(f,77,91)+4*p(f,110,124):i===1?4*p(f,110,124):0;
+        return <div className="v82-comment" key={item.title}
+          style={{opacity:entering,transform:'translateY('+((1-entering)*31-nudge)+'px)'}}>
+          <div className="v82-comment-head">
+            <span className="v82-avatar"><RR size={36}/></span>
+            <strong>reviewrouter</strong><span className="v82-bot">bot</span>
+            <span className="v82-comment-time">{3-i}m ago</span>
+            <span className={'v82-severity '+(i===0?'critical':'medium')}>{item.severity}</span>
+          </div>
+          <div className="v82-comment-body">
+            <strong>{item.title}</strong>
+            <span className="v82-comment-tags"><span>Full context</span><span>Suggested fix</span></span>
+          </div>
+        </div>;
+      })}
     </div>
-    <Foot>Illustrative code and reviewer comments. Findings include relevant context and severity.</Foot>
+    <Foot>Illustrative PR and findings. Severity and context shown in each comment.</Foot>
   </Scene>;
 };
 
