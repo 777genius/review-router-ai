@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { CompareSection } from "./compare-section";
 import { HomeFaq } from "./home-faq";
 import { HomeFeatures } from "./home-features";
 import { HomeFinalCta } from "./home-final-cta";
+import "./home-landing.css";
 import { HomeHero } from "./home-hero";
 import {
   getDashboardMutationStatus,
@@ -11,16 +11,14 @@ import {
 import { countConnectedGitHubInstallations } from "../src/server/connected-installations";
 import { getGitHubAppInstallUrl } from "../src/server/github-app-install-url";
 import { reviewRouterGitHubRepoUrl, reviewRouterWebUrl } from "./public-urls";
-import {
-  createPublicPageMetadata,
-  defaultSeoDescription,
-  defaultSeoTitle,
-  siteName,
-} from "./seo";
+import { createPublicPageMetadata, siteName } from "./seo";
+
+const homeSeoDescription =
+  "Open-source AI code review, free to start. Use your own subscription or API key, review in your CI, and see token usage and known costs. Hosted or self-hosted.";
 
 export const metadata: Metadata = createPublicPageMetadata({
-  title: "Free privacy-first AI code review in CI",
-  description: defaultSeoDescription,
+  title: "Open-source AI code review | Your model, your budget",
+  description: homeSeoDescription,
   path: "/",
 });
 
@@ -33,14 +31,17 @@ const structuredData = {
       name: siteName,
       url: reviewRouterWebUrl,
       logo: `${reviewRouterWebUrl}/review-router-icon.png`,
-      sameAs: [reviewRouterGitHubRepoUrl],
+      sameAs: [
+        reviewRouterGitHubRepoUrl,
+        "https://github.com/777genius/review-router-ai",
+      ],
     },
     {
       "@type": "WebSite",
       "@id": `${reviewRouterWebUrl}/#website`,
       name: siteName,
       url: reviewRouterWebUrl,
-      description: defaultSeoDescription,
+      description: homeSeoDescription,
       inLanguage: "en-US",
       publisher: {
         "@id": `${reviewRouterWebUrl}/#organization`,
@@ -67,9 +68,9 @@ const structuredData = {
     {
       "@type": "WebPage",
       "@id": `${reviewRouterWebUrl}/#webpage`,
-      name: defaultSeoTitle,
+      name: "ReviewRouter | Open-source AI code review",
       url: reviewRouterWebUrl,
-      description: defaultSeoDescription,
+      description: homeSeoDescription,
       isPartOf: {
         "@id": `${reviewRouterWebUrl}/#website`,
       },
@@ -104,15 +105,16 @@ export default async function HomePage(): Promise<React.ReactElement> {
   };
 
   return (
-    <main className="home-shell flex min-h-screen w-full flex-col gap-12 pb-10 md:gap-16 md:pb-14">
+    <main className="rr-landing flex min-h-screen w-full flex-col pb-10 md:pb-14">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
       <HomeHero {...ctaContext} />
       <HomeFeatures />
-      <CompareSection />
-      <HomeFaq />
+      <div className="rr-home-faq-wrap rr-home-motion">
+        <HomeFaq />
+      </div>
       <HomeFinalCta {...ctaContext} />
     </main>
   );
