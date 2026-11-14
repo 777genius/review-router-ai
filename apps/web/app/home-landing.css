@@ -454,3 +454,13 @@ html[data-theme="light"] .rr-home-hero__signal {
   .rr-home-faq-wrap { padding: 4.8rem 1.15rem; }
   .rr-landing > section:last-child { padding: 0 1.15rem; }
 }
+
+/* Existing FAQ styles remain usable when the user chooses the light theme. */
+html[data-theme="light"] .rr-home-faq-wrap h2,
+html[data-theme="light"] .rr-home-faq-wrap button,
+html[data-theme="light"] .rr-home-faq-wrap .home-faq-item {
+  color: var(--rr-home-text);
+}
+html[data-theme="light"] .rr-home-faq-wrap .home-faq-item p {
+  color: var(--rr-home-muted);
+}

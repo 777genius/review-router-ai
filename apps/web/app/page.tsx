@@ -13,15 +13,16 @@ import { getGitHubAppInstallUrl } from "../src/server/github-app-install-url";
 import { reviewRouterGitHubRepoUrl, reviewRouterWebUrl } from "./public-urls";
 import {
   createPublicPageMetadata,
-  defaultSeoDescription,
   defaultSeoTitle,
   siteName,
 } from "./seo";
 
+const homeSeoDescription =
+  "Open-source AI code review, free to start. Use your own subscription or API key, review in your CI, and see token usage and known costs. Hosted or self-hosted.";
+
 export const metadata: Metadata = createPublicPageMetadata({
   title: "Open-source AI code review | Your model, your budget",
-  description:
-    "Open-source AI code review, free to start. Use your own subscription or API key, review in your CI, and see token usage and known costs. Hosted or self-hosted.",
+  description: homeSeoDescription,
   path: "/",
 });
 
@@ -34,14 +35,14 @@ const structuredData = {
       name: siteName,
       url: reviewRouterWebUrl,
       logo: `${reviewRouterWebUrl}/review-router-icon.png`,
-      sameAs: [reviewRouterGitHubRepoUrl],
+      sameAs: [reviewRouterGitHubRepoUrl, "https://github.com/777genius/review-router-ai"],
     },
     {
       "@type": "WebSite",
       "@id": `${reviewRouterWebUrl}/#website`,
       name: siteName,
       url: reviewRouterWebUrl,
-      description: defaultSeoDescription,
+      description: homeSeoDescription,
       inLanguage: "en-US",
       publisher: {
         "@id": `${reviewRouterWebUrl}/#organization`,
@@ -70,7 +71,7 @@ const structuredData = {
       "@id": `${reviewRouterWebUrl}/#webpage`,
       name: defaultSeoTitle,
       url: reviewRouterWebUrl,
-      description: defaultSeoDescription,
+      description: homeSeoDescription,
       isPartOf: {
         "@id": `${reviewRouterWebUrl}/#website`,
       },
