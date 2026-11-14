@@ -370,6 +370,12 @@ const PARTS=[
 ] as const;
 type RevealOrigin='provider-card'|'full-context'|'tokens-kpi';
 /** A grounded match-cut: new UI grows out of a real object in the preceding scene. */
+/** Outgoing content settles away before the next title becomes readable. */
+const ExitSettle:React.FC<{after:number;children:React.ReactNode}>=({after,children})=>{
+  const f=useCurrentFrame();
+  const q=p(f,after,after+11);
+  return <AbsoluteFill style={{opacity:1-q,transform:`scale(${(1+.014*q).toFixed(3)})`,filter:`brightness(${(1-.3*q).toFixed(3)})`}}>{children}</AbsoluteFill>;
+};
 const SemanticReveal:React.FC<{origin:RevealOrigin;children:React.ReactNode}>=({origin,children})=>{
   const f=useCurrentFrame();
   const frames=origin==='full-context'?21:origin==='tokens-kpi'?20:18;
@@ -399,13 +405,13 @@ export const ReviewRouterV83Video:React.FC=()=> <AbsoluteFill className="v8-root
   <Sfx at={863} name="success.wav" gain={.18}/>
   <Sequence from={PARTS[0].from} durationInFrames={PARTS[0].dur}><Hero/></Sequence>
   <Sequence from={PARTS[1].from} durationInFrames={PARTS[1].dur}><SignIn/></Sequence>
-  <Sequence from={PARTS[2].from} durationInFrames={PARTS[2].dur+18}><Providers/></Sequence>
+  <Sequence from={PARTS[2].from} durationInFrames={PARTS[2].dur+18}><ExitSettle after={PARTS[2].dur}><Providers/></ExitSettle></Sequence>
   <Sequence from={PARTS[3].from} durationInFrames={PARTS[3].dur}><SemanticReveal origin="provider-card"><Repository/></SemanticReveal></Sequence>
-  <Sequence from={PARTS[4].from} durationInFrames={PARTS[4].dur+21}><Finding/></Sequence>
+  <Sequence from={PARTS[4].from} durationInFrames={PARTS[4].dur+21}><ExitSettle after={PARTS[4].dur}><Finding/></ExitSettle></Sequence>
   <Sequence from={PARTS[5].from} durationInFrames={PARTS[5].dur}><SemanticReveal origin="full-context"><MCPTools/></SemanticReveal></Sequence>
   <Sequence from={PARTS[6].from} durationInFrames={PARTS[6].dur}><ReviewSkills/></Sequence>
   <Sequence from={PARTS[7].from} durationInFrames={PARTS[7].dur}><Incremental/></Sequence>
-  <Sequence from={PARTS[8].from} durationInFrames={PARTS[8].dur+20}><Insights/></Sequence>
+  <Sequence from={PARTS[8].from} durationInFrames={PARTS[8].dur+20}><ExitSettle after={PARTS[8].dur}><Insights/></ExitSettle></Sequence>
   <Sequence from={PARTS[9].from} durationInFrames={PARTS[9].dur}><SemanticReveal origin="tokens-kpi"><Benchmark/></SemanticReveal></Sequence>
   <Sequence from={PARTS[10].from} durationInFrames={PARTS[10].dur}><Outro/></Sequence>
 </AbsoluteFill>;
