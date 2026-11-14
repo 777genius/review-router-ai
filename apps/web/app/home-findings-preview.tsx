@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, GitPullRequest, ShieldAlert } from "lucide-react";
 import { LogoMark } from "./logo-mark";
 import styles from "./home-experience.module.css";
@@ -13,8 +13,10 @@ const findings = [
 
 export function HomeFindingsPreview(): React.ReactElement {
   const [selected, setSelected] = useState(0);
+  const [interactiveReady, setInteractiveReady] = useState(false);
+  useEffect(() => setInteractiveReady(true), []);
   return (
-    <div className={styles.reviewWindow} aria-label="Illustrative AI review preview">
+    <div className={styles.reviewWindow} aria-label="Illustrative AI review preview" data-interactive-ready={interactiveReady ? "true" : "false"}>
       <header className={styles.reviewHeader}>
         <span className={styles.reviewIdentity}>
           <LogoMark size="xs" />

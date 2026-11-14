@@ -28,12 +28,19 @@ try{
      await ctx.addInitScript((selectedTheme) => { try { localStorage.setItem("reviewrouter-theme", selectedTheme); } catch { /* Storage unavailable. */ } }, theme);
    const page=await ctx.newPage();
      page.on("pageerror",e=>errors.push(theme+"/"+width+": "+e.message));
-     const res=await page.goto(url,{waitUntil:"domcontentloaded",timeout:90000});
+     const res=await page.goto(url,{waitUntil:"load",timeout:90000});
      if(!res?.ok())throw Error("Homepage HTTP "+res?.status());
      await page.getByRole("heading",{level:1,name:/AI code review/i}).waitFor();
      const resolvedTheme=await page.locator("html").getAttribute("data-theme");
      if(resolvedTheme!==theme)throw Error("Expected "+theme+" theme, got "+resolvedTheme);
      await page.getByRole("button",{name:(theme==="dark"?"Dark":"Light")+" theme"}).waitFor({timeout:10000});
+     // An SSR-visible button can exist before React has wired its events.
+     // The preview sets this marker only after hydration, so interaction assertions
+     // verify real browser behavior instead of racing the Next.js boot process.
+     await page.locator('[aria-label="Illustrative AI review preview"][data-interactive-ready="true"]').waitFor({timeout:60000});
+     const name="homepage-"+theme+"-"+width+".png";
+     await page.screenshot({path:dir+"/"+name,fullPage:true,animations:"disabled"});
+     shots.push(name);console.log("CAPTURED "+name);
      const major=page.getByRole("button",{name:"Preview Major finding"});
      await major.click();
      if((await major.getAttribute("aria-pressed"))!=="true")throw Error("Severity click failed");
@@ -79,9 +86,7 @@ try{
      if(!(await page.getByText("Install GitHub App",{exact:true}).count()))throw Error("Install CTA");
      const dims=await page.evaluate(()=>({viewport:innerWidth,html:document.documentElement.scrollWidth,body:document.body.scrollWidth}));
      if(Math.max(dims.html,dims.body)>dims.viewport+2)throw Error("Horizontal overflow "+JSON.stringify(dims));
-     const name="homepage-"+theme+"-"+width+".png";
-     await page.screenshot({path:dir+"/"+name,fullPage:true,animations:"disabled"});
-     shots.push(name);console.log("PASS "+name);
+     console.log("PASS browser assertions "+theme+"/"+width);
 
      // Follow the anonymous CTA rather than trusting only its label; do not open external GitHub.
      if(theme==="dark"&&width===1440){
@@ -97,11 +102,15 @@ try{
          if(!response.ok())throw Error("Linked route "+route+" HTTP "+response.status());
        }
      }
+   }catch(e){
+     const message=theme+"/"+width+": "+String(e);
+     errors.push(message);
+     console.error("FAIL "+message);
    }finally{await ctx.close()}
  }
  if(errors.length)throw Error("Runtime errors: "+errors.join("; "));
  if(shots.length!==6)throw Error("Incomplete screenshot matrix");
-}catch(e){errors.push(String(e));throw e}
+}catch(e){errors.push(String(e));console.error("Next output (tail):\n"+logs.join("").slice(-4000));throw e}
 finally{
  await writeFile(dir+"/result.json",JSON.stringify({sha:process.env.GITHUB_SHA??null,shots,errors},null,2));
  await writeFile(dir+"/next.log",logs.join("").slice(-20000));
