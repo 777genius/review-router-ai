@@ -323,7 +323,6 @@
 .underConsole svg { color:var(--landing-lime); }
 
 .pipeline { text-align:center; }
-.pipeline .chapterMarker { justify-content:center; }
 .pipeline h2 { margin-bottom:65px; }
 .pipelineSteps { display:grid; grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr) 28px minmax(0,1fr); align-items:start; gap:14px; }
 .pipelineStep { display:flex; align-items:center; flex-direction:column; gap:16px; min-width:0; }
@@ -473,4 +472,15 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .page *, .page *::before, .page *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}
+
+/* Impeccable pass: large semantic tap/focus targets for small text actions. */
+.heroBottom a,
+.benchmarkHeader a,
+.hostingOption > a,
+.sourceBottom > a,
+.finalLinks a { min-height:44px; }
+.finalLinks a { display:inline-flex; align-items:center; }
+@media (max-width:640px) {
+  .heroBottom a { min-height:42px; }
 }

@@ -122,7 +122,6 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
       <section className={[styles.chapter, styles.control].join(" ")} id="control" aria-labelledby="control-title">
         <div className={styles.controlTitleRow}>
           <div>
-            <div className={styles.chapterMarker}><span className={styles.markerDash} /> IN YOUR HANDS</div>
             <h2 id="control-title" className={styles.chapterTitle}>Your AI.<br /><span>Your visibility.</span></h2>
           </div>
           <p>Use a supported subscription or API key. Choose review settings and see the usage your providers report — all in one dashboard.</p>
@@ -178,7 +177,6 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
       </section>
 
       <section className={[styles.chapter, styles.pipeline].join(" ")} id="how-it-works" aria-labelledby="flow-title">
-        <div className={styles.chapterMarker}><span className={styles.markerDash} /> HOW IT WORKS</div>
         <h2 id="flow-title" className={styles.chapterTitle}>From pull request<br /><span>to useful feedback.</span></h2>
         <div className={styles.pipelineSteps}>
           <div className={styles.pipelineStep}>
@@ -203,7 +201,6 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
       </section>
 
       <section className={[styles.chapter, styles.hosting].join(" ")} id="hosting" aria-labelledby="hosting-title">
-        <div className={styles.chapterMarker}><span className={styles.markerDash} /> TWO WAYS TO RUN</div>
         <h2 id="hosting-title" className={styles.chapterTitle}>Open source.<br /><span>Open choices.</span></h2>
         <div className={styles.hostingOptions}>
           <article className={styles.hostingOption}>
