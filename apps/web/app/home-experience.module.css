@@ -83,6 +83,13 @@
   text-decoration:none;
   transition:border-color .2s,transform .2s
 }
+.sourceIcon {
+  display:block;
+  flex-shrink:0;
+  width:18px;
+  height:18px;
+  filter:invert(1)
+}
 .sourceButton:hover,.hostLink:hover {
   border-color:var(--rr-color-cyan);
   transform:translateY(-2px)
@@ -701,6 +708,9 @@
 }
 .closing a:hover {
   color:var(--rr-color-cyan)
+}
+:global([data-theme="light"]) .sourceIcon {
+  filter:none
 }
 :global([data-theme="light"]) .reviewWindow {
   background:linear-gradient(140deg,#f9fdff,#ecf6ff);
