@@ -1,8 +1,10 @@
 # GitHub Action comment-create transport replay guard
 
-## Current code/distribution reconciliation (2026-11-14)
+<a id="current-codedistribution-reconciliation-2026-11-14"></a>
 
-PR #817 merged as `f40a92f07fb06555c11e753348a12ec80118457a`; GitHub ancestry comparison to prior installed source 287 is ahead 184/behind 0. The no-replay code is therefore included in the private signed 234/source Ebe installation, with ordinary source/bundle checks retained by the exact-main 234 CI 43558212571 and paired immutable public 234 qualification. Public 234 is published and fleet primary 234 is live; workflow-channel promotion passed, while ambiguous-write live qualification is not inferred. This task is not an absent-code instruction to redeploy the application or move a channel again. Source/artifact inclusion does not prove a live ambiguous-response network scenario: guard-specific live acceptance remains unclaimed, and an unknown GitHub write must never be replayed to manufacture that proof. Staging remains unverified. Earlier Draft/no-release statements below are historical, superseded only for the established source/distribution facts.
+## Current code/distribution reconciliation (2026-11-15)
+
+PR #817 merged as `f40a92f07fb06555c11e753348a12ec80118457a`; GitHub ancestry comparison to prior installed source 287 is ahead 184/behind 0. The no-replay code is therefore included in the private signed 238/source 75b installation, with ordinary source/bundle checks retained by the exact-main 238 CI 43629711586 and paired immutable public 238 qualification. Public 238 is published and fleet primary 238 is live on signed private 238/source 75b; workflow-channel promotion passed, while ambiguous-write live qualification is not inferred. This task is not an absent-code instruction to redeploy the application or move a channel again. Source/artifact inclusion does not prove a live ambiguous-response network scenario: guard-specific live acceptance remains unclaimed, and an unknown GitHub write must never be replayed to manufacture that proof. Staging remains unverified. Earlier Draft/no-release statements below are historical, superseded only for the established source/distribution facts.
 
 - Task ID: `2026-11-05-action-comment-create-no-replay`
 - Issue: [#816](https://github.com/777genius/review-router-ai/issues/816), follow-up audit of merged [#815](https://github.com/777genius/review-router-ai/pull/815).
@@ -15,8 +17,8 @@ PR #817 merged as `f40a92f07fb06555c11e753348a12ec80118457a`; GitHub ancestry co
 ## Environment status
 
 - Staging: `pending`. No deployed revision or verification evidence for this change.
-- Production / private code: `installed` in signed 234/source Ebe. Public guard-specific live qualification remains pending; current fleet primary 234 is live; workflow-channel promotion passed, while ambiguous-write live qualification is not inferred.
-- Paired distribution: public 234 is published through the normal release; this record makes no additional tag/channel change.
+- Production / private code: `installed` in signed 238/source 75b. Public guard-specific live qualification remains pending; current fleet primary 238 is live; workflow-channel promotion passed, while ambiguous-write live qualification is not inferred.
+- Paired distribution: public 238 is published through the normal release and paired with signed private 238; this record makes no additional tag/channel change.
 
 ## Preconditions and delivery
 

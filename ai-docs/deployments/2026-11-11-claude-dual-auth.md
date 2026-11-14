@@ -1,25 +1,27 @@
 # Claude Code dual authentication: deployment and qualification
 
-## Current production reconciliation (2026-11-14)
+<a id="current-production-reconciliation-2026-11-14"></a>
 
-Confirmed application delivery is the compatible signed 234/source Ebe fleet described in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Code installation, feature activation and live qualification are separate. Actual 234 FILE 62 activation and normal producer materialization passed with zero migrations; preserve the already-applied 000156/157 ledger and all producer authority. Workflow promotion passed; feature canary qualification remains separate. This reconciliation supersedes the initial pending/no-rollout statements in the historical implementation sections below.
+## Current production reconciliation (2026-11-15)
 
-SaaS #857 and Action #385/#386 are merged; direct official-CLI subscription/API-key selection and encrypted workspace-key delivery are source-implemented. 000157 was applied once in production before the compatible fleet started. Synthetic visual/dispatch/isolation checks are source evidence, not live Anthropic approval. The owner approved skipping the API-key canary after a scoped search found zero usable keys; status is **SKIPPED**, not PASS. Fleet primary 234 and all four readers are converged; public workflow-v1 is 234, but no live Claude auth-mode review or subscription qualification is claimed. No live subscription/v4 qualification or central Gateway inference is claimed; no central OAuth custody, credential enrollment or provider switch was performed by this reconciliation.
+Confirmed current application delivery is signed private **238**, source `75b3a479f8f1febf5920d566d10d1a7db641faeb`, OCI index/actual Docker LocalId `sha256:add1ae123acec36032e873124370e66e5b2b1e220f05b3ff1f69988e4df1a434`, paired with public **Action 238** at `42b37d742fca5c4a40b540db437a6400e5ea5f2a` and Gateway **108/native 98**. Four FILE 66 roles are healthy with zero restarts; normal producer registration preserved old 237 and existing profiles. The combined activation restored admission at `2026-11-15T00:50:19Z`; app schema 166 and native ledger 318 are unchanged, with no migration. The [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14) records actual activation and channel evidence. Earlier 234/235/236/237 results below remain historical, not relabeled 238 qualification.
+
+SaaS #857 and Action #385/#386 are merged; direct official-CLI subscription/API-key selection and encrypted workspace-key delivery are source-implemented. 000157 was applied once in production before the compatible fleet started. Synthetic visual/dispatch/isolation checks are source evidence, not live Anthropic approval. The owner approved skipping the API-key canary after a scoped search found zero usable keys; status is **SKIPPED**, not PASS. Fleet primary 238 and all four readers are converged on signed private 238/source 75b; current channel evidence is in the baseline, but no live Claude auth-mode review or subscription qualification is claimed. No live subscription/v4 qualification or central Gateway inference is claimed; no central OAuth custody, credential enrollment or provider switch was performed by this reconciliation.
 
 - Task ID: `2026-11-11-claude-dual-auth`
 - Goal: one Claude Code provider, with explicit user-owned subscription via official Claude Code CLI + GitHub Secrets, and API-key authentication via GitHub Secrets or the existing encrypted workspace-key store, whose existing GitHub Secrets delivery installs the key into selected repositories. Native Gateway inference is a separate future capability.
 - Affected services/targets: ReviewRouter Web/API/worker, ReviewRouter Action runtime/immutable workflow channel, Prisma/PostgreSQL, Account Gateway/Sub2API (future API-key profile).
 - Implementation PRs: [Action #385](https://github.com/777genius/review-router/pull/385), [SaaS #857](https://github.com/777genius/review-router-ai/pull/857), [plan #855](https://github.com/777genius/review-router-ai/pull/855).
-- Implementation reference: merged source is included in signed 234/source Ebe; public 233/234 distribution is published, while fleet primary 234 is live and public workflow-v1 is 234; live auth-mode qualification is not inferred.
+- Implementation reference: merged source is included in signed private 238/source 75b; public 238 is published and live as its paired release; channel promotion is recorded in the baseline; live auth-mode qualification is not inferred.
 - Dependencies: exact Action runtime bundle regeneration/pinning, release-profile attestation, a user-owned GitHub Actions Secret OR workspace-managed encrypted Anthropic API key delivered to GitHub Secrets, successful offline synthetic E2E.
-- Last updated: 2026-11-14.
+- Last updated: 2026-11-15.
 
 ## Environment status
 
 | Environment / target | Status      | Actual version/image                  | Last verified UTC | Next step                                                                              |
 | -------------------- | ----------- | ------------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
 | Staging              | `pending`   | Not verified                          | Not verified      | Inspect installed baseline, qualified Action and migration readiness before installing |
-| Production           | `installed` | Signed 234/source Ebe; 000157 applied | 2026-11-14        | API-key canary SKIPPED; subscription/Gateway live qualification unproved               |
+| Production           | `installed` | Signed 238/source 75b; 000157 applied | 2026-11-15        | API-key canary SKIPPED; subscription/Gateway live qualification unproved               |
 
 Synthetic source/browser/isolation checks are retained in PR #857 and paired Action #385/#386; they are not real credential qualification.
 

@@ -1,8 +1,10 @@
 # get-tok onboarding audit and analytics delivery
 
-## Current successor and canary checkpoint (2026-11-14)
+<a id="current-successor-and-canary-checkpoint-2026-11-14"></a>
 
-Confirmed application delivery is the compatible signed 234/source Ebe fleet described in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Code installation, feature activation and live qualification are separate. Actual 234 FILE 62 activation and normal producer materialization passed with zero migrations; preserve the already-applied 000156/157 ledger and all producer authority. Workflow promotion passed; feature canary qualification remains separate. This reconciliation supersedes the initial pending/no-rollout statements in the historical implementation sections below.
+## Current successor and canary checkpoint (2026-11-15)
+
+Confirmed current application delivery is signed private **238**, source `75b3a479f8f1febf5920d566d10d1a7db641faeb`, OCI index/actual Docker LocalId `sha256:add1ae123acec36032e873124370e66e5b2b1e220f05b3ff1f69988e4df1a434`, paired with public **Action 238** at `42b37d742fca5c4a40b540db437a6400e5ea5f2a` and Gateway **108/native 98**. Four FILE 66 roles are healthy with zero restarts; normal producer registration preserved old 237 and existing profiles. The combined activation restored admission at `2026-11-15T00:50:19Z`; app schema 166 and native ledger 318 are unchanged, with no migration. The [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14) records actual activation and channel evidence. Earlier 234/235/236/237 results below remain historical, not relabeled 238 qualification.
 
 The first fresh PR 3 review succeeded on the recovered 233 fleet with actual producer 232: [run 43550381724](https://github.com/get-tok/reviewrouter-onboarding-e2e/actions/runs/43550381724), [App finding at line 4](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/3#discussion_r4571171611), exact head `735fc904117969a21c65bb468b14355e721ebc2b`. Only the initial normal review event occurred. The normal fix canary passed on 234; exact App reply and final scoped Statistics/Usage settlement are recorded below. Existing PR 2, credentials, defaults and old unknown effects were not mutated/replayed. This does not establish fresh OAuth or v4 subscription discussion qualification.
 

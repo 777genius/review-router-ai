@@ -1,22 +1,24 @@
 # AI finding discussion default-on onboarding rollout
 
-## Current production reconciliation (2026-11-14)
+<a id="current-production-reconciliation-2026-11-14"></a>
 
-Confirmed application delivery is the compatible signed 234/source Ebe fleet described in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Code installation, feature activation and live qualification are separate. Actual 234 FILE 62 activation and normal producer materialization passed with zero migrations; preserve the already-applied 000156/157 ledger and all producer authority. Workflow promotion passed; feature canary qualification remains separate. This reconciliation supersedes the initial pending/no-rollout statements in the historical implementation sections below.
+## Current production reconciliation (2026-11-15)
+
+Confirmed current application delivery is signed private **238**, source `75b3a479f8f1febf5920d566d10d1a7db641faeb`, OCI index/actual Docker LocalId `sha256:add1ae123acec36032e873124370e66e5b2b1e220f05b3ff1f69988e4df1a434`, paired with public **Action 238** at `42b37d742fca5c4a40b540db437a6400e5ea5f2a` and Gateway **108/native 98**. Four FILE 66 roles are healthy with zero restarts; normal producer registration preserved old 237 and existing profiles. The combined activation restored admission at `2026-11-15T00:50:19Z`; app schema 166 and native ledger 318 are unchanged, with no migration. The [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14) records actual activation and channel evidence. Earlier 234/235/236/237 results below remain historical, not relabeled 238 qualification.
 
 #856 code and v4 source readers are installed. No newly generated/approved v4 author-only interaction caller or live subscription discussion is qualified by this record. Existing customer callers/defaults are not automatically rewritten. Qualification still needs its own scoped setup approval, author/non-author/off guards and real App readback; do not redeploy the installed code for that gap.
 
 - Task ID: `2026-11-11-ai-discussion-default-onboarding`
 - Goal: remove the setup checkbox and make newly approved, qualified rotating Codex interaction callers default to safe, author-only suggest replies.
 - Implementation: [PR #856](https://github.com/777genius/review-router-ai/pull/856), [reviewed plan](../plans/2026-11-11-ai-discussion-default-onboarding.md).
-- Last updated: 2026-11-14.
+- Last updated: 2026-11-15.
 
 ## Environment status
 
 | Target     | Status      | Actual release/image  | Evidence                                                       |
 | ---------- | ----------- | --------------------- | -------------------------------------------------------------- |
 | Staging    | `pending`   | Not verified          | Source CI is not a staged deployment                           |
-| Production | `installed` | Signed 234/source Ebe | v4 caller activation and live author-only reply remain pending |
+| Production | `installed` | Signed 238/source 75b | v4 caller activation and live author-only reply remain pending |
 
 ## Rollout dependencies
 
