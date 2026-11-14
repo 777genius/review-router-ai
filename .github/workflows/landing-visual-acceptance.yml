@@ -1,0 +1,113 @@
+name: Landing visual acceptance
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/app/home-landing*"
+      - "apps/web/app/home-review-demo.tsx"
+      - "apps/web/app/page.tsx"
+      - "apps/web/app/home-cta-cluster.tsx"
+      - "scripts/check-landing-source.mjs"
+      - "scripts/check-web-pages.mjs"
+      - ".github/workflows/landing-visual-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: landing-visual-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  design-source:
+    name: Impeccable and landing source contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Landing source contracts
+        run: node scripts/check-landing-source.mjs
+      - name: Impeccable pinned anti-slop detector
+        run: |
+          set -euo pipefail
+          npx --yes impeccable@4.9.1 detect apps/web/app/home-landing.tsx
+          npx --yes impeccable@4.9.1 detect apps/web/app/home-review-demo.tsx
+          npx --yes impeccable@4.9.1 detect apps/web/app/home-landing.module.css
+      - name: Collect exact source and brand assets for offline visual inspection
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p preview-bundle/apps/web/app/fonts preview-bundle/apps/web/public preview-bundle/packages/ui/src/tokens
+          cp apps/web/app/home-landing.tsx apps/web/app/home-review-demo.tsx apps/web/app/home-landing.module.css apps/web/app/home-cta-cluster.tsx preview-bundle/apps/web/app/
+          cp apps/web/app/fonts/*.woff2 preview-bundle/apps/web/app/fonts/
+          cp apps/web/public/review-router-logo.png apps/web/public/review-router-icon.png preview-bundle/apps/web/public/
+          cp packages/ui/src/tokens/tokens.css preview-bundle/packages/ui/src/tokens/
+          tar -czf landing-source-preview.tar.gz -C preview-bundle .
+      - name: Upload source snapshot
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: landing-reviewed-source-${{ github.sha }}
+          path: landing-source-preview.tar.gz
+          if-no-files-found: error
+
+  next-browser:
+    name: Real Next.js homepage screenshots and UI audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: production
+      DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/review_router_preview?schema=public"
+      AUTH_SECRET: "preview-auth-secret-not-production"
+      AUTH_TRUST_HOST: "true"
+      NEXTAUTH_URL: "http://127.0.0.1:3000"
+      REVIEW_ROUTER_WEB_URL: "http://127.0.0.1:3000"
+      REVIEW_ROUTER_PUBLIC_WEB_URL: "http://127.0.0.1:3000"
+      REVIEW_ROUTER_API_URL: "http://127.0.0.1:4000"
+      REVIEW_ROUTER_DEFAULT_MODEL: "gpt-5.5"
+      REVIEW_ROUTER_DEFAULT_EFFORT: "low"
+      REVIEW_ROUTER_ACTION_REF: "777genius/review-router@main"
+      REVIEW_ROUTER_ACTION_VERSION: "main"
+      REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF: "777genius/review-router@66ac53a5953c2da498f7d2c3b644dd6ef5ccf3ff"
+      REVIEW_ROUTER_ENABLE_DASHBOARD_MUTATIONS: "0"
+      REVIEW_ROUTER_ENABLE_WORKFLOW_PROVISIONING: "0"
+      CHROME_BIN: "/usr/bin/google-chrome"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install pinned pnpm
+        run: npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+      - name: Build web
+        run: pnpm --filter @reviewrouter/web build
+      - name: Launch public app and capture browser screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p landing-browser-evidence
+          pnpm --filter @reviewrouter/web exec next start -p 3000 > landing-browser-evidence/next.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for i in {1..100}; do
+            if curl --silent --fail http://127.0.0.1:3000/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/check-ui-layout.mjs --base-url http://127.0.0.1:3000 --routes /,/compare --viewports desktop:1440x1100,tablet:768x1024,mobile:390x1040:mobile --out-dir landing-browser-evidence
+      - name: Upload screenshots and audit result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: landing-next-browser-${{ github.sha }}
+          path: landing-browser-evidence/
+          if-no-files-found: warn
