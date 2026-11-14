@@ -25,12 +25,15 @@ try{
  for(const theme of ["dark","light"])for(const width of [1440,768,390]){
    const ctx=await browser.newContext({viewport:{width,height:width===390?844:900},deviceScaleFactor:1,reducedMotion:"reduce",colorScheme:theme});
    try{
-     const page=await ctx.newPage();
+     await ctx.addInitScript((selectedTheme) => { try { localStorage.setItem("reviewrouter-theme", selectedTheme); } catch { /* Storage unavailable. */ } }, theme);
+   const page=await ctx.newPage();
      page.on("pageerror",e=>errors.push(theme+"/"+width+": "+e.message));
      const res=await page.goto(url,{waitUntil:"domcontentloaded",timeout:90000});
      if(!res?.ok())throw Error("Homepage HTTP "+res?.status());
      await page.getByRole("heading",{level:1,name:/AI code review/i}).waitFor();
-     await page.locator("html").evaluate((root,t)=>root.setAttribute("data-theme",t),theme);
+     const resolvedTheme=await page.locator("html").getAttribute("data-theme");
+     if(resolvedTheme!==theme)throw Error("Expected "+theme+" theme, got "+resolvedTheme);
+     if(!(await page.getByRole("button",{name:(theme==="dark"?"Dark":"Light")+" theme"}).count()))throw Error("Theme toggle mismatch");
      const major=page.getByRole("button",{name:"Preview Major finding"});
      await major.click();
      if((await major.getAttribute("aria-pressed"))!=="true")throw Error("Severity click failed");
@@ -39,6 +42,8 @@ try{
      if((await minor.getAttribute("aria-pressed"))!=="true")throw Error("Severity keyboard failed");
      if((await page.getByRole("heading",{level:1}).count())!==1)throw Error("H1 count");
      if(!(await page.locator('a[href="/compare"]').count()))throw Error("Compare link");
+     if(!(await page.locator('a[href="https://github.com/777genius/review-router-ai"]').count()))throw Error("Application source link");
+     if(!(await page.getByText("Install GitHub App",{exact:true}).count()))throw Error("Install CTA");
      const dims=await page.evaluate(()=>({viewport:innerWidth,html:document.documentElement.scrollWidth,body:document.body.scrollWidth}));
      if(Math.max(dims.html,dims.body)>dims.viewport+2)throw Error("Horizontal overflow "+JSON.stringify(dims));
      const name="homepage-"+theme+"-"+width+".png";
