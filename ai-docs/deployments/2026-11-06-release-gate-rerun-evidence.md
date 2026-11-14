@@ -55,4 +55,4 @@ if any verification fails; use the existing release rollback procedure.
 
 ## Execution log
 
-The historical source task performed no fleet rollout. Current exact GitHub CI/publication is verified above; staging, actual 234 fleet activation and GitLab retain their own statuses.
+The historical source task performed no fleet rollout. Current exact GitHub CI/publication is verified above; staging and GitLab retain their own statuses; actual 234 activation is recorded in the [FILE task](2026-11-14-producer-registry-file.md#234-final-rollout-and-canary-evidence).

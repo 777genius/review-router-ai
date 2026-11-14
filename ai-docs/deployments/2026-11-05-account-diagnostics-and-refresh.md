@@ -20,10 +20,10 @@ PR #831 merged as `6c1688d7299d23e4b55c69eb0655248435ac3cea`; GitHub ancestry co
 
 ## Environment status
 
-| Target     | Status      | Installed version     | Evidence                                                     |
-| ---------- | ----------- | --------------------- | ------------------------------------------------------------ |
-| staging    | `pending`   | Not changed           | No rollout in this task.                                     |
-| production | `installed` | Signed 234/source Ebe | Current recovery receipt; named live UI/action check pending |
+| Target     | Status      | Installed version     | Evidence                                                          |
+| ---------- | ----------- | --------------------- | ----------------------------------------------------------------- |
+| staging    | `pending`   | Not changed           | No rollout in this task.                                          |
+| production | `installed` | Signed 234/source Ebe | Actual 234 activation receipt; named live UI/action check pending |
 
 The historical read-only production census showed Web source
 `bb077235730d484f1f390a86f2ba9029c2da45f9`, image
