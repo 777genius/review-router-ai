@@ -51,9 +51,9 @@ const Hero:React.FC=()=>{
     <div className="v8-center-hero">
       <div className="v8-open-source" style={{opacity:p(f,0,9)}}><span className="v8-open-dot"/>100% OPEN SOURCE <span className="v8-open-sep">/</span> FREE CONTROL PLANE</div>
       <div className="v8-dual">
-        <div style={move(f,6,27,48)}><div className="v8-hero-number">9.5×</div><div className="v8-hero-label">FASTER</div></div>
+        <div style={move(f,6,27,48)}><div className="v8-hero-number">9,5×</div><div className="v8-hero-label">FASTER</div></div>
         <div className="v8-dual-divider" style={{opacity:p(f,22,36)}}/>
-        <div style={move(f,27,49,48)}><div className="v8-hero-number" style={{color:C.lime}}>14.7×</div><div className="v8-hero-label">FEWER TOKENS</div></div>
+        <div style={move(f,27,49,48)}><div className="v8-hero-number" style={{color:C.lime}}>14,7×</div><div className="v8-hero-label">FEWER TOKENS</div></div>
       </div>
       <div className="v8-vs" style={{opacity:p(f,49,67)}}>REVIEWROUTER ENGINE <span>VS CLAUDE CODE*</span></div>
     </div>
@@ -230,14 +230,14 @@ const Benchmark:React.FC=()=>{
     <ChapterTitle eyebrow="UPSTREAM RESEARCH / SAME MODEL" title="More speed. Fewer tokens."/>
     <div className="v8-benchmark-grid">
       <div className="v8-benchmark-card" style={move(f,4,18)}>
-        <div className="v8-bench-large">9.5×</div><strong>FASTER</strong>
+        <div className="v8-bench-large">9,5×</div><strong>FASTER</strong>
         <div className="v8-bench-compare"><span>OpenCodeReview</span><b>1:23</b></div>
         <div className="v8-meter"><span style={{width:(p(f,23,48)*10.56)+'%'}}/></div>
         <div className="v8-bench-compare"><span>Claude Code</span><b>13:06</b></div>
         <div className="v8-meter"><span className="v8-baseline" style={{width:(p(f,23,48)*100)+'%'}}/></div>
       </div>
       <div className="v8-benchmark-card" style={move(f,19,34)}>
-        <div className="v8-bench-large" style={{color:C.lime}}>14.7×</div><strong>FEWER TOKENS</strong>
+        <div className="v8-bench-large" style={{color:C.lime}}>14,7×</div><strong>FEWER TOKENS</strong>
         <div className="v8-bench-compare"><span>OpenCodeReview</span><b>385K</b></div>
         <div className="v8-meter"><span style={{width:(p(f,38,65)*6.8)+'%',background:C.lime}}/></div>
         <div className="v8-bench-compare"><span>Claude Code</span><b>5,664K</b></div>
