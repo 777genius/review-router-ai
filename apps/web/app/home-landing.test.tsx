@@ -21,7 +21,7 @@ describe("ReviewRouter landing presentation", () => {
     expect(html).toContain("~14.7×");
     expect(html).toContain("Alibaba upstream benchmark");
     expect(html).toContain("not independently measured ReviewRouter service speed");
-    expect(html).toContain("Unknown costs");
+    expect(html).toContain("Unknown coverage shown separately");
     expect(html).toContain("ILLUSTRATIVE DATA");
     expect(html).toContain("The AI provider you choose receives the review context");
     expect(html).toContain("Self-hosted");
