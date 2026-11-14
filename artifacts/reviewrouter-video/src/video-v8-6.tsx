@@ -164,24 +164,23 @@ const LINES=[
 const Finding:React.FC=()=>{
   const f=useCurrentFrame();
   const comments=[
-    {severity:'CRITICAL',title:'Missing authorization check',at:52},
+    {severity:'CRITICAL',title:'Missing authorization guard',at:52},
     {severity:'MEDIUM',title:'Unsafe fallback',at:86},
-    {severity:'MEDIUM',title:'Missing error handling',at:120},
+    {severity:'MEDIUM',title:'Unhandled error path',at:120},
   ] as const;
-  const visibleCount = f>=120?3:f>=86?2:f>=52?1:0;
-  // The stack has weight. Each new message physically shifts all settled cards upward.
-  const stackShift = 111*p(f,86,101)+111*p(f,120,135);
-  const codeExit=p(f,29,50);
+  const stackShift=108*p(f,86,101)+108*p(f,120,135);
   const codeEnter=p(f,3,17);
+  const codeExit=p(f,29,49);
   return <Scene scene={5} name="REVIEW COMMENTS">
     <ChapterTitle eyebrow="GITHUB CODE REVIEW" title="Findings. With full context."/>
-    {f<51&&<div className="v82-code" style={{
+    {/* Hard unmount before comments arrive: source code cannot reappear at the end. */}
+    {f<50&&<div className="v82-code" style={{
       opacity:codeEnter*(1-codeExit),
       transform:'translateY('+(((1-codeEnter)*24)-codeExit*22).toFixed(1)+'px) scale('+(1-.04*codeExit).toFixed(3)+')',
       filter:'blur('+(9*codeExit).toFixed(1)+'px)',
     }}>
       <div className="v8-filehead"><FileCode2 size={24}/> src/server/auth.ts
-        <span>PR #42 · +84 / −21 <b className="v83-comment-counter">{visibleCount}/3 findings</b></span>
+        <span>PR #42 · +84 / −21</span>
       </div>
       <div className="v82-code-lines">{LINES.map((row,i)=>
         <div key={row.line} className={'v8-codeline'+(i===2&&f>23?' v8-codeline-focus':'')}
@@ -189,24 +188,20 @@ const Finding:React.FC=()=>{
           <span>{row.line}</span>{row.code}
         </div>)}</div>
     </div>}
-    <div className="v82-comment-list v83-reflow-stack" style={{top:780-stackShift}}>
+    <div className="v82-comment-list v83-reflow-stack v86-review-thread" style={{top:770-stackShift}}>
       {comments.map((item,i)=>{
         const entering=p(f,item.at,item.at+16);
-        const pressed = 0; // Stable aligned rows instead of an uneven impact wobble.
-        const y=(1-entering)*38+pressed;
-                return <div className="v82-comment" key={item.title} style={{
+        return <div className="v82-comment v86-review-comment" key={item.title} style={{
           opacity:entering,
-          transform:`translateY(${y.toFixed(1)}px)`,
-          transformOrigin:'center bottom',
-          boxShadow:enteredShadow(entering),
+          transform:'translateY('+((1-entering)*24).toFixed(1)+'px)',
         }}>
-          <div className="v82-comment-head">
-            <span className="v82-avatar"><RR size={36}/></span>
+          <div className="v82-comment-head v86-comment-head">
+            <span className="v82-avatar v86-bot-avatar"><RR size={29}/></span>
             <strong>reviewrouter</strong><span className="v82-bot">bot</span>
             <span className="v82-comment-time">{3-i}m ago</span>
             <span className={'v82-severity '+(i===0?'critical':'medium')}>{item.severity}</span>
           </div>
-          <div className="v82-comment-body">
+          <div className="v82-comment-body v86-comment-body">
             <strong>{item.title}</strong>
             <span className="v82-comment-tags"><span>Full context</span><span>Suggested fix</span></span>
           </div>
@@ -215,6 +210,7 @@ const Finding:React.FC=()=>{
     </div>
   </Scene>;
 };
+
 const enteredShadow=(t:number)=>`0 ${Math.round(25-15*t)}px ${Math.round(55-17*t)}px rgba(0,0,0,${(0.65-0.13*t).toFixed(3)})`;
 
 /** Approved HTTPS MCP tools are optional and profile-bound, not automatic. */
@@ -282,7 +278,12 @@ const Incremental:React.FC=()=>{
     <ChapterTitle eyebrow="REVISION-AWARE OPTIMIZATION" title="New commit. Less repeat work."/>
     <div className="v83-commit-layout">
       <div className="v83-commit-history">
-        <div className="v83-history-title"><GitBranch size={25}/> PR #42 <span>{count} commits</span></div>
+        <div className="v83-history-title v86-history-title"><GitBranch size={25}/> PR #42
+          <span className="v86-commit-count">
+            <strong>3 commits</strong>
+            <small>{count===3?'2 files changed':count+'/3 shown'}</small>
+          </span>
+        </div>
         {commits.map((item,i)=>{
           const arrived=p(f,item.at,item.at+17);
           const pulse=(f-item.at>=0&&f-item.at<10)?Math.sin(Math.PI*(f-item.at)/10)*6:0;
