@@ -291,7 +291,7 @@ export default function GettingStartedPage(): React.ReactElement {
               <LinkButton href="/dashboard" variant="soft" tone="success">
                 Open dashboard
               </LinkButton>
-              <LinkButton href="/#compare" variant="outline">
+              <LinkButton href="/compare" variant="outline">
                 Compare
               </LinkButton>
             </div>

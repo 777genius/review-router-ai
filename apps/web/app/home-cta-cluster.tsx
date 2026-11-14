@@ -56,12 +56,14 @@ export function HomeCtaCluster({
           />
         </LoadingLinkButton>
       )}
-      {showGitLabBeta && <GitLabBetaConnectButton
-        size={size}
-        variant="solid"
-        className={`${ctaClassName} home-install-cta--gitlab`}
-        labelClassName={labelClassName}
-      />}
+      {showGitLabBeta ? (
+        <GitLabBetaConnectButton
+          size={size}
+          variant="solid"
+          className={`${ctaClassName} home-install-cta--gitlab`}
+          labelClassName={labelClassName}
+        />
+      ) : null}
     </div>
   );
 }

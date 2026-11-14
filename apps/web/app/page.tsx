@@ -9,15 +9,16 @@ import { getGitHubAppInstallUrl } from "../src/server/github-app-install-url";
 import { reviewRouterGitHubRepoUrl, reviewRouterWebUrl } from "./public-urls";
 import {
   createPublicPageMetadata,
-  defaultSeoDescription,
   defaultSeoTitle,
   siteName,
 } from "./seo";
 
+const landingDescription =
+  "Free open-source AI code review platform powered by OpenCodeReview. Bring supported AI subscriptions or API keys, see known tokens and costs, and choose hosted or self-hosted.";
+
 export const metadata: Metadata = createPublicPageMetadata({
   title: "Open-source AI code review with your own models",
-  description:
-    "Free open-source AI code review platform powered by OpenCodeReview. Bring supported AI subscriptions or API keys, see known tokens and costs, and choose hosted or self-hosted.",
+  description: landingDescription,
   path: "/",
 });
 
@@ -37,7 +38,7 @@ const structuredData = {
       "@id": `${reviewRouterWebUrl}/#website`,
       name: siteName,
       url: reviewRouterWebUrl,
-      description: defaultSeoDescription,
+      description: landingDescription,
       inLanguage: "en-US",
       publisher: {
         "@id": `${reviewRouterWebUrl}/#organization`,
@@ -64,7 +65,7 @@ const structuredData = {
     {
       "@type": "WebPage",
       "@id": `${reviewRouterWebUrl}/#webpage`,
-      name: defaultSeoTitle,
+      name: "Open-source AI code review with your own models",
       url: reviewRouterWebUrl,
       description: defaultSeoDescription,
       isPartOf: {

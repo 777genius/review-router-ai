@@ -131,13 +131,13 @@ export function HomeLanding(props: HomeLandingProps): React.ReactElement {
             <span className={styles.consoleLive}><span /> Workspace overview</span>
           </div>
           <div className={styles.consoleLayout}>
-            <nav className={styles.consoleSide} aria-label="Illustrative dashboard navigation">
+            <div className={styles.consoleSide} aria-label="Illustrative dashboard sections">
               <span className={styles.consoleNavActive}>Overview</span>
               <span>Providers</span>
               <span>Review history</span>
               <span>Usage</span>
               <span>Statistics</span>
-            </nav>
+            </div>
             <div className={styles.consoleMain}>
               <div className={styles.consoleTop}>
                 <div><small>WORKSPACE INSIGHTS</small><h3>Review activity</h3></div>

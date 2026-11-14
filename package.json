@@ -10,6 +10,8 @@
   "type": "module",
   "packageManager": "pnpm@11.28.7",
   "scripts": {
+    "design:impeccable:install": "npx --yes impeccable@4.9.1 install --providers=claude,codex,cursor,opencode --scope=project",
+    "design:impeccable:landing": "npx --yes impeccable@4.9.1 detect apps/web/app/home-landing.tsx && npx --yes impeccable@4.9.1 detect apps/web/app/home-review-demo.tsx && npx --yes impeccable@4.9.1 detect apps/web/app/home-landing.module.css",
     "dev": "node scripts/run-with-env.mjs turbo run dev --parallel",
     "web:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/web dev",
     "api:dev": "node scripts/run-with-env.mjs pnpm --filter @reviewrouter/api dev",
