@@ -36,7 +36,7 @@ export function HomeExperience(props: HomeCtaClusterProps): React.ReactElement {
           <div className={styles.heroActions}>
             <HomeCtaCluster {...props} showGitLab={false} className={styles.ctaPrimary ?? ""} />
             <a className={styles.sourceButton} href={sourceUrl}>
-              <SourceProviderLogo provider="github" className={styles.sourceIcon} />
+              <SourceProviderLogo provider="github" className={styles.sourceIcon ?? ""} />
               View source <ArrowRight aria-hidden="true" size={15} />
             </a>
           </div>
