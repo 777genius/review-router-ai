@@ -95,6 +95,8 @@ describe("ReviewReuseEligibilityPolicy", () => {
         providerKind: ReviewProviderKind.Ocr,
         qualityFlags: [
           ReviewObservationQualityFlag.ContextInspectionIncomplete,
+          ReviewObservationQualityFlag.ProviderWarning,
+          ReviewObservationQualityFlag.UnverifiedNativeSpan,
         ],
       }),
       target({ manifest: ocrManifest }),
@@ -385,6 +387,13 @@ describe("ReviewReuseEligibilityPolicy", () => {
     const targetFacts = target();
     const candidates = [
       observation({
+        observationId: "observation-native-span",
+        attemptId: "attempt-native-span",
+        createdAtMs: nowMs + 4,
+        qualityFlags: [ReviewObservationQualityFlag.UnverifiedNativeSpan],
+        payloadHash: hash("4"),
+      }),
+      observation({
         observationId: "observation-warning",
         attemptId: "attempt-warning",
         createdAtMs: nowMs + 3,
@@ -402,7 +411,7 @@ describe("ReviewReuseEligibilityPolicy", () => {
         observationId: "observation-clean-new",
         attemptId: "attempt-clean-new",
         createdAtMs: nowMs + 2,
-        qualityFlags: [],
+        qualityFlags: [ReviewObservationQualityFlag.InvestigationVerifiedClean],
         payloadHash: hash("1"),
       }),
     ];

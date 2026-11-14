@@ -2223,7 +2223,17 @@ describe("Review Action v2 execution/evidence composition", () => {
     expect(fixture.finalize).not.toHaveBeenCalled();
   });
 
-  it("restores evidence after crash before attach and completes with the original fenced lease", async () => {
+  it.each([
+    {
+      name: "native span",
+      qualityFlags: [
+        "context_inspection_incomplete",
+        "provider_warning",
+        "unverified_native_span",
+      ],
+    },
+    { name: "verified clean", qualityFlags: ["investigation_verified_clean"] },
+  ])("restores $name after crash", async ({ qualityFlags }) => {
     const capabilities = capabilityAdapter();
     const currentLease = lease();
     const leaseCapability = await capabilities.issueLease(
@@ -2263,10 +2273,16 @@ describe("Review Action v2 execution/evidence composition", () => {
       currentLease,
       acceptObservation,
     });
-    const commit = await commitRequest(
-      leaseCapability,
-      observation,
-      payloadCanonicalJson,
+    const commit = await withBodyHash(
+      ReviewActionV2OperationId.ReviewEvidenceCommit,
+      {
+        ...(await commitRequest(
+          leaseCapability,
+          observation,
+          payloadCanonicalJson,
+        )),
+        qualityFlags,
+      },
     );
 
     await expect(
@@ -2308,6 +2324,9 @@ describe("Review Action v2 execution/evidence composition", () => {
       result: { status: ReviewExecutionMutationResultStatus.Applied },
     });
     expect(acceptObservation).toHaveBeenCalledTimes(2);
+    expect(acceptObservation).toHaveBeenCalledWith(
+      expect.objectContaining({ qualityFlags: commit.qualityFlags }),
+    );
     expect(attachFresh).toHaveBeenCalledTimes(1);
   });
 

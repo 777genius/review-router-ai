@@ -405,9 +405,11 @@ const decodableQualityFlags = {
   [ReviewObservationQualityFlag.LowConfidence]: true,
   [ReviewObservationQualityFlag.ProviderWarning]: true,
   [ReviewObservationQualityFlag.ContextInspectionIncomplete]: true,
+  [ReviewObservationQualityFlag.UnverifiedNativeSpan]: true,
   [ReviewObservationQualityFlag.ContextAttestationUnavailable]: true,
   [ReviewObservationQualityFlag.CrossRevisionReuseDisabled]: true,
   [ReviewObservationQualityFlag.InvestigationFindings]: true,
+  [ReviewObservationQualityFlag.InvestigationVerifiedClean]: true,
   [ReviewObservationQualityFlag.InvestigationInconclusive]: true,
   [ReviewObservationQualityFlag.Unknown]: false,
 } as const satisfies Record<ReviewObservationQualityFlag, boolean>;
