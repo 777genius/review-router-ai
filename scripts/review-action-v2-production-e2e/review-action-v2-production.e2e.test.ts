@@ -488,9 +488,29 @@ describeWithDatabase.sequential(
         slotCount: 2,
         attachSlotCount: 0,
       });
+      // Publish an initial real comment before exercising two competing PATCHes.
       await fixture.setProgressFixture({
         executionId: flow.executionId,
-        completed: 0,
+        completed: 1,
+      });
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      const oldBody = progressComments(fixture)[0]!.body;
+      expect(oldBody).toContain("Review units: 1 of 2 complete (50%)");
+      const initial =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(initial.desiredVersion).toBe(initial.publishedVersion);
+      expect(initial.publishedVersion).toBeGreaterThan(0n);
+
+      // Replay a settled older version after an uncertain remote response:
+      // it is due for PATCH again but keeps its original desired-version fence.
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: { activeExecutionId: flow.executionId },
+        data: { publishedVersion: { decrement: 1n } },
       });
       await fixture.makeProgressDue();
       const store = new PrismaReviewProgressPublicationStore(fixture.prisma);
@@ -500,16 +520,13 @@ describeWithDatabase.sequential(
         claimDurationMs: 60_000,
       });
       if (!stale) throw new Error("review_progress_e2e_stale_claim_missing");
-      // Claim the initial snapshot before any GitHub write; expire it while
-      // keeping its original fence so a newer worker can publish first.
+      expect(stale.commentId).not.toBeNull();
+      expect(stale.desiredVersion).toBe(initial.desiredVersion);
+      // Expire the old PATCH claim so a newer worker can publish first.
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: stale.scope,
         data: { claimUntil: new Date(Date.now() - 1_000) },
       });
-      await expect(fixture.publishProgress()).resolves.toMatchObject({
-        published: 1,
-      });
-      const oldBody = progressComments(fixture)[0]!.body;
 
       await fixture.setProgressFixture({
         executionId: flow.executionId,
