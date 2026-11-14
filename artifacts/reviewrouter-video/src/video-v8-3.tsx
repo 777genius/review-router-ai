@@ -373,13 +373,13 @@ type RevealOrigin='provider-card'|'full-context'|'tokens-kpi';
 /** Outgoing content settles away before the next title becomes readable. */
 const ExitSettle:React.FC<{after:number;children:React.ReactNode}>=({after,children})=>{
   const f=useCurrentFrame();
-  const q=p(f,after,after+11);
+  const q=p(f,after+5,after+18); // Keep the outgoing UI visible until incoming content has settled.
   return <AbsoluteFill className={f>=after?"v83-exit-hide-copy":undefined} style={{opacity:1-q,transform:`scale(${(1+.014*q).toFixed(3)})`,filter:`brightness(${(1-.3*q).toFixed(3)})`}}>{children}</AbsoluteFill>;
 };
 const SemanticReveal:React.FC<{origin:RevealOrigin;children:React.ReactNode}>=({origin,children})=>{
   const f=useCurrentFrame();
   const frames=origin==='full-context'?21:origin==='tokens-kpi'?20:18;
-  const q=p(f,0,frames);
+  const q=0.10*p(f,0,frames*0.55)+0.90*p(f,frames*0.55,frames); // Hold a small focal mask, then open.
   // Inset origins correspond to the actual source card/KPI coordinates at 1920x1080.
   let mask:string;
   if(origin==='provider-card'){
