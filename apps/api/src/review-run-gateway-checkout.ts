@@ -589,6 +589,23 @@ function createReviewRunCheckout(
       // Export only the admitted safe settings after the final authority checks.
       // Never reread current configuration or expose the private gateway selection.
       const runtimeEnv = mapConfigToRuntimeEnv(configuration);
+      // Safe profile identity belongs to the captured lane, never current config.
+      if (input.modelTransport === "account_gateway") {
+        if (snapshot.snapshotVersion === 4) {
+          runtimeEnv.REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON =
+            canonicalJson(
+              Object.fromEntries(
+                gatewaySelections.map(({ reviewerId, gateway }) => [
+                  reviewerId!,
+                  gateway.profileRef,
+                ]),
+              ),
+            );
+        } else if (snapshot.gateway) {
+          runtimeEnv.REVIEW_ROUTER_GATEWAY_PROFILE_REF =
+            snapshot.gateway.profileRef;
+        }
+      }
       const modelSettings = selectedModelSettings.get(
         primaryReviewer?.reviewerId ?? "legacy",
       );
