@@ -74,3 +74,5 @@ Use `LogoMark`, `/review-router-logo.png`, existing `SourceProviderLabel`/`Provi
 **R5 — Accuracy:** Upstream benchmarks differ by model; known spend is partial and provider may process code. Fix: explicit source/conditions, no automatic invoice guarantee, coverage label, honest CI/provider boundary.
 
 Estimated net new code: **450–850 TSX/CSS lines**, delete/reduce ~300–700 existing landing lines only as required, complexity **5/10**, expected reliability **8/10**, design confidence **8/10**, implementation confidence before E2E **6/10**. Do not expand into dashboard redesign or pricing/billing.
+
+**R6 — Navigation regression (implementation review):** Removing home-embedded compare left global nav/footer and two information pages pointing at `/#compare`. Fix the four real links to existing `/compare` route, retaining `activePath` semantics; this is a scoped navigational repair, not a dashboard refactor.

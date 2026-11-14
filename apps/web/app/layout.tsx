@@ -102,7 +102,7 @@ const jetBrainsMono = localFont({
 
 const footerResourceLinks = [
   { href: "/support", label: "Support" },
-  { href: "/#compare", label: "Compare" },
+  { href: "/compare", label: "Compare" },
   { href: "/fair-use", label: "Fair use" },
 ] as const;
 
