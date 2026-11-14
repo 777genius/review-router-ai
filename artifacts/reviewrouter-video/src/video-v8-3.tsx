@@ -113,7 +113,7 @@ const Repository:React.FC=()=>{
                   {name:'agent-runtime',kind:'TypeScript'}, {name:'docs-site',kind:'Docs'}];
   const active=Math.min(4,Math.max(0,Math.floor((f-49)/12)));
   return <Scene scene={4} name="SET UP">
-    <ChapterTitle eyebrow="CHOOSE REPOSITORIES" title="Enable reviews in a few clicks."/>
+    <div style={{opacity:p(f,17,30)}}><ChapterTitle eyebrow="CHOOSE REPOSITORIES" title="Enable reviews in a few clicks."/></div>
     <div className="v81-repo-grid">
       {selected.map((item,i)=>{
         const checked=i<3&&f>=17+i*7;
@@ -212,7 +212,7 @@ const MCPTools:React.FC=()=>{
     {name:'Context7',detail:'API & library docs',icon:BookOpen,at:38,checked:55},
   ] as const;
   return <Scene scene={6} name="MCP TOOLS">
-    <ChapterTitle eyebrow="OPTIONAL REVIEW CONTEXT" title="Bring your MCP tools." sub="Connect what your reviewer needs."/>
+    <div style={{opacity:p(f,18,31)}}><ChapterTitle eyebrow="OPTIONAL REVIEW CONTEXT" title="Bring your MCP tools." sub="Connect what your reviewer needs."/></div>
     <div className="v82-mcp-list">
       {examples.map((item)=>{
         const Icon=item.icon,selected=f>=item.checked;
@@ -317,7 +317,7 @@ const Insights:React.FC=()=>{
 const Benchmark:React.FC=()=>{
   const f=useCurrentFrame();
   return <Scene scene={10} name="AACR-BENCH">
-    <ChapterTitle eyebrow="UPSTREAM RESEARCH / SAME MODEL" title="More speed. Fewer tokens."/>
+    <div style={{opacity:p(f,17,30)}}><ChapterTitle eyebrow="UPSTREAM RESEARCH / SAME MODEL" title="More speed. Fewer tokens."/></div>
     <div className="v8-benchmark-grid">
       <div className="v8-benchmark-card" style={move(f,4,18)}>
         <div className="v8-bench-large">9,5×</div><strong>FASTER</strong>
