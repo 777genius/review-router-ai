@@ -775,6 +775,25 @@ jobs:
       - name: Web page smoke
         run: pnpm web:smoke
 
+      - name: Ensure Chromium for landing browser QA
+        run: |
+          if [ ! -x /usr/bin/chromium ] && [ ! -x /usr/bin/google-chrome ]; then
+            node node_modules/playwright-core/cli.js install chromium
+          fi
+
+      - name: Real landing browser E2E (desktop, tablet, mobile, both themes)
+        run: node scripts/landing-browser-e2e.mjs
+
+      - name: Upload landing browser QA screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: landing-browser-qa
+          path: tmp/landing-browser-e2e/
+          if-no-files-found: warn
+          retention-days: 14
+
+
       - name: Hosted readiness smoke
         run: pnpm hosted:check:smoke
 

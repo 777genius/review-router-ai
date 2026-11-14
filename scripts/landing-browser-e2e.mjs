@@ -5,6 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -39,7 +40,12 @@ try {
     await delay(500);
   }
   assert.ok(ready, "Next production app did not start in time");
-  browser = await chromium.launch({ headless: true });
+  const localBrowser = process.env.REVIEW_ROUTER_E2E_BROWSER_PATH ||
+    ["/usr/bin/chromium", "/usr/bin/google-chrome"].find((path) => existsSync(path));
+  browser = await chromium.launch({
+    headless: true,
+    ...(localBrowser ? { executablePath: localBrowser } : {}),
+  });
   for (const theme of ["dark", "light"]) {
     for (const width of [1440, 768, 390]) {
       const context = await browser.newContext({
