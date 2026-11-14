@@ -364,6 +364,57 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("requeues a stale PATCH while keeping duplicate cleanup pending", async () => {
+    const publication = { ...claimed(), commentId: 77n };
+    const store = fakeStore(publication);
+    store.retry.mockResolvedValue("stale");
+    store.complete.mockResolvedValue(false);
+    const comment = {
+      body: "<!-- review-router-live-progress -->",
+      user: { login: "review-router[bot]" },
+    };
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) {
+          return {
+            data: [
+              { ...comment, id: 77 },
+              { ...comment, id: 78 },
+            ],
+          };
+        }
+        if (route.startsWith("PATCH")) return { data: {} };
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_duplicate_cleanup_pending",
+        countFailure: false,
+      }),
+    );
+    expect(store.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        commentId: 77n,
+        bodyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        now,
+      }),
+    );
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
+
   it("backs off capped scans for an hour without exhausting retries", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);

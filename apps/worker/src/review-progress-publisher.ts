@@ -210,7 +210,7 @@ export class ReviewProgressPublisher {
     result: { published: number; deferred: number },
   ): Promise<void> {
     if (published.duplicateCommentIds.length > 0) {
-      await this.store.retry({
+      const retryOutcome = await this.store.retry({
         publication,
         safeCode: "review_progress_duplicate_cleanup_pending",
         retryAt: new Date(
@@ -221,6 +221,16 @@ export class ReviewProgressPublisher {
         maxFailures: this.options.maxFailures,
         countFailure: false,
       });
+      if (retryOutcome === "stale") {
+        // An older PATCH may have overwritten a newer publication.
+        // A fenced-out completion schedules durable repair of the current body.
+        await this.store.complete({
+          publication,
+          commentId: BigInt(published.commentId),
+          bodyHash,
+          now: this.clock.now(),
+        });
+      }
       result.deferred += 1;
       return;
     }
