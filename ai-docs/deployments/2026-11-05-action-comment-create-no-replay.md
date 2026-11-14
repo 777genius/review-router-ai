@@ -1,5 +1,9 @@
 # GitHub Action comment-create transport replay guard
 
+## Current code/distribution reconciliation (2026-11-14)
+
+PR #817 merged as `f40a92f07fb06555c11e753348a12ec80118457a`; GitHub ancestry comparison to prior installed source 287 is ahead 184/behind 0. The no-replay code is therefore included in the private signed 234/source Ebe installation, with ordinary source/bundle checks retained by the exact-main 234 CI 43558212571 and paired immutable public 234 qualification. Public 234 is published and fleet primary 234 is live; workflow-channel promotion passed, while ambiguous-write live qualification is not inferred. This task is not an absent-code instruction to redeploy the application or move a channel again. Source/artifact inclusion does not prove a live ambiguous-response network scenario: guard-specific live acceptance remains unclaimed, and an unknown GitHub write must never be replayed to manufacture that proof. Staging remains unverified. Earlier Draft/no-release statements below are historical, superseded only for the established source/distribution facts.
+
 - Task ID: `2026-11-05-action-comment-create-no-replay`
 - Issue: [#816](https://github.com/777genius/review-router-ai/issues/816), follow-up audit of merged [#815](https://github.com/777genius/review-router-ai/pull/815).
 - Implementation: [Draft PR #817](https://github.com/777genius/review-router-ai/pull/817), initial source/test HEAD `ba6d80c273c3f3e7d68ca075846b7eeadf6f8024`.
@@ -11,8 +15,8 @@
 ## Environment status
 
 - Staging: `pending`. No deployed revision or verification evidence for this change.
-- Production / public Action channel: `pending`. The currently installed version remains unverified for this change.
-- Paired `777genius/review-router` distribution: `pending`; no tag or immutable ref is changed by this task.
+- Production / private code: `installed` in signed 234/source Ebe. Public guard-specific live qualification remains pending; current fleet primary 234 is live; workflow-channel promotion passed, while ambiguous-write live qualification is not inferred.
+- Paired distribution: public 234 is published through the normal release; this record makes no additional tag/channel change.
 
 ## Preconditions and delivery
 
@@ -27,4 +31,4 @@ A failed publication with an uncertain network outcome must not be immediately r
 
 ## Execution record
 
-No staging or production rollout has been authorized or attempted. The implementation, CI evidence and eventual merge should be linked to the issue/PR; source merge alone is not a deployed status.
+The initial source-only task did not authorize rollout. Later coherent delivery supersedes that historical hold for ordinary code installation; source ancestry does not establish live ambiguous-write acceptance. Preserve the actual source and release identities above.

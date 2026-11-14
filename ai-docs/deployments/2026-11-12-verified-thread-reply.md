@@ -1,7 +1,15 @@
 # Verified native review-thread replies — production qualification
 
+## Current production reconciliation (2026-11-14)
+
+Confirmed application delivery is the compatible signed 234/source Ebe fleet described in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Code installation, feature activation and live qualification are separate. Actual 234 FILE 62 activation and normal producer materialization passed with zero migrations; preserve the already-applied 000156/157 ledger and all producer authority. Workflow promotion passed; feature canary qualification remains separate. This reconciliation supersedes the initial pending/no-rollout statements in the historical implementation sections below.
+
+#861 code is installed and 000156 is applied; old pre-156 readers were stopped and never restarted. The original PR 2 thread remains historical, with no forced reply/replay. A normal new [get-tok PR 3](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/3) event produced [run 43550381724](https://github.com/get-tok/reviewrouter-onboarding-e2e/actions/runs/43550381724), SUCCESS on Action 232. App `review-router-ai[bot]` authored [finding 4571171611](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/3#discussion_r4571171611) at `src/thread-reply-canary.ts` RIGHT line 4, head `735fc904117969a21c65bb468b14355e721ebc2b`. Thread remains open with one comment; no native reply is proved. Actual [fix run 43565692133](https://github.com/get-tok/reviewrouter-onboarding-e2e/actions/runs/43565692133) completed SUCCESS in 2m43s on producer 234 `801ede5d1cc80630436c2fafbee829f470382ad7`, fix head `a21627f6c8b45984bdc2e1bbd72487aec09610aa`. Genuine App `review-router-ai[bot]` (user 281702430) posted [native reply 4571919825](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/3#discussion_r4571919825), `in_reply_to_id=4571171611`, marker `reviewrouter:fix-verified:v1:rrt_25179f7433d47c7a`, exactly one reply. The original thread remains unresolved under report-only policy and became outdated after the line fix; no thread_lifecycle resolve operation exists. [Summary 6873027866](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/3#issuecomment-6873027866) reports one fix verified and no automatic closure. The thread_reply receipt succeeded with retryCount 0 and external object `review-comment:4571919825`; duplicate absence and one receipt are verified, but **no deliberate live suppression replay test was performed**.
+
+The one scoped settlement read confirms generation 1 (producer 232, run 43550381724) and generation 2 (producer 234, run 43565692133) completed with terminal/succeeded publications and Statistics settled, the latter at `2026-11-14T06:21:22.209Z`. Usage has eight complete calls: first 5/13,049 tokens + second 3/6,055 = **19,104 tokens**. Cost and independently observed actual model are not reported/null; configured model selection is not an actual-model observation. Optional pr_description operations remain stale_visible with no receipts for both generations; required/main publication succeeded. There were exactly two normal review events, zero manual dispatches/replays/extra probes, and no old PR 2/default/credential mutation. Retained selected readbacks: `tmp/release-coordinated-20261113/canary-first-event.actual.json`, `canary-second-event.actual.json`, `canary-settlement.actual.jsonl`; the canonical facts and public permalink identities are recorded here rather than relying on ignored local files alone.
+
 Status: source **merged and postmerge E2E PASS**; staging **pending**;
-production **not verified**. This is a deployment handoff, not permission to
+production code/schema and bounded report-only native-reply canary **deployed/verified**. This record is not permission to
 release, replay old work, or change the current production fleet.
 
 ## Scope and source evidence
@@ -33,7 +41,7 @@ release, replay old work, or change the current production fleet.
   now marked outdated; do not claim that the merged patch retroactively
   republishes an old attempt.
 
-## Production HOLD — required before a real canary
+## Historical production HOLD prerequisites (completed for the bounded canary)
 
 1. Select and record one **exact** protected release commit, its successful
    trusted push CI, signed matching runtime image digest, approved migration
@@ -66,7 +74,7 @@ release, replay old work, or change the current production fleet.
    Record the run, commit, review-comment and receipt URLs and observed
    resolved state separately from simulated paired E2E.
 
-**Current disposition:** production HOLD. The last recorded production
+**Historical disposition before the November14 reconciliation above:** production HOLD. The last recorded production
 baseline in [deployment index](README.md) is the 2026-11-11 03:23 UTC
 `d2f4f69a` candidate, preceding #861. No verified migration, image
 convergence or production bot reply for #861 is recorded here.

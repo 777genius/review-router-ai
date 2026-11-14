@@ -1,20 +1,27 @@
 # Claude Code dual authentication: deployment and qualification
 
+## Current production reconciliation (2026-11-14)
+
+Confirmed application delivery is the compatible signed 234/source Ebe fleet described in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Code installation, feature activation and live qualification are separate. Actual 234 FILE 62 activation and normal producer materialization passed with zero migrations; preserve the already-applied 000156/157 ledger and all producer authority. Workflow promotion passed; feature canary qualification remains separate. This reconciliation supersedes the initial pending/no-rollout statements in the historical implementation sections below.
+
+SaaS #857 and Action #385/#386 are merged; direct official-CLI subscription/API-key selection and encrypted workspace-key delivery are source-implemented. 000157 was applied once in production before the compatible fleet started. Synthetic visual/dispatch/isolation checks are source evidence, not live Anthropic approval. The owner approved skipping the API-key canary after a scoped search found zero usable keys; status is **SKIPPED**, not PASS. Fleet primary 234 and all four readers are converged; public workflow-v1 is 234, but no live Claude auth-mode review or subscription qualification is claimed. No live subscription/v4 qualification or central Gateway inference is claimed; no central OAuth custody, credential enrollment or provider switch was performed by this reconciliation.
+
 - Task ID: `2026-11-11-claude-dual-auth`
 - Goal: one Claude Code provider, with explicit user-owned subscription via official Claude Code CLI + GitHub Secrets, and API-key authentication via GitHub Secrets or the existing encrypted workspace-key store, whose existing GitHub Secrets delivery installs the key into selected repositories. Native Gateway inference is a separate future capability.
 - Affected services/targets: ReviewRouter Web/API/worker, ReviewRouter Action runtime/immutable workflow channel, Prisma/PostgreSQL, Account Gateway/Sub2API (future API-key profile).
 - Implementation PRs: [Action #385](https://github.com/777genius/review-router/pull/385), [SaaS #857](https://github.com/777genius/review-router-ai/pull/857), [plan #855](https://github.com/777genius/review-router-ai/pull/855).
-- Implementation reference: moving Draft PR heads; these are source candidates, not installed/merged provenance.
+- Implementation reference: merged source is included in signed 234/source Ebe; public 233/234 distribution is published, while fleet primary 234 is live and public workflow-v1 is 234; live auth-mode qualification is not inferred.
 - Dependencies: exact Action runtime bundle regeneration/pinning, release-profile attestation, a user-owned GitHub Actions Secret OR workspace-managed encrypted Anthropic API key delivered to GitHub Secrets, successful offline synthetic E2E.
-- Last updated: 2026-11-11.
+- Last updated: 2026-11-14.
 
 ## Environment status
 
-| Environment / target | Status    | Actual version/image                                    | Last verified UTC | Next step                                                                              |
-| -------------------- | --------- | ------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
-| Synthetic CI         | `pending` | Draft branches, exact HEAD qualification not yet proven | Not verified      | Offline two-auth and GitHub App test PR, tests/build/format/security                   |
-| Staging              | `pending` | Not verified                                            | Not verified      | Inspect installed baseline, qualified Action and migration readiness before installing |
-| Production           | `pending` | Not verified                                            | Not verified      | Explicit owner release approval required; no live credentials available for acceptance |
+| Environment / target | Status      | Actual version/image                  | Last verified UTC | Next step                                                                              |
+| -------------------- | ----------- | ------------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
+| Staging              | `pending`   | Not verified                          | Not verified      | Inspect installed baseline, qualified Action and migration readiness before installing |
+| Production           | `installed` | Signed 234/source Ebe; 000157 applied | 2026-11-14        | API-key canary SKIPPED; subscription/Gateway live qualification unproved               |
+
+Synthetic source/browser/isolation checks are retained in PR #857 and paired Action #385/#386; they are not real credential qualification.
 
 ## Applicability and prerequisites
 
