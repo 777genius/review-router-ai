@@ -577,6 +577,11 @@ describeWithDatabase.sequential(
       );
       await fixture.processFinalizedOutbox();
       await fixture.runWorkerUntilSettled();
+      // The normal worker harness does not enable progress publication.
+      // Promote only after the real terminal attempt has durably settled.
+      await expect(
+        fixture.promoteProgress(flow.executionId, "succeeded"),
+      ).resolves.toBe(1);
       await fixture.makeProgressDue();
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
