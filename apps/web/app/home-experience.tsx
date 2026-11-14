@@ -4,6 +4,7 @@ import {
 import { HomeCtaCluster, type HomeCtaClusterProps } from "./home-cta-cluster";
 import { HomeFindingsPreview } from "./home-findings-preview";
 import { LogoMark } from "./logo-mark";
+import { SourceProviderLogo } from "./source-provider-logo";
 import styles from "./home-experience.module.css";
 
 const sourceUrl = "https://github.com/777genius/review-router-ai";
@@ -35,7 +36,7 @@ export function HomeExperience(props: HomeCtaClusterProps): React.ReactElement {
           <div className={styles.heroActions}>
             <HomeCtaCluster {...props} showGitLab={false} className={styles.ctaPrimary ?? ""} />
             <a className={styles.sourceButton} href={sourceUrl}>
-              <GitPullRequest aria-hidden="true" size={18} />
+              <SourceProviderLogo provider="github" className={styles.sourceIcon} />
               View source <ArrowRight aria-hidden="true" size={15} />
             </a>
           </div>
