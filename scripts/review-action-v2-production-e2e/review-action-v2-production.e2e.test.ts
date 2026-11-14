@@ -25,6 +25,8 @@ import {
 import { createReviewStatisticsFeature } from "../../packages/features/review-statistics/src/composition/index.js";
 import { createReviewHistoryFeature } from "../../packages/features/review-history/src/composition/index.js";
 import { createReviewStatisticsSettledHandler } from "../../apps/worker/src/review-statistics-worker-runtime.js";
+import { formatGithubProgressComment } from "../../packages/features/review-progress/src/index.js";
+import { parseSnapshot } from "../../apps/worker/src/review-progress-snapshot-policy.js";
 import { PrismaReviewProgressPublicationStore } from "../../apps/worker/src/review-progress-store.js";
 import {
   reviewExecutionFinalizedEventType,
@@ -485,7 +487,7 @@ describeWithDatabase.sequential(
     it("repairs an older PATCH after a newer progress publication settles", async () => {
       const fixture = requiredHarness(harness);
       const flow = await fixture.createCommittedFlow({
-        slotCount: 2,
+        slotCount: 3,
         attachSlotCount: 0,
       });
       // Publish an initial real comment before exercising two competing PATCHes.
@@ -497,8 +499,9 @@ describeWithDatabase.sequential(
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });
-      const oldBody = progressComments(fixture)[0]!.body;
-      expect(oldBody).toContain("Review units: 1 of 2 complete (50%)");
+      expect(progressComments(fixture)[0]?.body).toContain(
+        "Review units: 1 of 3 complete (33%)",
+      );
       const initial =
         await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
           where: { activeExecutionId: flow.executionId },
@@ -506,11 +509,11 @@ describeWithDatabase.sequential(
       expect(initial.desiredVersion).toBe(initial.publishedVersion);
       expect(initial.publishedVersion).toBeGreaterThan(0n);
 
-      // Replay a settled older version after an uncertain remote response:
-      // it is due for PATCH again but keeps its original desired-version fence.
-      await fixture.prisma.reviewProgressPublicationV1.updateMany({
-        where: { activeExecutionId: flow.executionId },
-        data: { publishedVersion: { decrement: 1n } },
+      // Capture a genuinely new pending version for the older PATCH.
+      // Do not synthesize eligibility by mutating a settled version.
+      await fixture.setProgressFixture({
+        executionId: flow.executionId,
+        completed: 2,
       });
       await fixture.makeProgressDue();
       const store = new PrismaReviewProgressPublicationStore(fixture.prisma);
@@ -521,8 +524,12 @@ describeWithDatabase.sequential(
       });
       if (!stale) throw new Error("review_progress_e2e_stale_claim_missing");
       expect(stale.commentId).not.toBeNull();
-      expect(stale.desiredVersion).toBe(initial.desiredVersion);
-      // Expire the old PATCH claim so a newer worker can publish first.
+      expect(stale.desiredVersion).toBeGreaterThan(initial.desiredVersion);
+      const staleBody = formatGithubProgressComment(
+        parseSnapshot(stale.snapshot),
+      );
+      expect(staleBody).toContain("Review units: 2 of 3 complete (66%)");
+      // Leave the expired claim fence present for real worker takeover.
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: stale.scope,
         data: { claimUntil: new Date(Date.now() - 1_000) },
@@ -530,28 +537,42 @@ describeWithDatabase.sequential(
 
       await fixture.setProgressFixture({
         executionId: flow.executionId,
-        completed: 2,
+        completed: 3,
       });
-      await fixture.makeProgressDue();
+      const makeInstallationBudgetDue = async () => {
+        const due = new Date(Date.now() - 1_000);
+        await fixture.prisma.reviewProgressInstallationBudgetV1.updateMany({
+          where: {
+            githubInstallationId: stale.repository.githubInstallationId,
+          },
+          data: { nextMutationAt: due, cooldownUntil: null, updatedAt: due },
+        });
+      };
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: stale.scope,
+        data: { nextPublishAt: new Date(Date.now() - 1_000) },
+      });
+      await makeInstallationBudgetDue();
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });
       const comment = progressComments(fixture)[0]!;
       const latestBody = comment.body;
-      expect(latestBody).toContain("Review units: 2 of 2 complete (100%)");
+      expect(latestBody).toContain("Review units: 3 of 3 complete (100%)");
       const settled =
         await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
           where: { activeExecutionId: flow.executionId },
         });
       expect(settled.desiredVersion).toBe(settled.publishedVersion);
+      expect(settled.desiredVersion).toBeGreaterThan(stale.desiredVersion);
 
       // Simulate the delayed old GitHub PATCH winning after the new write.
-      comment.body = oldBody;
+      comment.body = staleBody;
       await expect(
         store.complete({
           publication: stale,
           commentId: BigInt(comment.id),
-          bodyHash: hash(oldBody),
+          bodyHash: hash(staleBody),
           now: new Date(),
         }),
       ).resolves.toBe(false);
@@ -562,8 +583,12 @@ describeWithDatabase.sequential(
       expect(repair.desiredVersion).toBe(settled.desiredVersion);
       expect(repair.publishedVersion).toBe(settled.publishedVersion - 1n);
       expect(repair.claimId).toBeNull();
+      expect(repair.nextPublishAt).not.toBeNull();
+      expect(repair.nextPublishAt!.getTime()).toBeLessThanOrEqual(Date.now());
 
-      await fixture.makeProgressDue();
+      // Do not reset publication eligibility: only the stale completion may
+      // schedule its durable repair. Release the installation budget alone.
+      await makeInstallationBudgetDue();
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });
