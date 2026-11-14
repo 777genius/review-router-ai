@@ -27,12 +27,12 @@ export function HomeFinalCta({
           id="home-final-title"
           className="mx-auto mt-4 max-w-2xl text-3xl font-semibold leading-tight tracking-tight text-cyan-50 sm:text-4xl"
         >
-          Ship reviews that{" "}
-          <span className="text-lime-300">stay inside your CI</span>
+          Open source. Your AI.{" "}
+          <span className="text-lime-300">Your review platform.</span>
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-300">
-          Connect your repo, merge one small workflow, and start using your own
-          AI — free.
+          Start free in your CI with your own model and settings. The platform is
+          hosted or self-hosted — your choice.
         </p>
 
         <HomeCtaCluster
@@ -48,7 +48,7 @@ export function HomeFinalCta({
             aria-hidden="true"
             className="size-4 shrink-0 text-lime-300"
           />
-          Pull request info only · fair use · delete the workflow to stop
+          Free under fair use · provider and CI usage are separate
         </p>
       </div>
     </section>
