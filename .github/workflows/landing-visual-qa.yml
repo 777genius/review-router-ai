@@ -1,0 +1,80 @@
+name: Homepage visual QA
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - ".github/workflows/landing-visual-qa.yml"
+      - "apps/web/app/home-experience*"
+      - "apps/web/app/home-findings-preview*"
+      - "apps/web/app/home-cta-cluster.tsx"
+      - "apps/web/app/page.tsx"
+      - "apps/web/app/layout.tsx"
+      - "apps/web/app/primary-nav.tsx"
+      - "scripts/landing-visual-qa.mjs"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: landing-visual-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  homepage:
+    name: Real Next browser and screenshots
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      AUTH_SECRET: fixture-auth-secret-not-production
+      NEXTAUTH_SECRET: fixture-auth-secret-not-production
+      AUTH_TRUST_HOST: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_landing_visual?schema=public
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: reviewrouter_landing_visual
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d reviewrouter_landing_visual"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "26.11.1"
+      - name: Install locked dependencies
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          node scripts/prepare-pinned-subscription-runtime.ts
+      - name: Generate database client and compiler
+        run: |
+          node scripts/generate-prisma-offline.mjs
+          pnpm compiler:prepare
+      - name: Typecheck Next app
+        run: |
+          pnpm --dir apps/web exec next typegen
+          pnpm --filter @reviewrouter/web typecheck
+      - name: Test finding interaction
+        run: pnpm exec vitest run apps/web/app/home-findings-preview.test.tsx --maxWorkers=1 --no-file-parallelism
+      - name: Install Chromium
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Migrate isolated PostgreSQL
+        run: pnpm --dir packages/platform/db db:migrate:deploy
+      - name: Capture actual Next screenshots
+        run: node scripts/landing-visual-qa.mjs
+      - name: Archive screenshots and QA receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: landing-visual-qa-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: tmp/landing-visual-qa/
+          if-no-files-found: warn
+          retention-days: 14
