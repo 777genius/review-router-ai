@@ -543,11 +543,53 @@ describeWithDatabase.sequential(
         allowedRepositoryFullNames: new Set([repositoryName]),
       });
       const claimAt = new Date();
-      const stale = await store.claimNext({
-        ownerIdHash: "a".repeat(64),
-        now: claimAt,
-        claimDurationMs: 60_000,
+      // Other due publications in this disposable fixture may take priority
+      // over the older PATCH. Park them only for the claim and restore their
+      // original deadlines immediately afterward.
+      const competing = await fixture.prisma.reviewProgressPublicationV1.findMany({
+        where: {
+          repositoryConnectionId: fixture.repositoryConnectionId,
+          activeExecutionId: { not: flow.executionId },
+          nextPublishAt: { lte: claimAt },
+        },
+        select: {
+          workspaceId: true,
+          repositoryConnectionId: true,
+          scmRepositoryIdentityId: true,
+          pullRequestNumber: true,
+          nextPublishAt: true,
+        },
       });
+      const parkedUntil = new Date(claimAt.getTime() + 120_000);
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: {
+          repositoryConnectionId: fixture.repositoryConnectionId,
+          activeExecutionId: { not: flow.executionId },
+          nextPublishAt: { lte: claimAt },
+        },
+        data: { nextPublishAt: parkedUntil },
+      });
+      let stale: Awaited<ReturnType<typeof store.claimNext>>;
+      try {
+        stale = await store.claimNext({
+          ownerIdHash: "a".repeat(64),
+          now: claimAt,
+          claimDurationMs: 60_000,
+        });
+      } finally {
+        for (const row of competing) {
+          await fixture.prisma.reviewProgressPublicationV1.updateMany({
+            where: {
+              workspaceId: row.workspaceId,
+              repositoryConnectionId: row.repositoryConnectionId,
+              scmRepositoryIdentityId: row.scmRepositoryIdentityId,
+              pullRequestNumber: row.pullRequestNumber,
+              nextPublishAt: parkedUntil,
+            },
+            data: { nextPublishAt: row.nextPublishAt },
+          });
+        }
+      }
       if (!stale) {
         const deferred =
           await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
