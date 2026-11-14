@@ -261,22 +261,40 @@ const ReviewSkills:React.FC=()=>{
 
 const Incremental:React.FC=()=>{
   const f=useCurrentFrame();
-  const highlighted = p(f,29,47);
+  const commits=[
+    {hash:'a1b2c3',label:'Initial review',at:10},
+    {hash:'8f2a19',label:'Fix authorization',at:39},
+    {hash:'d031ac',label:'Add regression tests',at:68},
+  ] as const;
+  const count=f>=68?3:f>=39?2:f>=10?1:0;
   return <Scene scene={8} name="NEW COMMITS">
     <ChapterTitle eyebrow="REVISION-AWARE OPTIMIZATION" title="New commit. Less repeat work."/>
-    <div className="v8-incremental">
-      <div className="v8-commit-source" style={move(f,5,20)}>
-        <GitPullRequest size={44} color={C.cyan}/>
-        <div><small>PR #42</small><strong>new commit</strong></div><span className="v8-commit-id">8f2a…</span>
+    <div className="v83-commit-layout">
+      <div className="v83-commit-history">
+        <div className="v83-history-title"><GitBranch size={25}/> PR #42 <span>{count} commits</span></div>
+        {commits.map((item,i)=>{
+          const arrived=p(f,item.at,item.at+17);
+          const pulse=(f-item.at>=0&&f-item.at<10)?Math.sin(Math.PI*(f-item.at)/10)*6:0;
+          return <div className="v83-commit-row" key={item.hash} style={{
+            opacity:arrived,
+            transform:`translateY(${((1-arrived)*75+pulse).toFixed(1)}px) scale(${(.96+.04*arrived).toFixed(3)})`,
+          }}>
+            <span className="v83-commit-node"><Check size={23}/></span>
+            <div className="v83-commit-name"><strong>{item.label}</strong><small>{item.hash}</small></div>
+            {i===2&&f>=86&&<span className="v83-commit-new">NEW</span>}
+          </div>;
+        })}
       </div>
-      <div className="v8-incremental-rule" style={{width:(highlighted*100)+'%'}}/>
-      <div className="v8-commit-cards">
-        <div className="v8-commit-card" style={{opacity:p(f,16,27)}}><div>16 <small>UNCHANGED</small></div><span><CheckCircle2 size={29} color={C.lime}/> Retain reviewed findings</span></div>
-        <div className="v8-commit-card" style={{opacity:p(f,37,52),borderColor:C.cyan}}><div style={{color:C.cyan}}>2 <small>CHANGED</small></div><span><FileCode2 size={29} color={C.cyan}/> Review the delta</span></div>
+      <div className="v83-review-reuse">
+        <div className="v83-reuse-panel" style={move(f,78,97,28)}>
+          <span className="v83-reuse-number">16</span><div><strong>UNCHANGED</strong><small>Retain reviewed findings</small></div><CheckCircle2 size={34} color={C.lime}/>
+        </div>
+        <div className="v83-reuse-panel current" style={move(f,95,113,28)}>
+          <span className="v83-reuse-number">2</span><div><strong>CHANGED</strong><small>Review the delta</small></div><FileCode2 size={34} color={C.cyan}/>
+        </div>
       </div>
-      <div className="v8-savings" style={{opacity:p(f,65,84)}}><Zap size={33}/> No needless re-review of unchanged paths.</div>
     </div>
-    <Foot>Compatible completed snapshots (supported Codex rotating path); otherwise a safe full review. Numbers illustrative.</Foot>
+    <Foot>Compatible completed snapshots only; otherwise full review. Numbers illustrative.</Foot>
   </Scene>;
 };
 
