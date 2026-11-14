@@ -1,0 +1,99 @@
+
+/* V8: sparse, product-native editorial system. All timed motion comes from useCurrentFrame(). */
+.v8-root{position:absolute;inset:0;overflow:hidden;background:#050914;color:#f1f8ff;font-family:"RR Space",sans-serif}
+.v8-root *{box-sizing:border-box}
+.v8-ambient{position:absolute;inset:0;background:radial-gradient(ellipse 53% 65% at 88% 6%,#0d3c4a4a,transparent 67%),linear-gradient(112deg,#050914 20%,#091322 100%);pointer-events:none}
+.v8-hairline{position:absolute;left:108px;right:108px;top:136px;border-top:1px solid #67859830;pointer-events:none}
+.v8-nav{position:absolute;z-index:40;top:57px;left:108px;right:108px;display:flex;justify-content:space-between;align-items:center;color:#d6eff6}
+.v8-brand{display:flex;align-items:center;gap:16px;font-size:29px;font-weight:700;letter-spacing:-.05em}
+.v8-brand img{filter:drop-shadow(0 0 16px #93e6ff28)}
+.v8-step{font-family:"RR Mono",monospace;color:#76eef1;font-size:17px;letter-spacing:.1em}
+.v8-step span{color:#7b9caf;margin-left:11px}
+.v8-disclaimer{position:absolute;z-index:50;left:120px;right:120px;bottom:34px;text-align:center;color:#839cab;font:16px/1.35 "RR Mono",monospace;letter-spacing:.002em}
+.v8-tag{font:16px "RR Mono",monospace;letter-spacing:.045em;border:1px solid;padding:8px 13px;border-radius:999px}
+.v8-title-eyebrow{position:absolute;top:188px;left:110px;right:110px;text-align:center;color:#77e6e9;font:19px "RR Mono",monospace;letter-spacing:.16em;font-weight:700}
+.v8-title{position:absolute;top:245px;left:105px;right:105px;text-align:center;font-size:85px;line-height:1.08;font-weight:700;letter-spacing:-.065em}
+.v8-title-sub{position:absolute;top:365px;left:130px;right:130px;text-align:center;font-size:31px;color:#a6bbc8;letter-spacing:-.015em}
+.v8-center-hero{position:absolute;inset:0;display:flex;align-items:center;flex-direction:column;padding-top:237px}
+.v8-open-source{font:700 27px "RR Mono",monospace;letter-spacing:.14em;color:#a6ff9a;display:flex;gap:22px;align-items:center}
+.v8-open-dot{width:12px;height:12px;border-radius:100%;background:#a6ff9a;box-shadow:0 0 26px #a6ff9a8a}
+.v8-open-sep{color:#49677d}
+.v8-dual{display:flex;justify-content:center;align-items:center;gap:100px;margin-top:72px}
+.v8-dual>div:not(.v8-dual-divider){width:550px;text-align:center}
+.v8-dual-divider{height:285px;width:1px;background:linear-gradient(transparent,#496b7e,transparent)}
+.v8-hero-number{font-size:225px;letter-spacing:-.105em;line-height:.95;color:#76eef1;font-weight:750;font-variant-numeric:tabular-nums}
+.v8-hero-label{font:600 42px "RR Space",sans-serif;letter-spacing:-.02em;margin-top:29px}
+.v8-vs{font:22px "RR Mono",monospace;color:#aabdc7;letter-spacing:.06em;margin-top:52px}
+.v8-vs span{color:#76eef1}
+.v8-single-title{position:absolute;top:302px;left:100px;right:100px;text-align:center;font-size:112px;font-weight:720;letter-spacing:-.07em}
+.v8-signin-button{position:absolute;top:515px;left:580px;width:760px;height:126px;border-radius:17px;display:flex;align-items:center;justify-content:center;gap:27px;background:#c8f8f7;color:#071722;font-size:34px;font-weight:750;box-shadow:0 25px 80px #0008,0 0 32px #57d6e91d}
+.v8-provider-row{position:absolute;left:120px;right:120px;top:482px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px}
+.v8-provider-card{height:277px;border-radius:16px;border:1px solid #405a6c;background:#111d2d;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;transition:none}
+.v8-provider-card.v8-selected{border-color:#75ebeb;box-shadow:inset 0 -4px #75ebeb,0 0 47px #33bdd422;background:#12323a}
+.v8-provider-emblem{height:105px;width:138px;display:grid;place-items:center}
+.v8-agent-mark{width:105px;height:105px;display:grid;place-items:center;color:#edf9ff}
+.v8-agent-mark svg{width:95px!important;height:95px!important;max-width:95px!important;max-height:95px!important}
+.v8-agent-mark.v8-mimo svg{width:130px!important;height:72px!important;max-width:130px!important;max-height:72px!important}
+.v8-provider-card strong{font-size:27px;white-space:nowrap;font-weight:700;letter-spacing:-.05em}
+.v8-provider-card small{font:13px "RR Mono",monospace;white-space:nowrap;color:#a4becb;letter-spacing:.025em}
+.v8-selection-check{position:absolute;right:14px;top:13px;color:#a6ff9a}
+.v8-provider-bottom{position:absolute;left:140px;right:140px;top:810px;display:flex;justify-content:space-between;color:#8cabb9;font-size:25px}
+.v8-provider-bottom>span{display:inline-flex;align-items:center;gap:12px}
+.v8-repository{position:absolute;top:473px;left:390px;width:1140px;height:171px;border-radius:18px;border:1px solid #577485;background:#112135;display:flex;align-items:center;gap:31px;padding:0 48px;box-shadow:0 18px 85px #0008}
+.v8-repo-icon{width:87px;height:87px;border-radius:50%;border:1px solid #78d2da;background:#152d3c;display:grid;place-items:center;color:#9be9ed}
+.v8-repository small{display:block;color:#84a5b5;font:16px "RR Mono",monospace;margin-bottom:6px}
+.v8-repository strong{display:block;font-size:48px;letter-spacing:-.06em}
+.v8-repo-git{margin-left:auto;color:#a8c9d5;border:1px solid #365365;border-radius:999px;padding:14px 21px;display:flex;align-items:center;gap:10px;font:23px "RR Mono",monospace}
+.v8-progression{position:absolute;top:718px;left:295px;width:1330px;display:flex;align-items:center;flex-direction:column}
+.v8-stage{min-height:90px;text-align:center;color:#e9fafc;font-size:65px;font-weight:700;letter-spacing:-.05em}
+.v8-progressline{margin-top:39px;display:flex;gap:61px;align-items:center}
+.v8-progressline span{width:19px;height:19px;border-radius:100%}
+.v8-code{position:absolute;left:151px;right:151px;top:421px;height:373px;border:1px solid #426071;border-radius:18px;background:#0f1b2c;box-shadow:0 18px 80px #0009;overflow:hidden}
+.v8-filehead{height:60px;border-bottom:1px solid #2b4c61;display:flex;align-items:center;gap:16px;padding:0 30px;font:21px "RR Mono",monospace;color:#88dbec}
+.v8-filehead span{margin-left:auto;color:#93aebb;font-size:16px}
+.v8-lines{padding:19px 34px}
+.v8-codeline{display:flex;gap:30px;align-items:center;font:25px "RR Mono",monospace;height:54px;white-space:nowrap;letter-spacing:-.035em;padding-left:11px;border-left:4px solid transparent;color:#c2d9e5}
+.v8-codeline span{color:#6b8ca1;min-width:42px;letter-spacing:0;font-size:21px}
+.v8-codeline-focus{border-left-color:#ffc36a;background:#ffc36a20}
+.v8-finding-card{position:absolute;z-index:5;left:475px;top:775px;width:972px;min-height:191px;padding:18px 28px 19px;background:#142838;border:1px solid #78ced2;border-radius:17px;box-shadow:0 22px 90px #000a,0 0 65px #31d5e114}
+.v8-finding-head{display:flex;align-items:center;gap:17px;font-size:26px}
+.v8-finding-head .v8-tag{margin-left:auto}
+.v8-finding-main{font-size:30px;font-weight:750;display:flex;align-items:center;gap:12px;margin:7px 0 5px 57px}
+.v8-finding-explain{font-size:21px;color:#acbfca;margin:8px 0 0 57px}
+.v8-finding-fix{font-size:20px;display:flex;gap:10px;align-items:center;color:#afefb9;margin:7px 0 0 57px}
+.v8-context-pill{position:absolute;left:154px;top:829px;display:flex;gap:9px;align-items:center;padding:13px;border-radius:10px;background:#102435;border:1px solid #2b6673;color:#95c6d5;font:15px "RR Mono",monospace}
+.v8-context-pill span{color:#b2a3f7}
+.v8-incremental{position:absolute;left:265px;right:265px;top:441px}
+.v8-commit-source{width:100%;height:104px;display:flex;align-items:center;gap:27px;padding:0 42px;border:1px solid #3d6577;border-radius:14px;background:#112336}
+.v8-commit-source small{display:block;color:#81b1bf;font:16px "RR Mono",monospace}
+.v8-commit-source strong{display:block;font-size:35px}
+.v8-commit-id{margin-left:auto;font:24px "RR Mono",monospace;color:#9bbac8}
+.v8-incremental-rule{height:3px;background:linear-gradient(90deg,#00e5ff,#a6ff9a);margin:30px 0;border-radius:2px}
+.v8-commit-cards{display:grid;grid-template-columns:1fr 1fr;gap:32px}
+.v8-commit-card{height:226px;border:1px solid #426476;background:#0f1d2d;border-radius:15px;padding:28px 34px}
+.v8-commit-card>div{font-size:85px;font-weight:720;letter-spacing:-.05em;line-height:1}
+.v8-commit-card small{font:19px "RR Mono",monospace;color:#91aebc;margin-left:16px;letter-spacing:0}
+.v8-commit-card>span{display:flex;gap:12px;align-items:center;color:#d3e9f2;font-size:26px;margin-top:26px}
+.v8-savings{display:flex;align-items:center;justify-content:center;gap:15px;margin-top:49px;font-size:29px;color:#a6ffb5}
+.v8-stat-kpis{position:absolute;left:365px;right:365px;top:470px;display:grid;grid-template-columns:1fr 1fr;gap:70px;text-align:center}
+.v8-stat-kpis>div{display:flex;align-items:center;flex-direction:column;gap:4px}
+.v8-stat-kpis strong{font-size:145px;letter-spacing:-.085em;font-weight:750;font-variant-numeric:tabular-nums;line-height:1}
+.v8-stat-kpis span{font-size:33px;color:#c4dae4}
+.v8-chart{position:absolute;left:540px;right:540px;top:740px;height:163px;border-bottom:1px solid #3f6576;display:flex;align-items:end;gap:17px}
+.v8-chart>span{flex:1;min-width:0;border-radius:6px 6px 0 0}
+.v8-benchmark-grid{position:absolute;left:155px;right:155px;top:422px;display:grid;grid-template-columns:1fr 1fr;gap:42px}
+.v8-benchmark-card{height:460px;background:#102031;border:1px solid #365a6a;border-radius:18px;padding:23px 38px}
+.v8-bench-large{font-size:117px;font-weight:750;letter-spacing:-.08em;color:#76eef1;line-height:1}
+.v8-benchmark-card>strong{font-size:30px;letter-spacing:.025em}
+.v8-bench-compare{display:flex;justify-content:space-between;align-items:center;margin-top:23px;font:18px "RR Mono",monospace}
+.v8-bench-compare b{color:#a8c1cb}
+.v8-meter{height:20px;border-radius:5px;background:#1c3646;margin-top:8px;overflow:hidden}
+.v8-meter span{height:100%;background:#76eef1;display:block;border-radius:5px;min-width:2px}
+.v8-meter span.v8-baseline{background:#71839a}
+.v8-cost-note{position:absolute;left:210px;right:210px;top:918px;display:flex;justify-content:center;align-items:center;gap:15px;font-size:23px;color:#afc6cf}
+.v8-outro-brand{position:absolute;left:0;right:0;top:245px;display:flex;gap:27px;align-items:center;justify-content:center;font-size:75px;font-weight:750;letter-spacing:-.06em}
+.v8-outro-pitch{position:absolute;top:403px;left:0;right:0;text-align:center;color:#a9ffb7;font-size:51px;font-weight:600}
+.v8-deploy-choices{position:absolute;left:250px;right:250px;top:566px;display:grid;grid-template-columns:1fr 1fr;gap:45px}
+.v8-deploy-choices>div{background:#112436;border:1px solid #3d7080;border-radius:18px;height:243px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.v8-deploy-choices strong{font-size:37px}
+.v8-deploy-choices small{font:22px "RR Mono",monospace;color:#a2bdcc}
