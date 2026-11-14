@@ -516,13 +516,37 @@ describeWithDatabase.sequential(
         completed: 2,
       });
       await fixture.makeProgressDue();
+      const duePublication =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      const dueProgress =
+        await fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+        });
+      expect(duePublication.desiredVersion).toBeGreaterThan(
+        duePublication.publishedVersion,
+      );
+      expect(dueProgress.desiredVersion).toBe(duePublication.desiredVersion);
+      expect(duePublication.nextPublishAt?.getTime()).toBeLessThanOrEqual(
+        Date.now(),
+      );
+      expect(duePublication.claimUntil).toBeNull();
       const store = new PrismaReviewProgressPublicationStore(fixture.prisma);
       const stale = await store.claimNext({
         ownerIdHash: "a".repeat(64),
         now: new Date(),
         claimDurationMs: 60_000,
       });
-      if (!stale) throw new Error("review_progress_e2e_stale_claim_missing");
+      if (!stale) {
+        const deferred =
+          await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+            where: { activeExecutionId: flow.executionId },
+          });
+        throw new Error(
+          `review_progress_e2e_stale_claim_missing:${deferred.lastErrorCode ?? "not_deferred"}`,
+        );
+      }
       expect(stale.commentId).not.toBeNull();
       expect(stale.desiredVersion).toBeGreaterThan(initial.desiredVersion);
       const staleBody = formatGithubProgressComment(
