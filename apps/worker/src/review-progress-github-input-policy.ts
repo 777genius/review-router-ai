@@ -92,7 +92,7 @@ export function pullRequestIdentityViolation(
       message: "github_pull_request_repository_mismatch",
     };
   }
-  if (head.sha !== input.expectedHeadSha) {
+  if (head.sha.toLowerCase() !== input.expectedHeadSha.toLowerCase()) {
     return { kind: "stale_head", message: "github_pull_request_head_stale" };
   }
   return null;

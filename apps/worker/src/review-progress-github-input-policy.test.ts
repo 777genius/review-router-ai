@@ -69,6 +69,13 @@ describe("Review progress GitHub input policy", () => {
       base: { repo: { full_name: "example/repo" } },
     };
     expect(pullRequestIdentityViolation(pull, validInput())).toBeNull();
+    // The API returns canonical lowercase SHAs even when callers provide uppercase.
+    expect(
+      pullRequestIdentityViolation(pull, {
+        ...validInput(),
+        expectedHeadSha: "A".repeat(40),
+      }),
+    ).toBeNull();
     expect(
       pullRequestIdentityViolation(
         {
