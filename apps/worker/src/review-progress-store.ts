@@ -11,6 +11,7 @@ import {
   safeCode,
 } from "./review-progress-publication-mutation-policy";
 import {
+  buildClaimedReviewProgress,
   claimedPublicationFence,
   isPublishableGitHubRepository,
   matchesActiveProgressIdentity,
@@ -421,39 +422,6 @@ async function claimPreparedPublication(
     installation,
     claim: { claimId, ownerIdHash: input.ownerIdHash, claimUntil },
   });
-}
-
-/** Build the publication snapshot only after its claim was persisted. */
-function buildClaimedReviewProgress(input: {
-  readonly candidate: ClaimedReviewProgress["scope"];
-  readonly publication: Parameters<typeof claimPreparedPublication>[3];
-  readonly progress: Parameters<typeof claimPreparedPublication>[4];
-  readonly repository: Parameters<typeof claimPreparedPublication>[5];
-  readonly installation: Parameters<typeof claimPreparedPublication>[6];
-  readonly claim: ClaimedReviewProgress["claim"];
-}): ClaimedReviewProgress {
-  const { candidate, publication, progress, repository, installation, claim } =
-    input;
-  return {
-    scope: candidate,
-    executionId: progress.executionId,
-    generation: progress.generation,
-    headSha: progress.headSha,
-    planHash: progress.planHash,
-    desiredVersion: progress.desiredVersion,
-    publishedVersion: publication.publishedVersion,
-    commentId: publication.commentId,
-    publishedBodyHash: publication.publishedBodyHash,
-    failureCount: publication.failureCount,
-    snapshot: progress.snapshotJson,
-    terminal: progress.terminalOutcome !== null,
-    repository: {
-      owner: repository.owner,
-      name: repository.name,
-      githubInstallationId: installation.githubInstallationId,
-    },
-    claim,
-  };
 }
 
 async function deferUnavailablePublication(

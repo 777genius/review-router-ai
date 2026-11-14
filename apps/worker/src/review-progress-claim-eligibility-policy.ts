@@ -62,3 +62,51 @@ export function claimedPublicationFence(publication: ClaimedReviewProgress) {
     claimOwnerIdHash: publication.claim.ownerIdHash,
   };
 }
+
+/** Project an already-fenced publication into its immutable worker claim. */
+export function buildClaimedReviewProgress(input: {
+  readonly candidate: ClaimedReviewProgress["scope"];
+  readonly publication: Pick<
+    ClaimedReviewProgress,
+    "publishedVersion" | "commentId" | "publishedBodyHash" | "failureCount"
+  >;
+  readonly progress: Pick<
+    ClaimedReviewProgress,
+    "executionId" | "generation" | "headSha" | "planHash" | "desiredVersion"
+  > & {
+    readonly snapshotJson: unknown;
+    readonly terminalOutcome: string | null;
+  };
+  readonly repository: Pick<
+    ClaimedReviewProgress["repository"],
+    "owner" | "name"
+  >;
+  readonly installation: Pick<
+    ClaimedReviewProgress["repository"],
+    "githubInstallationId"
+  >;
+  readonly claim: ClaimedReviewProgress["claim"];
+}): ClaimedReviewProgress {
+  const { candidate, publication, progress, repository, installation, claim } =
+    input;
+  return {
+    scope: candidate,
+    executionId: progress.executionId,
+    generation: progress.generation,
+    headSha: progress.headSha,
+    planHash: progress.planHash,
+    desiredVersion: progress.desiredVersion,
+    publishedVersion: publication.publishedVersion,
+    commentId: publication.commentId,
+    publishedBodyHash: publication.publishedBodyHash,
+    failureCount: publication.failureCount,
+    snapshot: progress.snapshotJson,
+    terminal: progress.terminalOutcome !== null,
+    repository: {
+      owner: repository.owner,
+      name: repository.name,
+      githubInstallationId: installation.githubInstallationId,
+    },
+    claim,
+  };
+}
