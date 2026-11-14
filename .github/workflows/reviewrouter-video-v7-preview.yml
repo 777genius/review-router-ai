@@ -1,0 +1,72 @@
+name: ReviewRouter V8.3 — native video and visual QA
+on:
+  push:
+    branches:
+      - feat/reviewrouter-video-v7
+    paths:
+      - "artifacts/reviewrouter-video/**"
+      - ".github/workflows/reviewrouter-video-v7-preview.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  render-v83:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: artifacts/reviewrouter-video
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: artifacts/reviewrouter-video/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Prepare original product fonts and synthesized SFX
+        run: npm run prepare:v7
+      - name: Type-check all compositions
+        run: npx tsc --noEmit
+      - name: Prepare QA stills
+        run: |
+          mkdir -p out/qa
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/01-hero.png --frame=72 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/02-providers.png --frame=235 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/03-provider-reveal.png --frame=286 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/04-repositories.png --frame=338 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/05-comment-second.png --frame=488 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/06-comments-stack.png --frame=536 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/07-context-iris.png --frame=577 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/08-mcp-tools.png --frame=631 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/09-review-skills.png --frame=755 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/10-first-commit.png --frame=816 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/11-third-commit.png --frame=870 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/12-insights.png --frame=971 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/13-benchmark-reveal.png --frame=1024 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/14-benchmark.png --frame=1090 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV83 out/qa/15-outro.png --frame=1183 --concurrency=2
+      - name: Render entire 41.43-second V8.3
+        run: npm run render:v83
+      - name: Ensure ffprobe is available for media validation
+        run: |
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+      - name: Decode and assert MP4/audio properties
+        run: |
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v83.mp4
+          ffmpeg -v error -i out/reviewrouter-v83.mp4 -f null -
+          node scripts/check-v8-media.mjs out/reviewrouter-v83.mp4 1243
+      - name: Upload full native video and QA frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewrouter-v83-native-video
+          path: |
+            artifacts/reviewrouter-video/out/reviewrouter-v83.mp4
+            artifacts/reviewrouter-video/out/qa/*.png
+          retention-days: 14
+          if-no-files-found: warn

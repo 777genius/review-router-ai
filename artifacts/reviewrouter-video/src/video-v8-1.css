@@ -1,0 +1,55 @@
+
+/* ReviewRouter V8.1: UX polish without changing any earlier composition. */
+.v81-root .v8-hero-number{font-size:186px;letter-spacing:-.095em}
+.v81-root .v8-dual{gap:70px;margin-top:85px}
+.v81-root .v8-dual>div:not(.v8-dual-divider){width:575px}
+.v81-root .v8-hero-label{font-size:39px;margin-top:31px}
+.v81-free-ribbon{position:absolute;left:12px;top:9px;z-index:3;border:1px solid #a6ff9a84;border-radius:5px;background:#163b30;color:#c6ffbd;padding:7px 9px;font:700 12px "RR Mono",monospace;letter-spacing:.025em;line-height:1}
+.v81-root .v8-provider-card{overflow:hidden}
+.v81-root .v8-provider-card:has(.v81-free-ribbon) .v8-provider-emblem{margin-top:11px}
+.v81-repo-grid{position:absolute;top:431px;left:290px;right:290px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 26px}
+.v81-repo-item{height:101px;background:#102133;border:1px solid #476578;border-radius:14px;display:flex;align-items:center;gap:26px;padding:0 28px;box-shadow:0 10px 33px #0005}
+.v81-repo-item.chosen{border-color:#78e1e590;background:#122c37}
+.v81-github-mark{width:59px;height:59px;object-fit:contain;filter:invert(1);flex:none}
+.v81-repo-text{display:flex;flex-direction:column;gap:5px;flex:1}
+.v81-repo-text strong{font-size:30px;font-weight:700;letter-spacing:-.04em}
+.v81-repo-text small{font:15px "RR Mono",monospace;color:#91b3c2}
+.v81-checkbox{width:42px;height:42px;border-radius:9px;border:2px solid #7995a2;background:#0b1622;display:grid;place-items:center;color:#111f24;flex:none}
+.v81-checkbox.checked{border-color:#b1ffbb;background:#a6ff9a;box-shadow:0 0 19px #a6ff9a35}
+.v81-setup-caption{position:absolute;left:200px;right:200px;top:695px;color:#daf6f4;text-align:center;font-size:28px;font-weight:700;letter-spacing:-.018em}
+.v81-step-flow{position:absolute;top:764px;left:190px;right:190px;display:flex;align-items:flex-start;justify-content:center;gap:0}
+.v81-step{flex:none;width:232px;display:flex;align-items:center;flex-direction:column;gap:16px}
+.v81-step-circle{width:60px;height:60px;border-radius:50%;border:2px solid #4c7383;color:#a1c5d2;font:700 25px "RR Mono",monospace;background:#0f1f2d;display:grid;place-items:center}
+.v81-step.active .v81-step-circle{background:#75e9eb;color:#081921;border-color:#75e9eb;box-shadow:0 0 28px #75e9eb5e}
+.v81-step.done .v81-step-circle{background:#a6ff9a;color:#101a22;border-color:#a6ff9a}
+.v81-step-label{font-size:20px;line-height:1.2;text-align:center;color:#849fac;font-weight:600;max-width:216px}
+.v81-step.active .v81-step-label{color:#edffff}
+.v81-step.done .v81-step-label{color:#b5dfc4}
+.v81-connector{flex:0 0 48px;display:flex;align-items:center;justify-content:center;color:#45677b;margin-top:14px}
+.v81-connector.done{color:#a6ff9a}
+.v81-code{height:324px;top:399px}
+.v81-code .v8-filehead{height:57px}
+.v81-code .v8-lines{padding:13px 25px}
+.v81-code .v8-codeline{height:46px;font-size:22px}
+.v81-code .v8-codeline span{font-size:20px}
+.v81-thread-leader{position:absolute;top:0;left:0;pointer-events:none;z-index:3}
+.v81-thread{position:absolute;z-index:6;left:385px;top:739px;width:1150px;display:flex;flex-direction:column;gap:11px}
+.v81-comment{border:1px solid #45566e;border-radius:10px;background:#111b29;min-height:116px;overflow:hidden;box-shadow:0 12px 34px #0007}
+.v81-comment.critical{border-color:#e6a37090}
+.v81-comment.medium{border-color:#86bfd377}
+.v81-comment-header{height:49px;background:#1d2837;border-bottom:1px solid #36495a;display:flex;align-items:center;padding:0 18px;gap:12px;font-size:20px;color:#eff8ff}
+.v81-avatar{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#102735;border:1px solid #43677b}
+.v81-avatar img{width:32px;height:32px}
+.v81-bot{border:1px solid #768797;border-radius:8px;padding:1px 6px;font-size:15px;color:#b5c4ce}
+.v81-time{font-size:17px;color:#819aad}
+.v81-severity{margin-left:auto;border-radius:6px;padding:5px 10px;font:700 15px "RR Mono",monospace}
+.v81-severity.critical{color:#ffc3a6;border:1px solid #db845f99;background:#4b2c2599}
+.v81-severity.medium{color:#ffe0a0;border:1px solid #d8b05c99;background:#46372299}
+.v81-comment-body{min-height:65px;display:flex;align-items:center;justify-content:space-between;gap:22px;padding:8px 25px 9px 67px}
+.v81-comment-body strong{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.v81-comment-body div{display:flex;align-items:center;gap:11px}
+.v81-comment-body div span{white-space:nowrap;border-radius:999px;border:1px solid #476b79;background:#162e3b;color:#add1db;font:15px "RR Mono",monospace;padding:7px 12px}
+.v81-stat-kpis{left:190px;right:190px;grid-template-columns:repeat(3,minmax(0,1fr));gap:50px;top:478px}
+.v81-stat-kpis strong{font-size:119px}
+.v81-stat-kpis span{font-size:29px}
+.v81-chart{left:510px;right:510px;top:776px;height:143px}

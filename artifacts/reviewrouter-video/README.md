@@ -53,3 +53,104 @@ The current main-branch README and capabilities document describe OpenCodeReview
 ## Focused current cut
 
 `ReviewRouterV6` is the current edit; render it with `npm run render:latest`. Repository setup now shows one stage at a time beside the selected GitHub repository, with a large icon and a simple five-position progress line. NVIDIA appears in the same provider grid as the other choices, explicitly labelled as a free model via OpenRouter. The GitHub sign-in cursor is aligned to the button. MCP tools and review skills feed into ReviewRouter through animated paths rather than separate cards. Findings and usage remain illustrative; the benchmark remains the upstream OpenCodeReview comparison described above.
+
+## ReviewRouter V7 (greenfield visual version, isolated)
+
+V7 keeps the V6 story and demo data caveats but creates a separate nine-scene visual system. It does **not** overwrite V6. The 216-frame motion proof is an independent composition for reviewing the provider → repository → finding transition before accepting the full movie.
+
+Requirements: a checkout of this repository with Node.js, npm, and a supported browser. Run from `artifacts/reviewrouter-video`:
+
+```sh
+npm ci
+npm run prepare:v7
+npm run studio:v7
+npm run render:v7-proof
+npm run render:v7
+```
+
+- `ReviewRouterV7Proof`: 216 frames (7.2 s), 1920×1080, 30fps; output `out/reviewrouter-v7-proof.mp4`.
+- `ReviewRouterV7`: 1002 frames (33.4 s), 1920×1080, 30fps; output `out/reviewrouter-v7.mp4`.
+- `npm run render:latest` still targets V6 and must remain unchanged until V7 is explicitly accepted.
+- `scripts/prepare-v7-assets.mjs` copies the existing OFL-licensed product fonts into local `public/v7-fonts` and synthesizes three original local SFX into `public/v7-sfx`. Both generated directories are ignored by Git. The original font license is at `apps/web/app/fonts/OFL.txt`.
+- Current scene content is a **concept visualization**, not a recording of an authorized user account or an actual repository setup. Demo PR, finding and dashboard numbers are illustrative.
+- “~9.5× faster” references upstream OpenCodeReview AACR-Bench with Claude 4.6 Opus (1:23 vs 13:06). “~14.7× fewer tokens” uses 385K vs 5,664K. Neither is an independently measured ReviewRouter result. Source: https://arxiv.org/abs/2608.09290.
+- Exact high-level design decisions and four criticism/revision rounds: [V7-PRODUCTION-PLAN.md](V7-PRODUCTION-PLAN.md). Component research: [V7-DEEP-MOTION-RESEARCH.md](V7-DEEP-MOTION-RESEARCH.md).
+- Native CI artifact workflow: [reviewrouter-video-v7-preview.yml](../../.github/workflows/reviewrouter-video-v7-preview.yml). This link is illustrative from the video folder; GitHub workflow runs appear under the repository Actions tab.
+
+**Acceptance gate:** TypeScript pass, three proof frame previews, rendered 7.2-second proof, full native MP4 and manual viewing at full and half-size. A successful command alone is not sufficient. If the GitHub Actions runner is queued, that is not evidence of a passed render.
+
+## V7 Lite (revised after viewer feedback)
+
+The earlier V7 is kept for comparison. `ReviewRouterV7Lite` is an independent **minimal information** cut: providers enter two at a time, then shrink into a six-logo row; one repo setup state changes in place; one code line lights before its only reviewer comment; metrics and the benchmark are simplified. Native Remotion pulls the **real ReviewRouter logo** from `public/logo.png` and reuses exact `ProviderMark` paths from the dashboard; NVIDIA uses the CC0 Simple Icons brand mark.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run render:v7-lite-proof
+npm run render:v7-lite
+npm run studio:v7
+```
+
+- `ReviewRouterV7Lite`: 1005 frames (33.5s) at 1920×1080 / 30fps.
+- The shorter `ReviewRouterV7LiteProof` is a separate visual smoke test.
+- Static sources: `src/video-v7-lite.tsx`. Logo and brand marks are real assets, not the stylized approximations used by the optional local preview prototype.
+- The 33.5s preview MP4 supplied in ChatGPT was rendered by an offline vector compositor, **not** by the native Remotion runtime; visual quality of the native export still requires an actual CI render and human viewing.
+- No modifications to V6 or `render:latest`. This is not a claim of actual repository reviews or ReviewRouter benchmark performance.
+
+## V8 — positioning-led production cut (separate from V6/V7)
+
+V8 responds to the next editorial review: **open source and upstream 9× benchmark** first; no GitHub post-click success; all provider logos immediately with subscription/API emphasis; one code finding with context and fix; new-commit compatible snapshot optimization; benchmark time/tokens and potential cost reduction; dual hosted/self-hosted CTA. Real product logo and provider vector marks are reused, and V7 variants remain available for comparison.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v8
+npm run render:v8
+```
+
+Composition: `ReviewRouterV8`, 1920×1080, 30fps, 1020 frames (34s). MP4: `out/reviewrouter-v8.mp4`. Animation source: `src/video-v8.tsx`, styles: `src/video-v8.css`. Existing product fonts and original synth UI SFX are generated locally by `prepare:v7` (reused, no duplication).
+
+**Claim boundaries:** upstream OpenCodeReview AACR-Bench, Claude 4.6 Opus: 1:23 vs 13:06 (~9.5× faster) and 385K vs 5,664K (~14.7× fewer tokens). This is *not* a separately measured ReviewRouter result; actual paid model invoices differ by pricing, output tokens, subscription and cache. ReviewRouter's control plane itself is free and open-source with fair-use limits; providers and CI may incur costs. Self-hosted is an alternative to the hosted control plane. Snapshot reuse is conditional on compatible completed state (initially supported via Codex rotating path); no claim that every runtime skips unchanged files. Example PRs, comments, and statistics are fictional. Source evidence and step-by-step creative critique: `V8-POSITIONING-AND-STORYBOARD.md`.
+
+## V8.1 — UX polish and GitHub-native review comments
+
+This is a new, independent composition `ReviewRouterV81` (1020 frames, 34.0 seconds, 1920×1080 at 30fps) based on the reviewed V8 without overwriting previous cuts. See [V8.1-UX-REVISION.md](V8.1-UX-REVISION.md). Full changes: upfront **9.5× faster / 14.7× fewer tokens** (upstream engine benchmark), FREE MODELS banners on OpenRouter and NVIDIA (via OpenRouter), four checkbox repositories with real GitHub marks, visible connected setup steps, GitHub-style bot threads with original ReviewRouter logo and CRITICAL/MEDIUM, sample **2.84M known tokens** in Insights, and a shared provider→repository motion bridge. All demo data is illustrative; not proof of ReviewRouter's independent measured cost or specific customer use. Free service control plane does not include every third-party model's costs.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v81
+npm run render:v81
+```
+
+Source: `src/video-v8-1.tsx` and `src/video-v8-1.css` (imports existing brand assets, provider marks and earlier motion styling). CI renders the full native video and exports 9 stills. Native media claim requires inspecting the actual file, not a mock vector rendition. No changes to `ReviewRouterV8`, V6/V7 or `render:latest`.
+
+## V8.2: MCP, review skills and motion polish
+
+New independent `ReviewRouterV82` composition (1243 frames / 41.43s, 1920×1080 at 30fps). V6, V7, V7Lite, V8 and V8.1 remain registered and renderable. It removes the two decorative SVG bridges, renames the KPI to **Tokens used**, adds genuine Claude marks to hero/benchmark, grows a three-comment GitHub bot stack from one CRITICAL to two MEDIUM messages, removes the duplicate top-left brand/header from final CTA, and adds dedicated, clear MCP and review-skills scenes.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v82
+npm run render:v82
+```
+
+Examples are illustrative: Sentry (production errors), Context7 (current API docs), **Custom HTTPS MCP**; review skills are repository-scoped Markdown instructions such as **No breaking API changes**, **Keep changes small**, **Security & edge cases**. Remote MCP is limited to approved HTTPS tools and compatible execution profiles. Review skills also require a compatible profile. Nothing is auto-connected. This does not promise that all subscription/CI/model bills are zero.
+
+Design and checks: [V8.2-MOTION-AND-MCP-PLAN.md](V8.2-MOTION-AND-MCP-PLAN.md). Native E2E workflow builds all 11 scenes, renders and inspects actual H.264/AAC. Full MP4 is the deliverable; contact sheet and GIF are supporting previews.
+
+## V8.3 — meaningful transition grammar, growing comment and commit lists
+
+Adds **ReviewRouterV83**, a separate 1243-frame (41.43s), 1920×1080 30fps Remotion composition. Keeps V6 through V8.2 intact; **does not** repoint `render:latest`. Full technical plan and evidence: [V8.3-MOTION-REVISION.md](V8.3-MOTION-REVISION.md).
+
+Changes: comments physically move up to make room for each newly arriving GitHub bot comment, with a gentle landing press; "New commits" now has a three-row progressive commit history with conditional reuse results; removes the unexpected top hairline (including repository setup and final CTA) while keeping the setup-step arrows; three anchored match-cut transitions grow the next scene from a selected provider, Full context action, or Tokens used KPI. The final screen keeps **one central logo only**.
+
+```bash
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v83
+npm run render:v83
+```
+
+All example repositories, findings, numbers, MCP and skills selections are illustrative. 9.5× time and 14.7× tokens refer to upstream OpenCodeReview AACR-Bench vs Claude Code with Claude 4.6 Opus, not an independently measured ReviewRouter SaaS speed/cost figure. Free ReviewRouter control plane may still incur third-party model/API/CI charges. Incremental snapshot reuse is conditional on a compatible runtime.
