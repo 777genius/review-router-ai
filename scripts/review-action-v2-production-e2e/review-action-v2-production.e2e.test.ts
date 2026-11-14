@@ -532,7 +532,14 @@ describeWithDatabase.sequential(
         Date.now(),
       );
       expect(duePublication.claimUntil).toBeNull();
-      const store = new PrismaReviewProgressPublicationStore(fixture.prisma);
+      // Match the production publisher's repository cohort, not all pending rows.
+      const repository = await fixture.prisma.repositoryConnection.findUniqueOrThrow({
+        where: { id: fixture.repositoryConnectionId },
+        select: { fullName: true },
+      });
+      const store = new PrismaReviewProgressPublicationStore(fixture.prisma, {
+        allowedRepositoryFullNames: new Set([repository.fullName.toLowerCase()]),
+      });
       const claimAt = new Date();
       const stale = await store.claimNext({
         ownerIdHash: "a".repeat(64),
@@ -555,24 +562,28 @@ describeWithDatabase.sequential(
           ORDER BY "nextPublishAt", "updatedAt"
           LIMIT 3
         `;
+        const expectedDue =
+          deferred.desiredVersion > deferred.publishedVersion &&
+          deferred.nextPublishAt !== null &&
+          deferred.nextPublishAt <= claimAt &&
+          (deferred.claimUntil === null || deferred.claimUntil <= claimAt);
+        const expectedIdentity =
+          dueProgress.generation === deferred.activeGeneration &&
+          dueProgress.headSha === deferred.activeHeadSha &&
+          dueProgress.planHash === deferred.activePlanHash &&
+          dueProgress.desiredVersion === deferred.desiredVersion;
         throw new Error(
           `review_progress_e2e_stale_claim_missing:${JSON.stringify({
             lastErrorCode: deferred.lastErrorCode ?? "not_deferred",
-            expectedDue: deferred.desiredVersion > deferred.publishedVersion &&
-              deferred.nextPublishAt !== null &&
-              deferred.nextPublishAt <= claimAt &&
-              (deferred.claimUntil === null || deferred.claimUntil <= claimAt),
-            expectedIdentity:
-              dueProgress.generation === deferred.activeGeneration &&
-              dueProgress.headSha === deferred.activeHeadSha &&
-              dueProgress.planHash === deferred.activePlanHash &&
-              dueProgress.desiredVersion === deferred.desiredVersion,
+            expectedDue,
+            expectedIdentity,
             dueCandidateIsTarget:
               dueCandidates[0]?.activeExecutionId === flow.executionId,
             dueCandidateCount: dueCandidates.length,
           })}`,
         );
       }
+      expect(stale.executionId).toBe(flow.executionId);
       expect(stale.commentId).not.toBeNull();
       expect(stale.desiredVersion).toBeGreaterThan(initial.desiredVersion);
       const staleBody = formatGithubProgressComment(
