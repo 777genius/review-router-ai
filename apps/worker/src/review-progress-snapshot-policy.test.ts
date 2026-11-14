@@ -126,6 +126,27 @@ describe("Review progress snapshot policy", () => {
       { ...counts, cancelled: 1, running: 0 },
       { ...counts, retrying: 2 },
       { ...counts, recovered: 2 },
+      {
+        ...counts,
+        total: 3,
+        requiredCompleted: 0,
+        optionalTotal: 1,
+        optionalCompleted: 1,
+        exhausted: 1,
+        running: 0,
+        pending: 1,
+      },
+      {
+        ...counts,
+        total: 3,
+        completed: 0,
+        requiredCompleted: 0,
+        optionalTotal: 1,
+        exhausted: 1,
+        cancelled: 1,
+        running: 0,
+        pending: 1,
+      },
     ]) {
       expect(() =>
         parseSnapshot({ ...validSnapshot, counts: invalid }),
@@ -142,7 +163,8 @@ describe("Review progress snapshot policy", () => {
       exhausted: 1,
     };
     expect(
-      parseSnapshot({ ...validSnapshot, counts: withOptionalExhaustion }).counts,
+      parseSnapshot({ ...validSnapshot, counts: withOptionalExhaustion })
+        .counts,
     ).toBe(withOptionalExhaustion);
 
     const withOptionalCancellation = {
