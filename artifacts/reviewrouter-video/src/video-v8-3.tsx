@@ -83,7 +83,7 @@ const PROVIDERS = [
   {name:'MiMo',id:'mimo',tag:'TOKEN PLAN'},
   {name:'OpenRouter',id:'openrouter',tag:'API KEY'},
   {name:'Kimi Code',id:'kimi',tag:'API KEY'},
-  {name:'NVIDIA',id:'nvidia',tag:'VIA OPENROUTER'},
+  {name:'NVIDIA Build',id:'nvidia',tag:'API KEY'},
 ] as const;
 const ProviderGlyph:React.FC<{id:typeof PROVIDERS[number]['id']}>=({id})=>
   id==='nvidia'?<svg viewBox="0 0 24 24" width="92" height="92" fill="#76B900"><path d={NVIDIA_LOGO}/></svg>
@@ -102,7 +102,7 @@ const Providers:React.FC=()=>{
       </div>)}
     </div>
     <div className="v8-provider-bottom"><span style={move(f,10,25)}>Use your subscription or API key</span><span style={{...move(f,72,87),color:C.cyan}}>Codex selected <Check size={24}/></span></div>
-    <Foot>NVIDIA free model availability via OpenRouter can vary. More providers may be added.</Foot>
+    <Foot>NVIDIA Build and OpenRouter free model availability depends on each provider and account.</Foot>
   </Scene>;
 };
 
