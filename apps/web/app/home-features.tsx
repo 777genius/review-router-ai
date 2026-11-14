@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { LogoMark } from "./logo-mark";
+import { ProviderMark } from "./dashboard/provider-logo";
 
 const chartBars = [24, 36, 31, 47, 42, 64, 51, 56, 44, 72, 59, 68, 55, 81, 71, 86, 75, 92] as const;
 
@@ -116,9 +117,9 @@ export function HomeFeatures(): React.ReactElement {
             <h3>Bring your own AI.</h3>
             <p>Use a supported subscription or API key. Pick the review rules.</p>
             <div className="rr-home-insights__provider-labels">
-              <span><img src="/service-icons/claude.svg" alt="" /> Claude</span>
-              <span>Codex</span>
-              <span>OpenRouter</span>
+              <span><ProviderMark providerId="anthropic" /> Claude</span>
+              <span><ProviderMark providerId="openai" /> Codex</span>
+              <span><ProviderMark providerId="openrouter" /> OpenRouter</span>
             </div>
             <div className="rr-home-insights__choice-bottom">
               <CheckCircle2 size={16} aria-hidden="true" />
