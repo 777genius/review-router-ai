@@ -6,7 +6,7 @@ import { chromium } from "playwright-core";
 const dir="tmp/landing-visual-qa", port=3187, url="http://127.0.0.1:3187";
 const shots=[], errors=[], logs=[];
 await mkdir(dir,{recursive:true});
-const child=spawn("pnpm",["--filter","@reviewrouter/web","exec","next","dev","--hostname","127.0.0.1","-p",String(port)],{
+const child=spawn("pnpm",["--filter","@reviewrouter/web","exec","next","dev","--webpack","--hostname","127.0.0.1","-p",String(port)],{
  env:{...process.env,NEXT_TELEMETRY_DISABLED:"1",NEXTAUTH_URL:url,REVIEW_ROUTER_WEB_URL:url,REVIEW_ROUTER_PUBLIC_WEB_URL:url},
  stdio:["ignore","pipe","pipe"]
 });
@@ -20,7 +20,7 @@ try{
    try{if((await fetch(url)).ok){ready=true;break}}catch{}
    await delay(400);
  }
- if(!ready)throw Error("Homepage startup timeout");
+ if(!ready)throw Error("Homepage startup timeout. Last Next output:\\n"+logs.join("").slice(-6000));
  browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
  for(const theme of ["dark","light"])for(const width of [1440,768,390]){
    const ctx=await browser.newContext({viewport:{width,height:width===390?844:900},deviceScaleFactor:1,reducedMotion:"reduce",colorScheme:theme});
