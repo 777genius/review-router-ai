@@ -186,6 +186,61 @@ const Finding:React.FC=()=>{
   </Scene>;
 };
 
+/** Approved HTTPS MCP tools are optional and profile-bound, not automatic. */
+const MCPTools:React.FC=()=>{
+  const f=useCurrentFrame();
+  const examples=[
+    {name:'Sentry',detail:'Production errors',icon:Bug,at:15,checked:33},
+    {name:'Context7',detail:'API & library docs',icon:BookOpen,at:38,checked:55},
+  ] as const;
+  return <Scene scene={6} name="MCP TOOLS">
+    <ChapterTitle eyebrow="OPTIONAL REVIEW CONTEXT" title="Bring your MCP tools." sub="Connect what your reviewer needs."/>
+    <div className="v82-mcp-list">
+      {examples.map((item)=>{
+        const Icon=item.icon,selected=f>=item.checked;
+        return <div key={item.name} className={'v82-mcp-row'+(selected?' selected':'')}
+          style={move(f,item.at,item.at+14,23)}>
+          <span className="v82-mcp-icon"><Icon size={37}/></span>
+          <div><strong>{item.name}</strong><small>{item.detail}</small></div>
+          <span className={'v82-mcp-check'+(selected?' selected':'')}>{selected?<Check size={27}/>:null}</span>
+        </div>;
+      })}
+      <div className="v82-mcp-row v82-custom" style={move(f,66,83,20)}>
+        <span className="v82-mcp-icon"><Plus size={39}/></span>
+        <div><strong>Your MCP server</strong><small>Custom HTTPS endpoint</small></div>
+        <span className="v82-add-label">+ Add</span>
+      </div>
+    </div>
+    <Foot>Example connections only. HTTPS tools require approval and a compatible review profile.</Foot>
+  </Scene>;
+};
+
+/** Review skills are repository-assigned Markdown instructions, not executable scripts. */
+const ReviewSkills:React.FC=()=>{
+  const f=useCurrentFrame();
+  const choices=[
+    {name:'No breaking API changes',at:15,check:33},
+    {name:'Keep changes small',at:39,check:56},
+    {name:'Security & edge cases',at:63,check:79},
+  ] as const;
+  return <Scene scene={7} name="REVIEW SKILLS">
+    <ChapterTitle eyebrow="YOUR REVIEW RULES" title="Choose review skills." sub="Practical instructions for your repositories."/>
+    <div className="v82-skill-list">
+      {choices.map(row=>{
+        const checked=f>=row.check;
+        return <div key={row.name} className={'v82-skill-row'+(checked?' active':'')}
+          style={move(f,row.at,row.at+14,20)}>
+          <span className="v82-skill-mark"><FileCheck2 size={36}/></span>
+          <strong>{row.name}</strong>
+          <span className={'v82-skill-check'+(checked?' checked':'')}>{checked?<Check size={27}/>:null}</span>
+        </div>;
+      })}
+    </div>
+    <div className="v82-skill-caption" style={{opacity:p(f,85,101)}}><ListChecks size={23}/> Versioned SKILL.md · assigned to your repo</div>
+    <Foot>Illustrative Markdown review instructions; availability depends on the review profile.</Foot>
+  </Scene>;
+};
+
 const Incremental:React.FC=()=>{
   const f=useCurrentFrame();
   const highlighted = p(f,29,47);
