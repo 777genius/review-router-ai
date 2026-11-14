@@ -25,7 +25,7 @@ assertIncludes(dashboard.html, "ReviewRouter", "dashboard missing product");
 assertIncludesAny(
   dashboard.html,
   [
-    "Free privacy-first",
+    "Your model. Your budget.",
     "Manage repository review rollout",
     "ReviewRouter is a metadata control plane",
     "ReviewRouter is an open-source metadata control plane",
@@ -159,7 +159,7 @@ const setupPrDashboardNotice = await fetchHtml(
 assertIncludesAny(
   setupPrDashboardNotice.html,
   [
-    "Free privacy-first",
+    "Your model. Your budget.",
     "Manage repository review rollout",
     "ReviewRouter is a metadata control plane",
     "ReviewRouter is an open-source metadata control plane",
@@ -177,7 +177,7 @@ const syncDashboardNotice = await fetchHtml("/dashboard?notice=sync_requested");
 assertIncludesAny(
   syncDashboardNotice.html,
   [
-    "Free privacy-first",
+    "Your model. Your budget.",
     "Manage repository review rollout",
     "ReviewRouter is a metadata control plane",
     "ReviewRouter is an open-source metadata control plane",
