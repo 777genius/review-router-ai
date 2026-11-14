@@ -533,12 +533,14 @@ describeWithDatabase.sequential(
       );
       expect(duePublication.claimUntil).toBeNull();
       // Match the production publisher's repository cohort, not all pending rows.
-      const repository = await fixture.prisma.repositoryConnection.findUniqueOrThrow({
-        where: { id: fixture.repositoryConnectionId },
-        select: { fullName: true },
-      });
+      const repository =
+        await fixture.prisma.repositoryConnection.findUniqueOrThrow({
+          where: { id: fixture.repositoryConnectionId },
+          select: { fullName: true },
+        });
+      const repositoryName = repository.fullName.toLowerCase();
       const store = new PrismaReviewProgressPublicationStore(fixture.prisma, {
-        allowedRepositoryFullNames: new Set([repository.fullName.toLowerCase()]),
+        allowedRepositoryFullNames: new Set([repositoryName]),
       });
       const claimAt = new Date();
       const stale = await store.claimNext({
