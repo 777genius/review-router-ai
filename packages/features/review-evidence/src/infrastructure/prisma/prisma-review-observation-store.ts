@@ -405,6 +405,7 @@ const decodableQualityFlags = {
   [ReviewObservationQualityFlag.LowConfidence]: true,
   [ReviewObservationQualityFlag.ProviderWarning]: true,
   [ReviewObservationQualityFlag.ContextInspectionIncomplete]: true,
+  [ReviewObservationQualityFlag.UnverifiedNativeSpan]: true,
   [ReviewObservationQualityFlag.ContextAttestationUnavailable]: true,
   [ReviewObservationQualityFlag.CrossRevisionReuseDisabled]: true,
   [ReviewObservationQualityFlag.InvestigationFindings]: true,

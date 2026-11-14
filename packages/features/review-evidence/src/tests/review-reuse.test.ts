@@ -95,6 +95,8 @@ describe("ReviewReuseEligibilityPolicy", () => {
         providerKind: ReviewProviderKind.Ocr,
         qualityFlags: [
           ReviewObservationQualityFlag.ContextInspectionIncomplete,
+          ReviewObservationQualityFlag.ProviderWarning,
+          ReviewObservationQualityFlag.UnverifiedNativeSpan,
         ],
       }),
       target({ manifest: ocrManifest }),
@@ -384,6 +386,13 @@ describe("ReviewReuseEligibilityPolicy", () => {
   it("selects deterministically and permits one observation per vote identity", () => {
     const targetFacts = target();
     const candidates = [
+      observation({
+        observationId: "observation-native-span",
+        attemptId: "attempt-native-span",
+        createdAtMs: nowMs + 4,
+        qualityFlags: [ReviewObservationQualityFlag.UnverifiedNativeSpan],
+        payloadHash: hash("4"),
+      }),
       observation({
         observationId: "observation-warning",
         attemptId: "attempt-warning",

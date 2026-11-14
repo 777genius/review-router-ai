@@ -144,6 +144,7 @@ describeWithDatabase("Prisma review evidence observations", () => {
       ReviewObservationQualityFlag.ContextInspectionIncomplete,
       ReviewObservationQualityFlag.ContextAttestationUnavailable,
       ReviewObservationQualityFlag.CrossRevisionReuseDisabled,
+      ReviewObservationQualityFlag.UnverifiedNativeSpan,
     ] as const;
     const current = candidate("evidence-observation-quality-flags", {
       attemptId: "attempt-quality-flags",
