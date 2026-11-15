@@ -501,8 +501,7 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(
       fixture.calls.filter(
         ({ route }) =>
-          route ===
-          "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
       ),
     ).toHaveLength(1);
     expect(
