@@ -47,6 +47,23 @@ try{
      const name="homepage-"+theme+"-"+width+".png";
      await page.screenshot({path:dir+"/"+name,fullPage:true,animations:"disabled"});
      shots.push(name);console.log("CAPTURED "+name);
+     // When the workspace sidebar disappears below 800px, the dashboard content
+     // must occupy the entire grid. Horizontal overflow alone misses a blank
+     // second column with all insights compressed into a 165px sidebar track.
+     if(width<=800){
+       const layout=await page.locator('[aria-label="Illustrative dashboard interface"]').evaluate(el=>{
+         const body=el.querySelector('[class*="dashboardBody"]');
+         const main=el.querySelector('[class*="dashboardMain"]');
+         const bars=el.querySelector('[class*="chartBars"]');
+         return {
+           bodyWidth:body?.getBoundingClientRect().width??0,
+           mainWidth:main?.getBoundingClientRect().width??0,
+           chartWidth:bars?.getBoundingClientRect().width??0,
+         };
+       });
+       if(!layout.bodyWidth||layout.mainWidth<layout.bodyWidth-2||layout.chartWidth<240)
+         throw Error("Dashboard preview collapsed: "+JSON.stringify(layout));
+     }
      const major=page.getByRole("button",{name:"Preview Major finding"});
      await major.click();
      if((await major.getAttribute("aria-pressed"))!=="true")throw Error("Severity click failed");
