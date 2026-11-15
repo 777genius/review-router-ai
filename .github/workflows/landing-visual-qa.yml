@@ -70,8 +70,13 @@ jobs:
         run: pnpm --dir packages/platform/db db:migrate:deploy
       - name: Capture actual Next screenshots
         run: node scripts/landing-visual-qa.mjs
+      # Workspace exports select dist/ under the production condition. Compile the
+      # web app's real package dependencies before testing a production bundle.
+      # Keep this scoped to the web dependency graph, not the unrelated API/worker.
       - name: Build production Next app (Webpack aliases)
-        run: pnpm --filter @reviewrouter/web exec next build --webpack
+        run: |
+          pnpm exec turbo run build --filter='@reviewrouter/web^...' --concurrency=2
+          pnpm --filter @reviewrouter/web exec next build --webpack
       - name: Archive screenshots and QA receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
