@@ -111,11 +111,8 @@ export class ReviewProgressGitHubGateway {
     } catch (error) {
       const classified = this.classify(error, "github_unavailable");
       if (classified.metadata.status === 404) {
-        throw failure(
-          "pagination_inconclusive",
-          "github_known_progress_comment_missing",
-          true,
-        );
+        // The completed PR scan remains authoritative after a known ID is deleted.
+        return scanned;
       }
       throw classified;
     }

@@ -518,15 +518,35 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
-  it("fails closed when the omitted known comment cannot be verified", async () => {
+  it("recreates progress after a known comment was deleted", async () => {
     const fixture = githubFixture([], { listedComments: [] });
     await expect(
       gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),
-    ).rejects.toMatchObject({
-      kind: "pagination_inconclusive",
-      metadata: { retryable: true },
+    ).resolves.toEqual({
+      commentId: 100,
+      operation: "created",
+      duplicateCommentIds: [],
     });
-    expect(mutations(fixture.calls)).toEqual([]);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+    ]);
+  });
+
+  it("updates the scanned canonical when a known ID was deleted", async () => {
+    const canonical = { id: 4, body: `older\n${marker}` };
+    const fixture = githubFixture([canonical], {
+      listedComments: [canonical],
+    });
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),
+    ).resolves.toEqual({
+      commentId: 4,
+      operation: "updated",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
   });
 
   it("ignores foreign known ID when target has a canonical", async () => {
