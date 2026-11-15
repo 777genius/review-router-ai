@@ -129,8 +129,13 @@ export class ReviewProgressGitHubGateway {
         false,
       );
     }
-    const expectedIssueUrl =
-      `https://api.github.com/repos/${input.owner}/${input.repo}/issues/${input.pullNumber}`;
+    const expectedIssueUrl = [
+      "https://api.github.com/repos",
+      input.owner,
+      input.repo,
+      "issues",
+      input.pullNumber,
+    ].join("/");
     if (issueUrl.toLowerCase() !== expectedIssueUrl.toLowerCase()) {
       return scanned;
     }

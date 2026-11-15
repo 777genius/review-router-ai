@@ -534,9 +534,7 @@ describe("ReviewProgressGitHubGateway", () => {
 
   it("updates the scanned canonical when a known ID was deleted", async () => {
     const canonical = { id: 4, body: `older\n${marker}` };
-    const fixture = githubFixture([canonical], {
-      listedComments: [canonical],
-    });
+    const fixture = githubFixture([canonical], { listedComments: [canonical] });
     await expect(
       gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),
     ).resolves.toEqual({

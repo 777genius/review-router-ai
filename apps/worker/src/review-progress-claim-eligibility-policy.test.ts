@@ -28,7 +28,7 @@ describe("Review progress claim eligibility policy", () => {
   });
 
   it("binds untrusted repository names without injecting SQL", () => {
-    const injectedName = "acme/repo'); DELETE FROM \"RepositoryConnection\"; --";
+    const injectedName = 'acme/repo\'); DELETE FROM "RepositoryConnection"; --';
     const predicate = repositoryCohortPredicate(new Set([injectedName]));
     expect(predicate.values).toEqual([injectedName]);
     expect(predicate.strings.join(" ")).not.toContain(injectedName);
