@@ -170,7 +170,7 @@ async function requeuePublishedScopeAfterClaimLoss(
 ): Promise<void> {
   // Requeue without changing desiredVersion, invalidating any active claim
   // so a delayed settlement cannot silently erase the repair.
-  await prisma.$executeRaw(Prisma.sql`
+  const repairSql = Prisma.sql`
         UPDATE "ReviewProgressPublicationV1"
         SET "publishedVersion" = CASE
               WHEN "publishedVersion" = "desiredVersion"
@@ -187,7 +187,22 @@ async function requeuePublishedScopeAfterClaimLoss(
           AND "repositoryConnectionId" = ${scope.repositoryConnectionId}
           AND "scmRepositoryIdentityId" = ${scope.scmRepositoryIdentityId}
           AND "pullRequestNumber" = ${scope.pullRequestNumber}
-      `);
+      `;
+  try {
+    await prisma.$executeRaw(repairSql);
+  } catch (error) {
+    if (!isSerializableRepairConflict(error)) throw error;
+    await prisma.$executeRaw(repairSql);
+  }
+}
+
+function isSerializableRepairConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2034"
+  );
 }
 
 /** Persist retry and installation cooldown inside the same transaction. */

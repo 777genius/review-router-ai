@@ -62,6 +62,30 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     ]);
   });
 
+  it("retries a transient stale scope repair after a write conflict", async () => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const repair = vi.fn(async (_query: unknown) => 1);
+    repair.mockRejectedValueOnce(
+      Object.assign(new Error("transient_conflict"), { code: "P2034" }),
+    );
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
+    } as never);
+
+    await expect(
+      store.complete({
+        publication: claimed(),
+        commentId: 42n,
+        bodyHash: "c".repeat(64),
+        now,
+      }),
+    ).resolves.toBe(false);
+    expect(updateMany).toHaveBeenCalledOnce();
+    expect(repair).toHaveBeenCalledTimes(2);
+    expect(repair.mock.calls[0]?.[0]).toBe(repair.mock.calls[1]?.[0]);
+  });
+
   it("skips stale no-write repair without clearing newer claims", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const repair = vi.fn(async () => 1);
