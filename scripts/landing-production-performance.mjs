@@ -63,6 +63,8 @@ try {
           } catch { /* Optional browser observers. */ }
         }, theme);
         const page = await context.newPage();
+        const pageErrors = [];
+        page.on("pageerror", (error) => pageErrors.push(error.message));
         const response = await page.goto(url, { waitUntil: "load", timeout: 60000 });
         if (!response?.ok()) throw Error(`Production homepage HTTP ${response?.status()}`);
         await page.locator('[aria-label="Illustrative AI review preview"][data-interactive-ready="true"]').waitFor({ timeout: 30000 });
@@ -74,6 +76,7 @@ try {
           const resources = performance.getEntriesByType("resource");
           const v = window.__landingVitals;
           return {
+            resolvedTheme: document.documentElement.getAttribute("data-theme"),
             ttfbMs: navigation?.responseStart - navigation?.requestStart,
             domContentLoadedMs: navigation?.domContentLoadedEventEnd,
             loadMs: navigation?.loadEventEnd,
@@ -86,6 +89,8 @@ try {
             horizontalOverflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 2,
           };
         });
+        if (result.resolvedTheme !== theme) throw Error(`Production theme mismatch: expected ${theme}, got ${result.resolvedTheme}`);
+        if (pageErrors.length) throw Error(`Production browser JavaScript errors: ${pageErrors.join(" | ")}`);
         samples.push({ theme, width, ...result });
         console.log(`PRODUCTION_PERFORMANCE ${theme}/${width} ${JSON.stringify(result)}`);
         if (!Number.isFinite(result.ttfbMs) || result.ttfbMs < 0 ||
