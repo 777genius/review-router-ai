@@ -484,11 +484,53 @@ describe("ReviewProgressGitHubGateway", () => {
     ]);
   });
 
+  it("recovers an owned known comment omitted by a shifted page scan", async () => {
+    const known = { id: 9, body: `known\\n${marker}` };
+    const duplicate = { id: 4, body: `older\\n${marker}` };
+    const fixture = githubFixture([known, duplicate], {
+      listedComments: [duplicate],
+    });
+
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 9 }),
+    ).resolves.toEqual({
+      commentId: 9,
+      operation: "updated",
+      duplicateCommentIds: [4],
+    });
+    expect(
+      fixture.calls.filter(({ route }) =>
+        route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+      ),
+    ).toHaveLength(1);
+    expect(mutations(fixture.calls).map(({ route, parameters }) => ({
+      route,
+      comment_id: parameters.comment_id,
+    }))).toEqual([{
+      route: "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+      comment_id: 9,
+    }]);
+  });
+
+  it("fails closed when the omitted known comment cannot be verified", async () => {
+    const fixture = githubFixture([], { listedComments: [] });
+    await expect(
+      gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("ignores foreign known ID when target has a canonical", async () => {
     const foreign = { id: 900, body: `foreign\n${marker}` };
     const target = { id: 4, body: `target\n${marker}` };
     const fixture = githubFixture([foreign, target], {
       listedComments: [target],
+      commentIssueUrls: {
+        900: "https://api.github.com/repos/foreign/repo/issues/99",
+      },
     });
 
     await expect(
@@ -508,7 +550,12 @@ describe("ReviewProgressGitHubGateway", () => {
 
   it("creates on target PR when known ID is foreign", async () => {
     const foreign = { id: 900, body: `foreign\n${marker}` };
-    const fixture = githubFixture([foreign], { listedComments: [] });
+    const fixture = githubFixture([foreign], {
+      listedComments: [],
+      commentIssueUrls: {
+        900: "https://api.github.com/repos/foreign/repo/issues/99",
+      },
+    });
 
     await expect(
       gateway(fixture.request).upsert({ ...input(), knownCommentId: 900 }),
@@ -1242,6 +1289,7 @@ function githubFixture(
     readonly throwBeforePatch?: boolean;
     readonly throwAfterPatch?: boolean;
     readonly deleteFailureId?: number;
+    readonly commentIssueUrls?: Readonly<Record<number, string>>;
     readonly listedComments?: Array<{
       id: number;
       body: string;
@@ -1299,7 +1347,14 @@ function githubFixture(
     if (route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}") {
       const comment = comments.find(({ id }) => id === parameters.comment_id);
       if (!comment) throw { status: 404 };
-      return { data: toResponseComment(comment) };
+      return {
+        data: {
+          ...toResponseComment(comment),
+          issue_url:
+            options.commentIssueUrls?.[comment.id] ??
+            "https://api.github.com/repos/acme/rocket/issues/42",
+        },
+      };
     }
     if (route === "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}") {
       const comment = comments.find(({ id }) => id === parameters.comment_id)!;

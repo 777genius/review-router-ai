@@ -74,7 +74,8 @@ export class ReviewProgressGitHubGateway {
     validateReviewProgressInput(input);
     await this.assertCurrentPullRequest(input);
     // Only comments listed under this PR can be canonical.
-    const existing = await this.findMarkedComments(input);
+    const scanned = await this.findMarkedComments(input);
+    const existing = await this.includeVerifiedKnownComment(input, scanned);
     const canonical =
       existing.find(({ id }) => id === input.knownCommentId) ?? existing[0];
     const duplicates = existing.filter(({ id }) => id !== canonical?.id);
@@ -89,6 +90,55 @@ export class ReviewProgressGitHubGateway {
       );
     }
     return this.createComment(input, desiredBody);
+  }
+
+  /** Conclusive offset scans can still miss a known comment during deletions. */
+  private async includeVerifiedKnownComment(
+    input: UpsertReviewProgressCommentInput,
+    scanned: ReviewProgressComment[],
+  ): Promise<ReviewProgressComment[]> {
+    const knownId = input.knownCommentId;
+    if (knownId === undefined || scanned.some(({ id }) => id === knownId)) {
+      return scanned;
+    }
+
+    let response: Awaited<ReturnType<ReviewProgressGitHubRequester>>;
+    try {
+      response = await this.request(
+        "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        repositoryParameters(input, { comment_id: knownId }),
+      );
+    } catch (error) {
+      const classified = this.classify(error, "github_unavailable");
+      if (classified.metadata.status === 404) {
+        throw failure(
+          "pagination_inconclusive",
+          "github_known_progress_comment_missing",
+          true,
+        );
+      }
+      throw classified;
+    }
+
+    const data = response.data;
+    if (typeof data !== "object" || data === null) {
+      throw failure("invalid_response", "github_known_comment_invalid", false);
+    }
+    const issueUrl = (data as { issue_url?: unknown }).issue_url;
+    if (typeof issueUrl !== "string") {
+      throw failure("invalid_response", "github_known_comment_issue_missing", false);
+    }
+    const expectedIssueUrl =
+      `https://api.github.com/repos/${input.owner}/${input.repo}/issues/${input.pullNumber}`;
+    if (issueUrl.toLowerCase() !== expectedIssueUrl.toLowerCase()) {
+      return scanned;
+    }
+    const known = parseCommentOrNull(data);
+    if (!known || known.id !== knownId) {
+      throw failure("invalid_response", "github_known_comment_mismatch", false);
+    }
+    if (!ownsMarker(known, input)) return scanned;
+    return [...scanned, known].sort((left, right) => left.id - right.id);
   }
 
   private async updateExistingComment(
