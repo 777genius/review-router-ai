@@ -47,7 +47,10 @@ export function HomeHero({
               target="_blank"
               rel="noopener noreferrer"
             >
-              <SourceProviderLogo provider="github" className="h-[18px] w-[18px]" />
+              <SourceProviderLogo
+                provider="github"
+                className="h-[18px] w-[18px]"
+              />
               Source code <ArrowUpRight size={14} aria-hidden="true" />
             </a>
           </div>

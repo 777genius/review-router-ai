@@ -302,7 +302,10 @@ export function HomeFeatures(): React.ReactElement {
           </article>
         </div>
         <div className="rr-home-hosting__source">
-          <SourceProviderLogo provider="github" className="h-[18px] w-[18px]" />
+          <SourceProviderLogo
+            provider="github"
+            className="h-[18px] w-[18px]"
+          />
           <span>Open source, inspectable, extensible.</span>
           <a
             href="https://github.com/777genius/review-router-ai"

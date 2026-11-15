@@ -144,11 +144,20 @@ try {
           }
         };
         await select("Commits", "Add regression tests");
-        const insightsButton = page.getByRole("button", { name: "Insights", exact: true });
+        const insightsButton = page.getByRole("button", {
+          name: "Insights",
+          exact: true,
+        });
         await insightsButton.focus();
         await page.keyboard.press("Enter");
-        await page.getByText("Known costs", { exact: true }).waitFor({ state: "visible" });
-        assert.equal(await insightsButton.getAttribute("aria-pressed"), "true", "Keyboard tab selection must work");
+        await page
+          .getByText("Known costs", { exact: true })
+          .waitFor({ state: "visible" });
+        assert.equal(
+          await insightsButton.getAttribute("aria-pressed"),
+          "true",
+          "Keyboard tab selection must work",
+        );
         await select("Findings", "Missing input validation");
         const measurements = await page.evaluate(() => ({
           documentWidth: document.documentElement.scrollWidth,
@@ -187,8 +196,14 @@ try {
           const animated = await page
             .locator(".rr-home-finding")
             .first()
-            .evaluate((element) => window.getComputedStyle(element).animationName);
-          assert.match(animated, /rr-home-stagger/, "Normal-motion finding entrance must animate");
+            .evaluate(
+              (element) => window.getComputedStyle(element).animationName,
+            );
+          assert.match(
+            animated,
+            /rr-home-stagger/,
+            "Normal-motion finding entrance must animate",
+          );
           await page.emulateMedia({ reducedMotion: "reduce" });
         }
         await page.screenshot({
