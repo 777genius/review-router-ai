@@ -50,10 +50,16 @@ try {
   while (Date.now() < deadline) {
     if (server.exitCode !== null)
       throw new Error("Next server exited: " + server.exitCode);
-    ready = await globalThis.fetch(origin).then(
-      (r) => r.ok,
-      () => false,
-    );
+    ready = await globalThis
+      .fetch(origin, {
+        signal: globalThis.AbortSignal.timeout(
+          Math.max(1, Math.min(5_000, deadline - Date.now())),
+        ),
+      })
+      .then(
+        (r) => r.ok,
+        () => false,
+      );
     if (ready) break;
     await delay(500);
   }
