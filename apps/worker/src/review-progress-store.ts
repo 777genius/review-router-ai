@@ -171,7 +171,9 @@ export class PrismaReviewProgressPublicationStore {
     return result.count === 1;
   }
 
-  async promoteSettledExecutions(input: SettledExecutionInput): Promise<number> {
+  async promoteSettledExecutions(
+    input: SettledExecutionInput,
+  ): Promise<number> {
     return promoteSettledExecutions(this.prisma, input);
   }
 }
