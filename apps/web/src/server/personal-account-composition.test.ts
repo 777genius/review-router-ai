@@ -106,7 +106,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.subscriptionProfileIds = undefined;
   h.nvidiaProfile = false;
-  h.capabilities.mockReset();
+  h.capabilities.mockReset().mockRejectedValue(
+    Object.assign(new GatewayError("safe_error", "not_dispatched"), {
+      httpStatus: 404,
+    }),
+  );
   h.actor.mockReset().mockResolvedValue({ userId: "actual-u" });
   h.workspace.mockReset().mockResolvedValue(scopeRow());
   h.db.mockReturnValue({ workspace: { findUnique: h.workspace } });
@@ -354,54 +358,68 @@ it("applies qualified model settings to existing API-key profiles as well as sub
   expect(h.control.get).not.toHaveBeenCalled();
   expect(h.control.operation).not.toHaveBeenCalled();
 });
-it("advertises personal NVIDIA enrollment only with the verified vendor capability", async () => {
-  h.subscriptionProfileIds = [];
-  h.nvidiaProfile = true;
-  const nvidiaCapability = {
-    ...glmCapability,
-    profileId: "nvidia-build-chat-apikey-v1",
-    provider: { identity: "nvidia", label: "NVIDIA Build" },
-    plan: { identity: "unknown", label: "NVIDIA trial" },
-    modelIds: ["nvidia/nemotron-3.5-super-vl-120b-a12b"],
-    models: [
+it.each([false, true])(
+  "advertises trusted NVIDIA enrollment with legacy profile configured=%s",
+  async (configured) => {
+    h.subscriptionProfileIds = undefined;
+    h.nvidiaProfile = configured;
+    const nvidiaCapability = {
+      ...glmCapability,
+      profileId: "nvidia-build-chat-apikey-v1",
+      provider: { identity: "nvidia", label: "NVIDIA Build" },
+      plan: { identity: "unknown", label: "NVIDIA trial" },
+      modelIds: ["nvidia/nemotron-3.5-super-vl-120b-a12b"],
+      models: [
+        {
+          ...glmCapability.models[0]!,
+          modelId: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+        },
+      ],
+    };
+    h.capabilities.mockResolvedValue({
+      contract: "provider-connections/v1",
+      capabilities: [nvidiaCapability],
+    });
+    await composition.productionPersonalAccounts();
+    let input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
+    expect(input.profiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: nvidiaCapability.profileId,
+          connection: expect.objectContaining({ provider: "nvidia" }),
+          availability: "enabled",
+        }),
+      ]),
+    );
+    for (const rejected of [
       {
-        ...glmCapability.models[0]!,
-        modelId: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+        ...nvidiaCapability,
+        availability: "deployment_configuration_required",
       },
-    ],
-  };
-  h.capabilities.mockResolvedValue({
-    contract: "provider-connections/v1",
-    capabilities: [nvidiaCapability],
-  });
-  await composition.productionPersonalAccounts();
-  let input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
-  expect(input.profiles).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        id: nvidiaCapability.profileId,
-        connection: expect.objectContaining({ provider: "nvidia" }),
-        availability: "enabled",
-      }),
-    ]),
-  );
-  vi.mocked(createPersonalCanonicalAccounts).mockClear();
-  h.capabilities.mockResolvedValue({
-    contract: "provider-connections/v1",
-    capabilities: [
       {
         ...nvidiaCapability,
         provider: { identity: "openrouter", label: "OpenRouter" },
       },
-    ],
-  });
-  await composition.productionPersonalAccounts();
-  input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
-  expect(
-    input.profiles.find((profile) => profile.id === nvidiaCapability.profileId)
-      ?.connection,
-  ).toBeUndefined();
-});
+      { ...nvidiaCapability, profileId: "foreign-nvidia-profile" },
+      { ...nvidiaCapability, completionInputKind: "authorization_code" },
+    ]) {
+      vi.mocked(createPersonalCanonicalAccounts).mockClear();
+      h.capabilities.mockResolvedValue({
+        contract: "provider-connections/v1",
+        capabilities: [rejected],
+      });
+      await composition.productionPersonalAccounts();
+      input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
+      const profile = input.profiles.find(
+        (row) => row.id === nvidiaCapability.profileId,
+      );
+      expect(profile?.connection).toBeUndefined();
+      if (configured)
+        expect(profile?.availability).toBe("deployment_configuration_required");
+      else expect(profile).toBeUndefined();
+    }
+  },
+);
 
 it.each([404, 403] as const)(
   "personal capability HTTP %i preserves legacy only for absent endpoint",

@@ -42,7 +42,7 @@ describe("provider setup registry", () => {
       ["openrouter", "OpenRouter"],
       ["mimo", "MiMo Token Plan"],
       ["kimi", "Kimi Code"],
-      ["nvidia", "NVIDIA Build (evaluation)"],
+      ["nvidia", "NVIDIA Build"],
       ["glm", "GLM Coding Plan"],
       ["minimax", "MiniMax M Plan"],
       ["grok", "Grok"],

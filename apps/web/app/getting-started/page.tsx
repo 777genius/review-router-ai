@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Badge, CodeBlock, LinkButton } from "@reviewrouter/ui";
+import { ProviderMark as SharedProviderMark } from "../dashboard/provider-logo";
 import { LogoMark } from "../logo-mark";
 import { createPublicPageMetadata } from "../seo";
 
@@ -672,7 +673,9 @@ function ProviderMark({
       ) : provider === "openrouter" ? (
         <OpenRouterMark />
       ) : provider === "mimo" ? (
-        <span className="font-mono text-sm font-semibold">MiMo</span>
+        <span className="[&_svg]:h-7 [&_svg]:w-9">
+          <SharedProviderMark providerId="mimo" />
+        </span>
       ) : (
         <OpenAIMark />
       )}

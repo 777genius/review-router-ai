@@ -252,3 +252,29 @@ describe("Gateway requested provider attribution", () => {
     expect(mocks.prepare.mock.calls.length).toBe(before);
   });
 });
+
+it("captures the configured NVIDIA diagnostic provider without claiming observed vendor/model", async () => {
+  mocks.prepare.mockClear();
+  const recorder = createGatewayUsageRecorder({} as never);
+  await recorder.diagnostic({
+    workspaceId: "workspace",
+    actorId: "actor",
+    bindingId: "binding",
+    invocationId: "invocation",
+    attemptId: "attempt",
+    executionRef: "execution",
+    requestRef: "request",
+    model: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+    deadline: new Date("2026-12-01T00:00:00Z"),
+  });
+  const fact = mocks.prepare.mock.calls[0]![0];
+  expect(fact.identity.provider).toBe("nvidia");
+  expect(fact.identity.requestedModel).toBe(
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  );
+  expect(fact.actualProvider).toBeNull();
+  expect(fact.actualModel).toBeNull();
+  expect(fact.state).toBe("prepared");
+  expect(fact.dispatchEffect).toBe("not_dispatched");
+});

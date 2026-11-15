@@ -134,6 +134,7 @@ export function createDashboardGatewayProbeAccess(input: {
           throw new Error("denied");
         return {
           ...tuple,
+          profileRef: profile.profileId,
           authorizationEpoch: account.authorizationEpoch,
           metadataRevision: row.connection.metadataRevision,
         };
@@ -204,6 +205,7 @@ export function createDashboardGatewayProbeAccess(input: {
         executionRef: minted.operation.result.executionRef,
         requestRef: id("request"),
         model: request.model,
+        gatewayProfileRef: original.profileRef,
         deadline: new Date(request.deadline),
       });
       return { status: 200, body: minted };
