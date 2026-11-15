@@ -144,7 +144,11 @@ try {
           }
         };
         await select("Commits", "Add regression tests");
-        await select("Insights", "Known costs");
+        const insightsButton = page.getByRole("button", { name: "Insights", exact: true });
+        await insightsButton.focus();
+        await page.keyboard.press("Enter");
+        await page.getByText("Known costs", { exact: true }).waitFor({ state: "visible" });
+        assert.equal(await insightsButton.getAttribute("aria-pressed"), "true", "Keyboard tab selection must work");
         await select("Findings", "Missing input validation");
         const measurements = await page.evaluate(() => ({
           documentWidth: document.documentElement.scrollWidth,
@@ -176,6 +180,17 @@ try {
           "The landing stylesheet must load",
         );
         assert.deepEqual(errors, [], "No browser runtime errors");
+        if (theme === "dark" && width === 1440) {
+          await page.emulateMedia({ reducedMotion: "no-preference" });
+          await select("Commits", "Add regression tests");
+          await select("Findings", "Missing input validation");
+          const animated = await page
+            .locator(".rr-home-finding")
+            .first()
+            .evaluate((element) => window.getComputedStyle(element).animationName);
+          assert.match(animated, /rr-home-stagger/, "Normal-motion finding entrance must animate");
+          await page.emulateMedia({ reducedMotion: "reduce" });
+        }
         await page.screenshot({
           path: join(outputDir, "landing-" + theme + "-" + width + ".png"),
           fullPage: true,
