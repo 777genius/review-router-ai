@@ -62,6 +62,27 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     ]);
   });
 
+  it("skips stale no-write repair without clearing newer claims", async () => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const repair = vi.fn(async () => 1);
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
+    } as never);
+
+    await expect(
+      store.complete({
+        publication: claimed(),
+        commentId: 42n,
+        bodyHash: "c".repeat(64),
+        now,
+        repairOnFenceLoss: false,
+      }),
+    ).resolves.toBe(false);
+    expect(updateMany).toHaveBeenCalledOnce();
+    expect(repair).not.toHaveBeenCalled();
+  });
+
   it.each([
     { mode: "ongoing", terminal: false, delayMs: 60_000 },
     { mode: "terminal", terminal: true, delayMs: 0 },

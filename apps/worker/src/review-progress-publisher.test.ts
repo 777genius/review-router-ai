@@ -474,6 +474,59 @@ describe("ReviewProgressPublisher", () => {
     expect(store.complete).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { operation: "duplicate_deleted", hasDuplicate: true },
+    { operation: "unchanged", hasDuplicate: false },
+  ])("ignores stale $operation repairs", async ({ hasDuplicate }) => {
+    const publication = { ...claimed(), commentId: 77n };
+    const store = fakeStore(publication);
+    store.complete.mockResolvedValue(false);
+    const canonicalBody = formatReviewProgressComment(
+      formatGithubProgressComment(progressSnapshot()),
+      githubProgressCommentMarker,
+    );
+    const comment = {
+      body: canonicalBody,
+      user: { login: "review-router[bot]" },
+    };
+    const deletedIds: number[] = [];
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) {
+          return {
+            data: [
+              { ...comment, id: 77 },
+              ...(hasDuplicate ? [{ ...comment, id: 78 }] : []),
+            ],
+          };
+        }
+        if (route.startsWith("DELETE")) {
+          deletedIds.push(Number(parameters.comment_id));
+          return { data: {} };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toMatchObject({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      failed: 0,
+    });
+    expect(deletedIds).toEqual(hasDuplicate ? [78] : []);
+    expect(store.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        commentId: 77n,
+        repairOnFenceLoss: false,
+      }),
+    );
+    expect(store.retry).not.toHaveBeenCalled();
+  });
+
   it("backs off capped scans for an hour without exhausting retries", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);

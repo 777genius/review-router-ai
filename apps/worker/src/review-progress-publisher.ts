@@ -243,6 +243,9 @@ export class ReviewProgressPublisher {
       commentId: BigInt(published.commentId),
       bodyHash,
       now: this.clock.now(),
+      repairOnFenceLoss:
+        published.operation !== "duplicate_deleted" &&
+        published.operation !== "unchanged",
     });
     if (!completed) {
       result.deferred += 1;

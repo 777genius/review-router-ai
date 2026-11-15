@@ -99,6 +99,8 @@ export class PrismaReviewProgressPublicationStore {
     readonly commentId: bigint;
     readonly bodyHash: string;
     readonly now: Date;
+    /** False when the GitHub operation did not write the canonical comment body. */
+    readonly repairOnFenceLoss?: boolean;
   }): Promise<boolean> {
     const result = await this.prisma.reviewProgressPublicationV1.updateMany({
       where: {
@@ -106,7 +108,7 @@ export class PrismaReviewProgressPublicationStore {
       },
       data: completionMutationData(input),
     });
-    if (result.count !== 1) {
+    if (result.count !== 1 && input.repairOnFenceLoss !== false) {
       // A stale GitHub PATCH may have landed after a newer publication.
       // Requeue the current scope without changing its desired version:
       // progress.desiredVersion must still match publication.desiredVersion.
