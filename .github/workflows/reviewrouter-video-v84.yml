@@ -1,4 +1,4 @@
-name: ReviewRouter V8.6 native video QA
+name: ReviewRouter V8.7 native video QA
 on:
   push:
     branches:
@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
 jobs:
-  render-v86:
+  render-v87:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     defaults:
@@ -29,36 +29,40 @@ jobs:
         run: npm run prepare:v7
       - name: TypeScript
         run: npx tsc --noEmit
-      - name: Capture 25 visual QA stills
+      - name: Capture 29 visual QA stills
         run: |
           mkdir -p out/qa
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/01-hero-start.png --frame=5 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/02-hero-count.png --frame=28 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/03-hero-final.png --frame=71 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/04-cursor-click.png --frame=144 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/05-six-plus-custom.png --frame=234 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/06-planned-endpoint.png --frame=258 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/07-repositories.png --frame=346 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/08-code-line.png --frame=441 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/09-code-unmount.png --frame=451 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/10-comment-first.png --frame=464 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/11-comment-second.png --frame=503 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/12-comment-third.png --frame=543 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/13-comments-settled.png --frame=559 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/14-mcp.png --frame=629 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/15-skills.png --frame=750 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/16-commits-total.png --frame=788 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/17-first-commit.png --frame=812 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/18-second-commit.png --frame=847 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/19-third-commit.png --frame=868 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/20-commit-fully-settled.png --frame=901 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/21-tokens.png --frame=958 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/22-benchmark-count.png --frame=1031 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/23-benchmark-final.png --frame=1102 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/24-outro-or.png --frame=1183 --concurrency=2
-          npx remotion still src/index.ts ReviewRouterV86 out/qa/25-outro-final.png --frame=1220 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/01-hero-begins.png --frame=6 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/02-counting.png --frame=26 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/03-hero-final.png --frame=72 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/04-cursor-click.png --frame=144 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/05-provider-before.png --frame=180 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/06-codex-selected.png --frame=199 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/07-codex-claude-selected.png --frame=233 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/08-first-repo-check.png --frame=302 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/09-all-selected.png --frame=319 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/10-step-complete.png --frame=346 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/11-step-final.png --frame=373 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/12-code-line.png --frame=441 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/13-code-removed.png --frame=452 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/14-first-comment.png --frame=464 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/15-second-comment.png --frame=498 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/16-three-comments.png --frame=536 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/17-finding-overhang.png --frame=570 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/18-mcp-first.png --frame=600 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/19-mcp-second.png --frame=632 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/20-skill-selected.png --frame=720 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/21-zero-commits.png --frame=787 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/22-one-commit.png --frame=802 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/23-two-commits.png --frame=831 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/24-three-commits.png --frame=861 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/25-tokens.png --frame=964 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/26-benchmark.png --frame=1050 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/27-logo-arriving.png --frame=1128 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/28-logo-pop.png --frame=1151 --concurrency=2
+          npx remotion still src/index.ts ReviewRouterV87 out/qa/29-outro.png --frame=1202 --concurrency=2
       - name: Render full V8.5 H264/AAC
-        run: npm run render:v86
+        run: npm run render:v87
       - name: Install probe if missing
         run: |
           if ! command -v ffprobe >/dev/null 2>&1; then
@@ -67,16 +71,16 @@ jobs:
           fi
       - name: Verify video and audio streams, duration, decode
         run: |
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v86.mp4
-          ffmpeg -v error -i out/reviewrouter-v86.mp4 -f null -
-          node scripts/check-v8-media.mjs out/reviewrouter-v86.mp4 1243
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=index,codec_name,width,height,avg_frame_rate -of json out/reviewrouter-v87.mp4
+          ffmpeg -v error -i out/reviewrouter-v87.mp4 -f null -
+          node scripts/check-v8-media.mjs out/reviewrouter-v87.mp4 1243
       - name: Upload complete MP4 and keyframes
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: reviewrouter-v86-native-video
+          name: reviewrouter-v87-native-video
           path: |
-            artifacts/reviewrouter-video/out/reviewrouter-v86.mp4
+            artifacts/reviewrouter-video/out/reviewrouter-v87.mp4
             artifacts/reviewrouter-video/out/qa/*.png
           retention-days: 14
           if-no-files-found: warn
