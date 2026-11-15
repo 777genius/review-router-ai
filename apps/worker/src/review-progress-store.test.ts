@@ -1122,6 +1122,35 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(publicationUpdate).toHaveBeenCalledTimes(1);
   });
 
+  it("deduplicates settlement IDs while keeping serializable transactions", async () => {
+    const transaction = vi.fn(async () => true);
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: transaction,
+    } as never);
+
+    await expect(
+      store.promoteSettledExecutions({
+        settlements: [
+          { executionId: "execution-1", outcome: "succeeded" },
+          { executionId: "execution-1", outcome: "failed" },
+          { executionId: "execution-2", outcome: "superseded" },
+        ],
+        now,
+      }),
+    ).resolves.toBe(2);
+    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Function),
+      expect.objectContaining({ isolationLevel: "Serializable" }),
+    );
+    expect(transaction).toHaveBeenNthCalledWith(
+      2,
+      expect.any(Function),
+      expect.objectContaining({ isolationLevel: "Serializable" }),
+    );
+  });
+
   it("attempts later independent settlements after a failed transaction", async () => {
     const firstFailure = new Error("first_settlement_failed");
     const transaction = vi
