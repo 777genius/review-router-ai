@@ -162,7 +162,7 @@ const PROVIDERS = [
   {name:'Custom endpoint',id:'custom',tag:''},
 ] as const;
 const ProviderGlyph:React.FC<{id:typeof PROVIDERS[number]['id']}>=({id})=>
-  id==='nvidia'?<svg viewBox="0 0 24 24" width="92" height="92" fill="#76B900"><path d={NVIDIA_LOGO}/></svg>
+  id==='custom'?null:id==='nvidia'?<svg viewBox="0 0 24 24" width="92" height="92" fill="#76B900"><path d={NVIDIA_LOGO}/></svg>
     :<div className={'v8-agent-mark '+(id==='mimo'?'v8-mimo':'')}><ProviderMark providerId={id}/></div>;
 const Providers:React.FC=()=>{
   const f=useCurrentFrame();
