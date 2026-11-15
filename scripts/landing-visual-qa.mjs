@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "playwright-core";
@@ -135,7 +135,7 @@ try{
  if(shots.length!==6)throw Error("Incomplete screenshot matrix");
 }catch(e){errors.push(String(e));console.error("Next output (tail):\n"+logs.join("").slice(-4000));throw e}
 finally{
- await writeFile(dir+"/result.json",JSON.stringify({sha:process.env.GITHUB_SHA??null,shots,errors},null,2));
+ await writeFile(dir+"/result.json",JSON.stringify({sha:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),workflowSha:process.env.GITHUB_SHA??null,shots,errors},null,2));
  await writeFile(dir+"/next.log",logs.join("").slice(-20000));
  await browser?.close();
  child.kill("SIGTERM");
