@@ -781,6 +781,9 @@
   .dashboardSidebar {
     display:none
   }
+  .dashboardBody {
+    grid-template-columns:minmax(0,1fr)
+  }
   .journey {
     grid-template-columns:repeat(3,minmax(0,1fr));
     row-gap:1.3rem
