@@ -201,3 +201,23 @@ npm run render:v86
 ```
 
 See `V8.6-UX-IMPLEMENTATION-PLAN.md` for four critique rounds and checks. The native workflow `.github/workflows/reviewrouter-video-v84.yml` now targets the latest V8.6 and exports H264/AAC 1920x1080, control frames, ffprobe and full ffmpeg decode. MP4 created by local Python/FFmpeg is a **hybrid preview**, not native Remotion validation. All displayed repositories and counts are illustrative; upstream AACR-Bench results and caveats unchanged.
+
+## V8.7 — progressive selection, comment clarity and final brand animation
+
+Independent `ReviewRouterV87` (1243 frames at 30fps, 1920×1080). Preserves V6–V8.6 and the original `render:latest`.
+
+- Provider screen selects Codex first (scene frame 36), then Claude Code / Anthropic (frame 70). All other providers remain fully visible; selected marks briefly emit deterministic local confirmation flashes.
+- The seventh `Custom endpoint` is typography-only, with no logo, greyed treatment or Planned badge. **This is a concept visualization, not evidence that arbitrary LLM provider URLs currently work.** The product uses a qualified provider registry; user-defined HTTPS MCP endpoints are a separate supported feature.
+- Checked repository rows, completed enable-review steps, MCP and review skills use the same short localized confirmation pulse.
+- Bot findings have no timestamps, consistent avatar/name/bot/severity alignment. The source code is unmounted at scene-local frame 50 and does not return while the GitHub-style comments accumulate.
+- Commit header shows `0 commits` from its opening frame and increments to 1, 2 and 3 on arrival frames 10/39/68; `2 files changed` appears when complete.
+- The real ReviewRouter logo uses a short spring pop and one soft halo on the final screen.
+
+```sh
+cd artifacts/reviewrouter-video
+npm ci
+npm run studio:v87
+npm run render:v87
+```
+
+Plan and four QA passes: [V8.7-SELECTION-POLISH-PLAN.md](V8.7-SELECTION-POLISH-PLAN.md). Workflow `.github/workflows/reviewrouter-video-v84.yml` renders V8.7 with 29 stills, H.264/AAC video, duration/stream assertions and full decode. Do not treat queued jobs as success. The chat's hybrid preview is clearly separate from exact native Remotion export.
