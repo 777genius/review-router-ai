@@ -125,6 +125,32 @@ const SignIn:React.FC=()=>{
   </Scene>;
 };
 
+/** Small localized confirmation, deterministic at any independently rendered frame. */
+const SelectionBurst:React.FC<{at:number;size?:number;color?:string}>=({at,size=64,color=C.lime})=>{
+  const f=useCurrentFrame();
+  const age=f-at;
+  if(age<0||age>=19)return null;
+  const q=Math.max(0,Math.min(1,age/18));
+  const pop=1-Math.pow(1-q,3);
+  const opacity=Math.pow(1-q,1.25)*0.86;
+  const radius=size*(0.24+0.72*pop);
+  return <svg aria-hidden="true" width={size*2} height={size*2}
+    viewBox={`0 0 ${size*2} ${size*2}`}
+    style={{position:'absolute',left:'50%',top:'50%',
+      transform:'translate(-50%,-50%)',overflow:'visible',pointerEvents:'none',zIndex:8,opacity}}>
+    <circle cx={size} cy={size} r={radius*.70} fill="none" stroke={color} strokeWidth={2.4*(1-q)} />
+    {Array.from({length:8},(_,i)=>{
+      const theta=i*Math.PI/4;
+      const a=radius*.76,b=radius*(.93+.13*pop);
+      return <line key={i}
+        x1={size+Math.cos(theta)*a} y1={size+Math.sin(theta)*a}
+        x2={size+Math.cos(theta)*b} y2={size+Math.sin(theta)*b}
+        stroke={color} strokeWidth={Math.max(.4,3*(1-q))}
+        strokeLinecap="round"/>;
+    })}
+  </svg>;
+};
+
 const NVIDIA_LOGO='M8.948 8.798v-1.43a6.7 6.7 0 0 1 .424-.018c3.922-.124 6.493 3.374 6.493 3.374s-2.774 3.851-5.75 3.851c-.398 0-.787-.062-1.158-.185v-4.346c1.528.185 1.837.857 2.747 2.385l2.04-1.714s-1.492-1.952-4-1.952a6.016 6.016 0 0 0-.796.035m0-4.735v2.138l.424-.027c5.45-.185 9.01 4.47 9.01 4.47s-4.08 4.964-8.33 4.964c-.37 0-.733-.035-1.095-.097v1.325c.3.035.61.062.91.062 3.957 0 6.82-2.023 9.593-4.408.459.371 2.34 1.263 2.73 1.652-2.633 2.208-8.772 3.984-12.253 3.984-.335 0-.653-.018-.971-.053v1.864H24V4.063zm0 10.326v1.131c-3.657-.654-4.673-4.46-4.673-4.46s1.758-1.944 4.673-2.262v1.237H8.94c-1.528-.186-2.73 1.245-2.73 1.245s.68 2.412 2.739 3.11M2.456 10.9s2.164-3.197 6.5-3.533V6.201C4.153 6.59 0 10.653 0 10.653s2.35 6.802 8.948 7.42v-1.237c-4.84-.6-6.492-5.936-6.492-5.936z';
 const PROVIDERS = [
   {name:'Codex',id:'openai',tag:'SUBSCRIPTION'},
@@ -133,27 +159,41 @@ const PROVIDERS = [
   {name:'OpenRouter',id:'openrouter',tag:'API KEY'},
   {name:'Kimi Code',id:'kimi',tag:'API KEY'},
   {name:'NVIDIA Build',id:'nvidia',tag:'API KEY'},
-  {name:'Custom endpoint',id:'custom',tag:'PLANNED'},
+  {name:'Custom endpoint',id:'custom',tag:''},
 ] as const;
 const ProviderGlyph:React.FC<{id:typeof PROVIDERS[number]['id']}>=({id})=>
-  id==='custom'?<div className="v86-custom-symbol"><PlugZap size={75} strokeWidth={1.65}/></div>
-    :id==='nvidia'?<svg viewBox="0 0 24 24" width="92" height="92" fill="#76B900"><path d={NVIDIA_LOGO}/></svg>
+  id==='nvidia'?<svg viewBox="0 0 24 24" width="92" height="92" fill="#76B900"><path d={NVIDIA_LOGO}/></svg>
     :<div className={'v8-agent-mark '+(id==='mimo'?'v8-mimo':'')}><ProviderMark providerId={id}/></div>;
 const Providers:React.FC=()=>{
   const f=useCurrentFrame();
+  const codexAt=36;
+  const claudeAt=70;
+  const selectionLabel=f>=claudeAt?'Codex + Claude Code selected':f>=codexAt?'Codex selected':'';
   return <Scene scene={3} name="YOUR AI">
     <ChapterTitle eyebrow="BRING YOUR OWN AI" title="subscription / API" sub="Use the AI you already have."/>
     <div className="v8-provider-row">
-      {PROVIDERS.map((item,i)=><div key={item.name} className={'v8-provider-card'+(i===0&&f>=62?' v8-selected':'')+(item.id==='custom'?' v86-custom-card':'')} style={{opacity:item.id==='custom'?0.66:i===0?1:f>=62?0.74:1}}>
-        {(item.id==='nvidia'||item.id==='openrouter')&&
-          <span className="v81-free-ribbon">FREE MODELS</span>}
-        {item.id==='custom'&&<span className="v86-planned-ribbon">PLANNED</span>}
-        <div className="v8-provider-emblem"><ProviderGlyph id={item.id}/></div>
-        <strong>{item.name}</strong><small>{item.tag}</small>
-        {i===0&&f>=62&&<span className="v8-selection-check"><Check size={24}/></span>}
-      </div>)}
+      {PROVIDERS.map((item,i)=>{
+        const selectedAt=i===0?codexAt:i===1?claudeAt:null;
+        const selected=selectedAt!==null&&f>=selectedAt;
+        const custom=item.id==='custom';
+        return <div key={item.name}
+          className={'v8-provider-card'+(selected?' v8-selected':'')+(custom?' v86-custom-card v87-custom-text-only':'')}
+          style={{opacity:1}}>
+          {(item.id==='nvidia'||item.id==='openrouter')&&
+            <span className="v81-free-ribbon">FREE MODELS</span>}
+          {!custom&&<div className="v8-provider-emblem"><ProviderGlyph id={item.id}/></div>}
+          <strong>{item.name}</strong>
+          {!custom&&<small>{item.tag}</small>}
+          {selected&&selectedAt!==null&&<span className="v8-selection-check">
+            <Check size={24}/><SelectionBurst at={selectedAt} size={35}/>
+          </span>}
+        </div>;
+      })}
     </div>
-    <div className="v8-provider-bottom"><span style={move(f,10,25)}>Connect an existing plan or key</span><span style={{...move(f,72,87),color:C.cyan}}>Codex selected <Check size={24}/></span></div>
+    <div className="v8-provider-bottom">
+      <span style={move(f,10,25)}>Connect an existing plan or key</span>
+      <span style={{...move(f,36,48),color:C.cyan}}>{selectionLabel}{selectionLabel&&<Check size={24}/>}</span>
+    </div>
   </Scene>;
 };
 
