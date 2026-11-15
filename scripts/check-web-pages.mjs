@@ -12,7 +12,7 @@ const setupNonceFragment = "short-lived setup nonce";
 const gettingStartedNamespaceFragment = "Server-issued versioned namespace";
 const securityNamespaceFragment = "server-issued versioned namespace";
 const commonTexts = ["ReviewRouter", "Security", "Support"];
-const landingHeroText = "Free privacy-first";
+const landingHeroText = "AI code review.";
 const githubSignInText = isGitHubAuthConfigured(process.env)
   ? "Continue with GitHub"
   : "GitHub sign-in unavailable";
@@ -23,7 +23,10 @@ const pages = [
     [
       landingHeroText,
       "AI code review",
-      "that stays inside your CI",
+      "Your models. Your rules.",
+      "9.5",
+      "14.7",
+      "Self-hosted",
       "Install GitHub App",
     ],
   ],

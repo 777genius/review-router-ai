@@ -244,7 +244,7 @@ export default function SecurityPage(): React.ReactElement {
                 to the selected provider.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <LinkButton href="/#compare" variant="soft" tone="success">
+                <LinkButton href="/compare" variant="soft" tone="success">
                   <Network aria-hidden="true" className="size-5" />
                   Compare boundary
                 </LinkButton>

@@ -18,7 +18,7 @@ const signedInPrimaryNav: readonly PrimaryNavItem[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/getting-started", label: "Guide" },
   { href: "/security", label: "Security" },
-  { href: "/#compare", activePath: "/compare", label: "Compare" },
+  { href: "/compare", activePath: "/compare", label: "Compare" },
 ] as const;
 
 const signedOutPrimaryNav = signedInPrimaryNav.filter(

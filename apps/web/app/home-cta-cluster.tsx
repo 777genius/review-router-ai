@@ -9,6 +9,7 @@ export type HomeCtaClusterProps = {
   githubHref: string;
   githubLabel: string;
   size?: "md" | "lg";
+  showGitLab?: boolean;
   className?: string;
   ctaClassName?: string;
   labelClassName?: string;
@@ -20,6 +21,7 @@ export function HomeCtaCluster({
   githubHref,
   githubLabel,
   size = "lg",
+  showGitLab = true,
   className = "",
   ctaClassName = "home-install-cta",
   labelClassName = "relative z-10 inline-flex items-center gap-2",
@@ -54,12 +56,14 @@ export function HomeCtaCluster({
           />
         </LoadingLinkButton>
       )}
-      <GitLabBetaConnectButton
-        size={size}
-        variant="solid"
-        className={`${ctaClassName} home-install-cta--gitlab`}
-        labelClassName={labelClassName}
-      />
+      {showGitLab ? (
+        <GitLabBetaConnectButton
+          size={size}
+          variant="solid"
+          className={`${ctaClassName} home-install-cta--gitlab`}
+          labelClassName={labelClassName}
+        />
+      ) : null}
     </div>
   );
 }
