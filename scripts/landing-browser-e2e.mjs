@@ -16,6 +16,7 @@ const origin = "http://127.0.0.1:" + port;
 const outputDir = join(process.cwd(), "tmp", "landing-browser-e2e");
 const results = [];
 const log = [];
+const devPreview = process.env.REVIEW_ROUTER_LANDING_E2E_DEV === "1";
 const server = spawn(
   "pnpm",
   [
@@ -23,7 +24,7 @@ const server = spawn(
     "@reviewrouter/web",
     "exec",
     "next",
-    "start",
+    ...(devPreview ? ["dev", "--webpack"] : ["start"]),
     "-H",
     "127.0.0.1",
     "-p",
