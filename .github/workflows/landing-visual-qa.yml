@@ -11,6 +11,7 @@ on:
       - "apps/web/app/layout.tsx"
       - "apps/web/app/primary-nav.tsx"
       - "scripts/landing-visual-qa.mjs"
+      - "scripts/landing-production-performance.mjs"
   workflow_dispatch:
 permissions:
   contents: read
@@ -79,6 +80,8 @@ jobs:
         run: |
           pnpm exec turbo run build --filter='@reviewrouter/web^...' --concurrency=2
           pnpm --filter @reviewrouter/web exec next build --webpack
+      - name: Measure actual production homepage performance
+        run: node scripts/landing-production-performance.mjs
       - name: Archive screenshots and QA receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
