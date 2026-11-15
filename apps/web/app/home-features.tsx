@@ -5,12 +5,13 @@ import {
   CheckCircle2,
   Cloud,
   Cpu,
-  Github,
+  GitBranch,
   KeyRound,
   Server,
   ShieldCheck,
 } from "lucide-react";
 import { LogoMark } from "./logo-mark";
+import { SourceProviderLogo } from "./source-provider-logo";
 import { ProviderMark } from "./dashboard/provider-logo";
 
 const chartBars = [
@@ -19,7 +20,7 @@ const chartBars = [
 
 const workflow = [
   {
-    icon: Github,
+    icon: GitBranch,
     number: "01",
     title: "Connect GitHub",
     description: "Install the app. Approve the setup PR.",
@@ -301,7 +302,7 @@ export function HomeFeatures(): React.ReactElement {
           </article>
         </div>
         <div className="rr-home-hosting__source">
-          <Github size={18} aria-hidden="true" />
+          <SourceProviderLogo provider="github" className="h-[18px] w-[18px]" />
           <span>Open source, inspectable, extensible.</span>
           <a
             href="https://github.com/777genius/review-router-ai"

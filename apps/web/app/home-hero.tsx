@@ -1,4 +1,5 @@
-import { ArrowUpRight, Github, RadioTower } from "lucide-react";
+import { ArrowUpRight, RadioTower } from "lucide-react";
+import { SourceProviderLogo } from "./source-provider-logo";
 import { HomeCtaCluster, type HomeCtaClusterProps } from "./home-cta-cluster";
 import { HomeVisualPreview } from "./home-visual-preview";
 
@@ -46,7 +47,7 @@ export function HomeHero({
               target="_blank"
               rel="noopener noreferrer"
             >
-              <Github size={18} aria-hidden="true" />
+              <SourceProviderLogo provider="github" className="h-[18px] w-[18px]" />
               Source code <ArrowUpRight size={14} aria-hidden="true" />
             </a>
           </div>
