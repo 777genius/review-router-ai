@@ -1,5 +1,5 @@
 import React from 'react';
-import {AbsoluteFill, Img, Sequence, Easing, interpolate, staticFile, useCurrentFrame} from 'remotion';
+import {AbsoluteFill, Img, Sequence, Easing, interpolate, spring, staticFile, useCurrentFrame} from 'remotion';
 import {Audio} from '@remotion/media';
 import {ArrowRight, Check, CheckCircle2, GitBranch, GitPullRequest, MousePointer2, ShieldCheck, CircleDollarSign, Zap, FileCode2, Layers3, Cloud, Server, LockKeyhole, AlertTriangle, PlugZap, Sparkles, Bug, BookOpen, Plus, ListChecks, FileCheck2} from 'lucide-react';
 import {ProviderMark} from './provider-logo';
@@ -278,7 +278,7 @@ const Finding:React.FC=()=>{
           <div className="v82-comment-head v86-comment-head">
             <span className="v82-avatar v86-bot-avatar"><RR size={29}/></span>
             <strong>reviewrouter</strong><span className="v82-bot">bot</span>
-            <span className="v82-comment-time">{3-i}m ago</span>
+            
             <span className={'v82-severity '+(i===0?'critical':'medium')}>{item.severity}</span>
           </div>
           <div className="v82-comment-body v86-comment-body">
@@ -364,8 +364,10 @@ const Incremental:React.FC=()=>{
       <div className="v83-commit-history">
         <div className="v83-history-title v86-history-title"><GitBranch size={25}/> PR #42
           <span className="v86-commit-count">
-            <strong>3 commits</strong>
-            <small>{count===3?'2 files changed':count+'/3 shown'}</small>
+            <strong className="v87-live-count" style={{
+              transform:'scale('+(1+.1*(count>0?Math.max(0,1-Math.abs(f-(count===1?10:count===2?39:68))/9):0)).toFixed(3)+')'
+            }}>{count} {count===1?'commit':'commits'}</strong>
+            <small style={{opacity:p(f,75,89)}}>{count===3?'2 files changed':' '}</small>
           </span>
         </div>
         {commits.map((item,i)=>{
@@ -436,7 +438,19 @@ const Benchmark:React.FC=()=>{
 const Outro:React.FC=()=>{
   const f=useCurrentFrame();
   return <Scene scene={11} name="START FREE">
-    <div className="v8-outro-brand" style={move(f,3,23,30)}><RR size={102}/> <span>ReviewRouter</span></div>
+    <div className="v8-outro-brand" style={move(f,3,23,30)}>
+      <span className="v87-bouncing-logo" style={{
+        transform:'scale(' + (0.72+0.28*spring({
+          frame:Math.max(0,f-7),fps:30,
+          config:{damping:10,stiffness:150,mass:.68},
+          durationInFrames:37,
+        })).toFixed(3) + ')',
+      }}>
+        <RR size={102}/>
+        {f>=17&&f<35&&<span className="v87-logo-pop" style={{opacity:.33*(1-(f-17)/18),transform:'scale('+(1.0+(f-17)/18*.55).toFixed(3)+')'}}/>}
+      </span>
+      <span>ReviewRouter</span>
+    </div>
     <div className="v8-outro-pitch" style={move(f,11,29)}>Free. Open source. Your control.</div>
     <div className="v8-deploy-choices">
       <div style={move(f,23,40)}><Cloud size={52} color={C.cyan}/><strong>Start online</strong><small>reviewrouter.org</small></div>
