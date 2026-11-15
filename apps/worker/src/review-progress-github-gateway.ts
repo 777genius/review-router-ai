@@ -126,7 +126,11 @@ export class ReviewProgressGitHubGateway {
     }
     const issueUrl = (data as { issue_url?: unknown }).issue_url;
     if (typeof issueUrl !== "string") {
-      throw failure("invalid_response", "github_known_comment_issue_missing", false);
+      throw failure(
+        "invalid_response",
+        "github_known_comment_issue_missing",
+        false,
+      );
     }
     const expectedIssueUrl =
       `https://api.github.com/repos/${input.owner}/${input.repo}/issues/${input.pullNumber}`;

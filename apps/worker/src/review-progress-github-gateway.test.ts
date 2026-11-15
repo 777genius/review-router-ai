@@ -485,8 +485,8 @@ describe("ReviewProgressGitHubGateway", () => {
   });
 
   it("recovers an owned known comment omitted by a shifted page scan", async () => {
-    const known = { id: 9, body: `known\\n${marker}` };
-    const duplicate = { id: 4, body: `older\\n${marker}` };
+    const known = { id: 9, body: `known\n${marker}` };
+    const duplicate = { id: 4, body: `older\n${marker}` };
     const fixture = githubFixture([known, duplicate], {
       listedComments: [duplicate],
     });
@@ -499,17 +499,23 @@ describe("ReviewProgressGitHubGateway", () => {
       duplicateCommentIds: [4],
     });
     expect(
-      fixture.calls.filter(({ route }) =>
-        route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+      fixture.calls.filter(
+        ({ route }) =>
+          route ===
+          "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
       ),
     ).toHaveLength(1);
-    expect(mutations(fixture.calls).map(({ route, parameters }) => ({
-      route,
-      comment_id: parameters.comment_id,
-    }))).toEqual([{
-      route: "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
-      comment_id: 9,
-    }]);
+    expect(
+      mutations(fixture.calls).map(({ route, parameters }) => ({
+        route,
+        comment_id: parameters.comment_id,
+      })),
+    ).toEqual([
+      {
+        route: "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        comment_id: 9,
+      },
+    ]);
   });
 
   it("fails closed when the omitted known comment cannot be verified", async () => {
