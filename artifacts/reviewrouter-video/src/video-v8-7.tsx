@@ -213,7 +213,9 @@ const Repository:React.FC=()=>{
           style={{opacity:visible,transform:'translateY('+((1-visible)*17)+'px)'}}>
           <Img src={staticFile('github.svg')} className="v81-github-mark"/>
           <div className="v81-repo-text"><strong>{item.name}</strong><small>{item.kind}</small></div>
-          <span className={'v81-checkbox'+(checked?' checked':'')}>{checked?<Check size={26}/>:null}</span>
+          <span className={'v81-checkbox'+(checked?' checked':'')}>
+            {checked&&<><Check size={26}/><SelectionBurst at={17+i*7} size={34}/></>}
+          </span>
         </div>;
       })}
     </div>
@@ -222,7 +224,9 @@ const Repository:React.FC=()=>{
       {STEPS.map((label,i)=><React.Fragment key={label}>
         {i>0&&<div className={'v81-connector'+(active>=i?' done':'')}><ArrowRight size={30}/></div>}
         <div className={'v81-step'+(f>=49&&i===active?' active':f>=49&&i<active?' done':'')}>
-          <div className="v81-step-circle">{f>=49&&i<active?<Check size={27}/>:i+1}</div>
+          <div className="v81-step-circle">{f>=49&&i<active?
+            <><Check size={27}/><SelectionBurst at={61+i*12} size={36}/></>:(i+1)}
+          </div>
           <div className="v81-step-label">{label}</div>
         </div>
       </React.Fragment>)}
@@ -305,7 +309,9 @@ const MCPTools:React.FC=()=>{
           style={move(f,item.at,item.at+14,23)}>
           <span className="v82-mcp-icon"><Icon size={37}/></span>
           <div><strong>{item.name}</strong><small>{item.detail}</small></div>
-          <span className={'v82-mcp-check'+(selected?' selected':'')}>{selected?<Check size={27}/>:null}</span>
+          <span className={'v82-mcp-check'+(selected?' selected':'')}>
+            {selected&&<><Check size={27}/><SelectionBurst at={item.checked} size={36}/></>}
+          </span>
         </div>;
       })}
       <div className="v82-mcp-row v82-custom" style={move(f,66,83,20)}>
@@ -334,7 +340,9 @@ const ReviewSkills:React.FC=()=>{
           style={move(f,row.at,row.at+14,20)}>
           <span className="v82-skill-mark"><FileCheck2 size={36}/></span>
           <strong>{row.name}</strong>
-          <span className={'v82-skill-check'+(checked?' checked':'')}>{checked?<Check size={27}/>:null}</span>
+          <span className={'v82-skill-check'+(checked?' checked':'')}>
+            {checked&&<><Check size={27}/><SelectionBurst at={row.check} size={36}/></>}
+          </span>
         </div>;
       })}
     </div>
@@ -367,7 +375,7 @@ const Incremental:React.FC=()=>{
             opacity:arrived,
             transform:`translateY(${((1-arrived)*75+pulse).toFixed(1)}px) scale(${(.96+.04*arrived).toFixed(3)})`,
           }}>
-            <span className="v83-commit-node"><Check size={23}/></span>
+            <span className="v83-commit-node"><Check size={23}/><SelectionBurst at={item.at+8} size={32}/></span>
             <div className="v83-commit-name"><strong>{item.label}</strong><small>{item.hash}</small></div>
             {i===2&&f>=86&&<span className="v83-commit-new">NEW</span>}
           </div>;
