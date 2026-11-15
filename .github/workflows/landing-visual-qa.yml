@@ -27,6 +27,8 @@ jobs:
       NEXTAUTH_SECRET: fixture-auth-secret-not-production
       AUTH_TRUST_HOST: "true"
       NEXT_TELEMETRY_DISABLED: "1"
+      # Production build must have a valid non-loopback HTTPS origin; use a reserved test domain.
+      REVIEW_ROUTER_WEB_URL: https://reviewrouter.visual.test
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_landing_visual?schema=public
     services:
       postgres:
