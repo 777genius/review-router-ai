@@ -3,7 +3,8 @@ import {
   ReviewPublicationAttemptStateV2,
   ReviewPublicationOperationStateV2,
   ReviewPublicationTerminalOutcomeV2,
-  type Prisma,
+  Prisma,
+  type PrismaClient,
 } from "@prisma/client";
 import {
   executionStateTerminal,
@@ -147,6 +148,41 @@ export async function promoteSettledExecution(
     now,
   });
   return true;
+}
+
+export type SettledExecutionInput = {
+  readonly settlements: readonly Readonly<{
+    executionId: string;
+    outcome: "succeeded" | "failed" | "superseded";
+  }>[];
+  readonly now: Date;
+};
+
+/** Process independent terminal promotions without dropping later failures. */
+export async function promoteSettledExecutions(
+  prisma: PrismaClient,
+  input: SettledExecutionInput,
+): Promise<number> {
+  let promoted = 0;
+  const failures: unknown[] = [];
+  const executionIds = new Set(input.settlements.map((s) => s.executionId));
+  for (const executionId of executionIds) {
+    try {
+      const changed = await prisma.$transaction(
+        (transaction) =>
+          promoteSettledExecution(transaction, executionId, input.now),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      if (changed) promoted += 1;
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "review_progress_settlements_failed");
+  }
+  return promoted;
 }
 
 /** Write a terminal snapshot and its publication version in one transaction. */

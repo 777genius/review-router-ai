@@ -4,7 +4,10 @@ import {
   persistInstallationCooldown,
   reserveInstallationBudgetMutation,
 } from "./review-progress-installation-budget";
-import { promoteSettledExecution } from "./review-progress-terminal-persistence";
+import {
+  promoteSettledExecutions,
+  type SettledExecutionInput,
+} from "./review-progress-terminal-persistence";
 import {
   completionMutationData,
   retryMutationData,
@@ -168,33 +171,8 @@ export class PrismaReviewProgressPublicationStore {
     return result.count === 1;
   }
 
-  async promoteSettledExecutions(input: {
-    readonly settlements: readonly Readonly<{
-      executionId: string;
-      outcome: "succeeded" | "failed" | "superseded";
-    }>[];
-    readonly now: Date;
-  }): Promise<number> {
-    let promoted = 0;
-    const failures: unknown[] = [];
-    const executionIds = new Set(input.settlements.map((s) => s.executionId));
-    for (const executionId of executionIds) {
-      try {
-        const changed = await this.prisma.$transaction(
-          (transaction) =>
-            promoteSettledExecution(transaction, executionId, input.now),
-          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-        );
-        if (changed) promoted += 1;
-      } catch (error) {
-        failures.push(error);
-      }
-    }
-    if (failures.length === 1) throw failures[0];
-    if (failures.length > 1) {
-      throw new AggregateError(failures, "review_progress_settlements_failed");
-    }
-    return promoted;
+  async promoteSettledExecutions(input: SettledExecutionInput): Promise<number> {
+    return promoteSettledExecutions(this.prisma, input);
   }
 }
 
