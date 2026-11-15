@@ -1251,24 +1251,23 @@ it("companion usage failure after SDK forward stays unknown without a second SDK
     await f.relay.shutdown();
   }
 });
-it("refuses NVIDIA relay from other repositories before any SDK prepare, while allowing the synthetic fixture", async () => {
+it("allows NVIDIA relay for an ordinary authorized repository and preserves pre-dispatch denials", async () => {
   const model = "nvidia/nemotron-3.5-super-vl-120b-a12b";
   const selection = {
     profileId: "nvidia-build-chat-apikey-v1",
     model,
     authKind: "api_key" as const,
   };
-  for (const repository of [
+  const repository = {
+    githubRepositoryId: "456",
+    repositoryFullName: "customer/private-source",
+  };
+  for (const failure of [
     null,
-    {
-      githubRepositoryId: "1390973362",
-      repositoryFullName: "another-owner/private-repository",
-    },
-    {
-      githubRepositoryId: "456",
-      repositoryFullName: "777genius/rr-hosted-pool-e2e-20260927",
-    },
-  ]) {
+    "missing repository",
+    "foreign authority",
+    "stale allocation",
+  ] as const) {
     const f = await fixture(
       32768,
       0,
@@ -1278,60 +1277,42 @@ it("refuses NVIDIA relay from other repositories before any SDK prepare, while a
       undefined,
       128,
       selection,
+      { models: [model], independentAllocations: true },
       undefined,
-      undefined,
-      repository,
+      failure === "missing repository" ? null : repository,
     );
     try {
-      await expect(
-        f.relay.responses(
-          "authorization-1",
-          companionEnvelope(model),
-          new AbortController(),
-        ),
-      ).rejects.toMatchObject({
-        code: "authorization_denied",
-        statusCode: 403,
-        effect: "not_dispatched",
-      });
-      expect(f.admissions).toHaveLength(0);
-      expect(f.requestBodies).toHaveLength(0);
+      if (failure === "foreign authority") f.revoke("authorization-1");
+      if (failure === "stale allocation")
+        f.revokedAllocations.add("allocation-0");
+      const pending = f.relay.responses(
+        "authorization-1",
+        companionEnvelope(model),
+        new AbortController(),
+        undefined,
+        undefined,
+        "reviewer-0",
+      );
+      if (failure) {
+        await expect(pending).rejects.toMatchObject({
+          effect: "not_dispatched",
+        });
+        expect(f.intents).toHaveLength(0);
+        expect(f.admissions).toHaveLength(0);
+        expect(f.requestBodies).toHaveLength(0);
+      } else {
+        const response = await pending;
+        expect(response.kind).toBe("stream");
+        if (response.kind !== "stream") throw new Error("stream_expected");
+        const reader = response.body.getReader();
+        while (!(await reader.read()).done) {
+          // Consume the synthetic native terminal response.
+        }
+        expect(f.requestBodies).toHaveLength(1);
+      }
     } finally {
       await f.relay.shutdown();
     }
-  }
-
-  const allowed = await fixture(
-    32768,
-    0,
-    2,
-    5000,
-    undefined,
-    undefined,
-    128,
-    selection,
-    undefined,
-    undefined,
-    {
-      githubRepositoryId: "1390973362",
-      repositoryFullName: "777genius/rr-hosted-pool-e2e-20260927",
-    },
-  );
-  try {
-    const response = await allowed.relay.responses(
-      "authorization-1",
-      companionEnvelope(model),
-      new AbortController(),
-    );
-    expect(response.kind).toBe("stream");
-    if (response.kind !== "stream") throw new Error("stream_expected");
-    const reader = response.body.getReader();
-    while (!(await reader.read()).done) {
-      // Consume the synthetic native terminal response.
-    }
-    expect(allowed.requestBodies).toHaveLength(1);
-  } finally {
-    await allowed.relay.shutdown();
   }
 });
 

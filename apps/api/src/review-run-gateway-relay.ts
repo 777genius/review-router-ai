@@ -1,4 +1,3 @@
-import { isQualifiedNvidiaSandboxRepository } from "./nvidia-build-sandbox-repository.js";
 import { gatewayProfileAcceptsRequestedModel } from "./review-run-gateway-model-qualification";
 import type { UsageIdentity } from "@reviewrouter/features-provider-usage";
 import { gatewayUsageReceipt } from "./provider-usage-gateway-relay-receipt";
@@ -229,7 +228,7 @@ export function createReviewRunGatewayRelay(input: {
     | "expireOrRevokeReviewRunAuthorization"
   >;
   readonly queries: ReviewRunAuthorizationQueryPort;
-  /** Deny NVIDIA trial relay before preparing or dispatching for non-fixture SCM sources. */
+  /** Resolve the current authorized workspace/installation repository binding before NVIDIA dispatch. */
   readonly resolveNvidiaRepository?: (
     authorization: ReviewRunAuthorization,
   ) => Promise<{
@@ -1181,8 +1180,8 @@ export function createReviewRunGatewayRelay(input: {
         if (controller.signal.aborted)
           throw new RelayFailure("authorization_denied", 401);
         lane = selected(auth, reviewerId);
-        // Checkout is not mandatory for every relay caller: repeat the trusted
-        // repository restriction at the actual inference admission boundary.
+        // Checkout is not mandatory for every relay caller: require the trusted
+        // current repository binding again at the actual inference boundary.
         if (lane.gateway.profileRef === "nvidia-build-chat-apikey-v1") {
           const source = await Promise.race([
             input.resolveNvidiaRepository?.(auth) ?? Promise.resolve(null),
@@ -1190,8 +1189,7 @@ export function createReviewRunGatewayRelay(input: {
           ]);
           if (controller.signal.aborted)
             throw new RelayFailure("authorization_denied", 401);
-          if (!isQualifiedNvidiaSandboxRepository(source))
-            throw new RelayFailure("authorization_denied", 403);
+          if (!source) throw new RelayFailure("authorization_denied", 403);
         }
       } finally {
         controller.signal.removeEventListener("abort", aborted);

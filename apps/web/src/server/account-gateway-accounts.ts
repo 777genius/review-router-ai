@@ -2126,7 +2126,11 @@ export function accountGatewayProfilesConfiguration() {
     !apiKeyProfiles.size &&
     !oauthProfile &&
     !claudeProfile &&
-    !subscriptionProfileIds.length
+    !subscriptionProfileIds.length &&
+    !(
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN
+    )
   )
     throw new Error("accounts_unavailable");
   // Operator pairs this public URL with the exact fixed Gateway service profile.

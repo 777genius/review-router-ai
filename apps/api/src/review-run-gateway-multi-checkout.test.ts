@@ -30,7 +30,11 @@ function fixture(
     providers: Array.from({ length: count }, (_, index) => ({
       kind: "codex",
       authMode: "codex_account_gateway",
-      model: `openai/qualified-model-${index}`,
+      model:
+        (typeof profileRef === "string" ? profileRef : profileRef[index]) ===
+        "nvidia-build-chat-apikey-v1"
+          ? "nvidia/nemotron-3.5-super-vl-120b-a12b"
+          : `openai/qualified-model-${index}`,
       reasoningEffort: index % 2 === 0 ? "high" : "medium",
       agenticContext: true,
       fastMode: false,
@@ -161,6 +165,18 @@ function fixture(
     permissions: { contents: "read" as const, pullRequests: "read" as const },
   }));
   let parentLive = true;
+  const repository = vi.fn(
+    async () =>
+      ({
+        githubInstallationId: "123",
+        githubRepositoryId,
+        repositoryFullName,
+      }) as {
+        githubInstallationId: string;
+        githubRepositoryId: string;
+        repositoryFullName: string;
+      } | null,
+  );
   const checkout = createReviewRunGatewayCheckout({
     authorizations: {
       resolveReviewRunAuthorizationToken: async () => ({
@@ -176,11 +192,7 @@ function fixture(
       attach: async () => ({ status: "denied" }),
     },
     confirmAuthority: async () => parentLive,
-    resolveRepository: async () => ({
-      githubInstallationId: "123",
-      githubRepositoryId,
-      repositoryFullName,
-    }),
+    resolveRepository: repository,
     issuer: { issueContentsReadToken: issuer },
     readSelectedModelSettings: settings,
     maxInFlight: 4,
@@ -191,6 +203,7 @@ function fixture(
     configuration,
     authorization,
     deniedAllocations,
+    repository,
     settings,
     issuer,
     revokeParent: () => {
@@ -325,38 +338,57 @@ describe("multi-reviewer checkout projection", () => {
     );
   });
 
-  it("refuses NVIDIA trial checkout outside the single synthetic fixture before issuing an SCM token", async () => {
-    const forbidden = fixture(
-      1,
-      false,
-      "nvidia-build-chat-apikey-v1",
-      "customer/private-source",
-    );
-    await expect(forbidden.issue()).rejects.toThrow("authorization_denied");
-    expect(forbidden.issuer).not.toHaveBeenCalled();
-    // A newly-created repository can reuse the fixture name, not its stable ID.
-    const sameNameDifferentId = fixture(
-      1,
-      false,
-      "nvidia-build-chat-apikey-v1",
-      "777genius/rr-hosted-pool-e2e-20260927",
-      "456",
-    );
-    await expect(sameNameDifferentId.issue()).rejects.toThrow(
-      "authorization_denied",
-    );
-    expect(sameNameDifferentId.issuer).not.toHaveBeenCalled();
-    const synthetic = fixture(
-      1,
-      false,
-      "nvidia-build-chat-apikey-v1",
-      "777genius/rr-hosted-pool-e2e-20260927",
-      "1390973362",
-    );
-    const result = await synthetic.issue();
-    expect(result.repository).toBe("777genius/rr-hosted-pool-e2e-20260927");
-    expect(synthetic.issuer).toHaveBeenCalledTimes(1);
-  });
+  it.each([0, 1])(
+    "allows an authorized customer repository with NVIDIA reviewer %i",
+    async (nvidiaIndex) => {
+      const profiles = [
+        "openrouter-openai-responses-apikey-v1",
+        "openrouter-openai-responses-apikey-v1",
+      ];
+      profiles[nvidiaIndex] = "nvidia-build-chat-apikey-v1";
+      const f = fixture(2, false, profiles, "customer/private-source");
+      const result = await f.issue();
+      expect(result.repository).toBe("customer/private-source");
+      expect(f.issuer).toHaveBeenCalledExactlyOnceWith({
+        githubInstallationId: "123",
+        githubRepositoryId: "456",
+        repositoryFullName: "customer/private-source",
+      });
+      expect(
+        JSON.parse(
+          result.runtimeConfig.runtimeEnv
+            .REVIEW_ROUTER_GATEWAY_REVIEWER_PROFILES_JSON!,
+        ),
+      ).toEqual({ "reviewer-0": profiles[0], "reviewer-1": profiles[1] });
+      expect(JSON.stringify(result)).not.toContain("private-account");
+    },
+  );
+
+  it.each(["missing repository", "foreign authority", "stale allocation"])(
+    "refuses NVIDIA checkout with %s before issuing an SCM token",
+    async (failure) => {
+      const f = fixture(
+        1,
+        false,
+        "nvidia-build-chat-apikey-v1",
+        "customer/private-source",
+      );
+      if (failure === "missing repository")
+        f.repository.mockResolvedValue(null);
+      if (failure === "foreign authority") f.revokeParent();
+      if (failure === "stale allocation") {
+        const snapshot = JSON.parse(
+          f.authorization.runtimeSnapshotCanonicalJson!,
+        );
+        snapshot.allocations[0].bindingId = "foreign-binding";
+        Object.assign(f.authorization, {
+          runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
+        });
+      }
+      await expect(f.issue()).rejects.toThrow();
+      expect(f.issuer).not.toHaveBeenCalled();
+    },
+  );
 
   it("retains failed allocation coverage and exports a healthy sibling", async () => {
     const f = fixture();
