@@ -110,30 +110,11 @@ export class PrismaReviewProgressPublicationStore {
       data: completionMutationData(input),
     });
     if (result.count !== 1 && input.repairOnFenceLoss !== false) {
-      // A stale GitHub PATCH may have landed after a newer publication.
-      // Requeue the current scope without changing its desired version:
-      // progress.desiredVersion must still match publication.desiredVersion.
-      // Invalidate any in-flight claim so its delayed settlement cannot
-      // silently erase this repair after an older PATCH overwrites the body.
-      const scope = input.publication.scope;
-      await this.prisma.$executeRaw(Prisma.sql`
-        UPDATE "ReviewProgressPublicationV1"
-        SET "publishedVersion" = CASE
-              WHEN "publishedVersion" = "desiredVersion"
-                AND "publishedVersion" > 0
-              THEN "publishedVersion" - 1
-              ELSE "publishedVersion"
-            END,
-            "claimId" = NULL,
-            "claimOwnerIdHash" = NULL,
-            "claimUntil" = NULL,
-            "nextPublishAt" = ${input.now},
-            "updatedAt" = ${input.now}
-        WHERE "workspaceId" = ${scope.workspaceId}
-          AND "repositoryConnectionId" = ${scope.repositoryConnectionId}
-          AND "scmRepositoryIdentityId" = ${scope.scmRepositoryIdentityId}
-          AND "pullRequestNumber" = ${scope.pullRequestNumber}
-      `);
+      await requeuePublishedScopeAfterClaimLoss(
+        this.prisma,
+        input.publication.scope,
+        input.now,
+      );
     }
     return result.count === 1;
   }
@@ -179,6 +160,34 @@ export class PrismaReviewProgressPublicationStore {
   ): Promise<number> {
     return promoteSettledExecutions(this.prisma, input);
   }
+}
+
+/** Persist a scoped requeue if an older GitHub PATCH may have landed. */
+async function requeuePublishedScopeAfterClaimLoss(
+  prisma: PrismaClient,
+  scope: ClaimedReviewProgress["scope"],
+  now: Date,
+): Promise<void> {
+  // Requeue without changing desiredVersion, invalidating any active claim
+  // so a delayed settlement cannot silently erase the repair.
+  await prisma.$executeRaw(Prisma.sql`
+        UPDATE "ReviewProgressPublicationV1"
+        SET "publishedVersion" = CASE
+              WHEN "publishedVersion" = "desiredVersion"
+                AND "publishedVersion" > 0
+              THEN "publishedVersion" - 1
+              ELSE "publishedVersion"
+            END,
+            "claimId" = NULL,
+            "claimOwnerIdHash" = NULL,
+            "claimUntil" = NULL,
+            "nextPublishAt" = ${now},
+            "updatedAt" = ${now}
+        WHERE "workspaceId" = ${scope.workspaceId}
+          AND "repositoryConnectionId" = ${scope.repositoryConnectionId}
+          AND "scmRepositoryIdentityId" = ${scope.scmRepositoryIdentityId}
+          AND "pullRequestNumber" = ${scope.pullRequestNumber}
+      `);
 }
 
 /** Persist retry and installation cooldown inside the same transaction. */
