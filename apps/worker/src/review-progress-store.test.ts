@@ -86,6 +86,32 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(repair.mock.calls[0]?.[0]).toBe(repair.mock.calls[1]?.[0]);
   });
 
+  it.each([
+    { code: "P2034", attempts: 2 },
+    { code: "P2002", attempts: 1 },
+  ])("bounds $code scope-repair retries", async ({ code, attempts }) => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const conflict = Object.assign(new Error("repair_failed"), { code });
+    const repair = vi.fn(async (_query: unknown): Promise<number> => {
+      throw conflict;
+    });
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
+    } as never);
+
+    await expect(
+      store.complete({
+        publication: claimed(),
+        commentId: 42n,
+        bodyHash: "c".repeat(64),
+        now,
+      }),
+    ).rejects.toBe(conflict);
+    expect(updateMany).toHaveBeenCalledOnce();
+    expect(repair).toHaveBeenCalledTimes(attempts);
+  });
+
   it("skips stale no-write repair without clearing newer claims", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const repair = vi.fn(async () => 1);
