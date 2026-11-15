@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import type { ClaimedReviewProgress } from "./review-progress-store";
 
 /** Validate a candidate against the exact active progress generation. */
@@ -109,4 +110,21 @@ export function buildClaimedReviewProgress(input: {
     },
     claim,
   };
+}
+
+/** Build the optional hosted repository cohort fence outside claim orchestration. */
+export function repositoryCohortPredicate(
+  allowedRepositoryFullNames: ReadonlySet<string> | null,
+): Prisma.Sql {
+  if (!allowedRepositoryFullNames) return Prisma.empty;
+  // An explicitly empty cohort must reject all claims without Prisma.join([]).
+  if (allowedRepositoryFullNames.size === 0) return Prisma.sql`AND FALSE`;
+  return Prisma.sql`
+          AND EXISTS (
+            SELECT 1 FROM "RepositoryConnection" repository
+            WHERE repository."id" = publication."repositoryConnectionId"
+              AND LOWER(repository."fullName") IN (${Prisma.join([
+                ...allowedRepositoryFullNames,
+              ])})
+          )`;
 }

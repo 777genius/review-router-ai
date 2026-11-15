@@ -3,9 +3,20 @@ import {
   buildClaimedReviewProgress,
   isPublishableGitHubRepository,
   matchesActiveProgressIdentity,
+  repositoryCohortPredicate,
 } from "./review-progress-claim-eligibility-policy";
 
 describe("Review progress claim eligibility policy", () => {
+  it("binds each hosted repository name as a SQL value", () => {
+    const predicate = repositoryCohortPredicate(
+      new Set(["acme/rocket", "other/repo"]),
+    );
+    expect(predicate.strings.join(" ")).toContain(
+      'LOWER(repository."fullName") IN',
+    );
+    expect(predicate.values).toEqual(["acme/rocket", "other/repo"]);
+  });
+
   it("requires exact active progress identity", () => {
     const progress = {
       generation: 7n,

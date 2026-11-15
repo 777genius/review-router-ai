@@ -18,6 +18,7 @@ import {
   claimedPublicationFence,
   isPublishableGitHubRepository,
   matchesActiveProgressIdentity,
+  repositoryCohortPredicate,
 } from "./review-progress-claim-eligibility-policy";
 
 export type ClaimedReviewProgress = Readonly<{
@@ -178,23 +179,6 @@ export class PrismaReviewProgressPublicationStore {
   ): Promise<number> {
     return promoteSettledExecutions(this.prisma, input);
   }
-}
-
-/** Build the optional hosted repository cohort fence outside claim orchestration. */
-function repositoryCohortPredicate(
-  allowedRepositoryFullNames: ReadonlySet<string> | null,
-): Prisma.Sql {
-  if (!allowedRepositoryFullNames) return Prisma.empty;
-  // An explicitly empty cohort must reject all claims without Prisma.join([]).
-  if (allowedRepositoryFullNames.size === 0) return Prisma.sql`AND FALSE`;
-  return Prisma.sql`
-          AND EXISTS (
-            SELECT 1 FROM "RepositoryConnection" repository
-            WHERE repository."id" = publication."repositoryConnectionId"
-              AND LOWER(repository."fullName") IN (${Prisma.join([
-                ...allowedRepositoryFullNames,
-              ])})
-          )`;
 }
 
 /** Persist retry and installation cooldown inside the same transaction. */
