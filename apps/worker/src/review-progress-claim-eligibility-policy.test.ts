@@ -17,6 +17,23 @@ describe("Review progress claim eligibility policy", () => {
     expect(predicate.values).toEqual(["acme/rocket", "other/repo"]);
   });
 
+  it("keeps unrestricted and explicitly empty cohorts distinct", () => {
+    const unrestricted = repositoryCohortPredicate(null);
+    expect(unrestricted.strings.join("")).toBe("");
+    expect(unrestricted.values).toEqual([]);
+
+    const empty = repositoryCohortPredicate(new Set<string>());
+    expect(empty.strings.join(" ")).toContain("AND FALSE");
+    expect(empty.values).toEqual([]);
+  });
+
+  it("binds untrusted repository names without injecting SQL", () => {
+    const injectedName = "acme/repo'); DELETE FROM \"RepositoryConnection\"; --";
+    const predicate = repositoryCohortPredicate(new Set([injectedName]));
+    expect(predicate.values).toEqual([injectedName]);
+    expect(predicate.strings.join(" ")).not.toContain(injectedName);
+  });
+
   it("requires exact active progress identity", () => {
     const progress = {
       generation: 7n,
