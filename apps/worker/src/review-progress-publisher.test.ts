@@ -648,6 +648,63 @@ describe("ReviewProgressPublisher", () => {
     },
   );
 
+  it("repairs current progress after a stale ambiguous PATCH", async () => {
+    const publication = { ...claimed(), commentId: 77n };
+    const store = fakeStore(publication);
+    store.retry.mockResolvedValue("stale");
+    store.complete.mockResolvedValue(false);
+    let commentReads = 0;
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route) => {
+        if (route.includes("/pulls/")) return pull();
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+        ) {
+          commentReads += 1;
+          if (commentReads > 1) return { data: [] };
+          return {
+            data: [
+              {
+                id: 77,
+                body: "<!-- review-router-live-progress -->",
+                user: { login: "review-router[bot]" },
+              },
+            ],
+          };
+        }
+        if (route.startsWith("PATCH")) {
+          throw new Error("transport_outcome_unknown");
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(commentReads).toBe(2);
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_ambiguous_mutation",
+      }),
+    );
+    expect(store.complete).toHaveBeenCalledOnce();
+    expect(store.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        commentId: 77n,
+        bodyHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        now,
+      }),
+    );
+  });
+
   it("suppresses a poison publication at the retry bound", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);

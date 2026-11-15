@@ -107,6 +107,8 @@ export class ReviewProgressGitHubError extends Error {
       readonly retryAt?: Date;
       readonly retryNotBefore?: Date;
       readonly installationCooldownUntil?: Date;
+      /** A failed GitHub write had an outcome that could not be confirmed. */
+      readonly mutationMayHaveLanded?: true;
     },
     options?: { readonly cause?: unknown },
   ) {
@@ -275,6 +277,7 @@ export function reconciliationFailure(
       observationError.message,
       {
         ...observationError.metadata,
+        mutationMayHaveLanded: true,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
         ...(installationCooldownUntil ? { installationCooldownUntil } : {}),
@@ -309,6 +312,7 @@ export function reconciliationFailure(
       mutationFailure.message,
       {
         ...mutationFailure.metadata,
+        mutationMayHaveLanded: true,
         ...(retryAt ? { retryAt } : {}),
         ...(retryNotBefore ? { retryNotBefore } : {}),
         ...(mutationFailure.metadata.retryAt
@@ -337,6 +341,7 @@ export function reconciliationFailure(
     "github_progress_comment_mutation_ambiguous",
     {
       retryable: true,
+      mutationMayHaveLanded: true,
       retryAt: retryAt ?? fallbackRetryAt(now, random),
       ...(retryNotBefore ? { retryNotBefore } : {}),
     },

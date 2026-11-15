@@ -130,7 +130,7 @@ export class ReviewProgressPublisher {
         result,
       );
     } catch (error) {
-      await this.handlePublishFailure(publication, error, result);
+      await this.handlePublishFailure(publication, error, result, bodyHash);
     }
   }
 
@@ -277,6 +277,7 @@ export class ReviewProgressPublisher {
     publication: ClaimedReviewProgress,
     error: unknown,
     result: { suppressed: number; failed: number; deferred: number },
+    bodyHash: string,
   ): Promise<void> {
     if (
       error instanceof ReviewProgressGitHubError &&
@@ -302,6 +303,19 @@ export class ReviewProgressPublisher {
       maxFailures: this.options.maxFailures,
     });
     if (retryOutcome === "stale") {
+      if (
+        publication.commentId !== null &&
+        error instanceof ReviewProgressGitHubError &&
+        error.metadata.mutationMayHaveLanded === true
+      ) {
+        // A lost claim cannot settle the old PATCH; requeue the live snapshot.
+        await this.store.complete({
+          publication,
+          commentId: publication.commentId,
+          bodyHash,
+          now: this.clock.now(),
+        });
+      }
       result.deferred += 1;
     } else if (retryOutcome === "suppressed") {
       result.suppressed += 1;

@@ -364,7 +364,13 @@ export class ReviewProgressGitHubGateway {
       expectedCommentId,
     );
     if (confirmed) return confirmed;
-    throw this.classify(mutationError, "ambiguous_mutation");
+    const classified = this.classify(mutationError, "ambiguous_mutation");
+    throw new ReviewProgressGitHubError(
+      classified.kind,
+      classified.message,
+      { ...classified.metadata, mutationMayHaveLanded: true },
+      { cause: classified },
+    );
   }
 
   private classify(
