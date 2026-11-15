@@ -1,0 +1,26 @@
+/* V8.7: restrained confirmation motion, typography-only Custom endpoint and clean bot headers. */
+.v87-root .v86-custom-card,.v87-root .v87-custom-text-only{
+  background:#111d2d!important;border:1px solid #405a6c!important;opacity:1!important;
+  justify-content:center!important;gap:0!important;box-shadow:0 10px 23px #0002!important;
+}
+.v87-root .v87-custom-text-only strong{font-size:21px!important;color:#eaf6fa;white-space:normal;text-align:center;padding:0 9px;line-height:1.15}
+.v87-root .v87-custom-text-only .v8-provider-emblem,.v87-root .v87-custom-text-only small{display:none!important}
+.v87-root .v8-provider-card:not(.v8-selected){opacity:1!important}
+.v87-root .v8-selected{border-color:#7ee6e6;background:#15323a;box-shadow:inset 0 -3px #79e4e4,0 0 22px #47e3ea24}
+.v87-root .v8-selection-check{overflow:visible;display:flex;align-items:center;justify-content:center}
+.v87-root .v81-checkbox,.v87-root .v81-step-circle,.v87-root .v82-mcp-check,
+.v87-root .v82-skill-check,.v87-root .v83-commit-node{position:relative;overflow:visible;isolation:isolate}
+.v87-root .v81-checkbox>svg:first-child,.v87-root .v81-step-circle>svg:first-child,
+.v87-root .v82-mcp-check>svg:first-child,.v87-root .v82-skill-check>svg:first-child{z-index:1}
+.v87-root .v86-comment-head{
+  grid-template-columns:36px max-content 42px minmax(0,1fr)!important;
+  align-items:center!important;gap:12px!important;
+}
+.v87-root .v86-comment-head .v82-severity{grid-column:4;justify-self:end;align-self:center}
+.v87-root .v86-comment-head .v82-bot{justify-self:start}
+.v87-root .v86-comment-head .v82-comment-time{display:none!important}
+.v87-root .v86-commit-count strong{display:block;transform-origin:right center;will-change:transform}
+.v87-root .v86-commit-count small{font-size:15px;min-height:17px}
+.v87-bouncing-logo{position:relative;display:inline-flex;align-items:center;justify-content:center;transform-origin:center center;will-change:transform}
+.v87-bouncing-logo .v87-logo-pop{position:absolute;inset:-14px;border:2px solid #b4f8ef;border-radius:50%;pointer-events:none;box-shadow:0 0 36px #6ae9e955;z-index:-1}
+.v87-root .v8-outro-brand{gap:28px}
