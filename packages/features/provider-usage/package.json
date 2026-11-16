@@ -16,7 +16,7 @@
     }
   },
   "dependencies": {
-    "@agent-teams/account-gateway": "file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-ed8b7d4ae633.tgz",
+    "@agent-teams/account-gateway": "file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-6ba203bbab4a.tgz",
     "@prisma/client": "7.8.0",
     "@get-modular/core": "0.7.0",
     "@get-modular/assembly": "0.7.0"

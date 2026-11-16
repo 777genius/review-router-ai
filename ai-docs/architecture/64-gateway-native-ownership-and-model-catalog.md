@@ -70,7 +70,7 @@ Account Gateway - тонкая обёртка над Sub2API. Логика пр�
 ### 3.3 ReviewRouter
 
 - Vendored tarball `@agent-teams/account-gateway`: обновить во всех потребителях (`apps/web`, `apps/api`, `packages/features/provider-usage`), `pnpm-lock.yaml`, `vendor/account-gateway/README.md`. Имя архива должно соответствовать `conversation-sdk-identity.ts` (`agent-teams-account-gateway-0.1.0-nvidia-<sha>.tgz`), provenance - `vendor/account-gateway/nvidia-sandbox-sdk-provenance.json` с контрактом `nvidia-sandbox-sdk-provenance/v1`; прежний provenance сохраняется как `nvidia-c32ef9ed3360-sdk-provenance.json`. Заново выпустить `conversation-source-stamp.json` и `conversation-verifier` (`scripts/check-conversation-source-stamp.ts --write`, `check-conversation-release-verifier.ts --write`). В архив войдёт и `0997416 fix(llm): preserve incomplete status`; по нему прогнать тесты потребителей `llm`.
-- Артефакт этой поставки собран локально (`pnpm pack` коммита Gateway), поэтому provenance честно помечает `artifactRun: null`; перед слиянием RR заменить его артефактом CI после слияния PR Gateway.
+- Архив собран `pnpm pack` из слитого коммита Gateway (две независимые сборки дали одинаковые байты). Постоянного CI-задания, которое выкладывает архив SDK, в Gateway нет, поэтому `artifactRun` в provenance остаётся `null`, а происхождение подтверждается коммитом слияния и воспроизводимой сборкой.
 - Тип `AccountModelCatalogView.source` (расширен `AccountModelSource`) и `provider-model-options.ts`: ожидаемый источник брать через `accountModelDiscoverySource(...)` (как `gateway-model-account-options.ts` и `dashboard-provider-setup-readiness.ts`), собственный маппинг provider -> source удалить; в `gateway-model-account-options.ts` снимок без известного апстрима (нет `connection` и нет codex/nvidia/openrouter) превращается в `unknown`, а не в OpenRouter.
 - `apps/api/src/provider-usage-provider.ts`: `native_catalog` называет владельца списка, а не вендора, поэтому usage по GLM остаётся `unknown`, как до каталога; иначе отчёты прогонов, идущих во время деплоя, получили бы `usage_scope_mismatch`.
 - Тесты: каталог GLM в выборе модели; checkout и readiness для GLM на `snapshot`, `unavailable`, `unknown`.
@@ -90,7 +90,7 @@ Account Gateway - тонкая обёртка над Sub2API. Логика пр�
 
 ## 5. Порядок поставки и раскатки
 
-Слияние: native -> Gateway -> RR (tarball собирается CI после слияния Gateway; до этого RR PR остаётся Draft).
+Слияние: native -> Gateway -> RR (архив SDK собирается из слитого коммита Gateway).
 Деплой: native -> Gateway -> RR, с проверкой между шагами. Если Gateway с discovery GLM выкатить раньше native, старый native отвечает `unsupported`, `accountModelAdmission` даёт пустой список, и запросы GLM (включая якорь) отклоняются. Kimi, MiniMax и остальные профили не затронуты. Если выкатить RR раньше Gateway, GLM тоже ломается, включая якорь: при любом статусе каталога, кроме `unavailable`, UI показывает 0 моделей, а checkout отказывает. Откат идёт в обратном порядке: RR, Gateway, затем native.
 Смена SDK меняет `conversation-source-stamp`: действующая `REVIEW_ROUTER_CONVERSATION_QUALIFICATION` версии 2 перестанет совпадать, и full-thread conversations через Gateway выключатся до повторной квалификации. Деплой RR с этим архивом согласовывать вместе с повторной квалификацией. На момент написания на prod 0 подключений GLM и 0 ревью через GLM, поэтому влияние на пользователей GLM нулевое.
 

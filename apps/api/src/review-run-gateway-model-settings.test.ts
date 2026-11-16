@@ -35,8 +35,7 @@ function fixture(
       : source === "glm"
         ? "glm-coding-global-responses-apikey-v1"
         : "openrouter-openai-responses-apikey-v1";
-  // The GLM plan serves its catalogue from native, not from a vendor source.
-  const catalogSource = source === "glm" ? "native_catalog" : source;
+
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
     providers: [
@@ -188,7 +187,11 @@ function fixture(
           ],
         }
       : {
-          source: catalogSource,
+          // The GLM plan serves its catalogue from native, not from a vendor source.
+          source:
+            source === "glm"
+              ? ("native_catalog" as const)
+              : ("openrouter" as const),
           models: [
             {
               modelId: model,
