@@ -472,12 +472,17 @@ describe("ReviewProgressPublisher", () => {
       }),
     );
     expect(store.complete).not.toHaveBeenCalled();
+    expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
+    expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
+      scope: publication.scope,
+      now,
+    });
   });
 
   it.each([
     { operation: "duplicate_deleted", hasDuplicate: true },
     { operation: "unchanged", hasDuplicate: false },
-  ])("ignores stale $operation repairs", async ({ hasDuplicate }) => {
+  ])("fences stale $operation settlements", async ({ hasDuplicate }) => {
     const publication = { ...claimed(), commentId: 77n };
     const store = fakeStore(publication);
     store.complete.mockResolvedValue(false);
@@ -521,7 +526,7 @@ describe("ReviewProgressPublisher", () => {
       expect.objectContaining({
         publication,
         commentId: 77n,
-        repairOnFenceLoss: false,
+        repairOnFenceLoss: hasDuplicate,
       }),
     );
     expect(store.retry).not.toHaveBeenCalled();

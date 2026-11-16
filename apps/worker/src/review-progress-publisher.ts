@@ -223,19 +223,25 @@ export class ReviewProgressPublisher {
         maxFailures: this.options.maxFailures,
         countFailure: false,
       });
-      if (
-        retryOutcome === "stale" &&
-        (published.operation === "updated" ||
-          published.operation === "reconciled")
-      ) {
-        // Only a PATCH that reached GitHub can overwrite newer content.
-        // A fenced-out completion schedules durable repair of the current body.
-        await this.store.complete({
-          publication,
-          commentId: BigInt(published.commentId),
-          bodyHash,
-          now: this.clock.now(),
-        });
+      if (retryOutcome === "stale") {
+        if (
+          published.operation === "updated" ||
+          published.operation === "reconciled"
+        ) {
+          // A stale PATCH may have overwritten the current body.
+          await this.store.complete({
+            publication,
+            commentId: BigInt(published.commentId),
+            bodyHash,
+            now: this.clock.now(),
+          });
+        } else if (published.operation === "duplicate_deleted") {
+          // A stale DELETE may have removed another worker's canonical comment.
+          await this.store.requeueAfterClaimLoss({
+            scope: publication.scope,
+            now: this.clock.now(),
+          });
+        }
       }
       result.deferred += 1;
       return;
@@ -245,9 +251,7 @@ export class ReviewProgressPublisher {
       commentId: BigInt(published.commentId),
       bodyHash,
       now: this.clock.now(),
-      repairOnFenceLoss:
-        published.operation !== "duplicate_deleted" &&
-        published.operation !== "unchanged",
+      repairOnFenceLoss: published.operation !== "unchanged",
     });
     if (!completed) {
       result.deferred += 1;

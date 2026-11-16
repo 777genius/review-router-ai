@@ -13,14 +13,16 @@ export function publicationRetryPlan(
 } {
   const githubError = error instanceof ReviewProgressGitHubError ? error : null;
   let retryAt = githubError?.metadata.retryAt;
-  if (!retryAt) {
-    // A capped scan is structural, not a transient GitHub outage: avoid hot retries.
-    retryAt = new Date(
-      now().getTime() +
-        (githubError?.kind === "pagination_inconclusive"
-          ? Math.max(retryDelayMs, 60 * 60_000)
-          : retryDelayMs),
+  if (githubError?.kind === "pagination_inconclusive") {
+    // A capped scan is structural, even when a failed mutation has retryAt.
+    const structuralRetryAt = new Date(
+      now().getTime() + Math.max(retryDelayMs, 60 * 60_000),
     );
+    if (!retryAt || structuralRetryAt.getTime() > retryAt.getTime()) {
+      retryAt = structuralRetryAt;
+    }
+  } else if (!retryAt) {
+    retryAt = new Date(now().getTime() + retryDelayMs);
   }
   // Never retry before GitHub's hard boundary, even after an inconclusive scan.
   const retryNotBefore = githubError?.metadata.retryNotBefore;

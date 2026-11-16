@@ -21,6 +21,26 @@ describe("Review progress publication retry policy", () => {
     );
   });
 
+  it("never schedules a capped scan before its structural floor", () => {
+    const earlyRetryAt = new Date("2026-11-12T12:00:10.000Z");
+    const lateRetryAt = new Date("2026-11-12T14:00:00.000Z");
+    for (const [retryAt, expected] of [
+      [earlyRetryAt, new Date("2026-11-12T13:00:00.000Z")],
+      [lateRetryAt, lateRetryAt],
+    ]) {
+      const error = new ReviewProgressGitHubError(
+        "pagination_inconclusive",
+        "github_issue_comments_pagination_inconclusive",
+        { retryable: true, retryAt },
+      );
+      expect(publicationRetryPlan(error, now, 2_000)).toEqual({
+        safeCode: "review_progress_pagination_inconclusive",
+        retryAt: expected,
+        countFailure: false,
+      });
+    }
+  });
+
   it("keeps a rate-limit retry boundary as installation-wide cooldown", () => {
     const retryAt = new Date("2026-11-12T12:04:00.000Z");
     const error = new ReviewProgressGitHubError(
