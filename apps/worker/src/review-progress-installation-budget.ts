@@ -38,7 +38,7 @@ export async function reserveInstallationBudgetMutation(
     PrismaReviewProgressPublicationStore["reserveInstallationMutation"]
   >[0],
 ): Promise<{ allowed: true } | { allowed: false; retryAt: Date }> {
-  const budget = await lockInstallationBudget(
+  const { budget, lockedAt } = await lockInstallationBudget(
     transaction,
     input.publication.repository.githubInstallationId,
     input.now,
@@ -46,21 +46,21 @@ export async function reserveInstallationBudgetMutation(
   const stillClaimed = await transaction.reviewProgressPublicationV1.count({
     where: {
       ...claimedPublicationFence(input.publication),
-      claimUntil: { gt: input.now },
+      claimUntil: { gt: lockedAt },
     },
   });
   if (stillClaimed !== 1)
-    return { allowed: false as const, retryAt: input.now };
+    return { allowed: false as const, retryAt: lockedAt };
   const availableAt = maxDate(budget.nextMutationAt, budget.cooldownUntil);
-  if (availableAt > input.now)
+  if (availableAt > lockedAt)
     return { allowed: false as const, retryAt: availableAt };
   await transaction.reviewProgressInstallationBudgetV1.update({
     where: {
       githubInstallationId: input.publication.repository.githubInstallationId,
     },
     data: {
-      nextMutationAt: new Date(input.now.getTime() + input.minimumIntervalMs),
-      updatedAt: input.now,
+      nextMutationAt: new Date(lockedAt.getTime() + input.minimumIntervalMs),
+      updatedAt: lockedAt,
     },
   });
   return { allowed: true as const };
@@ -83,9 +83,20 @@ async function lockInstallationBudget(
   WHERE "githubInstallationId" = ${installationId}
   FOR UPDATE
 `);
-  return transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow({
-    where: { githubInstallationId: installationId },
-  });
+  // clock_timestamp() advances while waiting for the row lock; now() would
+  // return the transaction-start time and could expire this reservation early.
+  const rows = await transaction.$queryRaw<Array<{ lockedAt: Date }>>(
+    Prisma.sql`SELECT clock_timestamp() AS "lockedAt"`,
+  );
+  const lockedAt = rows[0]?.lockedAt;
+  if (!(lockedAt instanceof Date) || Number.isNaN(lockedAt.getTime())) {
+    throw new Error("review_progress_installation_clock_invalid");
+  }
+  const budget =
+    await transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow({
+      where: { githubInstallationId: installationId },
+    });
+  return { budget, lockedAt };
 }
 
 function maxDate(first: Date, second: Date | null): Date {

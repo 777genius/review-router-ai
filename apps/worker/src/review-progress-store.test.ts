@@ -251,7 +251,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
           $executeRaw: async () => 1,
-          $queryRaw: async () => [],
+          $queryRaw: async () => [{ lockedAt: now }],
           reviewProgressPublicationV1: { updateMany, count },
           reviewProgressInstallationBudgetV1: {
             findUniqueOrThrow: async () => ({
@@ -313,9 +313,12 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
             calls.push("insert");
             return 1;
           },
-          $queryRaw: async () => {
-            calls.push("lock");
-            return [];
+          $queryRaw: async (query: { strings: readonly string[] }) => {
+            const isClock = query.strings
+              .join(" ")
+              .includes("clock_timestamp()");
+            calls.push(isClock ? "clock" : "lock");
+            return isClock ? [{ lockedAt: now }] : [];
           },
           reviewProgressInstallationBudgetV1: {
             findUniqueOrThrow: async () => {
@@ -343,7 +346,80 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         minimumIntervalMs: 1_000,
       }),
     ).resolves.toEqual({ allowed: true });
-    expect(calls).toEqual(["insert", "lock", "read", "fence", "reserve"]);
+    expect(calls).toEqual([
+      "insert",
+      "lock",
+      "clock",
+      "read",
+      "fence",
+      "reserve",
+    ]);
+  });
+
+  it("uses fresh database time after a delayed installation lock", async () => {
+    const lockedAt = new Date(now.getTime() + 1_500);
+    const reserve = vi.fn(async () => ({}));
+    const count = vi.fn(async () => 1);
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async () => 1,
+          $queryRaw: async (query: { strings: readonly string[] }) =>
+            query.strings.join(" ").includes("clock_timestamp()")
+              ? [{ lockedAt }]
+              : [],
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: async () => ({
+              nextMutationAt: now,
+              cooldownUntil: null,
+            }),
+            update: reserve,
+          },
+          reviewProgressPublicationV1: { count },
+        }),
+    } as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        publication: claimed(),
+        now,
+        minimumIntervalMs: 1_000,
+      }),
+    ).resolves.toEqual({ allowed: true });
+    expect(count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ claimUntil: { gt: lockedAt } }),
+    });
+    expect(reserve).toHaveBeenCalledWith({
+      where: { githubInstallationId: 17n },
+      data: {
+        nextMutationAt: new Date(lockedAt.getTime() + 1_000),
+        updatedAt: lockedAt,
+      },
+    });
+  });
+
+  it("fails closed when the database clock cannot be read after locking", async () => {
+    const reserve = vi.fn();
+    const store = new PrismaReviewProgressPublicationStore({
+      $transaction: async (operation: (transaction: unknown) => unknown) =>
+        operation({
+          $executeRaw: async () => 1,
+          $queryRaw: async () => [],
+          reviewProgressInstallationBudgetV1: {
+            findUniqueOrThrow: vi.fn(),
+            update: reserve,
+          },
+        }),
+    } as never);
+
+    await expect(
+      store.reserveInstallationMutation({
+        publication: claimed(),
+        now,
+        minimumIntervalMs: 1_000,
+      }),
+    ).rejects.toThrow("review_progress_installation_clock_invalid");
+    expect(reserve).not.toHaveBeenCalled();
   });
 
   it("does not consume installation budget after losing the claim fence", async () => {
@@ -352,7 +428,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       $transaction: async (operation: (transaction: unknown) => unknown) =>
         operation({
           $executeRaw: async () => 1,
-          $queryRaw: async () => [],
+          $queryRaw: async () => [{ lockedAt: now }],
           reviewProgressInstallationBudgetV1: {
             findUniqueOrThrow: async () => ({
               nextMutationAt: now,
