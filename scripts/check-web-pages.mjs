@@ -12,7 +12,7 @@ const setupNonceFragment = "short-lived setup nonce";
 const gettingStartedNamespaceFragment = "Server-issued versioned namespace";
 const securityNamespaceFragment = "server-issued versioned namespace";
 const commonTexts = ["ReviewRouter", "Security", "Support"];
-const landingHeroText = "Your model. Your budget.";
+const landingHeroText = "Full control and security.";
 const githubSignInText = isGitHubAuthConfigured(process.env)
   ? "Continue with GitHub"
   : "GitHub sign-in unavailable";

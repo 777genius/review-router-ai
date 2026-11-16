@@ -1,7 +1,7 @@
 /**
  * E2E: real compiled Next homepage, actual Chromium interactions and screenshots.
  * Run only after pnpm build; no credentials, API writes or external navigation.
- * Screens are illustrative product content, not screenshots of real customer runs.
+ * The screenshot carousel shows static dashboard captures bundled with the app.
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -94,7 +94,7 @@ try {
         });
         assert.equal(response?.status(), 200, "Homepage HTTP response");
         await page
-          .locator(".rr-home-window")
+          .locator(".rr-home-video__frame")
           .waitFor({ state: "visible", timeout: 45_000 });
         assert.equal(
           await page.locator("main h1").count(),
@@ -103,9 +103,22 @@ try {
         );
         assert.match(
           await page.locator("main h1").innerText(),
-          /Your model\. Your budget\./,
+          /Full control and security\./,
         );
-        assert.equal(await page.locator(".rr-home-finding").count(), 3);
+        assert.equal(await page.locator(".rr-home-providers li").count(), 6);
+        assert.equal(await page.locator(".rr-home-carousel__slide").count(), 5);
+        const activeScreenshot = page.locator(
+          '.rr-home-carousel__slide[data-active="true"] .rr-home-carousel__frame',
+        );
+        await activeScreenshot.scrollIntoViewIfNeeded();
+        await activeScreenshot.click();
+        await page
+          .getByRole("dialog")
+          .waitFor({ state: "visible", timeout: 10_000 });
+        await page.keyboard.press("Escape");
+        await page
+          .getByRole("dialog")
+          .waitFor({ state: "detached", timeout: 10_000 });
         assert.equal(await page.locator(".rr-home-hosting__card").count(), 2);
         assert.ok(
           (await page.locator(".rr-home-hero__install").innerText()).trim()
@@ -115,64 +128,11 @@ try {
           await page.locator("html").getAttribute("data-theme"),
           theme,
         );
-        const logoLoaded = await page
-          .waitForFunction(
-            () => {
-              const logo = document.querySelector(
-                ".rr-home-window__identity img",
-              );
-              return (
-                logo instanceof window.HTMLImageElement &&
-                logo.complete &&
-                logo.naturalWidth > 0
-              );
-            },
-            undefined,
-            { timeout: 15_000 },
-          )
-          .then(
-            () => true,
-            () => false,
-          );
-        assert.ok(logoLoaded, "The actual ReviewRouter logo must load");
-        const select = async (tab, needle) => {
-          for (let attempt = 0; attempt < 4; attempt += 1) {
-            await page.getByRole("button", { name: tab, exact: true }).click();
-            try {
-              await page
-                .getByText(needle, { exact: true })
-                .waitFor({ state: "visible", timeout: 2500 });
-              return;
-            } catch (error) {
-              if (attempt === 3) throw error;
-              await delay(250);
-            }
-          }
-        };
-        await select("Commits", "Add regression tests");
-        const insightsButton = page.getByRole("button", {
-          name: "Insights",
-          exact: true,
-        });
-        await insightsButton.focus();
-        await page.keyboard.press("Enter");
-        await page
-          .getByText("Known costs", { exact: true })
-          .waitFor({ state: "visible" });
-        assert.equal(
-          await insightsButton.getAttribute("aria-pressed"),
-          "true",
-          "Keyboard tab selection must work",
-        );
-        await select("Findings", "Missing input validation");
         const measurements = await page.evaluate(() => ({
           documentWidth: document.documentElement.scrollWidth,
           viewportWidth: document.documentElement.clientWidth,
-          animation: window.getComputedStyle(
-            document.querySelector(".rr-home-finding"),
-          ).animationName,
           stylesheet: window.getComputedStyle(
-            document.querySelector(".rr-home-window"),
+            document.querySelector(".rr-home-video__frame"),
           ).borderTopWidth,
         }));
         assert.ok(
@@ -185,33 +145,11 @@ try {
             JSON.stringify(measurements),
         );
         assert.equal(
-          measurements.animation,
-          "none",
-          "Reduced motion must suppress finding animations",
-        );
-        assert.equal(
           measurements.stylesheet,
           "1px",
           "The landing stylesheet must load",
         );
         assert.deepEqual(errors, [], "No browser runtime errors");
-        if (theme === "dark" && width === 1440) {
-          await page.emulateMedia({ reducedMotion: "no-preference" });
-          await select("Commits", "Add regression tests");
-          await select("Findings", "Missing input validation");
-          const animated = await page
-            .locator(".rr-home-finding")
-            .first()
-            .evaluate(
-              (element) => window.getComputedStyle(element).animationName,
-            );
-          assert.match(
-            animated,
-            /rr-home-stagger/,
-            "Normal-motion finding entrance must animate",
-          );
-          await page.emulateMedia({ reducedMotion: "reduce" });
-        }
         await page.screenshot({
           path: join(outputDir, "landing-" + theme + "-" + width + ".png"),
           fullPage: true,

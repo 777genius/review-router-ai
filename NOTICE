@@ -15,4 +15,9 @@ the bundled Space Grotesk and JetBrains Mono fonts have their own SIL Open
 Font License terms in apps/web/app/fonts/OFL.txt, and bundled action
 third-party licenses are kept in scripts/codex-rotating-action-third-party-licenses.txt.
 
+The AcidSquares component in apps/web/app/vendor/react-bits is from React Bits
+(https://github.com/DavidHDev/react-bits) by David Haz, licensed under MIT +
+Commons Clause. It is used as part of the ReviewRouter web application and is
+not offered for sale or standalone redistribution.
+
 ReviewRouter is not endorsed by the Apache Software Foundation or Alibaba.

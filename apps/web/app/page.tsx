@@ -4,13 +4,18 @@ import { HomeFeatures } from "./home-features";
 import { HomeFinalCta } from "./home-final-cta";
 import "./home-landing.css";
 import { HomeHero } from "./home-hero";
+import { HomeMotionObserver } from "./home-motion-observer";
 import {
   getDashboardMutationStatus,
   getDashboardWorkspaceScope,
 } from "../src/server/dashboard-mutations";
 import { countConnectedGitHubInstallations } from "../src/server/connected-installations";
 import { getGitHubAppInstallUrl } from "../src/server/github-app-install-url";
-import { reviewRouterGitHubRepoUrl, reviewRouterWebUrl } from "./public-urls";
+import {
+  reviewRouterGitHubRepoUrl,
+  reviewRouterSourceCodeUrl,
+  reviewRouterWebUrl,
+} from "./public-urls";
 import { createPublicPageMetadata, siteName } from "./seo";
 
 const homeSeoDescription =
@@ -31,10 +36,7 @@ const structuredData = {
       name: siteName,
       url: reviewRouterWebUrl,
       logo: `${reviewRouterWebUrl}/review-router-icon.png`,
-      sameAs: [
-        reviewRouterGitHubRepoUrl,
-        "https://github.com/777genius/review-router-ai",
-      ],
+      sameAs: [reviewRouterGitHubRepoUrl, reviewRouterSourceCodeUrl],
     },
     {
       "@type": "WebSite",
@@ -110,6 +112,7 @@ export default async function HomePage(): Promise<React.ReactElement> {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
+      <HomeMotionObserver />
       <HomeHero {...ctaContext} />
       <HomeFeatures />
       <div className="rr-home-faq-wrap rr-home-motion">
