@@ -20,6 +20,33 @@ export const accountLimitsKey = (scope: string, connectionId: string) =>
 export const accountLimitsScope = (context: string, workspaceId?: string) =>
   `${workspaceId ? `workspace:${workspaceId}` : "personal"}:${context.split(".")[0] ?? ""}`;
 
+/** Observation age at which saved limits are shown as Outdated. */
+export const ACCOUNT_LIMITS_OUTDATED_AFTER_MS = 300_000;
+/** A refreshed observation stays current for the same period. */
+export const ACCOUNT_LIMITS_AUTO_REFRESH_COOLDOWN_MS =
+  ACCOUNT_LIMITS_OUTDATED_AFTER_MS;
+const autoRefreshAttempts = new Map<string, number>();
+
+/**
+ * Opening an account may refresh its quota without a click. Remounts, tab
+ * switches and failed attempts in this browser tab still reach the provider at
+ * most once per account generation and cooldown; explicit refresh is unaffected.
+ */
+export function claimAccountLimitsAutoRefresh(
+  scope: string,
+  connectionId: string,
+  displayToken: string,
+  now = Date.now(),
+): boolean {
+  for (const [key, attemptedAt] of autoRefreshAttempts)
+    if (now - attemptedAt >= ACCOUNT_LIMITS_AUTO_REFRESH_COOLDOWN_MS)
+      autoRefreshAttempts.delete(key);
+  const key = JSON.stringify([scope, connectionId, displayToken]);
+  if (autoRefreshAttempts.has(key)) return false;
+  autoRefreshAttempts.set(key, now);
+  return true;
+}
+
 export function accountLimitsRefreshOptions(
   scope: string,
   request: AccountLimitsRequest,
