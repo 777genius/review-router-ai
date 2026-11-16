@@ -112,6 +112,38 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(repair).toHaveBeenCalledTimes(attempts);
   });
 
+  it.each([
+    { name: "serialization", sqlState: "40001", nested: true, attempts: 2 },
+    { name: "deadlock", sqlState: "40P01", nested: false, attempts: 2 },
+    { name: "other error", sqlState: "23505", nested: true, attempts: 1 },
+  ])("bounds raw $name retries", async ({ sqlState, nested, attempts }) => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const rawError = Object.assign(new Error("raw_repair_failed"), {
+      code: "P2010",
+      meta: nested
+        ? { driverAdapterError: { cause: { originalCode: sqlState } } }
+        : { code: sqlState },
+    });
+    const repair = vi.fn<(query: unknown) => Promise<number>>(async () => {
+      throw rawError;
+    });
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
+    } as never);
+
+    await expect(
+      store.complete({
+        publication: claimed(),
+        commentId: 42n,
+        bodyHash: "c".repeat(64),
+        now,
+      }),
+    ).rejects.toBe(rawError);
+    expect(updateMany).toHaveBeenCalledOnce();
+    expect(repair).toHaveBeenCalledTimes(attempts);
+  });
+
   it("skips stale no-write repair without clearing newer claims", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const repair = vi.fn(async () => 1);
