@@ -110,15 +110,21 @@ try {
         const activeScreenshot = page.locator(
           '.rr-home-carousel__slide[data-active="true"] .rr-home-carousel__frame',
         );
+        const viewer = page.getByRole("dialog");
         await activeScreenshot.scrollIntoViewIfNeeded();
-        await activeScreenshot.click();
-        await page
-          .getByRole("dialog")
-          .waitFor({ state: "visible", timeout: 10_000 });
+        // The page is captured at domcontentloaded, so a click can land before
+        // React hydrates; retry until the viewer opens.
+        let viewerOpened = false;
+        for (let attempt = 0; attempt < 15 && !viewerOpened; attempt += 1) {
+          await activeScreenshot.click();
+          viewerOpened = await viewer
+            .waitFor({ state: "visible", timeout: 2_000 })
+            .then(() => true)
+            .catch(() => false);
+        }
+        assert.ok(viewerOpened, "Screenshot viewer opens on click");
         await page.keyboard.press("Escape");
-        await page
-          .getByRole("dialog")
-          .waitFor({ state: "detached", timeout: 10_000 });
+        await viewer.waitFor({ state: "detached", timeout: 10_000 });
         assert.equal(await page.locator(".rr-home-hosting__card").count(), 2);
         assert.ok(
           (await page.locator(".rr-home-hero__install").innerText()).trim()
