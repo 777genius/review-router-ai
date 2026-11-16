@@ -1,3 +1,4 @@
+import { accountModelDiscoverySource } from "@agent-teams/account-gateway/contracts";
 import type { ReviewModelOption } from "@reviewrouter/features-review-providers";
 import type { AccountProfileView } from "../../server/account-gateway-accounts";
 import type { AccountModelCatalogView } from "../account-gateway/connection-capabilities";
@@ -5,7 +6,11 @@ import type { AccountModelCatalogView } from "../account-gateway/connection-capa
 /** Public metadata describes choices; the exact account still owns admission. */
 export function gatewayProviderModelOptions(
   options: readonly ReviewModelOption[],
-  profile: Pick<AccountProfileView, "models" | "connection"> | undefined,
+  profile:
+    | (Pick<AccountProfileView, "models" | "connection"> &
+        Pick<AccountProfileView, "id" | "protocol"> &
+        Partial<Pick<AccountProfileView, "authKind">>)
+    | undefined,
   capability?: Readonly<{
     catalog?: AccountModelCatalogView | undefined;
     requiresTools: boolean;
@@ -13,14 +18,16 @@ export function gatewayProviderModelOptions(
 ): readonly ReviewModelOption[] {
   const supported = new Set(profile?.models ?? []);
   const catalog = capability?.catalog;
+  // The Gateway contract is the one authority for which profile may carry a
+  // discovered catalogue and from which source; never infer it from vendor labels.
   const nativeSource =
-    profile?.connection?.provider === "openrouter"
-      ? "openrouter"
-      : profile?.connection?.provider === "nvidia"
-        ? "nvidia"
-        : profile?.connection?.provider === "openai"
-          ? "codex"
-          : undefined;
+    profile?.id && profile.protocol && profile.authKind
+      ? accountModelDiscoverySource({
+          profileId: profile.id,
+          protocol: profile.protocol,
+          authKind: profile.authKind,
+        })
+      : undefined;
   const now = Date.now();
   const freshNative =
     catalog?.status === "snapshot" &&

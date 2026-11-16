@@ -1,3 +1,5 @@
+import type { AccountModelSource } from "@agent-teams/account-gateway/contracts";
+
 /** Safe connection metadata. Upstream identity is independent of the review engine. */
 export type AccountUpstreamProvider =
   | "mimo"
@@ -33,7 +35,7 @@ export type AccountConnectionView = {
 /** Account-scoped discovery metadata; never contains Gateway identity/fences. */
 export type AccountModelCatalogView = {
   status: "snapshot" | "unsupported" | "unavailable" | "unknown";
-  source: "codex" | "openrouter" | "nvidia" | "legacy_profile";
+  source: AccountModelSource | "legacy_profile";
   fetchedAt?: string;
   expiresAt?: string;
   models: readonly string[];
