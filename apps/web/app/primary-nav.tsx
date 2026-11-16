@@ -1,24 +1,27 @@
 "use client";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { LogIn, Menu } from "lucide-react";
+import { ArrowUpRight, LogIn, Menu } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { LinkButton } from "@reviewrouter/ui";
 import { GitHubAccountAvatar } from "./github-account-avatar";
 import { GitHubSignOutButton } from "./github-sign-in-button";
 import { isDashboardOperatorPreviewPath } from "./dashboard-preview-path";
+import { reviewRouterSourceCodeUrl } from "./public-urls";
 
 type PrimaryNavItem = {
   readonly href: string;
   readonly label: string;
   readonly activePath?: string;
+  readonly external?: true;
 };
 
 const signedInPrimaryNav: readonly PrimaryNavItem[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/getting-started", label: "Guide" },
   { href: "/security", label: "Security" },
-  { href: "/#compare", activePath: "/compare", label: "Compare" },
+  { href: "/compare", activePath: "/compare", label: "Compare" },
+  { href: reviewRouterSourceCodeUrl, label: "Source code", external: true },
 ] as const;
 
 const signedOutPrimaryNav = signedInPrimaryNav.filter(
@@ -73,15 +76,23 @@ function PrimaryNavLinks({
   return (
     <nav aria-label={ariaLabel} className={className}>
       {items.map((item) => {
-        const active = isActivePath(pathname, item.activePath ?? item.href);
+        const active =
+          !item.external &&
+          isActivePath(pathname, item.activePath ?? item.href);
         return (
           <a
             key={item.href}
             aria-current={active ? "page" : undefined}
             href={item.href}
             className={navLinkClass(active)}
+            {...(item.external
+              ? { target: "_blank", rel: "noopener noreferrer" }
+              : {})}
           >
             {item.label}
+            {item.external ? (
+              <ArrowUpRight aria-hidden="true" className="ml-1 size-3" />
+            ) : null}
           </a>
         );
       })}
@@ -135,10 +146,9 @@ export function MobilePrimaryNav({
             className="mt-3 grid gap-1 border-t border-cyan-200/10 pt-3"
           >
             {items.map((item) => {
-              const active = isActivePath(
-                pathname,
-                item.activePath ?? item.href,
-              );
+              const active =
+                !item.external &&
+                isActivePath(pathname, item.activePath ?? item.href);
 
               return (
                 <DropdownMenu.Item asChild key={item.href}>
@@ -146,6 +156,9 @@ export function MobilePrimaryNav({
                     aria-current={active ? "page" : undefined}
                     href={item.href}
                     className={mobileNavLinkClass(active)}
+                    {...(item.external
+                      ? { target: "_blank", rel: "noopener noreferrer" }
+                      : {})}
                   >
                     <span>{item.label}</span>
                     <span
