@@ -7,10 +7,16 @@ export function providerUsageConfiguredProvider(lane: {
   authMode?: string | undefined;
   gatewayProfileRef?: string | undefined;
 }) {
+  // native_catalog names who owns the model list, not the vendor: usage keeps
+  // reporting such plans as "unknown" exactly as before the catalogue existed.
+  const discoverySource = accountModelDiscoveryProfile(
+    lane.gatewayProfileRef ?? "",
+  )?.source;
   const provider =
     lane.authMode === "codex_account_gateway"
-      ? (accountModelDiscoveryProfile(lane.gatewayProfileRef ?? "")?.source ??
-        "unknown")
+      ? discoverySource && discoverySource !== "native_catalog"
+        ? discoverySource
+        : "unknown"
       : lane.kind === "codex-mimo"
         ? "mimo"
         : lane.kind;
