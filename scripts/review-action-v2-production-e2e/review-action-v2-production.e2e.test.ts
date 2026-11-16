@@ -663,6 +663,20 @@ describeWithDatabase.sequential(
         data: { nextPublishAt: new Date(Date.now() - 1_000) },
       });
       await makeInstallationBudgetDue();
+      // The takeover must observe the expired old claim, not a fixture-cleared row.
+      const expiredClaim =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+          select: {
+            claimId: true,
+            claimOwnerIdHash: true,
+            claimUntil: true,
+          },
+        });
+      expect(expiredClaim.claimId).toBe(stale.claim.claimId);
+      expect(expiredClaim.claimOwnerIdHash).toBe(stale.claim.ownerIdHash);
+      expect(expiredClaim.claimUntil).not.toBeNull();
+      expect(expiredClaim.claimUntil!.getTime()).toBeLessThanOrEqual(Date.now());
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });
