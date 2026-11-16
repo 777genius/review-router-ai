@@ -144,6 +144,35 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(repair).toHaveBeenCalledTimes(attempts);
   });
 
+  it("requeues an ambiguous write without a stored comment ID", async () => {
+    const updateMany = vi.fn();
+    const repair = vi.fn(async () => 1);
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
+    } as never);
+
+    await expect(
+      store.requeueAfterClaimLoss({ scope: claimed().scope, now }),
+    ).resolves.toBeUndefined();
+
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(repair).toHaveBeenCalledOnce();
+    const sql = repair.mock.calls[0]![0] as {
+      strings: readonly string[];
+      values: readonly unknown[];
+    };
+    expect(sql.strings.join(" ")).toContain('"claimId" = NULL');
+    expect(sql.values).toEqual([
+      now,
+      now,
+      "workspace-1",
+      "repository-1",
+      "identity-1",
+      42,
+    ]);
+  });
+
   it("skips stale no-write repair without clearing newer claims", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const repair = vi.fn(async () => 1);

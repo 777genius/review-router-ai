@@ -110,13 +110,24 @@ export class PrismaReviewProgressPublicationStore {
       data: completionMutationData(input),
     });
     if (result.count !== 1 && input.repairOnFenceLoss !== false) {
-      await requeuePublishedScopeAfterClaimLoss(
-        this.prisma,
-        input.publication.scope,
-        input.now,
-      );
+      await this.requeueAfterClaimLoss({
+        scope: input.publication.scope,
+        now: input.now,
+      });
     }
     return result.count === 1;
+  }
+
+  /** Requeue an ambiguous GitHub write after its claim has gone stale. */
+  async requeueAfterClaimLoss(input: {
+    readonly scope: ClaimedReviewProgress["scope"];
+    readonly now: Date;
+  }): Promise<void> {
+    await requeuePublishedScopeAfterClaimLoss(
+      this.prisma,
+      input.scope,
+      input.now,
+    );
   }
 
   async retry(input: {

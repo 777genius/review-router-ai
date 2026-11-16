@@ -35,6 +35,7 @@ export type ReviewProgressPublicationStore = Pick<
   | "claimNext"
   | "reserveInstallationMutation"
   | "complete"
+  | "requeueAfterClaimLoss"
   | "retry"
   | "suppress"
 >;
@@ -130,7 +131,7 @@ export class ReviewProgressPublisher {
         result,
       );
     } catch (error) {
-      await this.handlePublishFailure(publication, error, result, bodyHash);
+      await this.handlePublishFailure(publication, error, result);
     }
   }
 
@@ -277,7 +278,6 @@ export class ReviewProgressPublisher {
     publication: ClaimedReviewProgress,
     error: unknown,
     result: { suppressed: number; failed: number; deferred: number },
-    bodyHash: string,
   ): Promise<void> {
     if (
       error instanceof ReviewProgressGitHubError &&
@@ -304,15 +304,12 @@ export class ReviewProgressPublisher {
     });
     if (retryOutcome === "stale") {
       if (
-        publication.commentId !== null &&
         error instanceof ReviewProgressGitHubError &&
         error.metadata.mutationMayHaveLanded === true
       ) {
-        // A lost claim cannot settle the old PATCH; requeue the live snapshot.
-        await this.store.complete({
-          publication,
-          commentId: publication.commentId,
-          bodyHash,
+        // The gateway can PATCH a comment before persisting its ID.
+        await this.store.requeueAfterClaimLoss({
+          scope: publication.scope,
           now: this.clock.now(),
         });
       }
