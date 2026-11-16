@@ -6,8 +6,8 @@
   once through the existing quota-only refresh, so `Outdated` and `Reset pending`
   stay rare and truthful instead of being the normal state for idle accounts.
 - Affected services/targets: Web only.
-- Implementation PR/issue: Draft PR from branch
-  `fix/account-limits-freshness-20261117`.
+- Implementation PR/issue:
+  [#880](https://github.com/777genius/review-router-ai/pull/880).
 - Implementation reference: branch `fix/account-limits-freshness-20261117`; the
   merge commit is the source provenance once merged.
 - Dependencies: [Codex quota refresh batch](2026-11-04-codex-limits-refresh.md)
