@@ -85,7 +85,8 @@ async function lockInstallationBudget(
 `);
   // clock_timestamp() advances while waiting for the row lock; now() would
   // return the transaction-start time and could expire this reservation early.
-  const rows = await transaction.$queryRaw<Array<{ lockedAt: Date }>>(
+  type InstallationClockRow = { lockedAt: Date };
+  const rows = await transaction.$queryRaw<InstallationClockRow[]>(
     Prisma.sql`SELECT clock_timestamp() AS "lockedAt"`,
   );
   const lockedAt = rows[0]?.lockedAt;
