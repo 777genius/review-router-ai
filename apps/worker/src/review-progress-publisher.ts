@@ -298,23 +298,35 @@ export class ReviewProgressPublisher {
       () => this.clock.now(),
       this.options.retryDelayMs,
     );
-    const retryOutcome = await this.store.retry({
-      publication,
-      ...retry,
-      now: this.clock.now(),
-      maxFailures: this.options.maxFailures,
-    });
-    if (retryOutcome === "stale") {
-      const canonicalBodyMayHaveChanged =
-        published !== null &&
+    const mutationMayHaveLanded =
+      (published !== null &&
         (published.operation === "updated" ||
           published.operation === "reconciled" ||
-          published.operation === "created");
-      if (
-        canonicalBodyMayHaveChanged ||
-        (error instanceof ReviewProgressGitHubError &&
-          error.metadata.mutationMayHaveLanded === true)
-      ) {
+          published.operation === "created")) ||
+      (error instanceof ReviewProgressGitHubError &&
+        error.metadata.mutationMayHaveLanded === true);
+    let retryOutcome: Awaited<
+      ReturnType<ReviewProgressPublicationStore["retry"]>
+    >;
+    try {
+      retryOutcome = await this.store.retry({
+        publication,
+        ...retry,
+        now: this.clock.now(),
+        maxFailures: this.options.maxFailures,
+      });
+    } catch (retryError) {
+      if (mutationMayHaveLanded) {
+        // Retry bookkeeping can fail after GitHub has already changed the body.
+        await this.store.requeueAfterClaimLoss({
+          scope: publication.scope,
+          now: this.clock.now(),
+        });
+      }
+      throw retryError;
+    }
+    if (retryOutcome === "stale") {
+      if (mutationMayHaveLanded) {
         // A successful mutation or ambiguous PATCH may outlive its claim.
         await this.store.requeueAfterClaimLoss({
           scope: publication.scope,

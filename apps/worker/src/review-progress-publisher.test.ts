@@ -648,12 +648,21 @@ describe("ReviewProgressPublisher", () => {
     },
   );
 
-  it.each([77n, null])(
-    "repairs current progress after a stale ambiguous PATCH with ID %s",
-    async (commentId) => {
+  it.each([
+    { commentId: 77n, retryRejects: false },
+    { commentId: null, retryRejects: false },
+    { commentId: 77n, retryRejects: true },
+    { commentId: null, retryRejects: true },
+  ])(
+    "repairs ambiguous PATCH ID $commentId when retry rejects=$retryRejects",
+    async ({ commentId, retryRejects }) => {
       const publication = { ...claimed(), commentId };
       const store = fakeStore(publication);
-      store.retry.mockResolvedValue("stale");
+      if (retryRejects) {
+        store.retry.mockRejectedValueOnce(new Error("retry_unavailable"));
+      } else {
+        store.retry.mockResolvedValue("stale");
+      }
       store.complete.mockResolvedValue(false);
       let commentReads = 0;
       const publisher = createPublisher(store, async () => ({
@@ -682,13 +691,19 @@ describe("ReviewProgressPublisher", () => {
         },
       }));
 
-      await expect(publisher.runMaintenance()).resolves.toEqual({
-        claimed: 1,
-        published: 0,
-        deferred: 1,
-        suppressed: 0,
-        failed: 0,
-      });
+      if (retryRejects) {
+        await expect(publisher.runMaintenance()).rejects.toThrow(
+          "retry_unavailable",
+        );
+      } else {
+        await expect(publisher.runMaintenance()).resolves.toEqual({
+          claimed: 1,
+          published: 0,
+          deferred: 1,
+          suppressed: 0,
+          failed: 0,
+        });
+      }
       expect(commentReads).toBe(2);
       expect(store.retry).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -705,13 +720,22 @@ describe("ReviewProgressPublisher", () => {
     },
   );
 
-  it.each([77n, null])(
-    "repairs a successful GitHub write when settlement loses the claim with ID %s",
-    async (commentId) => {
+  it.each([
+    { commentId: 77n, retryRejects: false },
+    { commentId: null, retryRejects: false },
+    { commentId: 77n, retryRejects: true },
+    { commentId: null, retryRejects: true },
+  ])(
+    "repairs successful write ID $commentId when retry rejects=$retryRejects",
+    async ({ commentId, retryRejects }) => {
       const publication = { ...claimed(), commentId };
       const store = fakeStore(publication);
       store.complete.mockRejectedValueOnce(new Error("settlement_unavailable"));
-      store.retry.mockResolvedValue("stale");
+      if (retryRejects) {
+        store.retry.mockRejectedValueOnce(new Error("retry_unavailable"));
+      } else {
+        store.retry.mockResolvedValue("stale");
+      }
       const publisher = createPublisher(store, async () => ({
         botLogin: "review-router[bot]",
         request: async (route, parameters = {}) => {
@@ -743,13 +767,19 @@ describe("ReviewProgressPublisher", () => {
         },
       }));
 
-      await expect(publisher.runMaintenance()).resolves.toEqual({
-        claimed: 1,
-        published: 0,
-        deferred: 1,
-        suppressed: 0,
-        failed: 0,
-      });
+      if (retryRejects) {
+        await expect(publisher.runMaintenance()).rejects.toThrow(
+          "retry_unavailable",
+        );
+      } else {
+        await expect(publisher.runMaintenance()).resolves.toEqual({
+          claimed: 1,
+          published: 0,
+          deferred: 1,
+          suppressed: 0,
+          failed: 0,
+        });
+      }
       expect(store.complete).toHaveBeenCalledOnce();
       expect(store.retry).toHaveBeenCalledOnce();
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
@@ -758,6 +788,19 @@ describe("ReviewProgressPublisher", () => {
       });
     },
   );
+
+  it("does not requeue failed bookkeeping before any GitHub write", async () => {
+    const store = fakeStore(claimed());
+    store.retry.mockRejectedValueOnce(new Error("retry_unavailable"));
+    const publisher = createPublisher(store, async () => {
+      throw new Error("installation_transient");
+    });
+
+    await expect(publisher.runMaintenance()).rejects.toThrow(
+      "retry_unavailable",
+    );
+    expect(store.requeueAfterClaimLoss).not.toHaveBeenCalled();
+  });
 
   it("suppresses a poison publication at the retry bound", async () => {
     const publication = { ...claimed(), failureCount: 2 };
