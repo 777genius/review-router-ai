@@ -49,7 +49,7 @@ const mimoTokenPlanCommand = `gh secret set MIMO_TOKEN_PLAN_API_KEY --repo owner
 const kimiCodeCommand = `gh secret set KIMI_CODE_API_KEY --repo owner/repo --app actions`;
 
 const selfHostCommand = `SOURCE_SHA=PASTE_APPROVED_40_CHARACTER_COMMIT_SHA
-git clone https://github.com/777genius/review-router-ai.git reviewrouter
+git clone ${reviewRouterSourceCodeUrl}.git reviewrouter
 git -C reviewrouter fetch origin "$SOURCE_SHA"
 git -C reviewrouter checkout --detach "$SOURCE_SHA"
 cd reviewrouter
@@ -162,8 +162,8 @@ const boundaries = [
   },
   {
     icon: LockKeyhole,
-    title: "Credentials stay in CI",
-    body: "Repository credentials stay in GitHub Actions. You set provider secrets from your own machine.",
+    title: "Direct mode keeps secrets in CI",
+    body: "With direct provider setup, credentials live in GitHub Actions secrets that you set from your own machine. Gateway connections use protected server custody instead.",
   },
   {
     icon: ShieldCheck,
@@ -195,11 +195,6 @@ const troubleshooting = [
     question: "A pull request got no review.",
     answer:
       "Fork pull requests are skipped because provider secrets are not exposed to them. Otherwise check that the setup PR is merged and that the provider shows as confirmed for the repository.",
-  },
-  {
-    value: "gitlab",
-    question: "Does ReviewRouter work with GitLab?",
-    answer: "GitLab support is in development and is not available yet.",
   },
 ] as const;
 
@@ -355,6 +350,18 @@ export default function GettingStartedPage(): React.ReactElement {
               </li>
             ))}
           </ul>
+          <p className="mt-4 max-w-2xl text-xs leading-5 text-slate-500">
+            Some providers can also be connected as a managed Gateway account in
+            the dashboard instead of a GitHub secret. Those credentials are kept
+            in protected server custody; see the{" "}
+            <a
+              href="/security"
+              className="font-semibold text-cyan-200 hover:text-cyan-50"
+            >
+              security model
+            </a>{" "}
+            for the difference.
+          </p>
         </section>
 
         <section className="mt-16" aria-labelledby="commands-title">
@@ -417,8 +424,21 @@ export default function GettingStartedPage(): React.ReactElement {
         <section
           id="gitlab"
           className="mt-16"
-          aria-labelledby="troubleshooting-title"
+          aria-labelledby="code-hosts-title"
         >
+          <h2
+            id="code-hosts-title"
+            className="text-2xl font-semibold text-cyan-50 sm:text-3xl"
+          >
+            Supported code hosts
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
+            ReviewRouter works with GitHub today. GitLab support is in
+            development and is not available yet.
+          </p>
+        </section>
+
+        <section className="mt-16" aria-labelledby="troubleshooting-title">
           <h2
             id="troubleshooting-title"
             className="text-2xl font-semibold text-cyan-50 sm:text-3xl"

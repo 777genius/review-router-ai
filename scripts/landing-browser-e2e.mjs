@@ -168,6 +168,52 @@ try {
       }
     }
   }
+  // One run with real motion: the benchmark must arm, play and settle on the
+  // final values, and the carousel must keep working without reduced motion.
+  {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      reducedMotion: "no-preference",
+      colorScheme: "dark",
+      locale: "en-US",
+    });
+    try {
+      const errors = [];
+      const page = await context.newPage();
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.goto(origin, { waitUntil: "domcontentloaded" });
+      await page
+        .locator(".rr-home-benchmark")
+        .scrollIntoViewIfNeeded({ timeout: 45_000 });
+      await page.waitForFunction(
+        () =>
+          document
+            .querySelector(".rr-home-benchmark")
+            ?.getAttribute("data-phase") === "playing",
+        null,
+        { timeout: 15_000 },
+      );
+      await page.waitForFunction(
+        () =>
+          [
+            ...document.querySelectorAll(
+              '.rr-home-benchmark [aria-hidden="true"]',
+            ),
+          ].some((node) => node.textContent === "9.5×"),
+        null,
+        { timeout: 15_000 },
+      );
+      await page.locator(".rr-home-carousel").scrollIntoViewIfNeeded();
+      await page
+        .getByRole("button", { name: "Next screenshot" })
+        .first()
+        .click();
+      assert.deepEqual(errors, [], "No runtime errors with motion enabled");
+      process.stdout.write("PASS landing animated benchmark and carousel\n");
+    } finally {
+      await context.close();
+    }
+  }
   await writeFile(
     join(outputDir, "manifest.json"),
     JSON.stringify({ status: "PASS", results }, null, 2),

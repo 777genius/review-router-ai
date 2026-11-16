@@ -1545,9 +1545,7 @@ canvas {
 
 @media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
   .setup-blueprint,
-  .setup-blueprint__mobile-steps,
-  #compare article,
-  #compare [class*="bg-[var(--rr-surface-panel)]"] {
+  .setup-blueprint__mobile-steps {
     animation: security-mobile-sheen 13s ease-in-out infinite;
   }
 
@@ -1673,50 +1671,6 @@ canvas {
     opacity: 0.9;
   }
 
-  #compare {
-    width: calc(100% - 1rem);
-    scroll-margin-top: 6rem;
-  }
-
-  #compare h2 {
-    color: #effff9;
-    font-size: clamp(1.95rem, 8.8vw, 2.55rem);
-    line-height: 1.04;
-  }
-
-  #compare h3,
-  #compare h4,
-  #compare .text-cyan-50 {
-    color: #effff9;
-  }
-
-  #compare p,
-  #compare .text-slate-300,
-  #compare .text-slate-400 {
-    color: #a7b8b2;
-  }
-
-  #compare article,
-  #compare [class*="bg-[var(--rr-surface-panel)]"] {
-    border-color: rgba(45, 212, 191, 0.13);
-    background:
-      linear-gradient(125deg, rgba(45, 212, 191, 0.075), transparent 38%),
-      linear-gradient(180deg, rgba(19, 30, 31, 0.95), rgba(9, 14, 16, 0.95)),
-      #0b1113;
-    box-shadow: 0 18px 60px -50px rgba(16, 185, 129, 0.68);
-  }
-
-  #compare .rr-accent-callout {
-    border-color: rgba(52, 211, 153, 0.24);
-    border-radius: 1rem;
-    background: linear-gradient(
-      180deg,
-      rgba(16, 185, 129, 0.12),
-      rgba(245, 158, 11, 0.055)
-    );
-    padding: 1rem;
-  }
-
   :root:not([data-theme="light"]) .site-footer {
     background:
       linear-gradient(120deg, rgba(45, 212, 191, 0.08), transparent 42%),
@@ -1789,14 +1743,6 @@ canvas {
 
   .home-shell::before {
     animation: security-mobile-sheen 11s ease-in-out infinite;
-  }
-
-  #compare article,
-  #compare [class*="bg-[var(--rr-surface-panel)]"] {
-    background-size:
-      180% 180%,
-      auto,
-      auto;
   }
 }
 

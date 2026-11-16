@@ -90,7 +90,8 @@ type PermissionRow = {
   readonly docs?: readonly { readonly label: string; readonly href: string }[];
 };
 
-// Mirrors the "provisioning" permission profile used for hosted setup.
+// Mirrors the "provisioning" permission profile used for hosted setup, plus
+// organization_administration from the "org-ruleset" profile (org-wide checks).
 const permissionRows: readonly PermissionRow[] = [
   {
     permission: "metadata: read",
@@ -178,48 +179,57 @@ const permissionRows: readonly PermissionRow[] = [
   },
 ];
 
-const webhookRows = [
-  [
-    "installation",
-    "Create, suspend, unsuspend, and uninstall lifecycle events for workspace and installation state.",
-  ],
-  [
-    "installation_repositories",
-    "Repository added/removed events so selected-repository installs stay in sync without manual refresh.",
-  ],
-  [
-    "pull_request",
-    "Detect when setup PRs are merged and advance repository setup state automatically.",
-  ],
-  [
-    "push",
-    "Track the pushed ref and whether it was deleted, so setup state follows the default branch.",
-  ],
-  [
-    "repository",
-    "Refresh repository metadata such as rename, archived state, visibility, and default branch.",
-  ],
-  [
-    "workflow_job",
-    "Track job-level Actions state for runner and review diagnostics.",
-  ],
-  [
-    "workflow_run",
-    "Track workflow completion metadata for live health/status updates.",
-  ],
-  [
-    "check_run",
-    "Receive ReviewRouter-owned check run lifecycle events and rerun requests.",
-  ],
-  [
-    "issue_comment",
-    "Receive PR conversation comments for /rr commands such as /rr review and /rr status.",
-  ],
-  [
-    "status",
-    "Track commit status updates when direct status integration is enabled.",
-  ],
-] as const;
+type WebhookRow = {
+  readonly event: string;
+  readonly handled: boolean;
+  readonly use: string;
+};
+
+// Handled events mirror supportedGitHubInstallationWebhookEvents. The App is
+// also subscribed to the others, but the webhook endpoint acknowledges and
+// ignores them.
+const webhookRows: readonly WebhookRow[] = [
+  {
+    event: "installation",
+    handled: true,
+    use: "Create, suspend, unsuspend, and uninstall lifecycle events for workspace and installation state.",
+  },
+  {
+    event: "installation_repositories",
+    handled: true,
+    use: "Repository added/removed events so selected-repository installs stay in sync without manual refresh.",
+  },
+  {
+    event: "pull_request",
+    handled: true,
+    use: "Detect when setup PRs are merged and advance repository setup state automatically.",
+  },
+  {
+    event: "push",
+    handled: true,
+    use: "Track the pushed ref and whether it was deleted, so setup state follows the default branch.",
+  },
+  {
+    event: "repository",
+    handled: true,
+    use: "Refresh repository metadata such as rename, archived state, visibility, and default branch.",
+  },
+  {
+    event: "github_app_authorization",
+    handled: true,
+    use: "Receive user authorization events for the GitHub App.",
+  },
+  {
+    event: "issue_comment",
+    handled: false,
+    use: "/rr commands run through the Interaction workflow in your repository, not through this endpoint.",
+  },
+  {
+    event: "workflow_job, workflow_run, check_run, status",
+    handled: false,
+    use: "Subscribed for run and status integrations; the endpoint acknowledges these deliveries without processing them.",
+  },
+];
 
 const tableWrap =
   "overflow-x-auto rounded-2xl border border-cyan-200/12 bg-[var(--rr-surface-panel)]";
@@ -437,20 +447,29 @@ export default function SecurityPage(): React.ReactElement {
                   <thead>
                     <tr className="border-b border-cyan-200/12">
                       <th className={th}>Event</th>
+                      <th className={th}>Handling</th>
                       <th className={th}>Used for</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-cyan-200/10">
-                    {webhookRows.map(([event, use]) => (
-                      <tr key={event}>
+                    {webhookRows.map((row) => (
+                      <tr key={row.event}>
                         <th
                           scope="row"
-                          className={`${td} whitespace-nowrap text-left font-mono text-xs font-semibold text-cyan-100`}
+                          className={`${td} text-left font-mono text-xs font-semibold text-cyan-100`}
                         >
-                          {event}
+                          {row.event}
                         </th>
+                        <td className={td}>
+                          <Badge
+                            size="xs"
+                            tone={row.handled ? "success" : "neutral"}
+                          >
+                            {row.handled ? "Processed" : "Not processed"}
+                          </Badge>
+                        </td>
                         <td className={`${td} leading-6 text-slate-400`}>
-                          {use}
+                          {row.use}
                         </td>
                       </tr>
                     ))}

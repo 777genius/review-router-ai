@@ -1118,8 +1118,27 @@ html[data-theme="light"] .rr-landing > section:last-child p {
 }
 .rr-home-carousel__controls {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 0.6rem;
   margin-top: 1.6rem;
+}
+.rr-home-carousel__toggle {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  border: 1px solid rgba(107, 229, 253, 0.3);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--rr-home-muted);
+  cursor: pointer;
+}
+.rr-home-carousel__toggle:hover,
+.rr-home-carousel__toggle:focus-visible {
+  border-color: rgba(107, 229, 253, 0.7);
+  color: var(--rr-home-text);
 }
 .rr-home-carousel__arrow {
   position: absolute;

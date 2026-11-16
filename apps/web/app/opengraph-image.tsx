@@ -82,7 +82,7 @@ export default async function Image(): Promise<ImageResponse> {
             letterSpacing: 0,
           }}
         >
-          Open-source AI review. Your model. Your budget.
+          Open-source AI review. Full control and security.
         </div>
         <div
           style={{

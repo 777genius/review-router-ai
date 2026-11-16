@@ -234,7 +234,9 @@ export default function ComparePage(): React.ReactElement {
                               src={product.icon}
                               alt=""
                               className={`size-6 shrink-0 object-contain ${
-                                product.invertIcon ? "invert" : ""
+                                product.invertIcon
+                                  ? "[html:not([data-theme=light])_&]:invert"
+                                  : ""
                               }`}
                             />
                             {product.name}
@@ -362,7 +364,7 @@ export default function ComparePage(): React.ReactElement {
 
         <div className="mt-16 flex flex-wrap items-center justify-between gap-4 border-t border-cyan-200/10 pt-8">
           <p className="text-lg font-semibold text-cyan-50">
-            Keep your code in your own CI.
+            Run your reviews in your own CI.
           </p>
           <div className="flex flex-wrap gap-3">
             <LinkButton href="/security" variant="soft" tone="success">

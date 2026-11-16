@@ -67,8 +67,8 @@ export function AccordionTrigger({
   );
 }
 
-// keepMounted keeps closed answers in the server-rendered HTML so the page
-// stays searchable and indexable; Base UI hides them with `hidden`.
+// hiddenUntilFound keeps closed answers in the server-rendered HTML and lets
+// the browser's find-in-page open them (`hidden="until-found"`).
 export function AccordionContent({
   className,
   children,
@@ -77,7 +77,7 @@ export function AccordionContent({
   return (
     <AccordionPrimitive.Panel
       data-slot="accordion-content"
-      keepMounted
+      hiddenUntilFound
       className="h-[var(--accordion-panel-height)] overflow-hidden text-sm transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0 motion-reduce:transition-none"
       {...props}
     >

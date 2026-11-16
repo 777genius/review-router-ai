@@ -22,7 +22,7 @@ const homeSeoDescription =
   "Open-source AI code review, free to start. Use your own subscription or API key, review in your CI, and see token usage and known costs. Hosted or self-hosted.";
 
 export const metadata: Metadata = createPublicPageMetadata({
-  title: "Open-source AI code review | Your model, your budget",
+  title: "Open-source AI code review | Full control and security",
   description: homeSeoDescription,
   path: "/",
 });

@@ -18,6 +18,8 @@ third-party licenses are kept in scripts/codex-rotating-action-third-party-licen
 The AcidSquares component in apps/web/app/vendor/react-bits is from React Bits
 (https://github.com/DavidHDev/react-bits) by David Haz, licensed under MIT +
 Commons Clause. It is used as part of the ReviewRouter web application and is
-not offered for sale or standalone redistribution.
+not offered for sale or standalone redistribution. The upstream license text,
+including its copyright notice, is kept next to the component in
+apps/web/app/vendor/react-bits/LICENSE.md.
 
 ReviewRouter is not endorsed by the Apache Software Foundation or Alibaba.

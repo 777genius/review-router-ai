@@ -91,7 +91,7 @@ export function HomeBenchmark(): React.ReactElement {
             <div className="rr-home-benchmark__row">
               <span>
                 <img
-                  src="/landing/claude.svg"
+                  src="/service-icons/claude.svg"
                   alt=""
                   width={22}
                   height={22}

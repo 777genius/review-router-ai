@@ -5,7 +5,7 @@
  * AcidSquares-TS-CSS) by David Haz, copied unchanged apart from these headers
  * and formatting. License: MIT + Commons Clause. It is used here as part of an
  * application; the component itself must not be sold or redistributed
- * standalone. See NOTICE.
+ * standalone. Full license text: ./LICENSE.md. See also NOTICE.
  */
 "use client";
 
