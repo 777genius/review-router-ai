@@ -17,7 +17,7 @@ rollout order: `ai-docs/architecture/64-gateway-native-ownership-and-model-catal
 The previous archive was
 `agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz`.
 The SHA-256 checksum, exact SDK source commit and successful packaging run are
-recorded in `nvidia-sandbox-sdk-provenance.json`. Source comparison confirmed
+recorded in `nvidia-c32ef9ed3360-sdk-provenance.json`. Source comparison confirmed
 that later Gateway PR #105 commits changed CI/test fixture pins only, not SDK
 source; PR #105 is now merged. This artifact is **not an npm release**.
 

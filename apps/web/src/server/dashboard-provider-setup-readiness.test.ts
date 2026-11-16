@@ -305,6 +305,114 @@ describe("dashboard Gateway provider evidence", () => {
   });
 });
 
+describe("GLM native catalogue readiness", () => {
+  const profileId = "glm-coding-global-responses-apikey-v1";
+  const anchor = "glm-5.3-flash";
+  const config = (selected: string) =>
+    parseReviewConfiguration({
+      ...workspacePolicyFixture,
+      providers: [
+        {
+          kind: "codex",
+          authMode: "codex_account_gateway",
+          gatewayBindingId: "binding_1",
+          gatewayProfileRef: profileId,
+          model: selected,
+          agenticContext: true,
+          fastMode: false,
+        },
+      ],
+    });
+  const accountsWith = (
+    modelCatalog: NonNullable<
+      Extract<
+        AccountsResult<AccountsPage>,
+        { status: "ok" }
+      >["value"]["accounts"][number]["modelCatalog"]
+    >,
+  ): AccountsResult<AccountsPage> => ({
+    status: "ok",
+    value: {
+      accounts: [
+        {
+          connectionId: "connection_1",
+          label: "GLM",
+          profileId,
+          profileLabel: "GLM Coding Plan",
+          state: "active",
+          gatewayRevision: 2,
+          mirrorRevision: 2,
+          binding: {
+            id: "binding_1",
+            revision: 1,
+            state: "active",
+            fencePending: false,
+          },
+          modelCatalog,
+        },
+      ],
+      profiles: [
+        {
+          id: profileId,
+          label: "GLM Coding Plan",
+          protocol: "openai-responses",
+          authKind: "api_key",
+          models: [anchor],
+        },
+      ],
+      nextCursor: null,
+    },
+  });
+  const now = Date.now();
+  const snapshot = {
+    status: "snapshot" as const,
+    source: "native_catalog" as const,
+    models: [anchor, "glm-5.3"],
+    fetchedAt: new Date(now - 1_000).toISOString(),
+    expiresAt: new Date(now + 60_000).toISOString(),
+  };
+
+  it("is ready for the anchor and the catalogue model only from a fresh native_catalog snapshot", () => {
+    expect(
+      isGatewayProviderSetupReady(config("glm-5.3"), accountsWith(snapshot)),
+    ).toBe(true);
+    expect(
+      isGatewayProviderSetupReady(config(anchor), accountsWith(snapshot)),
+    ).toBe(true);
+    for (const invalid of [
+      { ...snapshot, source: "openrouter" as const },
+      { ...snapshot, expiresAt: new Date(now - 1).toISOString() },
+      { ...snapshot, models: [anchor] },
+    ])
+      expect(
+        isGatewayProviderSetupReady(config("glm-5.3"), accountsWith(invalid)),
+      ).toBe(false);
+  });
+
+  it("keeps only the anchor ready when the catalogue is explicitly unavailable", () => {
+    const unavailable = {
+      status: "unavailable" as const,
+      source: "legacy_profile" as const,
+      models: [anchor],
+    };
+    expect(
+      isGatewayProviderSetupReady(config(anchor), accountsWith(unavailable)),
+    ).toBe(true);
+    expect(
+      isGatewayProviderSetupReady(config("glm-5.3"), accountsWith(unavailable)),
+    ).toBe(false);
+  });
+
+  it("is not ready without a catalogue because the profile now requires one", () => {
+    const withoutCatalog = accountsWith(snapshot);
+    if (withoutCatalog.status !== "ok") throw new Error("fixture");
+    delete withoutCatalog.value.accounts[0]!.modelCatalog;
+    expect(isGatewayProviderSetupReady(config(anchor), withoutCatalog)).toBe(
+      false,
+    );
+  });
+});
+
 describe("multi-reviewer dynamic Gateway readiness", () => {
   it("requires a fresh exact catalog for every reviewer even when profile seeds contain both models", () => {
     const profileId = "openrouter-openai-responses-apikey-v1";

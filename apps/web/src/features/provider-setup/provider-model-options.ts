@@ -8,7 +8,8 @@ export function gatewayProviderModelOptions(
   options: readonly ReviewModelOption[],
   profile:
     | (Pick<AccountProfileView, "models" | "connection"> &
-        Partial<Pick<AccountProfileView, "id" | "protocol" | "authKind">>)
+        Pick<AccountProfileView, "id" | "protocol"> &
+        Partial<Pick<AccountProfileView, "authKind">>)
     | undefined,
   capability?: Readonly<{
     catalog?: AccountModelCatalogView | undefined;

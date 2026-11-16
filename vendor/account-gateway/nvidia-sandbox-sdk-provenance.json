@@ -19,7 +19,7 @@
     "liveGlmProviderRequest": "not_performed"
   },
   "rollout": {
-    "syntheticSandboxOnly": false,
+    "syntheticSandboxOnly": true,
     "publicPublished": false,
     "productionActivated": false
   },

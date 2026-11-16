@@ -17,6 +17,8 @@ describe("Gateway model catalog presentation", () => {
       description: "200K context",
     };
     const options = gatewayProviderModelOptions([available, unavailable], {
+      id: "openrouter-openai-responses-apikey-v1",
+      protocol: "openai-responses",
       models: ["openai/available", "runtime/private-model"],
     });
     expect(options[0]).toEqual(available);
@@ -253,7 +255,11 @@ describe("Gateway model catalog presentation", () => {
             disabled: true,
           },
         ],
-        { models: ["text/only"] },
+        {
+          id: "openrouter-openai-responses-apikey-v1",
+          protocol: "openai-responses",
+          models: ["text/only"],
+        },
       )[0]?.disabled,
     ).toBe(true);
   });
