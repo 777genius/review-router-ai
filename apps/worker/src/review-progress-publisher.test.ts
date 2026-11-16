@@ -479,6 +479,128 @@ describe("ReviewProgressPublisher", () => {
     });
   });
 
+  it.each([{ retryRejects: false }, { retryRejects: true }])(
+    "repairs a completed duplicate DELETE when settlement fails and retry rejects=$retryRejects",
+    async ({ retryRejects }) => {
+      const publication = { ...claimed(), commentId: 77n };
+      const store = fakeStore(publication);
+      store.complete.mockRejectedValueOnce(new Error("settlement_unavailable"));
+      if (retryRejects) {
+        store.retry.mockRejectedValueOnce(new Error("retry_unavailable"));
+      } else {
+        store.retry.mockResolvedValue("stale");
+      }
+      const body = formatReviewProgressComment(
+        formatGithubProgressComment(progressSnapshot()),
+        githubProgressCommentMarker,
+      );
+      const deletes: number[] = [];
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route, parameters = {}) => {
+          if (route.includes("/pulls/")) return pull();
+          if (route.startsWith("GET")) {
+            return {
+              data: [77, 78].map((id) => ({
+                id,
+                body,
+                user: { login: "review-router[bot]" },
+              })),
+            };
+          }
+          if (route.startsWith("DELETE")) {
+            deletes.push(Number(parameters.comment_id));
+            return { data: {} };
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      }));
+
+      if (retryRejects) {
+        await expect(publisher.runMaintenance()).rejects.toThrow(
+          "retry_unavailable",
+        );
+      } else {
+        await expect(publisher.runMaintenance()).resolves.toMatchObject({
+          claimed: 1,
+          deferred: 1,
+          published: 0,
+        });
+      }
+      expect(deletes).toEqual([78]);
+      expect(store.complete).toHaveBeenCalledOnce();
+      expect(store.retry).toHaveBeenCalledOnce();
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
+        scope: publication.scope,
+        now,
+      });
+    },
+  );
+
+  it.each([{ retryRejects: false }, { retryRejects: true }])(
+    "repairs an ambiguous duplicate DELETE when retry rejects=$retryRejects",
+    async ({ retryRejects }) => {
+      const publication = { ...claimed(), commentId: 77n };
+      const store = fakeStore(publication);
+      if (retryRejects) {
+        store.retry.mockRejectedValueOnce(new Error("retry_unavailable"));
+      } else {
+        store.retry.mockResolvedValue("stale");
+      }
+      const body = formatReviewProgressComment(
+        formatGithubProgressComment(progressSnapshot()),
+        githubProgressCommentMarker,
+      );
+      const deletes: number[] = [];
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route, parameters = {}) => {
+          if (route.includes("/pulls/")) return pull();
+          if (route.startsWith("GET")) {
+            return {
+              data: [77, 78].map((id) => ({
+                id,
+                body,
+                user: { login: "review-router[bot]" },
+              })),
+            };
+          }
+          if (route.startsWith("DELETE")) {
+            deletes.push(Number(parameters.comment_id));
+            throw new Error("ambiguous_delete_outcome");
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      }));
+
+      if (retryRejects) {
+        await expect(publisher.runMaintenance()).rejects.toThrow(
+          "retry_unavailable",
+        );
+      } else {
+        await expect(publisher.runMaintenance()).resolves.toMatchObject({
+          claimed: 1,
+          deferred: 1,
+          published: 0,
+        });
+      }
+      expect(deletes).toEqual([78]);
+      expect(store.complete).not.toHaveBeenCalled();
+      expect(store.retry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publication,
+          safeCode: "review_progress_ambiguous_mutation",
+        }),
+      );
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
+        scope: publication.scope,
+        now,
+      });
+    },
+  );
+
   it.each([
     { operation: "duplicate_deleted", hasDuplicate: true },
     { operation: "unchanged", hasDuplicate: false },

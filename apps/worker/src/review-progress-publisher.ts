@@ -306,7 +306,8 @@ export class ReviewProgressPublisher {
       (published !== null &&
         (published.operation === "updated" ||
           published.operation === "reconciled" ||
-          published.operation === "created")) ||
+          published.operation === "created" ||
+          published.operation === "duplicate_deleted")) ||
       (error instanceof ReviewProgressGitHubError &&
         error.metadata.mutationMayHaveLanded === true);
     let retryOutcome: Awaited<

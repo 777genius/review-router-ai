@@ -639,7 +639,7 @@ describe("ReviewProgressGitHubGateway", () => {
       gateway(fixture.request).upsert(input()),
     ).rejects.toMatchObject({
       kind: "ambiguous_mutation",
-      metadata: { retryable: true },
+      metadata: { retryable: true, mutationMayHaveLanded: true },
     });
     expect(mutations(fixture.calls)).toEqual([
       expect.objectContaining({

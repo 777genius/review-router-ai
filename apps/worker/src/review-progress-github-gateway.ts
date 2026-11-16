@@ -223,7 +223,13 @@ export class ReviewProgressGitHubGateway {
         repositoryParameters(input, { comment_id: duplicate.id }),
       );
     } catch (error) {
-      throw this.classify(error, "ambiguous_mutation");
+      const classified = this.classify(error, "ambiguous_mutation");
+      throw new ReviewProgressGitHubError(
+        classified.kind,
+        classified.message,
+        { ...classified.metadata, mutationMayHaveLanded: true },
+        { cause: classified },
+      );
     }
     return {
       commentId: canonicalId,
