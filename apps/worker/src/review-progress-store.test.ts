@@ -64,7 +64,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
   it("retries a transient stale scope repair after a write conflict", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
-    const repair = vi.fn(async (_query: unknown) => 1);
+    const repair = vi.fn<(query: unknown) => Promise<number>>(async () => 1);
     repair.mockRejectedValueOnce(
       Object.assign(new Error("transient_conflict"), { code: "P2034" }),
     );
@@ -92,7 +92,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
   ])("bounds $code scope-repair retries", async ({ code, attempts }) => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const conflict = Object.assign(new Error("repair_failed"), { code });
-    const repair = vi.fn(async (_query: unknown): Promise<number> => {
+    const repair = vi.fn<(query: unknown) => Promise<number>>(async () => {
       throw conflict;
     });
     const store = new PrismaReviewProgressPublicationStore({
