@@ -12,7 +12,9 @@ const setupNonceFragment = "short-lived setup nonce";
 const gettingStartedNamespaceFragment = "Server-issued versioned namespace";
 const securityNamespaceFragment = "server-issued versioned namespace";
 const commonTexts = ["ReviewRouter", "Security", "Support"];
-const landingHeroText = "Your model. Your budget.";
+const landingHeroText = "Full control and security.";
+// Signed-out dashboard visits stream a redirect to the landing page.
+const signedOutHomeRedirect = "NEXT_REDIRECT;replace;/;307;";
 const githubSignInText = isGitHubAuthConfigured(process.env)
   ? "Continue with GitHub"
   : "GitHub sign-in unavailable";
@@ -285,6 +287,9 @@ try {
         "Finish ReviewRouter setup",
         "Manage repository review rollout",
         "ReviewRouter is a metadata control plane",
+        signedOutHomeRedirect,
+        // Signed-out visitors are handed off to /setup with the install query.
+        "NEXT_REDIRECT;replace;/setup?installation_id=123",
       ],
       "dashboard post-install should render landing, setup handoff, dashboard, or signed-out metadata shell",
     );
@@ -321,15 +326,34 @@ try {
     }
   } else if (dashboardCleanResponse.ok) {
     const dashboardCleanHtml = await dashboardCleanResponse.text();
-    assertIncludesAny(
-      dashboardCleanHtml,
-      [
-        landingHeroText,
-        "Manage repository review rollout",
-        "ReviewRouter is a metadata control plane",
-      ],
-      "stale install query should render landing, dashboard, or signed-out metadata shell",
-    );
+    // Streamed pages carry the redirect in an RSC template instead of a
+    // Location header: it must stay on the dashboard and drop the install id.
+    const dashboardCleanRedirect = dashboardCleanHtml.match(
+      /NEXT_REDIRECT;replace;(\/dashboard\?[^"]*?);30\d;/,
+    )?.[1];
+    if (dashboardCleanRedirect !== undefined) {
+      assertIncludes(
+        dashboardCleanRedirect,
+        "workspace=777genius",
+        "stale install query should preserve workspace",
+      );
+      assertNotIncludes(
+        dashboardCleanRedirect,
+        "installation_id=",
+        "stale install query should drop installation_id",
+      );
+    } else {
+      assertIncludesAny(
+        dashboardCleanHtml,
+        [
+          landingHeroText,
+          "Manage repository review rollout",
+          "ReviewRouter is a metadata control plane",
+          signedOutHomeRedirect,
+        ],
+        "stale install query should render landing, dashboard, or signed-out metadata shell",
+      );
+    }
     assertNotIncludes(
       dashboardCleanHtml,
       "This page couldn",
@@ -442,6 +466,7 @@ try {
       landingHeroText,
       "Manage repository review rollout",
       "ReviewRouter is a metadata control plane",
+      signedOutHomeRedirect,
     ],
     "dashboard setup PR notice should render landing or dashboard",
   );
@@ -466,6 +491,7 @@ try {
       landingHeroText,
       "Manage repository review rollout",
       "ReviewRouter is a metadata control plane",
+      signedOutHomeRedirect,
     ],
     "dashboard sync notice should render landing or dashboard",
   );

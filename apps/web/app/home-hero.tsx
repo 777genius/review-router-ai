@@ -1,7 +1,14 @@
-import { ArrowUpRight, RadioTower } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { SourceProviderLogo } from "./source-provider-logo";
 import { HomeCtaCluster, type HomeCtaClusterProps } from "./home-cta-cluster";
-import { HomeVisualPreview } from "./home-visual-preview";
+import { HomeHeroBackdrop } from "./home-hero-backdrop";
+import { HomeHeroVideo } from "./home-hero-video";
+import { HomeProviders } from "./home-providers";
+import {
+  openCodeReviewRepoUrl,
+  reviewRouterSourceCodeUrl,
+} from "./public-urls";
+// import { HomeVisualPreview } from "./home-visual-preview";
 
 type HomeHeroProps = Omit<
   HomeCtaClusterProps,
@@ -16,18 +23,15 @@ export function HomeHero({
 }: HomeHeroProps): React.ReactElement {
   return (
     <section className="rr-home-hero" aria-labelledby="rr-home-title">
+      <HomeHeroBackdrop />
       <div aria-hidden="true" className="rr-home-hero__signal" />
       <div className="rr-home-hero__grid">
         <div className="rr-home-hero__intro rr-home-motion">
-          <p className="rr-home-kicker">
-            <RadioTower size={14} aria-hidden="true" /> OPEN SOURCE · FREE TO
-            START
-          </p>
           <h1 id="rr-home-title">
             Open-source
             <br />
             <span>AI code review.</span>
-            <strong>Your model. Your budget.</strong>
+            <strong>Full control and security.</strong>
           </h1>
           <p className="rr-home-hero__lead">
             Fast, focused pull request reviews. Use a supported AI subscription
@@ -42,7 +46,7 @@ export function HomeHero({
               className="rr-home-hero__install"
             />
             <a
-              href="https://github.com/777genius/review-router-ai"
+              href={reviewRouterSourceCodeUrl}
               className="rr-home-source"
               target="_blank"
               rel="noopener noreferrer"
@@ -60,17 +64,25 @@ export function HomeHero({
           </p>
         </div>
         <div className="rr-home-hero__visual rr-home-motion">
-          <HomeVisualPreview />
+          <HomeHeroVideo />
+          {/*
+            Previous hero visual, parked until we decide where it goes:
+            <HomeVisualPreview />
+          */}
         </div>
       </div>
       <div className="rr-home-hero__bottom">
-        <span>
+        <a
+          href={openCodeReviewRepoUrl}
+          className="rr-home-hero__powered"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           POWERED BY <b>OpenCodeReview</b>
-        </span>
+          <ArrowUpRight size={13} aria-hidden="true" />
+        </a>
         <span className="rr-home-hero__divider" aria-hidden="true" />
-        <span>RUNS IN YOUR CI</span>
-        <span className="rr-home-hero__divider" aria-hidden="true" />
-        <span>YOUR MODEL · YOUR RULES</span>
+        <HomeProviders />
       </div>
     </section>
   );

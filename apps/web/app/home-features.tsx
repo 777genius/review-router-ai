@@ -2,21 +2,15 @@ import {
   ArrowRight,
   ArrowUpRight,
   BarChart3,
-  CheckCircle2,
   Cloud,
   Cpu,
   GitBranch,
-  KeyRound,
   Server,
-  ShieldCheck,
 } from "lucide-react";
-import { LogoMark } from "./logo-mark";
 import { SourceProviderLogo } from "./source-provider-logo";
-import { ProviderMark } from "./dashboard/provider-logo";
-
-const chartBars = [
-  24, 36, 31, 47, 42, 64, 51, 56, 44, 72, 59, 68, 55, 81, 71, 86, 75, 92,
-] as const;
+import { HomeScreenshotCarousel } from "./home-screenshot-carousel";
+import { HomeBenchmark } from "./home-benchmark";
+import { reviewRouterSourceCodeUrl } from "./public-urls";
 
 const workflow = [
   {
@@ -49,9 +43,6 @@ export function HomeFeatures(): React.ReactElement {
       >
         <div className="rr-home-engine__intro">
           <div className="rr-home-engine__copy">
-            <span className="rr-home-section-label">
-              01 / The review engine
-            </span>
             <h2 id="rr-engine-title">
               Purpose-built for code review.
               <br />
@@ -61,57 +52,8 @@ export function HomeFeatures(): React.ReactElement {
               Powered by the open-source <strong>OpenCodeReview</strong> engine.
             </p>
           </div>
-          <div className="rr-home-engine__pill">
-            <Cpu size={18} aria-hidden="true" /> OpenCodeReview
-          </div>
         </div>
-        <div className="rr-home-benchmark">
-          <div className="rr-home-benchmark__metrics">
-            <div className="rr-home-benchmark__metric">
-              <span>~9.5×</span>
-              <strong>faster</strong>
-              <small>1:23 vs 13:06</small>
-            </div>
-            <div className="rr-home-benchmark__metric">
-              <span>~14.7×</span>
-              <strong>fewer tokens</strong>
-              <small>385K vs 5,664K</small>
-            </div>
-          </div>
-          <div className="rr-home-benchmark__visual">
-            <p>Same model · Upstream AACR-Bench</p>
-            <div className="rr-home-benchmark__bar">
-              <span>Claude Code</span>
-              <i className="rr-home-benchmark__track">
-                <b className="rr-home-benchmark__fill rr-home-benchmark__fill--agent" />
-              </i>
-            </div>
-            <div className="rr-home-benchmark__bar">
-              <span>OpenCodeReview</span>
-              <i className="rr-home-benchmark__track">
-                <b className="rr-home-benchmark__fill rr-home-benchmark__fill--ocr" />
-              </i>
-            </div>
-            <small>
-              Illustrative token ratio (not billing or runtime telemetry)
-            </small>
-          </div>
-        </div>
-        <p className="rr-home-section-note">
-          <a
-            href="https://github.com/alibaba/open-code-review#benchmark"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Alibaba upstream benchmark{" "}
-            <ArrowUpRight size={13} aria-hidden="true" />
-          </a>
-          <span>
-            These are engine results under specified test conditions, not
-            independently measured ReviewRouter service speed or guaranteed bill
-            savings. Review quality and recall vary.
-          </span>
-        </p>
+        <HomeBenchmark />
       </section>
 
       <section
@@ -120,7 +62,6 @@ export function HomeFeatures(): React.ReactElement {
         aria-labelledby="rr-insights-title"
       >
         <header className="rr-home-insights__heading">
-          <span className="rr-home-section-label">02 / Your control room</span>
           <h2 id="rr-insights-title">
             Your models.
             <br />
@@ -128,95 +69,11 @@ export function HomeFeatures(): React.ReactElement {
           </h2>
           <p>
             Keep your subscription or API key. See what your review runs
-            actually report.
+            actually report. Costs are shown when reported — unknown is not
+            zero.
           </p>
         </header>
-        <div className="rr-home-insights__composition">
-          <div
-            className="rr-home-dashboard"
-            aria-label="Illustrative dashboard preview, not live account data"
-          >
-            <div className="rr-home-dashboard__sidebar">
-              <div className="rr-home-dashboard__brand">
-                <LogoMark size="xs" />
-                <span>ReviewRouter</span>
-              </div>
-              <span className="rr-home-dashboard__sidebar-active">
-                <BarChart3 size={14} aria-hidden="true" /> Analytics
-              </span>
-              <span>
-                <ShieldCheck size={14} aria-hidden="true" /> Reviews
-              </span>
-              <span>
-                <KeyRound size={14} aria-hidden="true" /> Providers
-              </span>
-            </div>
-            <div className="rr-home-dashboard__main">
-              <div className="rr-home-dashboard__top">
-                <strong>Usage overview</strong>
-                <span>ILLUSTRATIVE DATA · LAST 30 DAYS</span>
-              </div>
-              <div className="rr-home-dashboard__stats">
-                <div>
-                  <small>Reviews</small>
-                  <strong>42</strong>
-                  <span>Example</span>
-                </div>
-                <div>
-                  <small>Reported tokens</small>
-                  <strong>1.24M</strong>
-                  <span>Example</span>
-                </div>
-                <div>
-                  <small>Known estimated cost</small>
-                  <strong>$0.42</strong>
-                  <span>Example only</span>
-                </div>
-              </div>
-              <div
-                className="rr-home-dashboard__chart"
-                aria-label="Illustrative token history chart"
-              >
-                <div className="rr-home-dashboard__chart-label">
-                  TOKENS REPORTED / EXAMPLE
-                </div>
-                <div className="rr-home-dashboard__bars" aria-hidden="true">
-                  {chartBars.map((height, index) => (
-                    <span key={index} style={{ height: `${height}%` }} />
-                  ))}
-                </div>
-              </div>
-              <div className="rr-home-dashboard__foot">
-                <span>Provider and model breakdown</span>
-                <span>Unknown coverage shown separately</span>
-              </div>
-            </div>
-          </div>
-          <aside className="rr-home-insights__choice">
-            <div className="rr-home-insights__choice-icon">
-              <KeyRound size={22} aria-hidden="true" />
-            </div>
-            <h3>Bring your own AI.</h3>
-            <p>
-              Use a supported subscription or API key. Pick the review rules.
-            </p>
-            <div className="rr-home-insights__provider-labels">
-              <span>
-                <ProviderMark providerId="anthropic" /> Claude
-              </span>
-              <span>
-                <ProviderMark providerId="openai" /> Codex
-              </span>
-              <span>
-                <ProviderMark providerId="openrouter" /> OpenRouter
-              </span>
-            </div>
-            <div className="rr-home-insights__choice-bottom">
-              <CheckCircle2 size={16} aria-hidden="true" />
-              Costs are shown when reported — unknown is not zero.
-            </div>
-          </aside>
-        </div>
+        <HomeScreenshotCarousel />
       </section>
 
       <section
@@ -225,7 +82,6 @@ export function HomeFeatures(): React.ReactElement {
         aria-labelledby="rr-workflow-title"
       >
         <header className="rr-home-workflow__heading">
-          <span className="rr-home-section-label">03 / From PR to insight</span>
           <h2 id="rr-workflow-title">
             Connect. Review. <em>Understand.</em>
           </h2>
@@ -255,7 +111,6 @@ export function HomeFeatures(): React.ReactElement {
         aria-labelledby="rr-hosting-title"
       >
         <header className="rr-home-hosting__heading">
-          <span className="rr-home-section-label">04 / Open platform</span>
           <h2 id="rr-hosting-title">
             Hosted or self-hosted.
             <br />
@@ -292,7 +147,7 @@ export function HomeFeatures(): React.ReactElement {
               setup.
             </p>
             <a
-              href="https://github.com/777genius/review-router-ai/tree/main/deploy/self-hosted"
+              href={`${reviewRouterSourceCodeUrl}/tree/main/deploy/self-hosted`}
               target="_blank"
               rel="noopener noreferrer"
               className="rr-home-hosting__link"
@@ -302,13 +157,10 @@ export function HomeFeatures(): React.ReactElement {
           </article>
         </div>
         <div className="rr-home-hosting__source">
-          <SourceProviderLogo
-            provider="github"
-            className="h-[18px] w-[18px]"
-          />
+          <SourceProviderLogo provider="github" className="h-[18px] w-[18px]" />
           <span>Open source, inspectable, extensible.</span>
           <a
-            href="https://github.com/777genius/review-router-ai"
+            href={reviewRouterSourceCodeUrl}
             target="_blank"
             rel="noopener noreferrer"
           >

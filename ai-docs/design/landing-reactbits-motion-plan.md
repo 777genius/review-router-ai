@@ -82,3 +82,9 @@ Estimated net new code: **450–850 TSX/CSS lines**, delete/reduce ~300–700 ex
 **R8 — Hosted web and social preview:** `scripts/check-hosted-web.mjs` contained 3 more old-homepage fallback strings; updated those as well so hosted smoke does not give false failures. Social image still used the obsolete privacy-only slogan, so changed the OG headline to match the product positioning. Global dashboard SEO defaults remain untouched.
 
 **R9 — Contrast / structured title:** In light mode the retained final CTA had dark-page-only text utility classes, risking low contrast. Added landing-scoped light overrides while retaining CTA behavior. `WebPage` JSON-LD name still pointed to the old slogan; aligned it with the new hero/metadata without touching unrelated global metadata defaults.
+
+## Update 2026-11-16 (owner decisions after V1)
+
+- The owner explicitly asked for the free React Bits **AcidSquares** WebGL background in the hero, and for embla-carousel for the dashboard screenshots. This supersedes the "no WebGL / no extra libraries" guidance above for those two pieces only.
+- AcidSquares is vendored unchanged in `apps/web/app/vendor/react-bits` with the upstream `LICENSE.md` (MIT + Commons Clause) and a `NOTICE` entry. The license allows use "as part of an application, website, or product" and forbids selling or redistributing the component itself. **Legal confirmation for keeping the source in this public Apache-2.0 repository has not been obtained**; if it is refused, replace the backdrop with an original effect and delete the vendor directory.
+- The hero headline is now `Full control and security.`, the right column is a video player slot, and the benchmark lives in the engine section with count-up and bar animation.

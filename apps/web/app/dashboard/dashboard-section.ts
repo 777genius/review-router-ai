@@ -18,11 +18,11 @@ export const DASHBOARD_SECTIONS = [
   "repositories",
   "reviews",
   "statistics",
+  "usage",
   "setup",
   "providers",
   "policy",
   "diagnostics",
-  "usage",
   "other",
   "context-tools",
   "skills",
@@ -30,8 +30,10 @@ export const DASHBOARD_SECTIONS = [
 ] as const satisfies readonly DashboardSection[];
 
 // Connections retains its setup route as a view within the Providers area.
+// Diagnostics is a technical operations view, so it is temporarily hidden from
+// the menu. Its route stays reachable (direct links, outbox retry notices).
 export const DASHBOARD_NAV_SECTIONS = DASHBOARD_SECTIONS.filter(
-  (section) => section !== "setup",
+  (section) => section !== "setup" && section !== "diagnostics",
 );
 
 export const dashboardSectionMeta: Record<

@@ -23,10 +23,27 @@ describe("GettingStartedPage", () => {
     const { container } = render(<GettingStartedPage />);
     const text = container.textContent ?? "";
 
-    expect(text).toContain("codex-mimo/mimo-v2.6-pro");
     expect(text).toContain(
       "gh secret set MIMO_TOKEN_PLAN_API_KEY --repo owner/repo --app actions",
     );
-    expect(text).toContain("enter the key only at GitHub's secret prompt");
+    expect(text).toContain("gh asks for the key at its own secret prompt");
+  });
+});
+
+describe("GettingStartedPage content", () => {
+  it("covers hosted and self-hosted setup and every supported provider secret", () => {
+    const { container } = render(<GettingStartedPage />);
+    const text = container.textContent ?? "";
+
+    expect(text).toContain("reviewrouter/setup");
+    expect(text).toContain("install-self-hosted.sh");
+    for (const secret of [
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "MIMO_TOKEN_PLAN_API_KEY",
+      "OPENROUTER_API_KEY",
+      "KIMI_CODE_API_KEY",
+    ]) {
+      expect(text).toContain(secret);
+    }
   });
 });
