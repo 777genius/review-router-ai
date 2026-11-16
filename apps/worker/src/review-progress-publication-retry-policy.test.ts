@@ -27,7 +27,7 @@ describe("Review progress publication retry policy", () => {
     for (const [retryAt, expected] of [
       [earlyRetryAt, new Date("2026-11-12T13:00:00.000Z")],
       [lateRetryAt, lateRetryAt],
-    ]) {
+    ] as const) {
       const error = new ReviewProgressGitHubError(
         "pagination_inconclusive",
         "github_issue_comments_pagination_inconclusive",
