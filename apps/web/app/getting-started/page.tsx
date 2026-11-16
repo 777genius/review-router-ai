@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Cloud,
   GitPullRequestArrow,
-  KeyRound,
   LockKeyhole,
   Server,
   ShieldCheck,
@@ -44,6 +43,7 @@ const codexRepoCommand = `# Open Dashboard -> Enable review -> Codex for the rep
 const claudeCommand = `claude setup-token
 gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo owner/repo --app actions`;
 
+const anthropicCommand = `gh secret set ANTHROPIC_API_KEY --repo owner/repo --app actions`;
 const openRouterCommand = `gh secret set OPENROUTER_API_KEY --repo owner/repo --app actions`;
 const mimoTokenPlanCommand = `gh secret set MIMO_TOKEN_PLAN_API_KEY --repo owner/repo --app actions`;
 const kimiCodeCommand = `gh secret set KIMI_CODE_API_KEY --repo owner/repo --app actions`;
@@ -83,76 +83,178 @@ const selfHostChecklist = [
   "A GitHub account that can create and install an App, and an AI provider account.",
 ] as const;
 
-const providers: readonly {
+type ConnectOption = {
+  readonly title: string;
+  readonly where: "GitHub secret" | "Gateway account" | "Hosted pool";
+  readonly body: string;
+  readonly secret?: string;
+  readonly code?: string;
+};
+
+type ProviderGuide = {
+  readonly value: string;
   readonly id: ProviderIdentity;
   readonly name: string;
-  readonly auth: string;
-  readonly secret: string;
-}[] = [
-  {
-    id: "openai",
-    name: "Codex",
-    auth: "Subscription sign-in",
-    secret: "Server-issued versioned namespace",
-  },
-  {
-    id: "anthropic",
-    name: "Claude Code",
-    auth: "OAuth token",
-    secret: "CLAUDE_CODE_OAUTH_TOKEN",
-  },
-  {
-    id: "mimo",
-    name: "MiMo Token Plan",
-    auth: "API key",
-    secret: "MIMO_TOKEN_PLAN_API_KEY",
-  },
-  {
-    id: "openrouter",
-    name: "OpenRouter",
-    auth: "API key",
-    secret: "OPENROUTER_API_KEY",
-  },
-  {
-    id: "kimi",
-    name: "Kimi Code",
-    auth: "API key",
-    secret: "KIMI_CODE_API_KEY",
-  },
-];
+  readonly summary: string;
+  readonly facts: readonly (readonly [string, string])[];
+  readonly options: readonly ConnectOption[];
+};
 
-const credentialCommands = [
+// Mirrors the provider catalog (packages/features/review-providers) and the
+// dashboard setup providers: default models, auth modes and secret names.
+const providerGuides: readonly ProviderGuide[] = [
   {
     value: "codex",
-    title: "Codex, one repository at a time",
-    body: "Use the command the dashboard generates for the selected repository. Generic Codex commands are intentionally not offered.",
-    code: codexRepoCommand,
+    id: "openai",
+    name: "Codex",
+    summary: "Use your Codex subscription for reviews.",
+    facts: [
+      ["Default model", "gpt-5.6-sol"],
+      ["Settings", "Reasoning effort, fast mode"],
+    ],
+    options: [
+      {
+        title: "Repository sign-in (default)",
+        where: "GitHub secret",
+        body: "Use the command the dashboard generates for the selected repository. Generic Codex commands are intentionally not offered.",
+        secret: "Server-issued versioned namespace",
+        code: codexRepoCommand,
+      },
+      {
+        title: "Hosted account pool",
+        where: "Hosted pool",
+        body: "Where the hosted pool is enabled, a workspace account pool serves the review and GitHub Actions only receives a grant bounded to that one invocation, so no Codex credential lives in the repository.",
+      },
+      {
+        title: "Gateway account",
+        where: "Gateway account",
+        body: "Dashboard, Providers, Add account, then Connect Codex OAuth. One managed connection can be shared with several workspaces.",
+      },
+    ],
   },
   {
     value: "claude",
-    title: "Claude Code",
-    body: "Store only the token that claude setup-token prints. Do not paste local Claude config files.",
-    code: claudeCommand,
+    id: "anthropic",
+    name: "Claude Code",
+    summary: "Use a Claude Code subscription or an Anthropic API key.",
+    facts: [["Default model", "sonnet"]],
+    options: [
+      {
+        title: "Subscription token",
+        where: "GitHub secret",
+        body: "Store only the token that claude setup-token prints. Do not paste local Claude config files.",
+        secret: "CLAUDE_CODE_OAUTH_TOKEN",
+        code: claudeCommand,
+      },
+      {
+        title: "Anthropic API key",
+        where: "GitHub secret",
+        body: "Use normal Anthropic API billing instead of a subscription.",
+        secret: "ANTHROPIC_API_KEY",
+        code: anthropicCommand,
+      },
+    ],
   },
   {
     value: "mimo",
-    title: "MiMo Token Plan",
-    body: "gh asks for the key at its own secret prompt, so the key never appears in the command line.",
-    code: mimoTokenPlanCommand,
+    id: "mimo",
+    name: "MiMo Token Plan",
+    summary: "Bring your MiMo Token Plan API key.",
+    facts: [
+      ["Default model", "mimo-v2.6-pro"],
+      ["Settings", "Reasoning effort, fast mode"],
+    ],
+    options: [
+      {
+        title: "API key in GitHub",
+        where: "GitHub secret",
+        body: "gh asks for the key at its own secret prompt, so the key never appears in the command line.",
+        secret: "MIMO_TOKEN_PLAN_API_KEY",
+        code: mimoTokenPlanCommand,
+      },
+      {
+        title: "API key as a Gateway account",
+        where: "Gateway account",
+        body: "Dashboard, Providers, Add account, then Connect with API key. The key stays in protected Gateway custody instead of GitHub.",
+      },
+    ],
   },
   {
     value: "openrouter",
-    title: "OpenRouter",
-    body: "Normal OpenRouter billing applies when you prefer an API key over a subscription.",
-    code: openRouterCommand,
+    id: "openrouter",
+    name: "OpenRouter",
+    summary: "Route reviews through any model your OpenRouter key can use.",
+    facts: [
+      ["Default model", "openai/gpt-5.3-codex"],
+      ["Models", "Loaded from the OpenRouter catalog"],
+    ],
+    options: [
+      {
+        title: "API key in GitHub",
+        where: "GitHub secret",
+        body: "Normal OpenRouter billing applies when you prefer an API key over a subscription.",
+        secret: "OPENROUTER_API_KEY",
+        code: openRouterCommand,
+      },
+      {
+        title: "API key as a Gateway account",
+        where: "Gateway account",
+        body: "Dashboard, Providers, Add account, then Connect with API key.",
+      },
+    ],
   },
   {
     value: "kimi",
-    title: "Kimi Code",
-    body: "Store the Kimi Code API key as a GitHub Actions secret for the repository.",
-    code: kimiCodeCommand,
+    id: "kimi",
+    name: "Kimi Code",
+    summary: "Bring your Kimi Code API key.",
+    facts: [["Default model", "k3-256k"]],
+    options: [
+      {
+        title: "API key in GitHub",
+        where: "GitHub secret",
+        body: "Store the Kimi Code API key as a GitHub Actions secret for the repository.",
+        secret: "KIMI_CODE_API_KEY",
+        code: kimiCodeCommand,
+      },
+      {
+        title: "API key as a Gateway account",
+        where: "Gateway account",
+        body: "Dashboard, Providers, Add account, then Connect with API key.",
+      },
+    ],
   },
-] as const;
+  {
+    value: "more",
+    id: "nvidia",
+    name: "More providers",
+    summary:
+      "These providers connect only as managed Gateway accounts: the key is kept in protected Gateway custody and never becomes a GitHub secret.",
+    facts: [["Where", "Dashboard, Providers, Add account"]],
+    options: [
+      {
+        title: "NVIDIA Build",
+        where: "Gateway account",
+        body: "Connect an NVIDIA Build API key.",
+      },
+      {
+        title: "GLM Coding Plan",
+        where: "Gateway account",
+        body: "Connect a GLM Coding Plan key.",
+      },
+      {
+        title: "MiniMax M Plan",
+        where: "Gateway account",
+        body: "Connect a MiniMax M Plan key.",
+      },
+      {
+        title: "Grok",
+        where: "Gateway account",
+        body: "Connect a Grok subscription.",
+      },
+    ],
+  },
+];
 
 const boundaries = [
   {
@@ -325,35 +427,78 @@ export default function GettingStartedPage(): React.ReactElement {
           >
             Connect an AI provider
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-            Pick one provider first. You can change models, reasoning effort and
-            other review settings later in the dashboard.
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+            Two choices: which provider, and where its credential lives. A
+            GitHub secret keeps it in your repository&apos;s Actions; a managed
+            Gateway account keeps it in protected server custody and can be
+            shared across workspaces. Run the commands from your own machine;
+            secret values go directly into GitHub Actions secrets.
           </p>
-          <ul className="mt-6 divide-y divide-cyan-200/10 border-y border-cyan-200/10">
-            {providers.map((provider) => (
-              <li
-                key={provider.id}
-                className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1 py-4 sm:grid-cols-[auto_12rem_10rem_minmax(0,1fr)]"
-              >
-                <span className="grid size-10 place-items-center rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] [&_svg[viewBox='72_0_60_16']]:h-7 [&_svg[viewBox='72_0_60_16']]:w-9">
-                  <ProviderMark providerId={provider.id} />
-                </span>
-                <span className="font-semibold text-cyan-50">
-                  {provider.name}
-                </span>
-                <span className="col-start-2 text-sm text-slate-400 sm:col-start-auto">
-                  {provider.auth}
-                </span>
-                <span className="col-start-2 font-mono text-xs text-cyan-100 sm:col-start-auto">
-                  {provider.secret}
-                </span>
-              </li>
+          <Tabs defaultValue="codex" className="mt-6">
+            <TabsList aria-label="AI provider">
+              {providerGuides.map((guide) => (
+                <TabsTrigger key={guide.value} value={guide.value}>
+                  <ProviderMark providerId={guide.id} />
+                  {guide.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {providerGuides.map((guide) => (
+              <TabsContent key={guide.value} value={guide.value} keepMounted>
+                <p className="max-w-3xl text-sm leading-6 text-slate-300">
+                  {guide.summary}
+                </p>
+                <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-xs">
+                  {guide.facts.map(([label, value]) => (
+                    <div key={label} className="flex gap-2">
+                      <dt className="font-mono uppercase tracking-[0.14em] text-slate-500">
+                        {label}
+                      </dt>
+                      <dd className="font-mono text-cyan-100">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <ol className="mt-5 divide-y divide-cyan-200/10 border-y border-cyan-200/10">
+                  {guide.options.map((option) => (
+                    <li key={option.title} className="py-5">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h3 className="text-base font-semibold text-cyan-50">
+                          {option.title}
+                        </h3>
+                        <Badge
+                          size="xs"
+                          tone={
+                            option.where === "GitHub secret"
+                              ? "accent"
+                              : "neutral"
+                          }
+                        >
+                          {option.where}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                        {option.body}
+                      </p>
+                      {option.secret ? (
+                        <p className="mt-2 font-mono text-xs text-cyan-100">
+                          {option.secret}
+                        </p>
+                      ) : null}
+                      {option.code ? (
+                        <div className="mt-3">
+                          <CodeBlock code={option.code} />
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              </TabsContent>
             ))}
-          </ul>
-          <p className="mt-4 max-w-2xl text-xs leading-5 text-slate-500">
-            Some providers can also be connected as a managed Gateway account in
-            the dashboard instead of a GitHub secret. Those credentials are kept
-            in protected server custody; see the{" "}
+          </Tabs>
+          <p className="mt-5 max-w-3xl text-xs leading-5 text-slate-500">
+            After connecting, choose models, reasoning effort and other review
+            settings per workspace or repository in the dashboard. Gateway
+            credentials are kept in protected server custody; see the{" "}
             <a
               href="/security"
               className="font-semibold text-cyan-200 hover:text-cyan-50"
@@ -362,38 +507,6 @@ export default function GettingStartedPage(): React.ReactElement {
             </a>{" "}
             for the difference.
           </p>
-        </section>
-
-        <section className="mt-16" aria-labelledby="commands-title">
-          <div className="flex items-start gap-3">
-            <KeyRound
-              aria-hidden="true"
-              className="mt-1.5 size-5 shrink-0 text-cyan-300"
-            />
-            <div>
-              <h2
-                id="commands-title"
-                className="text-2xl font-semibold text-cyan-50 sm:text-3xl"
-              >
-                Credential commands
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-                Run these from your own machine. Secret values go directly into
-                GitHub Actions secrets.
-              </p>
-            </div>
-          </div>
-          <Accordion className="mt-6" defaultValue={["codex"]}>
-            {credentialCommands.map((item) => (
-              <AccordionItem key={item.value} value={item.value}>
-                <AccordionTrigger>{item.title}</AccordionTrigger>
-                <AccordionContent>
-                  <p className="mb-4 max-w-2xl leading-6">{item.body}</p>
-                  <CodeBlock code={item.code} />
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
         </section>
 
         <section className="mt-16" aria-labelledby="boundary-title">

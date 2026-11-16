@@ -265,6 +265,91 @@ html[data-theme="light"] .rr-home-video__frame {
   background: linear-gradient(140deg, #ffffff, #eef9fb 88%);
   box-shadow: 0 25px 70px -40px rgba(5, 38, 49, 0.28);
 }
+.rr-home-video__frame {
+  position: relative;
+}
+.rr-home-video__iframe {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.rr-home-video__iframe[data-loaded="true"] {
+  opacity: 1;
+}
+.rr-home-video__poster {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  background-color: var(--rr-home-panel);
+  background-image: var(--rr-home-video-poster);
+  background-position: center;
+  background-size: cover;
+}
+.rr-home-video__poster::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(7, 17, 27, 0.1),
+    rgba(7, 17, 27, 0.55)
+  );
+}
+.rr-home-video__poster .rr-home-video__play {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  background: rgba(7, 17, 27, 0.62);
+  backdrop-filter: blur(6px);
+}
+.rr-home-video__poster:focus-visible {
+  outline: 2px solid var(--rr-home-cyan);
+  outline-offset: -4px;
+}
+.rr-home-video__skeleton {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at 50% 45%,
+    rgba(0, 213, 255, 0.13),
+    transparent 70%
+  );
+}
+.rr-home-video__spinner {
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 2px solid rgba(125, 231, 255, 0.25);
+  border-top-color: var(--rr-home-cyan);
+  border-radius: 999px;
+  animation: rr-home-video-spin 0.9s linear infinite;
+}
+@keyframes rr-home-video-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rr-home-video__spinner {
+    animation: none;
+  }
+  .rr-home-video__iframe {
+    transition: none;
+  }
+}
 
 .rr-home-window {
   border: 1px solid rgba(107, 229, 253, 0.39);
@@ -541,7 +626,7 @@ html[data-theme="light"] .rr-home-video__frame {
 .rr-home-section {
   width: min(100% - 3rem, 1280px);
   margin: 0 auto;
-  padding: clamp(6rem, 9vw, 9rem) 0;
+  padding: clamp(3.5rem, 5.4vw, 5.4rem) 0;
 }
 .rr-home-section + .rr-home-section {
   border-top: 1px solid var(--rr-home-outline);
@@ -862,7 +947,7 @@ html[data-theme="light"] .rr-home-video__frame {
   }
   .rr-home-section {
     width: calc(100% - 2.3rem);
-    padding: 5.3rem 0;
+    padding: 3.2rem 0;
   }
   .rr-home-section h2 {
     font-size: clamp(2.2rem, 7vw, 3.4rem);
@@ -974,7 +1059,7 @@ html[data-theme="light"] .rr-home-finding__severity--major {
 /* Readable section breathing room around existing FAQ and final CTA. */
 .rr-home-faq-wrap {
   border-top: 1px solid var(--rr-home-outline);
-  padding: clamp(5rem, 8vw, 8rem) 1.5rem;
+  padding: clamp(3.2rem, 5vw, 5rem) 1.5rem;
 }
 .rr-landing > section:last-child {
   padding: 0 1.5rem;
@@ -992,7 +1077,7 @@ html[data-theme="light"] .rr-home-hero__signal {
 }
 @media (max-width: 760px) {
   .rr-home-faq-wrap {
-    padding: 4.8rem 1.15rem;
+    padding: 3rem 1.15rem;
   }
   .rr-landing > section:last-child {
     padding: 0 1.15rem;
