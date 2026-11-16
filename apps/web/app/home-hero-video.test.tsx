@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { HomeHeroVideo, muxPlayerUrl, muxPosterUrl } from "./home-hero-video";
+import {
+  HomeHeroVideo,
+  homeHeroVideo,
+  muxPlayerUrl,
+  muxPosterUrl,
+} from "./home-hero-video";
 
 afterEach(() => {
   cleanup();
@@ -29,10 +34,20 @@ describe("hero video", () => {
     expect(url.searchParams.get("width")).toBe("480");
   });
 
-  it("shows the placeholder, not an empty player, until a playback id is set", () => {
-    const { container } = render(<HomeHeroVideo />);
+  it("shows the placeholder, not an empty player, when no playback id is set", () => {
+    const original = homeHeroVideo.muxPlaybackId;
+    homeHeroVideo.muxPlaybackId = null;
+    try {
+      const { container } = render(<HomeHeroVideo />);
 
-    expect(container.textContent).toContain("Video coming soon");
-    expect(container.querySelector("iframe")).toBeNull();
+      expect(container.textContent).toContain("Video coming soon");
+      expect(container.querySelector("iframe")).toBeNull();
+    } finally {
+      homeHeroVideo.muxPlaybackId = original;
+    }
+  });
+
+  it("is wired to a real Mux playback id", () => {
+    expect(homeHeroVideo.muxPlaybackId).toMatch(/^[A-Za-z0-9]{20,}$/);
   });
 });
