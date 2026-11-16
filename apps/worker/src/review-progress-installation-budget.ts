@@ -91,10 +91,10 @@ async function lockInstallationBudget(
   if (!(lockedAt instanceof Date) || Number.isNaN(lockedAt.getTime())) {
     throw new Error("review_progress_installation_clock_invalid");
   }
-  const budget =
-    await transaction.reviewProgressInstallationBudgetV1.findUniqueOrThrow({
-      where: { githubInstallationId: installationId },
-    });
+  const budgetClient = transaction.reviewProgressInstallationBudgetV1;
+  const budget = await budgetClient.findUniqueOrThrow({
+    where: { githubInstallationId: installationId },
+  });
   return { budget, lockedAt };
 }
 
