@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import { useCallback, useRef, useState } from "react";
 import { Play } from "lucide-react";
 
 /**
@@ -21,37 +22,38 @@ const playerColors = {
   primary: "#ecfbff",
   secondary: "#07111b",
 } as const;
-const thumbnailTime = "2.5";
-const mobileQuery = "(max-width: 767px)";
-
-/** Hosted Mux player. Playback id and title are encoded; colours match the landing. */
-export function muxPlayerUrl(
-  playbackId: string,
-  title: string,
-  autoplay = false,
-): string {
-  const url = new URL(
-    `https://player.mux.com/${encodeURIComponent(playbackId)}`,
-  );
-  url.searchParams.set("accent-color", playerColors.accent);
-  url.searchParams.set("primary-color", playerColors.primary);
-  url.searchParams.set("secondary-color", playerColors.secondary);
-  url.searchParams.set("thumbnail-time", thumbnailTime);
-  url.searchParams.set("metadata-video-title", title);
-  url.searchParams.set("metadata-player-name", "Landing hero");
-  url.searchParams.set("title", title);
-  if (autoplay) url.searchParams.set("autoplay", "true");
-  return url.toString();
-}
+const thumbnailTime = 2.5;
 
 export function muxPosterUrl(playbackId: string, width: number): string {
   const url = new URL(
     `https://image.mux.com/${encodeURIComponent(playbackId)}/thumbnail.webp`,
   );
-  url.searchParams.set("time", thumbnailTime);
+  url.searchParams.set("time", String(thumbnailTime));
   url.searchParams.set("width", String(width));
   url.searchParams.set("fit_mode", "preserve");
   return url.toString();
+}
+
+/** The player code loads only when the visitor presses play. */
+const MuxPlayer = dynamic(() => import("@mux/mux-player-react"), {
+  ssr: false,
+});
+
+type FullscreenElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
+/** Must run inside the click handler: browsers only allow it after a gesture. */
+function enterFullscreen(element: FullscreenElement | null): void {
+  if (!element) return;
+  try {
+    const request = element.requestFullscreen
+      ? element.requestFullscreen()
+      : element.webkitRequestFullscreen?.();
+    void Promise.resolve(request).catch(() => undefined);
+  } catch {
+    // Browsers without element fullscreen (iPhone Safari) play inline.
+  }
 }
 
 export function HomeHeroVideo(): React.ReactElement {
@@ -59,10 +61,10 @@ export function HomeHeroVideo(): React.ReactElement {
 
   return (
     <figure className="rr-home-video" aria-label={title}>
-      <div className="rr-home-video__frame">
-        {muxPlaybackId ? (
-          <MuxPlayer playbackId={muxPlaybackId} title={title} />
-        ) : (
+      {muxPlaybackId ? (
+        <VideoFrame playbackId={muxPlaybackId} title={title} />
+      ) : (
+        <div className="rr-home-video__frame">
           <div className="rr-home-video__placeholder">
             <span className="rr-home-video__play" aria-hidden="true">
               <Play size={30} fill="currentColor" />
@@ -70,103 +72,59 @@ export function HomeHeroVideo(): React.ReactElement {
             <strong>Product walkthrough</strong>
             <small>Video coming soon</small>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </figure>
   );
 }
 
-type Viewport = "unknown" | "mobile" | "desktop";
-
-function MuxPlayer({
+function VideoFrame({
   playbackId,
   title,
 }: {
   readonly playbackId: string;
   readonly title: string;
 }): React.ReactElement {
-  const [viewport, setViewport] = useState<Viewport>("unknown");
+  const frame = useRef<HTMLDivElement>(null);
   const [activated, setActivated] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-  // A desktop player that is already running must survive narrowing the window.
-  const [wasDesktop, setWasDesktop] = useState(false);
 
-  useEffect(() => {
-    const query = window.matchMedia(mobileQuery);
-    const sync = (): void => {
-      setViewport(query.matches ? "mobile" : "desktop");
-      if (!query.matches) setWasDesktop(true);
-    };
-    sync();
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
+  const start = useCallback((): void => {
+    setActivated(true);
+    enterFullscreen(frame.current);
   }, []);
 
-  // Phones show a poster first, so no iframe is created until the visitor
-  // asks for the video.
-  const showPoster = viewport === "mobile" && !activated && !wasDesktop;
-  const showPlayer = viewport !== "unknown" && !showPoster && !failed;
-
-  // A cross-origin iframe reports no reliable error, so the skeleton also
-  // clears on a timer instead of hanging forever.
-  useEffect(() => {
-    if (!showPlayer) return;
-    setLoaded(false);
-    const timer = window.setTimeout(() => setLoaded(true), 2500);
-    return () => window.clearTimeout(timer);
-  }, [showPlayer]);
-
-  if (failed) {
-    return (
-      <div className="rr-home-video__placeholder">
-        <span className="rr-home-video__play" aria-hidden="true">
-          <Play size={30} fill="currentColor" />
-        </span>
-        <strong>Video unavailable</strong>
-        <small>Please try again later</small>
-      </div>
-    );
-  }
-
   return (
-    <>
-      {showPlayer ? (
-        <iframe
-          className="rr-home-video__iframe"
-          data-loaded={loaded ? "true" : "false"}
-          src={muxPlayerUrl(playbackId, title, activated)}
-          title={title}
-          allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen"
-          allowFullScreen
-          loading="lazy"
-          referrerPolicy="strict-origin-when-cross-origin"
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
+    <div ref={frame} className="rr-home-video__frame" data-active={activated}>
+      {activated ? (
+        // No `title` prop: the player would draw it over the top-left corner.
+        <MuxPlayer
+          className="rr-home-video__player"
+          playbackId={playbackId}
+          streamType="on-demand"
+          autoPlay
+          accentColor={playerColors.accent}
+          primaryColor={playerColors.primary}
+          secondaryColor={playerColors.secondary}
+          thumbnailTime={thumbnailTime}
+          metadata={{ video_title: title, player_name: "Landing hero" }}
         />
-      ) : null}
-      {showPoster ? (
+      ) : (
         <button
           type="button"
           className="rr-home-video__poster"
           style={
             {
-              "--rr-home-video-poster": `url(${muxPosterUrl(playbackId, 480)})`,
+              "--rr-home-video-poster": `url(${muxPosterUrl(playbackId, 1280)})`,
             } as React.CSSProperties
           }
           aria-label={`Play video: ${title}`}
-          onClick={() => setActivated(true)}
+          onClick={start}
         >
           <span className="rr-home-video__play" aria-hidden="true">
-            <Play size={30} fill="currentColor" />
+            <Play size={44} fill="currentColor" />
           </span>
         </button>
-      ) : null}
-      {viewport === "unknown" || (showPlayer && !loaded) ? (
-        <div className="rr-home-video__skeleton" aria-hidden="true">
-          <span className="rr-home-video__spinner" />
-        </div>
-      ) : null}
-    </>
+      )}
+    </div>
   );
 }
