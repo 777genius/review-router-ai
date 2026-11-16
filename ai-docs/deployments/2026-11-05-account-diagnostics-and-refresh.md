@@ -1,5 +1,11 @@
 # Account refresh and source diagnostics
 
+<a id="current-ordinary-code-reconciliation-2026-11-14"></a>
+
+## Current ordinary-code reconciliation (2026-11-15)
+
+PR #831 merged as `6c1688d7299d23e4b55c69eb0655248435ac3cea`; GitHub ancestry comparison to prior installed source 287 is ahead 110/behind 0. The authorized coherent rollout superseded the historical merge-only/no-deploy instruction. Its Web/API code is installed in signed 238/source 75b. Exact-main 238 CI 43629711586 and the successful normal release establish source/release readiness; they do not claim a fresh authenticated client quota-refresh/action or safe-diagnosis browser journey. Those named live checks remain pending. No schema or separate Native/Gateway activation is required, and no repeat SaaS deployment is needed just to clear a stale pending-code entry. Preserve existing stale observations and unknown effects without provider replay.
+
 - Task ID: `2026-11-05-account-diagnostics-and-refresh`
 - Goal: workspace quota refresh reaches the authorized server action, and
   connection tests explain validated source failures through one neutral
@@ -11,22 +17,20 @@
   (tested source candidate; subsequent review commits require exact-head CI).
 - Dependencies: existing Gateway SDK contracts, normal Web/API release
   procedures and their current authorization and protocol compatibility gates.
-- Owner instruction: merge only; **do not deploy this batch** until separately
-  authorized.
-- Last updated: `2026-11-08`.
+- Historical owner instruction: merge only, superseded for ordinary code delivery by the later explicitly authorized coherent deployment; live qualification remains separate.
+- Last updated: 2026-11-15.
 
 ## Environment status
 
-| Target     | Status    | Installed version | Evidence                 |
-| ---------- | --------- | ----------------- | ------------------------ |
-| staging    | `pending` | Not changed       | No rollout in this task. |
-| production | `pending` | Existing (below)  | No rollout in this task. |
+| Target     | Status      | Installed version     | Evidence                                                  |
+| ---------- | ----------- | --------------------- | --------------------------------------------------------- |
+| staging    | `pending`   | Not changed           | No rollout in this task.                                  |
+| production | `installed` | Signed 238/source 75b | Actual 238 activation; named live UI/action check pending |
 
-The last read-only production census showed Web source
+The historical read-only production census showed Web source
 `bb077235730d484f1f390a86f2ba9029c2da45f9`, image
 `sha256:5d8783e366fbbdbd7296f79338e3cf9dd72d7ecb30eeccaf7250ae244df969b5`,
-running with zero restarts. This patch was not deployed. Reconcile the actual
-installed version again before any separately authorized rollout.
+running with zero restarts. That observation preceded the current installation reconciled above; do not treat it as the current runtime version.
 
 ## Confirmed causes and boundaries
 

@@ -335,7 +335,7 @@ export default function GettingStartedPage(): React.ReactElement {
                 key={provider.id}
                 className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1 py-4 sm:grid-cols-[auto_12rem_10rem_minmax(0,1fr)]"
               >
-                <span className="grid size-10 place-items-center rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08]">
+                <span className="grid size-10 place-items-center rounded-xl border border-cyan-300/25 bg-cyan-300/[0.08] [&_svg[viewBox='72_0_60_16']]:h-7 [&_svg[viewBox='72_0_60_16']]:w-9">
                   <ProviderMark providerId={provider.id} />
                 </span>
                 <span className="font-semibold text-cyan-50">

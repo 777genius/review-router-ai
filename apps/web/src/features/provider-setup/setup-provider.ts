@@ -64,7 +64,7 @@ export const setupProviders: readonly SetupProvider[] = Object.freeze([
   ),
   {
     id: "nvidia",
-    label: "NVIDIA Build (evaluation)",
+    label: "NVIDIA Build",
     identity: "nvidia",
     credentialLabel: "NVIDIA Build API key",
     credentialKind: "api_key",

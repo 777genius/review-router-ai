@@ -1547,10 +1547,8 @@ describe("ProviderSetupDialog", () => {
           .getAttribute("aria-checked"),
       ).toBe("true");
       expect(
-        screen
-          .getByRole("radio", { name: "GitHub Secrets" })
-          .getAttribute("aria-disabled"),
-      ).toBe("true");
+        screen.queryByRole("radio", { name: "GitHub Secrets" }),
+      ).toBeNull();
       fireEvent.click(
         screen.getByRole("button", { name: "Use for this repository" }),
       );
@@ -1578,7 +1576,7 @@ describe("ProviderSetupDialog", () => {
     const profile = fixture.value.profiles[0]!;
     const model = "nvidia/nemotron-3.5-super-vl-120b-a12b";
     profile.id = "nvidia-build-chat-apikey-v1";
-    profile.label = "NVIDIA Build (evaluation)";
+    profile.label = "NVIDIA Build";
     profile.provider = "nvidia";
     profile.models = [model];
     profile.connection = {
@@ -1604,7 +1602,7 @@ describe("ProviderSetupDialog", () => {
     };
     renderDialog(repositoryTarget, { gatewayAccounts: fixture });
     await choose("Add a new provider");
-    await chooseSelect("Provider", "NVIDIA Build (evaluation)");
+    await chooseSelect("Provider", "NVIDIA Build");
     // A discovered NVIDIA profile is not a saved account: the model picker
     // must remain hidden until an authorized connection exists.
     await screen.findByRole("link", { name: "Connect account" });
@@ -1614,11 +1612,7 @@ describe("ProviderSetupDialog", () => {
         .getByRole("radio", { name: "ReviewRouter" })
         .getAttribute("aria-checked"),
     ).toBe("true");
-    expect(
-      screen
-        .getByRole("radio", { name: "GitHub Secrets" })
-        .getAttribute("aria-disabled"),
-    ).toBe("true");
+    expect(screen.queryByRole("radio", { name: "GitHub Secrets" })).toBeNull();
     expect(
       screen.getByRole("button", { name: "Use for this repository" }),
     ).toHaveProperty("disabled", true);

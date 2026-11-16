@@ -22,6 +22,18 @@ export function configuredSubscriptionProfiles(
   return profiles;
 }
 
+const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
+function qualifiedNvidia(wire: c.ProviderConnectionCapability): boolean {
+  return (
+    wire.profileId === nvidiaProfileId &&
+    wire.provider.identity === "nvidia" &&
+    wire.protocol === "openai-responses" &&
+    wire.authMethods.includes("api_key") &&
+    wire.completionInputKind === "none" &&
+    wire.availability === "enabled"
+  );
+}
+
 /** Project the qualified deployment catalog; this read has no provider effects. */
 export async function connectionProfiles(input: {
   legacy: readonly AccountProfileView[];
@@ -49,10 +61,15 @@ export async function connectionProfiles(input: {
   const byId = new Map(capabilities.map((row) => [row.profileId, row]));
   if (byId.size !== capabilities.length)
     throw new Error("accounts_unavailable");
-  const result = input.legacy.map((legacy) => {
+  const result: AccountProfileView[] = input.legacy.map((legacy) => {
     const wire = byId.get(legacy.id);
-    if (!wire) return legacy;
     const provider = accountProviderIdentity(legacy);
+    if (
+      (legacy.id === nvidiaProfileId || provider === "nvidia") &&
+      (!wire || !qualifiedNvidia(wire))
+    )
+      return { ...legacy, availability: "deployment_configuration_required" };
+    if (!wire) return legacy;
     if (
       wire.protocol !== legacy.protocol ||
       (provider !== undefined && wire.provider.identity !== provider) ||
@@ -81,6 +98,19 @@ export async function connectionProfiles(input: {
       },
     };
   });
+  const nvidia = capabilities.find(qualifiedNvidia);
+  if (nvidia && !result.some((profile) => profile.id === nvidia.profileId))
+    result.push({
+      id: nvidia.profileId,
+      label: nvidia.provider.label,
+      provider: "nvidia",
+      protocol: nvidia.protocol,
+      models: [...nvidia.modelIds],
+      authKind: "api_key",
+      canReconnect: nvidia.reconnect === "replace_api_key",
+      availability: nvidia.availability,
+      connection: connectionView(nvidia),
+    });
   if (input.subscriptionProfileIds === undefined) return result;
   for (const id of Object.keys(subscriptionProfileProviders)) {
     const wire = byId.get(id);
@@ -120,7 +150,7 @@ export function connectionView(
 ): NonNullable<AccountProfileView["connection"]> {
   return {
     provider: wire.provider.identity,
-    planLabel: wire.plan.label,
+    planLabel: qualifiedNvidia(wire) ? "API key" : wire.plan.label,
     regionLabel: wire.region.label,
     completionInputKind: wire.completionInputKind,
     personalOnly: isPersonalOwnerOnlyProfile(wire.profileId),

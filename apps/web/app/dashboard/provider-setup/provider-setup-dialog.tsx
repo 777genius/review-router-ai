@@ -1616,16 +1616,16 @@ function ProviderChoiceStep({
                 availability.githubUnavailable &&
                 availability.reviewRouterUnavailable,
               );
+              const description =
+                provider.githubSource === null
+                  ? availability.reviewRouterUnavailable
+                  : `${availability.reviewRouterUnavailable} ${availability.githubUnavailable}`;
               return {
                 value: provider.id,
                 label: provider.label,
                 icon: <ProviderLogo providerId={provider.identity} />,
                 disabled: unavailable,
-                ...(unavailable
-                  ? {
-                      description: `${availability.reviewRouterUnavailable} ${availability.githubUnavailable}`,
-                    }
-                  : {}),
+                ...(unavailable && description ? { description } : {}),
               };
             })}
             disabled={pending}
@@ -1680,6 +1680,9 @@ function ProviderChoiceStep({
                       : "api_key"
               }
               {...storageAvailability}
+              githubSupported={
+                getSetupProvider(setupProvider).githubSource !== null
+              }
             />
           ) : null}
           {setupProvider &&

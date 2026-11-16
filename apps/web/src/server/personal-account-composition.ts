@@ -1,7 +1,4 @@
-import {
-  connectionProfiles,
-  connectionView,
-} from "./account-connection-catalog";
+import { connectionProfiles } from "./account-connection-catalog";
 import { gatewayAPIKeyProviderKinds } from "../features/provider-setup/provider-identity";
 import { createAccountLimitsService } from "./account-limits-service";
 import {
@@ -15,7 +12,6 @@ import {
   createLifecycleClient,
   createConsumerControlClient,
   createManagementClient,
-  GatewayError,
 } from "@agent-teams/account-gateway/http";
 import {
   PrismaProviderAccountRepository,
@@ -114,6 +110,9 @@ export async function productionPersonalAccounts() {
     provider: gatewayAPIKeyProviderKinds[name],
     authKind: "api_key" as "api_key" | "oauth",
     canReconnect: true,
+    ...(name === "NVIDIA Build"
+      ? { availability: "deployment_configuration_required" as const }
+      : {}),
     ...(settings.apiKeyProfileBaseURLs.has(id)
       ? { dedicatedBaseURL: settings.apiKeyProfileBaseURLs.get(id)! }
       : {}),
@@ -141,10 +140,9 @@ export async function productionPersonalAccounts() {
     | Promise<c.ProviderConnectionCapabilities>
     | undefined;
   if (
-    settings.subscriptionProfileIds !== undefined &&
-    (settings.subscriptionProfileIds.length > 0 ||
-      (process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
-        process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN))
+    (settings.subscriptionProfileIds?.length ?? 0) > 0 ||
+    (process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN)
   ) {
     const management = createManagementClient({
       role: "management",
@@ -159,56 +157,18 @@ export async function productionPersonalAccounts() {
     const subscriptions = await checked(() =>
       connectionProfiles({
         legacy: [],
-        subscriptionProfileIds: settings.subscriptionProfileIds,
+        subscriptionProfileIds: settings.subscriptionProfileIds ?? [],
         capabilities: () => connectionCapabilities!,
       }),
     );
-    profiles.push(
-      ...subscriptions.flatMap((profile) =>
-        profile.authKind ? [{ ...profile, authKind: profile.authKind }] : [],
-      ),
-    );
-  }
-  // Personal enrollment shares the model picker's qualified vendor identity.
-  // An absent or incompatible capability must not advertise trial enrollment.
-  if (connectionCapabilities) {
-    let catalog: c.ProviderConnectionCapabilities | null = null;
-    try {
-      catalog = c.providerConnectionCapabilities.parse(
-        await connectionCapabilities,
-      );
-    } catch (error) {
-      // Only an absent optional endpoint permits legacy accounts.
-      // Never mask denied, malformed or failed provider authority.
-      if (
-        !(
-          error instanceof GatewayError &&
-          (error as GatewayError & { httpStatus?: number }).httpStatus === 404
-        )
-      )
-        throw error;
-    }
-    const nvidia = catalog?.capabilities.find(
-      (wire) =>
-        wire.profileId === "nvidia-build-chat-apikey-v1" &&
-        wire.provider.identity === "nvidia" &&
-        wire.protocol === "openai-responses" &&
-        wire.authMethods.includes("api_key") &&
-        wire.availability === "enabled",
-    );
-    if (nvidia) {
+    for (const profile of subscriptions) {
+      if (!profile.authKind) continue;
+      const captured = { ...profile, authKind: profile.authKind };
       const index = profiles.findIndex(
-        (profile) =>
-          profile.id === nvidia.profileId &&
-          profile.authKind === "api_key" &&
-          profile.provider === "nvidia",
+        (existing) => existing.id === profile.id,
       );
-      if (index !== -1)
-        profiles[index] = {
-          ...profiles[index]!,
-          availability: nvidia.availability,
-          connection: connectionView(nvidia),
-        };
+      if (index === -1) profiles.push(captured);
+      else profiles[index] = captured;
     }
   }
   const ingress = new Map(

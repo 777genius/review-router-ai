@@ -1,5 +1,13 @@
 # get-tok onboarding audit and analytics delivery
 
+<a id="current-successor-and-canary-checkpoint-2026-11-14"></a>
+
+## Current successor and canary checkpoint (2026-11-15)
+
+Confirmed current application delivery is signed private **238**, source `75b3a479f8f1febf5920d566d10d1a7db641faeb`, OCI index/actual Docker LocalId `sha256:add1ae123acec36032e873124370e66e5b2b1e220f05b3ff1f69988e4df1a434`, paired with public **Action 238** at `42b37d742fca5c4a40b540db437a6400e5ea5f2a` and Gateway **108/native 98**. Four FILE 66 roles are healthy with zero restarts; normal producer registration preserved old 237 and existing profiles. The combined activation restored admission at `2026-11-15T00:50:19Z`; app schema 166 and native ledger 318 are unchanged, with no migration. The [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14) records actual activation and channel evidence. Earlier 234/235/236/237 results below remain historical, not relabeled 238 qualification.
+
+The first fresh PR 3 review succeeded on the recovered 233 fleet with actual producer 232: [run 43550381724](https://github.com/get-tok/reviewrouter-onboarding-e2e/actions/runs/43550381724), [App finding at line 4](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/3#discussion_r4571171611), exact head `735fc904117969a21c65bb468b14355e721ebc2b`. Only the initial normal review event occurred. The normal fix canary passed on 234; exact App reply and final scoped Statistics/Usage settlement are recorded below. Existing PR 2, credentials, defaults and old unknown effects were not mutated/replayed. This does not establish fresh OAuth or v4 subscription discussion qualification.
+
 Status: the combined [PR #853](https://github.com/777genius/review-router-ai/pull/853) is production `deployed`; [exact-head full CI](https://github.com/777genius/review-router-ai/actions/runs/42944121136) passed and production readiness and existing get-tok Statistics/Usage were verified. No additional manual post-deployment model smoke was started, so latency of new calls was not measured. Existing test repositories and stands remain in place. This record does not establish a successful fresh OAuth connection.
 
 ## Scope and real reviews
@@ -36,3 +44,7 @@ Operational follow-up is to reduce unnecessary CI work through impact selection,
 - **Low — duplicated finding text:** the inline review repeated the explanation as both bold title and body. Keep the title concise and the explanatory body distinct.
 
 The GitHub Confirm Access step was an external authentication requirement, not a ReviewRouter defect. The setup action correctly reported a missing-provider prerequisite when attempted; no silent-guard defect is claimed. A background-tab rendering observation needs foreground reproduction before classification as a product defect.
+
+## Actual successor 234 fix/reply and settlement
+
+[Run 43565692133](https://github.com/get-tok/reviewrouter-onboarding-e2e/actions/runs/43565692133) succeeded on actual producer 234/801ede and published [one native App reply](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/3#discussion_r4571919825) under the original finding. The thread remains unresolved by report-only policy. Both generations settled publication/Statistics; 8 complete calls/19,104 tokens, with cost and actual-model measurement not reported. [The #861 record](2026-11-12-verified-thread-reply.md#current-production-reconciliation-2026-11-14) contains exact source/parent/marker, canonical receipt and non-replay limitations. No old PR 2/default/credential change or legacy Statistics/DL backfill was performed.
