@@ -676,7 +676,9 @@ describeWithDatabase.sequential(
       expect(expiredClaim.claimId).toBe(stale.claim.claimId);
       expect(expiredClaim.claimOwnerIdHash).toBe(stale.claim.ownerIdHash);
       expect(expiredClaim.claimUntil).not.toBeNull();
-      expect(expiredClaim.claimUntil!.getTime()).toBeLessThanOrEqual(Date.now());
+      expect(expiredClaim.claimUntil!.getTime()).toBeLessThanOrEqual(
+        Date.now(),
+      );
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });

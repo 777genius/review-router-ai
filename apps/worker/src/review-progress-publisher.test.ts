@@ -705,6 +705,60 @@ describe("ReviewProgressPublisher", () => {
     },
   );
 
+  it.each([77n, null])(
+    "repairs a successful GitHub write when settlement loses the claim with ID %s",
+    async (commentId) => {
+      const publication = { ...claimed(), commentId };
+      const store = fakeStore(publication);
+      store.complete.mockRejectedValueOnce(new Error("settlement_unavailable"));
+      store.retry.mockResolvedValue("stale");
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route, parameters = {}) => {
+          if (route.includes("/pulls/")) return pull();
+          if (route.startsWith("GET")) {
+            return {
+              data:
+                commentId === null
+                  ? []
+                  : [
+                      {
+                        id: 77,
+                        body: "<!-- review-router-live-progress -->",
+                        user: { login: "review-router[bot]" },
+                      },
+                    ],
+            };
+          }
+          if (route.startsWith("PATCH") || route.startsWith("POST")) {
+            return {
+              data: {
+                id: 77,
+                body: parameters.body,
+                user: { login: "review-router[bot]" },
+              },
+            };
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      }));
+
+      await expect(publisher.runMaintenance()).resolves.toEqual({
+        claimed: 1,
+        published: 0,
+        deferred: 1,
+        suppressed: 0,
+        failed: 0,
+      });
+      expect(store.complete).toHaveBeenCalledOnce();
+      expect(store.retry).toHaveBeenCalledOnce();
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
+        scope: publication.scope,
+        now,
+      });
+    },
+  );
+
   it("suppresses a poison publication at the retry bound", async () => {
     const publication = { ...claimed(), failureCount: 2 };
     const store = fakeStore(publication);

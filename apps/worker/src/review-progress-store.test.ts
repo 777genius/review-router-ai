@@ -146,7 +146,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
 
   it("requeues an ambiguous write without a stored comment ID", async () => {
     const updateMany = vi.fn();
-    const repair = vi.fn(async () => 1);
+    const repair = vi.fn<(query: unknown) => Promise<number>>(async () => 1);
     const store = new PrismaReviewProgressPublicationStore({
       reviewProgressPublicationV1: { updateMany },
       $executeRaw: repair,

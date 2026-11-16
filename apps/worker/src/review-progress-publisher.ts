@@ -122,8 +122,9 @@ export class ReviewProgressPublisher {
     }
     const bodyHash = sha256(body);
     if (await this.deferForBusyInstallation(publication, now, result)) return;
+    let published: UpsertReviewProgressCommentResult | null = null;
     try {
-      const published = await this.upsertProgressComment(publication, body);
+      published = await this.upsertProgressComment(publication, body);
       await this.settlePublishedMutation(
         publication,
         published,
@@ -131,7 +132,7 @@ export class ReviewProgressPublisher {
         result,
       );
     } catch (error) {
-      await this.handlePublishFailure(publication, error, result);
+      await this.handlePublishFailure(publication, error, result, published);
     }
   }
 
@@ -278,6 +279,7 @@ export class ReviewProgressPublisher {
     publication: ClaimedReviewProgress,
     error: unknown,
     result: { suppressed: number; failed: number; deferred: number },
+    published: UpsertReviewProgressCommentResult | null,
   ): Promise<void> {
     if (
       error instanceof ReviewProgressGitHubError &&
@@ -303,11 +305,17 @@ export class ReviewProgressPublisher {
       maxFailures: this.options.maxFailures,
     });
     if (retryOutcome === "stale") {
+      const canonicalBodyMayHaveChanged =
+        published !== null &&
+        (published.operation === "updated" ||
+          published.operation === "reconciled" ||
+          published.operation === "created");
       if (
-        error instanceof ReviewProgressGitHubError &&
-        error.metadata.mutationMayHaveLanded === true
+        canonicalBodyMayHaveChanged ||
+        (error instanceof ReviewProgressGitHubError &&
+          error.metadata.mutationMayHaveLanded === true)
       ) {
-        // The gateway can PATCH a comment before persisting its ID.
+        // A successful mutation or ambiguous PATCH may outlive its claim.
         await this.store.requeueAfterClaimLoss({
           scope: publication.scope,
           now: this.clock.now(),
