@@ -8,6 +8,7 @@ import {
   formatReviewProgressComment,
   ReviewProgressGitHubError,
 } from "./review-progress-github-gateway";
+import { retryMutationData } from "./review-progress-publication-mutation-policy";
 import { ReviewProgressPublisher } from "./review-progress-publisher";
 import type {
   ClaimedReviewProgress,
@@ -741,6 +742,13 @@ describe("ReviewProgressPublisher", () => {
     async (kind) => {
       const publication = { ...claimed(), commentId: 77n, failureCount: 2 };
       const store = fakeStore(publication);
+      store.retry.mockImplementationOnce(async (input) => {
+        const mutation = retryMutationData(input);
+        expect(mutation.reachesLimit).toBe(false);
+        expect(mutation.data).not.toHaveProperty("publishedVersion");
+        expect(mutation.data).not.toHaveProperty("failureCount");
+        return "retried";
+      });
       let commentReads = 0;
       const publisher = createPublisher(store, async () => ({
         botLogin: "review-router[bot]",
@@ -785,20 +793,18 @@ describe("ReviewProgressPublisher", () => {
       expect(outcome).toEqual({
         claimed: 1,
         published: 0,
-        deferred: kind === "pagination_inconclusive" ? 1 : 0,
+        deferred: 1,
         suppressed: 0,
-        failed: kind === "rate_limited" ? 1 : 0,
+        failed: 0,
       });
       expect(commentReads).toBe(kind === "rate_limited" ? 2 : 3);
       expect(store.retry).toHaveBeenCalledWith(
         expect.objectContaining({
           publication,
           safeCode: `review_progress_${kind}`,
+          countFailure: false,
           ...(kind === "pagination_inconclusive"
-            ? {
-                countFailure: false,
-                retryAt: new Date(now.getTime() + 60 * 60_000),
-              }
+            ? { retryAt: new Date(now.getTime() + 60 * 60_000) }
             : {
                 installationCooldownUntil: expect.any(Date),
                 retryAt: expect.any(Date),

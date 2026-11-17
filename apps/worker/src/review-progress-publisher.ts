@@ -330,6 +330,8 @@ export class ReviewProgressPublisher {
       retryOutcome = await this.store.retry({
         publication,
         ...retry,
+        // An ambiguous GitHub write must not be permanently suppressed.
+        ...(mutationMayHaveLanded ? { countFailure: false as const } : {}),
         now: this.clock.now(),
         maxFailures: this.options.maxFailures,
       });
@@ -354,7 +356,7 @@ export class ReviewProgressPublisher {
       result.deferred += 1;
     } else if (retryOutcome === "suppressed") {
       result.suppressed += 1;
-    } else if (retry.countFailure === false) {
+    } else if (retry.countFailure === false || mutationMayHaveLanded) {
       result.deferred += 1;
     } else {
       result.failed += 1;
