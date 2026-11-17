@@ -33,7 +33,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 Provider quota does not drop a parallel review: [skip a quota-exhausted reviewer while another completes](2026-11-17-provider-quota-nonfatal.md), [PR #888](https://github.com/777genius/review-router-ai/pull/888) and [runtime PR #394](https://github.com/777genius/review-router/pull/394) - additive migration 000158 and API/Web rollout first, then the paired runtime release; staging/production `pending`. No configuration change.
 
-Review error classes of 2026-11-17: [one run per revision, superseded dispatched runs not red, real Chat bridge stop phase](2026-11-17-review-error-classes.md), [#891](https://github.com/777genius/review-router-ai/pull/891) - worker, Action and native ordinary rollouts; all targets `pending`. No migration, configuration or Gateway change.
+Review error classes of 2026-11-17: [one run per revision, superseded dispatched runs not red, real stream stop phases, OCR history under 1 MiB](2026-11-17-review-error-classes.md), [#891](https://github.com/777genius/review-router-ai/pull/891) - worker, Action, native and Gateway ordinary rollouts; all targets `pending`. No migration or configuration change.
 
 All providers in all workspaces: [GLM and every other plan can be added and used in any workspace](2026-11-17-all-providers-in-all-workspaces.md), [PR #887](https://github.com/777genius/review-router-ai/pull/887) - API and Web ordinary rollout, together with the connect-attach change below; staging/production `pending`. No migration, configuration or Gateway/native change.
 

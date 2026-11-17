@@ -1,7 +1,7 @@
 # Review error classes of 2026-11-17: deployment
 
 - Task ID: `2026-11-17-review-error-classes`
-- Goal: three fixes from plan
+- Goal: five fixes from plan
   [71](../architecture/71-review-runtime-error-classes.md):
   - worker: an automatic pull request event for the revision whose run is
     already dispatched and waiting for authorization no longer starts a second
@@ -11,18 +11,31 @@
   - Action: a superseded `workflow_dispatch` run no longer fails with
     `review_superseded_by_newer_revision`;
   - native: the Chat bridge (NVIDIA Build) reports the real phase of a stopped
-    stream, so a caller abort no longer reads as `sse_incomplete`.
-- Affected services/targets: worker; public Action; private native engine.
+    stream, so a caller abort no longer reads as `sse_incomplete`;
+  - Gateway: every early stop of a streamed response and its settlement logs
+    its own closed phase instead of failing silently;
+  - Action: OCR through the Account Gateway passes `--max-tokens` 87381
+    (1 MiB / 12), so its own history compression keeps requests under the
+    1 MiB relay and Gateway request limit.
+- Affected services/targets: worker; public Action; private native engine;
+  Account Gateway service.
 - Implementation PR/issue: worker
   [#891](https://github.com/777genius/review-router-ai/pull/891), Action
   [777genius/review-router#395](https://github.com/777genius/review-router/pull/395),
   native
-  [agent-teams-ai/sub2api#102](https://github.com/agent-teams-ai/sub2api/pull/102).
-- Implementation reference: native merged as `cfe50b7` (sub2api #102), Action
-  source merged as `d5c9a48` (review-router #395, not released yet), worker on
-  branch `fix/review-error-classes-20261117` until #891 merges.
-- Dependencies: none between the three parts; each can ship on its own. No
-  schema, configuration or Gateway change.
+  [agent-teams-ai/sub2api#102](https://github.com/agent-teams-ai/sub2api/pull/102),
+  Gateway
+  [agent-teams-ai/account-gateway#112](https://github.com/agent-teams-ai/account-gateway/pull/112),
+  Action OCR ceiling
+  [777genius/review-router#397](https://github.com/777genius/review-router/pull/397).
+- Implementation reference: native merged as `cfe50b7` (sub2api #102), Gateway
+  as `4d113b5` (account-gateway #112), Action source as `d5c9a48` (#395) and
+  `b994447` (#397, both not released yet), worker as `cfb918510` (#891).
+- Dependencies: none between the parts; each can ship on its own. No schema or
+  configuration change. `ACCOUNT_GATEWAY_BOUNDS.ocrMaxTokens` in the Action
+  repeats the 1 MiB request limit (RR `REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY`
+  `ingressBytes`, Gateway profile `limits.requestBytes`): if that limit changes,
+  recompute it (limit / 12) in the same batch.
 - Last updated: `2026-11-17`.
 
 ## Environment status
@@ -33,6 +46,7 @@
 | production (worker)   | `pending` | Not verified                    | Not verified        | Ship with the next coherent application release, then verify below. |
 | public Action release | `pending` | Not verified                    | Not verified        | Next ordinary Action release per the release process.               |
 | production (native)   | `pending` | Not verified                    | Not verified        | Next native engine rollout with the Gateway service.                |
+| production (Gateway)  | `pending` | Not verified                    | Not verified        | Next Gateway service rollout.                                       |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -51,6 +65,7 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 3. Action: include in the next Action release and register it as usual.
 4. Native: include in the next native engine rollout; the Gateway parser already
    accepts every phase it can emit.
+5. Gateway: include in the next Gateway service rollout (diagnostics only).
 
 ## Verification and completion
 
@@ -64,6 +79,11 @@ observed to be absent. Use the [status contract](README.md#status-contract).
   review was superseded; a superseded `pull_request` run still fails.
 - Native: a reviewer abort appears in the Gateway journal as `sse_read` with
   `read_error_reason` `context_canceled`, not as `sse_incomplete`.
+- Gateway: a cut streamed response leaves one `gateway_native_transport_failure`
+  line with a `stream_*` or `settle_*` phase.
+- Action OCR ceiling: the managed OCR argv of Account Gateway reviewers carries
+  `--max-tokens 87381`, and API logs show no new `Request body is too large`
+  for OCR reviewers on large pull requests.
 
 ## Retry, partial completion, and rollback
 
