@@ -2,9 +2,10 @@
 
 - Task ID: `2026-11-17-review-run-error-triage`
 - Goal: hosted reviews in the 777genius workspace authorize again with both
-  configured reviewers; authorization refusals become actionable instead of an
-  opaque retried 500; repositories without an active hosted lane stop receiving
-  workflow dispatches that can only be refused.
+  configured reviewers; an unapproved Gateway reviewer profile is refused as an
+  actionable 422 instead of an opaque retried 500, and other replaced typed
+  failures are visible in logs; repositories without an active hosted lane stop
+  receiving workflow dispatches that can only be refused.
 - Affected services/targets: API (run authorization, Review Action v2 route
   diagnostics), worker (GitHub review request ingress), API configuration
   (`REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY`).
@@ -42,15 +43,19 @@
   three more at 00:23, 00:28 and 00:37. The last workspace authorization was
   23:07; another workspace authorized normally at 23:33. NVIDIA has zero
   evidence observations, so reviewer 2 never ran.
-- Earlier failures were external: OpenRouter free-tier quota (`0 of 1000
-requests remaining`) in runs 43964966089, 43968539275 and 43974897855, and
-  upstream transport/`effect_unknown` in runs 43926445422 and 43934267905.
+- Earlier failures were external: the OpenRouter free-tier daily quota was
+  exhausted (0 of 1000 requests remaining) in runs 43964966089, 43968539275 and
+  43974897855, and upstream transport/`effect_unknown` ended runs 43926445422
+  and 43934267905.
 - `review_run_authorize:mutation_authority_unavailable` (403) came from
   repositories with the managed workflow but no active hosted lane:
   `777genius/agent-notifications` (`v1_open`), `agent-teams-ai/account-gateway`
   and `777genius/review-router` (no authority row). Ingress also dispatched
-  hundreds of requests to repositories without the workflow (for example
-  `777genius/universal-agent-plugins`) that ended in `dispatch_attempts_exhausted`.
+  hundreds of requests to repositories without the workflow and without a
+  hosted authority row (for example `777genius/universal-agent-plugins`) that
+  ended in `dispatch_attempts_exhausted`. The new gate checks the authority, not
+  the workflow file, so a `v2_active` repository whose setup PR is still open
+  keeps being dispatched.
 
 ## Ordered rollout
 
@@ -75,11 +80,14 @@ requests remaining`) in runs 43964966089, 43968539275 and 43974897855, and
   actual model `nvidia/nemotron-3.5-super-vl-120b-a12b` appears; no
   `review_run_authorize` 500 in API logs.
 - After step 2: a reviewer with an unapproved profile is refused with 422
-  `review_run_authorize:gateway_profile_unapproved`; any remaining 500
-  `handler_failed` log line carries `internalFailureClass`,
-  `internalFailureCode` and `internalFailureIssues`; no new intents for the
-  repositories listed above; failed webhook deliveries record
-  `github_webhook_persistence_failed:<Prisma code>` or a reviewed local code.
+  `review_run_authorize:gateway_profile_unapproved`. Other `null` captures on
+  authorize still answer 500 `handler_failed`, but the log line now carries
+  `internalFailureClass: ReviewActionV2RouteFailure`, the original
+  `internalFailureCode` (for example `stale_precondition`) and
+  `internalFailureIssues`; ordinary exceptions keep class/code/cause/stage. The
+  worker logs "Review request ignored without an active hosted lane" instead of
+  creating intents for the repositories listed above. Failed webhook deliveries
+  record `github_webhook_persistence_failed:<code>` or a reviewed local code.
 - OpenRouter `:free` models remain limited by the provider's daily request
   quota; one review can use up to 640 Gateway requests.
 

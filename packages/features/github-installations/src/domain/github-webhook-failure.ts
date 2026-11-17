@@ -10,7 +10,8 @@ const safeFailureCodes = new Set([
   "repository_webhook_binding_cas_failed",
 ]);
 
-/** Prisma known-request codes (for example P2034) carry no tenant data. */
+/** Prisma known-request codes (for example P2034) and PL/pgSQL raise codes
+ * (P0001) are bounded identifiers that carry no tenant data. */
 const persistenceFailureCode = /^P[0-9]{4}$/;
 
 export function safeGitHubWebhookFailureSummary(error: unknown): string {
