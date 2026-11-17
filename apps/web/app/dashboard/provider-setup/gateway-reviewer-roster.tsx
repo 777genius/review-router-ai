@@ -1,8 +1,13 @@
 "use client";
 
 import { useId, useState } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { Badge, Button, SelectField } from "@reviewrouter/ui";
 import type { ReviewModelOption } from "@reviewrouter/features-review-providers";
+import {
+  defaultReviewProviderMode,
+  type ReviewProviderMode,
+} from "@reviewrouter/features-review-config/review-configuration";
 import type { ReviewProviderSelection } from "@reviewrouter/features-review-config/review-policy-document";
 import type {
   ProviderRosterSaveRequest,
@@ -42,6 +47,48 @@ type Row = {
   editedSettings?: boolean;
 };
 type Patch = NonNullable<ProviderRosterSaveRequest["executionPatch"]>;
+
+const providerModeOptions = [
+  {
+    value: "parallel",
+    label: "Together, in parallel",
+    hint: "Every reviewer checks each pull request and their findings are combined.",
+  },
+  {
+    value: "fallback",
+    label: "Fallback in order",
+    // Honest about this release: the backups are kept in order but are not
+    // started yet (ai-docs/architecture/67-provider-interaction-mode.md).
+    hint: "Only the first reviewer runs. Any others wait below, in order, as backups. Automatic switching to the next one when a review fails is not available yet.",
+  },
+] as const satisfies readonly {
+  value: ReviewProviderMode;
+  label: string;
+  hint: string;
+}[];
+
+/**
+ * The mode of the roster the editor opens with: the workspace default, or a
+ * repository's own roster or the workspace roster it inherits. A bulk
+ * assignment starts an empty roster with the default mode.
+ */
+function storedMode(
+  view: ProviderSetupView,
+  target: ProviderSetupDialogTarget,
+): ReviewProviderMode {
+  if (target.kind === "repositories") return defaultReviewProviderMode;
+  const repository =
+    target.kind === "repository"
+      ? view.repositories.find((row) => row.id === target.repository.id)
+      : null;
+  const ownRoster = Boolean(
+    repository?.selections?.length || repository?.selection,
+  );
+  return (
+    (ownRoster ? repository?.providerMode : view.providerMode) ??
+    defaultReviewProviderMode
+  );
+}
 
 function storedRows(
   view: ProviderSetupView,
@@ -139,6 +186,7 @@ export function GatewayReviewerRoster({
   const [rows, setRows] = useState(() =>
     storedRows(view, target, prefix, initialProfileId),
   );
+  const [mode, setMode] = useState(() => storedMode(view, target));
   const [nextRow, setNextRow] = useState(0);
   const [editing, setEditing] = useState<string | null>(
     () => rows.find((row) => row.profileId === initialProfileId)?.id ?? null,
@@ -247,6 +295,14 @@ export function GatewayReviewerRoster({
     setRows((current) =>
       current.map((row) => (row.id === id ? { ...row, ...change } : row)),
     );
+  const move = (index: number, offset: -1 | 1) =>
+    setRows((current) => {
+      const next = [...current];
+      const [row] = next.splice(index, 1);
+      next.splice(index + offset, 0, row!);
+      return next;
+    });
+  const fallback = mode === "fallback";
   const executionValue = (
     field: "providerMaxParallel" | "inlineMinAgreement",
   ): string => {
@@ -295,6 +351,7 @@ export function GatewayReviewerRoster({
                   },
               settings: settingsFor(row),
             })),
+        ...(inherit ? {} : { providerMode: mode }),
         ...(Object.keys(patch).length ? { executionPatch: patch } : {}),
       });
       if (result.status === "error") {
@@ -332,8 +389,9 @@ export function GatewayReviewerRoster({
         <div>
           <h3 className="text-sm font-semibold text-cyan-50">Reviewers</h3>
           <p className="text-xs leading-5 text-slate-400">
-            Each reviewer keeps its own model and settings. The first handles
-            pull request description updates when enabled.
+            Each reviewer keeps its own model and settings. The first is the
+            primary: it also handles pull request description updates when
+            enabled.
           </p>
         </div>
         <Button
@@ -364,6 +422,17 @@ export function GatewayReviewerRoster({
           Add reviewer
         </Button>
       </div>
+      <SelectField
+        label="How reviewers work together"
+        value={mode}
+        disabled={blocked}
+        options={providerModeOptions.map(({ value, label }) => ({
+          value,
+          label,
+        }))}
+        hint={providerModeOptions.find((option) => option.value === mode)!.hint}
+        onValueChange={(value) => setMode(value as ReviewProviderMode)}
+      />
       {repository?.source === "workspace" ? (
         <p className="text-sm text-slate-300">
           Using all workspace reviewers. Saving creates a complete repository
@@ -408,6 +477,8 @@ export function GatewayReviewerRoster({
                       {index + 1}. {row.model || "Choose a model"}{" "}
                       {index === 0 ? (
                         <Badge tone="neutral">Primary</Badge>
+                      ) : fallback ? (
+                        <Badge tone="neutral">Fallback</Badge>
                       ) : null}{" "}
                     </p>
                     <p className="break-words text-xs leading-5 text-slate-400">
@@ -443,6 +514,34 @@ export function GatewayReviewerRoster({
                     ) : null}
                   </div>
                   <div className="flex items-center gap-2">
+                    {fallback ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="px-3"
+                          disabled={blocked || index === 0}
+                          aria-label={`Move reviewer ${index + 1} up`}
+                          title="Move up"
+                          onClick={() => move(index, -1)}
+                        >
+                          <ArrowUp aria-hidden className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="px-3"
+                          disabled={blocked || index === rows.length - 1}
+                          aria-label={`Move reviewer ${index + 1} down`}
+                          title="Move down"
+                          onClick={() => move(index, 1)}
+                        >
+                          <ArrowDown aria-hidden className="size-4" />
+                        </Button>
+                      </>
+                    ) : null}
                     <Button
                       type="button"
                       variant="ghost"
@@ -620,50 +719,52 @@ export function GatewayReviewerRoster({
           </Button>
         ) : null}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {(["providerMaxParallel", "inlineMinAgreement"] as const).map(
-          (field) => (
-            <SelectField
-              key={field}
-              label={
-                field === "providerMaxParallel"
-                  ? "Max parallel providers"
-                  : "Inline agreement"
-              }
-              value={executionValue(field)}
-              disabled={blocked}
-              options={[
-                ...(target.kind === "workspace"
-                  ? []
-                  : [
-                      {
-                        value: "inherit",
-                        label: `Workspace default (${Math.min(defaults[field], rows.length || 1)})`,
-                      },
-                    ]),
-                ...Array.from(
-                  {
-                    length: Math.max(
-                      rows.length,
-                      Number(executionValue(field)) || 1,
-                    ),
-                  },
-                  (_, index) => ({
-                    value: String(index + 1),
-                    label: String(index + 1),
-                  }),
-                ),
-              ]}
-              onValueChange={(value) =>
-                setPatch((current) => ({
-                  ...current,
-                  [field]: value === "inherit" ? null : Number(value),
-                }))
-              }
-            />
-          ),
-        )}
-      </div>
+      {fallback ? null : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(["providerMaxParallel", "inlineMinAgreement"] as const).map(
+            (field) => (
+              <SelectField
+                key={field}
+                label={
+                  field === "providerMaxParallel"
+                    ? "Max parallel providers"
+                    : "Inline agreement"
+                }
+                value={executionValue(field)}
+                disabled={blocked}
+                options={[
+                  ...(target.kind === "workspace"
+                    ? []
+                    : [
+                        {
+                          value: "inherit",
+                          label: `Workspace default (${Math.min(defaults[field], rows.length || 1)})`,
+                        },
+                      ]),
+                  ...Array.from(
+                    {
+                      length: Math.max(
+                        rows.length,
+                        Number(executionValue(field)) || 1,
+                      ),
+                    },
+                    (_, index) => ({
+                      value: String(index + 1),
+                      label: String(index + 1),
+                    }),
+                  ),
+                ]}
+                onValueChange={(value) =>
+                  setPatch((current) => ({
+                    ...current,
+                    [field]: value === "inherit" ? null : Number(value),
+                  }))
+                }
+              />
+            ),
+          )}
+        </div>
+      )}
       {duplicate ? (
         <p role="status" className="text-sm text-amber-100">
           Choose a different account, model, or review engine for each reviewer.
@@ -686,6 +787,7 @@ export function GatewayReviewerRoster({
             if (!latest) return;
             setObserved(latest);
             setRows(storedRows(latest, target, prefix));
+            setMode(storedMode(latest, target));
             setPatch({});
             setStale(false);
             setError(null);

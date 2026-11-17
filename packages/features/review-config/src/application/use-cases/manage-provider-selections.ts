@@ -12,9 +12,11 @@ import {
   fitExecutionLimits,
   parseRepositoryReviewPolicy,
   parseWorkspaceReviewPolicy,
+  providerRosterOf,
   reviewProviderSelectionSchema,
   resolveEffectiveReviewPolicy,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
+  withProviderRoster,
   withProviderSelections,
   type EffectiveReviewPolicy,
   type RepositoryReviewPolicy,
@@ -46,6 +48,10 @@ import {
  * refuses any other result than the validated one.
  */
 export interface EffectiveReviewConfigurationValidatorPort {
+  /**
+   * Checks the whole roster as a parallel run uses it (`rosterConfig`), so
+   * every reviewer a fallback roster keeps in reserve is runnable too.
+   */
   validate(
     candidate: Readonly<{
       target: ReviewConfigurationTarget;
@@ -303,13 +309,13 @@ export async function saveWorkspaceReviewSettings(
   const current = heads.workspace
     ? parseStoredReviewPolicy("workspace", heads.workspace)
     : null;
-  const next = withProviderSelections(
+  const next = withProviderRoster(
     parseWorkspaceReviewPolicy({
       ...input.settings,
       schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
       ...(current?.memory === undefined ? {} : { memory: current.memory }),
     }),
-    current?.providers ?? null,
+    current ? providerRosterOf(current) : null,
   );
   const [saved] = await dependencies.configurations.saveNextVersions({
     workspaceId: input.workspaceId,
@@ -364,12 +370,12 @@ export async function saveRepositoryReviewSettings(
   const current = heads.repository
     ? parseStoredReviewPolicy("repository", heads.repository)
     : null;
-  const next = withProviderSelections(
+  const next = withProviderRoster(
     parseRepositoryReviewPolicy({
       ...input.settings,
       schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
     }),
-    current?.providers ?? null,
+    current ? providerRosterOf(current) : null,
   );
   const saved = await dependencies.configurations.saveNextVersions({
     workspaceId: input.workspaceId,
@@ -639,7 +645,10 @@ async function validated(
     dependencies,
   );
   if (!candidate) return { expectedEffectivePolicyDigest: null };
-  await dependencies.validator.validate({ target, config: candidate.config });
+  await dependencies.validator.validate({
+    target,
+    config: candidate.rosterConfig,
+  });
   return {
     expectedEffectivePolicyDigest: effectiveReviewPolicyDigest(
       candidate.config,

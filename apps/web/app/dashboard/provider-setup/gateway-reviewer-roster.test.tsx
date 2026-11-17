@@ -259,6 +259,83 @@ describe("Gateway reviewer roster", () => {
     expect(screen.queryByText("Optional")).toBeNull();
   });
 
+  it("orders fallback reviewers and saves the mode with the roster", async () => {
+    render(<GatewayReviewerRoster {...base()} />);
+    expect(screen.queryByRole("button", { name: /Move reviewer/ })).toBeNull();
+    await choose(/^How reviewers work together/, /^Fallback in order/);
+    expect(
+      screen.queryByRole("combobox", { name: /^Max parallel providers/ }),
+    ).toBeNull();
+    expect(screen.getByText(/^Only the first reviewer runs/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Move reviewer 1 up" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "Move reviewer 2 up" }));
+    expect(screen.getByText(/1\. model-two/)).toBeTruthy();
+    expect(screen.getByText("Fallback")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewers" }));
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerMode: "fallback",
+          reviewers: [
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "two" },
+            }),
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "one" },
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
+  it("opens an inheriting repository with the workspace roster mode", async () => {
+    const props = base();
+    const inherited = view();
+    render(
+      <GatewayReviewerRoster
+        {...props}
+        view={{
+          ...inherited,
+          providerMode: "fallback",
+          repositories: inherited.repositories.map((row) => ({
+            ...row,
+            source: "workspace" as const,
+            selection: null,
+            selections: [],
+            execution: {},
+          })),
+        }}
+        target={{
+          kind: "repository",
+          repository: {
+            id: "r",
+            fullName: "org/repo",
+            visibility: "private",
+            canManageCredentials: true,
+            effective: {
+              authMode: "codex_account_gateway",
+              credentialKind: "gateway_binding",
+            },
+            secretGuidance: null,
+            organizationLogin: null,
+            organizationSecretPolicy: null,
+            rotatingEnabled: false,
+          },
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole("combobox", { name: /^How reviewers work together/ })
+        .textContent,
+    ).toContain("Fallback in order");
+    expect(
+      screen.getByRole("button", { name: "Move reviewer 2 up" }),
+    ).toBeTruthy();
+  });
+
   it("removes only the chosen row and keeps the last reviewer", async () => {
     render(<GatewayReviewerRoster {...base()} />);
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
