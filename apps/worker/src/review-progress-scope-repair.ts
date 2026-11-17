@@ -61,4 +61,3 @@ function isSerializableRepairConflict(error: unknown): boolean {
     adapterCode === "40P01"
   );
 }
-
