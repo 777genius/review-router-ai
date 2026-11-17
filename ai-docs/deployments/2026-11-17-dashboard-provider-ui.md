@@ -25,7 +25,7 @@
 
 ## Retry and rollback
 
-Each step is read-only or a normal dashboard write and can be repeated. Rolling back is an ordinary web image rollback; no data is migrated. If the list route misbehaves, the server-rendered list still renders; record any rollback as `rolled_back` with the previous image.
+Each step is read-only or a normal dashboard write and can be repeated. Rolling back is an ordinary web image rollback; no data is migrated. If the list route fails or answers with anything other than this workspace's list, the Providers list keeps what it already shows and updates only with the next dashboard render, as before this change. Record any rollback as `rolled_back` with the previous image.
 
 ## Execution log
 

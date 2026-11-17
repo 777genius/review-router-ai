@@ -96,7 +96,24 @@ export async function fetchProviderListView(
         ? String((body as { readonly error: unknown }).error)
         : "provider_list_unavailable",
     );
-  return body as ProviderListView;
+  // A proxy page or a truncated body is a failed read, never a list: the
+  // query then keeps the list it already shows.
+  if (!isProviderListViewOf(body, workspaceId))
+    throw new Error("provider_list_unavailable");
+  return body;
+}
+
+function isProviderListViewOf(
+  body: unknown,
+  workspaceId: string,
+): body is ProviderListView {
+  if (!body || typeof body !== "object") return false;
+  const view = body as Partial<Record<keyof ProviderListView, unknown>>;
+  return (
+    view.workspaceId === workspaceId &&
+    typeof view.readAt === "number" &&
+    Array.isArray(view.rows)
+  );
 }
 
 /**
