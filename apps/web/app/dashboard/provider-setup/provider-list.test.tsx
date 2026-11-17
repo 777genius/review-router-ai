@@ -501,6 +501,7 @@ describe("Providers list", () => {
           workspaceId: "workspace_1",
           target: { kind: "workspace" },
           expectedWorkspaceVersion: null,
+          providerMode: "parallel",
           reviewers: [
             {
               provider: { kind: "profile", profileId },

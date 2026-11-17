@@ -269,7 +269,8 @@ export class PrismaWorkspaceProviderProfileRepository implements WorkspaceProvid
         else incompatible.repositoryIds.push(target.repositoryId);
         continue;
       }
-      scopes.push({ target, config: resolved.config });
+      // Every reviewer of the roster, including fallbacks that do not run yet.
+      scopes.push({ target, config: resolved.rosterConfig });
     }
     if (incompatible.workspaceDefault || incompatible.repositoryIds.length)
       throw new ProviderProfileError("provider_profile_model_incompatible", {

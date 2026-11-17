@@ -174,7 +174,9 @@ export class InMemoryReviewConfigurationRepository
         configuration: resolved
           ? persistedReviewConfiguration({
               config: resolved.config,
+              rosterConfig: resolved.rosterConfig,
               selections: resolved.selections,
+              providerMode: resolved.providerMode,
               policy,
               workspaceVersion: workspaceVersion!,
               repositoryVersion:
