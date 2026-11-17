@@ -10,7 +10,7 @@
   database migration, no native change.
 - Implementation PR/issue:
   [account-gateway#113](https://github.com/agent-teams-ai/account-gateway/pull/113)
-  (merged first) and the ReviewRouter PR that adds this record; design in
+  (merged first) and [PR #896](https://github.com/777genius/review-router-ai/pull/896); design in
   [audit 72, section 6](../architecture/72-usage-statistics-audit.md).
 - Implementation reference: the merged Gateway commit in
   `vendor/account-gateway/nvidia-sandbox-sdk-provenance.json` and the

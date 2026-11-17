@@ -51,7 +51,7 @@ Codex limits refresh on open: [refresh outdated Codex limits when a card opens](
 
 Usage page clarity: [not reported labels and even filters](2026-11-17-usage-not-reported-labels.md), [#882](https://github.com/777genius/review-router-ai/pull/882) - Web-only presentation change; staging/production `pending` until the next ordinary Web release. No migration or activation.
 
-Usage names the Gateway vendor: [GLM/MiniMax/Kimi/Grok/Claude/MiMo attribution, unknown completeness and the subscription label](2026-11-17-usage-gateway-vendor.md), [account-gateway#113](https://github.com/agent-teams-ai/account-gateway/pull/113) and the RR SDK repack - second small release after the in-progress deploy; deploy RR first, then Gateway; conversation qualification must be reissued (SDK stamp changed); staging/production `pending`. No migration.
+Usage names the Gateway vendor: [GLM/MiniMax/Kimi/Grok/Claude/MiMo attribution, unknown completeness and the subscription label](2026-11-17-usage-gateway-vendor.md), [account-gateway#113](https://github.com/agent-teams-ai/account-gateway/pull/113) and [PR #896](https://github.com/777genius/review-router-ai/pull/896) - second small release after the in-progress deploy; deploy RR first, then Gateway; conversation qualification must be reissued (SDK stamp changed); staging/production `pending`. No migration.
 
 Usage and statistics audit: [Details wording, delivery summary, hidden filter reset and polling](2026-11-17-usage-statistics-audit.md), [PR #894](https://github.com/777genius/review-router-ai/pull/894), [audit 72](../architecture/72-usage-statistics-audit.md) - Web-only ordinary rollout, ideally with #882; staging/production `pending`. No migration, configuration or Gateway/native change.
 
