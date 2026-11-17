@@ -9,10 +9,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual version | Evidence                                     |
-| ---------- | --------- | -------------- | -------------------------------------------- |
-| Staging    | `pending` | Not verified   | Ordered rollout below                        |
-| Production | `pending` | Not verified   | No deployment authorized by the source merge |
+| Target     | Status      | Actual version                                       | Evidence                                                                                                                                                                                                   |
+| ---------- | ----------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified                                         | Ordered rollout below                                                                                                                                                                                      |
+| Production | `installed` | native `cfe50b7f`, Gateway `4d113b5c`, RR `974295ea` | Ordered rollout done in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); NVIDIA reads 18 models, anchor first, no filtered families; a review with a non-anchor model is not run yet |
 
 ## Applicability and rollout
 

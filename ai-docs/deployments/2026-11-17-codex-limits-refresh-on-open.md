@@ -17,10 +17,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                              |
-| -------------------- | --------- | ------------------------------- | ------------------- | ----------------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Ship with the next coherent Web release, then verify below. |
-| production           | `pending` | Not verified                    | Not verified        | Ship with the next coherent Web release, then verify below. |
+| Environment / target | Status      | Actual deployed version / image          | Last verified (UTC) | Evidence / next step / blocker                                                                                                 |
+| -------------------- | ----------- | ---------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| staging              | `pending`   | Not verified                             | Not verified        | Ship with the next coherent Web release, then verify below.                                                                    |
+| production           | `installed` | Web `974295ea`, image `sha256:596eb430…` | 2026-11-17 17:51    | Shipped in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); the card refresh check below is not run yet. |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
