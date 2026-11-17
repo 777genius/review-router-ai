@@ -230,6 +230,16 @@ export function GatewayReviewerRoster({
     };
   };
 
+  const rowModelOptions = (
+    row: Row,
+    account: (typeof accounts)[number] | undefined,
+    profile: ReturnType<typeof options.profileFor>,
+  ) =>
+    gatewayProviderModelOptions(modelOptions, profile, {
+      catalog: account?.modelCatalog,
+      requiresTools: row.settings.agenticContext,
+    });
+
   const identities = rows.map((row) =>
     JSON.stringify([
       row.bindingId,
@@ -262,6 +272,12 @@ export function GatewayReviewerRoster({
         !account.binding.fencePending &&
         profile?.id === row.profileRef &&
         profile.models.includes(row.model) &&
+        // A new or changed reviewer needs a model the picker offers as usable,
+        // as in the setup dialog; a typed name cannot pick a disabled option.
+        (row.profileId !== undefined ||
+          rowModelOptions(row, account, profile).some(
+            (option) => option.value === row.model && !option.disabled,
+          )) &&
         (row.savedSettings === true ||
           profile.connection?.modelSettings.some(
             (model) => model.modelId === row.model,
@@ -633,15 +649,8 @@ export function GatewayReviewerRoster({
                           },
                         })
                       }
-                      modelOptions={gatewayProviderModelOptions(
-                        modelOptions,
-                        profile,
-                        {
-                          catalog: account?.modelCatalog,
-                          requiresTools: row.settings.agenticContext,
-                        },
-                      )}
-                      modelChoice="list"
+                      modelOptions={rowModelOptions(row, account, profile)}
+                      modelChoice="catalog"
                       allowCustomModel={false}
                       settings={settingsFor(row)}
                       onSettingsChange={(settings) =>

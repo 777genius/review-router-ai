@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+NVIDIA live model list: [512-model catalogue bound and typed model names](2026-11-17-nvidia-live-model-catalog.md) - native, Gateway and ReviewRouter; staging/production `pending`. Ordered rollout: native with this change goes last, after Gateway and ReviewRouter; undeployed 64/65 catalogues go first.
+
 Reviewer roster mode: [together or fallback in order](2026-11-17-provider-interaction-mode.md), [PR #890](https://github.com/777genius/review-router-ai/pull/890) - Web and API ordinary rollout; staging/production `pending`. No migration, configuration, runtime or Gateway change; fallback runs only the first reviewer until switching ships.
 
 Review run error triage: [NVIDIA reviewer authorization outage, actionable refusals and ingress lane gate](2026-11-17-review-run-error-triage.md) - code `pending` ([Draft PR #884](https://github.com/777genius/review-router-ai/pull/884)); production configuration step for `nvidia-build-chat-apikey-v1` in the approved Gateway run policy awaits the owner's decision. Until then every 777genius workspace review fails authorization.

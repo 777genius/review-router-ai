@@ -1,12 +1,14 @@
 # Account Gateway SDK artifacts
 
-## GLM native catalogue SDK (not production)
+## Native catalogue SDK (not production)
 
 The three Review Router consumers pin the source-built
-`agent-teams-account-gateway-0.1.0-nvidia-1d6cf84f1243.tgz` archive, which adds the
-`native_catalog` account model source for the GLM Coding Plan (anchor plus
-`glm-5.3`). It was packed from the merged Gateway main commit recorded in
-`nvidia-sandbox-sdk-provenance.json`.
+`agent-teams-account-gateway-0.1.0-nvidia-e70dd9c599f1.tgz` archive. It carries the
+`native_catalog` account model source of the GLM, MiniMax and Kimi coding plans
+and lets the `nvidia` and `native_catalog` snapshots hold up to 512 models, so
+NVIDIA Build can offer NVIDIA's filtered public model list
+(`ai-docs/architecture/68-nvidia-live-model-catalog.md`). It was packed from the
+merged Gateway main commit recorded in `nvidia-sandbox-sdk-provenance.json`.
 The conversation source stamp changed with it, so full-thread
 conversation qualification must be reissued before deploy. The provenance of the
 previous archive is kept in `nvidia-c32ef9ed3360-sdk-provenance.json`. Design and
