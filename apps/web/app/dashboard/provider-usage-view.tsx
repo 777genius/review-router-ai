@@ -33,6 +33,7 @@ import {
   count,
   customInterval,
   intervalLabel,
+  NOT_REPORTED,
   rollingInterval,
   type UsageMetric,
 } from "./provider-usage-format";
@@ -201,7 +202,7 @@ function ProviderUsageContext({
   const latestSourceUpdate = data?.latestSourceAsOf ?? data?.asOf;
   return (
     <section aria-label="Provider usage" className="min-w-0 space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-5">
+      <header className="@container flex flex-wrap items-start justify-between gap-5">
         <div className="shrink-0">
           <h2 className="text-2xl font-semibold tracking-tight text-slate-100">
             Usage
@@ -210,7 +211,24 @@ function ProviderUsageContext({
             Provider activity and token usage.
           </p>
         </div>
-        <div className="grid w-full min-w-0 basis-full grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] items-end gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-xl"
+          disabled={!unavailable && query.isFetching}
+          aria-busy={query.isFetching}
+          onClick={refresh}
+        >
+          <RefreshCw
+            className={`h-4 w-4${query.isFetching ? " animate-spin" : ""}`}
+            aria-hidden="true"
+          />
+          <span aria-live="polite">
+            {query.isFetching ? "Refreshing…" : "Refresh"}
+          </span>
+        </Button>
+        {/* Four equal filters: one column, then 2 x 2, then a single row. */}
+        <div className="grid w-full min-w-0 basis-full grid-cols-1 gap-3 @min-[32rem]:grid-cols-2 @min-[56rem]:grid-cols-4">
           <SelectField
             name="usage-period"
             label="Period"
@@ -292,22 +310,6 @@ function ProviderUsageContext({
               })
             }
           />
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl"
-            disabled={!unavailable && query.isFetching}
-            aria-busy={query.isFetching}
-            onClick={refresh}
-          >
-            <RefreshCw
-              className={`h-4 w-4${query.isFetching ? " animate-spin" : ""}`}
-              aria-hidden="true"
-            />
-            <span aria-live="polite">
-              {query.isFetching ? "Refreshing…" : "Refresh"}
-            </span>
-          </Button>
         </div>
       </header>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -451,7 +453,7 @@ function ProviderUsageContext({
                 data.totals.tokens.total === null
                   ? "No total token measurements"
                   : data.totals.unknownTotalTokenCount > 0
-                    ? "Known part; some total tokens unknown"
+                    ? "Known part; some calls have no token counts"
                     : "Known token subtotal"
               }
             />
@@ -485,13 +487,12 @@ function ProviderUsageContext({
                         </span>
                       </div>
                     ))
-                  : "Unknown"}
+                  : NOT_REPORTED}
               </dd>
               <p className="mt-1 text-xs text-slate-500">
                 {currency
-                  ? `${currency} only · no currency conversion`
-                  : "No known cost amounts"}
-                {data.totals.unknownCostCount ? " · Excludes unknown cost" : ""}
+                  ? `${currency} only · no currency conversion${data.totals.unknownCostCount ? " · excludes calls without cost" : ""}`
+                  : "Missing cost does not mean zero cost"}
               </p>
             </div>
           </dl>
@@ -625,10 +626,10 @@ function ProviderUsageContext({
               className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
             >
               <span
-                className={hasUnknown ? "text-amber-300" : "text-slate-400"}
+                className={hasUnknown ? "text-slate-300" : "text-slate-400"}
               >
                 {hasUnknown
-                  ? "△ Some usage is unknown or partial"
+                  ? "△ Some token or cost data was not reported"
                   : "Reported observations; coverage is not guaranteed"}
               </span>
               <span className="ml-auto text-slate-400">

@@ -252,7 +252,9 @@ describe("provider usage interactive report", () => {
     expect(
       screen.getByText(/A partial day covers only part of a UTC day/),
     ).toBeTruthy();
-    expect(screen.getByText(/Some usage is unknown or partial/)).toBeTruthy();
+    expect(
+      screen.getByText(/Some token or cost data was not reported/),
+    ).toBeTruthy();
   });
   it("hydrates the exact review key and preserves exact currency/basis and requested/observed identities", () => {
     render(<Harness />);
@@ -283,7 +285,7 @@ describe("provider usage interactive report", () => {
     ).toContain("codex / requested-alpha");
     expect(
       screen.getByRole("table", { name: "Requested model usage" }).textContent,
-    ).toContain("Observed: actual-beta +1 · includes Unknown");
+    ).toContain("Observed: actual-beta +1 · some not reported");
     fireEvent.click(screen.getByRole("button", { name: "Cost" }));
     expect(screen.queryByLabelText("Cost basis")).toBeNull();
     expect(fetchProviderUsage).not.toHaveBeenCalled();
@@ -629,17 +631,17 @@ describe("provider usage interactive report", () => {
     expect(
       within(
         screen.getByRole("table", { name: "Requested model usage" }),
-      ).getByText(/Observed:.*includes Unknown/),
+      ).getByText(/Observed:.*some not reported/),
     ).toBeTruthy();
     const disclosure = within(
       screen.getByRole("table", { name: "Requested model usage" }),
     )
-      .getByText(/Observed:.*includes Unknown/)
+      .getByText(/Observed:.*some not reported/)
       .closest("details")!;
     fireEvent.click(disclosure.querySelector("summary")!);
     expect(disclosure.open).toBe(true);
     expect(within(disclosure).getByText(actual)).toBeTruthy();
-    expect(within(disclosure).getByText("Unknown")).toBeTruthy();
+    expect(within(disclosure).getByText("Not reported")).toBeTruthy();
   });
   it("keeps Details open when a new observation page replaces the loading context, then resets it for fresh SSR", async () => {
     const firstRow: ProviderUsageReport["rows"][number] = {
