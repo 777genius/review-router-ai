@@ -3,7 +3,7 @@
 - Task ID: `2026-11-17-provider-interaction-mode`
 - Goal: a workspace or repository reviewer roster can be set to "Together, in parallel" (unchanged default) or "Fallback in order". In fallback order only the first reviewer runs; the others are kept in order and are not started yet. Automatic switching on failure is a later delivery (see the plan).
 - Affected services/targets: Web dashboard and API (shared `review-config`, `workflow-provisioning`). No database migration, runtime/Action, Gateway or native change.
-- Implementation PR/issue: ReviewRouter AI PR (see the task index).
+- Implementation PR/issue: [ReviewRouter AI PR #890](https://github.com/777genius/review-router-ai/pull/890).
 - Implementation reference: plan [67](../architecture/67-provider-interaction-mode.md).
 - Dependencies: none.
 - Last updated: `2026-11-17`.
