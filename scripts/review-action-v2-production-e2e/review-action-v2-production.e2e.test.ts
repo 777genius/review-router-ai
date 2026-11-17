@@ -595,7 +595,7 @@ describeWithDatabase.sequential(
           });
         }
       }
-      if (!stale) {
+      if (!stale || "deferred" in stale) {
         const deferred =
           await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
             where: { activeExecutionId: flow.executionId },
