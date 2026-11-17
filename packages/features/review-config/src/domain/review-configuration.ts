@@ -209,6 +209,18 @@ export const reviewExecutionConfigurationSchema = z
   })
   .strict();
 
+/**
+ * How the reviewers of one roster interact. `parallel` runs every reviewer
+ * on the same pull request and merges their findings; `fallback` uses them
+ * one at a time in the saved order. Stored documents keep only the
+ * non-default mode, so a parallel roster never carries the field.
+ */
+export const reviewProviderModes = ["parallel", "fallback"] as const;
+export const reviewProviderModeSchema = z.enum(reviewProviderModes);
+export type ReviewProviderMode = z.infer<typeof reviewProviderModeSchema>;
+export const defaultReviewProviderMode =
+  "parallel" satisfies ReviewProviderMode;
+
 export const reviewInvestigationRolloutConfigurationSchema = z
   .object({
     recordingEnabled: z.boolean(),

@@ -93,6 +93,7 @@ import {
   effectiveReviewSettings,
   readyReviewConfiguration,
   resolveEffectiveReviewConfigurations,
+  reviewProviderModeOf,
   type EffectiveReviewConfiguration,
   type PersistedReviewConfiguration,
   type RepositoryReviewPolicy,
@@ -990,9 +991,12 @@ export async function DashboardSectionContent({
     selectedWorkspace.workspace.id,
     personal,
     initialGatewayAccounts,
+    // Every reviewer of a roster, including fallbacks that do not run yet.
     [
-      data.reviewConfig?.config,
-      ...data.repositoryConfigs.map((row) => row.effective),
+      data.reviewConfig?.rosterConfig,
+      ...data.repositoryConfigs.map(
+        (row) => row.config?.rosterConfig ?? row.effective,
+      ),
     ].flatMap(
       (config) =>
         config?.providers.flatMap((provider) =>
@@ -1717,7 +1721,14 @@ export function WorkspaceCard({
                   workspaceId={workspace.id}
                   expectedVersion={data.reviewConfigExpectedVersion}
                   settings={workspaceSettings}
-                  providerCount={data.workspacePolicy?.providers?.length ?? 1}
+                  providerCount={
+                    // A fallback roster runs one reviewer at a time, so the
+                    // parallel limits do not apply to it.
+                    data.workspacePolicy &&
+                    reviewProviderModeOf(data.workspacePolicy) === "fallback"
+                      ? 1
+                      : (data.workspacePolicy?.providers?.length ?? 1)
+                  }
                   primaryAuthMode={defaultSummary.profile?.authMode}
                   contextConnections={contextConnections}
                   mutationsEnabled={mutationsEnabled}
