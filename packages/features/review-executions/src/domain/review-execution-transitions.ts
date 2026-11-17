@@ -25,6 +25,7 @@ import {
   type ReviewExecutionObservationRef,
   type ReviewExecutionScope,
   type ReviewExecutionStream,
+  type ReviewCoverageExceptions,
   type ReviewInvocationLease,
   type ReviewRevision,
   type ReviewWorkSlot,
@@ -1083,6 +1084,7 @@ export type FinalizeExecutionTransitionInput = {
   readonly publicationNotAfter: Date;
   readonly permitEpoch: bigint;
   readonly allowPartial: boolean;
+  readonly coverageExceptions?: ReviewCoverageExceptions;
   readonly limits: ReviewExecutionLimits;
   readonly now: Date;
   readonly retainUntil: Date;
@@ -1104,7 +1106,10 @@ export function decideExecutionFinalization(
   ) {
     return { status: ExecutionFinalizationDecisionStatus.NotRunnable };
   }
-  const coverageState = deriveCoverageState(input.execution.workSlots);
+  const coverageState = deriveCoverageState(
+    input.execution.workSlots,
+    input.coverageExceptions,
+  );
   if (coverageState === ReviewCoverageState.Partial && !input.allowPartial) {
     return {
       status: ExecutionFinalizationDecisionStatus.RequiredCoverageIncomplete,

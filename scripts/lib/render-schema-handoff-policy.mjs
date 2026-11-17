@@ -321,6 +321,25 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The provider-quota fact (plan 69) is an additive nullable column on the
+  // checkout-only allocation table. Require its exact SQL and the full 163-row
+  // inventory before reducing to checkout162; managed92 is never expanded.
+  const providerQuotaMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000158_review_run_allocation_provider_quota",
+  );
+  if (providerQuotaMigration) {
+    if (
+      catalog.length !== 163 ||
+      catalog.at(-1) !== providerQuotaMigration ||
+      providerQuotaMigration.checksum !==
+        "e7ca2b8ac7be046093607f22323f97f874f4c3648e609f10c6e5ebfa4d855730"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== providerQuotaMigration),
+    );
+  }
   // Additive Claude auth-mode CHECK is an application-only checkout tail.
   // The exact new SQL and full 162-row inventory are required before reducing
   // to the previously signed checkout160; managed92 is never expanded.

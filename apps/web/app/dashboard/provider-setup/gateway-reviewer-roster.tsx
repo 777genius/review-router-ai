@@ -27,6 +27,7 @@ import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import { dashboardErrorText } from "../dashboard-copy";
+import { isFreeModel } from "../provider-usage-format";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import {
   defaultProviderSelectionSettings,
@@ -510,6 +511,15 @@ export function GatewayReviewerRoster({
                       }) ? (
                       <p className="text-xs leading-5 text-amber-100">
                         Review settings need updating for this model.
+                      </p>
+                    ) : null}
+                    {isFreeModel({
+                      provider: profile?.connection?.provider ?? "",
+                      requestedModel: row.model,
+                    }) ? (
+                      <p className="text-xs leading-5 text-slate-400">
+                        Free OpenRouter models have a daily request limit. When
+                        it runs out, this reviewer stops until the limit resets.
                       </p>
                     ) : null}
                   </div>
