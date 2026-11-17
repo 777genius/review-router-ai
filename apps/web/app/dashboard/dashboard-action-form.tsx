@@ -25,12 +25,15 @@ export function DashboardActionForm({
   fallbackParams,
   className,
   refresh = true,
+  onComplete,
   children,
 }: {
   readonly action: DashboardActionFormAction;
   readonly fallbackParams: Record<string, string>;
   readonly className?: string;
   readonly refresh?: boolean;
+  /** Runs with the action's result, for example to invalidate a query. */
+  readonly onComplete?: (params: Record<string, string>) => void;
   readonly children: ReactNode;
 }): React.ReactElement {
   const router = useRouter();
@@ -50,6 +53,7 @@ export function DashboardActionForm({
       ...dashboardActionToast(params),
       key: (current?.key ?? 0) + 1,
     }));
+    onComplete?.(params);
     if (refresh) {
       startTransition(() => router.refresh());
     }
@@ -149,14 +153,14 @@ function dashboardActionToast(
     case "sync_requested":
       return {
         tone: "success",
-        title: "Repository refresh queued",
-        body: "ReviewRouter queued a repository metadata refresh. Reload in a few seconds if GitHub metadata is still catching up.",
+        title: "Repository scan started",
+        body: "ReviewRouter is scanning GitHub again. The repository list updates automatically when the scan finishes.",
       };
     case "sync_already_requested":
       return {
         tone: "accent",
-        title: "Repository refresh already queued",
-        body: "A repository metadata refresh was already requested recently.",
+        title: "Repository scan already requested",
+        body: "A repository scan was requested in the last minute. The repository list updates automatically when it finishes.",
       };
     case "repository_access_refreshed":
       return {

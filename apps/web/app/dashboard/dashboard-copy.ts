@@ -165,11 +165,11 @@ export function dashboardNoticeText(
     case "runtime_migration_recovery_required":
       return "The migration outcome is not confirmed. The old workflow stays paused. Check the existing GitHub migration run and recover the setup before continuing; the dispatch or secret write will not be repeated automatically.";
     case "app_installed":
-      return "GitHub App is connected. Search for one repository, then follow its provider-specific setup sequence from this dashboard.";
+      return "GitHub App is connected. Its repositories appear in the list as soon as the scan finishes; then pick one and follow its provider-specific setup sequence.";
     case "sync_requested":
-      return "Repository metadata refresh was queued. Reload in a few seconds if the repository list does not update immediately.";
+      return "ReviewRouter is scanning GitHub again. The repository list updates automatically when the scan finishes.";
     case "sync_already_requested":
-      return "Repository metadata refresh was already queued for this installation recently.";
+      return "A repository scan was requested in the last minute. The repository list updates automatically when it finishes.";
     case "repository_access_refreshed":
       return "GitHub repository access was refreshed for your account.";
     case "setup_pr_ready":
