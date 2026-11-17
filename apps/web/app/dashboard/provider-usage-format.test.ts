@@ -7,13 +7,13 @@ import {
   costsLabel,
   intervalLabel,
   humanUtc,
-  allFreeModels,
   humanUtcRange,
   isFreeModel,
   latencyLabel,
   metricLabel,
   observedPair,
   tokenCoverage,
+  usagePricing,
   utcDays,
 } from "./provider-usage-format";
 const totals: UsageTotals = {
@@ -131,7 +131,7 @@ describe("usage presentation invariants", () => {
     ).toEqual({
       label: "1,126 calls with incomplete token data",
       detail:
-        "79 calls without a usage report · 1,047 calls marked partial by the source · 1,124 calls without total tokens",
+        "79 calls without token counts · 1,047 calls marked partial by the source · 1,124 calls without total tokens",
       incomplete: true,
     });
     expect(
@@ -171,12 +171,25 @@ describe("usage presentation invariants", () => {
       { provider: "codex", requestedModel: "gpt-5.6-sol" },
     ])
       expect(isFreeModel(identity)).toBe(false);
-    expect(allFreeModels([])).toBe(false);
+  });
+  it("labels a bucket free or subscription-priced only when every call in it is", () => {
+    const free = { provider: "openrouter", requestedModel: "a/b:free" };
+    const glm = { provider: "glm", requestedModel: "glm-5.3" };
+    const codex = { provider: "codex", requestedModel: "gpt-5.6-sol" };
+    const plans = ["claude", "codex", "glm", "grok", "kimi", "minimax"];
+    expect(usagePricing([], ["gateway"], plans)).toBeUndefined();
+    expect(usagePricing([free], ["gateway"], plans)).toBe("free_model");
+    expect(usagePricing([glm, codex], ["gateway"], plans)).toBe("subscription");
+    // A direct-route key may be pay-as-you-go: only the Gateway profile proves a plan.
+    expect(usagePricing([codex], ["direct"], plans)).toBeUndefined();
+    expect(usagePricing([codex], ["gateway", "direct"], plans)).toBeUndefined();
+    expect(usagePricing([free, codex], ["gateway"], plans)).toBeUndefined();
     expect(
-      allFreeModels([
-        { provider: "openrouter", requestedModel: "a/b:free" },
-        { provider: "codex", requestedModel: "gpt-5.6-sol" },
-      ]),
-    ).toBe(false);
+      usagePricing(
+        [{ provider: "openrouter", requestedModel: "x/y" }],
+        ["gateway"],
+        plans,
+      ),
+    ).toBeUndefined();
   });
 });

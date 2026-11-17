@@ -42,7 +42,7 @@ const observation = z
       "effect_unknown",
       "rejected_before_dispatch",
     ]),
-    completeness: z.enum(["partial", "complete"]),
+    completeness: z.enum(["unknown", "partial", "complete"]),
     inputTokens: token,
     outputTokens: token,
     cachedInputTokens: token,

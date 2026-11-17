@@ -317,7 +317,7 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                           unknownCostCount={row.totals.unknownCostCount}
                           selectedCurrency={bucket?.currency}
                           basis={bucket?.basis}
-                          freeModel={isFreeModel(row)}
+                          pricing={isFreeModel(row) ? "free_model" : undefined}
                         />
                       ) : (
                         compact(value)

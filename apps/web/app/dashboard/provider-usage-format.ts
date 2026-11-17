@@ -102,7 +102,7 @@ export function tokenCoverage(
       : `${calls(totals.unknownTotalTokenCount)} without total tokens`,
     detail: [
       totals.unknownCount
-        ? `${calls(totals.unknownCount)} without a usage report`
+        ? `${calls(totals.unknownCount)} without token counts`
         : "",
       totals.partialCount
         ? `${calls(totals.partialCount)} marked partial by the source`
@@ -118,21 +118,37 @@ export function tokenCoverage(
 }
 export const missingCostLabel = (unknownCostCount: number) =>
   `Excludes ${calls(unknownCostCount)} without cost`;
-/**
- * The only cost fact provable from a requested identity: OpenRouter bills its
- * `:free` variants at zero, and ReviewRouter never sends paid fallback models.
- * Plans and subscriptions are not persisted with usage, so they stay unknown.
- */
-export const isFreeModel = (identity: {
+type RequestedIdentity = {
   provider: string;
   requestedModel: string | null | undefined;
-}) =>
+};
+/**
+ * A cost fact provable from a requested identity: OpenRouter bills its
+ * `:free` variants at zero, and ReviewRouter never sends paid fallback models.
+ */
+export const isFreeModel = (identity: RequestedIdentity) =>
   identity.provider === "openrouter" &&
   (identity.requestedModel?.endsWith(":free") ?? false);
-/** A run is free only when every requested identity in it is provably free. */
-export const allFreeModels = (
-  identities: readonly Parameters<typeof isFreeModel>[0][],
-) => identities.length > 0 && identities.every(isFreeModel);
+/** Why calls carry no cost: a free model, or a flat subscription/coding plan. */
+export type UsagePricing = "free_model" | "subscription" | undefined;
+/**
+ * A bucket is free or subscription-priced only when every requested identity in
+ * it is. Subscription pricing is proven only on the Gateway route, where the
+ * profile names its plan (`subscriptionProviders` comes from the report).
+ */
+export function usagePricing(
+  identities: readonly RequestedIdentity[],
+  routes: readonly string[],
+  subscriptionProviders: readonly string[],
+): UsagePricing {
+  if (!identities.length) return undefined;
+  if (identities.every(isFreeModel)) return "free_model";
+  return routes.length > 0 &&
+    routes.every((route) => route === "gateway") &&
+    identities.every(({ provider }) => subscriptionProviders.includes(provider))
+    ? "subscription"
+    : undefined;
+}
 export function observedPair(
   provider: string | null | undefined,
   model: string | null | undefined,

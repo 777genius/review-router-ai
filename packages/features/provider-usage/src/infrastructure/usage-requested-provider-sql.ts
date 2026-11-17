@@ -1,17 +1,9 @@
 import { Prisma } from "@prisma/client";
-import { accountModelDiscoveryProfile } from "@agent-teams/account-gateway/contracts";
-
-// The SDK owns qualification; profile IDs select that registry, never a model
-// name or a generic wire protocol. Unknown profiles retain their recorded label.
-const profiles = [
-  "openai-codex-oauth-responses-v1",
-  "openrouter-openai-responses-apikey-v1",
-].flatMap((profileRef) => {
-  const profile = accountModelDiscoveryProfile(profileRef);
-  return profile ? [{ profileRef, provider: profile.source }] : [];
-});
+import { gatewayProfileUsageProviders } from "./gateway-profile-provider";
 
 /** Read-only attribution from the original authorization, scoped to this call.
+ * Older Gateway rows were labelled `codex` for every profile, later ones
+ * `unknown` for profiles without a discovery source; the SDK names the vendor.
  * Do not change immutable identities, observed providers/models, or source facts.
  * A malformed/unknown snapshot or an ambiguous allocation cannot correct a label.
  */
@@ -31,10 +23,10 @@ export function usageRequestedProviderJoinSql(): Prisma.Sql {
         AND jsonb_typeof(frozen.snapshot->'allocations')='array'
         THEN frozen.snapshot->'allocations'
       ELSE '[]'::jsonb END) allocation
-    LEFT JOIN jsonb_to_recordset(${JSON.stringify(profiles)}::jsonb)
+    LEFT JOIN jsonb_to_recordset(${JSON.stringify(gatewayProfileUsageProviders)}::jsonb)
       AS qualified("profileRef" text,provider text)
       ON qualified."profileRef"=allocation->>'profileRef'
-    WHERE u."provider"='codex' AND u."route"='gateway'
+    WHERE u."provider" IN ('codex','unknown') AND u."route"='gateway'
       AND auth."authorizationId"=u."projection"#>>'{identity,authorizationId}'
       AND auth."workspaceId"=u."workspaceId"
       AND auth."sourceRunId"=u."runId"
