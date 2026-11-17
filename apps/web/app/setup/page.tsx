@@ -18,6 +18,7 @@ import { LoadingLinkButton } from "../loading-link-button";
 import { LogoMark } from "../logo-mark";
 import { safeGitHubDashboardLink } from "../../src/server/safe-dashboard-link";
 import { createNoIndexPageMetadata } from "../seo";
+import { SetupInstallRefresher } from "./setup-install-refresher";
 
 export const dynamic = "force-dynamic";
 
@@ -137,7 +138,10 @@ export default async function SetupPage({
       </section>
 
       {setupNotice && mutationStatus.signedIn ? (
-        <GitHubAppInstallHandoffCard notice={setupNotice} />
+        <>
+          <GitHubAppInstallHandoffCard notice={setupNotice} />
+          <SetupInstallRefresher />
+        </>
       ) : null}
 
       {resultNotice ? (
@@ -341,7 +345,8 @@ function GitHubAppInstallHandoffCard({
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             GitHub confirmed the App installation. ReviewRouter is waiting for
             the signed webhook, which normally arrives within a few seconds.
-            Refresh this page or open the dashboard after metadata catches up.
+            This page checks again automatically and opens the dashboard when
+            the installation is linked.
           </p>
         </div>
         <div className="grid gap-3 sm:flex sm:flex-wrap lg:justify-end">

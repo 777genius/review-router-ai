@@ -76,6 +76,11 @@ const fixtures = vi.hoisted(() => {
       repository,
       { ...repository, id: "repo-hidden" },
     ]),
+    repositoryScan: vi.fn(async () => ({
+      installations: [],
+      repositoryCount: 2,
+      checkedAt: "2026-09-01T00:00:00.000Z",
+    })),
     entitlement: vi.fn(async () => ({ flags: { hosted_codex_pool: true } })),
     health: vi.fn(async () => []),
     policies: vi.fn(
@@ -287,6 +292,9 @@ vi.mock("@reviewrouter/features-repositories", () => ({
   PrismaRepositoryConnectionRepository: class {
     listWorkspaceRepositories = fixtures.spies.repositories;
   },
+}));
+vi.mock("../../src/server/repository-scan", () => ({
+  loadRepositoryScanSnapshot: fixtures.spies.repositoryScan,
 }));
 vi.mock("@reviewrouter/features-repo-health", () => ({
   PrismaRepositoryHealthRepository: fixtures.EmptyStore,
@@ -589,10 +597,15 @@ describe("dashboard server loading boundaries", () => {
       access,
     );
     try {
-      expect(spies.repositories).toHaveBeenCalledOnce();
       expect(spies.health).toHaveBeenCalledOnce();
-      expect(spies.policies).not.toHaveBeenCalled();
       expect(spies.ruleset).toHaveBeenCalledOnce();
+      // Scan progress is read before the list, so a finished scan is in it.
+      expect(spies.repositoryScan).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(spies.repositories).toHaveBeenCalledOnce());
+      expect(spies.repositoryScan.mock.invocationCallOrder[0]).toBeLessThan(
+        spies.repositories.mock.invocationCallOrder[0]!,
+      );
+      expect(spies.policies).not.toHaveBeenCalled();
       await vi.waitFor(() =>
         expect(spies.organizationRequest).toHaveBeenCalledOnce(),
       );
@@ -723,7 +736,7 @@ describe("dashboard server loading boundaries", () => {
     spies.health.mockRejectedValueOnce(new Error("health unavailable"));
 
     const loading = loadDashboardSectionData(workspace, "repositories", access);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(spies.repositories).toHaveBeenCalled());
     resolveRepositories([]);
     await expect(loading).rejects.toThrow("health unavailable");
   });

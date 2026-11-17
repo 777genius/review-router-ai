@@ -121,3 +121,43 @@ function dashboardWorkspacePreferredUrlKey(
 function normalizeWorkspaceKey(value: string): string {
   return value.trim().toLowerCase();
 }
+
+type DashboardGitHubInstallationIdentity = {
+  readonly accountLogin: string;
+  readonly accountType: string;
+  readonly githubInstallationId: string;
+};
+
+/**
+ * One installation per GitHub account: a reinstall leaves the older row
+ * behind, so the highest installation ID is the current one.
+ */
+export function latestInstallationPerAccount<
+  T extends DashboardGitHubInstallationIdentity,
+>(installations: readonly T[]): readonly T[] {
+  const byAccount = new Map<string, T>();
+  for (const installation of installations) {
+    const key =
+      `${installation.accountType}:${installation.accountLogin}`.toLowerCase();
+    const current = byAccount.get(key);
+    if (
+      !current ||
+      compareInstallationIds(
+        installation.githubInstallationId,
+        current.githubInstallationId,
+      ) > 0
+    ) {
+      byAccount.set(key, installation);
+    }
+  }
+  return [...byAccount.values()];
+}
+
+function compareInstallationIds(left: string, right: string): number {
+  if (/^[0-9]+$/u.test(left) && /^[0-9]+$/u.test(right)) {
+    const leftId = BigInt(left);
+    const rightId = BigInt(right);
+    return leftId === rightId ? 0 : leftId > rightId ? 1 : -1;
+  }
+  return left.localeCompare(right);
+}
