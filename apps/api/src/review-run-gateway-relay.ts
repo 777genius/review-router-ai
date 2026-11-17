@@ -1719,6 +1719,18 @@ export function createReviewRunGatewayRelay(input: {
           /budget|exhaust|epoch|execution_(?:closed|expired|revoked)|account_revoked/.test(
             failure.code,
           );
+        // Plan 69: the Action may skip this reviewer only for a quota the
+        // server recorded itself; without that record it sees no quota.
+        const providerQuota =
+          failure.providerQuota &&
+          (await input.bindings
+            .recordProviderQuotaExhausted?.({
+              authorizationId: auth.authorizationId,
+              allocationId: lane.reviewer.transport.allocationId,
+            })
+            .catch(() => false))
+            ? failure.providerQuota
+            : undefined;
         throw new RelayFailure(
           failure.code,
           failure.statusCode,
@@ -1727,7 +1739,7 @@ export function createReviewRunGatewayRelay(input: {
           failure.dispatch,
           allocationFailure ? "allocation" : "reviewer",
           lane.reviewer.concurrencyGroupId,
-          failure.providerQuota,
+          providerQuota,
         );
       }
     } catch (error) {

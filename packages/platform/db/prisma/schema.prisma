@@ -1331,6 +1331,7 @@ model ReviewRunGatewayAllocationExecution {
   gatewayExecutionCanonicalJson String
   createdAt DateTime @default(now())
   cleanupCompletedAt DateTime?
+  providerQuotaExhaustedAt DateTime?
   authorization ReviewRunAuthorization @relation(fields: [authorizationId], references: [authorizationId], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([authorizationId, allocationId])

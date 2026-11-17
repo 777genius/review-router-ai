@@ -48,6 +48,7 @@ import {
   ReviewWorkSlotState,
   ReviewWorkSlotTerminalReason as DomainWorkSlotTerminalReason,
   StartReviewExecutionStatus,
+  type ReviewCoverageExceptions,
   type ReviewExecution,
   type ReviewExecutionLimits,
   type ReviewExecutionObservationRef,
@@ -179,6 +180,8 @@ export interface ReviewActionV2FinalizationFactsPort {
       publicationSafetyDecisionHash: string;
       publicationNotAfter: Date;
       retainUntil: Date;
+      /** Server-verified facts for `deriveCoverageState` (plan 69). */
+      coverageExceptions?: ReviewCoverageExceptions;
     }>
   >;
 }
@@ -1558,6 +1561,9 @@ async function finalizeExecution(
     publicationNotAfter: facts.publicationNotAfter,
     permitEpoch: authorization.mutationEpoch,
     allowPartial: request.allowPartial,
+    ...(facts.coverageExceptions
+      ? { coverageExceptions: facts.coverageExceptions }
+      : {}),
     limits,
     now,
     retainUntil: facts.retainUntil,
