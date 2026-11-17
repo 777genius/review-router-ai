@@ -3,7 +3,7 @@
 - Task ID: `2026-11-17-dashboard-provider-ui`
 - Goal: on the Providers tab, Gateway rows on the qualified NVIDIA profile show the NVIDIA mark, the reviewer being edited in the roster dialog is highlighted, and the Providers list is current as soon as a default change or removal closes its dialog.
 - Affected target: Web dashboard only (new read route `GET /api/dashboard/provider-list`).
-- Implementation: branch `fix/dashboard-provider-ui-20261117` in `777genius/review-router-ai` (Draft PR).
+- Implementation: [ReviewRouter AI PR #883](https://github.com/777genius/review-router-ai/pull/883).
 - Dependencies: none. No migration, configuration, activation or Action/runtime change.
 - Last updated: 2026-11-17.
 

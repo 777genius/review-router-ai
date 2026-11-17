@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Dashboard Providers tab fixes: [NVIDIA mark, roster highlight and list refresh](2026-11-17-dashboard-provider-ui.md) - web-only ordinary rollout; staging/production `pending`. No migration or configuration change.
+Dashboard Providers tab fixes: [NVIDIA mark, roster highlight and list refresh](2026-11-17-dashboard-provider-ui.md), [PR #883](https://github.com/777genius/review-router-ai/pull/883) - web-only ordinary rollout; staging/production `pending`. No migration or configuration change.
 
 Large producer registry configuration: [FILE input and current 238](2026-11-14-producer-registry-file.md) - #865 merged; production `deployed` in signed 238/source 75b with paired Action 238/FILE 66; normal registration, ungated readiness and channel 238 promotion PASS. Historical 234 native-reply/settlement canary PASS; standalone admin CLI FILE parsing is accepted but full readiness lacks the existing operator credential. No repeat 000156/157 or new credential is needed.
 
