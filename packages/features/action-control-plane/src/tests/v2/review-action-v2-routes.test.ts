@@ -658,9 +658,11 @@ describe("Review Action v2 route registrars", () => {
   });
 
   it("fails closed when a typed failure is incompatible with the operation contract", async () => {
+    const diagnostics: unknown[] = [];
     const app = Fastify();
     await registerReviewExecutionV2Routes(app, {
       ...runtime,
+      recordProtocolRejection: (diagnostic) => diagnostics.push(diagnostic),
       restore: {
         capabilityEnabled: true,
         execute: async () => {
@@ -712,6 +714,64 @@ describe("Review Action v2 route registrars", () => {
     });
     expect(disallowedCode.body).not.toContain("must_not_escape");
     expect(mismatchedStatus.body).not.toContain("wrong_status_must_not_escape");
+    // Regression: the replaced typed failure used to leave no internal trace,
+    // so a 500 handler_failed was indistinguishable from a crash.
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        protocolErrorCode: ReviewActionV2ProtocolErrorCode.ServiceUnavailable,
+        protocolIssues: ["handler_failed"],
+        statusCode: 503,
+        internalFailureClass: "ReviewActionV2RouteFailure",
+        internalFailureCode: ReviewActionV2ProtocolErrorCode.InvariantViolation,
+        internalFailureIssues: ["must_not_escape"],
+      }),
+      expect.objectContaining({
+        protocolErrorCode: ReviewActionV2ProtocolErrorCode.AmbiguousOutcome,
+        protocolIssues: ["handler_failed"],
+        statusCode: 500,
+        internalFailureClass: "ReviewActionV2RouteFailure",
+        internalFailureCode: ReviewActionV2ProtocolErrorCode.ResourceGone,
+        internalFailureIssues: ["wrong_status_must_not_escape"],
+      }),
+    ]);
+    await app.close();
+  });
+
+  it("keeps a contract-compatible typed failure free of internal diagnostics", async () => {
+    const diagnostics: unknown[] = [];
+    const app = Fastify();
+    await registerReviewExecutionV2Routes(app, {
+      ...runtime,
+      recordProtocolRejection: (diagnostic) => diagnostics.push(diagnostic),
+      start: {
+        capabilityEnabled: true,
+        execute: async () => {
+          throw new ReviewActionV2RouteFailure(
+            409,
+            ReviewActionV2ProtocolErrorCode.IdempotencyConflict,
+            ["start_conflict"],
+          );
+        },
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/action/v2/review-executions/start",
+      payload: reviewActionV2GoldenFixtures.review_execution_start.request,
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(diagnostics).toEqual([
+      {
+        operationId: ReviewActionV2OperationId.ReviewExecutionStart,
+        protocolErrorCode: ReviewActionV2ProtocolErrorCode.IdempotencyConflict,
+        protocolIssues: ["start_conflict"],
+        requestId:
+          reviewActionV2GoldenFixtures.review_execution_start.request.requestId,
+        statusCode: 409,
+      },
+    ]);
     await app.close();
   });
 });
