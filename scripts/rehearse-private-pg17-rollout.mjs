@@ -364,6 +364,7 @@ const preReleaseMigrationBoundary = Object.freeze({
     "000155_usage_member_report_index",
     "000156_verified_thread_reply",
     "000157_claude_code_api_key_secret",
+    "000158_review_run_allocation_provider_quota",
     "000150_skills_catalog_security",
     "000151_review_history",
     "000152_memory_automatic_source",

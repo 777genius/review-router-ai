@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Provider quota does not drop a parallel review: [skip a quota-exhausted reviewer while another completes](2026-11-17-provider-quota-nonfatal.md), [PR #888](https://github.com/777genius/review-router-ai/pull/888) and [runtime PR #394](https://github.com/777genius/review-router/pull/394) - additive migration 000158 and API/Web rollout first, then the paired runtime release; staging/production `pending`. No configuration change.
+
 NVIDIA live model list: [512-model catalogue bound and typed model names](2026-11-17-nvidia-live-model-catalog.md) - native, Gateway and ReviewRouter; staging/production `pending`. Ordered rollout: native with this change goes last, after Gateway and ReviewRouter; undeployed 64/65 catalogues go first.
 
 Reviewer roster mode: [together or fallback in order](2026-11-17-provider-interaction-mode.md), [PR #890](https://github.com/777genius/review-router-ai/pull/890) - Web and API ordinary rollout; staging/production `pending`. No migration, configuration, runtime or Gateway change; fallback runs only the first reviewer until switching ships.

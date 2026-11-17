@@ -335,6 +335,10 @@ A required reviewer failure/timeout produces incomplete coverage, not an empty
 successful review or a lower agreement denominator. Preserve existing partial
 publication: incomplete advisory, no approval or inline/lifecycle publication.
 Repeated finalization/publication restores the same artifact and effect record.
+Amended 2026-11-17: a reviewer stopped by Gateway-confirmed provider quota is
+skipped while another reviewer completed all of its required work; the agreement
+denominator is unchanged. See
+[architecture 69](../architecture/69-provider-quota-nonfatal.md).
 
 Skills/context capture stays shared and immutable, while eligibility and access
 resolve the exact requesting reviewer. Existing engine capability requirements

@@ -664,12 +664,41 @@ export function reviewExecutionIsTerminal(
   );
 }
 
+/** Server-verified facts that may excuse a required slot (plan 69). */
+export type ReviewCoverageExceptions = Readonly<{
+  /** Reviewer votes whose provider quota the relay itself saw exhausted. */
+  providerQuotaExhaustedVotes: ReadonlySet<string>;
+  /** The Action's projection claims complete coverage; it can only narrow. */
+  producerCoverageComplete: boolean;
+}>;
+
+/**
+ * Every required slot must be satisfied. One server-verified exception: an
+ * open slot is excused only when it is exhausted (not pending, leased or
+ * cancelled) and its reviewer's provider quota was recorded as exhausted by
+ * the relay, while another reviewer satisfied all of its required slots. The
+ * Action must also claim complete coverage; its claim never excuses a slot on
+ * its own.
+ */
 export function deriveCoverageState(
   slots: readonly ReviewWorkSlot[],
+  exceptions?: ReviewCoverageExceptions,
 ): ReviewCoverageState {
-  return slots.every(
-    (slot) => !slot.required || slot.state === ReviewWorkSlotState.Satisfied,
-  )
+  const required = slots.filter((slot) => slot.required);
+  const open = required.filter(
+    (slot) => slot.state !== ReviewWorkSlotState.Satisfied,
+  );
+  if (open.length === 0) return ReviewCoverageState.Completed;
+  const openVotes = new Set(open.map((slot) => slot.providerVoteIdentityHash));
+  return exceptions?.producerCoverageComplete === true &&
+    open.every(
+      (slot) =>
+        slot.state === ReviewWorkSlotState.Exhausted &&
+        exceptions.providerQuotaExhaustedVotes.has(
+          slot.providerVoteIdentityHash,
+        ),
+    ) &&
+    required.some((slot) => !openVotes.has(slot.providerVoteIdentityHash))
     ? ReviewCoverageState.Completed
     : ReviewCoverageState.Partial;
 }

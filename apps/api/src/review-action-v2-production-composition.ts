@@ -150,6 +150,7 @@ import {
   CurrentReviewRevisionStatus,
   ReviewExecutionState,
   ReviewExecutionProviderKind,
+  ReviewWorkSlotState,
   ReviewInvocationLeasePurpose,
   ReviewTaskKind as ExecutionTaskKind,
   type CurrentReviewRevisionPort,
@@ -1748,6 +1749,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
           safety: runControl.safetyResolver,
           releases: repositories.producerReleases,
           digest,
+          gatewayBindings,
           investigationRollout:
             new ProductionReviewInvestigationFinalizationRolloutGuard({
               observations: observationStore,
@@ -2525,6 +2527,10 @@ class ProductionFinalizationFactsAdapter implements ReviewActionV2FinalizationFa
       releases: ProducerReleaseQueryPort;
       digest: ProductionReviewActionV2Digest;
       investigationRollout: ReviewInvestigationFinalizationRolloutGuardPort;
+      gatewayBindings: Pick<
+        PrismaReviewRunGatewayExecutionBinding,
+        "providerQuotaExhaustedAllocations"
+      >;
     }>,
   ) {}
 
@@ -2676,7 +2682,49 @@ class ProductionFinalizationFactsAdapter implements ReviewActionV2FinalizationFa
       publicationSafetyDecisionHash: publicationSafety.safetyDecisionHash,
       publicationNotAfter,
       retainUntil: new Date(input.execution.retainUntil),
+      coverageExceptions: await this.coverageExceptions(input, envelope),
     });
+  }
+
+  /** Reads the recorded quota facts only when an open slot could need them. */
+  private async coverageExceptions(
+    input: Parameters<ReviewActionV2FinalizationFactsPort["resolve"]>[0],
+    envelope: Record<string, unknown>,
+  ) {
+    const producerCoverageComplete =
+      (envelope.coverage as { readonly state?: unknown } | null)?.state ===
+      "complete";
+    return {
+      producerCoverageComplete,
+      providerQuotaExhaustedVotes:
+        producerCoverageComplete &&
+        input.execution.workSlots.some(
+          (slot) =>
+            slot.required && slot.state !== ReviewWorkSlotState.Satisfied,
+        )
+          ? await this.providerQuotaExhaustedVotes(input.authorization)
+          : new Set<string>(),
+    };
+  }
+
+  /** Reviewer votes whose allocation quota the relay recorded (plan 69). */
+  private async providerQuotaExhaustedVotes(
+    authorization: ReviewRunAuthorization,
+  ): Promise<ReadonlySet<string>> {
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      authorization.runtimeSnapshotCanonicalJson,
+    );
+    if (snapshot?.snapshotVersion !== 4) return new Set();
+    const allocations = new Set(
+      await this.dependencies.gatewayBindings.providerQuotaExhaustedAllocations(
+        authorization.authorizationId,
+      ),
+    );
+    return new Set(
+      snapshot.reviewers
+        .filter((reviewer) => allocations.has(reviewer.transport.allocationId))
+        .map((reviewer) => reviewer.providerVoteIdentityHash),
+    );
   }
 }
 
