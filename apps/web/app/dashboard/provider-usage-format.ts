@@ -1,13 +1,14 @@
 import type { UsageTotals } from "@reviewrouter/features-provider-usage";
 export type UsageMetric = "tokens" | "requests" | "cost";
 export type CostBucket = { currency: string; basis: string };
-export const count = (value: number | null) =>
-  value === null ? "Unknown" : value.toLocaleString("en-US");
 /** A source omitted the value; the UI must not present it as measured. */
 export const NOT_REPORTED = "Not reported";
+/** A null aggregate means no call in the bucket reported this value. */
+export const count = (value: number | null) =>
+  value === null ? NOT_REPORTED : value.toLocaleString("en-US");
 export const compact = (value: number | null) =>
   value === null
-    ? "Unknown"
+    ? NOT_REPORTED
     : new Intl.NumberFormat("en-US", {
         notation: "compact",
         maximumFractionDigits: 2,
@@ -36,12 +37,12 @@ export function currencyCostsLabel(
 ): string {
   const selected = selectedCosts(costs, currency, basis);
   if (selected.length) return selected.map(costLabel).join(" · ");
-  if (!costs.length) return "Unknown";
+  if (!costs.length) return NOT_REPORTED;
   if (currency && !costs.some((cost) => cost.currency === currency))
     return `No ${currency} amount`;
   return currency && basis
     ? `No ${currency} ${basisLabel(basis)} amount`
-    : "Unknown";
+    : NOT_REPORTED;
 }
 export const costsLabel = (
   totals: UsageTotals,
@@ -78,9 +79,6 @@ export function metricLabel(
 }
 const calls = (value: number) =>
   `${count(value)} ${value === 1 ? "call" : "calls"}`;
-/** A null aggregate means no call in the bucket reported this value. */
-export const reportedCount = (value: number | null) =>
-  value === null ? NOT_REPORTED : count(value);
 /**
  * One readable status per bucket. Source completeness flags are mutually
  * exclusive per call, so their sum is an exact count of incomplete calls.

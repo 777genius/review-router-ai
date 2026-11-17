@@ -19,7 +19,6 @@ import {
   NOT_REPORTED,
   observedPair,
   observedValues,
-  reportedCount,
   tokenCoverage,
 } from "./provider-usage-format";
 import type { UsageTotals } from "@reviewrouter/features-provider-usage";
@@ -214,7 +213,7 @@ function KeyMetrics({
       <div>
         <dt className="text-xs text-slate-400">Known tokens</dt>
         <dd className="mt-1 font-medium text-slate-100">
-          {reportedCount(totals.tokens.total)}
+          {count(totals.tokens.total)}
           {totals.tokens.total !== null && totals.unknownTotalTokenCount > 0 ? (
             <small className="mt-1 block text-xs font-normal text-slate-400">
               Known part
@@ -273,12 +272,8 @@ export function ModelUsageTable({
                 </th>
                 <td className={cell}>{row.route}</td>
                 <td className={cell}>{count(row.totals.providerAttempts)}</td>
-                <td className={cell}>
-                  {reportedCount(row.totals.tokens.inputTotal)}
-                </td>
-                <td className={cell}>
-                  {reportedCount(row.totals.tokens.outputTotal)}
-                </td>
+                <td className={cell}>{count(row.totals.tokens.inputTotal)}</td>
+                <td className={cell}>{count(row.totals.tokens.outputTotal)}</td>
                 <td className={`${cell} min-w-36`}>
                   <UsageCosts
                     costs={row.totals.costs}
@@ -320,8 +315,8 @@ export function ModelUsageTable({
                   Token details and status
                 </summary>
                 <p>
-                  Input tokens: {reportedCount(row.totals.tokens.inputTotal)} ·
-                  Output tokens: {reportedCount(row.totals.tokens.outputTotal)}
+                  Input tokens: {count(row.totals.tokens.inputTotal)} · Output
+                  tokens: {count(row.totals.tokens.outputTotal)}
                 </p>
                 <UsageCoverage totals={row.totals} />
               </details>
@@ -447,9 +442,7 @@ export function RunUsageTable({
                   </td>
                   <td className={cell}>{row.routes.join(", ")}</td>
                   <td className={cell}>{count(row.totals.providerAttempts)}</td>
-                  <td className={cell}>
-                    {reportedCount(row.totals.tokens.total)}
-                  </td>
+                  <td className={cell}>{count(row.totals.tokens.total)}</td>
                   <td className={`${cell} min-w-36`}>
                     <UsageCosts
                       costs={row.totals.costs}
@@ -554,7 +547,7 @@ export function ObservationTable({
                     {row.route} / {row.purpose}
                   </td>
                   <td className={cell}>
-                    {`${reportedCount(row.total)} (${row.granularity})`}
+                    {`${count(row.total)} (${row.granularity})`}
                   </td>
                   <td className={cell}>
                     <UsageCosts
