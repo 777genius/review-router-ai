@@ -195,7 +195,6 @@ async function retryPublicationMutation(
   return mutation.reachesLimit ? "suppressed" : "retried";
 }
 
-
 function assertOwner(value: string): void {
   if (!/^[a-f0-9]{64}$/.test(value))
     throw new Error("review_progress_owner_invalid");
