@@ -2,6 +2,7 @@ import { selectReportFacts, type UsageProjection } from "../domain/usage";
 import type { UsageReportQuery } from "./ports";
 import {
   aggregateUsage,
+  latestPendingOccurredAt,
   provenNotDispatched,
   type UsageTotals,
 } from "./usage-totals";
@@ -49,6 +50,8 @@ export interface UsagePeriodReport {
   nextCursor: string | null;
   partialChildCount: number;
   unboundedSummaryCount: number;
+  /** Newest selected call whose usage is still unknown or partial, if any. */
+  latestPendingAt: string | null;
   sources: {
     sourceInstance: string;
     coveredFrom: string;
@@ -124,5 +127,6 @@ export function buildUsagePeriodReport(
       selection.partialChildren.filter(matchesDimensions).length,
     unboundedSummaryCount:
       selection.unboundedSummaries.filter(matchesDimensions).length,
+    latestPendingAt: latestPendingOccurredAt(selected),
   };
 }

@@ -219,6 +219,7 @@ describe("usage contribution and aggregate contracts", () => {
       unboundedSummaryCount: 0,
       hasDirectObservations: false,
       observationsWithoutRunId: 0,
+      latestPendingAt: null,
     });
     expect(result).toEqual(buildUsagePeriodReport([a, b], query));
     expect(
@@ -233,8 +234,46 @@ describe("usage contribution and aggregate contracts", () => {
         unboundedSummaryCount: 0,
         hasDirectObservations: false,
         observationsWithoutRunId: 0,
+        latestPendingAt: null,
       }),
     ).toEqual(buildUsagePeriodReport([], query));
+  });
+
+  // The Usage page polls only while a recent call can still get its report;
+  // a permanently unreported old call must not keep it polling forever.
+  it("names the newest call whose usage is still unknown or partial", () => {
+    const at = (callId: string, occurredAt: string, patch = {}) =>
+      selectProjection([
+        fact({
+          eventId: callId,
+          identity: { ...fact().identity, callId, occurredAt },
+          ...patch,
+        }),
+      ]);
+    const report = buildUsagePeriodReport(
+      [
+        at("old-partial", "2026-10-21T08:00:00.000Z", {
+          completeness: "partial",
+        }),
+        at("new-complete", "2026-10-21T12:00:00.000Z"),
+        at("mid-unknown", "2026-10-21T10:00:00.000Z", {
+          completeness: "unknown",
+        }),
+        at("newest-not-dispatched", "2026-10-21T13:00:00.000Z", {
+          completeness: "unknown",
+          state: "failed",
+          dispatchEffect: "not_dispatched",
+        }),
+      ],
+      query,
+    );
+    expect(report.latestPendingAt).toBe("2026-10-21T10:00:00.000Z");
+    expect(
+      buildUsagePeriodReport(
+        [at("only-complete", "2026-10-21T12:00:00.000Z")],
+        query,
+      ).latestPendingAt,
+    ).toBeNull();
   });
 
   it("keeps admitted raw midnight day spelling and original timestamp endpoints", () => {

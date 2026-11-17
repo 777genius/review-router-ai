@@ -42,6 +42,27 @@ const tokenKeys = [
   "reasoning",
   "total",
 ] as const;
+/**
+ * Newest `occurredAt` among rows counted as unknown or partial, ties broken by
+ * the raw string like the SQL reader. The caller owns spend selection.
+ */
+export function latestPendingOccurredAt(
+  rows: readonly UsageProjection[],
+): string | null {
+  let latest: { at: number; raw: string } | null = null;
+  for (const p of rows) {
+    const contribution = classifyUsageContribution(usageContributionProfile(p));
+    if (!contribution.unknownWeight && !contribution.partialWeight) continue;
+    const at = Date.parse(p.identity.occurredAt);
+    if (
+      !latest ||
+      at > latest.at ||
+      (at === latest.at && p.identity.occurredAt > latest.raw)
+    )
+      latest = { at, raw: p.identity.occurredAt };
+  }
+  return latest?.raw ?? null;
+}
 export function aggregateUsage(
   rows: readonly UsageProjection[],
   attemptRows: readonly UsageProjection[] = rows,

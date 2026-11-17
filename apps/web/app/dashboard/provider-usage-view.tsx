@@ -38,9 +38,25 @@ import {
   type UsageMetric,
 } from "./provider-usage-format";
 
-/** Calls whose usage report may still arrive or be revised by reconciliation. */
+/** Calls whose usage report has not arrived or is not complete. */
 const hasPendingUsage = (report: ProviderUsageReport) =>
   report.unknown > 0 || report.partial > 0;
+/**
+ * A call without a full report after this long keeps that state: one Gateway
+ * request is capped at an hour (relay `requestTimeoutMs`) and native
+ * reconciliation follows within minutes. Older ones stop the polling.
+ */
+const USAGE_PENDING_POLL_WINDOW_MS = 60 * 60 * 1000;
+/** Poll only while a recent call may still receive or revise its report. */
+function hasFreshPendingUsage(
+  report: Pick<ProviderUsageReport, "latestPendingAt">,
+  now = Date.now(),
+): boolean {
+  return (
+    report.latestPendingAt !== null &&
+    now - Date.parse(report.latestPendingAt) < USAGE_PENDING_POLL_WINDOW_MS
+  );
+}
 function hasUnknownUsage(report: ProviderUsageReport): boolean {
   return (
     hasPendingUsage(report) ||
@@ -127,7 +143,9 @@ function ProviderUsageContext({
     // Gateway never reports cost, so a missing cost alone is final, not pending.
     refetchInterval: (query) => {
       const data = query.state.data;
-      return !scope.denied && data && hasPendingUsage(data) ? 30_000 : false;
+      return !scope.denied && data && hasFreshPendingUsage(data)
+        ? 30_000
+        : false;
     },
     refetchIntervalInBackground: false,
   });

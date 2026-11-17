@@ -104,6 +104,7 @@ const report: ProviderUsageReport = {
   logicalRuns: 2,
   unknown: 1,
   partial: 0,
+  latestPendingAt: null,
   unboundedSummaries: 0,
   hasMore: true,
   subscriptionProviders: ["codex", "glm"],
@@ -1103,7 +1104,15 @@ describe("provider usage interactive report", () => {
     async (field) => {
       vi.mocked(fetchProviderUsage).mockResolvedValue(settled);
       vi.useFakeTimers();
-      render(<Harness seed={{ ...settled, [field]: 1 }} />);
+      render(
+        <Harness
+          seed={{
+            ...settled,
+            [field]: 1,
+            latestPendingAt: new Date(Date.now() - 60_000).toISOString(),
+          }}
+        />,
+      );
       await act(async () => {
         await vi.advanceTimersByTimeAsync(30_000);
       });
@@ -1117,6 +1126,27 @@ describe("provider usage interactive report", () => {
       expect(fetchProviderUsage).toHaveBeenCalledTimes(1);
     },
   );
+  // Production had ~79 calls that will never get a report; they used to keep
+  // the page re-reading the heavy report every 30 seconds forever.
+  it("does not poll for calls that stayed without a report for over an hour", async () => {
+    vi.useFakeTimers();
+    render(
+      <Harness
+        seed={{
+          ...settled,
+          unknown: 79,
+          latestPendingAt: new Date(Date.now() - 61 * 60_000).toISOString(),
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+    expect(fetchProviderUsage).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Some token or cost data was not reported/),
+    ).toBeTruthy();
+  });
   it.each(["unknownCostCount", "unknownTotalTokenCount"] as const)(
     "does not poll when only %s is missing because the source never sends it",
     async (field) => {
