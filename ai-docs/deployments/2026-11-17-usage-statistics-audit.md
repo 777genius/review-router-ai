@@ -9,8 +9,9 @@
   name the reason.
 - Affected services/targets: Web only (`apps/web`). No API, worker, database,
   Gateway or native change.
-- Implementation PR/issue: see the audit
-  [72](../architecture/72-usage-statistics-audit.md) and the PR that adds it.
+- Implementation PR/issue:
+  [PR #894](https://github.com/777genius/review-router-ai/pull/894), audit
+  [72](../architecture/72-usage-statistics-audit.md).
 - Implementation reference: the branch head of that PR.
 - Dependencies: none. Ships independently of the
   [not reported labels](2026-11-17-usage-not-reported-labels.md) task, ideally

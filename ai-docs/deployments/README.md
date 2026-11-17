@@ -51,7 +51,7 @@ Codex limits refresh on open: [refresh outdated Codex limits when a card opens](
 
 Usage page clarity: [not reported labels and even filters](2026-11-17-usage-not-reported-labels.md), [#882](https://github.com/777genius/review-router-ai/pull/882) - Web-only presentation change; staging/production `pending` until the next ordinary Web release. No migration or activation.
 
-Usage and statistics audit: [Details wording, delivery summary, hidden filter reset and polling](2026-11-17-usage-statistics-audit.md), [audit 72](../architecture/72-usage-statistics-audit.md) - Web-only ordinary rollout, ideally with #882; staging/production `pending`. No migration, configuration or Gateway/native change.
+Usage and statistics audit: [Details wording, delivery summary, hidden filter reset and polling](2026-11-17-usage-statistics-audit.md), [PR #894](https://github.com/777genius/review-router-ai/pull/894), [audit 72](../architecture/72-usage-statistics-audit.md) - Web-only ordinary rollout, ideally with #882; staging/production `pending`. No migration, configuration or Gateway/native change.
 
 Large producer registry configuration: [FILE input and current 238](2026-11-14-producer-registry-file.md) - #865 merged; production `deployed` in signed 238/source 75b with paired Action 238/FILE 66; normal registration, ungated readiness and channel 238 promotion PASS. Historical 234 native-reply/settlement canary PASS; standalone admin CLI FILE parsing is accepted but full readiness lacks the existing operator credential. No repeat 000156/157 or new credential is needed.
 
