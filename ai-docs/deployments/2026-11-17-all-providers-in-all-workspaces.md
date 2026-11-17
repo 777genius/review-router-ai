@@ -3,7 +3,7 @@
 - Task ID: `2026-11-17-all-providers-in-all-workspaces`
 - Goal: every provider, including the GLM Coding Plan, can be connected, added and used in any workspace. A personal connection of any plan can be added to a workspace where its owner is an owner or admin, by Access, Add to workspace or connecting from that workspace, and reviews there can use it. Workspace-owned and operator pool connections of any plan bind the same way.
 - Affected targets: API (run snapshot capture, review config and conversation binding selection) and Web dashboard.
-- Implementation: ReviewRouter AI PR (link added when opened). Plan: [70](../architecture/70-all-providers-in-all-workspaces.md).
+- Implementation: [ReviewRouter AI PR #887](https://github.com/777genius/review-router-ai/pull/887). Plan: [70](../architecture/70-all-providers-in-all-workspaces.md).
 - Dependencies: ship together with [connect attaches to the current workspace](2026-11-17-connect-attaches-to-current-workspace.md) (66). No migration, configuration, feature flag, Gateway or native change.
 - Last updated: 2026-11-17.
 
