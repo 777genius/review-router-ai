@@ -295,7 +295,7 @@ describe("review action v2 operator CLI", () => {
       ).toThrow();
     for (const value of [
       null,
-      { ...reviewerPlanProfile, planVersion: 2 },
+      { ...reviewerPlanProfile, planVersion: 3 },
       { ...reviewerPlanProfile, descriptorDigest: "invalid" },
       { ...reviewerPlanProfile, enabled: true },
     ])

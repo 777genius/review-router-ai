@@ -321,6 +321,25 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Reviewer plan version 2 (plan 67) only widens the producer profile CHECK
+  // to admit planVersion 2. Require its exact SQL and the full 164-row
+  // inventory before reducing to the provider-quota checkout163; managed92 is
+  // never expanded.
+  const reviewerPlanV2Migration = catalog.find(
+    (row) => row.migrationName === "000159_producer_reviewer_plan_v2",
+  );
+  if (reviewerPlanV2Migration) {
+    if (
+      catalog.length !== 164 ||
+      catalog.at(-1) !== reviewerPlanV2Migration ||
+      reviewerPlanV2Migration.checksum !==
+        "190dbed29df726398a750d0555fb20113607730ac4b5e753cdd26d7aa180ad58"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewerPlanV2Migration),
+    );
+  }
   // The provider-quota fact (plan 69) is an additive nullable column on the
   // checkout-only allocation table. Require its exact SQL and the full 163-row
   // inventory before reducing to checkout162; managed92 is never expanded.

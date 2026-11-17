@@ -2694,8 +2694,22 @@ class ProductionFinalizationFactsAdapter implements ReviewActionV2FinalizationFa
     const producerCoverageComplete =
       (envelope.coverage as { readonly state?: unknown } | null)?.state ===
       "complete";
+    const snapshot = parseReviewRunRuntimeSnapshot(
+      input.authorization.runtimeSnapshotCanonicalJson,
+    );
     return {
       producerCoverageComplete,
+      // The ordered fallback is a captured admission fact, never a request.
+      ...(snapshot?.snapshotVersion === 4 &&
+      snapshot.providerMode === "fallback"
+        ? {
+            orderedFallbackVotes: new Set(
+              snapshot.reviewers.map(
+                (reviewer) => reviewer.providerVoteIdentityHash,
+              ),
+            ),
+          }
+        : {}),
       providerQuotaExhaustedVotes:
         producerCoverageComplete &&
         input.execution.workSlots.some(
