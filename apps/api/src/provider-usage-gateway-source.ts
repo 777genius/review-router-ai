@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { UsageObservation } from "@agent-teams/account-gateway/contracts";
 import { estimateUsageCost } from "@reviewrouter/features-provider-usage";
 import type {
   UsageAttributionReader,
@@ -26,7 +27,8 @@ export interface GatewayUsageObservation {
     | "completed"
     | "effect_unknown"
     | "rejected_before_dispatch";
-  completeness: "partial" | "complete";
+  /** unknown: no counter observed (newer Gateways); older ones send partial. */
+  completeness: UsageObservation["completeness"];
   inputTokens: number | null;
   outputTokens: number | null;
   cachedInputTokens: number | null;

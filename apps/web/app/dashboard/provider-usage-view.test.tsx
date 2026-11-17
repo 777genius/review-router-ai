@@ -106,6 +106,7 @@ const report: ProviderUsageReport = {
   partial: 0,
   unboundedSummaries: 0,
   hasMore: true,
+  subscriptionProviders: ["codex", "glm"],
   nextCursor: "observation-page",
   groups: [],
   totals,
@@ -218,6 +219,34 @@ describe("provider usage interactive report", () => {
     ).toBe("/dashboard/setup?workspace=workspace#dashboard-section-content");
     expect(container.textContent).not.toContain("Quota / limits: unknown");
   });
+  it("labels Gateway subscription models as included and keeps direct calls unpriced", () => {
+    const noCost = { ...totals, costs: [], unknownCostCount: 2 };
+    render(
+      <Harness
+        seed={{
+          ...report,
+          overview: {
+            ...report.overview,
+            models: [
+              {
+                ...model,
+                provider: "glm",
+                requestedModel: "glm-5.3",
+                route: "gateway",
+                totals: noCost,
+              },
+              { ...model, totals: noCost },
+            ],
+          },
+        }}
+      />,
+    );
+    const table = screen.getByRole("table", { name: "Requested model usage" });
+    const [glm, direct] = within(table).getAllByRole("row").slice(1);
+    expect(within(glm!).getByText("Included in subscription")).toBeTruthy();
+    expect(within(direct!).queryByText("Included in subscription")).toBeNull();
+    expect(within(direct!).getByTitle(/No cost was reported/)).toBeTruthy();
+  });
   it("shows only reported delivery losses and the token status wording of the tables in Details", () => {
     const coverage = {
       schemaVersion: 1 as const,
@@ -249,7 +278,7 @@ describe("provider usage interactive report", () => {
       "Runtime delivery: partial (spool_overflow, 3 dropped events)",
       "No delivery loss reported by 2 runtime sessions",
     ]);
-    expect(screen.getByText(/1 call without a usage report/)).toBeTruthy();
+    expect(screen.getByText(/1 call without token counts/)).toBeTruthy();
     expect(screen.queryByText(/\d+ unknown · \d+ partial/)).toBeNull();
     expect(
       screen.getByText("No native source checkpoint for this workspace."),
