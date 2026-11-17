@@ -199,6 +199,25 @@ it("refreshes public metadata from the same button and reports its failure on it
   expect(screen.getAllByRole("status")[0]!.textContent).toMatch(
     /^Account model catalog\./,
   );
+  // A later cooldown answer keeps the earlier source error.
+  rerender(
+    <GatewayModelCatalogStatus
+      {...props}
+      publicCatalog={{
+        ...publicCatalog,
+        snapshot: {
+          ...publicCatalog.snapshot,
+          error: "source_unavailable",
+          refresh: "cooldown",
+        },
+      }}
+    />,
+  );
+  expect(
+    screen.getByText(
+      "Could not update public model metadata. Showing saved model choices.",
+    ),
+  ).toBeTruthy();
 });
 
 it("keeps public metadata refreshable when the account cannot list models", async () => {

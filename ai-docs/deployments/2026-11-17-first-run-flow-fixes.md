@@ -16,10 +16,10 @@
 
 ## Applicability and rollout
 
-1. Confirm the selected web image contains the merged change, then deploy it through the existing web release path in the [release procedure](../operations/07-environments-and-release-management.md). Ordinary code rollout is enough.
+1. For each environment, record the web image it runs. If it already contains the merged change, go straight to the checks. Otherwise confirm the selected web image contains the change and deploy it through the existing web release path in the [release procedure](../operations/07-environments-and-release-management.md). Ordinary code rollout is enough.
 2. As a workspace owner or admin with a connected Codex Gateway account, open Providers > Review providers > Add provider, pick Codex and the account: the dialog shows one model catalog line and one "Refresh models" button.
 3. Open Providers > Connections: "Choose for reviews" on an active connection, and in its Access dialog, opens Review providers for that workspace.
-4. Open Usage for a period with Gateway calls: the footer says which measurement was not reported (for Gateway usually "Cost was not reported for some calls; token counts were reported").
+4. Open Usage for a period with calls whose cost was not reported and is not explained by a subscription or a free model: the footer reads `△ <n> calls without reported cost`, plus the token wording of the rows when token data is incomplete. A period with complete token counts and only subscription or free-model calls shows the neutral "Reported observations; coverage is not guaranteed".
 5. Record the actual image/version, timestamp and evidence separately for each environment.
 
 ## Retry and rollback
