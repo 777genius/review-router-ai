@@ -1,0 +1,41 @@
+# Первый запуск: что осталось из аудита get-tok и что чиним
+
+Статус: план v2 (учтено независимое ревью v1) и реализация в одном PR; деплой не входит. Дата: 2026-11-17. База: `origin/main` `6b2d65822`.
+
+## 1. Где запись
+
+Список написан при онбординге get-tok 2026-11-11: [`ai-docs/deployments/2026-11-11-get-tok-onboarding.md`](../deployments/2026-11-11-get-tok-onboarding.md), раздел «UX findings and follow-up» (строки 37-46). Внесён [PR #860](https://github.com/777genius/review-router-ai/pull/860) (ветка `docs/get-tok-onboarding-audit-20261111`, коммиты `eee2dda68`, `dc7d39f70`). В индексе `ai-docs/deployments/README.md` строка get-tok говорит «listed UX follow-ups remain open». Других списков нет: в issues и PR с ноября пусто, `ai-docs/appendices/open-questions.md` и `ai-docs/product/03-onboarding-ux.md` содержат общие вопросы, а не дефекты.
+
+## 2. Пункты и их состояние на main
+
+| #   | Пункт записи                                                                     | Состояние  | Доказательство                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | -------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Critical: новый Codex висит в «ожидании», а Gateway уже карантинил его как дубль | частично   | #853 изменил только `personal-account-operations.ts`: неопределённый результат опроса OAuth теперь `unknown`. «Needs attention» для `quarantined` есть с `ea03b04fb`, но `accountStatusInfo` сначала проверяет `readiness` `unknown`/`pending` (`accounts-copy.ts:59-62`), поэтому при незавершённой операции видно «Confirming change». Причина карантина в `AccountView` не приходит |
+| 2   | Medium: после установки App нет репозиториев и предлагается reconnect            | открыт     | План 73 (другой агент). Здесь не трогаю                                                                                                                                                                                                                                                                                                                                                |
+| 3   | Medium: две кнопки «Refresh models» с противоречивыми статусами                  | открыт     | `provider-setup-dialog.tsx:2054-2067`: для аккаунта Gateway рендерятся `GatewayModelCatalogStatus` и `ProviderModelCatalogStatus`, у каждого своя кнопка. В `provider-list.tsx:613-640` уже одна кнопка (`4e5cd2133`), но диалог «Add provider» остался                                                                                                                                |
+| 4а  | Medium: `Choose in Models` ведёт в Review settings, а не в Providers             | открыт     | Четыре ссылки ведут в `section=policy`, а модель выбирается в Review providers (`section=providers`). Места: `workspace-personal-accounts.tsx:527`, `personal-account-controls.tsx:1444` и `:1765`, `account-gateway-account-controls.tsx:1294`. Текст разный, раздела Models нет                                                                                                      |
+| 4б  | Medium: Add account и Access открываются друг поверх друга                       | не доказан | В коде не воспроизвёл: «Use an existing connection» сначала закрывает Add account (`accounts-add-dialog.tsx:38-42`), так было и на prod в день теста (`b3435c5a`). После #886 новое личное подключение само добавляется в workspace                                                                                                                                                    |
+| 5   | Medium: подпись Usage не говорит, какого измерения нет                           | частично   | #882, #894 и #896 исправили строки таблиц и добавили «Included in subscription». Подвал пишет «Some token or cost data was not reported» (`provider-usage-view.tsx:641-643`) даже тогда, когда цену объясняет подписка, а таблица пишет «Included in subscription»                                                                                                                     |
+| 6   | Low: заголовок находки повторяется в её тексте                                   | открыт     | Качество текста ревью (модель и рендерер публикации), не первый запуск                                                                                                                                                                                                                                                                                                                 |
+
+## 3. Что сделано (один PR, только Web)
+
+1. **П.3.** У `GatewayModelCatalogStatus` есть необязательный `publicCatalog`. Одна кнопка обновляет каталог аккаунта и публичный каталог. Сбой публичных метаданных показан отдельной строкой. Если аккаунт сам не отдаёт список моделей, кнопка остаётся и обновляет только публичный каталог. Без `publicCatalog` (MiMo, ростер) поведение прежнее. Логика ушла из `provider-list.tsx` в компонент. В диалоге `publicCatalog` передаётся только для нового источника `gateway_binding`, а `ProviderModelCatalogStatus` рендерится только для остальных источников. Его проп `publicSelection` всегда был `true` и удалён. После исправления П.3 остаётся «частично»: почему каталог не загрузился с первого раза, не разбиралось.
+2. **П.4а.** Общий `ChooseForReviewsLink`: «Choose for reviews», `dashboardSectionHref("providers", workspace)`, во всех четырёх местах. Зритель без доступа ко всему workspace видит в Providers ту же подсказку про Repositories, что раньше в Review settings.
+3. **П.5.** `unreportedUsageNote` в `provider-usage-format.ts`. Про токены пишет теми же словами, что строки (`tokenCoverage`). Цену считает отсутствующей только для моделей, которые не объясняет `usagePricing` (бесплатная модель или подписка Gateway). Пример: «△ 8 calls without reported cost». Опрос (`hasPendingUsage`) не менялся.
+
+Новых флагов, API, миграций и изменений Gateway нет.
+
+## 4. Тесты и проверки
+
+- Vitest: `account-availability-links.ssr` (href в `providers`), `workspace-personal-accounts`, `gateway-model-catalog-status` (одна кнопка, обе перезагрузки, строка сбоя, аккаунт без своего каталога), `provider-setup-dialog` (Codex через Gateway: одна кнопка; без исправления тест падает с двумя), `provider-usage-format` (подписка не считается пропуском, токены и цена называются отдельно), `provider-usage-view`, а также `provider-list`, `provider-model-catalog`, `gateway-reviewer-roster`, `gateway-model-account-options` и `provider-usage-costs`. 11 файлов, все прошли.
+- `tsc` web (TS 7) и тесты E2E, eslint и prettier по изменённым файлам.
+- E2E `scripts/accounts-reference-e2e` (настоящий Next, Chromium, PGlite и фикстура Gateway, без внешней сети): в «Add provider» одна «Refresh models» и нет «Model list is up to date.», в списке организации «Choose for reviews» ведёт в `section=providers`. На итоговом коде вместе с прежней спекой публичных каталогов прогнаны три теста, 3 из 3 прошли.
+- Тестами покрыты две ссылки из четырёх, остальные две используют тот же компонент. Живой OAuth и prod не проверялись.
+
+## 5. Вне объёма
+
+- П.1: Gateway должен отдавать причину карантина (`agent-teams-ai/account-gateway`, затем `AccountView`). Это решение владельца, текст по догадке не пишу.
+- П.2: план 73. П.4б: сначала повтор в браузере на текущем main. П.6: отдельная задача в рантайме и рендерере.
+- Упоминание `Choose in Models` в плане 63 оставлено как история.
+- Деплоя нет. Запись: [`2026-11-17-first-run-flow-fixes.md`](../deployments/2026-11-17-first-run-flow-fixes.md).

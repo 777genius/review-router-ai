@@ -47,7 +47,7 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
-import { dashboardSectionHref } from "./dashboard-section";
+import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import { refreshPersonalAccountViews } from "./personal-account-controls";
 import {
   useGatewayModelAccountsQueryClient,
@@ -522,12 +522,7 @@ function WorkspacePersonalRows({
             row.readiness === "ready" &&
             row.binding?.state === "active" &&
             !row.binding.fencePending ? (
-              <a
-                className="text-sm text-cyan-200 underline"
-                href={dashboardSectionHref("policy", workspaceId)}
-              >
-                Choose in Models
-              </a>
+              <ChooseForReviewsLink workspaceId={workspaceId} />
             ) : null}
             <Button
               variant="outline"

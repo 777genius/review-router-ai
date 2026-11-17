@@ -2057,12 +2057,16 @@ function ProviderChoiceStep({
               loading={gatewayOptions.loading}
               canRefresh={gatewayOptions.canRefresh}
               onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
+              publicCatalog={
+                source?.key === "gateway_binding" && catalogProvider
+                  ? catalogs.status(catalogProvider)
+                  : null
+              }
             />
           ) : null}
-          {source && catalogProvider ? (
+          {source && source.key !== "gateway_binding" && catalogProvider ? (
             <ProviderModelCatalogStatus
               status={catalogs.status(catalogProvider)}
-              publicSelection={source.key !== "gateway_binding"}
             />
           ) : null}
           {modelOnly ? (

@@ -319,7 +319,9 @@ describe("provider usage interactive report", () => {
       screen.getByText(/A partial day covers only part of a UTC day/),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Some token or cost data was not reported/),
+      screen.getByText(
+        "△ 1 call with incomplete token data · 1 call without reported cost",
+      ),
     ).toBeTruthy();
   });
   it("hydrates the exact review key and preserves exact currency/basis and requested/observed identities", () => {
@@ -1117,22 +1119,31 @@ describe("provider usage interactive report", () => {
       expect(fetchProviderUsage).toHaveBeenCalledTimes(1);
     },
   );
-  it.each(["unknownCostCount", "unknownTotalTokenCount"] as const)(
-    "does not poll when only %s is missing because the source never sends it",
-    async (field) => {
+  it.each([
+    ["unknownCostCount", "△ 1 call without reported cost"],
+    ["unknownTotalTokenCount", "△ 1 call without total tokens"],
+  ] as const)(
+    "does not poll when only %s is missing and names that measurement",
+    async (field, note) => {
       vi.useFakeTimers();
+      const missing = { ...settled.totals, [field]: 1 };
       render(
         <Harness
-          seed={{ ...settled, totals: { ...settled.totals, [field]: 1 } }}
+          seed={{
+            ...settled,
+            totals: missing,
+            overview: {
+              ...settled.overview,
+              models: [{ ...model, totals: missing }],
+            },
+          }}
         />,
       );
       await act(async () => {
         await vi.advanceTimersByTimeAsync(90_000);
       });
       expect(fetchProviderUsage).not.toHaveBeenCalled();
-      expect(
-        screen.getByText(/Some token or cost data was not reported/),
-      ).toBeTruthy();
+      expect(screen.getByText(note)).toBeTruthy();
     },
   );
 });
