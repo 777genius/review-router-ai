@@ -803,6 +803,10 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       claimDurationMs: 60_000,
     });
 
+    if (!publication || "deferred" in publication) {
+      throw new Error("expected a claimed review progress publication");
+    }
+
     expect(publication).toMatchObject({
       scope,
       executionId: "execution-1",
