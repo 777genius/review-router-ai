@@ -105,8 +105,8 @@ export function AccountsAddDialog({
             </div>
             <div hidden={path !== "personal"}>
               <p className="mb-4 text-sm text-slate-400">
-                You own this connection. After connecting, choose Access to
-                enable it for {workspaceName}.
+                You own this connection. It is added to {workspaceName} as soon
+                as it connects. Plans for personal use only stay personal.
               </p>
               {personalConnect}
             </div>
