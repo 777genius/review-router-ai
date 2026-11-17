@@ -49,8 +49,7 @@ export async function reserveInstallationBudgetMutation(
       claimUntil: { gt: lockedAt },
     },
   });
-  if (stillClaimed !== 1)
-    return { allowed: false as const, retryAt: lockedAt };
+  if (stillClaimed !== 1) return { allowed: false as const, retryAt: lockedAt };
   const availableAt = maxDate(budget.nextMutationAt, budget.cooldownUntil);
   if (availableAt > lockedAt)
     return { allowed: false as const, retryAt: availableAt };
