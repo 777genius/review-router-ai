@@ -64,6 +64,29 @@ describe("saved provider display identity", () => {
     );
   });
 
+  it("shows NVIDIA for its qualified profile even when the deployment does not name it", () => {
+    // A deployment may name only some API-key profiles (no NVIDIA setting);
+    // the NVIDIA profile then comes from the Gateway capability catalog alone.
+    configuration.mockReturnValue({
+      apiKeyProfiles: new Map([["profile-router", "OpenRouter"]]),
+    });
+    expect(
+      savedProviderIdentity({
+        authMode: "codex_account_gateway",
+        gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+      }),
+    ).toBe("nvidia");
+    configuration.mockImplementation(() => {
+      throw new Error("accounts_unavailable");
+    });
+    expect(
+      savedProviderIdentity({
+        authMode: "codex_account_gateway",
+        gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+      }),
+    ).toBe("nvidia");
+  });
+
   it("leaves unknown or unavailable Gateway identity neutral", () => {
     configuration.mockImplementation(() => {
       throw new Error("accounts_unavailable");
