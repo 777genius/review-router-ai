@@ -5,6 +5,8 @@ describe("configured Usage provider identity", () => {
   it.each([
     ["openrouter-openai-responses-apikey-v1", "openrouter"],
     ["openai-codex-oauth-responses-v1", "codex"],
+    // The GLM catalogue source names the list owner, not the vendor.
+    ["glm-coding-global-responses-apikey-v1", "unknown"],
     ["unqualified-profile", "unknown"],
     [undefined, "unknown"],
   ])(

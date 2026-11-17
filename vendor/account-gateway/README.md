@@ -1,11 +1,23 @@
 # Account Gateway SDK artifacts
 
+## GLM native catalogue SDK (not production)
+
+The three Review Router consumers pin the source-built
+`agent-teams-account-gateway-0.1.0-nvidia-6ba203bbab4a.tgz` archive, which adds the
+`native_catalog` account model source for the GLM Coding Plan (anchor plus
+`glm-5.3`). It was packed from the merged Gateway main commit recorded in
+`nvidia-sandbox-sdk-provenance.json`.
+The conversation source stamp changed with it, so full-thread
+conversation qualification must be reissued before deploy. The provenance of the
+previous archive is kept in `nvidia-c32ef9ed3360-sdk-provenance.json`. Design and
+rollout order: `ai-docs/architecture/64-gateway-native-ownership-and-model-catalog.md`.
+
 ## NVIDIA Build sandbox candidate (PR #854; not production)
 
-The three Review Router consumers in this branch pin the source-built
-`agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz` archive.
+The previous archive was
+`agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz`.
 The SHA-256 checksum, exact SDK source commit and successful packaging run are
-recorded in `nvidia-sandbox-sdk-provenance.json`. Source comparison confirmed
+recorded in `nvidia-c32ef9ed3360-sdk-provenance.json`. Source comparison confirmed
 that later Gateway PR #105 commits changed CI/test fixture pins only, not SDK
 source; PR #105 is now merged. This artifact is **not an npm release**.
 

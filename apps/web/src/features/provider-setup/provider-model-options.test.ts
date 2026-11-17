@@ -17,6 +17,8 @@ describe("Gateway model catalog presentation", () => {
       description: "200K context",
     };
     const options = gatewayProviderModelOptions([available, unavailable], {
+      id: "openrouter-openai-responses-apikey-v1",
+      protocol: "openai-responses",
       models: ["openai/available", "runtime/private-model"],
     });
     expect(options[0]).toEqual(available);
@@ -52,6 +54,9 @@ describe("Gateway model catalog presentation", () => {
   });
 
   const nativeProfile = (tools: "function" | "none" = "function") => ({
+    id: "openrouter-openai-responses-apikey-v1",
+    protocol: "openai-responses" as const,
+    authKind: "api_key" as const,
     models: ["vendor/model"],
     connection: {
       provider: "openrouter" as const,
@@ -104,6 +109,9 @@ describe("Gateway model catalog presentation", () => {
   it("admits only the live-qualified NVIDIA Nemotron tool model with its own fresh account proof", () => {
     const modelId = "nvidia/nemotron-3.5-super-vl-120b-a12b";
     const profile = {
+      id: "nvidia-build-chat-apikey-v1",
+      protocol: "openai-responses" as const,
+      authKind: "api_key" as const,
       models: [modelId],
       connection: {
         provider: "nvidia" as const,
@@ -247,8 +255,51 @@ describe("Gateway model catalog presentation", () => {
             disabled: true,
           },
         ],
-        { models: ["text/only"] },
+        {
+          id: "openrouter-openai-responses-apikey-v1",
+          protocol: "openai-responses",
+          models: ["text/only"],
+        },
       )[0]?.disabled,
     ).toBe(true);
+  });
+  it("offers the GLM catalogue models with the capabilities of a fresh native_catalog snapshot", () => {
+    const setting = (modelId: string) => ({
+      modelId,
+      reasoning: null,
+      fast: null,
+      tools: { allowed: ["function" as const], default: "function" as const },
+    });
+    const profile = {
+      id: "glm-coding-global-responses-apikey-v1",
+      protocol: "openai-responses" as const,
+      authKind: "api_key" as const,
+      models: ["glm-5.3-flash", "glm-5.3"],
+      connection: {
+        provider: "glm" as const,
+        planLabel: "GLM Coding Plan",
+        regionLabel: "Global",
+        completionInputKind: "none" as const,
+        personalOnly: true,
+        limitsContract: "account-limits/v2" as const,
+        modelSettings: [setting("glm-5.3-flash"), setting("glm-5.3")],
+      },
+    };
+    const catalog = {
+      status: "snapshot" as const,
+      source: "native_catalog" as const,
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      models: ["glm-5.3-flash", "glm-5.3"],
+    };
+    const options = gatewayProviderModelOptions([], profile, {
+      catalog,
+      requiresTools: true,
+    });
+    expect(options.map((option) => option.value)).toEqual([
+      "glm-5.3-flash",
+      "glm-5.3",
+    ]);
+    expect(options.every((option) => option.disabled === false)).toBe(true);
   });
 });
