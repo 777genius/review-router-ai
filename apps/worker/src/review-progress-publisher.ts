@@ -285,10 +285,27 @@ export class ReviewProgressPublisher {
     result: { suppressed: number; failed: number; deferred: number },
     published: UpsertReviewProgressCommentResult | null,
   ): Promise<void> {
+    const mutationMayHaveLanded =
+      (published !== null &&
+        (published.operation === "updated" ||
+          published.operation === "reconciled" ||
+          published.operation === "created" ||
+          published.operation === "duplicate_deleted")) ||
+      (error instanceof ReviewProgressGitHubError &&
+        error.metadata.mutationMayHaveLanded === true);
     if (
       error instanceof ReviewProgressGitHubError &&
       !error.metadata.retryable
     ) {
+      if (mutationMayHaveLanded) {
+        // A possibly landed DELETE must be repaired, not marked as settled.
+        await this.store.requeueAfterClaimLoss({
+          scope: publication.scope,
+          now: this.clock.now(),
+        });
+        result.deferred += 1;
+        return;
+      }
       await this.suppressPublication(
         publication,
         `review_progress_${error.kind}`,
@@ -302,14 +319,6 @@ export class ReviewProgressPublisher {
       () => this.clock.now(),
       this.options.retryDelayMs,
     );
-    const mutationMayHaveLanded =
-      (published !== null &&
-        (published.operation === "updated" ||
-          published.operation === "reconciled" ||
-          published.operation === "created" ||
-          published.operation === "duplicate_deleted")) ||
-      (error instanceof ReviewProgressGitHubError &&
-        error.metadata.mutationMayHaveLanded === true);
     let retryOutcome: Awaited<
       ReturnType<ReviewProgressPublicationStore["retry"]>
     >;

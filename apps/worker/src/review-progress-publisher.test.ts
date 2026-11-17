@@ -1057,6 +1057,65 @@ describe("ReviewProgressPublisher", () => {
     expect(store.requeueAfterClaimLoss).not.toHaveBeenCalled();
   });
 
+  it.each([{ repairFails: false }, { repairFails: true }])(
+    "repairs a potentially landed non-retryable DELETE when repair fails=$repairFails",
+    async ({ repairFails }) => {
+      const publication = { ...claimed(), commentId: 77n };
+      const store = fakeStore(publication);
+      if (repairFails) {
+        store.requeueAfterClaimLoss.mockRejectedValueOnce(
+          new Error("scope_repair_failed"),
+        );
+      }
+      const body = formatReviewProgressComment(
+        formatGithubProgressComment(progressSnapshot()),
+        githubProgressCommentMarker,
+      );
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route, parameters = {}) => {
+          if (route.includes("/pulls/")) return pull();
+          if (route.startsWith("GET")) {
+            return {
+              data: [77, 78].map((id) => ({
+                id,
+                body,
+                user: { login: "review-router[bot]" },
+              })),
+            };
+          }
+          if (route.startsWith("DELETE")) {
+            expect(parameters.comment_id).toBe(78);
+            throw { status: 403, response: { headers: {} } };
+          }
+          throw new Error(`unexpected:${route}`);
+        },
+      }));
+
+      if (repairFails) {
+        await expect(publisher.runMaintenance()).rejects.toThrow(
+          "scope_repair_failed",
+        );
+      } else {
+        await expect(publisher.runMaintenance()).resolves.toEqual({
+          claimed: 1,
+          published: 0,
+          deferred: 1,
+          suppressed: 0,
+          failed: 0,
+        });
+      }
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
+      expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
+        scope: publication.scope,
+        now,
+      });
+      expect(store.suppress).not.toHaveBeenCalled();
+      expect(store.retry).not.toHaveBeenCalled();
+      expect(store.complete).not.toHaveBeenCalled();
+    },
+  );
+
   it("suppresses a non-retryable GitHub error without scheduling retry", async () => {
     const publication = claimed();
     const store = fakeStore(publication);
