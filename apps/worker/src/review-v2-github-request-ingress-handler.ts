@@ -13,8 +13,11 @@ import {
   type ReviewRequestIngressPayload,
 } from "@reviewrouter/features-review-executions";
 import {
+  ReviewMutationLaneKind,
+  ReviewMutationMode,
   ScmProvider,
   normalizeScmSourceBaseUrl,
+  type ReviewMutationAuthorityQueryPort,
   type ScmRepositoryIdentityQueryPort,
 } from "@reviewrouter/features-review-run-control";
 import {
@@ -30,6 +33,7 @@ import {
 export function createGitHubReviewRequestIngressHandler(dependencies: {
   readonly repositories: ActionControlPlaneRepositoryPort;
   readonly identities: ScmRepositoryIdentityQueryPort;
+  readonly authorities: ReviewMutationAuthorityQueryPort;
   readonly application: ReviewRequestIngressApplicationService;
   readonly readyQuietPeriodMs: number;
   readonly draftQuietPeriodMs: number;
@@ -76,6 +80,24 @@ export function createGitHubReviewRequestIngressHandler(dependencies: {
         throw retryableReviewRequestIngressError(
           "review_request_identity_projection_unavailable",
         );
+      }
+      if (
+        external.commandKind === GitHubReviewRequestIngressCommandKind.Request
+      ) {
+        // Run authorization requires an active hosted lane. Without one, a
+        // dispatched workflow can only be refused (mutation_authority_unavailable)
+        // or fail to dispatch, so the request is ignored like an unselected repo.
+        const authority = await dependencies.authorities
+          .findReviewMutationAuthority({
+            scmRepositoryIdentityId: identity.scmRepositoryIdentityId,
+            laneKind: ReviewMutationLaneKind.HostedReviewRouterApp,
+          })
+          .catch(() => {
+            throw retryableReviewRequestIngressError(
+              "review_request_authority_unavailable",
+            );
+          });
+        if (authority?.mode !== ReviewMutationMode.V2Active) return;
       }
       const base = {
         protocolVersion: 1 as const,

@@ -512,6 +512,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     createGitHubReviewRequestIngressHandler({
       repositories: new PrismaActionControlPlaneRepository(input.prisma),
       identities: new PrismaScmRepositoryIdentityRepository(input.prisma),
+      authorities,
       application: ingressApplication,
       readyQuietPeriodMs: positiveInteger(
         input.env.REVIEW_ROUTER_REVIEW_V2_READY_QUIET_PERIOD_MS,
