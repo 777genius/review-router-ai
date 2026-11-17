@@ -639,7 +639,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
           now,
           claimDurationMs: 60_000,
         }),
-      ).resolves.toBeNull();
+      ).resolves.toEqual({ deferred: true });
       expect(repositoryLookup).not.toHaveBeenCalled();
       expect(deferUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -726,7 +726,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
           now,
           claimDurationMs: 60_000,
         }),
-      ).resolves.toBeNull();
+      ).resolves.toEqual({ deferred: true });
       expect(publicationUpdate).toHaveBeenCalledTimes(1);
       expect(publicationUpdate).toHaveBeenCalledWith({
         where: {

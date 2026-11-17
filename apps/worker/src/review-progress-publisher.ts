@@ -92,6 +92,10 @@ export class ReviewProgressPublisher {
         claimDurationMs: this.options.claimDurationMs,
       });
       if (!publication) break;
+      if ("deferred" in publication) {
+        result.deferred += 1;
+        continue;
+      }
       result.claimed += 1;
       await this.publishOne(publication, result);
     }

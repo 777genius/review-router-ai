@@ -69,6 +69,42 @@ describe("ReviewProgressPublisher", () => {
     );
   });
 
+  it("continues maintenance after an unavailable candidate was deferred", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    store.claimNext.mockReset();
+    store.claimNext
+      .mockResolvedValueOnce({ deferred: true })
+      .mockResolvedValueOnce(publication);
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) return { data: [] };
+        if (route.startsWith("POST")) {
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+            },
+          };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toEqual({
+      claimed: 1,
+      published: 1,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(store.claimNext).toHaveBeenCalledTimes(2);
+    expect(store.complete).toHaveBeenCalledOnce();
+  });
+
   it("updates a known comment through the installation gateway", async () => {
     const publication = { ...claimed(), commentId: 77n };
     const store = fakeStore(publication);
@@ -1185,11 +1221,13 @@ function fakeStore(publication: ClaimedReviewProgress) {
   const retry = vi.fn<PrismaReviewProgressPublicationStore["retry"]>();
   retry.mockResolvedValue("retried");
   return {
-    claimNext: vi.fn(async () => {
-      if (claimedOnce) return null;
-      claimedOnce = true;
-      return publication;
-    }),
+    claimNext: vi.fn<PrismaReviewProgressPublicationStore["claimNext"]>(
+      async () => {
+        if (claimedOnce) return null;
+        claimedOnce = true;
+        return publication;
+      },
+    ),
     reserveInstallationMutation: vi.fn(
       async (): Promise<
         { allowed: true } | { allowed: false; retryAt: Date }

@@ -75,7 +75,7 @@ export class PrismaReviewProgressPublicationStore {
     readonly ownerIdHash: string;
     readonly now: Date;
     readonly claimDurationMs: number;
-  }): Promise<ClaimedReviewProgress | null> {
+  }): Promise<ClaimedReviewProgress | { readonly deferred: true } | null> {
     assertOwner(input.ownerIdHash);
     assertDuration(input.claimDurationMs);
     const repositoryPredicate = repositoryCohortPredicate(
@@ -207,7 +207,7 @@ async function claimDuePublication(
   transaction: Prisma.TransactionClient,
   input: Parameters<PrismaReviewProgressPublicationStore["claimNext"]>[0],
   repositoryPredicate: Prisma.Sql,
-): Promise<ClaimedReviewProgress | null> {
+): Promise<ClaimedReviewProgress | { readonly deferred: true } | null> {
   const candidate = await selectDuePublicationScope(
     transaction,
     input.now,
@@ -227,14 +227,14 @@ async function claimDuePublication(
     candidate,
     input.now,
   );
-  if (!progress) return null;
+  if (!progress) return { deferred: true };
   const eligible = await loadPublishableGitHubRepository(
     transaction,
     publication,
     candidate,
     input.now,
   );
-  if (!eligible) return null;
+  if (!eligible) return { deferred: true };
   return claimPreparedPublication(
     transaction,
     input,
