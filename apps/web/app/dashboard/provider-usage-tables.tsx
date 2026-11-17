@@ -68,7 +68,8 @@ export function UsageCosts({
   pricing?: UsagePricing;
 }) {
   const values = selectedCosts(costs, selectedCurrency, basis);
-  if (!values.length && pricing)
+  // A reported amount in any currency or basis wins over the pricing label.
+  if (!costs.length && pricing)
     return pricing === "free_model" ? (
       <span
         className="text-slate-200"

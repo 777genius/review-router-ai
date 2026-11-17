@@ -49,8 +49,9 @@ Gateway main). **Deploy order is the reverse for the wire change:**
    [release process](../operations/07-environments-and-release-management.md).
    The new SDK accepts `unknown`, `partial` and `complete` and talks to the
    current Gateway unchanged (vendor lookup is static, no wire change).
-2. Account Gateway service from agent-teams-ai/account-gateway main at or after
-   #113. From then on it stores `unknown` for counter-less calls.
+2. Account Gateway service from agent-teams-ai/account-gateway main including
+   #113 and #114 (never #113 alone). From then on it stores `unknown` for
+   counter-less calls, and the rollout is forward-only (see below).
 
 If the Gateway goes first, the old ReviewRouter SDK rejects any usage page with
 `unknown`: Usage reconciliation pauses (cursor does not advance, nothing is
@@ -73,9 +74,15 @@ replay window for attributed observations is 30 days.
 
 ## Retry, partial completion, and rollback
 
-- ReviewRouter rollback (previous image) restores the old labels; reading back
-  `unknown` observations then fails until the Gateway is rolled back too, so
-  roll back the Gateway first if both must go.
+- Before step 2, rolling ReviewRouter back to the previous image is safe; it
+  only restores the old labels.
+- After step 2 the rollout is **forward-only**: the Gateway stores `unknown`
+  facts, and neither the previous Gateway (it parses stored facts with the old
+  schema when listing, observing and appending) nor a ReviewRouter on the old
+  SDK can read them. Fix forward instead of rolling back.
+- account-gateway#114 (a same-revision replay of a legacy counter-less
+  `partial` equals `unknown`) ships in the same Gateway release as #113, so a
+  settle retry across that deploy does not fail with a conflict.
 - Runner reports of v3 Gateway runs in flight during the ReviewRouter step on
   the relabelled profiles can get `usage_scope_mismatch`; their native Gateway
   usage is unaffected. v4 runs compare with the server-written identity.

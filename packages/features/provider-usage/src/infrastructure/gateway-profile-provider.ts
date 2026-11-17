@@ -28,13 +28,21 @@ export const gatewayProfileUsageProviders = providerConnectionIdentities.map(
   }),
 );
 
-/** Gateway usage providers whose plan is a flat subscription or coding plan. */
+const flatPlans: readonly string[] = ["subscription", "coding_plan", "m_plan"];
+/**
+ * Gateway usage providers whose every qualified profile is a flat subscription
+ * or coding plan; one pay-as-you-go profile of a vendor removes it.
+ */
 export const gatewaySubscriptionUsageProviders = [
   ...new Set(
-    providerConnectionIdentities
-      .filter(({ plan }) =>
-        ["subscription", "coding_plan", "m_plan"].includes(plan.identity),
-      )
-      .map(({ provider }) => usageName(provider.identity)),
+    providerConnectionIdentities.map(({ provider }) =>
+      usageName(provider.identity),
+    ),
   ),
-].sort();
+]
+  .filter((name) =>
+    providerConnectionIdentities
+      .filter(({ provider }) => usageName(provider.identity) === name)
+      .every(({ plan }) => flatPlans.includes(plan.identity)),
+  )
+  .sort();
