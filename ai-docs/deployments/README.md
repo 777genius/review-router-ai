@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Codex limits refresh on open: [refresh outdated Codex limits when a card opens](2026-11-17-codex-limits-refresh-on-open.md), [#880](https://github.com/777genius/review-router-ai/pull/880) - Web-only, staging/production `pending`; no migration, configuration or native/Gateway change.
+
 Usage page clarity: [not reported labels and even filters](2026-11-17-usage-not-reported-labels.md), [#882](https://github.com/777genius/review-router-ai/pull/882) - Web-only presentation change; staging/production `pending` until the next ordinary Web release. No migration or activation.
 
 Large producer registry configuration: [FILE input and current 238](2026-11-14-producer-registry-file.md) - #865 merged; production `deployed` in signed 238/source 75b with paired Action 238/FILE 66; normal registration, ungated readiness and channel 238 promotion PASS. Historical 234 native-reply/settlement canary PASS; standalone admin CLI FILE parsing is accepted but full readiness lacks the existing operator credential. No repeat 000156/157 or new credential is needed.
