@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Connect from a workspace adds it there: [personal connection is attached to the current workspace](2026-11-17-connect-attaches-to-current-workspace.md) - web-only ordinary rollout; staging/production `pending`. No migration, configuration or Gateway/native change.
+
 Dashboard Providers tab fixes: [NVIDIA mark, roster highlight and list refresh](2026-11-17-dashboard-provider-ui.md), [PR #883](https://github.com/777genius/review-router-ai/pull/883) - web-only ordinary rollout; staging/production `pending`. No migration or configuration change.
 
 Codex limits refresh on open: [refresh outdated Codex limits when a card opens](2026-11-17-codex-limits-refresh-on-open.md), [#880](https://github.com/777genius/review-router-ai/pull/880) - Web-only, staging/production `pending`; no migration, configuration or native/Gateway change.

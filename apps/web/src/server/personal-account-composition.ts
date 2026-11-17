@@ -43,6 +43,7 @@ import {
 import { getPrisma } from "./prisma";
 import { PrismaPersonalAccountSharingQueries } from "./personal-account-sharing-queries";
 import { createPersonalAccountSharingApi } from "./personal-account-sharing";
+import { createConnectWorkspaceAttach } from "./personal-connect-attach";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import { createAccountsOverview } from "./accounts-overview";
 import { createGatewayModelAccountOptions } from "./gateway-model-account-options";
@@ -667,6 +668,18 @@ export async function productionPersonalAccounts() {
       );
     return readWorkspaceDetachment(workspaceId, request);
   }
+  const attachConnected = createConnectWorkspaceAttach({
+    actorUserId: userId,
+    readOperation: (nonce) => checked(() => store.readOperation(userId, nonce)),
+    workspaceAccess,
+    hasActiveBinding: async (workspaceId, connectionId) =>
+      (await checked(() =>
+        prisma.workspaceAccountBinding.count({
+          where: { workspaceId, connectionId, state: "active" },
+        }),
+      )) > 0,
+    attach: (request) => sharing.attach(request),
+  });
   const scope = `personal-${createHash("sha256").update(`rr-personal-ui-v1\0${userId}`).digest("hex")}`;
   function probe(workspaceId: string) {
     return (
@@ -725,6 +738,7 @@ export async function productionPersonalAccounts() {
     overview,
     reviewProfiles,
     workspaceAccess,
+    attachConnected,
     detachRecipient,
     detachWorkspaceUse,
     readWorkspaceDetachment,

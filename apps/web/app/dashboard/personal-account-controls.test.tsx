@@ -1044,7 +1044,7 @@ test("retains personal sources without sharing authority on outage and clears de
   );
 });
 
-test("access distinguishes personal ownership from same-named workspaces and collapses only repeated workspace IDs", async () => {
+test("access lists only real workspaces, never the personal workspace, and collapses only repeated workspace IDs", async () => {
   const { bootstrap, api } = fixture();
   api.listAccessSummaries.mockResolvedValue({
     status: "ok",
@@ -1118,7 +1118,7 @@ test("access distinguishes personal ownership from same-named workspaces and col
   expect(
     within(dialog).queryByText("Personal must not become a target"),
   ).toBeNull();
-  expect(within(dialog).getByText("Personal workspace")).toBeTruthy();
+  expect(within(dialog).queryByText("Personal workspace")).toBeNull();
   expect(
     within(dialog).getByText("Workspace · current workspace"),
   ).toBeTruthy();
@@ -1127,7 +1127,6 @@ test("access distinguishes personal ownership from same-named workspaces and col
       .getAllByAltText("")
       .map((image) => image.getAttribute("src")),
   ).toEqual([
-    "https://avatars.githubusercontent.com/u/1",
     "https://avatars.githubusercontent.com/u/2",
     "https://avatars.githubusercontent.com/u/3",
   ]);

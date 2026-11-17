@@ -80,6 +80,18 @@ export async function attachPersonalAccount(
 ) {
   return invoke(context, ({ sharing }) => sharing.attach(request));
 }
+/** Adds a just-connected personal connection to the workspace it was
+ * connected from, when the owner may grant it there. */
+export async function attachConnectedPersonalAccount(
+  context: string,
+  workspaceId: string,
+  nonce: string,
+) {
+  return invoke(context, async (service) => ({
+    status: "ok" as const,
+    value: await service.attachConnected(workspaceId, nonce),
+  }));
+}
 export async function revokePersonalAccount(
   context: string,
   request: PersonalRevokeRequest,
