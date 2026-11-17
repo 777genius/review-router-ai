@@ -18,8 +18,9 @@
   [777genius/review-router#395](https://github.com/777genius/review-router/pull/395),
   native
   [agent-teams-ai/sub2api#102](https://github.com/agent-teams-ai/sub2api/pull/102).
-- Implementation reference: branch `fix/review-error-classes-20261117`; the
-  merge commits are the source provenance once merged.
+- Implementation reference: native merged as `cfe50b7` (sub2api #102), Action
+  source merged as `d5c9a48` (review-router #395, not released yet), worker on
+  branch `fix/review-error-classes-20261117` until #891 merges.
 - Dependencies: none between the three parts; each can ship on its own. No
   schema, configuration or Gateway change.
 - Last updated: `2026-11-17`.
