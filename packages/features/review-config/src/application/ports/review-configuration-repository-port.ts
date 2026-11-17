@@ -1,4 +1,7 @@
-import type { ReviewConfiguration } from "../../domain/review-configuration";
+import type {
+  ReviewConfiguration,
+  ReviewProviderMode,
+} from "../../domain/review-configuration";
 import type {
   ReviewPolicyDocument,
   ReviewProviderSelection,
@@ -18,6 +21,8 @@ export type PersistedReviewConfiguration = {
   readonly version: number;
   /** Runtime configuration materialized from the documents and profiles. */
   readonly config: ReviewConfiguration;
+  /** `config` with every reviewer of the roster; see `EffectiveReviewPolicy`. */
+  readonly rosterConfig: ReviewConfiguration;
   /** The stored document of the source scope. */
   readonly policy: ReviewPolicyDocument;
   readonly source: "workspace" | "repository";
@@ -25,8 +30,10 @@ export type PersistedReviewConfiguration = {
   readonly repositoryVersion: number | null;
   readonly effectivePolicyDigest: string;
   readonly revisionToken?: string;
-  /** Effective provider selections, in the order of `config.providers`. */
+  /** Effective provider selections, in the order of `rosterConfig.providers`. */
   readonly selections: readonly ReviewProviderSelection[];
+  /** How the effective reviewers interact. */
+  readonly providerMode: ReviewProviderMode;
 };
 
 /** A profile a changed selection uses, with the facts its decision needs. */
