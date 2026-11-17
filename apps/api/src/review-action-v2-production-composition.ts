@@ -56,6 +56,7 @@ import {
   type ReviewRunGatewayCheckoutTarget,
 } from "./review-run-gateway-checkout.js";
 import {
+  assertRelayProfilesApprovedForRuns,
   ProductionReviewRunRuntimeSnapshot,
   readServerApprovedReviewRunGatewayPolicy,
   readServerReviewRunGatewayRequestCaps,
@@ -412,11 +413,17 @@ export function composeReviewActionV2ProductionRunControl(input: {
           requiredEnv(input.env, "REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY"),
         )
       : undefined;
+  const runGatewayPolicy = readServerApprovedReviewRunGatewayPolicy(
+    input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY,
+  );
+  if (accountGatewayRelayPolicy)
+    assertRelayProfilesApprovedForRuns(
+      accountGatewayRelayPolicy.profiles.map((entry) => entry.profile.profileId),
+      runGatewayPolicy,
+    );
   const runtimeSnapshots = new ProductionReviewRunRuntimeSnapshot(
     input.prisma,
-    readServerApprovedReviewRunGatewayPolicy(
-      input.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY,
-    ),
+    runGatewayPolicy,
     input.env.ACCOUNT_GATEWAY_OPERATOR_WORKSPACE_ID,
     readPersonalAccountSharingEnabled(input.env),
     implicitAgent.profileRef,
