@@ -105,7 +105,7 @@ try {
           await page.locator("main h1").innerText(),
           /Full control and security\./,
         );
-        assert.equal(await page.locator(".rr-home-providers li").count(), 6);
+        assert.equal(await page.locator(".rr-home-providers li").count(), 9);
         assert.equal(await page.locator(".rr-home-carousel__slide").count(), 5);
         const activeScreenshot = page.locator(
           '.rr-home-carousel__slide[data-active="true"] .rr-home-carousel__frame',

@@ -307,7 +307,12 @@ upstream response body, auth headers, email, account IDs или других ten
    от UI, `initialData` из SSR, `staleTime: 30_000`, `retry: false`. Per-account query
    владеет limits: извлечь SSR projection при hydration, а client page cache хранит
    inventory без отдельной изменяемой копии limits. SSR unknown
-   тоже гидратируется; не запускать автоматический refresh при mount/focus/reset.
+   тоже гидратируется; не запускать автоматический refresh при focus/reset.
+   Исключение (2026-11-17): если source объявил quota-only refresh (сейчас только
+   Codex, у которого нет фонового сборщика native), карточка при открытии один
+   раз обновляет missing или Outdated snapshot - не чаще раза за 5 минут на
+   account generation в вкладке браузера, включая неудачные попытки. Старение
+   данных на уже открытой странице refresh не запускает.
    Никакого interval polling; явное «перечитать сохранённые данные» использует
    cached reader. Если часть account row уже в page query, limits остаётся одной
    authoritative query projection, без второй редактируемой local-state копии.

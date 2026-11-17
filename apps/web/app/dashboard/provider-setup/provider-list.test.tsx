@@ -605,6 +605,151 @@ describe("Providers list", () => {
     expect(save).toHaveProperty("disabled", false);
   });
 
+  it("shows a removed default at once, without waiting for the page to re-render", async () => {
+    const owner = { userId: "user_owner", role: "owner" } as const;
+    // The page re-render (router.refresh) is mocked out: only the list's own
+    // refetch after the write can bring the new state.
+    const fetchMock = vi.fn<
+      (input: string, init?: RequestInit) => Promise<unknown>
+    >(async () => ({
+      ok: true,
+      json: async () =>
+        buildProviderListView(
+          facts({
+            actor: owner,
+            readAt: 1,
+            defaultProfileId: null,
+            usage: [
+              { profileId: "team", workspaceDefault: false, repositoryIds: [] },
+              {
+                profileId: "mine",
+                workspaceDefault: false,
+                repositoryIds: ["repo_a"],
+              },
+            ],
+          }),
+        ),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(clearWorkspaceDefaultProviderAction).mockResolvedValueOnce({
+      status: "saved",
+    });
+    renderList({ actor: owner });
+    const team = rowOf("Team ChatGPT");
+    expect(within(team).getByText("Default")).toBeTruthy();
+
+    fireEvent.click(button(team, "Remove as default"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Remove as default" }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(clearWorkspaceDefaultProviderAction).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      profileId: "team",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/dashboard/provider-list?workspace=workspace_1",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    // Already current when the dialog closes.
+    expect(within(rowOf("Team ChatGPT")).queryByText("Default")).toBeNull();
+    expect(
+      screen.getByText(/^No default provider: repositories without/),
+    ).toBeTruthy();
+  });
+
+  it.each([
+    ["a body that is not JSON", null],
+    ["a proxy page", "<html>Bad gateway</html>"],
+    [
+      "another workspace's list",
+      buildProviderListView(
+        facts({
+          workspaceId: "workspace_2",
+          readAt: 9,
+          defaultProfileId: null,
+          usage: [],
+        }),
+      ),
+    ],
+  ])(
+    "keeps the shown list when a successful refetch returns %s",
+    async (_name, body) => {
+      const owner = { userId: "user_owner", role: "owner" } as const;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => {
+            if (body === null) throw new SyntaxError("Unexpected token <");
+            return body;
+          },
+        })),
+      );
+      vi.mocked(clearWorkspaceDefaultProviderAction).mockResolvedValueOnce({
+        status: "saved",
+      });
+      renderList({ actor: owner });
+      fireEvent.click(button(rowOf("Team ChatGPT"), "Remove as default"));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Remove as default" }),
+      );
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      // The server-rendered list stays; the page refresh brings the change.
+      expect(within(rowOf("Team ChatGPT")).getByText("Default")).toBeTruthy();
+      expect(rowOf("My Claude")).toBeTruthy();
+    },
+  );
+
+  it("shows the newer of a server render and an earlier cached read after a remount", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    // Nothing is fetched: both views come from server renders.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+    const list = (view: ProviderListProps["view"]) => (
+      <QueryClientProvider client={client}>
+        <ProviderList
+          view={view}
+          mutationsEnabled
+          modelOptions={[]}
+          gatewayAccounts={undefined}
+          agentProfileOptions={[]}
+          accessRightsHref="/dashboard?section=other"
+        />
+      </QueryClientProvider>
+    );
+    const first = render(list(buildProviderListView(facts({ readAt: 1 }))));
+    expect(within(rowOf("Team ChatGPT")).getByText("Default")).toBeTruthy();
+    first.unmount();
+
+    // A later render after the default was removed elsewhere.
+    render(
+      list(
+        buildProviderListView(
+          facts({
+            readAt: 2,
+            defaultProfileId: null,
+            usage: [
+              { profileId: "team", workspaceDefault: false, repositoryIds: [] },
+            ],
+          }),
+        ),
+      ),
+    );
+    expect(within(rowOf("Team ChatGPT")).queryByText("Default")).toBeNull();
+    expect(
+      screen.getByText(/^No default provider: repositories without/),
+    ).toBeTruthy();
+  });
+
   it("names what still uses a provider without changing repository names", () => {
     expect(
       profileActionErrorText({

@@ -83,6 +83,8 @@ export type ProviderListRow = Readonly<{
 
 export type ProviderListView = Readonly<{
   workspaceId: string;
+  /** Server clock (ms) when the read began; the client keeps the latest. */
+  readAt: number;
   viewerIsAdmin: boolean;
   /** Access rights: only owners and admins manage providers. */
   accessRightsAdminOnly: boolean;
@@ -96,6 +98,8 @@ export type ProviderListView = Readonly<{
 /** Verified facts of one list read. */
 export type ProviderListFacts = Readonly<{
   workspaceId: string;
+  /** Server clock (ms) when the read began; fixtures may leave it out. */
+  readAt?: number;
   actor: ProviderManagementActor;
   workspace: ProviderManagementWorkspace;
   profiles: ProviderSetupFacts["profiles"];
@@ -212,6 +216,7 @@ export function buildProviderListView(
   });
   return {
     workspaceId: facts.workspaceId,
+    readAt: facts.readAt ?? 0,
     viewerIsAdmin: admin,
     accessRightsAdminOnly: facts.workspace.providerManagementAdminOnly,
     hasDefault:
