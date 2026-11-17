@@ -10,6 +10,7 @@ import type {
 import {
   AccountGatewayControls,
   type AccountGatewayManagementApi,
+  type AddConnectionToWorkspace,
 } from "./account-gateway-account-controls";
 import {
   PersonalAccountControls,
@@ -28,6 +29,7 @@ export function PersonalAccountsPanel({
   accessReadContext,
   setupIntent,
   initiallyOpenConnect = false,
+  addToWorkspace,
 }: {
   bootstrap: PersonalAccountsBootstrap;
   api: PersonalAccountsApi;
@@ -37,6 +39,7 @@ export function PersonalAccountsPanel({
   accessReadContext?: string;
   setupIntent?: ApiKeySetupIntent | undefined;
   initiallyOpenConnect?: boolean;
+  addToWorkspace?: AddConnectionToWorkspace | undefined;
 }) {
   const readApi = useMemo(
     () =>
@@ -65,6 +68,7 @@ export function PersonalAccountsPanel({
         workspaceId={workspaceId}
         setupIntent={setupIntent}
         initiallyOpenConnect={initiallyOpenConnect}
+        addToWorkspace={addToWorkspace}
         api={managementApi}
         queryClient={client}
         refreshRelated={refreshSharing}

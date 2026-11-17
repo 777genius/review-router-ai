@@ -103,6 +103,16 @@ export async function AccountGatewayAccountsSection({
         ),
       }
     : null;
+  // A connection made while viewing a shared workspace is added to it when the
+  // owner may grant it there. The personal workspace gets its binding from connect.
+  const addToWorkspace =
+    personalService && !personalScope
+      ? personalActions.attachConnectedPersonalAccount.bind(
+          null,
+          personalService.scope,
+          workspaceId,
+        )
+      : undefined;
   const ownContinuation = connectionSetupContinuation({
     intent: setupIntent,
     workspace: personalScope ? undefined : bootstrap?.page,
@@ -118,6 +128,7 @@ export async function AccountGatewayAccountsSection({
         setupIntent={setupIntent}
         management={management}
         initiallyOpenConnect={personalScope && ownContinuation.autoOpen}
+        addToWorkspace={addToWorkspace}
         managementApi={{
           listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
           mutateGatewayAccount: personalActions.mutatePersonalGatewayAccount,
@@ -184,6 +195,7 @@ export async function AccountGatewayAccountsSection({
       workspaceId={workspaceId}
       setupIntent={setupIntent}
       connectOnly
+      addToWorkspace={addToWorkspace}
       api={{
         listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
         mutateGatewayAccount: personalActions.mutatePersonalGatewayAccount,
