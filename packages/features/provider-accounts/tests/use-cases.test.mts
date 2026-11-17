@@ -662,7 +662,7 @@ test("a workspace-owned GLM connection binds and resolves like any profile, for 
   assert.equal((await resolve(f)).profileRef, glm.profileRef);
 });
 
-test("GLM selection requires the actual personal owner, without login overrides", async () => {
+test("personal selection requires the actual personal owner, without login overrides", async () => {
   const f = fixture();
   await bind(f);
   const source: ProviderAccountConnection = {

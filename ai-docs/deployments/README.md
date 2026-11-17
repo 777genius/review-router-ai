@@ -39,7 +39,7 @@ Reviewer roster mode: [together or fallback in order](2026-11-17-provider-intera
 
 Review run error triage: [NVIDIA reviewer authorization outage, actionable refusals and ingress lane gate](2026-11-17-review-run-error-triage.md) - code `pending` ([Draft PR #884](https://github.com/777genius/review-router-ai/pull/884)); production configuration step for `nvidia-build-chat-apikey-v1` in the approved Gateway run policy awaits the owner's decision. Until then every 777genius workspace review fails authorization.
 
-Connect from a workspace adds it there: [personal connection is attached to the current workspace](2026-11-17-connect-attaches-to-current-workspace.md), [PR #886](https://github.com/777genius/review-router-ai/pull/886) - web-only ordinary rollout; staging/production `pending`. No migration, configuration or Gateway/native change.
+Connect from a workspace adds it there: [personal connection is attached to the current workspace](2026-11-17-connect-attaches-to-current-workspace.md), [PR #886](https://github.com/777genius/review-router-ai/pull/886) - web-only ordinary rollout, in the same release as PR #887 above; staging/production `pending`. No migration, configuration or Gateway/native change.
 
 Dashboard Providers tab fixes: [NVIDIA mark, roster highlight and list refresh](2026-11-17-dashboard-provider-ui.md), [PR #883](https://github.com/777genius/review-router-ai/pull/883) - web-only ordinary rollout; staging/production `pending`. No migration or configuration change.
 

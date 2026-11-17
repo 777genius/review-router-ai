@@ -4,7 +4,7 @@
 - Goal: a personal connection (Codex, NVIDIA, GLM and others through Account Gateway) made while viewing a shared workspace is added to that workspace right away when its owner is a workspace owner or admin; otherwise it stays personal and the dashboard says why. The accounts UI no longer shows the hidden personal workspace as a separate place.
 - Affected target: Web dashboard only.
 - Implementation: [ReviewRouter AI PR #886](https://github.com/777genius/review-router-ai/pull/886). Plan: [66](../architecture/66-connect-attaches-to-current-workspace.md).
-- Dependencies: none. No migration, configuration, feature flag, Gateway or native change.
+- Dependencies: ship in the same release as [all providers in all workspaces](2026-11-17-all-providers-in-all-workspaces.md) (step 4). No migration, configuration, feature flag, Gateway or native change.
 - Last updated: 2026-11-17.
 
 ## Environment status
