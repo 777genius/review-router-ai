@@ -542,7 +542,7 @@ export function GatewayReviewerRoster({
                           requiresTools: row.settings.agenticContext,
                         },
                       )}
-                      modelChoice="list"
+                      modelChoice="catalog"
                       allowCustomModel={false}
                       settings={settingsFor(row)}
                       onSettingsChange={(settings) =>
