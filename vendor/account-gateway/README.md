@@ -3,7 +3,7 @@
 ## GLM native catalogue SDK (not production)
 
 The three Review Router consumers pin the source-built
-`agent-teams-account-gateway-0.1.0-nvidia-6ba203bbab4a.tgz` archive, which adds the
+`agent-teams-account-gateway-0.1.0-nvidia-1d6cf84f1243.tgz` archive, which adds the
 `native_catalog` account model source for the GLM Coding Plan (anchor plus
 `glm-5.3`). It was packed from the merged Gateway main commit recorded in
 `nvidia-sandbox-sdk-provenance.json`.
