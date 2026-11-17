@@ -11,6 +11,9 @@ const providers: readonly {
   { id: "mimo", label: "MiMo" },
   { id: "openrouter", label: "OpenRouter" },
   { id: "kimi", label: "Kimi Code" },
+  { id: "grok", label: "Grok" },
+  { id: "glm", label: "GLM" },
+  { id: "minimax", label: "MiniMax" },
   { id: "nvidia", label: "NVIDIA Build" },
 ];
 

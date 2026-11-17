@@ -305,9 +305,15 @@ describe("dashboard Gateway provider evidence", () => {
   });
 });
 
-describe("GLM native catalogue readiness", () => {
-  const profileId = "glm-coding-global-responses-apikey-v1";
-  const anchor = "glm-5.3-flash";
+describe.each([
+  ["glm-coding-global-responses-apikey-v1", "glm-5.3-flash", "glm-5.3"],
+  ["kimi-code-global-responses-apikey-v1", "k3-256k", "vendor/live-model"],
+  [
+    "minimax-mplan-global-responses-apikey-v1",
+    "MiniMax-M3.1-Flash",
+    "vendor/live-model",
+  ],
+])("native catalogue readiness for %s", (profileId, anchor, listed) => {
   const config = (selected: string) =>
     parseReviewConfiguration({
       ...workspacePolicyFixture,
@@ -336,9 +342,9 @@ describe("GLM native catalogue readiness", () => {
       accounts: [
         {
           connectionId: "connection_1",
-          label: "GLM",
+          label: "Plan",
           profileId,
-          profileLabel: "GLM Coding Plan",
+          profileLabel: "Coding plan",
           state: "active",
           gatewayRevision: 2,
           mirrorRevision: 2,
@@ -354,7 +360,7 @@ describe("GLM native catalogue readiness", () => {
       profiles: [
         {
           id: profileId,
-          label: "GLM Coding Plan",
+          label: "Coding plan",
           protocol: "openai-responses",
           authKind: "api_key",
           models: [anchor],
@@ -367,14 +373,14 @@ describe("GLM native catalogue readiness", () => {
   const snapshot = {
     status: "snapshot" as const,
     source: "native_catalog" as const,
-    models: [anchor, "glm-5.3"],
+    models: [anchor, listed],
     fetchedAt: new Date(now - 1_000).toISOString(),
     expiresAt: new Date(now + 60_000).toISOString(),
   };
 
   it("is ready for the anchor and the catalogue model only from a fresh native_catalog snapshot", () => {
     expect(
-      isGatewayProviderSetupReady(config("glm-5.3"), accountsWith(snapshot)),
+      isGatewayProviderSetupReady(config(listed), accountsWith(snapshot)),
     ).toBe(true);
     expect(
       isGatewayProviderSetupReady(config(anchor), accountsWith(snapshot)),
@@ -385,7 +391,7 @@ describe("GLM native catalogue readiness", () => {
       { ...snapshot, models: [anchor] },
     ])
       expect(
-        isGatewayProviderSetupReady(config("glm-5.3"), accountsWith(invalid)),
+        isGatewayProviderSetupReady(config(listed), accountsWith(invalid)),
       ).toBe(false);
   });
 
@@ -399,7 +405,7 @@ describe("GLM native catalogue readiness", () => {
       isGatewayProviderSetupReady(config(anchor), accountsWith(unavailable)),
     ).toBe(true);
     expect(
-      isGatewayProviderSetupReady(config("glm-5.3"), accountsWith(unavailable)),
+      isGatewayProviderSetupReady(config(listed), accountsWith(unavailable)),
     ).toBe(false);
   });
 

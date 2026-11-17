@@ -55,7 +55,7 @@ const pages = [
   ["/disconnect", ["Disconnect"]],
   ["/privacy", ["Privacy"]],
   ["/terms", ["Terms"]],
-  ["/support", ["Trusted beta support"]],
+  ["/support", ["Get help with ReviewRouter", "support@reviewrouter.org"]],
 ];
 
 const rotatingActionRef =

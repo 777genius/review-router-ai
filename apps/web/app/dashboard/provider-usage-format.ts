@@ -3,6 +3,8 @@ export type UsageMetric = "tokens" | "requests" | "cost";
 export type CostBucket = { currency: string; basis: string };
 export const count = (value: number | null) =>
   value === null ? "Unknown" : value.toLocaleString("en-US");
+/** A source omitted the value; the UI must not present it as measured. */
+export const NOT_REPORTED = "Not reported";
 export const compact = (value: number | null) =>
   value === null
     ? "Unknown"
@@ -66,13 +68,90 @@ export function metricLabel(
   const value = metricValue(totals, metric, bucket);
   if (metric === "cost" && bucket)
     return costsLabel(totals, bucket.currency, bucket.basis);
-  if (value === null) return "Unknown";
+  if (value === null) return NOT_REPORTED;
   return (
     count(Number(value)) +
     (metric === "tokens" && totals.unknownTotalTokenCount > 0
-      ? " (known part; some total tokens unknown)"
+      ? " (known part)"
       : "")
   );
+}
+const calls = (value: number) =>
+  `${count(value)} ${value === 1 ? "call" : "calls"}`;
+/** A null aggregate means no call in the bucket reported this value. */
+export const reportedCount = (value: number | null) =>
+  value === null ? NOT_REPORTED : count(value);
+/**
+ * One readable status per bucket. Source completeness flags are mutually
+ * exclusive per call, so their sum is an exact count of incomplete calls.
+ */
+export function tokenCoverage(
+  totals: Pick<
+    UsageTotals,
+    "unknownCount" | "partialCount" | "unknownTotalTokenCount"
+  >,
+): { label: string; detail: string | undefined; incomplete: boolean } {
+  const incomplete = totals.unknownCount + totals.partialCount;
+  if (!incomplete && !totals.unknownTotalTokenCount)
+    return {
+      label: "Reported observations",
+      detail: undefined,
+      incomplete: false,
+    };
+  return {
+    label: incomplete
+      ? `${calls(incomplete)} with incomplete token data`
+      : `${calls(totals.unknownTotalTokenCount)} without total tokens`,
+    detail: [
+      totals.unknownCount
+        ? `${calls(totals.unknownCount)} without a usage report`
+        : "",
+      totals.partialCount
+        ? `${calls(totals.partialCount)} marked partial by the source`
+        : "",
+      totals.unknownTotalTokenCount
+        ? `${calls(totals.unknownTotalTokenCount)} without total tokens`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    incomplete: true,
+  };
+}
+export const missingCostLabel = (unknownCostCount: number) =>
+  `Excludes ${calls(unknownCostCount)} without cost`;
+/**
+ * The only cost fact provable from a requested identity: OpenRouter bills its
+ * `:free` variants at zero, and ReviewRouter never sends paid fallback models.
+ * Plans and subscriptions are not persisted with usage, so they stay unknown.
+ */
+export const isFreeModel = (identity: {
+  provider: string;
+  requestedModel: string | null | undefined;
+}) =>
+  identity.provider === "openrouter" &&
+  (identity.requestedModel?.endsWith(":free") ?? false);
+/** A run is free only when every requested identity in it is provably free. */
+export const allFreeModels = (
+  identities: readonly Parameters<typeof isFreeModel>[0][],
+) => identities.length > 0 && identities.every(isFreeModel);
+export function observedPair(
+  provider: string | null | undefined,
+  model: string | null | undefined,
+): string {
+  return provider || model
+    ? `${provider ?? NOT_REPORTED} / ${model ?? NOT_REPORTED}`
+    : NOT_REPORTED;
+}
+export function latencyLabel(
+  durationMs: number | null,
+  ttftMs: number | null,
+): string {
+  const ms = (value: number | null) =>
+    value === null ? NOT_REPORTED : `${count(value)} ms`;
+  return durationMs === null && ttftMs === null
+    ? NOT_REPORTED
+    : `${ms(durationMs)} / ${ms(ttftMs)}`;
 }
 export function chartNumber(value: string | number | null): number | null {
   if (value === null) return null;
@@ -99,8 +178,11 @@ export function providerColor(provider: string): string {
 }
 export const requestedModelLabel = (value: string | null) =>
   value ?? "Unknown requested model";
-export const observedLabel = (models: readonly string[], unknown: boolean) =>
-  [...models, ...(unknown ? ["Unknown"] : [])].join(", ") || "Unknown";
+/** Observed upstream models; calls whose source omitted the model are labelled. */
+export const observedValues = (models: readonly string[], unknown: boolean) => [
+  ...models,
+  ...(unknown ? [NOT_REPORTED] : []),
+];
 export const dayLabel = (day: string) =>
   new Intl.DateTimeFormat("en-US", {
     timeZone: "UTC",
