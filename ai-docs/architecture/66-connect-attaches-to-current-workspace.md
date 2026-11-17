@@ -18,7 +18,7 @@
    - X - это личный P актора: binding уже создал connect, ответ `attached`, если он `available` и указывает на X;
    - `isPersonalOwnerOnlyProfile(profile)`: `not_attached: personal_only`, attach не вызывается;
    - актор не owner/admin X (`canDetach = false`): `not_attached: not_permitted`, attach не вызывается;
-   - nonce attach детерминированный: UUID версии 8 по RFC 9562 из sha256(`rr-connect-attach-v1`, connect nonce, X). Сначала читается сохранённая квитанция по этому nonce. Если она есть, она окончательна: при `available` ответ `attached`, иначе `removed`. Новый кортеж в этом случае не отправляется;
+   - nonce attach детерминированный: UUID версии 8 по RFC 9562 из sha256(`rr-connect-attach-v1`, connect nonce, X). Сначала читается сохранённая квитанция по этому nonce. Если она есть, она окончательна: при `available` ответ `attached`, при отозванном binding `removed`, иначе (source приостановлен или меняется) `unavailable` с повтором. Новый кортеж в этом случае не отправляется;
    - иначе `sharing.attach` с этим nonce, `predecessorBindingId = null` и текущей ревизией source. Если пришёл `conflict`, проверяется, есть ли активный binding (X, source) (Prisma `count`): есть - `attached`, нет - `unavailable`.
 3. UI:
    - Намерение привязано к X на клиенте. Перед запросом свежего connect рядом с nonce в sessionStorage записывается X (`…:connect-workspaces`). Список nonce общий для всех workspace пользователя. Поэтому attach выполняется, только если записанный X совпадает с текущим. Rename, reconnect и nonce без записи (в том числе сохранённые до деплоя) никогда не добавляются.

@@ -121,13 +121,19 @@ export function createConnectWorkspaceAttach(deps: Dependencies) {
     const attachNonce = connectAttachNonce(parsed.data.nonce, workspaceId);
     // A stored attach is final: its receipt is reported, never a new tuple.
     const previous = await read(attachNonce);
-    if (previous)
-      return previous.intent.action === "attach" &&
-        previous.intent.sourceId === source.id &&
-        previous.intent.targetWorkspaceId === workspaceId &&
-        previous.available
-        ? attached
-        : notAttached("removed");
+    if (previous) {
+      if (
+        previous.intent.action !== "attach" ||
+        previous.intent.sourceId !== source.id ||
+        previous.intent.targetWorkspaceId !== workspaceId
+      )
+        return notAttached("unavailable");
+      if (previous.available) return attached;
+      // A paused or changing source keeps its binding; only revocation is final.
+      return previous.binding?.state === "revoked"
+        ? notAttached("removed")
+        : notAttached("unavailable");
+    }
     const result = await deps.attach({
       nonce: attachNonce,
       sourceId: source.id,

@@ -66,9 +66,14 @@ const receipt = (available: boolean) => ({
     },
   },
 });
-function storedAttach(available: boolean): PersonalOperationResult {
+function storedAttach(
+  available: boolean,
+  state: "active" | "revoked" = available ? "active" : "revoked",
+): PersonalOperationResult {
+  const base = connect({ available });
   return {
-    ...connect({ available }),
+    ...base,
+    binding: { ...base.binding!, workspaceId: "org", state },
     intent: {
       action: "attach",
       actorUserId: "alice",
@@ -240,6 +245,14 @@ describe("adding a new personal connection to the current workspace", () => {
       { status: "not_attached", reason: "removed" },
     );
     expect(revoked.deps.attach).not.toHaveBeenCalled();
+
+    // A paused or changing source keeps its binding: retryable, not removed.
+    const paused = setup({ stored: storedAttach(false, "active") });
+    await expect(paused.attachConnected("org", connectNonce)).resolves.toEqual({
+      status: "not_attached",
+      reason: "unavailable",
+    });
+    expect(paused.deps.attach).not.toHaveBeenCalled();
   });
 
   it("does not report a fresh attach that is not available as added", async () => {
