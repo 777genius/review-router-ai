@@ -6,6 +6,10 @@ import {
 } from "./review-progress-installation-budget";
 import { requeuePublishedScopeAfterClaimLoss } from "./review-progress-scope-repair";
 import {
+  loadMatchingActiveProgress,
+  loadPublishableGitHubRepository,
+} from "./review-progress-claim-readiness";
+import {
   promoteSettledExecutions,
   type SettledExecutionInput,
 } from "./review-progress-terminal-persistence";
@@ -17,8 +21,6 @@ import {
 import {
   buildClaimedReviewProgress,
   claimedPublicationFence,
-  isPublishableGitHubRepository,
-  matchesActiveProgressIdentity,
   repositoryCohortPredicate,
 } from "./review-progress-claim-eligibility-policy";
 
@@ -271,73 +273,6 @@ async function claimDuePublication(
   );
 }
 
-/** Resolve active progress and defer an invalid generation before repository lookup. */
-async function loadMatchingActiveProgress(
-  transaction: Prisma.TransactionClient,
-  publication: {
-    readonly activeExecutionId: string;
-    readonly activeGeneration: bigint;
-    readonly activeHeadSha: string;
-    readonly activePlanHash: string;
-    readonly desiredVersion: bigint;
-  },
-  scope: ClaimedReviewProgress["scope"],
-  now: Date,
-) {
-  const progress = await transaction.reviewExecutionProgressV1.findUnique({
-    where: { executionId: publication.activeExecutionId },
-  });
-  if (!progress || !matchesActiveProgressIdentity(progress, publication)) {
-    await deferUnavailablePublication(
-      transaction,
-      scope,
-      now,
-      "review_progress_projection_identity_corrupted",
-    );
-    return null;
-  }
-  return progress;
-}
-
-/** Check GitHub repository eligibility before writing the publication claim. */
-async function loadPublishableGitHubRepository(
-  transaction: Prisma.TransactionClient,
-  publication: {
-    readonly repositoryConnectionId: string;
-    readonly workspaceId: string;
-    readonly scmRepositoryIdentityId: string;
-  },
-  scope: ClaimedReviewProgress["scope"],
-  now: Date,
-) {
-  const repository = await transaction.repositoryConnection.findUnique({
-    where: { id: publication.repositoryConnectionId },
-    include: {
-      installation: {
-        select: { githubInstallationId: true, status: true },
-      },
-    },
-  });
-  if (
-    !repository ||
-    !repository.installation ||
-    !isPublishableGitHubRepository(
-      repository,
-      repository.installation.status,
-      publication,
-    )
-  ) {
-    await deferUnavailablePublication(
-      transaction,
-      scope,
-      now,
-      "review_progress_github_repository_unavailable",
-    );
-    return null;
-  }
-  return { repository, installation: repository.installation };
-}
-
 /** Persist the fenced claim and construct its owned publication projection. */
 async function claimPreparedPublication(
   transaction: Prisma.TransactionClient,
@@ -380,31 +315,6 @@ async function claimPreparedPublication(
     repository,
     installation,
     claim: { claimId, ownerIdHash: input.ownerIdHash, claimUntil },
-  });
-}
-
-async function deferUnavailablePublication(
-  transaction: Prisma.TransactionClient,
-  scope: {
-    workspaceId: string;
-    repositoryConnectionId: string;
-    scmRepositoryIdentityId: string;
-    pullRequestNumber: number;
-  },
-  now: Date,
-  code: string,
-): Promise<void> {
-  await transaction.reviewProgressPublicationV1.update({
-    where: {
-      workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-        scope,
-    },
-    data: {
-      failureCount: { increment: 1 },
-      lastErrorCode: code,
-      nextPublishAt: new Date(now.getTime() + 60_000),
-      updatedAt: now,
-    },
   });
 }
 
