@@ -203,6 +203,8 @@ apply-gate-v2 operators with only their constants changed.
 
 ## Rollback pins
 
+Since the [second rollout](2026-11-17-second-rollout-afa74c8f.md) (ReviewRouter `afa74c8f`, Gateway 115) its rollback pins come first; Gateway 115 is forward-only once it stores an `unknown` usage fact, so the steps below apply only after that release is undone.
+
 Undo in the exact reverse of what ran. Admission gate custody for a rollback
 window: copy the `caddy-*` files of `gate1-20261117` into a fresh custody and use
 the same operator.

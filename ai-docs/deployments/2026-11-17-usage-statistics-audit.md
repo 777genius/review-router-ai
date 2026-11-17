@@ -22,10 +22,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                       |
-| -------------------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Ship with the next ordinary Web release.             |
-| production           | `pending` | Not verified                    | Not verified        | Ship with the next ordinary Web release, then check. |
+| Environment / target | Status      | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                          |
+| -------------------- | ----------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                    | Not verified        | Ship with the next ordinary Web release.                                |
+| production           | `installed` | Web `afa74c8f`                  | 2026-11-17 21:22    | Shipped in the [second rollout](2026-11-17-second-rollout-afa74c8f.md). |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).

@@ -9,10 +9,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                     |
-| ---------- | --------- | ------------ | -------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary web rollout and checks below        |
-| Production | `pending` | Not verified | No deployment authorized by the source merge |
+| Target     | Status      | Actual image   | Evidence                                                                                         |
+| ---------- | ----------- | -------------- | ------------------------------------------------------------------------------------------------ |
+| Staging    | `pending`   | Not verified   | Ordinary web rollout and checks below                                                            |
+| Production | `installed` | Web `afa74c8f` | Shipped in the [second rollout](2026-11-17-second-rollout-afa74c8f.md); dashboard checks not run |
 
 ## Applicability and rollout
 

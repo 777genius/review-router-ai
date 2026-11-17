@@ -27,10 +27,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                |
-| -------------------- | --------- | ------------------------------- | ------------------- | --------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Second small release: RR first, then Gateway. |
-| production           | `pending` | Not verified                    | Not verified        | Second release; conversation requalified.     |
+| Environment / target | Status     | Actual deployed version / image             | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                                          |
+| -------------------- | ---------- | ------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`  | Not verified                                | Not verified        | Second small release: RR first, then Gateway.                                                                                                                                           |
+| production           | `deployed` | API/Web `afa74c8f`, then Gateway `1dce5c32` | 2026-11-17 21:49    | RR first, then Gateway ([second rollout](2026-11-17-second-rollout-afa74c8f.md)); MiMo rows now show `mimo`; no conversation qualification is set in production, so nothing to reissue. |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).
