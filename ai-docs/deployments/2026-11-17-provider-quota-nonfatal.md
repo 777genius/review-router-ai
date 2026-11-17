@@ -9,11 +9,11 @@
 
 ## Environment status
 
-| Target                   | Status    | Actual version | Evidence                                     |
-| ------------------------ | --------- | -------------- | -------------------------------------------- |
-| Staging                  | `pending` | Not verified   | Ordinary API/Web rollout and checks below    |
-| Production               | `pending` | Not verified   | No deployment authorized by the source merge |
-| Action runtime (channel) | `pending` | Not released   | Release and pair only after the SaaS rollout |
+| Target                   | Status        | Actual version                     | Evidence                                                                                                                           |
+| ------------------------ | ------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Staging                  | `pending`     | Not verified                       | Ordinary API/Web rollout and checks below                                                                                          |
+| Production               | `in_progress` | 000158 applied; API/Web `974295ea` | SaaS part shipped in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); quota skip check waits for the runtime |
+| Action runtime (channel) | `blocked`     | Not released                       | Release PR #398 waits for the GitHub Actions queue; see the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md)      |
 
 ## Ordered rollout
 

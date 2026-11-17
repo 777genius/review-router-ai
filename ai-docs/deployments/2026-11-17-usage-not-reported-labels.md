@@ -15,10 +15,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                       |
-| -------------------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Ship with the next ordinary Web release.             |
-| production           | `pending` | Not verified                    | Not verified        | Ship with the next ordinary Web release, then check. |
+| Environment / target | Status      | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                                                        |
+| -------------------- | ----------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                    | Not verified        | Ship with the next ordinary Web release.                                                              |
+| production           | `installed` | Web `974295ea`                  | 2026-11-17 17:51    | Shipped in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); page check not run. |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).

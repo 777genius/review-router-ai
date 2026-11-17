@@ -18,10 +18,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                                                        |
-| -------------------- | --------- | ------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Ordinary code rollout with the next release.                                                          |
-| production           | `pending` | API `main-0c67c3e0a105`         | 2026-11-17 00:37    | Live outage: every 777genius workspace authorization fails. Owner decision on step 1 below is needed. |
+| Environment / target | Status      | Actual deployed version / image                                    | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                                                                                                                                                               |
+| -------------------- | ----------- | ------------------------------------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| staging              | `pending`   | Not verified                                                       | Not verified        | Ordinary code rollout with the next release.                                                                                                                                                                                                                                                                 |
+| production           | `installed` | API/worker `974295ea`; run policy has the NVIDIA entry since 01:01 | 2026-11-17 17:51    | Step 1 was applied as the run policy entry (API recreated 2026-11-17 01:01); step 2 shipped in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); the worker logs "Review request ignored without an active hosted lane"; the 422 refusal is not exercised. Step 3 stays with the owner. |
 
 ## Production evidence (read-only, 2026-11-16 16:01 to 2026-11-17 00:37 UTC)
 

@@ -10,11 +10,11 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                 |
-| -------------------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Paired rollout below.                          |
-| production           | `pending` | Not verified                    | Not verified        | No deployment authorized by the source merges. |
-| Action runtime       | `pending` | Not released                    | Not verified        | Source only; release after Web/API, step 2.    |
+| Environment / target | Status        | Actual deployed version / image   | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                        |
+| -------------------- | ------------- | --------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`     | Not verified                      | Not verified        | Paired rollout below.                                                                                                                                                 |
+| production           | `in_progress` | 000158/000159, Web/API `974295ea` | 2026-11-17 17:51    | Step 1 done in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); fallback rosters are refused with `reviewer_fallback_unsupported` until step 3. |
+| Action runtime       | `blocked`     | Not released (PR #398)            | 2026-11-17          | Step 2 waits for the GitHub Actions queue.                                                                                                                            |
 
 `pending` means no verified completion is recorded. Use the [status contract](README.md#status-contract).
 
