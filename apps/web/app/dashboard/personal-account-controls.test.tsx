@@ -16,7 +16,9 @@ import type {
   PersonalMutationReceipt,
   PersonalSource,
 } from "../../src/features/account-gateway/personal-accounts";
+import { useContext } from "react";
 import { PersonalAccountControls } from "./personal-account-controls";
+import { OwnConnectionIdsContext } from "./account-workspace-use";
 
 const clients = new Set<QueryClient>();
 afterEach(() => {
@@ -191,52 +193,108 @@ test("selects accounts across pages and shares independently with exact predeces
     expect(request).not.toHaveProperty("expectedGatewayRevision");
 });
 
-test.each([
-  { organizationCount: 5, hasRestrictedAccess: false, expected: "Access" },
-  { organizationCount: 4, hasRestrictedAccess: true, expected: "Access" },
-  {
-    organizationCount: 4,
-    hasRestrictedAccess: false,
-    expected: "Add to workspace",
-  },
-])(
-  "workspace shortcut label requires a complete visible summary ($organizationCount/$hasRestrictedAccess)",
-  async ({ organizationCount, hasRestrictedAccess, expected }) => {
-    const { bootstrap, api } = fixture();
-    api.listAccessSummaries.mockResolvedValue({
-      status: "ok",
-      value: {
-        summaries: [
-          {
-            sourceId: "source-0",
-            organizationCount,
-            hasRestrictedAccess,
-            organizations: Array.from({ length: 4 }, (_, i) => ({
-              workspaceId: `visible-org-${i}`,
-              label: `Visible organization ${i}`,
-            })),
-            personalWorkspaceId: "personal-owner",
-            complete: true,
+function combinedList(canAddHere: boolean) {
+  const { bootstrap, api } = fixture();
+  const sources = [source("source-0"), source("source-1")];
+  function SharedRows() {
+    const ids = useContext(OwnConnectionIdsContext);
+    return <p>Shared rows after {[...(ids ?? [])].join(",")}</p>;
+  }
+  render(
+    <PersonalAccountControls
+      bootstrap={{
+        ...bootstrap,
+        page: { status: "ok", value: { sources, nextCursor: null } },
+      }}
+      api={api}
+      currentWorkspaceId="workspace-x"
+      workspaceList={{
+        canAddHere,
+        viewer: { login: "viewer", avatarUrl: "https://avatars.example/v.png" },
+        overviewScope: "user-personal:workspace:workspace-x",
+        initialOverview: {
+          status: "ok",
+          value: {
+            accounts: [
+              {
+                connectionId: "binding-of-source-0",
+                sourceId: "source-0",
+                isOwnedByViewer: true,
+                origin: "personal",
+                label: "Personal source-0",
+                profileId: "mimo",
+                profileLabel: "MiMo",
+                state: "active",
+                readiness: "ready",
+                gatewayRevision: 1,
+                mirrorRevision: 1,
+                binding: {
+                  id: "binding-of-source-0",
+                  revision: 1,
+                  state: "active",
+                  fencePending: false,
+                },
+              },
+            ],
+            profiles: [],
+            nextCursor: null,
           },
-        ],
-      },
-    });
-    render(
-      <PersonalAccountControls
-        bootstrap={bootstrap}
-        api={api}
-        currentWorkspaceId="selected-not-in-preview"
-      />,
-    );
-    await screen.findByText("Visible organization 0");
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: `${expected}: Personal source-0` }),
-      ).toBeTruthy(),
-    );
-    expect(api.attach).not.toHaveBeenCalled();
-  },
-);
+        },
+        sharedRows: <SharedRows />,
+      }}
+    />,
+  );
+  return { api };
+}
+
+test("the combined list shows each own connection once with its state in this workspace, then the other rows", async () => {
+  combinedList(true);
+  const used = await screen.findByRole("article", {
+    name: "Personal source-0",
+  });
+  expect(within(used).getByText("You")).toBeTruthy();
+  expect(within(used).getByText("Used in this workspace")).toBeTruthy();
+  expect(
+    within(used).getByRole("link", { name: "Choose for reviews" }),
+  ).toBeTruthy();
+  const notAdded = screen.getByRole("article", { name: "Personal source-1" });
+  expect(
+    within(notAdded).getByText("Not added to this workspace"),
+  ).toBeTruthy();
+  expect(
+    within(notAdded).getByRole("button", {
+      name: "Add to this workspace: Personal source-1",
+    }),
+  ).toBeTruthy();
+  // The other rows come once, after the viewer's own, and hide exactly those.
+  const shared = screen.getByText("Shared rows after source-0,source-1");
+  expect(
+    notAdded.compareDocumentPosition(shared) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    screen.queryByText("No personal accounts on the loaded pages."),
+  ).toBeNull();
+  expect(screen.queryByRole("tab")).toBeNull();
+});
+
+test("a member sees why an own connection cannot be added here and keeps Access", async () => {
+  const { api } = combinedList(false);
+  const notAdded = await screen.findByRole("article", {
+    name: "Personal source-1",
+  });
+  expect(
+    within(notAdded).getByText(
+      "Only workspace owners and admins can add connections here.",
+    ),
+  ).toBeTruthy();
+  expect(
+    within(notAdded).getByRole("button", { name: "Access: Personal source-1" }),
+  ).toBeTruthy();
+  expect(
+    screen.queryByRole("button", { name: /^Add to this workspace/ }),
+  ).toBeNull();
+  expect(api.attach).not.toHaveBeenCalled();
+});
 
 test.each([null, "Organization X"])(
   "revokes the exact own grant and labels its request only with the authorized organization name (%s)",
@@ -1102,7 +1160,7 @@ test("access lists only real workspaces, never the personal workspace, and colla
   await waitFor(() => expect(api.listAccessSummaries).toHaveBeenCalled());
   fireEvent.click(
     await screen.findByRole("button", {
-      name: "Add to workspace: Personal source-0",
+      name: "Access: Personal source-0",
     }),
   );
   const dialog = await screen.findByRole("dialog", {

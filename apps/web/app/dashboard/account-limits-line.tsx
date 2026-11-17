@@ -203,13 +203,15 @@ export function AccountLimitsLine({
   // A source with quota-only refresh (today Codex, which has no background
   // collector) refreshes once when the card opens showing missing or Outdated
   // limits. Sources without it stay cached-only. Judged as the card opens.
+  const outdatedWhenRead =
+    view?.status === "snapshot" &&
+    summaryWindows(view.windows).some((window) =>
+      outdated(window, Date.parse(view.fetchedAt)),
+    );
   const refreshOnOpen =
     view?.refreshAvailable === true &&
     ((view.status === "unknown" && view.reason === "missing_snapshot") ||
-      (view.status === "snapshot" &&
-        summaryWindows(view.windows).some((window) =>
-          outdated(window, Date.parse(view.fetchedAt)),
-        )));
+      outdatedWhenRead);
   const displayToken = view?.displayToken;
   useEffect(() => {
     if (
@@ -389,6 +391,14 @@ export function AccountLimitsLine({
         )}
         {query.isError || query.data?.status === "unavailable" ? (
           <p role="status">Could not reload saved limits.</p>
+        ) : null}
+        {refresh.isSuccess && outdatedWhenRead ? (
+          // A completed refresh that still reports old windows must say so
+          // instead of leaving a silent Outdated badge.
+          <p role="status">
+            Refresh returned no newer limits. Try again later, or reconnect the
+            account if this keeps happening.
+          </p>
         ) : null}
         {refresh.isError ? (
           <p role="status">

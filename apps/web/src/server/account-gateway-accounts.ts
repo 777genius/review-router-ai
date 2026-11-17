@@ -121,6 +121,8 @@ export type AccountView = {
   origin?: "organization" | "personal" | "operator";
   // Display-only identity fact; never permission to manage a shared source.
   isOwnedByViewer?: boolean;
+  /** Workspace overview only: the viewer's own personal connection id. */
+  sourceId?: string;
   canManage?: boolean;
   owner?: AccountOwnerView;
   allowedActions?: readonly AccountAllowedAction[];

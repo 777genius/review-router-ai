@@ -175,6 +175,22 @@ test("a failed refresh on open keeps the saved limits and is not retried on reop
   expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
 });
 
+test("a refresh that returns no newer limits says so instead of a silent Outdated", async () => {
+  // The source answered, but with the same past-reset observation.
+  vi.mocked(refreshAccountLimitsAction).mockResolvedValue({
+    status: "ok",
+    value: { ...outdatedSnapshot(true), fetchedAt: "2026-10-22T10:00:05.000Z" },
+  });
+  const { props } = fixture(outdatedSnapshot(true));
+  render(<AccountLimitsLine {...props} connectionId="outdated-unchanged" />);
+  expect(
+    await screen.findByText(/Refresh returned no newer limits/),
+  ).toBeTruthy();
+  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Refresh limits" })).toBeTruthy();
+  expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
+});
+
 test("outdated limits without refresh capability stay cached-only on open", async () => {
   const fetch = vi.fn();
   vi.stubGlobal("fetch", fetch);

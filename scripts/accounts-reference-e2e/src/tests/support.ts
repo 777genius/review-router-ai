@@ -126,10 +126,9 @@ export function sourceRow(page: Page, label: string, scope?: Locator): Locator {
   return (scope ?? page).getByRole("article", { name: label, exact: true });
 }
 
-export function organizationAccountsRegion(page: Page): Locator {
-  return page.getByRole("region", {
-    name: "Available connections",
-  });
+/** The one Connections list: the viewer's own rows, then the workspace's. */
+export function connectionsListRegion(page: Page): Locator {
+  return page.getByRole("region", { name: "Connections", exact: true });
 }
 
 export async function expectNetworkViolations(

@@ -59,7 +59,8 @@ import {
 } from "./gateway-model-account-options";
 import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import { accountsCopy } from "./accounts-copy";
-import { useOwnAccountsView } from "./accounts-workspace-tabs";
+import { useShowConnectionsList } from "./accounts-add-dialog";
+import { refreshPersonalAccountViews } from "./personal-account-controls";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
 import { AccountStatusLine } from "./account-status-icon";
 import { readAccountResult } from "./account-read-result";
@@ -241,9 +242,9 @@ export function AccountGatewayControls({
   api = defaultManagementApi,
   managementScope = "workspace",
   queryClient,
-  refreshRelated,
   renderAccounts,
-  hideConnect = false,
+  hideToolbar = false,
+  connectEntry,
   connectOnly = false,
   workspaceId,
   setupIntent,
@@ -254,9 +255,11 @@ export function AccountGatewayControls({
   api?: AccountGatewayManagementApi;
   managementScope?: ManagementScope;
   queryClient?: QueryClient;
-  refreshRelated?: () => Promise<void>;
   renderAccounts?: AccountRowsRenderer;
-  hideConnect?: boolean;
+  /** Rows inside another list: no own connect or refresh unless loading failed. */
+  hideToolbar?: boolean;
+  /** Replaces the default connect button, e.g. with the Add account dialog. */
+  connectEntry?: ReactNode;
   connectOnly?: boolean;
   workspaceId?: string | undefined;
   setupIntent?: ApiKeySetupIntent | undefined;
@@ -373,9 +376,9 @@ export function AccountGatewayControls({
             acknowledgeBootstrap={acknowledgeBootstrap}
             api={api}
             managementScope={managementScope}
-            refreshRelated={refreshRelated}
             renderAccounts={renderAccounts}
-            hideConnect={hideConnect}
+            hideToolbar={hideToolbar}
+            connectEntry={connectEntry}
             connectOnly={connectOnly}
             initiallyOpenConnect={initiallyOpenConnect}
             workspaceId={workspaceId}
@@ -396,9 +399,9 @@ function Controls({
   acknowledgeBootstrap,
   api,
   managementScope,
-  refreshRelated,
   renderAccounts,
-  hideConnect,
+  hideToolbar,
+  connectEntry,
   connectOnly,
   initiallyOpenConnect,
   workspaceId,
@@ -410,9 +413,9 @@ function Controls({
   acknowledgeBootstrap(page: AccountsBootstrap["page"], scope: string): void;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
-  refreshRelated: (() => Promise<void>) | undefined;
   renderAccounts: AccountRowsRenderer | undefined;
-  hideConnect: boolean;
+  hideToolbar: boolean;
+  connectEntry: ReactNode;
   connectOnly: boolean;
   initiallyOpenConnect: boolean;
   workspaceId: string | undefined;
@@ -470,7 +473,9 @@ function Controls({
         exact: true,
       });
       if (!current) return;
-      await removeAccountLimits(client, limitsScope);
+      // A connect-only view draws no rows. Dropping limits here would discard a
+      // fresher observation that a list beside it already shows.
+      if (!connectOnly) await removeAccountLimits(client, limitsScope);
       if (!current) return;
       const first = extractAccountLimits(client, limitsScope, bootstrap.page);
       hydratedBootstrap.current = bootstrap.page;
@@ -491,6 +496,7 @@ function Controls({
     bootstrapReadScope,
     acknowledgeBootstrap,
     scope,
+    connectOnly,
   ]);
   useEffect(
     () =>
@@ -604,9 +610,11 @@ function Controls({
           client.invalidateQueries({ queryKey: query.queryKey, exact: true }),
         ),
     );
-    await refreshRelated?.();
+    // A personal connection, including one made in the Add dialog, also changes
+    // the owner's source list, access summaries and the workspace overview.
+    if (personal) await refreshPersonalAccountViews(client, context, false);
     await optionsCache?.refresh();
-  }, [client, scope, refreshRelated, optionsCache]);
+  }, [client, scope, personal, context, optionsCache]);
   const offerCompletionHandoff = useCallback((nonce: string) => {
     if (completionHandoffRef.current) return;
     completionHandoffRef.current = nonce;
@@ -1040,6 +1048,9 @@ function Controls({
         )
       : [];
   const enrollmentAccounts = data?.status === "ok" ? data.value.accounts : [];
+  const fullToolbar = !connectOnly && !hideToolbar;
+  // Refresh stays available whenever the list could not load.
+  const showToolbar = fullToolbar || page.isError || Boolean(failure);
   return (
     <div className="space-y-4">
       {connectOnly && !activeNonce && enrollmentProfiles.length > 0 ? (
@@ -1052,27 +1063,27 @@ function Controls({
           submit={submit}
         />
       ) : null}
-      <div className="flex flex-wrap gap-3">
-        {!connectOnly &&
-        !hideConnect &&
-        (!initiallyOpenConnect || ready) &&
-        enrollmentProfiles.some(
-          (p) => p.authKind === "api_key" || p.authKind === "oauth",
-        ) ? (
-          <ConnectAccountDialog
-            initiallyOpen={initiallyOpenConnect && !activeNonce}
-            profiles={enrollmentProfiles.filter(
+      {showToolbar ? (
+        <div className="flex flex-wrap gap-3">
+          {!fullToolbar ? null : connectEntry !== undefined ? (
+            connectEntry
+          ) : (!initiallyOpenConnect || ready) &&
+            enrollmentProfiles.some(
               (p) => p.authKind === "api_key" || p.authKind === "oauth",
-            )}
-            accounts={enrollmentAccounts}
-            disabled={disabled}
-            managementScope={managementScope}
-            addsToWorkspace={Boolean(addToWorkspace)}
-            begin={beginOAuth}
-            submit={submit}
-          />
-        ) : null}
-        {!connectOnly || page.isError || failure ? (
+            ) ? (
+            <ConnectAccountDialog
+              initiallyOpen={initiallyOpenConnect && !activeNonce}
+              profiles={enrollmentProfiles.filter(
+                (p) => p.authKind === "api_key" || p.authKind === "oauth",
+              )}
+              accounts={enrollmentAccounts}
+              disabled={disabled}
+              managementScope={managementScope}
+              addsToWorkspace={Boolean(addToWorkspace)}
+              begin={beginOAuth}
+              submit={submit}
+            />
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
@@ -1089,8 +1100,8 @@ function Controls({
           >
             <RefreshCw aria-hidden="true" className="size-4" />
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {message ? (
         <p role="status" className="text-sm text-slate-300">
           {message}
@@ -1329,7 +1340,7 @@ function ConnectionSetupContinuation({
   ): Promise<AccountsResult<{ label: string }>>;
 }): React.ReactElement {
   const router = useRouter();
-  const showOwnConnections = useOwnAccountsView();
+  const showConnectionsList = useShowConnectionsList();
   const targetAccounts = useGatewayModelAccounts(undefined, []);
   const personal = managementScope === "personal";
   const availableForProvider = hasReadySetupProvider(
@@ -1380,11 +1391,11 @@ function ConnectionSetupContinuation({
         >
           Continue provider setup
         </Button>
-        {showOwnConnections ? (
+        {showConnectionsList ? (
           <button
             type="button"
             className="w-fit font-semibold text-cyan-200 underline"
-            onClick={showOwnConnections}
+            onClick={showConnectionsList}
           >
             Manage workspace access
           </button>

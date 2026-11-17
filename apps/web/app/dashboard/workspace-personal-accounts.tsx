@@ -29,12 +29,17 @@ import {
   AccountMenuItem,
   accountMenuItemClass,
 } from "./account-actions-menu";
-import { GitHubAccountAvatar } from "../github-account-avatar";
 import { AccountIdentity } from "./account-identity";
+import { AccountOwner } from "./account-owner";
 import { AccountUsageLine } from "./account-usage-line";
 import { readAccountResult } from "./account-read-result";
-import { useOwnAccountsView } from "./accounts-workspace-tabs";
 import { accountsGridColumns } from "./accounts-grid";
+import {
+  accountsOverviewKey,
+  bindingWorkspaceUse,
+  OwnConnectionIdsContext,
+  WorkspaceUseLine,
+} from "./account-workspace-use";
 import {
   accountsCopy,
   accountStatusInfo,
@@ -76,49 +81,6 @@ type Props = {
   managementActions?: ((account: AccountView) => React.ReactNode) | undefined;
 };
 
-function AccountOwner({ account }: { account: AccountView }) {
-  const owner = account.owner;
-  const avatarUrl =
-    owner?.kind === "personal" || owner?.kind === "organization"
-      ? owner.avatarUrl
-      : null;
-  const avatarLabel =
-    owner?.kind === "personal"
-      ? (owner.handle ?? "Owner")
-      : owner?.kind === "organization"
-        ? owner.label
-        : "Owner";
-  const text =
-    owner?.kind === "personal"
-      ? owner.isViewer
-        ? "You"
-        : owner.handle
-          ? `@${owner.handle}`
-          : accountsCopy.ownerUnavailable
-      : owner?.kind === "organization"
-        ? owner.label
-        : owner?.kind === "operator"
-          ? owner.label
-          : account.origin === "organization"
-            ? "This workspace"
-            : account.origin === "operator"
-              ? "ReviewRouter"
-              : accountsCopy.ownerUnavailable;
-  return (
-    <p className="mt-2 flex min-w-0 items-center gap-2 text-xs text-slate-400">
-      {avatarUrl ? (
-        <GitHubAccountAvatar
-          avatarUrl={avatarUrl}
-          login={avatarLabel}
-          altText=""
-          size="sm"
-        />
-      ) : null}
-      <span className="truncate">{text}</span>
-    </p>
-  );
-}
-
 function AccountRowMenu({
   account,
   managementRows,
@@ -138,7 +100,6 @@ function AccountRowMenu({
   canDetach: boolean;
   selectDetach(): void;
 }) {
-  const showOwn = useOwnAccountsView();
   const managed = managementRows.find(
     (row) => row.connectionId === account.connectionId,
   );
@@ -148,18 +109,6 @@ function AccountRowMenu({
     account.allowedActions?.includes("detach");
   return (
     <AccountActionsMenu label={account.label}>
-      {account.isOwnedByViewer && showOwn ? (
-        <AccountMenuItem>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={accountMenuItemClass}
-            onClick={showOwn}
-          >
-            {accountsCopy.own}
-          </Button>
-        </AccountMenuItem>
-      ) : null}
       {managed && managementActions ? managementActions(managed) : null}
       <AccountLifecycleControls
         account={account}
@@ -214,6 +163,9 @@ function WorkspacePersonalRows({
 }: Props & { api: GatewayModelAccountsApi; client: QueryClient }) {
   const lifecycleActivities = useAccountLifecycleActivities(client);
   const inheritedLimits = useContext(AccountLimitsReadContext);
+  // Inside the combined Connections list the viewer's own connections are
+  // already listed above; only rows not shown there stay here.
+  const ownConnectionIds = useContext(OwnConnectionIdsContext);
   const limitsContext = inheritedLimits?.context ?? personalScope ?? "";
   const limitsScope =
     inheritedLimits?.scope ?? accountLimitsScope(limitsContext, workspaceId);
@@ -241,7 +193,7 @@ function WorkspacePersonalRows({
     let current = true;
     void (async () => {
       await client.cancelQueries({
-        queryKey: ["accounts-overview", scope],
+        queryKey: accountsOverviewKey(scope),
         exact: true,
       });
       await removeAccountLimits(client, limitsScope);
@@ -250,13 +202,13 @@ function WorkspacePersonalRows({
       hydratedBootstrap.current = initialPage;
       client.setQueryData<
         InfiniteData<AccountsResult<AccountsPage>, string | null>
-      >(["accounts-overview", scope], { pages: [first], pageParams: [null] });
+      >(accountsOverviewKey(scope), { pages: [first], pageParams: [null] });
     })();
     return () => {
       current = false;
     };
   }, [client, limitsScope, initialPage, scope]);
-  const pageKey = ["accounts-overview", scope] as const;
+  const pageKey = accountsOverviewKey(scope);
   const [selection, setSelection] = useState<{
     label: string;
     request: DetachRequest | null;
@@ -320,6 +272,9 @@ function WorkspacePersonalRows({
   const accounts = [
     ...new Map(rows.map((row) => [row.connectionId, row])).values(),
   ];
+  const listed = accounts.filter(
+    (row) => !(row.sourceId && ownConnectionIds?.has(row.sourceId)),
+  );
 
   async function submit(request: DetachRequest, readOnly = false) {
     if (!canDetach || busy.current) return;
@@ -429,23 +384,28 @@ function WorkspacePersonalRows({
       {failed ? (
         <p role="status">Connections could not be refreshed. Try again.</p>
       ) : null}
-      {!pages.isPending && !failed && !accounts.length ? (
-        <p>
+      {!pages.isPending &&
+      !failed &&
+      !listed.length &&
+      !ownConnectionIds?.size ? (
+        <p className="py-4 text-sm text-slate-400">
           {pages.hasNextPage
-            ? "No available connections on the loaded pages."
-            : "No available connections."}
+            ? "No connections on the loaded pages."
+            : accountsCopy.noConnections}
         </p>
       ) : null}
-      <div
-        className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
-        aria-hidden="true"
-      >
-        <span>Account</span>
-        <span>Owner</span>
-        <span>Status</span>
-        <span />
-      </div>
-      {(denied ? [] : accounts).map((row) => (
+      {ownConnectionIds ? null : (
+        <div
+          className={`hidden gap-3 border-b border-cyan-200/15 py-2 text-xs uppercase tracking-wider text-slate-400 lg:grid ${accountsGridColumns}`}
+          aria-hidden="true"
+        >
+          <span>Account</span>
+          <span>Owner</span>
+          <span>Status</span>
+          <span />
+        </div>
+      )}
+      {(denied ? [] : listed).map((row) => (
         <article
           key={row.connectionId}
           aria-label={row.label}
@@ -503,7 +463,7 @@ function WorkspacePersonalRows({
             />
           </div>
           <AccountOwner account={row} />
-          <p className="text-sm text-slate-300">
+          <div className="text-sm text-slate-300">
             <AccountStatusLine
               {...(failed
                 ? { kind: "unknown", text: "Details could not be refreshed" }
@@ -511,11 +471,12 @@ function WorkspacePersonalRows({
                   ? { kind: "removing", text: pendingStatusCopy.removing }
                   : lifecycleActivities.has(row.connectionId)
                     ? { kind: "confirming", text: pendingStatusCopy.confirming }
-                    : !row.binding && row.canManage
-                      ? { kind: "unknown", text: "Not added here" }
-                      : accountStatusInfo(row))}
+                    : accountStatusInfo(row))}
             />
-          </p>
+            {failed ? null : (
+              <WorkspaceUseLine use={bindingWorkspaceUse(row.binding)} />
+            )}
+          </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {!failed &&
             !lifecycleActivities.has(row.connectionId) &&

@@ -40,7 +40,6 @@ import {
   mutateGatewayAccount,
 } from "./account-gateway-account-actions";
 import { AccountsAddDialog } from "./accounts-add-dialog";
-import { AccountsWorkspaceTabs } from "./accounts-workspace-tabs";
 import {
   GatewayModelAccountsProvider,
   type GatewayModelAccountsApi,
@@ -431,17 +430,15 @@ test.each([false, true])(
     const grant = vi.fn();
     render(
       insideAddDialog ? (
-        <AccountsWorkspaceTabs
-          available={
-            <AccountsAddDialog
-              workspaceName="Selected workspace"
-              initiallyOpen
-              personalConnect={controls}
-              organizationConnect={null}
-            />
-          }
-          own={<button onClick={grant}>Grant workspace access</button>}
-        />
+        <>
+          <AccountsAddDialog
+            workspaceName="Selected workspace"
+            initiallyOpen
+            personalConnect={controls}
+            organizationConnect={null}
+          />
+          <button onClick={grant}>Grant workspace access</button>
+        </>
       ) : (
         controls
       ),
@@ -454,13 +451,9 @@ test.each([false, true])(
     );
     if (insideAddDialog) {
       expect(screen.getByRole("dialog", { name: "Add account" })).toBeTruthy();
+      // The connections list sits right under the dialog it closes.
       fireEvent.click(access);
-      await waitFor(() => {
-        expect(screen.queryByRole("dialog")).toBeNull();
-        expect(
-          screen.getByRole("tab", { name: "All my connections" }),
-        ).toHaveProperty("ariaSelected", "true");
-      });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       expect(
         screen.getAllByRole("button", { name: "Grant workspace access" }),
       ).toHaveLength(1);
