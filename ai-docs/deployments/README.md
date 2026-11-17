@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Review error classes of 2026-11-17: [one run per revision, superseded dispatched runs not red, real Chat bridge stop phase](2026-11-17-review-error-classes.md) - worker, Action and native ordinary rollouts; all targets `pending`. No migration, configuration or Gateway change.
+Review error classes of 2026-11-17: [one run per revision, superseded dispatched runs not red, real Chat bridge stop phase](2026-11-17-review-error-classes.md), [#891](https://github.com/777genius/review-router-ai/pull/891) - worker, Action and native ordinary rollouts; all targets `pending`. No migration, configuration or Gateway change.
 
 Connect from a workspace adds it there: [personal connection is attached to the current workspace](2026-11-17-connect-attaches-to-current-workspace.md), [PR #886](https://github.com/777genius/review-router-ai/pull/886) - web-only ordinary rollout; staging/production `pending`. No migration, configuration or Gateway/native change.
 

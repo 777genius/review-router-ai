@@ -13,8 +13,11 @@
   - native: the Chat bridge (NVIDIA Build) reports the real phase of a stopped
     stream, so a caller abort no longer reads as `sse_incomplete`.
 - Affected services/targets: worker; public Action; private native engine.
-- Implementation PR/issue: native, Action and ReviewRouter PRs are linked from
-  the ReviewRouter PR description.
+- Implementation PR/issue: worker
+  [#891](https://github.com/777genius/review-router-ai/pull/891), Action
+  [777genius/review-router#395](https://github.com/777genius/review-router/pull/395),
+  native
+  [agent-teams-ai/sub2api#102](https://github.com/agent-teams-ai/sub2api/pull/102).
 - Implementation reference: branch `fix/review-error-classes-20261117`; the
   merge commits are the source provenance once merged.
 - Dependencies: none between the three parts; each can ship on its own. No
