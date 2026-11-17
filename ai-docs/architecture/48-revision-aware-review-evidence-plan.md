@@ -2293,7 +2293,10 @@ hash is the idempotency key. A partial unique index permits at most one pending
 intent per PR stream; the atomic replacement command supersedes only an older
 pending head in that stream. It does not use
 `unique(scope, reviewRevisionHash)`: a trusted manual command or lifecycle change
-may intentionally request another review of the same SHA.
+may intentionally request another review of the same SHA. An automatic PR event
+for the revision whose run is already dispatched and still awaiting authorization
+joins that request instead of starting a second run that would take its execution
+over ([71](71-review-runtime-error-classes.md)); a manual command stays separate.
 
 Provider serialization remains a lease concern after dispatch, never a GitHub
 workflow concurrency concern. A bounded due scanner dispatches claimed intents by
