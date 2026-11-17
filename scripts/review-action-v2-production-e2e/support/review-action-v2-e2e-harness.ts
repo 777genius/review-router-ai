@@ -205,7 +205,10 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   fixtureScope?: Readonly<{ prefix: string; workspaceId: string }>;
   /** Registered test producer definitions, shared by DB row and attestation. */
   agentProfiles?: readonly ReviewAgentProfile[];
-  reviewerPlanProfile?: Readonly<{ planVersion: 1; descriptorDigest: string }>;
+  reviewerPlanProfile?: Readonly<{
+    planVersion: 1 | 2;
+    descriptorDigest: string;
+  }>;
   /** The controlled local Gateway remains real HTTP while GitHub stays synthetic. */
   gatewayFixtureOrigin?: string;
   /** Signed workflow identity; independent of the configured policy. */
@@ -2352,7 +2355,7 @@ async function seedProductionControlPlane(
     protocolMaxAttemptsPerSlot?: number;
     agentProfiles?: readonly ReviewAgentProfile[];
     reviewerPlanProfile?: Readonly<{
-      planVersion: 1;
+      planVersion: 1 | 2;
       descriptorDigest: string;
     }>;
     prDescriptionProfile?: boolean;
@@ -2634,7 +2637,7 @@ function productionEnv(input: {
   readonly releaseCandidate?: ProducerReleaseCandidate;
   readonly agentProfiles?: readonly ReviewAgentProfile[];
   readonly reviewerPlanProfile?: Readonly<{
-    planVersion: 1;
+    planVersion: 1 | 2;
     descriptorDigest: string;
   }>;
   readonly appPrivateKey: string;

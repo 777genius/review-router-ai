@@ -339,7 +339,7 @@ describe("multi-reviewer immutable capture", () => {
       producerRelease: {
         ...original.producerRelease,
         reviewerPlanProfile: {
-          planVersion: 1 as const,
+          planVersion: 2 as const,
           descriptorDigest: reviewerPlanDescriptorDigest,
         },
       },

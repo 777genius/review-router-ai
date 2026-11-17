@@ -103,6 +103,7 @@ export enum ReviewRunAuthorizationDenialReason {
   SkillsLimitsExceeded = "skills_limits_exceeded",
   ContextToolsUnavailable = "context_tools_unavailable",
   GatewayProfileUnapproved = "gateway_profile_unapproved",
+  ReviewerFallbackUnsupported = "reviewer_fallback_unsupported",
   ProviderVoteLaneUnavailable = "provider_vote_lane_unavailable",
   ReviewInvestigationIncompatible = "review_investigation_incompatible",
 }
@@ -1025,6 +1026,8 @@ function captureDenialReason(
       return ReviewRunAuthorizationDenialReason.ContextToolsUnavailable;
     case "gateway_profile_unapproved":
       return ReviewRunAuthorizationDenialReason.GatewayProfileUnapproved;
+    case "reviewer_fallback_unsupported":
+      return ReviewRunAuthorizationDenialReason.ReviewerFallbackUnsupported;
   }
 }
 

@@ -350,14 +350,38 @@ describe("reviewer roster mode", () => {
     capability: "direct_config" as const,
     expectedVersion: null,
   };
+  // Ordered fallback runs only Gateway reviewers through the reviewer plan.
+  const gateway = ["g1", "g2", "g3"].map((id, index) =>
+    providerProfileFixture({
+      id,
+      model: `model-${index + 1}`,
+      credential: {
+        kind: "gateway_binding",
+        authMode: "codex_account_gateway",
+        bindingId: `binding-${index + 1}`,
+        gatewayProfileRef: "gateway-profile",
+      },
+    }),
+  );
+  const reviewer = (profileId: string) => ({
+    profileId,
+    agenticContext: true,
+    fastMode: false,
+    requiredHealthy: true,
+  });
+  async function gatewayFixture() {
+    const setup = await fixture();
+    gateway.forEach((profile) => setup.store.addProfile(profile));
+    return setup;
+  }
 
-  it("stores only fallback and runs one reviewer at a time in the saved order", async () => {
-    const { dependencies } = await fixture();
+  it("carries the whole ordered roster and runs one reviewer at a time", async () => {
+    const { dependencies } = await gatewayFixture();
     const saved = await setWorkspaceDefaultProviders(
       {
         workspaceId: "w",
         actor,
-        selections: [selection("two"), selection("one"), selection("three")],
+        selections: [reviewer("g2"), reviewer("g1"), reviewer("g3")],
         providerMode: "fallback",
         executionPatch: { providerMaxParallel: 2, inlineMinAgreement: 2 },
         expectedVersion: 1,
@@ -369,48 +393,37 @@ describe("reviewer roster mode", () => {
       // The parallel limits stay saved for a switch back.
       execution: { providerMaxParallel: 2, inlineMinAgreement: 2 },
     });
-    // Only the first reviewer is dispatched; the whole roster stays valid as
-    // a parallel configuration with its saved limits.
-    const { config, rosterConfig, providerMode } = saved.configuration!;
+    const { config, providerMode, selections } = saved.configuration!;
     expect(providerMode).toBe("fallback");
-    expect(config.providers.map((row) => row.model)).toEqual(["gpt-5.4"]);
+    expect(config.providerMode).toBe("fallback");
+    expect(config.providers.map((row) => row.model)).toEqual([
+      "model-2",
+      "model-1",
+      "model-3",
+    ]);
+    expect(selections.map((row) => row.profileId)).toEqual(["g2", "g1", "g3"]);
     expect(config.execution).toEqual({
-      providerLimit: 1,
+      providerLimit: 3,
       providerMaxParallel: 1,
       inlineMinAgreement: 1,
     });
-    expect(rosterConfig.providers.map((row) => row.model)).toEqual([
-      "gpt-5.4",
-      "gpt-5.3",
-      "gpt-5.5",
-    ]);
-    expect(rosterConfig.execution).toEqual({
-      providerLimit: 3,
-      providerMaxParallel: 2,
-      inlineMinAgreement: 2,
-    });
-    // The runtime environment is the one of a single-provider review.
-    expect(mapConfigToRuntimeEnv(config)).toMatchObject({
-      REVIEW_PROVIDERS: "codex/gpt-5.4",
-      PROVIDER_LIMIT: "1",
-      PROVIDER_MAX_PARALLEL: "1",
-      INLINE_MIN_AGREEMENT: "1",
-    });
+    // The mode reaches the runtime only through the reviewer plan.
+    expect(Object.keys(mapConfigToRuntimeEnv(config))).not.toContain(
+      "REVIEW_PROVIDER_MODE",
+    );
 
     const parallel = await setWorkspaceDefaultProviders(
       {
         workspaceId: "w",
         actor,
-        selections: [selection("two"), selection("one")],
+        selections: [reviewer("g2"), reviewer("g1")],
         providerMode: "parallel",
         expectedVersion: saved.version,
       },
       dependencies,
     );
     expect(parallel.configuration?.policy).not.toHaveProperty("providerMode");
-    expect(parallel.configuration?.rosterConfig).toBe(
-      parallel.configuration?.config,
-    );
+    expect(parallel.configuration?.config).not.toHaveProperty("providerMode");
     expect(parallel.configuration?.config.execution).toMatchObject({
       providerLimit: 2,
       providerMaxParallel: 2,
@@ -418,37 +431,48 @@ describe("reviewer roster mode", () => {
     });
   });
 
-  it("validates every reviewer of a fallback roster, not only the first", async () => {
+  it("refuses an ordered fallback through a transport that cannot run it", async () => {
     const { save, dependencies } = await fixture();
-    const validate = vi.fn(
-      async ({ config }: { config: { providers: { model: string }[] } }) => {
-        if (config.providers.some((row) => row.model === "gpt-5.5"))
-          throw new Error("reserve_reviewer_unavailable");
-      },
-    );
     await expect(
       setWorkspaceDefaultProviders(
         {
           workspaceId: "w",
           actor,
-          selections: [selection("one"), selection("three")],
+          selections: [selection("one"), selection("two")],
           providerMode: "fallback",
           expectedVersion: 1,
         },
-        { ...dependencies, validator: { validate } },
+        dependencies,
       ),
-    ).rejects.toThrow("reserve_reviewer_unavailable");
-    expect(validate.mock.calls[0]![0].config.providers).toHaveLength(2);
+    ).rejects.toThrow();
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("keeps a single fallback reviewer identical to a parallel one", async () => {
+    const { dependencies } = await gatewayFixture();
+    const saved = await setWorkspaceDefaultProviders(
+      {
+        workspaceId: "w",
+        actor,
+        selections: [reviewer("g1")],
+        providerMode: "fallback",
+        expectedVersion: 1,
+      },
+      dependencies,
+    );
+    expect(saved.configuration?.policy).toMatchObject({
+      providerMode: "fallback",
+    });
+    expect(saved.configuration?.config).not.toHaveProperty("providerMode");
+  });
+
   it("takes the mode from the document whose roster is effective", async () => {
-    const { store, dependencies } = await fixture();
+    const { store, dependencies } = await gatewayFixture();
     const workspace = await setWorkspaceDefaultProviders(
       {
         workspaceId: "w",
         actor,
-        selections: [selection("one"), selection("two")],
+        selections: [reviewer("g1"), reviewer("g2")],
         providerMode: "fallback",
         expectedVersion: 1,
       },
@@ -459,7 +483,7 @@ describe("reviewer roster mode", () => {
       {
         workspaceId: "w",
         actor,
-        selections: [selection("two"), selection("three")],
+        selections: [reviewer("g2"), reviewer("g3")],
         expectedWorkspaceVersion: workspace.version,
         repositories: [repository],
       },
@@ -470,7 +494,7 @@ describe("reviewer roster mode", () => {
     const own = await store.findLatest(target as never);
     expect(own?.policy).not.toHaveProperty("providerMode");
     expect(own?.providerMode).toBe("parallel");
-    expect(own?.config.providers).toHaveLength(2);
+    expect(own?.config).not.toHaveProperty("providerMode");
 
     // Removing it restores the workspace roster together with its mode.
     const cleared = await clearRepositoryProviderSelections(
@@ -483,17 +507,17 @@ describe("reviewer roster mode", () => {
       dependencies,
     );
     expect(cleared.configuration?.providerMode).toBe("fallback");
-    expect(cleared.configuration?.config.providers).toHaveLength(1);
-    expect(cleared.configuration?.selections).toHaveLength(2);
+    expect(cleared.configuration?.config.providerMode).toBe("fallback");
+    expect(cleared.configuration?.config.providers).toHaveLength(2);
   });
 
   it("keeps the mode when other workspace settings are saved", async () => {
-    const { store, dependencies } = await fixture();
+    const { store, dependencies } = await gatewayFixture();
     const saved = await setWorkspaceDefaultProviders(
       {
         workspaceId: "w",
         actor,
-        selections: [selection("one"), selection("two")],
+        selections: [reviewer("g1"), reviewer("g2")],
         providerMode: "fallback",
         expectedVersion: 1,
       },

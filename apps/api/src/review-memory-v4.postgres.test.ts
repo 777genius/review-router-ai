@@ -81,7 +81,7 @@ describe.skipIf(!databaseUrl)(
           },
         ],
         reviewerPlanProfile: {
-          planVersion: 1,
+          planVersion: 2,
           descriptorDigest: reviewerPlanDescriptorDigest,
         },
         environmentOverrides: {

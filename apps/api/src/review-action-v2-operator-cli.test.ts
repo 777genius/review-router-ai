@@ -242,7 +242,7 @@ describe("review action v2 operator CLI", () => {
       },
     };
     const reviewerPlanProfile = {
-      planVersion: 1,
+      planVersion: 2,
       descriptorDigest: reviewerPlanDescriptorDigest,
     };
     const qualifiedAgent = {

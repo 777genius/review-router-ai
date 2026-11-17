@@ -266,7 +266,7 @@ describe("Gateway reviewer roster", () => {
     expect(
       screen.queryByRole("combobox", { name: /^Max parallel providers/ }),
     ).toBeNull();
-    expect(screen.getByText(/^Only the first reviewer runs/)).toBeTruthy();
+    expect(screen.getByText(/^Reviewers run one at a time/)).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Move reviewer 1 up" }),
     ).toHaveProperty("disabled", true);

@@ -47,9 +47,8 @@ export async function switchRepositoryConfigurationAuthMode(input: {
   });
   if (!current) throw new Error("workspace_review_policy_not_configured");
   const drafts: ProviderProfileDraft[] = [];
-  // Every reviewer of the roster, including fallbacks that do not run yet.
   const selections = current.selections.map((selection, index) => {
-    const provider = current.rosterConfig.providers[index]!;
+    const provider = current.config.providers[index]!;
     // Explicit gateway selections do not participate in pool switching.
     if (
       provider.kind !== "codex" ||

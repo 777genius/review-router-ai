@@ -4,6 +4,7 @@ import {
   parseReviewReviewerPlan,
   reviewerPlanContract,
   reviewerPlanDescriptorDigest,
+  reviewerPlanV1DescriptorDigest,
   type ReviewReviewerPlanV1,
 } from "./review-reviewer-plan";
 
@@ -65,7 +66,7 @@ function grant(row = reviewer(0)) {
   };
 }
 
-describe("safe reviewer plan v1", () => {
+describe("safe reviewer plan", () => {
   it("has a digest bound to its exact immutable compatibility descriptor", () => {
     const canonical = JSON.stringify(
       Object.fromEntries(
@@ -77,6 +78,42 @@ describe("safe reviewer plan v1", () => {
     expect(reviewerPlanDescriptorDigest).toBe(
       `sha256:${createHash("sha256").update(canonical).digest("hex")}`,
     );
+    // Registered version 1 producers keep their exact historical descriptor.
+    const { providerModes: _modes, ...v1 } = {
+      ...reviewerPlanContract,
+      planVersion: 1,
+    };
+    void _modes;
+    const v1Canonical = JSON.stringify(
+      Object.fromEntries(
+        Object.entries(v1).sort(([a], [b]) => a.localeCompare(b)),
+      ),
+    );
+    expect(reviewerPlanV1DescriptorDigest).toBe(
+      `sha256:${createHash("sha256").update(v1Canonical).digest("hex")}`,
+    );
+  });
+  it("reads an ordered fallback plan only as version 2 with one reviewer at a time", () => {
+    const fallback = {
+      ...plan(),
+      planVersion: 2,
+      providerMode: "fallback",
+      maxParallelReviewers: 1,
+    };
+    expect(parseReviewReviewerPlan(JSON.stringify(fallback))).toEqual(fallback);
+    // A parallel plan keeps its exact version 1 form.
+    expect(parseReviewReviewerPlan(plan())).not.toHaveProperty("providerMode");
+    for (const invalid of [
+      { ...plan(), providerMode: "fallback" },
+      { ...fallback, providerMode: "parallel" },
+      { ...fallback, maxParallelReviewers: 2 },
+      { ...fallback, inlineMinAgreement: 2 },
+      { ...plan(), planVersion: 2 },
+      { ...fallback, planVersion: 3 },
+    ])
+      expect(() => parseReviewReviewerPlan(invalid)).toThrow(
+        "review_reviewer_plan_invalid",
+      );
   });
   it("accepts one and sixteen reviewers and detaches nested caller objects", () => {
     for (const count of [1, 16]) {

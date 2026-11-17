@@ -991,12 +991,9 @@ export async function DashboardSectionContent({
     selectedWorkspace.workspace.id,
     personal,
     initialGatewayAccounts,
-    // Every reviewer of a roster, including fallbacks that do not run yet.
     [
-      data.reviewConfig?.rosterConfig,
-      ...data.repositoryConfigs.map(
-        (row) => row.config?.rosterConfig ?? row.effective,
-      ),
+      data.reviewConfig?.config,
+      ...data.repositoryConfigs.map((row) => row.effective),
     ].flatMap(
       (config) =>
         config?.providers.flatMap((provider) =>
@@ -2576,7 +2573,13 @@ function RepositoryTable({
                           expectedVersion={
                             repositoryPolicy?.expectedVersion ?? null
                           }
-                          providerCount={Math.max(reviewProviders.length, 1)}
+                          providerCount={
+                            // A fallback roster runs one reviewer at a time.
+                            repositoryPolicy?.effective?.providerMode ===
+                            "fallback"
+                              ? 1
+                              : Math.max(reviewProviders.length, 1)
+                          }
                           primaryAuthMode={reviewProviders[0]?.authMode}
                           contextConnections={contextConnections}
                           mutationsEnabled={

@@ -48,10 +48,6 @@ import {
  * refuses any other result than the validated one.
  */
 export interface EffectiveReviewConfigurationValidatorPort {
-  /**
-   * Checks the whole roster as a parallel run uses it (`rosterConfig`), so
-   * every reviewer a fallback roster keeps in reserve is runnable too.
-   */
   validate(
     candidate: Readonly<{
       target: ReviewConfigurationTarget;
@@ -645,10 +641,7 @@ async function validated(
     dependencies,
   );
   if (!candidate) return { expectedEffectivePolicyDigest: null };
-  await dependencies.validator.validate({
-    target,
-    config: candidate.rosterConfig,
-  });
+  await dependencies.validator.validate({ target, config: candidate.config });
   return {
     expectedEffectivePolicyDigest: effectiveReviewPolicyDigest(
       candidate.config,

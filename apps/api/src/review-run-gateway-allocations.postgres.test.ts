@@ -111,7 +111,7 @@ describe.skipIf(!enabled)(
           state: "registered",
           registeredAt: new Date(),
           reviewerPlanProfile: {
-            planVersion: 1,
+            planVersion: 2,
             descriptorDigest: reviewerPlanDescriptorDigest,
           },
         },
