@@ -25,6 +25,7 @@ import {
   type OutboxEvent,
   type OutboxHandler,
 } from "@reviewrouter/features-outbox";
+import type { Logger } from "@reviewrouter/platform-logger";
 import {
   ReviewRequestIngressApplicationService,
   retryableReviewRequestIngressError,
@@ -34,6 +35,7 @@ export function createGitHubReviewRequestIngressHandler(dependencies: {
   readonly repositories: ActionControlPlaneRepositoryPort;
   readonly identities: ScmRepositoryIdentityQueryPort;
   readonly authorities: ReviewMutationAuthorityQueryPort;
+  readonly logger?: Pick<Logger, "info">;
   readonly application: ReviewRequestIngressApplicationService;
   readonly readyQuietPeriodMs: number;
   readonly draftQuietPeriodMs: number;
@@ -97,7 +99,16 @@ export function createGitHubReviewRequestIngressHandler(dependencies: {
               "review_request_authority_unavailable",
             );
           });
-        if (authority?.mode !== ReviewMutationMode.V2Active) return;
+        if (authority?.mode !== ReviewMutationMode.V2Active) {
+          dependencies.logger?.info(
+            "Review request ignored without an active hosted lane",
+            {
+              repositoryConnectionId: repository.repositoryId,
+              authorityMode: authority?.mode ?? "missing",
+            },
+          );
+          return;
+        }
       }
       const base = {
         protocolVersion: 1 as const,

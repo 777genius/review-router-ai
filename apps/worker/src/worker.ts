@@ -199,6 +199,7 @@ async function main(): Promise<void> {
           githubAppId,
           githubPrivateKey,
           settlementHook,
+          logger,
           ...(process.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
             ? { historyWriter: history.writer }
             : {}),

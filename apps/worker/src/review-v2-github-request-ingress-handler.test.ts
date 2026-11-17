@@ -62,12 +62,14 @@ describe("GitHub review request ingress handler", () => {
     ["paused", ReviewMutationMode.Paused],
   ] as const)(
     "ignores a request when the hosted lane authority is %s",
-    async (_label, mode) => {
+    async (label, mode) => {
       const execute = vi.fn(async () => undefined);
+      const info = vi.fn();
       const handler = createGitHubReviewRequestIngressHandler({
         repositories: repositoryGateway(),
         identities: identityGateway(),
         authorities: authorityGateway(mode),
+        logger: { info },
         application: { execute } as never,
         readyQuietPeriodMs: 15_000,
         draftQuietPeriodMs: 45_000,
@@ -77,6 +79,11 @@ describe("GitHub review request ingress handler", () => {
       await handler.handle(event());
 
       expect(execute).not.toHaveBeenCalled();
+      // The skip stays visible to operators instead of a red refused run.
+      expect(info).toHaveBeenCalledWith(
+        "Review request ignored without an active hosted lane",
+        { repositoryConnectionId: "connection-1", authorityMode: label },
+      );
     },
   );
 

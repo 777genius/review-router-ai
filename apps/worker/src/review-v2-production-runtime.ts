@@ -27,6 +27,7 @@ import {
 import { PrismaReviewObservationStore } from "@reviewrouter/features-review-evidence/composition";
 import { PrismaInvestigationStore } from "@reviewrouter/features-review-investigations/composition";
 import { ResolveInvestigationRollout } from "@reviewrouter/features-review-investigation-operations";
+import type { Logger } from "@reviewrouter/platform-logger";
 import {
   EnvironmentInvestigationRolloutPolicyQuery,
   RunControlInvestigationEmergencyStopQuery,
@@ -218,6 +219,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
   readonly settlementHook: ReviewCompletionSettlementHook;
+  readonly logger?: Pick<Logger, "info">;
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
   const historyWriter =
@@ -513,6 +515,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
       repositories: new PrismaActionControlPlaneRepository(input.prisma),
       identities: new PrismaScmRepositoryIdentityRepository(input.prisma),
       authorities,
+      ...(input.logger ? { logger: input.logger } : {}),
       application: ingressApplication,
       readyQuietPeriodMs: positiveInteger(
         input.env.REVIEW_ROUTER_REVIEW_V2_READY_QUIET_PERIOD_MS,
