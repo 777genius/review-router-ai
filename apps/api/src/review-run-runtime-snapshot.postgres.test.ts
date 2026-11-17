@@ -1169,7 +1169,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
         }),
       ).toEqual({
         status: ReviewRunAuthorizationUseCaseStatus.Denied,
-        reason: ReviewRunAuthorizationDenialReason.AdmissionFactsChanged,
+        reason: ReviewRunAuthorizationDenialReason.GatewayProfileUnapproved,
       });
       expect(
         await new ProductionReviewRunRuntimeSnapshot(prisma).capture({
@@ -1178,7 +1178,7 @@ describe.skipIf(!enabled)("C2c actual first-admission runtime pin", () => {
           deadline: gatewayRun.maxExpiresAt,
           producerRelease: snapshotProducer,
         }),
-      ).toBeNull();
+      ).toEqual({ captureDenied: "gateway_profile_unapproved" });
       const attachments = new PrismaReviewRunGatewayExecutionBinding(
         prisma,
         gatewayProduction.runtimeSnapshots,

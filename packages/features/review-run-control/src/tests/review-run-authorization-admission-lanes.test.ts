@@ -584,6 +584,11 @@ describe("ReviewRunAuthorization engine admission lanes", () => {
       "agent_profile_incompatible",
       ReviewRunAuthorizationDenialReason.AgentProfileIncompatible,
     ],
+    [
+      "a reviewer profile outside the server-approved Gateway policy",
+      "gateway_profile_unapproved",
+      ReviewRunAuthorizationDenialReason.GatewayProfileUnapproved,
+    ],
   ] as const)(
     "refuses %s as a configuration error without fallback or inference",
     async (_label, captureDenied, reason) => {

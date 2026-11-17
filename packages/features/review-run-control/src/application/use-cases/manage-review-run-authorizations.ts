@@ -102,6 +102,7 @@ export enum ReviewRunAuthorizationDenialReason {
   SkillsEngineUnsupported = "skills_engine_unsupported",
   SkillsLimitsExceeded = "skills_limits_exceeded",
   ContextToolsUnavailable = "context_tools_unavailable",
+  GatewayProfileUnapproved = "gateway_profile_unapproved",
   ProviderVoteLaneUnavailable = "provider_vote_lane_unavailable",
   ReviewInvestigationIncompatible = "review_investigation_incompatible",
 }
@@ -1022,6 +1023,8 @@ function captureDenialReason(
       return ReviewRunAuthorizationDenialReason.AgentProfileIncompatible;
     case "context_tools_unavailable":
       return ReviewRunAuthorizationDenialReason.ContextToolsUnavailable;
+    case "gateway_profile_unapproved":
+      return ReviewRunAuthorizationDenialReason.GatewayProfileUnapproved;
   }
 }
 
