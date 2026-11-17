@@ -512,7 +512,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       const limits = this.approvedLimits.get(
         selected.provider.gatewayProfileRef,
       );
-      if (!limits) return null;
+      // Saved policy may name any connected profile; only the server policy
+      // grants a run allowance. This is a configuration error, never a race.
+      if (!limits) return { captureDenied: "gateway_profile_unapproved" };
       const bindingId = selected.provider.gatewayBindingId;
       const selection = await this.accounts.findBinding(
         { workspaceId: identity.workspaceId, bindingId },
