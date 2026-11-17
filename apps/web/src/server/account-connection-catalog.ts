@@ -22,7 +22,8 @@ export function configuredSubscriptionProfiles(
   return profiles;
 }
 
-const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
+/** The only qualified NVIDIA profile; deployments cannot rename it. */
+export const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
 function qualifiedNvidia(wire: c.ProviderConnectionCapability): boolean {
   return (
     wire.profileId === nvidiaProfileId &&

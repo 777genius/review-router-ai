@@ -5,7 +5,10 @@ import {
   gatewayAPIKeyProviderKinds,
   type ProviderIdentity,
 } from "../features/provider-setup/provider-identity";
-import { subscriptionProfileProviders } from "./account-connection-catalog";
+import {
+  nvidiaProfileId,
+  subscriptionProfileProviders,
+} from "./account-connection-catalog";
 import { accountGatewayProfilesConfiguration } from "./account-gateway-accounts";
 
 /** Resolve saved display identity from the same trusted deployment catalog.
@@ -21,6 +24,9 @@ export function savedProviderIdentity(input: {
   if (!ref) return undefined;
   if (ref === "openai-codex-oauth-responses-v1") return "openai";
   if (ref === "anthropic-claude-oauth-messages-v1") return "anthropic";
+  // Fixed like the profiles above: the Gateway capability catalog serves it
+  // even when the deployment does not name it in its API-key profile settings.
+  if (ref === nvidiaProfileId) return "nvidia";
   if (Object.hasOwn(subscriptionProfileProviders, ref))
     return subscriptionProfileProviders[
       ref as keyof typeof subscriptionProfileProviders
