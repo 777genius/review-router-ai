@@ -40,13 +40,13 @@
 
 ## Environment status
 
-| Environment / target  | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                                      |
-| --------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------------------- |
-| staging (worker)      | `pending` | Not verified                    | Not verified        | Ship with the next coherent application release, then verify below. |
-| production (worker)   | `pending` | Not verified                    | Not verified        | Ship with the next coherent application release, then verify below. |
-| public Action release | `pending` | Not verified                    | Not verified        | Next ordinary Action release per the release process.               |
-| production (native)   | `pending` | Not verified                    | Not verified        | Next native engine rollout with the Gateway service.                |
-| production (Gateway)  | `pending` | Not verified                    | Not verified        | Next Gateway service rollout.                                       |
+| Environment / target  | Status      | Actual deployed version / image              | Last verified (UTC) | Evidence / next step / blocker                                                                                                                            |
+| --------------------- | ----------- | -------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging (worker)      | `pending`   | Not verified                                 | Not verified        | Ship with the next coherent application release, then verify below.                                                                                       |
+| production (worker)   | `deployed`  | worker `974295ea`                            | 2026-11-17 17:59    | Same-revision join seen on review-router-ai PR 894 (see the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md)).                           |
+| public Action release | `installed` | `v1.0.240` = `3a256b15`, `workflow-v1` = 240 | 2026-11-17 19:55    | A superseded queued run was cancelled by the worker before it started; the started-run path of #395 and the OCR `--max-tokens` argv are not observed yet. |
+| production (native)   | `installed` | native `cfe50b7f`                            | 2026-11-17 17:52    | Phase check needs a stopped NVIDIA stream.                                                                                                                |
+| production (Gateway)  | `installed` | Gateway `4d113b5c`                           | 2026-11-17 17:47    | New closed-phase lines appear in the journal (`native_response`).                                                                                         |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
