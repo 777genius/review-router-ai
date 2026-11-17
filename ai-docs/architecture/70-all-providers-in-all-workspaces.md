@@ -38,7 +38,8 @@ Native (`agent-teams-ai/sub2api`) и Gateway (`agent-teams-ai/account-gateway`) 
 
 - Переписать тесты старого запрета на новое поведение: `binding-policy` (таблица по всем профилям подписок, включая GLM: донор owner/admin в X исполняется, member и `null` - отказ), `use-cases` (bind GLM workspace, operator grant GLM доходит до записи, attach GLM в организацию доходит до Gateway и store), `personal-connect-attach` (GLM добавляется в X, member - `not_permitted` без attach), UI-квитанция GLM без «Personal use», e2e `subscription-connections.spec.ts`.
 - Регрессия прав: member и чужой source отклоняются (`personal-connect-attach`, `binding-policy`); тест `use-cases` «GLM selection requires the actual personal owner» остаётся без изменений.
-- Прогон: typecheck, eslint, prettier, vitest web/api по затронутым файлам, `node --test` пакета provider-accounts, e2e подписок локально на PGlite (`--isolated-pglite --subscription-fixture`). PostgreSQL-наборы не запускаются: SQL и store не меняются, кроме удалённой проверки профиля.
+- Прогон: typecheck, eslint, prettier, vitest web/api по затронутым файлам, `node --test` пакета provider-accounts. PostgreSQL-наборы не запускаются: SQL и store не меняются, кроме удалённой проверки профиля.
+- E2E подписок (`--isolated-pglite --subscription-fixture`) запущен и падает на первом шаге, до изменённых проверок: его `keyForm` ищет пункт меню «Connect with API key», которого в текущем UI нет (спецификация не менялась с #714, в CI не входит). Это старый дрейф, не следствие этого PR; чинить его - отдельная задача.
 
 ## 6. Риски
 
