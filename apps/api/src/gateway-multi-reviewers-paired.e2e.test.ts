@@ -579,7 +579,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           )
         ) {
           output = {
-            stdout: redact(processError.stdout),
+            stdout: redact(processError.stdout ?? ""),
             stderr: redact(processError.stderr ?? ""),
           };
         } else {

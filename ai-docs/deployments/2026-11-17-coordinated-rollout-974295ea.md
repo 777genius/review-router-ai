@@ -220,18 +220,21 @@ So the image must never go back while anything can still name producer 240.
    [release process](../operations/07-environments-and-release-management.md#rollback),
    and record that move with both SHAs as the rule requires. Read both back.
    Let runs already authorized on 240 finish or revoke their authorizations.
-2. Find repositories pinned to `3a256b15`/`v1.0.240` outside the channels: the
-   rotating installer tuple and `REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF` moved
-   to 240 at 19:13 (step 8). Repin them to 239 first; the release process keeps
-   approved GitHub Secrets and Hosted Pool pins, so do not revoke 240 while such
-   a pin exists. Then revoke producer 240 (`reviewrouter-action.3a256b15…`)
-   through the normal producer revocation (`revoke_producer_release`, the same
-   trusted path as the registration in step 9, no direct SQL). This keeps the
-   registered producer set readable for the old image and its
-   [rollback preflight](../operations/07-environments-and-release-management.md#api-rollback-protocol-preflight).
-3. FILE 68 to FILE 67: stop the four FILE 68 containers and start the retained
+2. FILE 68 to FILE 67: stop the four FILE 68 containers and start the retained
    `*-before-file68-retained` containers (same `974295ea` image, FILE 67 mount,
-   Action refs at 239). Steps 1 to 3 alone undo Action 240.
+   Action refs and rotating installer tuple at 239). From here no new setup
+   pins 240.
+3. Find repositories that got a pin to `3a256b15`/`v1.0.240` outside the
+   channels since 19:13 (rotating installer and
+   `REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF`, step 8) and repin them to 239; the
+   release process keeps approved GitHub Secrets and Hosted Pool pins, so do
+   not revoke 240 while such a pin exists. Then revoke producer 240
+   (`reviewrouter-action.3a256b15…`) through the normal producer revocation
+   (`revoke_producer_release`, the same trusted path as the registration in
+   step 9, no direct SQL). This keeps the registered producer set readable for
+   the old image and its
+   [rollback preflight](../operations/07-environments-and-release-management.md#api-rollback-protocol-preflight).
+   Steps 1 to 3 alone undo Action 240.
 4. Native 102 to 100: under the gate, stop the unit, put back
    `native102-20261117/config.before` (native
    `native-catalog-d92f681-20261117`, SHA256 `d2017c24…`) and start.
