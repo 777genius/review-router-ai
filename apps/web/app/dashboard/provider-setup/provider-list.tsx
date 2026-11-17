@@ -63,6 +63,7 @@ import {
   archiveProviderProfile,
   clearWorkspaceDefaultProvider,
   updateProviderProfile,
+  useProviderListView,
   useProviderSetupCompletion,
 } from "./provider-setup-api";
 import { ProviderSetupDialog } from "./provider-setup-dialog";
@@ -109,7 +110,8 @@ function shown(
  * visible, disabled, with its reason.
  */
 export function ProviderList(props: ProviderListProps): React.ReactElement {
-  const { view, mutationsEnabled } = props;
+  const { mutationsEnabled } = props;
+  const view = useProviderListView(props.view);
   const dialog = {
     workspaceId: view.workspaceId,
     mutationsEnabled,

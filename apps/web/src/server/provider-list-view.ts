@@ -32,6 +32,8 @@ export async function loadProviderListView(input: {
   readonly actor: DashboardMutationActor;
 }): Promise<ProviderListView | null> {
   const { prisma, workspaceId } = input;
+  // Taken before the first read: a read that began after a write is newer.
+  const readAt = Date.now();
   const dependencies = { profiles: dashboardProviderProfiles(prisma) };
   const [profiles, usage] = await Promise.all([
     listWorkspaceProviderProfiles(workspaceId, dependencies),
@@ -109,6 +111,7 @@ export async function loadProviderListView(input: {
 
   return buildProviderListView({
     workspaceId,
+    readAt,
     actor: facts.actor,
     workspace: facts.workspace,
     profiles: profiles.map((profile) => ({

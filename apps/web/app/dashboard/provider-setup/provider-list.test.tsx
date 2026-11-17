@@ -605,6 +605,61 @@ describe("Providers list", () => {
     expect(save).toHaveProperty("disabled", false);
   });
 
+  it("shows a removed default at once, without waiting for the page to re-render", async () => {
+    const owner = { userId: "user_owner", role: "owner" } as const;
+    // The page re-render (router.refresh) is mocked out: only the list's own
+    // refetch after the write can bring the new state.
+    const fetchMock = vi.fn<
+      (input: string, init?: RequestInit) => Promise<unknown>
+    >(async () => ({
+      ok: true,
+      json: async () =>
+        buildProviderListView(
+          facts({
+            actor: owner,
+            readAt: 1,
+            defaultProfileId: null,
+            usage: [
+              { profileId: "team", workspaceDefault: false, repositoryIds: [] },
+              {
+                profileId: "mine",
+                workspaceDefault: false,
+                repositoryIds: ["repo_a"],
+              },
+            ],
+          }),
+        ),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(clearWorkspaceDefaultProviderAction).mockResolvedValueOnce({
+      status: "saved",
+    });
+    renderList({ actor: owner });
+    const team = rowOf("Team ChatGPT");
+    expect(within(team).getByText("Default")).toBeTruthy();
+
+    fireEvent.click(button(team, "Remove as default"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Remove as default" }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(clearWorkspaceDefaultProviderAction).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      profileId: "team",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/dashboard/provider-list?workspace=workspace_1",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    // Already current when the dialog closes.
+    expect(within(rowOf("Team ChatGPT")).queryByText("Default")).toBeNull();
+    expect(
+      screen.getByText(/^No default provider: repositories without/),
+    ).toBeTruthy();
+  });
+
   it("names what still uses a provider without changing repository names", () => {
     expect(
       profileActionErrorText({

@@ -12,6 +12,7 @@ import {
   managedApiKeyProviderTypes,
   type ManagedApiKeyAuthMode,
 } from "@reviewrouter/features-review-config/workspace-provider-profile";
+import type { ProviderListView } from "../../../src/features/provider-setup/provider-list-model";
 import type { ProviderSetupView } from "../../../src/features/provider-setup/provider-setup-model";
 import { checkProviderRepositorySecretClientAction } from "../actions";
 /**
@@ -21,6 +22,8 @@ import { checkProviderRepositorySecretClientAction } from "../actions";
  */
 export const providerSetupQueryKeys = {
   workspace: (workspaceId: string) => ["provider-setup", workspaceId] as const,
+  list: (workspaceId: string) =>
+    ["provider-setup", workspaceId, "list"] as const,
   view: (workspaceId: string, repositoryIds: readonly string[]) =>
     [
       "provider-setup",
@@ -75,6 +78,47 @@ export function useProviderSetupView(input: {
     // Decisions depend on roles and Access rights; keep them fresh.
     staleTime: 15_000,
   });
+}
+
+export async function fetchProviderListView(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<ProviderListView> {
+  const params = new URLSearchParams({ workspace: workspaceId });
+  const response = await fetch(`/api/dashboard/provider-list?${params}`, {
+    cache: "no-store",
+    ...(signal ? { signal } : {}),
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok)
+    throw new Error(
+      body && typeof body === "object" && "error" in body
+        ? String((body as { readonly error: unknown }).error)
+        : "provider_list_unavailable",
+    );
+  return body as ProviderListView;
+}
+
+/**
+ * The workspace Providers list. The server render is its first paint; a
+ * provider write refetches it through `useProviderSetupCompletion`, so the
+ * list is current when the write's dialog closes instead of only after the
+ * whole dashboard has re-rendered. Of the server render and the cached read,
+ * the one read last wins.
+ */
+export function useProviderListView(
+  serverView: ProviderListView,
+): ProviderListView {
+  const { workspaceId } = serverView;
+  const cached = useQuery({
+    queryKey: providerSetupQueryKeys.list(workspaceId),
+    queryFn: ({ signal }) => fetchProviderListView(workspaceId, signal),
+    initialData: serverView,
+    // Server renders and provider writes keep it current; no focus polling.
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  }).data;
+  return cached.readAt > serverView.readAt ? cached : serverView;
 }
 
 export type ProviderSecretStatus = Awaited<
@@ -277,7 +321,8 @@ export function useManagedProviderKeyState(input: {
 }
 
 /**
- * After a provider write: refetch the dialog reads of the workspace and the
+ * After a provider write: refetch the workspace's provider reads, the
+ * Providers list included, before the caller closes its dialog, then the
  * server-rendered dashboard, which owns the stepper and provider lines.
  */
 export function useProviderSetupCompletion(workspaceId: string) {
