@@ -1285,9 +1285,11 @@ describe("disposable dual-version rehearsal", () => {
     // The new application-only Claude CHECK is excluded from the historical
     // signed checkout160 manifest, but included in the live source boundary.
     const currentMigrationNames = migrationNames.filter(
-      (name) => name !== "000157_claude_code_api_key_secret",
+      (name) =>
+        name !== "000157_claude_code_api_key_secret" &&
+        name !== "000158_review_run_allocation_provider_quota",
     );
-    expect(migrationNames).toHaveLength(162);
+    expect(migrationNames).toHaveLength(163);
     const legacyMigrationNames = currentMigrationNames.filter(
       (name) =>
         name !== "000155_usage_member_report_index" &&
@@ -1656,6 +1658,7 @@ describe("disposable dual-version rehearsal", () => {
       "000155_usage_member_report_index",
       "000156_verified_thread_reply",
       "000157_claude_code_api_key_secret",
+      "000158_review_run_allocation_provider_quota",
       "000150_skills_catalog_security",
       "000151_review_history",
       "000152_memory_automatic_source",
@@ -1938,6 +1941,7 @@ describe("disposable dual-version rehearsal", () => {
     "000152_review_run_gateway_allocations",
     "000153_conversation_processing",
     "000157_claude_code_api_key_secret",
+    "000158_review_run_allocation_provider_quota",
   ])(
     "excludes %s only from the historical fixture and preserves current source bytes",
     (migration) => {
@@ -2016,6 +2020,7 @@ describe("disposable dual-version rehearsal", () => {
                 name !== "000143_workspace_draft_review_setting" &&
                 name !== "000145_workspace_provider_profiles" &&
                 name !== "000157_claude_code_api_key_secret" &&
+                name !== "000158_review_run_allocation_provider_quota" &&
                 name !== "000155_usage_member_report_index" &&
                 name !== "000156_verified_thread_reply" &&
                 name !== "000154_unified_model_dispatch" &&

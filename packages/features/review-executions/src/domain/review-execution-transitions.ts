@@ -25,6 +25,7 @@ import {
   type ReviewExecutionObservationRef,
   type ReviewExecutionScope,
   type ReviewExecutionStream,
+  type ReviewCoverageExceptions,
   type ReviewInvocationLease,
   type ReviewRevision,
   type ReviewWorkSlot,
@@ -1083,8 +1084,7 @@ export type FinalizeExecutionTransitionInput = {
   readonly publicationNotAfter: Date;
   readonly permitEpoch: bigint;
   readonly allowPartial: boolean;
-  /** The finalized projection itself reports complete coverage. */
-  readonly producerCoverageComplete?: boolean;
+  readonly coverageExceptions?: ReviewCoverageExceptions;
   readonly limits: ReviewExecutionLimits;
   readonly now: Date;
   readonly retainUntil: Date;
@@ -1108,7 +1108,7 @@ export function decideExecutionFinalization(
   }
   const coverageState = deriveCoverageState(
     input.execution.workSlots,
-    input.producerCoverageComplete,
+    input.coverageExceptions,
   );
   if (coverageState === ReviewCoverageState.Partial && !input.allowPartial) {
     return {

@@ -50,6 +50,16 @@ export interface ReviewRunGatewayExecutionBindingPort {
     owner: ReviewRunGatewayExecutionOwner,
     binding: ReviewRunGatewayExecutionBinding,
   ): Promise<void>;
+  /** Records a provider quota exhaustion the relay itself observed for this
+   * allocation (plan 69). True once the fact is stored; never authorizes work. */
+  recordProviderQuotaExhausted?(owner: {
+    readonly authorizationId: string;
+    readonly allocationId: string;
+  }): Promise<boolean>;
+  /** Allocations of this authorization with a recorded provider quota exhaustion. */
+  providerQuotaExhaustedAllocations?(
+    authorizationId: string,
+  ): Promise<readonly string[]>;
 }
 
 /** Snapshot only the actual authenticated owned tuple, before any await. */

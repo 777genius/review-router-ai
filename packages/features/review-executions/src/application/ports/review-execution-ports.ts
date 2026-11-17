@@ -1,5 +1,6 @@
 import type {
   FinalizedReviewProjectionArtifact,
+  ReviewCoverageExceptions,
   ReviewExecutionLimits,
   ReviewExecutionScope,
   ReviewExecutionSnapshot,
@@ -253,8 +254,8 @@ export type FinalizeReviewExecutionCommand = {
   readonly publicationNotAfter: Date;
   readonly permitEpoch: bigint;
   readonly allowPartial: boolean;
-  /** The finalized projection itself reports complete coverage. */
-  readonly producerCoverageComplete?: boolean;
+  /** Server-verified facts that may excuse a required slot (plan 69). */
+  readonly coverageExceptions?: ReviewCoverageExceptions;
   readonly limits: ReviewExecutionLimits;
   readonly now: Date;
   readonly retainUntil: Date;

@@ -664,25 +664,40 @@ export function reviewExecutionIsTerminal(
   );
 }
 
+/** Server-verified facts that may excuse a required slot (plan 69). */
+export type ReviewCoverageExceptions = Readonly<{
+  /** Reviewer votes whose provider quota the relay itself saw exhausted. */
+  providerQuotaExhaustedVotes: ReadonlySet<string>;
+  /** The Action's projection claims complete coverage; it can only narrow. */
+  producerCoverageComplete: boolean;
+}>;
+
 /**
- * Every required slot must be satisfied. One bounded exception: when the
- * Action's own projection reports complete coverage (it skipped a reviewer
- * whose provider quota ran out, see `providerQuotaSkippedVotes` in the Action),
- * open slots are accepted only while another reviewer vote satisfied all of
- * its required slots. A run where no reviewer finished stays partial.
+ * Every required slot must be satisfied. One server-verified exception: an
+ * open slot is excused only when it is terminal (not pending or leased) and
+ * its reviewer's provider quota was recorded as exhausted by the relay, while
+ * another reviewer satisfied all of its required slots. The Action must also
+ * claim complete coverage; its claim never excuses a slot on its own.
  */
 export function deriveCoverageState(
   slots: readonly ReviewWorkSlot[],
-  producerCoverageComplete = false,
+  exceptions?: ReviewCoverageExceptions,
 ): ReviewCoverageState {
   const required = slots.filter((slot) => slot.required);
-  const openVotes = new Set(
-    required
-      .filter((slot) => slot.state !== ReviewWorkSlotState.Satisfied)
-      .map((slot) => slot.providerVoteIdentityHash),
+  const open = required.filter(
+    (slot) => slot.state !== ReviewWorkSlotState.Satisfied,
   );
-  if (openVotes.size === 0) return ReviewCoverageState.Completed;
-  return producerCoverageComplete &&
+  if (open.length === 0) return ReviewCoverageState.Completed;
+  const openVotes = new Set(open.map((slot) => slot.providerVoteIdentityHash));
+  return exceptions?.producerCoverageComplete === true &&
+    open.every(
+      (slot) =>
+        (slot.state === ReviewWorkSlotState.Exhausted ||
+          slot.state === ReviewWorkSlotState.Cancelled) &&
+        exceptions.providerQuotaExhaustedVotes.has(
+          slot.providerVoteIdentityHash,
+        ),
+    ) &&
     required.some((slot) => !openVotes.has(slot.providerVoteIdentityHash))
     ? ReviewCoverageState.Completed
     : ReviewCoverageState.Partial;

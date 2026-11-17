@@ -983,6 +983,53 @@ it("preserves confirmed provider quota without replaying the companion request",
   }
 });
 
+it.each([true, false])(
+  "returns a reviewer's provider quota only after the relay recorded it (recorded: %s)",
+  async (recorded) => {
+    const providerQuota = {
+      provider: "openrouter" as const,
+      limit: 1000,
+      remaining: 0 as const,
+      resetAt: "2026-11-18T00:00:00.000Z",
+    };
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      { admission: companionReservation().admission, providerQuota },
+      undefined,
+      undefined,
+      { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
+    );
+    const record = vi.fn(async () => recorded);
+    Object.assign(f.bindings, { recordProviderQuotaExhausted: record });
+    try {
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          Buffer.from("{}"),
+          new AbortController(),
+          undefined,
+          undefined,
+          "reviewer-0",
+        ),
+      ).rejects.toMatchObject({
+        code: "provider_quota_exhausted",
+        failureScope: "allocation",
+        providerQuota: recorded ? providerQuota : undefined,
+      });
+      expect(record).toHaveBeenCalledWith({
+        authorizationId: "authorization-1",
+        allocationId: "allocation-0",
+      });
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
+
 it.each([403, 503])(
   "ordinary request logs closed SDK refusal fields for HTTP %s without retrying",
   async (httpStatus) => {
@@ -2028,6 +2075,7 @@ async function fixture(
   const relay = createReviewRunGatewayRelay(relayInput);
   return {
     preparation,
+    bindings,
     rejectPreparation(
       statusCode: number,
       body: (intent: c.Prepare) => unknown,

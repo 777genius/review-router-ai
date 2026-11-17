@@ -45,11 +45,14 @@ const unifiedModelDispatchMigrationName = "000154_unified_model_dispatch";
 const usageMemberReportIndexName = "000155_usage_member_report_index";
 const verifiedReplyMigrationName = "000156_verified_thread_reply";
 const claudeApiKeyMigrationName = "000157_claude_code_api_key_secret";
+const providerQuotaMigrationName =
+  "000158_review_run_allocation_provider_quota";
 const readPreIndexCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
     (row) =>
       row.migrationName !== usageMemberReportIndexName &&
       row.migrationName !== claudeApiKeyMigrationName &&
+      row.migrationName !== providerQuotaMigrationName &&
       row.migrationName !== verifiedReplyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
@@ -205,6 +208,7 @@ const canonicalPrismaMigrationNames =
   currentCanonicalPrismaMigrationNames.filter(
     (name) =>
       name !== claudeApiKeyMigrationName &&
+      name !== providerQuotaMigrationName &&
       name !== usageMemberReportIndexName &&
       name !== verifiedReplyMigrationName &&
       name !== gatewayAllocationsMigrationName &&
@@ -593,7 +597,23 @@ const canonicalPrefix = (count: number) =>
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
-    const withClaude = readRenderManagedCheckoutInventory();
+    const withProviderQuota = readRenderManagedCheckoutInventory();
+    expect(withProviderQuota).toHaveLength(163);
+    expect(withProviderQuota.at(-1)).toEqual({
+      migrationName: providerQuotaMigrationName,
+      checksum:
+        "e7ca2b8ac7be046093607f22323f97f874f4c3648e609f10c6e5ebfa4d855730",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(withProviderQuota)).toEqual(
+      catalog,
+    );
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withProviderQuota.slice(0, -1),
+        { ...withProviderQuota.at(-1)!, checksum: "0".repeat(64) },
+      ]),
+    ).toThrow("checkout_extension");
+    const withClaude = withProviderQuota.slice(0, -1);
     expect(withClaude).toHaveLength(162);
     expect(withClaude.at(-1)).toEqual({
       migrationName: claudeApiKeyMigrationName,
@@ -2877,8 +2897,10 @@ describe("complete filesystem checkout inventory", () => {
     );
     if (count !== undefined) {
       rmSync(join(migrations, verifiedReplyMigrationName), { recursive: true });
-      // Historical partial checkouts predate Claude API-key migration161.
+      // Historical partial checkouts predate Claude API-key migration161
+      // and the provider-quota migration162.
       rmSync(join(migrations, claudeApiKeyMigrationName), { recursive: true });
+      rmSync(join(migrations, providerQuotaMigrationName), { recursive: true });
       rmSync(join(migrations, usageMemberReportIndexName), { recursive: true });
       rmSync(join(migrations, gatewayAllocationsMigrationName), {
         recursive: true,
@@ -2978,7 +3000,12 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(162);
+    expect(inventory).toHaveLength(163);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, providerQuotaMigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(162);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, claudeApiKeyMigrationName), {
       recursive: true,
@@ -3433,6 +3460,7 @@ describe("complete filesystem checkout inventory", () => {
       if (name === usageMemberReportIndexName) {
         expect(() => fixture.read()).toThrow("checkout_extension");
         const extensions = [
+          providerQuotaMigrationName,
           claudeApiKeyMigrationName,
           verifiedReplyMigrationName,
         ];
@@ -3452,9 +3480,9 @@ describe("complete filesystem checkout inventory", () => {
             extensionBytes,
           );
         }
-      } else if (name === claudeApiKeyMigrationName) {
-        // Removing only the newest, unpublished Claude tail restores the
-        // checksum-pinned verified-reply checkout161.
+      } else if (name === providerQuotaMigrationName) {
+        // Removing only the newest provider-quota tail restores the
+        // checksum-pinned Claude checkout162.
         expect(fixture.read()).toEqual(catalog);
       } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

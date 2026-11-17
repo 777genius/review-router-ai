@@ -28,31 +28,59 @@ const slot = (
   nextAttemptOrdinal: 2,
 });
 
-const { Satisfied, Exhausted, Pending } = ReviewWorkSlotState;
+const { Satisfied, Exhausted, Cancelled, Pending, Leased } =
+  ReviewWorkSlotState;
+const quota = (producerCoverageComplete = true) => ({
+  providerQuotaExhaustedVotes: new Set(["openrouter"]),
+  producerCoverageComplete,
+});
 const quotaSkip = [
   slot("or-1", "openrouter", Exhausted),
-  slot("or-2", "openrouter", Pending),
+  slot("or-2", "openrouter", Cancelled),
   slot("nv-1", "nvidia", Satisfied),
   slot("nv-2", "nvidia", Satisfied),
 ];
 
-describe("required coverage when the Action skipped a quota-exhausted reviewer", () => {
-  it("completes when the projection is complete and another reviewer finished", () => {
-    expect(deriveCoverageState(quotaSkip, true)).toBe(
+describe("required coverage with a server-recorded provider quota skip", () => {
+  it("completes when every open slot is a terminal quota slot and another reviewer finished", () => {
+    expect(deriveCoverageState(quotaSkip, quota())).toBe(
       ReviewCoverageState.Completed,
     );
   });
 
   it.each([
-    ["the projection reports partial coverage", quotaSkip, false],
     [
-      "no reviewer finished all of its required slots",
+      "the producer claims complete coverage over an open non-quota slot",
+      [...quotaSkip, slot("auth-1", "auth", Exhausted)],
+      quota(),
+    ],
+    [
+      "the producer claims complete coverage without any recorded quota",
+      quotaSkip,
+      {
+        providerQuotaExhaustedVotes: new Set<string>(),
+        producerCoverageComplete: true,
+      },
+    ],
+    ["the projection reports partial coverage", quotaSkip, quota(false)],
+    [
+      "a quota slot is still pending",
+      [...quotaSkip, slot("or-3", "openrouter", Pending)],
+      quota(),
+    ],
+    [
+      "a quota slot is still leased",
+      [...quotaSkip, slot("or-3", "openrouter", Leased)],
+      quota(),
+    ],
+    [
+      "no other reviewer finished all of its required slots",
       [
         slot("or-1", "openrouter", Exhausted),
         slot("nv-1", "nvidia", Satisfied),
         slot("nv-2", "nvidia", Exhausted),
       ],
-      true,
+      quota(),
     ],
     [
       "the only finished reviewer has no required work",
@@ -60,10 +88,10 @@ describe("required coverage when the Action skipped a quota-exhausted reviewer",
         slot("or-1", "openrouter", Exhausted),
         slot("nv-1", "nvidia", Satisfied, false),
       ],
-      true,
+      quota(),
     ],
-  ])("stays partial when %s", (_case, slots, producerComplete) => {
-    expect(deriveCoverageState(slots, producerComplete)).toBe(
+  ])("stays partial when %s", (_case, slots, exceptions) => {
+    expect(deriveCoverageState(slots, exceptions)).toBe(
       ReviewCoverageState.Partial,
     );
   });

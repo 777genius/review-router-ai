@@ -101,7 +101,9 @@ describe("canonical release migration transition", () => {
     // Historical signed checkout160 remains unchanged by additive app-only
     // Claude credential migration161.
     const names: readonly string[] = canonicalPrismaMigrationNames.filter(
-      (name) => name !== "000157_claude_code_api_key_secret",
+      (name) =>
+        name !== "000157_claude_code_api_key_secret" &&
+        name !== "000158_review_run_allocation_provider_quota",
     );
     const checkout161 = names.map((migrationName) => ({
       migrationName,
@@ -441,6 +443,7 @@ describe("canonical release migration transition", () => {
       readRenderManagedCheckoutInventory().filter(
         (row) =>
           row.migrationName !== "000157_claude_code_api_key_secret" &&
+          row.migrationName !== "000158_review_run_allocation_provider_quota" &&
           row.migrationName !== "000156_verified_thread_reply",
       ),
     );
