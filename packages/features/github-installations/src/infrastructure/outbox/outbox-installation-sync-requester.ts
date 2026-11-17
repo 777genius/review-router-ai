@@ -4,6 +4,18 @@ import type {
   InstallationSyncRequestPort,
 } from "../../application/ports/installation-sync-request-port";
 
+/** The outbox contract of a repository scan request, shared by writer and readers. */
+export const installationSyncRequestedEvent = {
+  type: "installation.sync_requested",
+  version: 1,
+} as const;
+
+export function installationSyncAggregateId(
+  githubInstallationId: string,
+): string {
+  return `github-installation:${githubInstallationId}`;
+}
+
 export class OutboxInstallationSyncRequester implements InstallationSyncRequestPort {
   constructor(private readonly outbox: OutboxEventRepositoryPort) {}
 
@@ -11,10 +23,9 @@ export class OutboxInstallationSyncRequester implements InstallationSyncRequestP
     input: InstallationSyncRequest,
   ): Promise<{ readonly created: boolean }> {
     return this.outbox.enqueue({
-      type: "installation.sync_requested",
-      version: 1,
+      ...installationSyncRequestedEvent,
       idempotencyKey: `installation:${input.githubInstallationId}:sync:${input.deliveryId}`,
-      aggregateId: `github-installation:${input.githubInstallationId}`,
+      aggregateId: installationSyncAggregateId(input.githubInstallationId),
       payload: {
         installationId: input.githubInstallationId,
         reason: input.reason,
