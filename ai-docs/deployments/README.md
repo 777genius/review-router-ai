@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-First-run fixes from the get-tok onboarding audit: [one Gateway model catalog status, connection links to Review providers and a precise Usage footer](2026-11-17-first-run-flow-fixes.md) - Web only, ordinary rollout; staging/production `pending`. Remaining audit items (Gateway quarantine reason, repository sync after App install, overlapping dialogs repro, repeated finding title) are listed in [74](../architecture/74-first-run-flow-fixes.md).
+First-run fixes from the get-tok onboarding audit: [one Gateway model catalog status, connection links to Review providers and a precise Usage footer](2026-11-17-first-run-flow-fixes.md), [PR #897](https://github.com/777genius/review-router-ai/pull/897) - Web only, ordinary rollout; staging/production `pending`. Remaining audit items (Gateway quarantine reason, repository sync after App install, overlapping dialogs repro, repeated finding title) are listed in [74](../architecture/74-first-run-flow-fixes.md).
 
 Provider quota does not drop a parallel review: [skip a quota-exhausted reviewer while another completes](2026-11-17-provider-quota-nonfatal.md), [PR #888](https://github.com/777genius/review-router-ai/pull/888) and [runtime PR #394](https://github.com/777genius/review-router/pull/394) - additive migration 000158 and API/Web rollout first, then the paired runtime release; staging/production `pending`. No configuration change.
 

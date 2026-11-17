@@ -3,7 +3,7 @@
 - Task ID: `2026-11-17-first-run-flow-fixes`
 - Goal: close the Web follow-ups recorded in the [get-tok onboarding audit](2026-11-11-get-tok-onboarding.md#ux-findings-and-follow-up): one model catalog status and refresh button for a Gateway account in the provider dialog, connection links that open Review providers instead of Review settings, and a Usage footer that names the missing measurement.
 - Affected target: Web dashboard only. No API, worker, database, Gateway, Action or configuration change.
-- Implementation: PR link added on merge. Plan and findings: [74](../architecture/74-first-run-flow-fixes.md).
+- Implementation: [ReviewRouter AI PR #897](https://github.com/777genius/review-router-ai/pull/897). Plan and findings: [74](../architecture/74-first-run-flow-fixes.md).
 - Dependencies: none. No migration, activation or feature flag.
 - Last updated: 2026-11-17.
 
