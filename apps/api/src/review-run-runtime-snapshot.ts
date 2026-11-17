@@ -842,6 +842,16 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     reader: RuntimeReader,
     configuration: ReviewConfiguration,
   ): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null> {
+    // A producer without reviewer plan version 2 would run an ordered fallback
+    // as a parallel review, or not at all: refuse it explicitly.
+    if (
+      input.modelTransport === "account_gateway" &&
+      configuration.providerMode === "fallback" &&
+      !supportsProducerReviewerFallback(
+        input.producerRelease.reviewerPlanProfile,
+      )
+    )
+      return { captureDenied: "reviewer_fallback_unsupported" };
     if (
       input.modelTransport !== "account_gateway" ||
       !supportsProducerReviewerPlans(
@@ -853,15 +863,6 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       !input.providerVoteLanes
     )
       return null;
-    // An older producer would run the ordered fallback as a parallel review:
-    // refuse it explicitly instead of admitting anything else.
-    if (
-      configuration.providerMode === "fallback" &&
-      !supportsProducerReviewerFallback(
-        input.producerRelease.reviewerPlanProfile,
-      )
-    )
-      return { captureDenied: "reviewer_fallback_unsupported" };
     const digest = (value: string) =>
       createHash("sha256").update(value).digest("hex");
     const allocations = new Map<string, ReviewRunGatewayAllocation>();

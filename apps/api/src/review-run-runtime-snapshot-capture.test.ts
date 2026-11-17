@@ -3,6 +3,7 @@ import {
   providerApiAuthModes,
   providerApiDescriptors,
   reviewerPlanDescriptorDigest,
+  reviewerPlanV1DescriptorDigest,
   reviewModelDispatchContract,
   reviewModelDispatchDescriptorDigest,
   reviewModelDispatchCapacity128Contract,
@@ -24,6 +25,7 @@ import {
   parseReviewConfigurationStrict,
 } from "@reviewrouter/features-review-config";
 import {
+  buildReviewRunReviewerPlan,
   parseReviewAgentProfiles,
   parseReviewRunRuntimeSnapshot,
   ManageReviewRunAuthorizations,
@@ -472,6 +474,61 @@ describe("multi-reviewer immutable capture", () => {
         readerFor(canonicalJson(single)),
       ),
     ).resolves.toEqual({ captureDenied: "gateway_profile_unapproved" });
+  });
+  it("captures an ordered fallback only for a producer that runs reviewer plan v2", async () => {
+    const parallel = multiConfiguration();
+    const fallback = parseReviewConfigurationStrict({
+      ...parallel,
+      providerMode: "fallback",
+      execution: { ...parallel.execution, providerMaxParallel: 1 },
+    });
+    const captured = await snapshotSource().capture(
+      multiInput(),
+      readerFor(canonicalJson(fallback)),
+    );
+    if (
+      !captured ||
+      "captureDenied" in captured ||
+      captured.snapshotVersion !== 4
+    )
+      throw new Error("v4_capture_required");
+    expect(captured.providerMode).toBe("fallback");
+    expect(captured.maxParallelReviewers).toBe(1);
+    expect(buildReviewRunReviewerPlan(captured)).toMatchObject({
+      planVersion: 2,
+      providerMode: "fallback",
+    });
+    // A parallel roster keeps its exact version 1 plan.
+    const parallelCapture = await snapshotSource().capture(
+      multiInput(),
+      readerFor(canonicalJson(parallel)),
+    );
+    expect(parallelCapture).not.toHaveProperty("providerMode");
+    // A version 1 producer, or one without any plan profile, is refused.
+    for (const reviewerPlanProfile of [
+      {
+        planVersion: 1 as const,
+        descriptorDigest: reviewerPlanV1DescriptorDigest,
+      },
+      undefined,
+    ]) {
+      const input = multiInput();
+      const { reviewerPlanProfile: _profile, ...release } =
+        input.producerRelease;
+      void _profile;
+      expect(
+        await snapshotSource().capture(
+          {
+            ...input,
+            producerRelease: {
+              ...release,
+              ...(reviewerPlanProfile ? { reviewerPlanProfile } : {}),
+            },
+          },
+          readerFor(canonicalJson(fallback)),
+        ),
+      ).toEqual({ captureDenied: "reviewer_fallback_unsupported" });
+    }
   });
   it("accepts sixteen while rejecting a Default and explicit equivalent engine identity", async () => {
     const maximum = await snapshotSource().capture(
