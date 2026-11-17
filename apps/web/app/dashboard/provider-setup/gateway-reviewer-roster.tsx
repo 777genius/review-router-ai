@@ -432,8 +432,7 @@ export function GatewayReviewerRoster({
                     }) ? (
                       <p className="text-xs leading-5 text-slate-400">
                         Free OpenRouter models have a daily request limit. When
-                        it runs out, this reviewer is skipped if another
-                        reviewer completes the review.
+                        it runs out, this reviewer stops until the limit resets.
                       </p>
                     ) : null}
                   </div>

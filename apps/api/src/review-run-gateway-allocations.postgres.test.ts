@@ -337,6 +337,35 @@ describe.skipIf(!enabled)(
         }),
       ).rejects.toThrow();
     });
+    it("records a provider quota once on the live allocation through the write-once guard", async () => {
+      const { owner, binding } = await seed("provider-quota");
+      const allocation = {
+        authorizationId: owner.authorizationId,
+        allocationId: "allocation-0",
+      };
+      expect(await adapter.recordProviderQuotaExhausted(allocation)).toBe(
+        false,
+      );
+      await adapter.attach(owner, binding);
+      expect(await adapter.recordProviderQuotaExhausted(allocation)).toBe(true);
+      const recorded =
+        await prisma.reviewRunGatewayAllocationExecution.findUniqueOrThrow({
+          where: { authorizationId_allocationId: allocation },
+        });
+      expect(recorded.providerQuotaExhaustedAt).toBeInstanceOf(Date);
+      expect(await adapter.recordProviderQuotaExhausted(allocation)).toBe(true);
+      expect(
+        (
+          await prisma.reviewRunGatewayAllocationExecution.findUniqueOrThrow({
+            where: { authorizationId_allocationId: allocation },
+          })
+        ).providerQuotaExhaustedAt,
+      ).toEqual(recorded.providerQuotaExhaustedAt);
+      expect(
+        await adapter.providerQuotaExhaustedAllocations(owner.authorizationId),
+      ).toEqual(["allocation-0"]);
+      expect(await adapter.read(owner)).toEqual({ status: "live", binding });
+    });
     it("forbids deletion/reinsertion and parent pruning until exact cleanup completes", async () => {
       const { owner, binding } = await seed("retention");
       await adapter.attach(owner, binding);

@@ -983,9 +983,10 @@ it("preserves confirmed provider quota without replaying the companion request",
   }
 });
 
-it.each([true, false])(
-  "returns a reviewer's provider quota only after the relay recorded it (recorded: %s)",
-  async (recorded) => {
+it.each(["recorded", "not recorded", "record failed", "no recorder"] as const)(
+  "returns a reviewer's provider quota only after the relay recorded it (%s)",
+  async (outcome) => {
+    const recorded = outcome === "recorded";
     const providerQuota = {
       provider: "openrouter" as const,
       limit: 1000,
@@ -1003,8 +1004,12 @@ it.each([true, false])(
       undefined,
       { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
     );
-    const record = vi.fn(async () => recorded);
-    Object.assign(f.bindings, { recordProviderQuotaExhausted: record });
+    const record = vi.fn(async () => {
+      if (outcome === "record failed") throw new Error("database_unavailable");
+      return recorded;
+    });
+    if (outcome !== "no recorder")
+      Object.assign(f.bindings, { recordProviderQuotaExhausted: record });
     try {
       await expect(
         f.relay.responses(
@@ -1020,10 +1025,11 @@ it.each([true, false])(
         failureScope: "allocation",
         providerQuota: recorded ? providerQuota : undefined,
       });
-      expect(record).toHaveBeenCalledWith({
-        authorizationId: "authorization-1",
-        allocationId: "allocation-0",
-      });
+      if (outcome !== "no recorder")
+        expect(record).toHaveBeenCalledWith({
+          authorizationId: "authorization-1",
+          allocationId: "allocation-0",
+        });
     } finally {
       await f.relay.shutdown();
     }

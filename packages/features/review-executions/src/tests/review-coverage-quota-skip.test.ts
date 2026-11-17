@@ -36,13 +36,13 @@ const quota = (producerCoverageComplete = true) => ({
 });
 const quotaSkip = [
   slot("or-1", "openrouter", Exhausted),
-  slot("or-2", "openrouter", Cancelled),
+  slot("or-2", "openrouter", Exhausted),
   slot("nv-1", "nvidia", Satisfied),
   slot("nv-2", "nvidia", Satisfied),
 ];
 
 describe("required coverage with a server-recorded provider quota skip", () => {
-  it("completes when every open slot is a terminal quota slot and another reviewer finished", () => {
+  it("completes when every open slot is an exhausted quota slot and another reviewer finished", () => {
     expect(deriveCoverageState(quotaSkip, quota())).toBe(
       ReviewCoverageState.Completed,
     );
@@ -71,6 +71,11 @@ describe("required coverage with a server-recorded provider quota skip", () => {
     [
       "a quota slot is still leased",
       [...quotaSkip, slot("or-3", "openrouter", Leased)],
+      quota(),
+    ],
+    [
+      "a quota slot was cancelled instead of exhausted",
+      [...quotaSkip, slot("or-3", "openrouter", Cancelled)],
       quota(),
     ],
     [

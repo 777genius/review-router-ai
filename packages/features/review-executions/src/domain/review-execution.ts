@@ -674,10 +674,11 @@ export type ReviewCoverageExceptions = Readonly<{
 
 /**
  * Every required slot must be satisfied. One server-verified exception: an
- * open slot is excused only when it is terminal (not pending or leased) and
- * its reviewer's provider quota was recorded as exhausted by the relay, while
- * another reviewer satisfied all of its required slots. The Action must also
- * claim complete coverage; its claim never excuses a slot on its own.
+ * open slot is excused only when it is exhausted (not pending, leased or
+ * cancelled) and its reviewer's provider quota was recorded as exhausted by
+ * the relay, while another reviewer satisfied all of its required slots. The
+ * Action must also claim complete coverage; its claim never excuses a slot on
+ * its own.
  */
 export function deriveCoverageState(
   slots: readonly ReviewWorkSlot[],
@@ -692,8 +693,7 @@ export function deriveCoverageState(
   return exceptions?.producerCoverageComplete === true &&
     open.every(
       (slot) =>
-        (slot.state === ReviewWorkSlotState.Exhausted ||
-          slot.state === ReviewWorkSlotState.Cancelled) &&
+        slot.state === ReviewWorkSlotState.Exhausted &&
         exceptions.providerQuotaExhaustedVotes.has(
           slot.providerVoteIdentityHash,
         ),
