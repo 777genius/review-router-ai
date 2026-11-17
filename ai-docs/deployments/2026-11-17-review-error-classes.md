@@ -28,10 +28,9 @@
   [agent-teams-ai/account-gateway#112](https://github.com/agent-teams-ai/account-gateway/pull/112),
   Action OCR ceiling
   [777genius/review-router#397](https://github.com/777genius/review-router/pull/397).
-- Implementation reference: native merged as `cfe50b7` (sub2api #102), Action
-  source merged as `d5c9a48` (review-router #395, not released yet), worker
-  merged as `cfb918510` (#891). Gateway #112 and Action #397 merge commits are
-  their provenance once merged.
+- Implementation reference: native merged as `cfe50b7` (sub2api #102), Gateway
+  as `4d113b5` (account-gateway #112), Action source as `d5c9a48` (#395) and
+  `b994447` (#397, both not released yet), worker as `cfb918510` (#891).
 - Dependencies: none between the parts; each can ship on its own. No schema or
   configuration change. `ACCOUNT_GATEWAY_BOUNDS.ocrMaxTokens` in the Action
   repeats the 1 MiB request limit (RR `REVIEW_ROUTER_ACCOUNT_GATEWAY_RELAY_POLICY`
