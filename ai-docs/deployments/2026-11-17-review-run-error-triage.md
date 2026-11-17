@@ -8,7 +8,7 @@
 - Affected services/targets: API (run authorization, Review Action v2 route
   diagnostics), worker (GitHub review request ingress), API configuration
   (`REVIEW_ROUTER_ACCOUNT_GATEWAY_POLICY`).
-- Implementation PR/issue: Draft PR from branch `fix/review-run-errors-20261117`.
+- Implementation PR/issue: [Draft PR #884](https://github.com/777genius/review-router-ai/pull/884).
 - Implementation reference: branch `fix/review-run-errors-20261117`, base
   `a71e05a74`. Not merged, released or installed.
 - Dependencies: none for the code. The production configuration step below is

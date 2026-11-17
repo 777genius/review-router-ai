@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Review run error triage: [NVIDIA reviewer authorization outage, actionable refusals and ingress lane gate](2026-11-17-review-run-error-triage.md) - code `pending` (Draft PR); production configuration step for `nvidia-build-chat-apikey-v1` in the approved Gateway run policy awaits the owner's decision. Until then every 777genius workspace review fails authorization.
+Review run error triage: [NVIDIA reviewer authorization outage, actionable refusals and ingress lane gate](2026-11-17-review-run-error-triage.md) - code `pending` ([Draft PR #884](https://github.com/777genius/review-router-ai/pull/884)); production configuration step for `nvidia-build-chat-apikey-v1` in the approved Gateway run policy awaits the owner's decision. Until then every 777genius workspace review fails authorization.
 
 Large producer registry configuration: [FILE input and current 238](2026-11-14-producer-registry-file.md) - #865 merged; production `deployed` in signed 238/source 75b with paired Action 238/FILE 66; normal registration, ungated readiness and channel 238 promotion PASS. Historical 234 native-reply/settlement canary PASS; standalone admin CLI FILE parsing is accepted but full readiness lacks the existing operator credential. No repeat 000156/157 or new credential is needed.
 
