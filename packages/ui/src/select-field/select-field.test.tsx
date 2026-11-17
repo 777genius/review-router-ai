@@ -39,6 +39,31 @@ describe("SelectField", () => {
     );
     expect(screen.getByRole("combobox").textContent).toContain("Provider A");
   });
+  it("renders an empty-value option as a selected choice, not a muted placeholder", () => {
+    const view = render(
+      <SelectField
+        label="Provider"
+        value=""
+        options={[
+          { value: "", label: "All providers" },
+          { value: "codex", label: "codex" },
+        ]}
+      />,
+    );
+    const value = screen.getByText("All providers");
+    expect(value.className).not.toContain("text-slate-500");
+    view.rerender(
+      <SelectField
+        label="Provider"
+        value=""
+        placeholder="Choose a provider"
+        options={[{ value: "codex", label: "codex" }]}
+      />,
+    );
+    expect(screen.getByText("Choose a provider").className).toContain(
+      "data-[placeholder]:text-slate-500",
+    );
+  });
   it("shows the selected option's icon on a controlled control", () => {
     render(
       <SelectField
