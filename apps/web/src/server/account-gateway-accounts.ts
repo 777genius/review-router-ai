@@ -165,7 +165,6 @@ export type AccountOperationView = {
       | import("../features/provider-setup/provider-identity").ProviderIdentity
       | undefined;
     inputKind: "none" | "callback_url" | "authorization_code";
-    personalOnly?: boolean;
   };
   account?: AccountView;
   // Original safe reconnect fields, present only after durable fences are ready.

@@ -43,7 +43,6 @@ describe("provider display identity", () => {
       planLabel: "Token Plan",
       regionLabel: "Singapore",
       completionInputKind: "none",
-      personalOnly: false,
       limitsContract: "none",
       modelSettings: [],
     };
@@ -70,7 +69,6 @@ describe("provider display identity", () => {
       planLabel: "NVIDIA Build evaluation",
       regionLabel: "Global",
       completionInputKind: "none",
-      personalOnly: false,
       limitsContract: "none",
       modelSettings: [],
     };

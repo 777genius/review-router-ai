@@ -194,7 +194,6 @@ test("qualified models without reasoning/fast controls save only omitted setting
     planLabel: "Kimi Code",
     regionLabel: "Global",
     completionInputKind: "none" as const,
-    personalOnly: false,
     limitsContract: "account-limits/v2" as const,
     modelSettings: [
       {
@@ -271,7 +270,6 @@ test("preserves a saved Codex Ultra selection against canonical Max capabilities
     planLabel: "Codex",
     regionLabel: "Global",
     completionInputKind: "none" as const,
-    personalOnly: false,
     limitsContract: "none" as const,
     modelSettings: [
       {

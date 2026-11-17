@@ -951,9 +951,7 @@ function Controls({
           <AccountForm
             account={account}
             mode="rename"
-            profiles={data.value.profiles.filter(
-              (p) => personal || !p.connection?.personalOnly,
-            )}
+            profiles={data.value.profiles}
             disabled={sourceBusy || account.canManage !== true}
             disabledReason={manageReason}
             managementScope={managementScope}
@@ -968,9 +966,7 @@ function Controls({
           <AccountForm
             account={account}
             mode="reconnect"
-            profiles={data.value.profiles.filter(
-              (p) => personal || !p.connection?.personalOnly,
-            )}
+            profiles={data.value.profiles}
             disabled={sourceBusy || account.canManage !== true}
             disabledReason={manageReason}
             submit={submit}
@@ -1037,7 +1033,6 @@ function Controls({
       ? data.value.profiles.filter(
           (p) =>
             centrallyEnrollAllowed(p) &&
-            (personal || !p.connection?.personalOnly) &&
             (p.provider !== "nvidia" ||
               (p.id === "nvidia-build-chat-apikey-v1" &&
                 p.availability === "enabled" &&
@@ -1148,11 +1143,7 @@ function Controls({
                 consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
                 oauthEnabled={
                   data?.status === "ok" &&
-                  data.value.profiles.some(
-                    (p) =>
-                      p.authKind === "oauth" &&
-                      (personal || !p.connection?.personalOnly),
-                  )
+                  data.value.profiles.some((p) => p.authKind === "oauth")
                 }
                 api={api}
                 managementScope={managementScope}
@@ -1581,9 +1572,6 @@ function ConnectionForm({
             (row.authKind === "oauth" ? "Sign in" : "API key"),
         }))}
       />
-      {profile?.connection?.personalOnly ? (
-        <p className="text-xs text-slate-400">Personal use</p>
-      ) : null}
       {profile?.authKind === "oauth" ? (
         <OAuthForm
           key={profile.id}
@@ -2081,7 +2069,6 @@ function OperationReadback({
           label: savedCompletion.providerLabel,
           providerId: savedCompletion.providerId,
           inputKind: savedCompletion.inputKind,
-          personalOnly: savedCompletion.personalOnly,
         }
     : completionProvider;
   const terminal = state === "applied" || state === "rejected";
@@ -2127,13 +2114,9 @@ function OperationReadback({
               : "Request completed."}{" "}
             {attachConnected
               ? null
-              : completion?.personalOnly ||
-                  (data?.status === "ok" &&
-                    data.value.account?.connection?.personalOnly)
-                ? "Personal use."
-                : managementScope === "personal"
-                  ? "Organization access can be granted separately via Access."
-                  : "Availability for reviews depends on workspace access and model selection."}
+              : managementScope === "personal"
+                ? "Organization access can be granted separately via Access."
+                : "Availability for reviews depends on workspace access and model selection."}
           </p>
         ) : state === "pending" ? (
           <p className="text-sm text-slate-400">
@@ -2243,8 +2226,6 @@ const connectAttachText: Record<
   Extract<ConnectWorkspaceAttachment, { status: "not_attached" }>["reason"],
   string
 > = {
-  personal_only:
-    "Personal use only. This plan cannot be added to a shared workspace.",
   not_permitted:
     "Not added to this workspace. Only workspace owners and admins can add their own connections. It stays in your connections.",
   not_connected:

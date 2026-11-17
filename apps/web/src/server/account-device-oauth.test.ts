@@ -334,7 +334,6 @@ async function fixture(
                   planLabel: "Subscription",
                   regionLabel: "Global",
                   completionInputKind: "authorization_code" as const,
-                  personalOnly: false,
                   limitsContract: "account-limits/v2" as const,
                   modelSettings: [],
                 },
