@@ -90,10 +90,9 @@ test("subscription connections use real server actions for all four providers an
     await expect(row).toContainText(profile.label);
     await expect(row).toContainText(profile.plan);
     await expect(row).not.toContainText("Codex");
-    if (profile.provider === "glm") {
-      await expect(row).toContainText("Personal use");
-      await expect(row.getByRole("button", { name: /^Access/ })).toHaveCount(0);
-    }
+    // Every plan, GLM included, can be shared through Access.
+    await expect(row).not.toContainText("Personal use");
+    await expect(row.getByRole("button", { name: /^Access/ })).toHaveCount(1);
     if (profile.provider === "minimax") {
       await expect(row).not.toContainText(
         /Limits source unavailable|Limits visible to the owner only/,
@@ -195,8 +194,7 @@ test("subscription connections use real server actions for all four providers an
   const glmReceipt = page.getByRole("status").filter({
     hasText: "Browser GLM subscription",
   });
-  await expect(glmReceipt).toContainText("Personal use.");
-  await expect(glmReceipt).not.toContainText("Organization access");
+  await expect(glmReceipt).not.toContainText("Personal use");
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: testInfo.outputPath("subscriptions-desktop.png"),

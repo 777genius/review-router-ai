@@ -1,7 +1,6 @@
 import { accountProviderIdentity } from "../features/provider-setup/provider-identity";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { GatewayError } from "@agent-teams/account-gateway/http";
-import { isPersonalOwnerOnlyProfile } from "@reviewrouter/features-provider-accounts";
 import type { AccountProfileView } from "./account-gateway-accounts";
 import {
   subscriptionProfileDefinition,
@@ -154,7 +153,6 @@ export function connectionView(
     planLabel: qualifiedNvidia(wire) ? "API key" : wire.plan.label,
     regionLabel: wire.region.label,
     completionInputKind: wire.completionInputKind,
-    personalOnly: isPersonalOwnerOnlyProfile(wire.profileId),
     limitsContract: wire.limitsContract,
     modelSettings: wire.models,
   };
@@ -173,6 +171,5 @@ export function operationCompletion(
     providerLabel: profile.label,
     providerId: accountProviderIdentity(profile),
     inputKind,
-    ...(profile.connection?.personalOnly ? { personalOnly: true } : {}),
   };
 }

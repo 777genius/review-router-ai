@@ -107,12 +107,7 @@ export type ConnectWorkspaceAttachment =
   | { status: "attached" }
   | {
       status: "not_attached";
-      reason:
-        | "personal_only"
-        | "not_permitted"
-        | "not_connected"
-        | "removed"
-        | "unavailable";
+      reason: "not_permitted" | "not_connected" | "removed" | "unavailable";
     };
 export type PersonalAccountsApi = {
   listSources(request: {

@@ -50,7 +50,6 @@ const accounts: AccountsResult<AccountsPage> = {
           planLabel: "API",
           regionLabel: "Global",
           completionInputKind: "none",
-          personalOnly: false,
           limitsContract: "none",
           modelSettings: ["model-one", "model-two"].map((modelId) => ({
             modelId,

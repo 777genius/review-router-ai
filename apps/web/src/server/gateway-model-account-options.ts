@@ -264,7 +264,6 @@ export function createGatewayModelAccountOptions(input: {
           planLabel: profile.label,
           regionLabel: "Global",
           completionInputKind: "none" as const,
-          personalOnly: false,
           limitsContract: "none" as const,
           modelSettings: [],
         };

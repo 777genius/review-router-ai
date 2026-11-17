@@ -9,7 +9,6 @@ const connection: AccountConnectionView = {
   planLabel: "Kimi Code",
   regionLabel: "Global",
   completionInputKind: "none",
-  personalOnly: false,
   limitsContract: "account-limits/v2",
   modelSettings: [
     {

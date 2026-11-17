@@ -307,7 +307,6 @@ function gatewayFixture(): AccountsResult<AccountsPage> {
             planLabel: "API",
             regionLabel: "Global",
             completionInputKind: "none",
-            personalOnly: false,
             limitsContract: "none",
             modelSettings: [
               {

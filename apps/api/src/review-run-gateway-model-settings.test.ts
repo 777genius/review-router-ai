@@ -121,7 +121,7 @@ function fixture(
     maxExpiresAt: new Date(deadline),
     runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
   } as ReviewRunAuthorization;
-  // The GLM plan may only be used by its owner inside the owner's personal workspace.
+  // GLM also covers a personal connection used in its owner's personal workspace.
   const personalOwner = source === "glm";
   let row: BindingSelection | null = {
     ...(personalOwner

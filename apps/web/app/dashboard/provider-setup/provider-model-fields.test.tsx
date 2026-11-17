@@ -101,7 +101,6 @@ it("renders and preserves legacy Ultra without silently choosing a new saved eff
     planLabel: "Codex",
     regionLabel: "Global",
     completionInputKind: "none",
-    personalOnly: false,
     limitsContract: "none",
     modelSettings: [
       {
@@ -260,7 +259,6 @@ it("preserves an omitted Codex account default and only corrects confirmed incom
       planLabel: "Codex",
       regionLabel: "Global",
       completionInputKind: "none" as const,
-      personalOnly: false,
       limitsContract: "none" as const,
       modelSettings: [
         {
@@ -303,7 +301,6 @@ it("keeps Gateway file reading an explicit engine choice when upstream tool meta
     planLabel: "API",
     regionLabel: "Global",
     completionInputKind: "none",
-    personalOnly: false,
     limitsContract: "none",
     modelSettings: [
       {

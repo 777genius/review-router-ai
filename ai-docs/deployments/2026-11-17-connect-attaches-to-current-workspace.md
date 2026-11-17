@@ -19,7 +19,7 @@
 1. Confirm the selected web image contains the merged change, then deploy it through the existing web release path in the [release procedure](../operations/07-environments-and-release-management.md). Ordinary code rollout is sufficient.
 2. As an owner or admin of a shared workspace, open Accounts > Add account, choose "You · personal account" and connect an account. After the connection completes the dialog says "Added to this workspace", the connection appears under "For this workspace" and in Review providers, and a reload shows the same.
 3. As a plain member of a shared workspace, connect an account from "All my connections": it connects, the status says only owners and admins can add their own connections, and the workspace list does not show it.
-4. Connect a GLM Coding Plan from a shared workspace: it connects and the status says it is for personal use only; no organization binding is created.
+4. Ship together with [all providers in all workspaces](2026-11-17-all-providers-in-all-workspaces.md): it removes the GLM personal-only rule, so a GLM Coding Plan connected from a shared workspace is added like any other plan. Without it, a GLM connect made between the two releases would show "cannot be added" and then be added silently on the next status read.
 5. Record the actual image/version, timestamp and evidence separately for each environment.
 
 ## Retry and rollback

@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+All providers in all workspaces: [GLM and every other plan can be added and used in any workspace](2026-11-17-all-providers-in-all-workspaces.md) - API and Web ordinary rollout, together with the connect-attach change below; staging/production `pending`. No migration, configuration or Gateway/native change.
+
 Connect from a workspace adds it there: [personal connection is attached to the current workspace](2026-11-17-connect-attaches-to-current-workspace.md), [PR #886](https://github.com/777genius/review-router-ai/pull/886) - web-only ordinary rollout; staging/production `pending`. No migration, configuration or Gateway/native change.
 
 Dashboard Providers tab fixes: [NVIDIA mark, roster highlight and list refresh](2026-11-17-dashboard-provider-ui.md), [PR #883](https://github.com/777genius/review-router-ai/pull/883) - web-only ordinary rollout; staging/production `pending`. No migration or configuration change.

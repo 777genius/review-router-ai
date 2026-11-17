@@ -305,7 +305,6 @@ describe("Providers list", () => {
                 planLabel: "API",
                 regionLabel: "Global",
                 completionInputKind: "none",
-                personalOnly: false,
                 limitsContract: "none",
                 modelSettings: [
                   {
@@ -408,7 +407,6 @@ describe("Providers list", () => {
                     planLabel: "API",
                     regionLabel: "Global",
                     completionInputKind: "none",
-                    personalOnly: false,
                     limitsContract: "none",
                     modelSettings: [
                       {
