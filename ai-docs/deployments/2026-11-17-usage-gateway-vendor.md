@@ -55,7 +55,7 @@ Gateway main). **Deploy order is the reverse for the wire change:**
    The new SDK accepts `unknown`, `partial` and `complete` and talks to the
    current Gateway unchanged (vendor lookup is static, no wire change).
 2. Account Gateway service from agent-teams-ai/account-gateway main including
-   #113 and #114 (never #113 alone), and #115 once merged. From then on it stores `unknown` for
+   #113 and #114 (never #113 alone), and #115 (`1dce5c327d14e9c0e5466da91441faa0d0ae38a5`). From then on it stores `unknown` for
    counter-less calls, and the rollout is forward-only (see below).
 
 If the Gateway goes first, the old ReviewRouter SDK rejects any usage page with

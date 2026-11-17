@@ -13,7 +13,8 @@
   [account-gateway#115](https://github.com/agent-teams-ai/account-gateway/pull/115),
   [review-router#399](https://github.com/777genius/review-router/pull/399); plan
   [75](../architecture/75-verification-residuals.md).
-- Implementation reference: the merge commits of those PRs.
+- Implementation reference: Gateway merge `1dce5c327d14e9c0e5466da91441faa0d0ae38a5`;
+  the ReviewRouter and runtime merge commits of the PRs above.
 - Dependencies: the second small release of
   [Usage names the Gateway vendor](2026-11-17-usage-gateway-vendor.md)
   (ReviewRouter first, then the Gateway). The Action part waits for the next
