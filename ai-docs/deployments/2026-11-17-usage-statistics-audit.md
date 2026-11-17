@@ -12,7 +12,9 @@
 - Implementation PR/issue:
   [PR #894](https://github.com/777genius/review-router-ai/pull/894), audit
   [72](../architecture/72-usage-statistics-audit.md).
-- Implementation reference: the branch head of that PR.
+- Implementation reference: merge commit `751238b91888d3ffa07b1ec1d4053b8393f5d6fa`
+  on `main`, not in the 2026-11-17 rollout (`974295ea`); it ships with the
+  second small release.
 - Dependencies: none. Ships independently of the
   [not reported labels](2026-11-17-usage-not-reported-labels.md) task, ideally
   in the same Web release.
