@@ -54,6 +54,8 @@ export interface ProviderUsageReport {
   logicalRuns: number;
   unknown: number;
   partial: number;
+  /** Newest call whose usage is still unknown or partial; drives polling. */
+  latestPendingAt: string | null;
   unboundedSummaries: number;
   hasMore: boolean;
   /** Usage providers whose Gateway profile is a flat subscription or coding plan. */
@@ -128,6 +130,7 @@ export function buildUsageReport(
     logicalRuns: report.totals.logicalRuns,
     unknown: report.totals.unknownCount,
     partial: report.totals.partialCount,
+    latestPendingAt: report.latestPendingAt,
     unboundedSummaries: report.unboundedSummaryCount,
     hasMore: report.nextCursor !== null,
     subscriptionProviders: gatewaySubscriptionUsageProviders,

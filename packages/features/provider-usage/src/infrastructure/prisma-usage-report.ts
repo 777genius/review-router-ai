@@ -44,6 +44,7 @@ type FamilySelection = {
 type AggregateBucket = UsageReportAggregateBucket & {
   hasDirectObservations: boolean;
   observationsWithoutRunId: string;
+  latestPendingAt: string | null;
 };
 
 const jsonValues = (values: readonly string[]) =>
@@ -321,6 +322,7 @@ async function readAggregates(
       bool_or("observedModel" IS NULL) AS "hasUnknownObservedModel",
       ${bucket.kind === "run" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt","rawOccurredAt" COLLATE "C"))[1]` : Prisma.sql`NULL::text`} AS "firstOccurredAt",
       ${bucket.kind === "run" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt" DESC,"rawOccurredAt" COLLATE "C" DESC))[1]` : Prisma.sql`NULL::text`} AS "lastOccurredAt",
+      ${bucket.kind === "totals" ? Prisma.sql`(array_agg("rawOccurredAt" ORDER BY "occurredAt" DESC,"rawOccurredAt" COLLATE "C" DESC) FILTER (WHERE spend AND ("unknownWeight"=1 OR "partialWeight"=1)))[1]` : Prisma.sql`NULL::text`} AS "latestPendingAt",
       ${bucket.kind === "run" ? Prisma.sql`jsonb_agg(DISTINCT jsonb_build_object('provider',"requestedProvider",'requestedModel',"requestedModel"))` : Prisma.sql`'[]'::jsonb`} AS identities,
       ${bucket.kind === "run" ? Prisma.sql`array_agg(DISTINCT "observationRoute")` : Prisma.sql`'{}'::text[]`} AS routes,
       bool_or("observationRoute"='direct') AS "hasDirectObservations",
@@ -366,7 +368,7 @@ async function readAggregates(
     SELECT m."bucketKey"->>0 AS kind,m."bucketKey"->>1 AS provider,m."bucketKey"->>2 AS model,
       m."bucketKey"->>3 AS route,m."bucketKey"->>4 AS day,m."bucketKey"->>5 AS "runId",
       m.totals||jsonb_build_object('costs',COALESCE(c.costs,'[]'::jsonb)) AS totals,
-      m."observedModels",m."hasUnknownObservedModel",m."firstOccurredAt",m."lastOccurredAt",m.identities,m.routes,
+      m."observedModels",m."hasUnknownObservedModel",m."firstOccurredAt",m."lastOccurredAt",m."latestPendingAt",m.identities,m.routes,
       m."hasDirectObservations",m."observationsWithoutRunId"
     FROM metrics m LEFT JOIN cost_arrays c USING ("bucketKey")
     ORDER BY m."bucketKey"->>0,
@@ -428,5 +430,6 @@ export async function readPrismaUsagePeriodReport(
     observationsWithoutRunId: checkedUsageInteger(
       totals?.observationsWithoutRunId ?? "0",
     ),
+    latestPendingAt: totals?.latestPendingAt ?? null,
   });
 }

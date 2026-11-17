@@ -14,18 +14,23 @@
   [audit 72, section 6](../architecture/72-usage-statistics-audit.md).
 - Implementation reference: the merged Gateway commit in
   `vendor/account-gateway/nvidia-sandbox-sdk-provenance.json` and the
-  ReviewRouter branch head of that PR.
-- Dependencies: ships in a **second, small release**, after the production
-  deploy that was in progress on 2026-11-17. Builds on
-  [usage statistics audit](2026-11-17-usage-statistics-audit.md).
+  ReviewRouter merge commit `6b2d658220c66deba1a60899988b3ad6ed9c10b8`.
+- Dependencies: ships in a **second, small release**, after the
+  [coordinated rollout of 2026-11-17](2026-11-17-coordinated-rollout-974295ea.md)
+  (deployed). Builds on
+  [usage statistics audit](2026-11-17-usage-statistics-audit.md). The same
+  release carries the [verification residuals](2026-11-17-verification-residuals.md):
+  [ReviewRouter #899](https://github.com/777genius/review-router-ai/pull/899) in the ReviewRouter step and
+  [account-gateway#115](https://github.com/agent-teams-ai/account-gateway/pull/115)
+  in the Gateway step.
 - Last updated: `2026-11-17`.
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                          |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Second small release: RR first, then Gateway.           |
-| production           | `pending` | Not verified                    | Not verified        | After the in-progress deploy; conversation requalified. |
+| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                |
+| -------------------- | --------- | ------------------------------- | ------------------- | --------------------------------------------- |
+| staging              | `pending` | Not verified                    | Not verified        | Second small release: RR first, then Gateway. |
+| production           | `pending` | Not verified                    | Not verified        | Second release; conversation requalified.     |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).
@@ -50,7 +55,7 @@ Gateway main). **Deploy order is the reverse for the wire change:**
    The new SDK accepts `unknown`, `partial` and `complete` and talks to the
    current Gateway unchanged (vendor lookup is static, no wire change).
 2. Account Gateway service from agent-teams-ai/account-gateway main including
-   #113 and #114 (never #113 alone). From then on it stores `unknown` for
+   #113 and #114 (never #113 alone), and #115 (`1dce5c327d14e9c0e5466da91441faa0d0ae38a5`). From then on it stores `unknown` for
    counter-less calls, and the rollout is forward-only (see below).
 
 If the Gateway goes first, the old ReviewRouter SDK rejects any usage page with

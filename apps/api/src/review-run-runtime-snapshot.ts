@@ -131,6 +131,26 @@ export function readServerApprovedReviewRunGatewayPolicy(
   }
 }
 
+/**
+ * A relay profile missing from the run policy can be routed but never
+ * authorized, so every review that uses it fails at admission. Refuse that
+ * configuration at startup. Profile IDs are public names, not secrets.
+ */
+export function assertRelayProfilesApprovedForRuns(
+  relayProfileIds: readonly string[],
+  runPolicy: ServerApprovedReviewRunGatewayPolicy | undefined,
+): void {
+  if (!runPolicy) return;
+  const approved = new Set(runPolicy.profiles.map((p) => p.profileRef));
+  const missing = [
+    ...new Set(relayProfileIds.filter((id) => !approved.has(id))),
+  ].sort();
+  if (missing.length)
+    throw new Error(
+      `review_run_gateway_relay_profile_unapproved:${missing.join(",")}`,
+    );
+}
+
 export type ServerReviewRunGatewayRequestCap = Readonly<{
   workspaceId: string;
   repositoryConnectionId: string;
@@ -533,8 +553,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         if (error instanceof ProviderAccountError) return null;
         throw error;
       }
+      // The saved reviewer names a profile its connection does not have: the
+      // same actionable configuration error, not a changed admission fact.
       if (binding.profileRef !== selected.provider.gatewayProfileRef)
-        return null;
+        return { captureDenied: "gateway_profile_unapproved" };
       gateway = {
         providerIndex: selected.providerIndex,
         bindingId: binding.bindingId,

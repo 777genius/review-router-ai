@@ -207,20 +207,46 @@ Undo in the exact reverse of what ran. Admission gate custody for a rollback
 window: copy the `caddy-*` files of `gate1-20261117` into a fresh custody and use
 the same operator.
 
-1. If producer 240 was registered and `workflow-v1` moved, first move
-   `workflow-v1` back to `1112a0f1de568f9fa927316ab68cef54fbcd4653` (239) with
-   the promotion workflow; nothing of this is done yet.
-2. Native 102 to 100: under the gate, stop the unit, put back
+The Action 240 part comes off first and only while `974295ea` still runs. The
+old image `0c67c3e0` accepts a `reviewerPlanProfile` with `planVersion: 1` only
+and throws `producer_reviewer_plan_profile_invalid` whenever it maps the 240
+row, from the database or from FILE 68, including when it tries to revoke it.
+So the image must never go back while anything can still name producer 240.
+
+1. Channels back to 239: move `workflow-v1` to
+   `1112a0f1de568f9fa927316ab68cef54fbcd4653` with `promote-workflow-channel.yml`
+   (`version=v1.0.239`, `expected_current_sha=3a256b15…`), then `v1` to the same
+   commit by the emergency rule of the
+   [release process](../operations/07-environments-and-release-management.md#rollback),
+   and record that move with both SHAs as the rule requires. Read both back.
+   Let runs already authorized on 240 finish or revoke their authorizations.
+2. FILE 68 to FILE 67: stop the four FILE 68 containers and start the retained
+   `*-before-file68-retained` containers (same `974295ea` image, FILE 67 mount,
+   Action refs and rotating installer tuple at 239). From here no new setup
+   pins 240.
+3. Find repositories that got a pin to `3a256b15`/`v1.0.240` outside the
+   channels since 19:13 (rotating installer and
+   `REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF`, step 8) and repin them to 239; the
+   release process keeps approved GitHub Secrets and Hosted Pool pins, so do
+   not revoke 240 while such a pin exists. Then revoke producer 240
+   (`reviewrouter-action.3a256b15…`) through the normal producer revocation
+   (`revoke_producer_release`, the same trusted path as the registration in
+   step 9, no direct SQL). This keeps the registered producer set readable for
+   the old image and its
+   [rollback preflight](../operations/07-environments-and-release-management.md#api-rollback-protocol-preflight).
+   Steps 1 to 3 alone undo Action 240.
+4. Native 102 to 100: under the gate, stop the unit, put back
    `native102-20261117/config.before` (native
    `native-catalog-d92f681-20261117`, SHA256 `d2017c24…`) and start.
-3. ReviewRouter: stop the four `974295ea` containers and start the retained
+5. ReviewRouter, only after steps 1 to 3: run the rollback preflight from the
+   target image, stop the four `974295ea` containers and start the retained
    `*-before-ovl-20261117175053384` containers (image `dd234f5d…`, revision
    `0c67c3e0`). Migrations 158 and 159 stay; they only add a nullable column and
    widen a CHECK, and the old image runs against them.
-4. Gateway 112 to 108: under the gate, stop, put back
+6. Gateway 112 to 108: under the gate, stop, put back
    `gateway112-20261117/dropin.before` (WorkingDirectory and `serve.ts` of
    `gateway108-9a842ff-native96-20261114`), `systemctl daemon-reload`, start.
-5. Native 100 to 98: under the gate, stop, put back
+7. Native 100 to 98: under the gate, stop, put back
    `native100-20261117/config.before` (native
    `native-retention-5ed186e-20261115`, SHA256 `171cdfdc…`), start.
 

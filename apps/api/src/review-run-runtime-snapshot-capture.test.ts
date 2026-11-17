@@ -38,6 +38,7 @@ import { createReviewRunControlTestKit } from "../../../packages/features/review
 import { provisionV2AuthorizationContext } from "../../../packages/features/review-run-control/src/tests/fixtures";
 import { storedPolicyForConfiguration } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
+  assertRelayProfilesApprovedForRuns,
   readServerApprovedReviewRunGatewayPolicy,
   readServerReviewAgentProfileRef,
   readServerReviewRunGatewayRequestCaps,
@@ -474,6 +475,70 @@ describe("multi-reviewer immutable capture", () => {
         readerFor(canonicalJson(single)),
       ),
     ).resolves.toEqual({ captureDenied: "gateway_profile_unapproved" });
+  });
+  // An approved profile that is not the one of the saved connection used to
+  // return null, which the authorize route turned into an opaque 500.
+  it("denies a reviewer whose saved profile is not its connection's profile", async () => {
+    const limits = {
+      requests: 2,
+      concurrency: 1,
+      requestBytes: 4096,
+      outputBytes: 196608,
+      tokens: 128,
+    };
+    const source = new ProductionReviewRunRuntimeSnapshot(
+      {} as PrismaClient,
+      {
+        profiles: [
+          { profileRef: gatewayProfileRef, limits },
+          { profileRef: "nvidia-build-chat-apikey-v1", limits },
+        ],
+      },
+      undefined,
+      false,
+      "codex-default",
+    );
+    const saved = JSON.parse(gatewayPolicyJson({}));
+    const mismatched = parseReviewConfigurationStrict({
+      ...saved,
+      providers: [
+        {
+          ...saved.providers[0],
+          gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+        },
+      ],
+    });
+    await expect(
+      source.capture(captureInput(), readerFor(canonicalJson(mismatched))),
+    ).resolves.toEqual({ captureDenied: "gateway_profile_unapproved" });
+  });
+  it("refuses at startup a relay profile the run policy does not approve", () => {
+    const limits = {
+      requests: 2,
+      concurrency: 1,
+      requestBytes: 4096,
+      outputBytes: 196608,
+      tokens: 128,
+    };
+    const runPolicy = {
+      profiles: [{ profileRef: gatewayProfileRef, limits }],
+    };
+    expect(() =>
+      assertRelayProfilesApprovedForRuns(
+        [gatewayProfileRef, "nvidia-build-chat-apikey-v1", "glm-coding-v1"],
+        runPolicy,
+      ),
+    ).toThrow(
+      "review_run_gateway_relay_profile_unapproved:glm-coding-v1,nvidia-build-chat-apikey-v1",
+    );
+    expect(() =>
+      assertRelayProfilesApprovedForRuns([gatewayProfileRef], runPolicy),
+    ).not.toThrow();
+    // Without a run policy no Gateway run is authorized at all; the relay may
+    // still serve dashboard probes, so this is not a startup error.
+    expect(() =>
+      assertRelayProfilesApprovedForRuns([gatewayProfileRef], undefined),
+    ).not.toThrow();
   });
   it("captures an ordered fallback only for a producer that runs reviewer plan v2", async () => {
     const parallel = multiConfiguration();

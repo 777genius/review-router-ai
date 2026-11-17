@@ -8,7 +8,8 @@ import type { ProviderVoteLane } from "../../domain/review-run-control-types";
 /** Explicit agentProfileRef configuration errors are actionable policy errors,
  * not a generic admission-facts miss. Never fall back to another engine.
  * `gateway_profile_unapproved`: a saved Account Gateway reviewer uses a
- * connection profile that the server-approved run policy does not allow.
+ * connection profile that the server-approved run policy does not allow, or
+ * names a profile its saved connection does not have.
  * `reviewer_fallback_unsupported`: the policy runs reviewers in fallback
  * order but the producer does not declare reviewer plan version 2. */
 export type ReviewRunRuntimeCaptureDenial = Readonly<{
