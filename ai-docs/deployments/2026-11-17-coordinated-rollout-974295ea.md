@@ -22,20 +22,26 @@
   [dashboard Providers tab](2026-11-17-dashboard-provider-ui.md),
   [Codex limits refresh on open](2026-11-17-codex-limits-refresh-on-open.md) and
   [Usage labels](2026-11-17-usage-not-reported-labels.md).
-- Not in this rollout: #894 (Usage page, merged after `974295ea`) stays for the
-  next ordinary Web release.
+- Not in this rollout, merged after the pinned commits: #894 (Usage page) and a
+  second small release, ReviewRouter #896 with Gateway #113/#114 (usage vendor
+  attribution, SDK repack). That release runs in the opposite order:
+  ReviewRouter first, then the Gateway, because the installed SDK rejects the new
+  `unknown` value; it also carries the conversation qualification step. Note
+  for it: `REVIEW_ROUTER_CONVERSATION_QUALIFICATION` is not set on any
+  production role today (see the baseline below).
 - Last updated: `2026-11-17`.
 
 ## Environment status
 
-| Target                         | Status     | Actual version                                                      | Verified (UTC)   | Evidence / next step                                       |
-| ------------------------------ | ---------- | ------------------------------------------------------------------- | ---------------- | ---------------------------------------------------------- |
-| production native              | `deployed` | sub2api `cfe50b7f` (#101/#102), binary `fdf825d2…`                  | 2026-11-17 17:52 | Window 2 below; NVIDIA list 18 models through the Gateway. |
-| production Gateway             | `deployed` | account-gateway `4d113b5c` (#111/#112), manifest `a5a9cb63…`        | 2026-11-17 17:47 | Window 1 below.                                            |
-| production database            | `deployed` | ledger 168 (000158, 000159)                                         | 2026-11-17 17:50 | pgBackRest full backup `20261117-184829F` taken before.    |
-| production API/Web/worker/scan | `deployed` | review-router-ai `974295ea`, image `sha256:596eb430…`               | 2026-11-17 17:51 | Four roles healthy, zero restarts, ready 200.              |
-| public Action 240              | `blocked`  | PR [#398](https://github.com/777genius/review-router/pull/398) open | 2026-11-17       | GitHub Actions queue of the 777genius account, see below.  |
-| producer 240 / `workflow-v1`   | `pending`  | `workflow-v1` = 239 `1112a0f1`, 239 producer registered             | 2026-11-17       | After the Action release; tooling staged, see below.       |
+| Target                         | Status        | Actual version                                                | Verified (UTC)   | Evidence / next step                                       |
+| ------------------------------ | ------------- | ------------------------------------------------------------- | ---------------- | ---------------------------------------------------------- |
+| production native              | `deployed`    | sub2api `cfe50b7f` (#101/#102), binary `fdf825d2…`            | 2026-11-17 17:52 | Window 2 below; NVIDIA list 18 models through the Gateway. |
+| production Gateway             | `deployed`    | account-gateway `4d113b5c` (#111/#112), manifest `a5a9cb63…`  | 2026-11-17 17:47 | Window 1 below.                                            |
+| production database            | `deployed`    | ledger 168 (000158, 000159)                                   | 2026-11-17 17:50 | pgBackRest full backup `20261117-184829F` taken before.    |
+| production API/Web/worker/scan | `deployed`    | review-router-ai `974295ea`, image `sha256:596eb430…`         | 2026-11-17 17:51 | Four roles healthy, zero restarts, ready 200.              |
+| public Action 240              | `deployed`    | `v1.0.240` = `3a256b15`, release run 44152856502              | 2026-11-17 19:12 | Steps 4 and 5 below.                                       |
+| producer 240 / FILE 68         | `deployed`    | FILE 68 `de650886…`, producer `3a256b15` registered (plan v2) | 2026-11-17 19:13 | Steps 7 to 9 below.                                        |
+| `workflow-v1`                  | `in_progress` | promotion run 44156338278 queued                              | 2026-11-17 19:20 | Step 10 below.                                             |
 
 `pending` and `blocked` follow the [status contract](README.md#status-contract).
 
@@ -125,49 +131,53 @@ apply-gate-v2 operators with only their constants changed.
 
 ## Acceptance evidence (UTC)
 
-| Check                              | Result                                      | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ---------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (a) normal review with publication | **FAIL (provider), path OK**                | Disposable [get-tok PR 2](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/2), commit `29bd7e2c` at 18:12:19: intent created 18:12:24, [run 44145369545](https://github.com/get-tok/reviewrouter-onboarding-e2e/actions/runs/44145369545) authorized by the new API at 18:13:00 (producer 239), execution `partial`, App summary "Review incomplete" published at 18:14:15. The Codex reviewer `gpt-6.1-sol` got HTTP 429 from upstream (Gateway journal `gateway_native_response_failure` `http_status` 429, then `gateway_native_transport_failure` `native_response`), so required coverage did not finish. A usage limit on that Codex account is the likely cause; not proven. |
-| (b) NVIDIA reviewer and live list  | **List PASS; review not run**               | Normal Gateway route `POST /v1/account-models/read` for the NVIDIA account at 18:17:52 (first read just after window 2): `snapshot`, source `nvidia`, 18 models, anchor `nvidia/nemotron-3.5-super-vl-120b-a12b` first, no embed, rerank, guard, safety or similar ids. Kimi reads 6 models from `native_catalog` (#100). A real NVIDIA review needs a 777genius repository, whose Actions runs are stuck in the queue.                                                                                                                                                                                                                                                                        |
-| (c) quota skip                     | **Not run**                                 | Needs runtime 240 and a two-reviewer roster with an exhausted OpenRouter `:free` reviewer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| (d) ordered fallback               | **Not run**                                 | Needs the reviewer plan v2 producer (240) registered and `workflow-v1` promoted, and a disposable fallback policy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| (e) one run per revision           | **PASS (worker); superseded-green not run** | Natural traffic on the new worker: 777genius/review-router-ai PR 894, `pull_request_synchronized` request `f2b78c94…` dispatched run 44142567038 for head `93a30f42`; the `pull_request_ready_for_review` request `3c3b3df8…` for the same head at 17:59:02 became `superseded` with `supersededByRequestId` = `f2b78c94…` and no second run. "Superseded run not red" needs runtime 240.                                                                                                                                                                                                                                                                                                      |
-| (f) connect and attach any plan    | **Code PASS; UI not exercised**             | The 11 attach and workspace test files of #886/#887 pass on the exact source; no real GLM request. The worker logs "Review request ignored without an active hosted lane" (#884).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Check                              | Result                                      | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) normal review with publication | **PASS**                                    | Disposable [777genius/rr-codex-rotating-e2e PR 138](https://github.com/777genius/rr-codex-rotating-e2e/pull/138) (Draft, then ready at 18:24:15): one request, [run 44147523978](https://github.com/777genius/rr-codex-rotating-e2e/actions/runs/44147523978), execution `rr:execution:7a8f7c74…` `completed` at 18:37:22 on producer 239, App summary "1 major · 3 minor" with inline comments at 18:38:13. The run ends red only through `review_merge_gate_failed`, which is the expected merge gate for the deliberate bug in the canary. An earlier attempt on [get-tok PR 2](https://github.com/get-tok/reviewrouter-onboarding-e2e/pull/2) (run 44145369545) reached the provider through Gateway 112/native 102 and published "Review incomplete": the Codex `gpt-6.1-sol` account answered HTTP 429 upstream (`gateway_native_response_failure` `http_status` 429), likely a usage limit, not proven. |
+| (b) NVIDIA reviewer and live list  | **PASS**                                    | The PR 138 review ran on the NVIDIA reviewer: `ReviewEvidenceObservation` requested and actual model `nvidia/nemotron-3.5-super-vl-120b-a12b` at 18:36:49, no Gateway failure lines in that window. Normal Gateway route `POST /v1/account-models/read` for the NVIDIA account at 18:17:52 (first read just after window 2): `snapshot`, source `nvidia`, 18 models, anchor first, no embed, rerank, guard, safety or similar ids; Kimi reads 6 models from `native_catalog` (#100).                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| (c) quota skip                     | **Not run**                                 | Needs runtime 240 and a two-reviewer roster with an exhausted OpenRouter `:free` reviewer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| (d) ordered fallback               | **Not run**                                 | Needs the reviewer plan v2 producer (240) registered and `workflow-v1` promoted, and a disposable fallback policy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| (e) one run per revision           | **PASS (worker); superseded-green not run** | Natural traffic on the new worker: 777genius/review-router-ai PR 894, `pull_request_synchronized` request `f2b78c94…` dispatched run 44142567038 for head `93a30f42`; the `pull_request_ready_for_review` request `3c3b3df8…` for the same head at 17:59:02 became `superseded` with `supersededByRequestId` = `f2b78c94…` and no second run. "Superseded run not red" needs runtime 240.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| (f) connect and attach any plan    | **Code PASS; UI not exercised**             | The 11 attach and workspace test files of #886/#887 pass on the exact source; no real GLM request. The worker logs "Review request ignored without an active hosted lane" (#884).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
-## Action 240, producer registration and `workflow-v1`: blocked
+## Action 240, FILE 68 and producer registration
 
-The release, its producer registration and the channel promotion are not done.
-
-- [PR #398](https://github.com/777genius/review-router/pull/398) prepares
-  1.0.240: version metadata only, plus a re-export of the protocol handoff. The
-  handoff exported for #396 named feature-branch commit `b3f1e9c8` as its base,
-  which is not an ancestor of `main` after the squash merge, so the release
-  manifest generator refused it. The re-export from `974295ea` onto `c11f550`
-  changes only `expectedPublicActionBaseCommit`. With it, the canonical manifest
-  generator and checker both pass for the PR head; the manifest carries reviewer
-  plan `{ planVersion: 2, descriptorDigest: sha256:53ad81ad… }` and the same
-  schema, canonicalizer, agent profiles and dispatch descriptor as 239.
-- Blocker: its required `build` check has been queued since 17:53, together with
-  hundreds of queued runs across the 777genius account, while only about three
-  hosted jobs run at a time. GitHub status reported no incident. The release and
-  the promotion workflows need the same runners, so they would wait the same way.
-  Natural reviews on 777genius repositories wait in the same queue.
-- Staged and inert in `coordinated240-20261117/`: `build-file68.py` (FILE 68 =
-  all 67 rows plus the 240 row, built from the 239 row with only the release
-  identity fields and reviewer plan v2 replaced, other fields compared with the
-  verified manifest) and `prepare-binding68.py` (Action refs, rotating overlap and
-  installer tuple for 240), next to the compiled registry-file projection. The
-  fleet and registration operators are the reviewed FILE67 and 239 registration
-  operators with only their constants changed; they are generated once the
-  release commit is known.
-
-Next steps, in order, once runners are available: wait for the `build` check on
-#398 and merge it; run `release.yml` for `v1.0.240`; generate and check the
-canonical manifest for the release commit; build FILE 68 and the binding; check
-FILE 68 with the installed image's reader; apply the FILE 68 cohort (short
-four-role restart, no gate, as for FILE 67); inspect, then register the producer
-through the normal materializer; promote `workflow-v1` from `1112a0f1` with
-`promote-workflow-channel.yml`; then run (c), (d) and the superseded-run check.
+4. **Release prep** [PR #398](https://github.com/777genius/review-router/pull/398),
+   squash `3a256b15ceccbb0a8069c6b6bdacfecf1a36ffc6` (tree equal to the
+   reviewed head): version metadata for 1.0.240 plus a re-export of the protocol
+   handoff. The handoff exported for #396 named feature-branch commit `b3f1e9c8`
+   as its base, which is not an ancestor of `main` after the squash merge, so the
+   release manifest generator refused it; the re-export from `974295ea` onto
+   `c11f550` changes only `expectedPublicActionBaseCommit`. Required `build`
+   passed after waiting in the account queue since 17:53.
+5. **Release** [44152856502](https://github.com/777genius/review-router/actions/runs/44152856502)
+   SUCCESS, published 19:12:33: `v1.0.240` and `v1` = `3a256b15`. The first
+   dispatch 44147024800 stayed queued for 33 minutes while later jobs started and
+   was cancelled before it ran; nothing was published by it.
+6. **Canonical manifest** for `3a256b15` from `974295ea` tooling: generator and
+   checker pass, SHA256 `f32ade98…`, reviewer plan
+   `{ planVersion: 2, descriptorDigest: sha256:53ad81ad… }`, runtime entrypoint
+   `04649ab5…`; schema, canonicalizer, agent profiles and dispatch descriptor
+   equal 239.
+7. **FILE 68** `coordinated240-20261117/producer-release-attestations.json`,
+   SHA256 `de650886…`, 160,740 bytes, mode 0444: all 67 rows kept, the 240 row is
+   the 239 row with only `producerReleaseId`, `actionCommitSha`,
+   `runtimeCommitSha`, `runtimeEntrypointDigest` and `reviewerPlanProfile`
+   changed (production keeps its `account_gateway`-only dispatch profile). The
+   installed image's own reader parses 68 rows and plan version 2 in an offline
+   container. Rotating installer descriptor for 240 (seed script SHA256
+   `b8e05bfb…`, unchanged), binding `c425a450…`.
+8. **FILE 68 cohort** with the reviewed FILE67 operator (constants only),
+   applied 19:13:23: four roles restarted on the same image, mount moved to the
+   FILE 68 generation, `REVIEW_ROUTER_ACCOUNT_GATEWAY_ACTION_REF` (api, web) and
+   `REVIEW_ROUTER_CODEX_ROTATING_ACTION_REF` (all) moved to `3a256b15`, 239 added
+   to the rotating overlap, installer tuple `v1.0.240`; zero restarts, `/ready`
+   and Web 200, no errors. Old containers are kept as
+   `*-before-file68-retained`.
+9. **Producer registration** through the normal trusted materializer inside the
+   API (`issuer240.mjs` inspect, then register) at 19:13:48:
+   `reviewrouter-action.3a256b15…` `registered` with reviewer plan version 2;
+   239, limits and SLO profiles unchanged; no direct SQL.
 
 ## Other observations
 
