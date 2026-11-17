@@ -38,10 +38,12 @@ import {
   type UsageMetric,
 } from "./provider-usage-format";
 
+/** Calls whose usage report may still arrive or be revised by reconciliation. */
+const hasPendingUsage = (report: ProviderUsageReport) =>
+  report.unknown > 0 || report.partial > 0;
 function hasUnknownUsage(report: ProviderUsageReport): boolean {
   return (
-    report.unknown > 0 ||
-    report.partial > 0 ||
+    hasPendingUsage(report) ||
     report.totals.unknownCostCount > 0 ||
     report.totals.unknownTotalTokenCount > 0
   );
@@ -122,9 +124,10 @@ function ProviderUsageContext({
     staleTime: scope.seedTrusted ? 30_000 : 0,
     retry: (failureCount, error) =>
       !isProviderUsageAccessFailure(error) && failureCount < 2,
+    // Gateway never reports cost, so a missing cost alone is final, not pending.
     refetchInterval: (query) => {
       const data = query.state.data;
-      return !scope.denied && data && hasUnknownUsage(data) ? 30_000 : false;
+      return !scope.denied && data && hasPendingUsage(data) ? 30_000 : false;
     },
     refetchIntervalInBackground: false,
   });
@@ -353,7 +356,12 @@ function ProviderUsageContext({
         ) : data && currency ? (
           <p className="text-xs text-slate-400">Cost currency: {currency}</p>
         ) : null}
-        {filters.provider || filters.model || filters.route ? (
+        {/* Binding and run are typed in Details but filter the whole page. */}
+        {filters.provider ||
+        filters.model ||
+        filters.route ||
+        filters.bindingId ||
+        filters.runId ? (
           <Button
             variant="ghost"
             size="sm"
@@ -363,6 +371,8 @@ function ProviderUsageContext({
                 provider: undefined,
                 model: undefined,
                 route: undefined,
+                bindingId: undefined,
+                runId: undefined,
               })
             }
           >

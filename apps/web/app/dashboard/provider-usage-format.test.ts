@@ -79,7 +79,7 @@ describe("usage presentation invariants", () => {
       }),
     ).toBe("No USD source reported amount");
     expect(costsLabel(totals, "EUR")).toBe("No EUR amount");
-    expect(costsLabel({ ...totals, costs: [] }, "USD")).toBe("Unknown");
+    expect(costsLabel({ ...totals, costs: [] }, "USD")).toBe("Not reported");
     expect(
       costsLabel(
         {

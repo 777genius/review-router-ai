@@ -218,6 +218,43 @@ describe("provider usage interactive report", () => {
     ).toBe("/dashboard/setup?workspace=workspace#dashboard-section-content");
     expect(container.textContent).not.toContain("Quota / limits: unknown");
   });
+  it("shows only reported delivery losses and the token status wording of the tables in Details", () => {
+    const coverage = {
+      schemaVersion: 1 as const,
+      revision: 1,
+      state: "partial" as const,
+      reason: "spool_overflow" as const,
+      droppedEvents: 3,
+      occurredAt: "2026-10-20T00:00:00Z",
+    };
+    render(
+      <Harness
+        seed={{
+          ...report,
+          deliveryCoverage: [
+            { invocationId: "quiet", coverage: null },
+            { invocationId: "lossy", coverage },
+            { invocationId: "quiet", coverage: null },
+          ],
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Details"));
+    const delivery = screen.getByLabelText("Producer delivery coverage");
+    expect(
+      within(delivery)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Runtime delivery: partial (spool_overflow, 3 dropped events)",
+      "No delivery loss reported by 2 runtime sessions",
+    ]);
+    expect(screen.getByText(/1 call without a usage report/)).toBeTruthy();
+    expect(screen.queryByText(/\d+ unknown · \d+ partial/)).toBeNull();
+    expect(
+      screen.getByText("No native source checkpoint for this workspace."),
+    ).toBeTruthy();
+  });
   it("separates the latest update from older sources and partial day measurements", () => {
     render(
       <Harness
@@ -948,6 +985,9 @@ describe("provider usage interactive report", () => {
     expect(
       screen.getByText(/No measured observations for this interval/),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("definition", { name: "Not reported" }).textContent,
+    ).toBe("Not reported");
   });
   it("resets dimension filters and both cursors while preserving interval, purpose, currency and period", async () => {
     const selectedFilters: UsageFilters = {
@@ -956,6 +996,8 @@ describe("provider usage interactive report", () => {
       provider: "codex",
       model: "requested-alpha",
       route: "direct",
+      bindingId: "binding-from-details",
+      runId: "run-from-details",
       after: "old-call-cursor",
       runAfter: "old-run-cursor",
     };
@@ -1015,29 +1057,24 @@ describe("provider usage interactive report", () => {
       "2026-10-21",
     );
   });
-  it.each(["unknownCostCount", "unknownTotalTokenCount"] as const)(
-    "polls when %s is the only incomplete metric and stops after full measurements",
+  const settled = {
+    ...report,
+    unknown: 0,
+    partial: 0,
+    totals: {
+      ...totals,
+      unknownCount: 0,
+      partialCount: 0,
+      unknownCostCount: 0,
+      unknownTotalTokenCount: 0,
+    },
+  };
+  it.each(["unknown", "partial"] as const)(
+    "polls while %s usage reports may still change and stops once they settle",
     async (field) => {
-      const incomplete = {
-        ...report,
-        unknown: 0,
-        partial: 0,
-        totals: {
-          ...totals,
-          unknownCount: 0,
-          partialCount: 0,
-          unknownCostCount: 0,
-          unknownTotalTokenCount: 0,
-          [field]: 1,
-        },
-      };
-      const complete = {
-        ...incomplete,
-        totals: { ...incomplete.totals, [field]: 0 },
-      };
-      vi.mocked(fetchProviderUsage).mockResolvedValue(complete);
+      vi.mocked(fetchProviderUsage).mockResolvedValue(settled);
       vi.useFakeTimers();
-      render(<Harness seed={incomplete} />);
+      render(<Harness seed={{ ...settled, [field]: 1 }} />);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(30_000);
       });
@@ -1049,6 +1086,24 @@ describe("provider usage interactive report", () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
       expect(fetchProviderUsage).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["unknownCostCount", "unknownTotalTokenCount"] as const)(
+    "does not poll when only %s is missing because the source never sends it",
+    async (field) => {
+      vi.useFakeTimers();
+      render(
+        <Harness
+          seed={{ ...settled, totals: { ...settled.totals, [field]: 1 } }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90_000);
+      });
+      expect(fetchProviderUsage).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/Some token or cost data was not reported/),
+      ).toBeTruthy();
     },
   );
 });

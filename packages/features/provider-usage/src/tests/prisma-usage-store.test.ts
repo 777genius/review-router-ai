@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { createPrismaClient } from "@reviewrouter/platform-db";
 import { fact } from "./fixture";
+import { reviewerChainScenario } from "./gateway-call-fixture";
 import {
   PrismaUsageStore,
   PrismaUsageReportReader,
@@ -1060,6 +1061,28 @@ describe.skipIf(!adminUrl)("usage ledger real PostgreSQL", () => {
     // A foreign actor's complete child cannot complete this member's family.
     expect(familyOwner.totals.tokens.total).toBe(1099);
     expect(familyOwner.totals.reportedSummaries).toBe(2);
+  });
+
+  it("matches the in-memory report for a fallback reviewer chain and its rerun", async () => {
+    const scope = "sql-reviewer-chain";
+    const chain = reviewerChainScenario(scope, "2026-10-21");
+    // Legacy groups follow first-call order, which the ledger reads by callId.
+    const rows = [chain.refused, chain.quota, chain.accepted, chain.rerun].sort(
+      (a, b) => (a.identity.callId < b.identity.callId ? -1 : 1),
+    );
+    await seedReport(scope, rows);
+    const query = reportQuery(scope);
+    const report = await new PrismaUsageReportReader(prisma).report(query);
+    expect(report).toEqual({
+      ...buildUsagePeriodReport(rows, query),
+      unattributedCount: 0,
+    });
+    expect(report.totals).toMatchObject({
+      providerAttempts: 3,
+      logicalRuns: 1,
+      tokens: { total: 260 },
+    });
+    expect(report.overview.runs[0]!.totals.providerAttempts).toBe(3);
   });
 
   it("rejects globally overlapping missing-child manifests even when their models are filtered out", async () => {

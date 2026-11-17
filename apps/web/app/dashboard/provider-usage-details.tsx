@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import { DailyUsageTable } from "./provider-usage-charts";
 import { ObservationTable } from "./provider-usage-tables";
-import { humanUtc } from "./provider-usage-format";
+import { count, humanUtc, tokenCoverage } from "./provider-usage-format";
 import type { CostBucket } from "./provider-usage-format";
 
 export function UsageDetails({
@@ -30,6 +30,14 @@ export function UsageDetails({
       source.asOf && (!oldest || source.asOf < oldest) ? source.asOf : oldest,
     null,
   );
+  const coverage = tokenCoverage(report.totals);
+  // A producer reports only delivery loss, so no report is not an unknown state.
+  const deliveryLosses = report.deliveryCoverage.flatMap(
+    ({ invocationId, coverage: loss }) =>
+      loss ? [{ invocationId, loss }] : [],
+  );
+  const sessionsWithoutLoss =
+    report.deliveryCoverage.length - deliveryLosses.length;
   return (
     <div className="space-y-5 border-t border-slate-700/50 pt-5 text-xs text-slate-400">
       <p className="break-words">
@@ -48,10 +56,10 @@ export function UsageDetails({
         </a>
       </p>
       <p>
-        {report.unknown} unknown · {report.partial} partial ·{" "}
-        {report.unboundedSummaries} separate reported summaries · Unattributed
-        observations: {report.unattributed ?? "unknown"} · Observations without
-        run ID: {report.overview.observationsWithoutRunId}
+        {coverage.detail ?? coverage.label} · {report.unboundedSummaries}{" "}
+        separate reported summaries · Unattributed observations:{" "}
+        {report.unattributed ?? "shown to workspace admins"} · Observations
+        without run ID: {report.overview.observationsWithoutRunId}
       </p>
       <p>
         Latest update is the most recent source report; completeness can differ
@@ -67,18 +75,23 @@ export function UsageDetails({
         report the upstream model, latency or cost.
       </p>
       <p>
-        Source lag: {report.sourceLag} · All reported source windows from{" "}
-        {report.coveredFrom ?? "unknown"}
+        {report.sources.length
+          ? `Source lag: ${report.sourceLag} · All reported source windows from ${report.coveredFrom}`
+          : "No native source checkpoint for this workspace."}
       </p>
       <ul aria-label="Producer delivery coverage" className="space-y-1">
-        {report.deliveryCoverage.map((source) => (
-          <li key={source.invocationId}>
-            Runtime delivery:{" "}
-            {source.coverage
-              ? `partial (${source.coverage.reason}, ${source.coverage.droppedEvents} dropped events)`
-              : "unknown (no producer coverage report)"}
+        {deliveryLosses.map(({ invocationId, loss }, index) => (
+          <li key={`${invocationId}/${index}`}>
+            Runtime delivery: partial ({loss.reason}, {loss.droppedEvents}{" "}
+            dropped events)
           </li>
         ))}
+        {sessionsWithoutLoss ? (
+          <li>
+            No delivery loss reported by {count(sessionsWithoutLoss)} runtime{" "}
+            {sessionsWithoutLoss === 1 ? "session" : "sessions"}
+          </li>
+        ) : null}
       </ul>
       <ul aria-label="Usage source coverage" className="space-y-1">
         {report.sources.map((source) => (
@@ -100,7 +113,7 @@ export function UsageDetails({
           Direct runtime source coverage:{" "}
           {report.overview.hasDirectObservations
             ? "reported observations only; transport completeness varies"
-            : "unknown"}
+            : "no direct observations in this period"}
         </li>
       </ul>
       {controls}
