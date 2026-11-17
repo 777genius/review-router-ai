@@ -572,7 +572,11 @@ const profileId = "openrouter-openai-responses-apikey-v1";
         if (
           scenario === "unavailable-primary" &&
           processError.code === 1 &&
-          processError.stdout?.includes("::error::required_admission_limited")
+          // Runtime 1.0.240 and older name a stopped reviewer's work
+          // admission_limited; later releases name the provider failure.
+          /::error::required_(?:admission_limited|work_exhausted)\b/.test(
+            processError.stdout ?? "",
+          )
         ) {
           output = {
             stdout: redact(processError.stdout),

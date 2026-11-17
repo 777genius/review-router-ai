@@ -418,7 +418,9 @@ export function composeReviewActionV2ProductionRunControl(input: {
   );
   if (accountGatewayRelayPolicy)
     assertRelayProfilesApprovedForRuns(
-      accountGatewayRelayPolicy.profiles.map((entry) => entry.profile.profileId),
+      accountGatewayRelayPolicy.profiles.map(
+        (entry) => entry.profile.profileId,
+      ),
       runGatewayPolicy,
     );
   const runtimeSnapshots = new ProductionReviewRunRuntimeSnapshot(
