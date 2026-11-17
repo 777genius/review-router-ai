@@ -62,7 +62,7 @@
 
 - `native-transport.ts`, поток: `stream_read`, `stream_deadline`, `stream_chunk`, `stream_output_limit`, `stream_response_started`, `stream_incomplete`.
 - `#settle`: `settle_recovery`, `settle_closure_wait`, `settle_not_completed`, `settle_effect_conflict`, `settle_ack`.
-- `facade.ts`: `facade_terminal_not_completed`, когда тело дочитано, а effect не `completed`. Это наиболее вероятная ветка запроса `c220b075`.
+- Финальной проверке effect в `facade.ts` своя строка не нужна: всё, что оставляет effect не `completed`, теперь пишет транспорт (`settle_not_completed` или `settle_effect_conflict`). Это наиболее вероятная ветка запроса `c220b075`. Импорт диагностики в facade дал бы цикл границ `native-transport-http` - `private-facade`.
 
 Отмену вызывающей стороной Gateway не пишет: native уже пишет её как `sse_read` (`context_canceled`), а это около 15 событий в сутки. `#settle` при отмене (`interrupted`) тоже молчит. Эмиттер прежний (`emitNativeFailure`): только фаза, закрытый `kernel_code` и `request_ref`, без текста ошибок, заголовков и тел. Effect, закрытие и ответ клиенту не меняются.
 

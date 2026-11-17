@@ -81,7 +81,7 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 - Native: a reviewer abort appears in the Gateway journal as `sse_read` with
   `read_error_reason` `context_canceled`, not as `sse_incomplete`.
 - Gateway: a cut streamed response leaves one `gateway_native_transport_failure`
-  line with a `stream_*`, `settle_*` or `facade_terminal_not_completed` phase.
+  line with a `stream_*` or `settle_*` phase.
 - Action OCR ceiling: the managed OCR argv of Account Gateway reviewers carries
   `--max-tokens 87381`, and API logs show no new `Request body is too large`
   for OCR reviewers on large pull requests.
