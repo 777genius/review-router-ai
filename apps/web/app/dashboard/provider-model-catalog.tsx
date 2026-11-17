@@ -137,12 +137,22 @@ export function useProviderModelCatalogs(
   };
 }
 
+export type ProviderModelCatalogState = NonNullable<
+  ReturnType<ReturnType<typeof useProviderModelCatalogs>["status"]>
+>;
+
+/** A failed public refresh keeps the last snapshot; callers say so honestly. */
+export const publicCatalogRefreshFailed = (status: ProviderModelCatalogState) =>
+  status.failed || status.snapshot?.refresh === "failed";
+
+/**
+ * Status of a public catalog chosen without an account. A Gateway account has
+ * its own catalog status, which also refreshes this public metadata.
+ */
 export function ProviderModelCatalogStatus({
   status,
-  publicSelection,
 }: {
-  status: ReturnType<ReturnType<typeof useProviderModelCatalogs>["status"]>;
-  publicSelection: boolean;
+  status: ProviderModelCatalogState | null;
 }) {
   if (!status) return null;
   const snapshot = status.snapshot;
@@ -179,9 +189,7 @@ export function ProviderModelCatalogStatus({
       >
         {status.loading ? "Refreshing models…" : "Refresh models"}
       </Button>
-      {publicSelection ? (
-        <span>Access to these models has not been checked.</span>
-      ) : null}
+      <span>Access to these models has not been checked.</span>
     </div>
   );
 }

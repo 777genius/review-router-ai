@@ -57,7 +57,7 @@ import {
   useGatewayModelAccounts,
   useCurrentGatewayModelAccountsCache,
 } from "./gateway-model-account-options";
-import { dashboardSectionHref } from "./dashboard-section";
+import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import { accountsCopy } from "./accounts-copy";
 import { useOwnAccountsView } from "./accounts-workspace-tabs";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
@@ -1289,12 +1289,7 @@ function Controls({
                 {!personal &&
                 account.binding?.state === "active" &&
                 !account.binding.fencePending ? (
-                  <a
-                    className="text-sm text-cyan-200 underline"
-                    href={dashboardSectionHref("policy", workspaceId)}
-                  >
-                    Choose for reviews
-                  </a>
+                  <ChooseForReviewsLink workspaceId={workspaceId} />
                 ) : null}
                 {renderActions(account)}
               </div>

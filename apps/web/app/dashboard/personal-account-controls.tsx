@@ -46,6 +46,7 @@ import { AccountStatusLine } from "./account-status-icon";
 
 import type { AccountView } from "../../src/server/account-gateway-accounts";
 import { dashboardSectionHref } from "./dashboard-section";
+import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
 import { readOwnAccessSummaries } from "../../src/features/account-gateway/personal-accounts";
 import type {
@@ -1438,15 +1439,9 @@ function WorkspaceAccess({
                     {grant.state === "active" &&
                     grant.remoteFenceDelivery !== "remote_pending" &&
                     grant.organizationLabel ? (
-                      <a
-                        className="text-sm text-cyan-200 underline"
-                        href={dashboardSectionHref(
-                          "policy",
-                          grant.targetWorkspaceId,
-                        )}
-                      >
-                        Choose in Models
-                      </a>
+                      <ChooseForReviewsLink
+                        workspaceId={grant.targetWorkspaceId}
+                      />
                     ) : null}
                   </div>
                   {grant.canRevoke ? (
@@ -1760,12 +1755,7 @@ function OperationStatus({
         {result?.status === "ok" &&
         result.value.operation.available &&
         grant?.organizationLabel ? (
-          <a
-            className="text-sm text-cyan-200 underline"
-            href={dashboardSectionHref("policy", grant.targetWorkspaceId)}
-          >
-            Choose for reviews
-          </a>
+          <ChooseForReviewsLink workspaceId={grant.targetWorkspaceId} />
         ) : null}
         <Button
           variant="outline"
