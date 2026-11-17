@@ -24,12 +24,12 @@ describe("GET /api/dashboard/provider-list", () => {
     mocks.actor.mockResolvedValue({ actor: "user:member" });
   });
 
-  it("serves the list only to a signed-in member of the workspace", async () => {
+  // Membership itself is decided by loadProviderListView (its own tests).
+  it("requires a sign-in and turns the loader's refusal into 403", async () => {
     mocks.actor.mockResolvedValueOnce(null);
     expect((await GET(request("?workspace=workspace_1"))).status).toBe(401);
     expect(mocks.load).not.toHaveBeenCalled();
 
-    // Not a member, or no such workspace: the same refusal.
     mocks.load.mockResolvedValueOnce(null);
     const refused = await GET(request("?workspace=workspace_2"));
     expect(refused.status).toBe(403);
