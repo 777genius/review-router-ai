@@ -14,6 +14,7 @@
 | -------------------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------- |
 | staging              | `pending` | Not verified                    | Not verified        | Paired rollout below.                          |
 | production           | `pending` | Not verified                    | Not verified        | No deployment authorized by the source merges. |
+| Action runtime       | `pending` | Not released                    | Not verified        | Source only; release after Web/API, step 2.    |
 
 `pending` means no verified completion is recorded. Use the [status contract](README.md#status-contract).
 
@@ -26,7 +27,7 @@
 ## Ordered rollout
 
 1. Apply migrations `000158` and `000159` through the [release procedure](../operations/07-environments-and-release-management.md); deploy Web and API from the same source.
-2. Export the canonical protocol from the merged ReviewRouter commit into the runtime release branch (`pnpm protocol:export-public`), rebuild `dist`, and cut the exact runtime release through the existing release process. Its manifest declares `reviewerPlanProfile` `{ planVersion: 2, descriptorDigest: sha256:53ad81ad… }`.
+2. Cut the exact runtime release from runtime `main` through the existing release process. Runtime PR #396 merges with the protocol exported from the merged #892 commit (`pnpm protocol:export-public`, handoff manifest `saasSourceCommit`) and a rebuilt `dist`; no release, tag or `workflow-v1` move came with the source merges. If a later ReviewRouter change touches `packages/protocol-review-action-v2/src/generated`, export again from the commit being deployed before the release. The release manifest declares `reviewerPlanProfile` `{ planVersion: 2, descriptorDigest: sha256:53ad81ad… }`.
 3. Register the new producer (release manifest check, attestation, registry) and only then promote `workflow-v1` to it. Until then a fallback roster with two or more reviewers is refused at admission with `reviewer_fallback_unsupported`; parallel reviews are unaffected.
 
 ## Verification and completion
