@@ -68,7 +68,6 @@ describe("explicit provider connection continuation", () => {
         provider: "anthropic",
         planLabel: "Subscription",
         regionLabel: "Global",
-        personalOnly: true,
         completionInputKind: "authorization_code",
         limitsContract: "none",
         modelSettings: [],

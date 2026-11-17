@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   ProviderAccountError,
-  isPersonalOwnerOnlyProfile,
   type PersonalOperationResult,
 } from "@reviewrouter/features-provider-accounts";
 import type {
@@ -63,7 +62,7 @@ export function connectAttachNonce(
 
 /** Adds a freshly connected personal source to the workspace it was connected
  * from. The checks here only pick the reason shown to the user; the existing
- * attach path stays the authority for ownership, role and profile rules. */
+ * attach path stays the authority for ownership and role rules. */
 export function createConnectWorkspaceAttach(deps: Dependencies) {
   async function read(nonce: string) {
     try {
@@ -114,8 +113,6 @@ export function createConnectWorkspaceAttach(deps: Dependencies) {
       return connect.available && connect.binding?.workspaceId === workspaceId
         ? attached
         : notAttached("unavailable");
-    if (isPersonalOwnerOnlyProfile(source.profileRef))
-      return notAttached("personal_only");
     // A member must not expose a key they pay for to other members silently.
     if (!access.canDetach) return notAttached("not_permitted");
     const attachNonce = connectAttachNonce(parsed.data.nonce, workspaceId);
