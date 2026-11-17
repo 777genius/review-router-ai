@@ -2865,6 +2865,95 @@ test("personal-only key receipt uses authorized account metadata without offerin
   expect(receipt.textContent).not.toContain("Organization access");
 });
 
+test("only a connect started in this workspace is added to it, once, or says why not", async () => {
+  const api = personalApi();
+  const renameNonce = "1b0f6a3e-58f4-4c1e-9a43-3c6c2d1f0b7a";
+  const elsewhereNonce = "6c1d1a52-31f2-4b8e-8f0c-2b8f1e6b5a90";
+  const key = "rr-c3-account-operations:personal:workspace-user";
+  sessionStorage.setItem(
+    key,
+    JSON.stringify([renameNonce, elsewhereNonce, savedNonce]),
+  );
+  // A rename has no record; a connect from another workspace is not moved here.
+  sessionStorage.setItem(
+    `${key}:connect-workspaces`,
+    JSON.stringify({
+      [savedNonce]: "workspace-current",
+      [elsewhereNonce]: "workspace-other",
+    }),
+  );
+  api.readGatewayOperation.mockImplementation(async (_context, nonce) => ({
+    status: "ok",
+    value: {
+      nonce,
+      state: "applied",
+      cleanup: "unresolved",
+      account: { ...row("active"), label: `Codex ${nonce.slice(0, 4)}` },
+    },
+  }));
+  const addToWorkspace = vi.fn(async () => ({
+    status: "ok" as const,
+    value: {
+      status: "not_attached" as const,
+      reason: "not_permitted" as const,
+    },
+  }));
+  render(
+    <AccountGatewayControls
+      managementScope="personal"
+      api={api}
+      workspaceId="workspace-current"
+      addToWorkspace={addToWorkspace}
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  expect(
+    await screen.findByText(
+      "Not added to this workspace. Only workspace owners and admins can add their own connections. It stays in your connections.",
+    ),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(api.readGatewayOperation).toHaveBeenCalledTimes(3),
+  );
+  expect(addToWorkspace).toHaveBeenCalledExactlyOnceWith(savedNonce);
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+});
+
+test("a fresh personal connect records the workspace it was started in", async () => {
+  const api = personalApi();
+  const addToWorkspace = vi.fn(async () => ({
+    status: "ok" as const,
+    value: { status: "attached" as const },
+  }));
+  render(
+    <AccountGatewayControls
+      managementScope="personal"
+      api={api}
+      workspaceId="workspace-current"
+      addToWorkspace={addToWorkspace}
+      bootstrap={{ context, page: { status: "ok", value: page } }}
+    />,
+  );
+  const dialog = await openConnectionDialog(/MiMo/);
+  fireEvent.change(within(dialog).getByLabelText("API key"), {
+    target: { value: "synthetic-personal-key" },
+  });
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Connect account" }),
+  );
+  expect(
+    await screen.findByText(
+      "Added to this workspace. Choose it in Review providers to use it for reviews.",
+    ),
+  ).toBeTruthy();
+  const key = "rr-c3-account-operations:personal:workspace-user";
+  const [nonce] = JSON.parse(sessionStorage.getItem(key) ?? "[]") as string[];
+  expect(
+    JSON.parse(sessionStorage.getItem(`${key}:connect-workspaces`) ?? "{}"),
+  ).toEqual({ [nonce!]: "workspace-current" });
+  expect(addToWorkspace).toHaveBeenCalledExactlyOnceWith(nonce);
+});
+
 test("remount reauthorizes cached inventory before enabling pagination or exposing old limits", async () => {
   const client = new QueryClient();
   clients.add(client);

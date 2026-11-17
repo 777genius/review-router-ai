@@ -20,6 +20,7 @@ export const accountsCopy = {
   add: "Add account",
   connect: "Connect account",
   personal: "Personal",
+  notShared: "Not shared",
   ownerUnavailable: "Owner unavailable",
   privacy: "Has access with limited visibility",
 } as const;

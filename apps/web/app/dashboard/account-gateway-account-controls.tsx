@@ -63,7 +63,11 @@ import { useOwnAccountsView } from "./accounts-workspace-tabs";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
 import { AccountStatusLine } from "./account-status-icon";
 import { readAccountResult } from "./account-read-result";
-import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
+import {
+  personalAccountOriginText,
+  type ConnectWorkspaceAttachment,
+  type PersonalAccountsResult,
+} from "../../src/features/account-gateway/personal-accounts";
 import {
   canonicalMimoBaseURL,
   mimoTokenPlanEndpoints,
@@ -126,6 +130,11 @@ export type AccountRowsRenderer = (
 ) => ReactNode;
 
 type ManagementScope = "workspace" | "personal";
+/** Server action bound to the current workspace; adds a just-connected
+ * personal connection there when its owner may grant it. */
+export type AddConnectionToWorkspace = (
+  connectNonce: string,
+) => Promise<PersonalAccountsResult<ConnectWorkspaceAttachment>>;
 
 // Legacy Claude OAuth accounts remain readable, but customers may only enroll
 // subscription credentials locally in their own GitHub Actions CLI workflow.
@@ -148,6 +157,24 @@ function savedNonces(key: string): string[] {
   )
     throw new Error();
   return [...new Set(saved as string[])];
+}
+// A connect started while viewing a workspace records that workspace with its
+// nonce. Only that workspace may receive it automatically; nonces without a
+// record (rename, reconnect, requests from before this record) never attach.
+function savedConnectWorkspaces(
+  key: string,
+  nonces: readonly string[],
+): Record<string, string> {
+  const saved: unknown = JSON.parse(sessionStorage.getItem(key) ?? "{}");
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+  return Object.fromEntries(
+    nonces.flatMap((nonce) => {
+      const workspaceId = (saved as Record<string, unknown>)[nonce];
+      return typeof workspaceId === "string" && workspaceId.length <= 160
+        ? [[nonce, workspaceId] as const]
+        : [];
+    }),
+  );
 }
 type DeviceAuthorization = {
   userCode: string;
@@ -221,6 +248,7 @@ export function AccountGatewayControls({
   workspaceId,
   setupIntent,
   initiallyOpenConnect = false,
+  addToWorkspace,
 }: {
   bootstrap: AccountsBootstrap;
   api?: AccountGatewayManagementApi;
@@ -233,6 +261,7 @@ export function AccountGatewayControls({
   workspaceId?: string | undefined;
   setupIntent?: ApiKeySetupIntent | undefined;
   initiallyOpenConnect?: boolean;
+  addToWorkspace?: AddConnectionToWorkspace | undefined;
 }) {
   const optionsCache = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
@@ -350,6 +379,9 @@ export function AccountGatewayControls({
             connectOnly={connectOnly}
             initiallyOpenConnect={initiallyOpenConnect}
             workspaceId={workspaceId}
+            addToWorkspace={
+              managementScope === "personal" ? addToWorkspace : undefined
+            }
           />
         </ApiKeySetupContext.Provider>
       </AccountLimitsReadContext.Provider>
@@ -370,6 +402,7 @@ function Controls({
   connectOnly,
   initiallyOpenConnect,
   workspaceId,
+  addToWorkspace,
 }: {
   bootstrap: AccountsBootstrap;
   bootstrapReadScope: string;
@@ -383,6 +416,7 @@ function Controls({
   connectOnly: boolean;
   initiallyOpenConnect: boolean;
   workspaceId: string | undefined;
+  addToWorkspace: AddConnectionToWorkspace | undefined;
 }) {
   const setup = useContext(ApiKeySetupContext);
   const { context } = bootstrap;
@@ -390,6 +424,8 @@ function Controls({
   const personal = managementScope === "personal";
   const scope = personal ? `personal:${contextScope}` : contextScope;
   const storageKey = `rr-c3-account-operations:${scope}`;
+  const connectWorkspacesKey = `${storageKey}:connect-workspaces`;
+  const attachWorkspaceId = addToWorkspace ? workspaceId : undefined;
   const client = useQueryClient();
   const limitsScope = accountLimitsScope(
     context,
@@ -503,6 +539,9 @@ function Controls({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeNonce, setActiveNonce] = useState<string | null>(null);
+  const [connectWorkspaces, setConnectWorkspaces] = useState<
+    Record<string, string>
+  >({});
   const [deviceHandoffs, setDeviceHandoffs] = useState<
     Record<string, DeviceAuthorization>
   >({});
@@ -541,13 +580,20 @@ function Controls({
       const saved = savedNonces(storageKey);
       setNonces(saved);
       setActiveNonce(saved.at(-1) ?? null);
+      try {
+        setConnectWorkspaces(
+          savedConnectWorkspaces(connectWorkspacesKey, saved),
+        );
+      } catch {
+        /* An unreadable record only skips automatic workspace attach. */
+      }
       setReady(true);
     } catch {
       setMessage(
         "Connection status is unavailable in this tab. Enable session storage before starting a connection.",
       );
     }
-  }, [storageKey]);
+  }, [storageKey, connectWorkspacesKey]);
   const refresh = useCallback(async () => {
     // Refresh every already displayed page with exact keys; no unrelated dashboard cache.
     await Promise.all(
@@ -571,7 +617,7 @@ function Controls({
     completionHandoffRef.current = null;
     setCompletionHandoff((current) => (current === nonce ? null : current));
   }, []);
-  function reserveNonce(): string | null {
+  function reserveNonce(connectWorkspaceId?: string): string | null {
     if (!ready || nonces.length >= 8) {
       setMessage(
         "Check recent connections or hide old results before starting another.",
@@ -582,6 +628,17 @@ function Controls({
     try {
       const next = [...savedNonces(storageKey), nonce];
       if (next.length > 8) throw new Error();
+      if (connectWorkspaceId) {
+        let records: Record<string, string> = {};
+        try {
+          records = savedConnectWorkspaces(connectWorkspacesKey, next);
+        } catch {
+          /* Replace an unreadable record; it only names connect workspaces. */
+        }
+        records[nonce] = connectWorkspaceId;
+        sessionStorage.setItem(connectWorkspacesKey, JSON.stringify(records));
+        setConnectWorkspaces(records);
+      }
       // Persist BEFORE request entry: a lost response/reload preserves the operation identity.
       sessionStorage.setItem(storageKey, JSON.stringify(next));
       setNonces(next);
@@ -644,7 +701,9 @@ function Controls({
         ? nonces.includes(existingNonce)
           ? existingNonce
           : null
-        : reserveNonce();
+        : reserveNonce(
+            "connectionId" in intent ? undefined : attachWorkspaceId,
+          );
     } catch {
       tab?.close();
       setMessage(
@@ -764,7 +823,9 @@ function Controls({
     credential?: string,
   ) {
     if (submitting.current) return;
-    const nonce = reserveNonce();
+    const nonce = reserveNonce(
+      intent.kind === "connect" ? attachWorkspaceId : undefined,
+    );
     if (!nonce) return;
     submitting.current = true;
     setBusy(true);
@@ -1011,6 +1072,7 @@ function Controls({
             accounts={enrollmentAccounts}
             disabled={disabled}
             managementScope={managementScope}
+            addsToWorkspace={Boolean(addToWorkspace)}
             begin={beginOAuth}
             submit={submit}
           />
@@ -1094,6 +1156,12 @@ function Controls({
                 }
                 api={api}
                 managementScope={managementScope}
+                addToWorkspace={
+                  attachWorkspaceId &&
+                  connectWorkspaces[nonce] === attachWorkspaceId
+                    ? addToWorkspace
+                    : undefined
+                }
                 renderSetupContinuation={
                   setup.intent?.storage === "reviewrouter" &&
                   data?.status === "ok"
@@ -1389,10 +1457,12 @@ function ConnectAccountDialog({
   accounts,
   disabled,
   managementScope,
+  addsToWorkspace = false,
   begin,
   submit,
 }: Parameters<typeof ConnectionForm>[0] & {
   initiallyOpen?: boolean;
+  addsToWorkspace?: boolean;
 }): React.ReactElement {
   const [open, setOpen] = useState(initiallyOpen);
   return (
@@ -1413,7 +1483,9 @@ function ConnectAccountDialog({
           <Dialog.Description>
             Choose a provider, then connect its account or credential.
             {managementScope === "personal"
-              ? " This connection belongs to you. You choose which workspaces can use it."
+              ? addsToWorkspace
+                ? " This connection belongs to you. It is added to this workspace if you are a workspace owner or admin."
+                : " This connection belongs to you. You choose which workspaces can use it."
               : " This connection belongs to this workspace."}
           </Dialog.Description>
           {open ? (
@@ -1804,6 +1876,7 @@ function OperationReadback({
   consumeCompletionHandoff,
   api,
   managementScope,
+  addToWorkspace,
   renderSetupContinuation,
 }: {
   context: string;
@@ -1822,6 +1895,7 @@ function OperationReadback({
   consumeCompletionHandoff(): void;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
+  addToWorkspace?: AddConnectionToWorkspace | undefined;
   renderSetupContinuation?: ((account: AccountView) => ReactNode) | undefined;
 }) {
   const client = useQueryClient();
@@ -2011,6 +2085,8 @@ function OperationReadback({
         }
     : completionProvider;
   const terminal = state === "applied" || state === "rejected";
+  const attachConnected =
+    addToWorkspace && state === "applied" ? addToWorkspace : undefined;
   return (
     <div className="space-y-4 text-sm text-slate-300">
       <div role="status" className="space-y-3">
@@ -2049,13 +2125,15 @@ function OperationReadback({
             {data?.status === "ok" && data.value.oauthMethod
               ? "Sign-in complete."
               : "Request completed."}{" "}
-            {completion?.personalOnly ||
-            (data?.status === "ok" &&
-              data.value.account?.connection?.personalOnly)
-              ? "Personal use."
-              : managementScope === "personal"
-                ? "Organization access can be granted separately via Access."
-                : "Availability for reviews depends on workspace access and model selection."}
+            {attachConnected
+              ? null
+              : completion?.personalOnly ||
+                  (data?.status === "ok" &&
+                    data.value.account?.connection?.personalOnly)
+                ? "Personal use."
+                : managementScope === "personal"
+                  ? "Organization access can be granted separately via Access."
+                  : "Availability for reviews depends on workspace access and model selection."}
           </p>
         ) : state === "pending" ? (
           <p className="text-sm text-slate-400">
@@ -2069,6 +2147,13 @@ function OperationReadback({
           </p>
         ) : null}
       </div>
+      {attachConnected ? (
+        <ConnectWorkspaceAttach
+          nonce={nonce}
+          addToWorkspace={attachConnected}
+          refresh={refresh}
+        />
+      ) : null}
       {state === "applied" && data?.status === "ok" && data.value.account
         ? renderSetupContinuation?.(data.value.account)
         : null}
@@ -2148,6 +2233,88 @@ function OperationReadback({
       {(terminal && !inline) || state === "unknown" ? (
         <Button variant="outline" size="sm" onClick={dismiss}>
           {state === "unknown" ? "Hide" : "Dismiss"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+const connectAttachText: Record<
+  Extract<ConnectWorkspaceAttachment, { status: "not_attached" }>["reason"],
+  string
+> = {
+  personal_only:
+    "Personal use only. This plan cannot be added to a shared workspace.",
+  not_permitted:
+    "Not added to this workspace. Only workspace owners and admins can add their own connections. It stays in your connections.",
+  not_connected:
+    "Not added to this workspace yet. Check the connection status, then try again.",
+  removed:
+    "Removed from this workspace after it was added. Use Access in your connections to add it again.",
+  unavailable:
+    "Could not add it to this workspace. Try again, or use Access in your connections.",
+};
+
+/** Runs once per applied connect. The server action is idempotent per nonce
+ * and workspace, so a remount only reads the original result back. */
+function ConnectWorkspaceAttach({
+  nonce,
+  addToWorkspace,
+  refresh,
+}: {
+  nonce: string;
+  addToWorkspace: AddConnectionToWorkspace;
+  refresh(): Promise<void>;
+}) {
+  const attach = useMutation({
+    mutationKey: ["connect-workspace-attach", nonce] as const,
+    mutationFn: () => addToWorkspace(nonce),
+    onSuccess: (result) => {
+      if (result.status === "ok" && result.value.status === "attached")
+        void refresh();
+    },
+    retry: false,
+    gcTime: 0,
+  });
+  const { mutate } = attach;
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    mutate();
+  }, [mutate]);
+  const result = attach.data;
+  const text = attach.isError
+    ? connectAttachText.unavailable
+    : !result
+      ? "Adding to this workspace…"
+      : result.status !== "ok"
+        ? statusText(result.status, "personal")
+        : result.value.status === "attached"
+          ? "Added to this workspace. Choose it in Review providers to use it for reviews."
+          : connectAttachText[result.value.reason];
+  const retryable =
+    !attach.isPending &&
+    (attach.isError ||
+      (result !== undefined &&
+        (result.status === "unavailable" ||
+          (result.status === "ok" &&
+            result.value.status === "not_attached" &&
+            (result.value.reason === "unavailable" ||
+              result.value.reason === "not_connected")))));
+  return (
+    <div className="grid gap-2">
+      <p role="status" className="text-sm text-slate-300">
+        {text}
+      </p>
+      {retryable ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          onClick={() => mutate()}
+        >
+          Try again
         </Button>
       ) : null}
     </div>
