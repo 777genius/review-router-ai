@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { buildClaimedReviewProgress } from "./review-progress-claim-eligibility-policy";
+import {
+  loadMatchingActiveProgress,
+  loadPublishableGitHubRepository,
+} from "./review-progress-claim-readiness";
 import type {
   ClaimedReviewProgress,
   PrismaReviewProgressPublicationStore,
@@ -78,4 +82,48 @@ export async function claimPreparedPublication(
     installation,
     claim: { claimId, ownerIdHash: input.ownerIdHash, claimUntil },
   });
+}
+
+/** Claim the next due projection under the same serializable transaction. */
+export async function claimDuePublication(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<PrismaReviewProgressPublicationStore["claimNext"]>[0],
+  repositoryPredicate: Prisma.Sql,
+): Promise<ClaimedReviewProgress | { readonly deferred: true } | null> {
+  const candidate = await selectDuePublicationScope(
+    transaction,
+    input.now,
+    repositoryPredicate,
+  );
+  if (!candidate) return null;
+  const publication =
+    await transaction.reviewProgressPublicationV1.findUniqueOrThrow({
+      where: {
+        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+          candidate,
+      },
+    });
+  const progress = await loadMatchingActiveProgress(
+    transaction,
+    publication,
+    candidate,
+    input.now,
+  );
+  if (!progress) return { deferred: true };
+  const eligible = await loadPublishableGitHubRepository(
+    transaction,
+    publication,
+    candidate,
+    input.now,
+  );
+  if (!eligible) return { deferred: true };
+  return claimPreparedPublication(
+    transaction,
+    input,
+    candidate,
+    publication,
+    progress,
+    eligible.repository,
+    eligible.installation,
+  );
 }

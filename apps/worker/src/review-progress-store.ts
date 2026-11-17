@@ -4,14 +4,7 @@ import {
   reserveInstallationBudgetMutation,
 } from "./review-progress-installation-budget";
 import { requeuePublishedScopeAfterClaimLoss } from "./review-progress-scope-repair";
-import {
-  claimPreparedPublication,
-  selectDuePublicationScope,
-} from "./review-progress-claim-acquisition";
-import {
-  loadMatchingActiveProgress,
-  loadPublishableGitHubRepository,
-} from "./review-progress-claim-readiness";
+import { claimDuePublication } from "./review-progress-claim-acquisition";
 import {
   promoteSettledExecutions,
   type SettledExecutionInput,
@@ -202,49 +195,6 @@ async function retryPublicationMutation(
   return mutation.reachesLimit ? "suppressed" : "retried";
 }
 
-/** Claim the next due projection under the same serializable transaction. */
-async function claimDuePublication(
-  transaction: Prisma.TransactionClient,
-  input: Parameters<PrismaReviewProgressPublicationStore["claimNext"]>[0],
-  repositoryPredicate: Prisma.Sql,
-): Promise<ClaimedReviewProgress | { readonly deferred: true } | null> {
-  const candidate = await selectDuePublicationScope(
-    transaction,
-    input.now,
-    repositoryPredicate,
-  );
-  if (!candidate) return null;
-  const publication =
-    await transaction.reviewProgressPublicationV1.findUniqueOrThrow({
-      where: {
-        workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
-          candidate,
-      },
-    });
-  const progress = await loadMatchingActiveProgress(
-    transaction,
-    publication,
-    candidate,
-    input.now,
-  );
-  if (!progress) return { deferred: true };
-  const eligible = await loadPublishableGitHubRepository(
-    transaction,
-    publication,
-    candidate,
-    input.now,
-  );
-  if (!eligible) return { deferred: true };
-  return claimPreparedPublication(
-    transaction,
-    input,
-    candidate,
-    publication,
-    progress,
-    eligible.repository,
-    eligible.installation,
-  );
-}
 
 function assertOwner(value: string): void {
   if (!/^[a-f0-9]{64}$/.test(value))
