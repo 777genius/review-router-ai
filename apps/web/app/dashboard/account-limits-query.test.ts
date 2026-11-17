@@ -2,8 +2,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { AccountLimitsView } from "../../src/server/account-gateway-accounts";
 import {
+  ACCOUNT_LIMITS_AUTO_REFRESH_COOLDOWN_MS,
   accountLimitsKey,
   accountLimitsRefreshOptions,
+  claimAccountLimitsAutoRefresh,
 } from "./account-limits-query";
 import {
   AccountDiagnosisError,
@@ -117,3 +119,20 @@ test.each(["conflict", "invalid", "unavailable"] as const)(
     expect(f.client.getQueryData(f.key)).toEqual(f.saved);
   },
 );
+
+test("automatic refresh is claimed once per account generation and cooldown", () => {
+  const start = Date.parse("2026-11-17T10:00:00.000Z");
+  const claim = (displayToken: string, at: number, connectionId = "claimed") =>
+    claimAccountLimitsAutoRefresh("viewer", connectionId, displayToken, at);
+  expect(claim("generation-a", start)).toBe(true);
+  expect(claim("generation-a", start + 1_000)).toBe(false);
+  // A reconnect or another account is a different source and loads at once.
+  expect(claim("generation-b", start + 1_000)).toBe(true);
+  expect(claim("generation-a", start + 1_000, "other")).toBe(true);
+  expect(
+    claim("generation-a", start + ACCOUNT_LIMITS_AUTO_REFRESH_COOLDOWN_MS - 1),
+  ).toBe(false);
+  expect(
+    claim("generation-a", start + ACCOUNT_LIMITS_AUTO_REFRESH_COOLDOWN_MS),
+  ).toBe(true);
+});
