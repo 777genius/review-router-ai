@@ -20,7 +20,7 @@
   (deployed). Builds on
   [usage statistics audit](2026-11-17-usage-statistics-audit.md). The same
   release carries the [verification residuals](2026-11-17-verification-residuals.md):
-  ReviewRouter #898 in the ReviewRouter step and
+  [ReviewRouter #899](https://github.com/777genius/review-router-ai/pull/899) in the ReviewRouter step and
   [account-gateway#115](https://github.com/agent-teams-ai/account-gateway/pull/115)
   in the Gateway step.
 - Last updated: `2026-11-17`.

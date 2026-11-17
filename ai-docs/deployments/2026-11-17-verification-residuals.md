@@ -9,7 +9,7 @@
   admission policy; CI on main is green again.
 - Affected services/targets: ReviewRouter API and Web, Account Gateway service,
   public Action (next release after 240). No migration, no native change.
-- Implementation PR/issue: ReviewRouter #898,
+- Implementation PR/issue: [ReviewRouter #899](https://github.com/777genius/review-router-ai/pull/899),
   [account-gateway#115](https://github.com/agent-teams-ai/account-gateway/pull/115),
   [review-router#399](https://github.com/777genius/review-router/pull/399); plan
   [75](../architecture/75-verification-residuals.md).
