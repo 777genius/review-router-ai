@@ -119,7 +119,6 @@ describe("provider setup registry", () => {
           regionLabel: "Global",
           completionInputKind:
             authKind === "oauth" ? "authorization_code" : "none",
-          personalOnly: false,
           limitsContract: "account-limits/v2",
           modelSettings: [],
         },
@@ -158,7 +157,6 @@ describe("provider setup registry", () => {
         planLabel: "NVIDIA Build evaluation",
         regionLabel: "Global",
         completionInputKind: "none",
-        personalOnly: false,
         limitsContract: "none",
         modelSettings: [],
       },
@@ -235,7 +233,6 @@ describe("provider setup registry", () => {
         planLabel: "Untrusted display label",
         regionLabel: "Global",
         completionInputKind: "callback_url",
-        personalOnly: false,
         limitsContract: "none",
         modelSettings: [],
       };

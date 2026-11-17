@@ -4,6 +4,7 @@
 Дата проверки исходников и официальной документации: 2026-10-23.
 Основа: [архитектура подключений по Q](62-provider-connection-architecture.md).
 Владение логикой провайдера и каталог моделей: [64](64-gateway-native-ownership-and-model-catalog.md).
+Правило «GLM только в личном workspace владельца» отменено решением владельца 2026-11-17: все провайдеры доступны во всех workspace ([70](70-all-providers-in-all-workspaces.md)). Ниже оно сохранено как история.
 
 Проверенные checkout: ReviewRouter `ff944225405e0021cc3b6c0b30ebc6c7c91f9789`,
 Account Gateway `36027f164c149a4fff4a2eff16c557f360650853`,

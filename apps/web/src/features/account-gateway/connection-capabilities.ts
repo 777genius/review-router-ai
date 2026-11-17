@@ -27,7 +27,6 @@ export type AccountConnectionView = {
   planLabel: string;
   regionLabel: string;
   completionInputKind: "none" | "callback_url" | "authorization_code";
-  personalOnly: boolean;
   limitsContract: "account-limits/v1" | "account-limits/v2" | "none";
   modelSettings: readonly AccountModelSettings[];
 };

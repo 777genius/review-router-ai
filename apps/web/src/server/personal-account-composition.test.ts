@@ -321,7 +321,6 @@ it("projects enabled subscription capabilities into the existing personal compos
         availability: "enabled",
         connection: expect.objectContaining({
           provider: "glm",
-          personalOnly: true,
         }),
       }),
     ]),
