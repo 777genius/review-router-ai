@@ -179,6 +179,8 @@ export interface ReviewActionV2FinalizationFactsPort {
       publicationSafetyDecisionHash: string;
       publicationNotAfter: Date;
       retainUntil: Date;
+      /** The projection reports complete coverage (see `deriveCoverageState`). */
+      producerCoverageComplete?: boolean;
     }>
   >;
 }
@@ -1558,6 +1560,7 @@ async function finalizeExecution(
     publicationNotAfter: facts.publicationNotAfter,
     permitEpoch: authorization.mutationEpoch,
     allowPartial: request.allowPartial,
+    producerCoverageComplete: facts.producerCoverageComplete === true,
     limits,
     now,
     retainUntil: facts.retainUntil,

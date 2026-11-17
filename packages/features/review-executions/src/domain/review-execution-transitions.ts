@@ -1083,6 +1083,8 @@ export type FinalizeExecutionTransitionInput = {
   readonly publicationNotAfter: Date;
   readonly permitEpoch: bigint;
   readonly allowPartial: boolean;
+  /** The finalized projection itself reports complete coverage. */
+  readonly producerCoverageComplete?: boolean;
   readonly limits: ReviewExecutionLimits;
   readonly now: Date;
   readonly retainUntil: Date;
@@ -1104,7 +1106,10 @@ export function decideExecutionFinalization(
   ) {
     return { status: ExecutionFinalizationDecisionStatus.NotRunnable };
   }
-  const coverageState = deriveCoverageState(input.execution.workSlots);
+  const coverageState = deriveCoverageState(
+    input.execution.workSlots,
+    input.producerCoverageComplete,
+  );
   if (coverageState === ReviewCoverageState.Partial && !input.allowPartial) {
     return {
       status: ExecutionFinalizationDecisionStatus.RequiredCoverageIncomplete,

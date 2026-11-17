@@ -664,12 +664,26 @@ export function reviewExecutionIsTerminal(
   );
 }
 
+/**
+ * Every required slot must be satisfied. One bounded exception: when the
+ * Action's own projection reports complete coverage (it skipped a reviewer
+ * whose provider quota ran out, see `providerQuotaSkippedVotes` in the Action),
+ * open slots are accepted only while another reviewer vote satisfied all of
+ * its required slots. A run where no reviewer finished stays partial.
+ */
 export function deriveCoverageState(
   slots: readonly ReviewWorkSlot[],
+  producerCoverageComplete = false,
 ): ReviewCoverageState {
-  return slots.every(
-    (slot) => !slot.required || slot.state === ReviewWorkSlotState.Satisfied,
-  )
+  const required = slots.filter((slot) => slot.required);
+  const openVotes = new Set(
+    required
+      .filter((slot) => slot.state !== ReviewWorkSlotState.Satisfied)
+      .map((slot) => slot.providerVoteIdentityHash),
+  );
+  if (openVotes.size === 0) return ReviewCoverageState.Completed;
+  return producerCoverageComplete &&
+    required.some((slot) => !openVotes.has(slot.providerVoteIdentityHash))
     ? ReviewCoverageState.Completed
     : ReviewCoverageState.Partial;
 }

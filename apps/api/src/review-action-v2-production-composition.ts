@@ -2676,6 +2676,9 @@ class ProductionFinalizationFactsAdapter implements ReviewActionV2FinalizationFa
       publicationSafetyDecisionHash: publicationSafety.safetyDecisionHash,
       publicationNotAfter,
       retainUntil: new Date(input.execution.retainUntil),
+      producerCoverageComplete:
+        (envelope.coverage as { readonly state?: unknown } | null)?.state ===
+        "complete",
     });
   }
 }

@@ -253,6 +253,8 @@ export type FinalizeReviewExecutionCommand = {
   readonly publicationNotAfter: Date;
   readonly permitEpoch: bigint;
   readonly allowPartial: boolean;
+  /** The finalized projection itself reports complete coverage. */
+  readonly producerCoverageComplete?: boolean;
   readonly limits: ReviewExecutionLimits;
   readonly now: Date;
   readonly retainUntil: Date;

@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Provider quota does not drop a parallel review: [skip a quota-exhausted reviewer while another completes](2026-11-17-provider-quota-nonfatal.md) - API/Web ordinary rollout first, then the paired runtime release; staging/production `pending`. No migration or configuration change.
+
 Connect from a workspace adds it there: [personal connection is attached to the current workspace](2026-11-17-connect-attaches-to-current-workspace.md), [PR #886](https://github.com/777genius/review-router-ai/pull/886) - web-only ordinary rollout; staging/production `pending`. No migration, configuration or Gateway/native change.
 
 Dashboard Providers tab fixes: [NVIDIA mark, roster highlight and list refresh](2026-11-17-dashboard-provider-ui.md), [PR #883](https://github.com/777genius/review-router-ai/pull/883) - web-only ordinary rollout; staging/production `pending`. No migration or configuration change.
