@@ -56,6 +56,22 @@
 
 `review_action_v2_revision_guard_unavailable` (44028442989, 44031057780): оба в 06:53, одновременно API писал `local_authority` и `review_invocation_lease_renew` 500. Это общий кратковременный сбой, данных для причины нет, правок нет.
 
+## 6. Доработки 1a и 1c (версия 3, после второго ревью)
+
+1c (Gateway, `agent-teams-ai/account-gateway`). Каждая ранняя остановка потока и его расчёта пишет `gateway_native_transport_failure` со своей фазой, по одной строке на остановку.
+
+- `native-transport.ts`, поток: `stream_read`, `stream_deadline`, `stream_chunk`, `stream_output_limit`, `stream_response_started`, `stream_incomplete`.
+- `#settle`: `settle_recovery`, `settle_closure_wait`, `settle_not_completed`, `settle_effect_conflict`, `settle_ack`.
+- `facade.ts`: `facade_terminal_not_completed`, когда тело дочитано, а effect не `completed`. Это наиболее вероятная ветка запроса `c220b075`.
+
+Отмену вызывающей стороной Gateway не пишет: native уже пишет её как `sse_read` (`context_canceled`), а это около 15 событий в сутки. `#settle` при отмене (`interrupted`) тоже молчит. Эмиттер прежний (`emitNativeFailure`): только фаза, закрытый `kernel_code` и `request_ref`, без текста ошибок, заголовков и тел. Effect, закрытие и ответ клиенту не меняются.
+
+1a (runtime). В OCR уже есть ограничение истории - потолок `--max-tokens`, по умолчанию 200000 (`task_template.json`). В managed-режиме на 60% потолка история сжимается синхронно, а на 80% предпроверка останавливает группу с классифицированной ошибкой `FailureBudget`. Путь Account Gateway этот флаг не передаёт.
+OCR считает токены по cl100k. Запрос уходит только ниже 80%, а сжатие в managed-режиме начинается уже на 60%, и всё равно оба запроса превысили 1 MiB. Значит, экранированный JSON кода давал от 6.5 до ~8.7 байт на учтённый токен.
+Исправление: для OCR через Account Gateway (включая дочерних ревьюеров) передаётся `--max-tokens` = 1 MiB / 12 = 87381 (`ACCOUNT_GATEWAY_BOUNDS.ocrMaxTokens`). Сжатие начнётся около 52k токенов, остановка около 70k, а это даже при 12 байтах на токен меньше 1 MiB. Preview, запуск и ключ evidence берут одни и те же лимиты. Лимиты 1 MiB не меняются, prepared route и provider API идут мимо relay и не затронуты.
+Последствия: группы файлов меньше, diff файла больше ~70k токенов OCR пропустит как `too_large` (сейчас порог 160k), ключ evidence OCR в этом пути один раз изменится.
+Ограничения: это граница по токенам, а не гарантия по байтам. Выше ~15 байт на токен останется прежний 400 `invalid_request`; отдельный код «запрос слишком большой» потребовал бы нового значения в контракте Gateway, RR и runtime, его не вводим. Константа повторяет серверный лимит 1 MiB: если его поменяют, её нужно пересчитать (записано в реестре деплоя).
+
 ## Порядок
 
-PR: native -> runtime -> RR. Тесты: Go unit на фазы строгого скана; Jest на выход `workflow_dispatch` при `Superseded`; Vitest на регистрацию запроса той же ревизии. Деплой native и RR и релиз Action делаются отдельно, по реестру деплоя.
+PR: native -> Gateway -> runtime -> RR. Тесты: Go unit на фазы строгого скана; Jest на выход `workflow_dispatch` при `Superseded`; Vitest на регистрацию запроса той же ревизии. Деплой native и RR и релиз Action делаются отдельно, по реестру деплоя.
