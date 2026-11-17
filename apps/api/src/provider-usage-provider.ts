@@ -1,4 +1,4 @@
-import { accountModelDiscoveryProfile } from "@agent-teams/account-gateway/contracts";
+import { gatewayProfileUsageProvider } from "@reviewrouter/features-provider-usage";
 
 /** Normalize configured provider identity independently from its runtime engine. */
 export function providerUsageConfiguredProvider(lane: {
@@ -7,16 +7,10 @@ export function providerUsageConfiguredProvider(lane: {
   authMode?: string | undefined;
   gatewayProfileRef?: string | undefined;
 }) {
-  // native_catalog names who owns the model list, not the vendor: usage keeps
-  // reporting such plans as "unknown" exactly as before the catalogue existed.
-  const discoverySource = accountModelDiscoveryProfile(
-    lane.gatewayProfileRef ?? "",
-  )?.source;
+  // A Gateway lane's kind is its engine; the SDK names the profile's vendor.
   const provider =
     lane.authMode === "codex_account_gateway"
-      ? discoverySource && discoverySource !== "native_catalog"
-        ? discoverySource
-        : "unknown"
+      ? (gatewayProfileUsageProvider(lane.gatewayProfileRef ?? "") ?? "unknown")
       : lane.kind === "codex-mimo"
         ? "mimo"
         : lane.kind;

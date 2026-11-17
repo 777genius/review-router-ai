@@ -52,7 +52,7 @@ describe("reviewer chains in the usage report", () => {
   it("does not count an unreconciled call with an unknown effect as a request yet", () => {
     const { report: pending } = report(false);
     // Lifecycle alone proves dispatch only for the completed calls; the quota
-    // call stays a call without a usage report until native reconciliation.
+    // call stays a call without token counts until native reconciliation.
     expect(pending.totals).toMatchObject({
       providerAttempts: 2,
       logicalRuns: 1,

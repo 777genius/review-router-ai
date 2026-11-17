@@ -104,6 +104,45 @@ describe("Gateway safe source mapper", () => {
     expect(page.facts[0]?.completeness).toBe("partial");
     expect(page.complete).toBe(true);
   });
+  it("keeps a newer Gateway's counter-less unknown apart from the older partial", async () => {
+    const counterless = {
+      ...observation,
+      completeness: "unknown" as const,
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      reasoningTokens: null,
+    };
+    const source = createGatewayUsageSource({
+      workspaceId: "workspace",
+      sourceInstance: "gateway",
+      now: () => new Date("2026-10-21T00:01:00Z"),
+      attribution: {
+        readDispatchSnapshot: async () => null,
+        findIdentity: async () => identity,
+      },
+      client: {
+        listUsage: async () => ({
+          observations: [counterless, { ...observation, eventId: "older" }],
+          nextCursor: "end",
+          highWaterCursor: "end",
+        }),
+      },
+      async quarantine() {
+        throw new Error("unexpected quarantine");
+      },
+    });
+    const page = await source.listUsage({
+      afterCursor: null,
+      limit: 100,
+      highWaterMark: null,
+    });
+    expect(page.facts.map((fact) => fact.completeness)).toEqual([
+      "unknown",
+      "partial",
+    ]);
+    expect(page.facts[0]?.tokens.total).toBeNull();
+  });
   it("awaits durable quarantine for missing or mismatched invocation instead of guessing tenant", async () => {
     let quarantined = false;
     const source = createGatewayUsageSource({

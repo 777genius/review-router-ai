@@ -12,14 +12,14 @@ import {
   selectedCosts,
   shortIdentity,
   humanUtcRange,
-  allFreeModels,
-  isFreeModel,
   latencyLabel,
   missingCostLabel,
   NOT_REPORTED,
   observedPair,
   observedValues,
   tokenCoverage,
+  usagePricing,
+  type UsagePricing,
 } from "./provider-usage-format";
 import type { UsageTotals } from "@reviewrouter/features-provider-usage";
 
@@ -58,23 +58,30 @@ export function UsageCosts({
   selectedCurrency,
   basis,
   unknownCostCount = 0,
-  freeModel = false,
+  pricing,
 }: {
   costs: readonly { amount: string; currency: string; basis: string }[];
   selectedCurrency?: string | undefined;
   basis?: string | undefined;
   unknownCostCount?: number | undefined;
-  /** Proven zero price for every call in this bucket. */
-  freeModel?: boolean | undefined;
+  /** Proven reason why every call in this bucket has no per-call price. */
+  pricing?: UsagePricing;
 }) {
   const values = selectedCosts(costs, selectedCurrency, basis);
-  if (!values.length && freeModel)
-    return (
+  if (!values.length && pricing)
+    return pricing === "free_model" ? (
       <span
         className="text-slate-200"
         title="OpenRouter free variant: no per-token charge"
       >
         Free model
+      </span>
+    ) : (
+      <span
+        className="text-slate-200"
+        title="Billed by a flat subscription or coding plan; calls have no per-call price, but they count against the plan's limits"
+      >
+        Included in subscription
       </span>
     );
   if (!costs.length)
@@ -114,7 +121,7 @@ export function UsageCosts({
       ) : (
         <span>{currencyCostsLabel(costs, selectedCurrency, basis)}</span>
       )}
-      {unknownCostCount > 0 && !freeModel ? (
+      {unknownCostCount > 0 && !pricing ? (
         <p className="mt-1 text-xs text-slate-400">
           {missingCostLabel(unknownCostCount)}
         </p>
@@ -196,11 +203,11 @@ function ModelObserved({ row }: { row: ModelRow }) {
 function KeyMetrics({
   totals,
   selectedCurrency,
-  freeModel,
+  pricing,
 }: {
   totals: UsageTotals;
   selectedCurrency?: string | undefined;
-  freeModel?: boolean | undefined;
+  pricing?: UsagePricing;
 }) {
   return (
     <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 text-sm tabular-nums">
@@ -228,7 +235,7 @@ function KeyMetrics({
             costs={totals.costs}
             unknownCostCount={totals.unknownCostCount}
             selectedCurrency={selectedCurrency}
-            freeModel={freeModel}
+            pricing={pricing}
           />
         </dd>
       </div>
@@ -242,6 +249,8 @@ export function ModelUsageTable({
   report: ProviderUsageReport;
   selectedCurrency?: string | undefined;
 }) {
+  const modelPricing = (row: ModelRow) =>
+    usagePricing([row], [row.route], report.subscriptionProviders);
   return (
     <div className="@container min-w-0">
       <div className={desktop}>
@@ -279,7 +288,7 @@ export function ModelUsageTable({
                     costs={row.totals.costs}
                     unknownCostCount={row.totals.unknownCostCount}
                     selectedCurrency={selectedCurrency}
-                    freeModel={isFreeModel(row)}
+                    pricing={modelPricing(row)}
                   />
                 </td>
                 <td className={cell}>
@@ -308,7 +317,7 @@ export function ModelUsageTable({
               <KeyMetrics
                 totals={row.totals}
                 selectedCurrency={selectedCurrency}
-                freeModel={isFreeModel(row)}
+                pricing={modelPricing(row)}
               />
               <details className="mt-2 text-xs text-slate-400">
                 <summary className="min-h-9 cursor-pointer py-2 text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
@@ -402,6 +411,8 @@ export function RunUsageTable({
   busy?: boolean | undefined;
   selectedCurrency?: string | undefined;
 }) {
+  const runPricing = (row: RunRow) =>
+    usagePricing(row.identities, row.routes, report.subscriptionProviders);
   return (
     <>
       <div className="@container min-w-0">
@@ -448,7 +459,7 @@ export function RunUsageTable({
                       costs={row.totals.costs}
                       unknownCostCount={row.totals.unknownCostCount}
                       selectedCurrency={selectedCurrency}
-                      freeModel={allFreeModels(row.identities)}
+                      pricing={runPricing(row)}
                     />
                   </td>
                   <td className={cell}>
@@ -467,7 +478,7 @@ export function RunUsageTable({
                 <KeyMetrics
                   totals={row.totals}
                   selectedCurrency={selectedCurrency}
-                  freeModel={allFreeModels(row.identities)}
+                  pricing={runPricing(row)}
                 />
               </li>
             ))}
@@ -553,7 +564,11 @@ export function ObservationTable({
                     <UsageCosts
                       costs={row.cost ? [row.cost] : []}
                       selectedCurrency={selectedCurrency}
-                      freeModel={isFreeModel(requested)}
+                      pricing={usagePricing(
+                        [requested],
+                        [row.route],
+                        report.subscriptionProviders,
+                      )}
                     />
                   </td>
                   <td className={cell}>

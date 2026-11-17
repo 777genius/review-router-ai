@@ -237,7 +237,7 @@ describe("provider usage report-only API", () => {
         },
       ],
     };
-    function selectV4() {
+    function selectV4(recorded = durable) {
       mocks.snapshot.mockReturnValueOnce(snapshot);
       mocks.configuration.mockReturnValueOnce({
         providers: [0, 1].map((index) => ({
@@ -245,7 +245,7 @@ describe("provider usage report-only API", () => {
           model: `model-${index}`,
         })),
       });
-      mocks.findIdentity.mockResolvedValueOnce(durable);
+      mocks.findIdentity.mockResolvedValueOnce(recorded);
       mocks.ingest.mockClear();
     }
     selectV4();
@@ -257,6 +257,12 @@ describe("provider usage report-only API", () => {
         serverPriceSnapshot: null,
       }),
     );
+    // A call prepared under an older provider label stays reportable after the
+    // label mapping changes: the server-written identity is the authority.
+    const preparedEarlier = { ...durable, provider: "unknown" };
+    f.fact.identity = preparedEarlier;
+    selectV4(preparedEarlier);
+    expect((await f.api.report(f.token, f.report)).accepted).toHaveLength(1);
     for (const patch of [
       { parentScope: "reviewer-0", requestedModel: "model-0" },
       { callId: "foreign-gateway-call" },

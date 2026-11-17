@@ -62,19 +62,23 @@ describe.skipIf(!adminUrl)(
       invocationId: "invocation",
       attemptId: "attempt",
     };
-    async function seed(snapshot: unknown, auth: Record<string, string> = {}) {
+    async function seed(
+      snapshot: unknown,
+      auth: Record<string, string> = {},
+      recorded = "codex",
+    ) {
       const identity = {
         authorizationId: "authorization",
         runAttempt: 1,
         invocationId: "invocation",
         attemptId: "attempt",
-        provider: "codex",
+        provider: recorded,
         requestedModel: "an-opaque-model",
       };
       await client.query(
         `INSERT INTO pg_temp."UsageCall"
       ("callId","workspaceId","runId","provider","route","bindingId","projection") VALUES
-      ('call','workspace','run','codex','gateway','binding',$1::jsonb)`,
+      ('call','workspace','run',$2,'gateway','binding',$1::jsonb)`,
         [
           JSON.stringify({
             identity,
@@ -84,6 +88,7 @@ describe.skipIf(!adminUrl)(
               tokens: { total: 7 },
             },
           }),
+          recorded,
         ],
       );
       await client.query(
@@ -150,10 +155,9 @@ describe.skipIf(!adminUrl)(
       { ...allocation, bindingId: "other-binding" },
       { ...allocation, invocationId: "other-invocation" },
       { ...allocation, attemptId: "other-attempt" },
-      { ...allocation, profileRef: "openai-responses-apikey-v1" },
       { ...allocation, profileRef: "unknown" },
     ])(
-      "does not infer provider from a mismatching tuple or generic profile: %j",
+      "does not infer provider from a mismatching tuple or unqualified profile: %j",
       async (gateway) => {
         await seed({ snapshotVersion: 3, gateway });
         expect((await read())[0].provider).toBe("codex");
@@ -183,6 +187,39 @@ describe.skipIf(!adminUrl)(
         expect((await read())[0].provider).toBe("codex");
       },
     );
+    it.each([
+      ["unknown", "glm-coding-global-responses-apikey-v1", "glm"],
+      ["unknown", "minimax-mplan-global-responses-apikey-v1", "minimax"],
+      ["unknown", "kimi-code-global-responses-apikey-v1", "kimi"],
+      ["unknown", "grok-subscription-responses-oauth-v1", "grok"],
+      ["codex", "anthropic-claude-oauth-messages-v1", "claude"],
+      ["codex", "openai-responses-apikey-v1", "mimo"],
+      ["codex", "openai-codex-oauth-responses-v1", "codex"],
+    ])(
+      "names the SDK vendor for a %s row of profile %s",
+      async (recorded, profileRef, provider) => {
+        await seed(
+          { snapshotVersion: 3, gateway: { ...allocation, profileRef } },
+          {},
+          recorded,
+        );
+        expect((await read())[0].provider).toBe(provider);
+      },
+    );
+    it("never relabels a row that already names its vendor", async () => {
+      await seed(
+        {
+          snapshotVersion: 3,
+          gateway: {
+            ...allocation,
+            profileRef: "glm-coding-global-responses-apikey-v1",
+          },
+        },
+        {},
+        "nvidia",
+      );
+      expect((await read())[0].provider).toBe("nvidia");
+    });
     it("leaves direct calls alone even when the snapshot matches", async () => {
       await seed({ snapshotVersion: 3, gateway: allocation });
       await client.query("UPDATE pg_temp.\"UsageCall\" SET route='direct'");
