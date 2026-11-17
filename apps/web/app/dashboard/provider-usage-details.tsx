@@ -62,7 +62,9 @@ export function UsageDetails({
       </p>
       <p>
         A partial day covers only part of a UTC day. Unknown or partial
-        observations mean usage measurements are missing or incomplete.
+        observations mean usage measurements are missing or incomplete. Not
+        reported means the source does not send that value: Gateway calls do not
+        report the upstream model, latency or cost.
       </p>
       <p>
         Source lag: {report.sourceLag} · All reported source windows from{" "}

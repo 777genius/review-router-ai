@@ -12,6 +12,15 @@ import {
   selectedCosts,
   shortIdentity,
   humanUtcRange,
+  allFreeModels,
+  isFreeModel,
+  latencyLabel,
+  missingCostLabel,
+  NOT_REPORTED,
+  observedPair,
+  observedValues,
+  reportedCount,
+  tokenCoverage,
 } from "./provider-usage-format";
 import type { UsageTotals } from "@reviewrouter/features-provider-usage";
 
@@ -34,14 +43,14 @@ function Head({ labels }: { labels: string[] }) {
     </thead>
   );
 }
-function Coverage({ totals }: { totals: UsageTotals }) {
-  const missing =
-    totals.unknownCount || totals.partialCount || totals.unknownTotalTokenCount;
+export function UsageCoverage({ totals }: { totals: UsageTotals }) {
+  const coverage = tokenCoverage(totals);
   return (
-    <span className={missing ? "text-amber-300" : "text-slate-400"}>
-      {missing
-        ? `${totals.unknownCount} unknown · ${totals.partialCount} partial${totals.unknownTotalTokenCount ? ` · ${totals.unknownTotalTokenCount} total token values unknown` : ""}`
-        : "Reported observations"}
+    <span
+      className={coverage.incomplete ? "text-slate-300" : "text-slate-400"}
+      title={coverage.detail}
+    >
+      {coverage.label}
     </span>
   );
 }
@@ -50,13 +59,34 @@ export function UsageCosts({
   selectedCurrency,
   basis,
   unknownCostCount = 0,
+  freeModel = false,
 }: {
   costs: readonly { amount: string; currency: string; basis: string }[];
   selectedCurrency?: string | undefined;
   basis?: string | undefined;
   unknownCostCount?: number | undefined;
+  /** Proven zero price for every call in this bucket. */
+  freeModel?: boolean | undefined;
 }) {
   const values = selectedCosts(costs, selectedCurrency, basis);
+  if (!values.length && freeModel)
+    return (
+      <span
+        className="text-slate-200"
+        title="OpenRouter free variant: no per-token charge"
+      >
+        Free model
+      </span>
+    );
+  if (!costs.length)
+    return (
+      <span
+        className="text-slate-400"
+        title="No cost was reported or estimated for these calls. Missing cost does not mean zero cost."
+      >
+        {NOT_REPORTED}
+      </span>
+    );
   return (
     <div>
       {values.length ? (
@@ -85,8 +115,10 @@ export function UsageCosts({
       ) : (
         <span>{currencyCostsLabel(costs, selectedCurrency, basis)}</span>
       )}
-      {unknownCostCount > 0 ? (
-        <p className="mt-1 text-xs text-amber-300">Some cost unknown</p>
+      {unknownCostCount > 0 && !freeModel ? (
+        <p className="mt-1 text-xs text-slate-400">
+          {missingCostLabel(unknownCostCount)}
+        </p>
       ) : null}
     </div>
   );
@@ -120,7 +152,7 @@ function ModelIdentity({ row }: { row: ModelRow }) {
   );
 }
 function CompactValues({ label, values }: { label: string; values: string[] }) {
-  const first = values[0] ?? "Unknown";
+  const first = values[0] ?? NOT_REPORTED;
   if (values.length <= 1 && first.length <= 56)
     return (
       <p className="break-words text-xs text-slate-400">
@@ -133,8 +165,8 @@ function CompactValues({ label, values }: { label: string; values: string[] }) {
         <span>
           {label}: {shortIdentity(first, 48)}
           {values.length > 1 ? ` +${values.length - 1}` : ""}
-          {values.includes("Unknown") && first !== "Unknown"
-            ? " · includes Unknown"
+          {values.includes(NOT_REPORTED) && first !== NOT_REPORTED
+            ? " · some not reported"
             : ""}
         </span>
       </summary>
@@ -158,19 +190,18 @@ function ModelObserved({ row }: { row: ModelRow }) {
   return (
     <CompactValues
       label="Observed"
-      values={[
-        ...row.observedModels,
-        ...(row.hasUnknownObservedModel ? ["Unknown"] : []),
-      ]}
+      values={observedValues(row.observedModels, row.hasUnknownObservedModel)}
     />
   );
 }
 function KeyMetrics({
   totals,
   selectedCurrency,
+  freeModel,
 }: {
   totals: UsageTotals;
   selectedCurrency?: string | undefined;
+  freeModel?: boolean | undefined;
 }) {
   return (
     <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 text-sm tabular-nums">
@@ -183,9 +214,9 @@ function KeyMetrics({
       <div>
         <dt className="text-xs text-slate-400">Known tokens</dt>
         <dd className="mt-1 font-medium text-slate-100">
-          {count(totals.tokens.total)}
+          {reportedCount(totals.tokens.total)}
           {totals.tokens.total !== null && totals.unknownTotalTokenCount > 0 ? (
-            <small className="mt-1 block text-xs font-normal text-amber-300">
+            <small className="mt-1 block text-xs font-normal text-slate-400">
               Known part
             </small>
           ) : null}
@@ -198,6 +229,7 @@ function KeyMetrics({
             costs={totals.costs}
             unknownCostCount={totals.unknownCostCount}
             selectedCurrency={selectedCurrency}
+            freeModel={freeModel}
           />
         </dd>
       </div>
@@ -241,17 +273,22 @@ export function ModelUsageTable({
                 </th>
                 <td className={cell}>{row.route}</td>
                 <td className={cell}>{count(row.totals.providerAttempts)}</td>
-                <td className={cell}>{count(row.totals.tokens.inputTotal)}</td>
-                <td className={cell}>{count(row.totals.tokens.outputTotal)}</td>
+                <td className={cell}>
+                  {reportedCount(row.totals.tokens.inputTotal)}
+                </td>
+                <td className={cell}>
+                  {reportedCount(row.totals.tokens.outputTotal)}
+                </td>
                 <td className={`${cell} min-w-36`}>
                   <UsageCosts
                     costs={row.totals.costs}
                     unknownCostCount={row.totals.unknownCostCount}
                     selectedCurrency={selectedCurrency}
+                    freeModel={isFreeModel(row)}
                   />
                 </td>
                 <td className={cell}>
-                  <Coverage totals={row.totals} />
+                  <UsageCoverage totals={row.totals} />
                 </td>
               </tr>
             ))}
@@ -276,16 +313,17 @@ export function ModelUsageTable({
               <KeyMetrics
                 totals={row.totals}
                 selectedCurrency={selectedCurrency}
+                freeModel={isFreeModel(row)}
               />
               <details className="mt-2 text-xs text-slate-400">
                 <summary className="min-h-9 cursor-pointer py-2 text-cyan-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300">
                   Token details and status
                 </summary>
                 <p>
-                  Input tokens: {count(row.totals.tokens.inputTotal)} · Output
-                  tokens: {count(row.totals.tokens.outputTotal)}
+                  Input tokens: {reportedCount(row.totals.tokens.inputTotal)} ·
+                  Output tokens: {reportedCount(row.totals.tokens.outputTotal)}
                 </p>
-                <Coverage totals={row.totals} />
+                <UsageCoverage totals={row.totals} />
               </details>
             </li>
           ))}
@@ -344,13 +382,13 @@ function RunIdentity({ row }: { row: RunRow }) {
           />
           <CompactValues
             label="Observed"
-            values={[
-              ...row.observedModels,
-              ...(row.hasUnknownObservedModel ? ["Unknown"] : []),
-            ]}
+            values={observedValues(
+              row.observedModels,
+              row.hasUnknownObservedModel,
+            )}
           />
           <p>Routes: {row.routes.join(", ")}</p>
-          <Coverage totals={row.totals} />
+          <UsageCoverage totals={row.totals} />
         </div>
       </details>
     </div>
@@ -401,24 +439,27 @@ export function RunUsageTable({
                     />
                     <CompactValues
                       label="Observed"
-                      values={[
-                        ...row.observedModels,
-                        ...(row.hasUnknownObservedModel ? ["Unknown"] : []),
-                      ]}
+                      values={observedValues(
+                        row.observedModels,
+                        row.hasUnknownObservedModel,
+                      )}
                     />
                   </td>
                   <td className={cell}>{row.routes.join(", ")}</td>
                   <td className={cell}>{count(row.totals.providerAttempts)}</td>
-                  <td className={cell}>{count(row.totals.tokens.total)}</td>
+                  <td className={cell}>
+                    {reportedCount(row.totals.tokens.total)}
+                  </td>
                   <td className={`${cell} min-w-36`}>
                     <UsageCosts
                       costs={row.totals.costs}
                       unknownCostCount={row.totals.unknownCostCount}
                       selectedCurrency={selectedCurrency}
+                      freeModel={allFreeModels(row.identities)}
                     />
                   </td>
                   <td className={cell}>
-                    <Coverage totals={row.totals} />
+                    <UsageCoverage totals={row.totals} />
                   </td>
                 </tr>
               ))}
@@ -433,6 +474,7 @@ export function RunUsageTable({
                 <KeyMetrics
                   totals={row.totals}
                   selectedCurrency={selectedCurrency}
+                  freeModel={allFreeModels(row.identities)}
                 />
               </li>
             ))}
@@ -488,42 +530,48 @@ export function ObservationTable({
             ]}
           />
           <tbody>
-            {report.rows.map((row) => (
-              <tr key={row.id} className="border-b border-slate-700/40">
-                <th scope="row" className={`${cell} font-normal`}>
-                  {row.day}
-                </th>
-                <td className={`${cell} max-w-80 break-words`}>
-                  Requested: {row.requestedProvider ?? row.provider} /{" "}
-                  {requestedModelLabel(
-                    row.requestedModel === undefined
-                      ? row.model
-                      : row.requestedModel,
-                  )}
-                  <br />
-                  Observed: {row.actualProvider ?? "Unknown"} /{" "}
-                  {row.actualModel ?? "Unknown"}
-                </td>
-                <td className={cell}>
-                  {row.route} / {row.purpose}
-                </td>
-                <td className={cell}>
-                  {count(row.total)} ({row.granularity})
-                </td>
-                <td className={cell}>
-                  <UsageCosts
-                    costs={row.cost ? [row.cost] : []}
-                    selectedCurrency={selectedCurrency}
-                  />
-                </td>
-                <td className={cell}>
-                  {row.completeness} / {row.authority ?? "unavailable"}
-                </td>
-                <td className={cell}>
-                  {count(row.durationMs)} / {count(row.ttftMs)} ms
-                </td>
-              </tr>
-            ))}
+            {report.rows.map((row) => {
+              const requested = {
+                provider: row.requestedProvider ?? row.provider,
+                requestedModel:
+                  row.requestedModel === undefined
+                    ? row.model
+                    : row.requestedModel,
+              };
+              return (
+                <tr key={row.id} className="border-b border-slate-700/40">
+                  <th scope="row" className={`${cell} font-normal`}>
+                    {row.day}
+                  </th>
+                  <td className={`${cell} max-w-80 break-words`}>
+                    Requested: {requested.provider} /{" "}
+                    {requestedModelLabel(requested.requestedModel)}
+                    <br />
+                    Observed:{" "}
+                    {observedPair(row.actualProvider, row.actualModel)}
+                  </td>
+                  <td className={cell}>
+                    {row.route} / {row.purpose}
+                  </td>
+                  <td className={cell}>
+                    {`${reportedCount(row.total)} (${row.granularity})`}
+                  </td>
+                  <td className={cell}>
+                    <UsageCosts
+                      costs={row.cost ? [row.cost] : []}
+                      selectedCurrency={selectedCurrency}
+                      freeModel={isFreeModel(requested)}
+                    />
+                  </td>
+                  <td className={cell}>
+                    {row.completeness} / {row.authority ?? "unavailable"}
+                  </td>
+                  <td className={cell}>
+                    {latencyLabel(row.durationMs, row.ttftMs)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
