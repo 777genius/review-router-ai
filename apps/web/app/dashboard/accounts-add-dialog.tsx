@@ -106,7 +106,7 @@ export function AccountsAddDialog({
             <div hidden={path !== "personal"}>
               <p className="mb-4 text-sm text-slate-400">
                 You own this connection. It is added to {workspaceName} as soon
-                as it connects. Plans for personal use only stay personal.
+                as it connects.
               </p>
               {personalConnect}
             </div>

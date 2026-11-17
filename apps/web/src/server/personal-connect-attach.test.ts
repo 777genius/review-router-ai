@@ -170,21 +170,28 @@ describe("adding a new personal connection to the current workspace", () => {
     expect(deps.attach).not.toHaveBeenCalled();
   });
 
-  it("keeps a personal-only plan out of a shared workspace", async () => {
-    const { deps, attachConnected } = setup({
-      operation: connect({
-        source: {
-          ...source,
-          profileRef: "glm-coding-global-responses-apikey-v1",
-        },
-      }),
+  it("adds a GLM plan like any other plan, still only for an owner or admin", async () => {
+    const operation = connect({
+      source: {
+        ...source,
+        profileRef: "glm-coding-global-responses-apikey-v1",
+      },
     });
+    const admin = setup({ operation });
+    await expect(admin.attachConnected("org", connectNonce)).resolves.toEqual({
+      status: "attached",
+    });
+    expect(admin.deps.attach).toHaveBeenCalledOnce();
 
-    await expect(attachConnected("org", connectNonce)).resolves.toEqual({
-      status: "not_attached",
-      reason: "personal_only",
+    const member = setup({
+      operation,
+      access: { personal: false, canDetach: false },
     });
-    expect(deps.attach).not.toHaveBeenCalled();
+    await expect(member.attachConnected("org", connectNonce)).resolves.toEqual({
+      status: "not_attached",
+      reason: "not_permitted",
+    });
+    expect(member.deps.attach).not.toHaveBeenCalled();
   });
 
   it("reports the binding connect already made in the owner's personal workspace", async () => {

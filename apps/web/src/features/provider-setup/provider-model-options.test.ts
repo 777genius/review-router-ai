@@ -63,7 +63,6 @@ describe("Gateway model catalog presentation", () => {
       planLabel: "API",
       regionLabel: "Global",
       completionInputKind: "none" as const,
-      personalOnly: false,
       limitsContract: "none" as const,
       modelSettings: [
         {
@@ -118,7 +117,6 @@ describe("Gateway model catalog presentation", () => {
         planLabel: "Trial",
         regionLabel: "Global",
         completionInputKind: "none" as const,
-        personalOnly: false,
         limitsContract: "none" as const,
         modelSettings: [
           {
@@ -305,7 +303,6 @@ describe("Gateway model catalog presentation", () => {
         planLabel: "GLM Coding Plan",
         regionLabel: "Global",
         completionInputKind: "none" as const,
-        personalOnly: true,
         limitsContract: "account-limits/v2" as const,
         modelSettings: [setting("glm-5.3-flash"), setting("glm-5.3")],
       },

@@ -54,7 +54,6 @@ describe("qualified connection catalog", () => {
       authKind: "api_key",
       connection: {
         provider: "glm",
-        personalOnly: true,
         modelSettings: [{ reasoning: null, fast: null }],
       },
     });
@@ -229,7 +228,6 @@ describe("qualified connection catalog", () => {
           planLabel: "Subscription",
           regionLabel: "Global",
           completionInputKind: "authorization_code",
-          personalOnly: false,
           limitsContract: "account-limits/v2",
           modelSettings: [],
         },

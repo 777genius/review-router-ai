@@ -8,7 +8,6 @@ import {
   assertExpectedRevision,
   assertMetadata,
   assertOpaqueReference,
-  assertProfileShareAllowed,
 } from "../../domain/provider-account";
 import type { PersonalAccountOperationStore } from "../ports/provider-account-repository-port";
 import type { PersonalAccountGatewayPort } from "../ports/provider-account-synchronization-port";
@@ -282,7 +281,6 @@ export async function attachPersonalAccount(
   await authorizeOwner?.(actorUserId);
   const source = await store.findOwnedSource(actorUserId, intent.sourceId);
   await authorizeOwner?.(actorUserId);
-  assertProfileShareAllowed(source.profileRef);
   const account = await gateway.get(
     actorUserId,
     source.gatewayAccountRef,

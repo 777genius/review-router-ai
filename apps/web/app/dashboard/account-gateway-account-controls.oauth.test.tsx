@@ -2385,7 +2385,6 @@ test.each([
           provider,
           planLabel,
           regionLabel: "Global",
-          personalOnly: provider === "glm",
           completionInputKind: "none",
           limitsContract: "account-limits/v2",
           modelSettings: [],
@@ -2449,7 +2448,6 @@ test.each(["authorization_code", "callback_url"] as const)(
           planLabel: "Subscription",
           regionLabel: "Global",
           completionInputKind: "authorization_code",
-          personalOnly: false,
           limitsContract: "account-limits/v2",
           modelSettings: [],
         },
@@ -2518,7 +2516,6 @@ test("Grok offers one browser sign-in with no OpenAI setup or method wizard", as
         planLabel: "Subscription",
         regionLabel: "Global",
         completionInputKind: "authorization_code",
-        personalOnly: false,
         limitsContract: "account-limits/v2",
         modelSettings: [],
       },
@@ -2611,7 +2608,6 @@ test("delayed Grok reconnect resumes browser enrollment with the same nonce afte
         planLabel: "Subscription",
         regionLabel: "Global",
         completionInputKind: "authorization_code",
-        personalOnly: false,
         limitsContract: "account-limits/v2",
         modelSettings: [],
       },
@@ -2822,7 +2818,7 @@ test("bootstrap replacement blocks removed metrics until publication, then permi
   ).toBeNull();
 });
 
-test("personal-only key receipt uses authorized account metadata without offering organization access", async () => {
+test("a GLM key receipt uses authorized account metadata and points to Access like any plan", async () => {
   const api = personalApi();
   const account: AccountView = {
     ...row("active"),
@@ -2833,7 +2829,6 @@ test("personal-only key receipt uses authorized account metadata without offerin
       planLabel: "Coding Plan",
       regionLabel: "Global",
       completionInputKind: "none",
-      personalOnly: true,
       limitsContract: "account-limits/v2",
       modelSettings: [],
     },
@@ -2861,8 +2856,10 @@ test("personal-only key receipt uses authorized account metadata without offerin
   const receipt = (await screen.findByText("Personal GLM")).closest(
     '[role="status"]',
   )!;
-  expect(receipt.textContent).toContain("Personal use.");
-  expect(receipt.textContent).not.toContain("Organization access");
+  expect(receipt.textContent).toContain(
+    "Organization access can be granted separately via Access.",
+  );
+  expect(receipt.textContent).not.toContain("Personal use");
 });
 
 test("only a connect started in this workspace is added to it, once, or says why not", async () => {

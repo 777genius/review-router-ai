@@ -57,9 +57,7 @@ export function connectionSetupContinuation(input: {
   };
   const workspaceExisting = existing(input.available ?? input.workspace);
   const personalExisting = existing(input.personal);
-  const workspaceSupported = matchingProfiles(input.workspace).some(
-    (profile) => !profile.connection?.personalOnly,
-  );
+  const workspaceSupported = matchingProfiles(input.workspace).length > 0;
   return {
     autoOpen: Boolean(
       provider &&
