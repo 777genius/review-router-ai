@@ -129,6 +129,15 @@ test.describe("Accounts UX reference browser contract", () => {
     expect(
       ownerAccessibility.filter((value) => /github|gitlab/i.test(value)),
     ).toEqual([]);
+    // A usable connection is picked in Review providers, not Review settings.
+    await expect(
+      region
+        .getByRole("link", { name: "Choose for reviews", exact: true })
+        .first(),
+    ).toHaveAttribute(
+      "href",
+      /^\/dashboard\?section=providers&workspace=[^&#]+#dashboard-section-content$/,
+    );
     const fixtureDatabase =
       process.env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL!;
     try {

@@ -387,7 +387,7 @@ test("retains stale rows without actions on unavailable, then clears them on den
     (screen.getByRole("button", { name: "Access" }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
-  expect(screen.queryByRole("link", { name: "Choose in Models" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Choose for reviews" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Canonical old-BX" })).toBeNull();
   f.api.list.mockResolvedValue({ status: "denied" });
   fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));

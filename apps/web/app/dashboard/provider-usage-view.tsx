@@ -35,12 +35,10 @@ import {
   intervalLabel,
   NOT_REPORTED,
   rollingInterval,
+  unreportedUsageNote,
   type UsageMetric,
 } from "./provider-usage-format";
 
-/** Calls whose usage report has not arrived or is not complete. */
-const hasPendingUsage = (report: ProviderUsageReport) =>
-  report.unknown > 0 || report.partial > 0;
 /**
  * A call without a full report after this long keeps that state: one Gateway
  * request is capped at an hour (relay `requestTimeoutMs`) and native
@@ -55,13 +53,6 @@ function hasFreshPendingUsage(
   return (
     report.latestPendingAt !== null &&
     now - Date.parse(report.latestPendingAt) < USAGE_PENDING_POLL_WINDOW_MS
-  );
-}
-function hasUnknownUsage(report: ProviderUsageReport): boolean {
-  return (
-    hasPendingUsage(report) ||
-    report.totals.unknownCostCount > 0 ||
-    report.totals.unknownTotalTokenCount > 0
   );
 }
 
@@ -219,7 +210,7 @@ function ProviderUsageContext({
     else applyFilters(rollingInterval(Number(period) as 7 | 30 | 90));
   };
   const custom = customInterval(draftFrom, draftTo);
-  const hasUnknown = data && hasUnknownUsage(data);
+  const unreported = data ? unreportedUsageNote(data) : null;
   const latestSourceUpdate = data?.latestSourceAsOf ?? data?.asOf;
   return (
     <section aria-label="Provider usage" className="min-w-0 space-y-6">
@@ -654,11 +645,10 @@ function ProviderUsageContext({
               className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300"
             >
               <span
-                className={hasUnknown ? "text-slate-300" : "text-slate-400"}
+                className={unreported ? "text-slate-300" : "text-slate-400"}
               >
-                {hasUnknown
-                  ? "△ Some token or cost data was not reported"
-                  : "Reported observations; coverage is not guaranteed"}
+                {unreported ??
+                  "Reported observations; coverage is not guaranteed"}
               </span>
               <span className="ml-auto text-slate-400">
                 {latestSourceUpdate

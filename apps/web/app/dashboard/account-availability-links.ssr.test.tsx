@@ -34,7 +34,7 @@ afterEach(() => {
 
 // A server render has no browser URL to correct an omitted workspace. React
 // hydration must receive the same target instead of keeping a default href.
-test("workspace-owned and recipient Models links retain the selected nondefault workspace during SSR", () => {
+test("workspace-owned and recipient links open Review providers for the selected nondefault workspace during SSR", () => {
   expect(typeof window).toBe("undefined");
   const workspaceId = "nondefault-workspace";
   const row: AccountView = {
@@ -64,7 +64,7 @@ test("workspace-owned and recipient Models links retain the selected nondefault 
     />,
   );
   const expected =
-    'href="/dashboard?section=policy&amp;workspace=nondefault-workspace#dashboard-section-content"';
+    'href="/dashboard?section=providers&amp;workspace=nondefault-workspace#dashboard-section-content"';
   expect(owned).toContain(expected);
   expect(owned).toContain("Choose for reviews");
   const client = new QueryClient();
@@ -92,7 +92,7 @@ test("workspace-owned and recipient Models links retain the selected nondefault 
     />,
   );
   expect(recipient).toContain(expected);
-  expect(recipient).toContain("Choose in Models");
+  expect(recipient).toContain("Choose for reviews");
 });
 
 vi.mock("./account-lifecycle-actions", () => ({

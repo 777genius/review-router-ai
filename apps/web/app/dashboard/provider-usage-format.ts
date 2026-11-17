@@ -1,4 +1,5 @@
 import type { UsageTotals } from "@reviewrouter/features-provider-usage";
+import type { ProviderUsageReport } from "./provider-usage-model";
 export type UsageMetric = "tokens" | "requests" | "cost";
 export type CostBucket = { currency: string; basis: string };
 /** A source omitted the value; the UI must not present it as measured. */
@@ -148,6 +149,30 @@ export function usagePricing(
     identities.every(({ provider }) => subscriptionProviders.includes(provider))
     ? "subscription"
     : undefined;
+}
+/**
+ * Footer note naming each measurement the source left out, in the same words
+ * as the rows. A cost explained by a free model or a subscription plan is not
+ * missing, so it never reads as lost data.
+ */
+export function unreportedUsageNote(
+  report: Pick<ProviderUsageReport, "totals" | "subscriptionProviders"> & {
+    overview: Pick<ProviderUsageReport["overview"], "models">;
+  },
+): string | null {
+  const tokens = tokenCoverage(report.totals);
+  const withoutCost = report.overview.models.reduce(
+    (sum, model) =>
+      usagePricing([model], [model.route], report.subscriptionProviders)
+        ? sum
+        : sum + model.totals.unknownCostCount,
+    0,
+  );
+  const parts = [
+    tokens.incomplete ? tokens.label : "",
+    withoutCost ? `${calls(withoutCost)} without reported cost` : "",
+  ].filter(Boolean);
+  return parts.length ? `△ ${parts.join(" · ")}` : null;
 }
 export function observedPair(
   provider: string | null | undefined,
