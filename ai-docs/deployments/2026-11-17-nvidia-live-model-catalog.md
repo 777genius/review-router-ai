@@ -33,7 +33,7 @@ No migration, configuration or feature flag. The order matters because the chang
 
 ## Retry and rollback
 
-Every step is an ordinary service deployment and can be repeated. Roll back in reverse: native first, then Gateway, then ReviewRouter. After native is rolled back, saved NVIDIA models other than the anchor and coding plan models beyond the static ones are refused at checkout (`gateway_model_settings_unavailable`) until they are changed. Record a rollback as `rolled_back` with the previous versions.
+Every step is an ordinary service deployment and can be repeated. Roll back in the exact reverse of the steps actually executed. For the joint path that is: native back to the #100 commit, then ReviewRouter, then the Gateway, then native to its previous version. Rolling the Gateway back before ReviewRouter would answer `unsupported` to the coding plan discovery and break Kimi checkout. After native is rolled back, saved NVIDIA models other than the anchor and coding plan models beyond the static ones are refused at checkout (`gateway_model_settings_unavailable`) until they are changed. Record a rollback as `rolled_back` with the previous versions.
 
 ## Execution log
 
