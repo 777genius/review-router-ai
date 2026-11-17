@@ -10,11 +10,11 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                 |
-| -------------------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Paired rollout below.                          |
-| production           | `pending` | Not verified                    | Not verified        | No deployment authorized by the source merges. |
-| Action runtime       | `pending` | Not released                    | Not verified        | Source only; release after Web/API, step 2.    |
+| Environment / target | Status      | Actual deployed version / image                           | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                            |
+| -------------------- | ----------- | --------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                                              | Not verified        | Paired rollout below.                                                                                                                                                     |
+| production           | `installed` | 000158/000159, Web/API `974295ea`, producer 240 (plan v2) | 2026-11-17 19:55    | Steps 1 to 3 done in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); fallback rosters are admitted now; verification steps 2 to 4 are not run yet. |
+| Action runtime       | `installed` | `v1.0.240` = `3a256b15`                                   | 2026-11-17 19:12    | `workflow-v1` = 240 since 19:55.                                                                                                                                          |
 
 `pending` means no verified completion is recorded. Use the [status contract](README.md#status-contract).
 

@@ -9,10 +9,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                      |
-| ---------- | --------- | ------------ | --------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary API and Web rollout and checks below |
-| Production | `pending` | Not verified | No deployment authorized by the source merge  |
+| Target     | Status      | Actual image       | Evidence                                                                                                                                                |
+| ---------- | ----------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified       | Ordinary API and Web rollout and checks below                                                                                                           |
+| Production | `installed` | API/Web `974295ea` | Shipped in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); attach tests pass on the exact source, dashboard steps 2 to 4 not run |
 
 ## Applicability and rollout
 

@@ -9,11 +9,11 @@
 
 ## Environment status
 
-| Target                   | Status    | Actual version | Evidence                                     |
-| ------------------------ | --------- | -------------- | -------------------------------------------- |
-| Staging                  | `pending` | Not verified   | Ordinary API/Web rollout and checks below    |
-| Production               | `pending` | Not verified   | No deployment authorized by the source merge |
-| Action runtime (channel) | `pending` | Not released   | Release and pair only after the SaaS rollout |
+| Target                   | Status      | Actual version                                 | Evidence                                                                                                                                      |
+| ------------------------ | ----------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging                  | `pending`   | Not verified                                   | Ordinary API/Web rollout and checks below                                                                                                     |
+| Production               | `installed` | 000158, API/Web `974295ea`, runtime `v1.0.240` | All rollout steps done in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md); the quota skip check (step 3) is not run yet |
+| Action runtime (channel) | `installed` | `v1.0.240` = `3a256b15`, `workflow-v1` = 240   | Producer 240 registered 2026-11-17 19:13, channel promoted 19:55                                                                              |
 
 ## Ordered rollout
 

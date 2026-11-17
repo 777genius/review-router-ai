@@ -137,12 +137,27 @@ export function useProviderModelCatalogs(
   };
 }
 
+export type ProviderModelCatalogState = NonNullable<
+  ReturnType<ReturnType<typeof useProviderModelCatalogs>["status"]>
+>;
+
+/**
+ * A failed fetch, or a retained source error after a later cached or cooldown
+ * answer, keeps the last snapshot. Both status components say so the same way.
+ */
+export const publicCatalogRefreshFailed = (status: ProviderModelCatalogState) =>
+  status.failed ||
+  status.snapshot?.refresh === "failed" ||
+  (status.snapshot?.error ?? null) !== null;
+
+/**
+ * Status of a public catalog chosen without an account. A Gateway account has
+ * its own catalog status, which also refreshes this public metadata.
+ */
 export function ProviderModelCatalogStatus({
   status,
-  publicSelection,
 }: {
-  status: ReturnType<ReturnType<typeof useProviderModelCatalogs>["status"]>;
-  publicSelection: boolean;
+  status: ProviderModelCatalogState | null;
 }) {
   if (!status) return null;
   const snapshot = status.snapshot;
@@ -151,9 +166,7 @@ export function ProviderModelCatalogStatus({
       <span role="status">
         {status.loading
           ? "Updating model list…"
-          : status.failed ||
-              snapshot?.refresh === "failed" ||
-              (snapshot?.error !== null && snapshot?.error !== undefined)
+          : publicCatalogRefreshFailed(status)
             ? snapshot?.models.length
               ? "Could not update the model list. Showing the last available model list."
               : "Could not load the model list. Try refreshing."
@@ -179,9 +192,7 @@ export function ProviderModelCatalogStatus({
       >
         {status.loading ? "Refreshing models…" : "Refresh models"}
       </Button>
-      {publicSelection ? (
-        <span>Access to these models has not been checked.</span>
-      ) : null}
+      <span>Access to these models has not been checked.</span>
     </div>
   );
 }

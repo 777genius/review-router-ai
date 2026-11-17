@@ -1692,6 +1692,75 @@ describe("ProviderSetupDialog", () => {
     expect(saveProviderRosterAction).not.toHaveBeenCalled();
   });
 
+  // get-tok onboarding audit: a Gateway account showed two Refresh models
+  // buttons whose statuses contradicted each other.
+  it("shows one catalog status for a Gateway account and refreshes both catalogs from it", async () => {
+    const fixture = gatewayFixture();
+    if (fixture.status !== "ok") throw new Error("fixture unavailable");
+    fixture.value.nextCursor = null;
+    const profile = fixture.value.profiles[0]!;
+    profile.id = "openai-codex-oauth-responses-v1";
+    profile.authKind = "oauth";
+    profile.provider = "codex";
+    profile.connection = { ...profile.connection!, provider: "openai" };
+    const account = fixture.value.accounts[0]!;
+    account.profileId = profile.id;
+    account.modelCatalog = {
+      status: "snapshot",
+      source: "codex",
+      fetchedAt: "2026-10-26T12:00:00Z",
+      models: profile.models,
+    };
+    const snapshots: ProviderModelCatalogSnapshot[] = (
+      ["codex", "claude", "openrouter"] as const
+    ).map((providerKind) => ({
+      providerKind,
+      models: [],
+      source: "local",
+      fetchedAt: Date.now(),
+      lastAttemptAt: Date.now(),
+      state: "fresh",
+      error: null,
+      refresh: "cached",
+    }));
+    const publicApi = vi.fn(
+      async ({ providerKind }: { providerKind: string }) =>
+        snapshots.find((row) => row.providerKind === providerKind)!,
+    );
+    const gatewayApi = {
+      list: vi.fn<GatewayModelAccountsApi["list"]>().mockResolvedValue(fixture),
+      get: vi
+        .fn<GatewayModelAccountsApi["get"]>()
+        .mockResolvedValue({ status: "ok", value: { account, profile } }),
+    };
+    view = { ...view, sources: apiSources() };
+    renderDialog(
+      repositoryTarget,
+      { gatewayAccounts: fixture },
+      { snapshots, api: publicApi },
+      { api: gatewayApi },
+    );
+    await choose("Add a new provider");
+    await chooseSelect("Provider", "Codex");
+    await chooseSelect("Account", /^Selected account/);
+    const refresh = await screen.findAllByRole("button", {
+      name: "Refresh models",
+    });
+    expect(refresh).toHaveLength(1);
+    expect(screen.queryByText("Model list is up to date.")).toBeNull();
+    fireEvent.click(refresh[0]!);
+    await waitFor(() =>
+      expect(publicApi).toHaveBeenCalledWith(
+        expect.objectContaining({ providerKind: "codex", forceRefresh: true }),
+      ),
+    );
+    await waitFor(() =>
+      expect(gatewayApi.get).toHaveBeenCalledWith("binding-1", {
+        forceRefresh: true,
+      }),
+    );
+  });
+
   it.each(["kimi", "openai"] as const)(
     "derives qualified defaults when opening Make default for an unused Gateway %s profile",
     async (provider) => {

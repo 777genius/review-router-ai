@@ -19,6 +19,7 @@ export const accountsCopy = {
   access: "Access",
   add: "Add account",
   connect: "Connect account",
+  chooseForReviews: "Choose for reviews",
   personal: "Personal",
   notShared: "Not shared",
   ownerUnavailable: "Owner unavailable",

@@ -13,6 +13,7 @@ import {
   metricLabel,
   observedPair,
   tokenCoverage,
+  unreportedUsageNote,
   usagePricing,
   utcDays,
 } from "./provider-usage-format";
@@ -191,5 +192,47 @@ describe("usage presentation invariants", () => {
         plans,
       ),
     ).toBeUndefined();
+  });
+  // get-tok onboarding audit: a missing subscription cost read as lost usage.
+  it("names each missing measurement in the footer and skips costs a plan explains", () => {
+    const note = (
+      models: {
+        provider: string;
+        route: "gateway" | "direct";
+        unknownCostCount: number;
+      }[],
+      overall: Partial<UsageTotals> = {},
+    ) =>
+      unreportedUsageNote({
+        totals: { ...totals, ...overall },
+        subscriptionProviders: ["codex"],
+        overview: {
+          models: models.map(({ provider, route, unknownCostCount }) => ({
+            provider,
+            requestedModel: "model",
+            route,
+            observedModels: [],
+            hasUnknownObservedModel: false,
+            totals: { ...totals, unknownCostCount },
+          })),
+        },
+      });
+    const subscription = {
+      provider: "codex",
+      route: "gateway" as const,
+      unknownCostCount: 8,
+    };
+    expect(note([subscription])).toBeNull();
+    expect(
+      note([subscription, { ...subscription, route: "direct" as const }]),
+    ).toBe("△ 8 calls without reported cost");
+    expect(note([subscription], { unknownCount: 1 })).toBe(
+      "△ 1 call with incomplete token data",
+    );
+    expect(
+      note([{ ...subscription, provider: "openrouter" }], {
+        unknownTotalTokenCount: 2,
+      }),
+    ).toBe("△ 2 calls without total tokens · 8 calls without reported cost");
   });
 });

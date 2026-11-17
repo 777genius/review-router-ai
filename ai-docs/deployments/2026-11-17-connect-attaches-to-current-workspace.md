@@ -9,10 +9,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                     |
-| ---------- | --------- | ------------ | -------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary web rollout and checks below        |
-| Production | `pending` | Not verified | No deployment authorized by the source merge |
+| Target     | Status      | Actual image   | Evidence                                                                                                                             |
+| ---------- | ----------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Staging    | `pending`   | Not verified   | Ordinary web rollout and checks below                                                                                                |
+| Production | `installed` | Web `974295ea` | Shipped in the [coordinated rollout](2026-11-17-coordinated-rollout-974295ea.md) together with #887; dashboard steps 2 and 3 not run |
 
 ## Applicability and rollout
 
