@@ -25,7 +25,7 @@ function fixture(
   model = "gpt-prefix/dynamic",
   reasoningEffort?: "minimal" | "high" | "max" | "ultra",
   options: {
-    readonly source?: "codex" | "openrouter" | "glm";
+    readonly source?: "codex" | "openrouter" | "glm" | "kimi" | "minimax";
   } = {},
 ) {
   const source = options.source ?? "codex";
@@ -34,7 +34,11 @@ function fixture(
       ? codexOAuthModelSettingsProfile
       : source === "glm"
         ? "glm-coding-global-responses-apikey-v1"
-        : "openrouter-openai-responses-apikey-v1";
+        : source === "kimi"
+          ? "kimi-code-global-responses-apikey-v1"
+          : source === "minimax"
+            ? "minimax-mplan-global-responses-apikey-v1"
+            : "openrouter-openai-responses-apikey-v1";
 
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
@@ -189,7 +193,7 @@ function fixture(
       : {
           // The GLM plan serves its catalogue from native, not from a vendor source.
           source:
-            source === "glm"
+            source === "glm" || source === "kimi" || source === "minimax"
               ? ("native_catalog" as const)
               : ("openrouter" as const),
           models: [
@@ -234,7 +238,11 @@ function fixture(
             ? "gpt-5.6-sol"
             : source === "glm"
               ? "glm-5.3-flash"
-              : "openai/gpt-5.4-mini",
+              : source === "kimi"
+                ? "k3-256k"
+                : source === "minimax"
+                  ? "MiniMax-M3.1-Flash"
+                  : "openai/gpt-5.4-mini",
         ],
         authKinds: [source === "codex" ? "oauth" : "api_key"],
       },
@@ -730,5 +738,42 @@ it.each([
     } else f.catalog({ status: mode });
     await expect(f.issue()).rejects.toThrow();
     expect(f.issuer).not.toHaveBeenCalled();
+  },
+);
+
+// Kimi and MiniMax serve a native catalogue too: a live-listed model is checked out
+// from a fresh snapshot, and only the anchor survives an unavailable catalogue.
+it.each([
+  ["kimi", "k3-256k"],
+  ["minimax", "MiniMax-M3.1-Flash"],
+] as const)(
+  "checks out a listed %s model and keeps its anchor when the catalogue is unavailable",
+  async (source, anchor) => {
+    const live = fixture("vendor/live-listed-model", undefined, { source });
+    const result = await live.issue();
+    expect(
+      JSON.parse(
+        result.runtimeConfig.runtimeEnv[gatewayModelSettingsRuntimeEnvKey]!,
+      ),
+    ).toEqual({ model: "vendor/live-listed-model", reasoning: null });
+    expect(live.readAccountModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profileId:
+          source === "kimi"
+            ? "kimi-code-global-responses-apikey-v1"
+            : "minimax-mplan-global-responses-apikey-v1",
+      }),
+      expect.anything(),
+    );
+
+    const unavailable = fixture(anchor, undefined, { source });
+    unavailable.catalog({ status: "unavailable" });
+    await unavailable.issue();
+    expect(unavailable.issuer).toHaveBeenCalledTimes(1);
+
+    const other = fixture("vendor/live-listed-model", undefined, { source });
+    other.catalog({ status: "unavailable" });
+    await expect(other.issue()).rejects.toThrow();
+    expect(other.issuer).not.toHaveBeenCalled();
   },
 );

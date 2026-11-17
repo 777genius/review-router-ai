@@ -1,14 +1,14 @@
 {
   "contract": "nvidia-sandbox-sdk-provenance/v1",
-  "archive": "agent-teams-account-gateway-0.1.0-nvidia-6ba203bbab4a.tgz",
-  "sha256": "5169892012bde002c36e81fd82f4a596c067a7cd0844ca12f068009829a1fb6b",
-  "integrity": "sha512-R9M6AMRyRgv35Kes2wihUBu/IufWMAjCBqa8OB1H1c/fDfiHzP0pW+Ht7VX3VUFdYmLGIMiDeBD6bPLmO7OoJw==",
+  "archive": "agent-teams-account-gateway-0.1.0-nvidia-1d6cf84f1243.tgz",
+  "sha256": "2f1b5b9f5feaa637e46a7a727479c255b26353d399720f2c339f36307b666975",
+  "integrity": "sha512-hkXcecNJTOeKsouqcccSn/YpykSBwdjWM0j3fz9roUhChyzJlkGgugTDFJBgxsAr0BeDF4/+cByIJBHFsouQUg==",
   "sdkSourceRepository": "agent-teams-ai/account-gateway",
-  "sdkSourceCommit": "6ba203bbab4aeb6e0fbf5d438b73b13cba08e946",
+  "sdkSourceCommit": "1d6cf84f12434ff736e8b5be2262531a66f78a5b",
   "artifactRun": null,
-  "artifactBuilt": "pnpm pack of the merged Gateway main commit (agent-teams-ai/account-gateway#109); two independent packs produced identical bytes. The Gateway has no CI job that uploads the SDK archive.",
+  "artifactBuilt": "pnpm pack of the merged Gateway main commit (agent-teams-ai/account-gateway#110); two independent packs produced identical bytes. The Gateway has no CI job that uploads the SDK archive.",
   "nativeSourceRepository": "agent-teams-ai/sub2api",
-  "nativeSourceCommit": "7ed9f599046111fe17594aa81fcf78591eefde34",
+  "nativeSourceCommit": "d92f681cb690c558a6305e9d8714a39b55db3ada",
   "qualification": {
     "sdkArchiveBuilt": true,
     "archiveChecksumVerified": true,
@@ -23,6 +23,6 @@
     "publicPublished": false,
     "productionActivated": false
   },
-  "change": "adds the native_catalog account model source (GLM anchor plus glm-5.3); see ai-docs/architecture/64-gateway-native-ownership-and-model-catalog.md",
+  "change": "native_catalog discovery for the GLM, MiniMax and Kimi coding plans; see ai-docs/architecture/65-live-coding-plan-model-catalog.md",
   "previousProvenance": "nvidia-c32ef9ed3360-sdk-provenance.json"
 }

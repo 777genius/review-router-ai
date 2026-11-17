@@ -48,6 +48,9 @@ export function SelectField({
     value === undefined
       ? null
       : options.find((option) => option.value === value)?.icon;
+  // Base UI marks an empty value as a placeholder. An empty-value option such
+  // as "All providers" is a real choice, so only a true placeholder is muted.
+  const emptyValueIsOption = options.some((option) => option.value === "");
   return (
     <label
       className={cn("grid min-w-0 gap-2 text-sm text-slate-300", className)}
@@ -76,7 +79,10 @@ export function SelectField({
           <span className="flex min-w-0 items-center gap-2">
             {selectedIcon ?? null}
             <BaseSelect.Value
-              className="min-w-0 truncate data-[placeholder]:text-slate-500"
+              className={cn(
+                "min-w-0 truncate",
+                !emptyValueIsOption && "data-[placeholder]:text-slate-500",
+              )}
               placeholder={placeholder}
             />
           </span>

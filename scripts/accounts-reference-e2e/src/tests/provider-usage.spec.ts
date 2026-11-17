@@ -381,7 +381,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
           .filter({ hasText: "codex / model-alpha" });
         await expect(alphaSummary).toContainText("1.14 USD");
         await expect(
-          alphaSummary.getByText("Some cost unknown", { exact: true }),
+          alphaSummary.getByText(/^Excludes \d+ calls? without cost$/),
         ).toBeVisible();
         const fullModel = usage
           .getByRole("region", { name: "Model usage summaries", exact: true })
@@ -644,7 +644,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
       .filter({ hasText: sharedRun });
     await expect(sharedRunSummary).toContainText("0.2 EUR");
     await expect(
-      sharedRunSummary.getByText("Some cost unknown", { exact: true }),
+      sharedRunSummary.getByText(/^Excludes \d+ calls? without cost$/),
     ).toBeVisible();
     const runDetails = sharedRunSummary
       .locator("summary")
@@ -732,7 +732,7 @@ test("provider usage overview keeps complete period totals, charts, models and r
     await usage.getByLabel("Details", { exact: true }).click();
     await expect(
       usage.getByRole("table", { name: "Daily usage data", exact: true }),
-    ).toContainText("No observations; coverage unknown");
+    ).toContainText("No usage recorded");
     await expect(
       usage
         .getByRole("table", { name: "Usage observations", exact: true })
