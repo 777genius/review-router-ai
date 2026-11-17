@@ -374,7 +374,19 @@ export function GatewayReviewerRoster({
                 ? existing.decision.reason
                 : null;
             return (
-              <li key={row.id} className="py-4">
+              <li
+                key={row.id}
+                data-editing={expanded ? "" : undefined}
+                // The reviewer being edited carries the accent edge of the
+                // active dashboard section, so its fields read as its own. An
+                // inset edge leaves the list's dividers untouched.
+                className={[
+                  "px-3 py-4 transition-colors",
+                  expanded
+                    ? "bg-cyan-300/[0.05] shadow-[inset_2px_0_0_var(--color-cyan-200)]"
+                    : "",
+                ].join(" ")}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 text-sm">
                     <p className="break-words font-medium text-cyan-50">
