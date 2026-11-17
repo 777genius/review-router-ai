@@ -30,7 +30,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Badge, Button, Checkbox, Dialog } from "@reviewrouter/ui";
+import { Button, Checkbox, Dialog } from "@reviewrouter/ui";
 import { GitHubAccountAvatar } from "../github-account-avatar";
 import { AccountIdentity } from "./account-identity";
 import { readAccountResult } from "./account-read-result";
@@ -833,7 +833,10 @@ function PersonalControls({
                 {personalOnly ? (
                   <span className="text-xs text-slate-400">Personal use</span>
                 ) : (
-                  <AccessSummaryChips summary={accessSummary} />
+                  <AccessSummaryChips
+                    summary={accessSummary}
+                    currentWorkspaceId={currentWorkspaceId}
+                  />
                 )}
                 <p className="text-sm text-slate-300">
                   <AccountStatusLine {...status} />
@@ -953,26 +956,39 @@ function PersonalControls({
   );
 }
 
+// Only real workspaces are listed. The personal workspace is hidden from the
+// workspace picker once others exist, so it appears only while it is current.
 function AccessSummaryChips({
   summary,
+  currentWorkspaceId,
 }: {
   summary: PersonalAccessSummary | undefined;
+  currentWorkspaceId: string | undefined;
 }) {
   const organizations = summary?.organizations ?? [];
+  const personalCurrent = Boolean(
+    summary?.personalWorkspaceId &&
+    summary.personalWorkspaceId === currentWorkspaceId,
+  );
   return (
     <div
       className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-300"
       aria-label="Available in"
     >
-      <AccessChip
-        {...(summary?.personalWorkspaceId
-          ? {
-              href: dashboardSectionHref("setup", summary.personalWorkspaceId),
-            }
-          : {})}
-      >
-        {accountsCopy.personal}
-      </AccessChip>
+      {personalCurrent ? (
+        <AccessChip
+          title={summary?.personalWorkspace?.label}
+          avatarUrl={summary?.personalWorkspace?.avatarUrl}
+        >
+          {summary?.personalWorkspace?.label ?? accountsCopy.personal}
+        </AccessChip>
+      ) : null}
+      {summary &&
+      !personalCurrent &&
+      !organizations.length &&
+      !summary.hasRestrictedAccess ? (
+        <span className="text-slate-400">{accountsCopy.notShared}</span>
+      ) : null}
       {organizations.map((organization) => (
         <AccessChip
           key={organization.workspaceId}
@@ -1375,8 +1391,8 @@ function WorkspaceAccess({
             {accountsCopy.access} · {source.label}
           </Dialog.Title>
           <Dialog.Description>
-            Your personal access is permanent. Share review access with other
-            workspaces while keeping ownership and connection control.
+            Choose the workspaces where this connection can be used for reviews.
+            You keep ownership and control of the connection.
           </Dialog.Description>
           {message ? (
             <p role="status" className="mt-3 text-sm text-cyan-100">
@@ -1384,20 +1400,6 @@ function WorkspaceAccess({
             </p>
           ) : null}
           <div className="mt-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-cyan-200/10 py-3">
-              <AccessWorkspaceIdentity
-                label={
-                  summary?.personalWorkspace?.label ?? "Personal workspace"
-                }
-                avatarUrl={summary?.personalWorkspace?.avatarUrl}
-                kind="Personal workspace"
-                current={Boolean(
-                  summary?.personalWorkspaceId &&
-                  summary.personalWorkspaceId === currentWorkspace,
-                )}
-              />
-              <Badge tone="neutral">Your account</Badge>
-            </div>
             <h4 className="font-medium">Workspace access</h4>
             {grants.isPending ? <p role="status">Loading access...</p> : null}
             {grantFailure ? (
