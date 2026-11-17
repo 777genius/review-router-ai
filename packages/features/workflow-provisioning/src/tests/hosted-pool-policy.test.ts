@@ -83,12 +83,14 @@ describe("hosted pool current policy", () => {
       source: "repository",
       repositoryVersion: 7,
       config,
+      rosterConfig: config,
       policy: {
         schemaVersion: 4,
         limits: { inlineMaxComments: 0 },
         providers: [selection],
       },
       selections: [selection],
+      providerMode: "parallel",
     });
     await expect(switchRepositoryConfigurationAuthMode(input)).resolves.toBe(
       true,
@@ -112,5 +114,44 @@ describe("hosted pool current policy", () => {
     ]);
     // A system write: the hosted pool profile has no creator.
     expect(saved.profileCreatorUserId).toBeNull();
+  });
+  it("switches every reviewer of an inherited fallback roster and keeps its mode", async () => {
+    const rosterConfig = parseReviewConfiguration({
+      ...config,
+      providers: [
+        config.providers[0],
+        { ...config.providers[0], model: "gpt-5.4" },
+      ],
+      execution: { ...config.execution, providerLimit: 2 },
+    });
+    const selections = rosterConfig.providers.map((provider, index) =>
+      reviewProviderSelectionFor(provider, `profile_${index}`),
+    );
+    mocks.find.mockResolvedValueOnce({
+      version: 3,
+      source: "workspace",
+      repositoryVersion: null,
+      // A fallback roster runs only its first reviewer.
+      config,
+      rosterConfig,
+      policy: { schemaVersion: 4 },
+      selections,
+      providerMode: "fallback",
+    });
+    await expect(switchRepositoryConfigurationAuthMode(input)).resolves.toBe(
+      true,
+    );
+    const saved = mocks.save.mock.calls[0]![0];
+    expect(saved.writes[0].policy).toEqual({
+      schemaVersion: 4,
+      providers: selections.map((selection, index) => ({
+        ...selection,
+        profileId: `hosted-switch-${index}`,
+      })),
+      providerMode: "fallback",
+    });
+    expect(
+      saved.profileDrafts.map((draft: { model: string }) => draft.model),
+    ).toEqual(["gpt-5.5", "gpt-5.4"]);
   });
 });

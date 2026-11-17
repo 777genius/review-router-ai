@@ -5,6 +5,7 @@ import {
   managedApiKeyProviderTypes,
   parseStoredReviewPolicy,
   readProviderManagementFacts,
+  reviewProviderModeOf,
   type ProviderRepositoryCapability,
 } from "@reviewrouter/features-review-config";
 import { PrismaReviewPolicyHeadReader } from "@reviewrouter/features-review-config/composition";
@@ -214,6 +215,7 @@ export async function loadProviderSetupView(input: {
     })),
     defaultSelection: workspacePolicy?.providers?.[0] ?? null,
     defaultSelections: workspacePolicy?.providers ?? [],
+    providerMode: reviewProviderModeOf(workspacePolicy ?? {}),
     workspaceVersion: heads.workspace?.version ?? null,
     execution: workspacePolicy?.execution ?? {
       providerMaxParallel: 1,
@@ -228,6 +230,7 @@ export async function loadProviderSetupView(input: {
         capability: capabilities.get(repository.id) ?? null,
         ownSelection: policy?.providers?.[0] ?? null,
         ownSelections: policy?.providers ?? [],
+        providerMode: reviewProviderModeOf(policy ?? {}),
         version: head?.version ?? null,
         execution: policy?.execution ?? {},
         rotatingAvailable:

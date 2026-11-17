@@ -7,14 +7,17 @@ import { z } from "zod";
 import {
   blockingPolicySchema,
   canonicalJson,
+  defaultReviewProviderMode,
   limitsSchema,
   parseReviewConfiguration,
   REVIEW_POLICY_SCHEMA_VERSION,
   reviewInvestigationRolloutConfigurationSchema,
   reviewLanguageSchema,
+  reviewProviderModeSchema,
   reviewReasoningEffortSchema,
   type ReviewConfiguration,
   type ReviewProviderConfiguration,
+  type ReviewProviderMode,
 } from "./review-configuration";
 import type { ReviewConfigurationTarget } from "./review-configuration-target";
 import type {
@@ -67,6 +70,14 @@ const reviewProviderSelectionsSchema = z
     });
   });
 
+/**
+ * The mode of a document's own roster. Only the non-default mode is stored,
+ * so documents saved before modes existed keep their bytes and digests.
+ */
+const storedProviderModeSchema = reviewProviderModeSchema.exclude([
+  defaultReviewProviderMode,
+]);
+
 // The provider limit is the selection count and is never stored.
 const storedExecutionSchema = z
   .object({
@@ -80,6 +91,7 @@ export const workspaceReviewPolicySchema = z
   .object({
     schemaVersion: z.literal(STORED_REVIEW_POLICY_SCHEMA_VERSION),
     providers: reviewProviderSelectionsSchema.optional(),
+    providerMode: storedProviderModeSchema.optional(),
     execution: storedExecutionSchema,
     blockingPolicy: blockingPolicySchema,
     limits: limitsSchema,
@@ -91,13 +103,18 @@ export const workspaceReviewPolicySchema = z
     // One workspace-wide setting; absence keeps automatic memory changes.
     memory: z.object({ requireConfirmation: z.boolean() }).strict().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(assertProviderModeHasRoster);
 
-/** Repository document. Every absent field, providers included, inherits. */
+/**
+ * Repository document. Every absent field, providers included, inherits; the
+ * mode belongs to the roster, so a repository roster never inherits it.
+ */
 export const repositoryReviewPolicySchema = z
   .object({
     schemaVersion: z.literal(STORED_REVIEW_POLICY_SCHEMA_VERSION),
     providers: reviewProviderSelectionsSchema.optional(),
+    providerMode: storedProviderModeSchema.optional(),
     execution: storedExecutionSchema.partial().optional(),
     blockingPolicy: blockingPolicySchema.partial().optional(),
     limits: limitsSchema.partial().optional(),
@@ -108,7 +125,21 @@ export const repositoryReviewPolicySchema = z
       .optional(),
     contextTools: contextToolsSelectionSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(assertProviderModeHasRoster);
+
+/** A mode describes how a roster's reviewers interact; without one it means nothing. */
+function assertProviderModeHasRoster(
+  document: { readonly providers?: unknown; readonly providerMode?: unknown },
+  context: z.RefinementCtx,
+): void {
+  if (document.providerMode !== undefined && document.providers === undefined)
+    context.addIssue({
+      code: "custom",
+      path: ["providerMode"],
+      message: "review provider mode requires providers",
+    });
+}
 
 export type ReviewProviderSelection = z.infer<
   typeof reviewProviderSelectionSchema
@@ -120,15 +151,15 @@ export type RepositoryReviewPolicy = z.infer<
 export type ReviewPolicyDocument =
   | WorkspaceReviewPolicy
   | RepositoryReviewPolicy;
-/** Review execution settings; provider selection and Memory have separate forms. */
+/** Review execution settings; the roster (providers and mode) and Memory have separate forms. */
 export type WorkspaceReviewSettings = Omit<
   WorkspaceReviewPolicy,
-  "schemaVersion" | "providers" | "memory"
+  "schemaVersion" | "providers" | "providerMode" | "memory"
 >;
-/** The overrides of a repository document besides its provider selection. */
+/** The overrides of a repository document besides its roster. */
 export type RepositoryReviewSettings = Omit<
   RepositoryReviewPolicy,
-  "schemaVersion" | "providers"
+  "schemaVersion" | "providers" | "providerMode"
 >;
 
 export function parseWorkspaceReviewPolicy(
@@ -175,16 +206,61 @@ export function defaultWorkspaceReviewPolicy(): WorkspaceReviewPolicy {
   });
 }
 
-/** The same document with the given selections; null removes them. */
+/** A document's own reviewers and how they interact. */
+export type ReviewProviderRoster = Readonly<{
+  providers: readonly ReviewProviderSelection[];
+  providerMode: ReviewProviderMode;
+}>;
+
+/** The mode of a document's own roster; absence is the default mode. */
+export function reviewProviderModeOf(
+  document: Pick<ReviewPolicyDocument, "providerMode">,
+): ReviewProviderMode {
+  return document.providerMode ?? defaultReviewProviderMode;
+}
+
+/** The roster a document stores itself, or null when it has none. */
+export function providerRosterOf(
+  document: Pick<ReviewPolicyDocument, "providers" | "providerMode">,
+): ReviewProviderRoster | null {
+  return document.providers
+    ? {
+        providers: document.providers,
+        providerMode: reviewProviderModeOf(document),
+      }
+    : null;
+}
+
+/** The same document with the given roster; null removes providers and mode together. */
+export function withProviderRoster<Document extends ReviewPolicyDocument>(
+  document: Document,
+  roster: ReviewProviderRoster | null,
+): Document {
+  const { providers: _providers, providerMode: _mode, ...rest } = document;
+  void _providers;
+  void _mode;
+  if (!roster) return rest as Document;
+  const { providerMode } = roster;
+  return {
+    ...rest,
+    providers: [...roster.providers],
+    ...(providerMode === defaultReviewProviderMode ? {} : { providerMode }),
+  } as Document;
+}
+
+/**
+ * The same document with the given selections, keeping its own mode unless
+ * another is given; null removes the selections and the mode together.
+ */
 export function withProviderSelections<Document extends ReviewPolicyDocument>(
   document: Document,
   selections: readonly ReviewProviderSelection[] | null,
+  providerMode: ReviewProviderMode = reviewProviderModeOf(document),
 ): Document {
-  const { providers: _previous, ...rest } = document;
-  void _previous;
-  return (
-    selections ? { ...rest, providers: [...selections] } : rest
-  ) as Document;
+  return withProviderRoster(
+    document,
+    selections ? { providers: selections, providerMode } : null,
+  );
 }
 
 /**
@@ -235,8 +311,18 @@ export class ReviewPolicyMaterializationError extends Error {
 }
 
 export type EffectiveReviewPolicy = Readonly<{
+  /** What a review run executes. */
   config: ReviewConfiguration;
+  /**
+   * The same configuration with every reviewer of the roster, exactly as a
+   * parallel roster runs it. It is `config` itself unless a fallback roster
+   * runs only its first reviewer; writes validate it so the whole roster
+   * stays runnable and its saved limits stay valid for a switch back.
+   */
+  rosterConfig: ReviewConfiguration;
+  /** The effective roster in saved order, aligned with `rosterConfig.providers`. */
   selections: readonly ReviewProviderSelection[];
+  providerMode: ReviewProviderMode;
 }>;
 
 /**
@@ -275,7 +361,7 @@ export function resolveEffectiveReviewPolicy(input: {
     workspace,
     repository,
   );
-  const config = materialize({
+  const rosterConfig = materialize({
     ...settings,
     schemaVersion: REVIEW_POLICY_SCHEMA_VERSION,
     providers,
@@ -286,7 +372,25 @@ export function resolveEffectiveReviewPolicy(input: {
         : execution),
     },
   });
-  return { config, selections };
+  // The mode belongs to the roster, so it comes from the same document.
+  const providerMode = reviewProviderModeOf(
+    (selectionSource === "repository" ? repository : null) ?? workspace,
+  );
+  // A fallback roster runs its first reviewer alone; the others are not
+  // dispatched yet (ai-docs/architecture/67-provider-interaction-mode.md).
+  const config =
+    providerMode === "fallback" && providers.length > 1
+      ? materialize({
+          ...rosterConfig,
+          providers: rosterConfig.providers.slice(0, 1),
+          execution: {
+            providerLimit: 1,
+            providerMaxParallel: 1,
+            inlineMinAgreement: 1,
+          },
+        })
+      : rosterConfig;
+  return { config, rosterConfig, selections, providerMode };
 }
 
 /**
@@ -430,12 +534,15 @@ export function reviewProviderSelectionFor(
   });
 }
 
-/** Stable comparison of two selection lists; absent equals absent only. */
-export function sameProviderSelections(
-  left: readonly ReviewProviderSelection[] | undefined,
-  right: readonly ReviewProviderSelection[] | undefined,
+/**
+ * Stable comparison of two rosters, selections and mode together, so a change
+ * of the mode alone is a selection change too; absent equals absent only.
+ */
+export function sameProviderRosters(
+  left: ReviewProviderRoster | null,
+  right: ReviewProviderRoster | null,
 ): boolean {
-  return canonicalJson(left ?? null) === canonicalJson(right ?? null);
+  return canonicalJson(left) === canonicalJson(right);
 }
 
 /**

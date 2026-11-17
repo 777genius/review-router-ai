@@ -147,6 +147,31 @@ describe("Gateway model catalog presentation", () => {
     expect(approved?.provider).toBe("nvidia");
     expect(approved?.disabled).toBe(false);
 
+    // Native publishes NVIDIA's live list beside the anchor; every listed model
+    // of this account is selectable, well past the former 8-model limit.
+    const live = Array.from(
+      { length: 20 },
+      (_, index) => `vendor/live-model-${index}`,
+    );
+    const listed = [modelId, ...live];
+    const long = gatewayProviderModelOptions(
+      [],
+      {
+        ...profile,
+        models: listed,
+        connection: {
+          ...profile.connection,
+          modelSettings: listed.map((id) => ({
+            ...profile.connection.modelSettings[0]!,
+            modelId: id,
+          })),
+        },
+      },
+      { catalog: { ...catalog, models: listed }, requiresTools: true },
+    );
+    expect(long.map((option) => option.value)).toEqual(listed);
+    expect(long.every((option) => !option.disabled)).toBe(true);
+
     const [wrongSource] = gatewayProviderModelOptions([], profile, {
       catalog: { ...catalog, source: "openrouter" },
       requiresTools: true,

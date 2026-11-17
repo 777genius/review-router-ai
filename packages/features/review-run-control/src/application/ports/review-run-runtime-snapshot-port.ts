@@ -6,12 +6,15 @@ import type { ReviewAgentProfile } from "../../domain/review-agent-profile";
 import type { ProviderVoteLane } from "../../domain/review-run-control-types";
 
 /** Explicit agentProfileRef configuration errors are actionable policy errors,
- * not a generic admission-facts miss. Never fall back to another engine. */
+ * not a generic admission-facts miss. Never fall back to another engine.
+ * `gateway_profile_unapproved`: a saved Account Gateway reviewer uses a
+ * connection profile that the server-approved run policy does not allow. */
 export type ReviewRunRuntimeCaptureDenial = Readonly<{
   readonly captureDenied:
     | "agent_profile_unavailable"
     | "agent_profile_incompatible"
-    | "context_tools_unavailable";
+    | "context_tools_unavailable"
+    | "gateway_profile_unapproved";
 }>;
 
 export interface ReviewRunRuntimeSnapshotPort {

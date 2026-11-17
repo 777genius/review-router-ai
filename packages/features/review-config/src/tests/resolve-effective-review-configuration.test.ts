@@ -145,6 +145,9 @@ describe("resolveEffectiveReviewConfiguration", () => {
       effectivePolicyDigest: digest(claudeConfig),
       revisionToken: `policy:2:0:${digest(claudeConfig)}`,
       selections: workspaceDefault.providers,
+      // A parallel roster runs every reviewer: both views are the same.
+      rosterConfig: claudeConfig,
+      providerMode: "parallel",
     });
   });
 

@@ -1554,6 +1554,7 @@ function denialFailure(
     case ReviewRunAuthorizationDenialReason.AgentProfileUnavailable:
     case ReviewRunAuthorizationDenialReason.AgentProfileIncompatible:
     case ReviewRunAuthorizationDenialReason.ContextToolsUnavailable:
+    case ReviewRunAuthorizationDenialReason.GatewayProfileUnapproved:
     case ReviewRunAuthorizationDenialReason.ProviderVoteLaneUnavailable:
     case ReviewRunAuthorizationDenialReason.ReviewInvestigationIncompatible:
     case ReviewRunAuthorizationDenialReason.SkillsUnavailable:

@@ -1501,7 +1501,13 @@ describe("ProviderSetupDialog", () => {
       expect(
         screen.getByRole("button", { name: "Use for this repository" }),
       ).toHaveProperty("disabled", true);
-      expect(screen.getByText(/Choose an available model from/)).toBeTruthy();
+      expect(
+        screen.getByText(
+          typedModel === "disabled/model"
+            ? /Choose an available model from the catalog/
+            : /model list does not include this model/,
+        ),
+      ).toBeTruthy();
       expect(saveProviderRosterAction).not.toHaveBeenCalled();
       fireEvent.change(input, { target: { value: "openai/account-model" } });
       expect(

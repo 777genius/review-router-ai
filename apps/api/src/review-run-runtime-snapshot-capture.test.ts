@@ -436,6 +436,43 @@ describe("multi-reviewer immutable capture", () => {
       ),
     ).toBeNull();
   });
+  // Production regression: reviewer 2 used a connected NVIDIA profile missing
+  // from the server-approved policy. Capture returned null, admission reported
+  // admission_facts_changed and the route replaced it with an opaque 500.
+  it("denies a reviewer whose Gateway profile the server policy does not approve", async () => {
+    const config = multiConfiguration();
+    const unapproved = parseReviewConfigurationStrict({
+      ...config,
+      providers: [
+        config.providers[0],
+        {
+          ...config.providers[1],
+          gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+        },
+      ],
+    });
+    await expect(
+      snapshotSource().capture(
+        multiInput(),
+        readerFor(canonicalJson(unapproved)),
+      ),
+    ).resolves.toEqual({ captureDenied: "gateway_profile_unapproved" });
+    const single = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [
+        {
+          ...JSON.parse(gatewayPolicyJson({})).providers[0],
+          gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+        },
+      ],
+    });
+    await expect(
+      snapshotSource().capture(
+        captureInput(),
+        readerFor(canonicalJson(single)),
+      ),
+    ).resolves.toEqual({ captureDenied: "gateway_profile_unapproved" });
+  });
   it("accepts sixteen while rejecting a Default and explicit equivalent engine identity", async () => {
     const maximum = await snapshotSource().capture(
       multiInput(),
