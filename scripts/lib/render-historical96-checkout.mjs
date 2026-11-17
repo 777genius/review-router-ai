@@ -76,6 +76,7 @@ const checkoutOnlyMigrations = Object.freeze([
   "000156_verified_thread_reply",
   "000157_claude_code_api_key_secret",
   "000158_review_run_allocation_provider_quota",
+  "000159_producer_reviewer_plan_v2",
 ]);
 
 /** @returns {ReadonlyArray<Readonly<{migrationName: string, checksum: string}>>} */
@@ -94,7 +95,7 @@ export function readRenderHistorical96CheckoutInventory() {
       111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
       126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
       141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155,
-      156, 157, 158, 159, 160, 161, 162,
+      156, 157, 158, 159, 160, 161, 162, 163,
     ].includes(
       checkout.filter(
         (row) =>

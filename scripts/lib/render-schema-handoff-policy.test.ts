@@ -47,12 +47,14 @@ const verifiedReplyMigrationName = "000156_verified_thread_reply";
 const claudeApiKeyMigrationName = "000157_claude_code_api_key_secret";
 const providerQuotaMigrationName =
   "000158_review_run_allocation_provider_quota";
+const reviewerPlanV2MigrationName = "000159_producer_reviewer_plan_v2";
 const readPreIndexCheckoutInventory = () =>
   readRenderManagedCheckoutInventory().filter(
     (row) =>
       row.migrationName !== usageMemberReportIndexName &&
       row.migrationName !== claudeApiKeyMigrationName &&
       row.migrationName !== providerQuotaMigrationName &&
+      row.migrationName !== reviewerPlanV2MigrationName &&
       row.migrationName !== verifiedReplyMigrationName,
   );
 const withoutUnifiedDispatch = <T extends { migrationName: string }>(
@@ -209,6 +211,7 @@ const canonicalPrismaMigrationNames =
     (name) =>
       name !== claudeApiKeyMigrationName &&
       name !== providerQuotaMigrationName &&
+      name !== reviewerPlanV2MigrationName &&
       name !== usageMemberReportIndexName &&
       name !== verifiedReplyMigrationName &&
       name !== gatewayAllocationsMigrationName &&
@@ -597,7 +600,23 @@ const canonicalPrefix = (count: number) =>
 
 describe("explicit checkout partition with an unchanged managed92 validator", () => {
   it("admits only the exact concurrent-index checkout160 outside managed92 and historical96", () => {
-    const withProviderQuota = readRenderManagedCheckoutInventory();
+    const withReviewerPlanV2 = readRenderManagedCheckoutInventory();
+    expect(withReviewerPlanV2).toHaveLength(164);
+    expect(withReviewerPlanV2.at(-1)).toEqual({
+      migrationName: reviewerPlanV2MigrationName,
+      checksum:
+        "190dbed29df726398a750d0555fb20113607730ac4b5e753cdd26d7aa180ad58",
+    });
+    expect(partitionRenderSchemaHandoffCheckout(withReviewerPlanV2)).toEqual(
+      catalog,
+    );
+    expect(() =>
+      partitionRenderSchemaHandoffCheckout([
+        ...withReviewerPlanV2.slice(0, -1),
+        { ...withReviewerPlanV2.at(-1)!, checksum: "0".repeat(64) },
+      ]),
+    ).toThrow("checkout_extension");
+    const withProviderQuota = withReviewerPlanV2.slice(0, -1);
     expect(withProviderQuota).toHaveLength(163);
     expect(withProviderQuota.at(-1)).toEqual({
       migrationName: providerQuotaMigrationName,
@@ -2897,10 +2916,13 @@ describe("complete filesystem checkout inventory", () => {
     );
     if (count !== undefined) {
       rmSync(join(migrations, verifiedReplyMigrationName), { recursive: true });
-      // Historical partial checkouts predate Claude API-key migration161
-      // and the provider-quota migration162.
+      // Historical partial checkouts predate Claude API-key migration161,
+      // the provider-quota migration162 and the reviewer plan v2 migration163.
       rmSync(join(migrations, claudeApiKeyMigrationName), { recursive: true });
       rmSync(join(migrations, providerQuotaMigrationName), { recursive: true });
+      rmSync(join(migrations, reviewerPlanV2MigrationName), {
+        recursive: true,
+      });
       rmSync(join(migrations, usageMemberReportIndexName), { recursive: true });
       rmSync(join(migrations, gatewayAllocationsMigrationName), {
         recursive: true,
@@ -3000,7 +3022,12 @@ describe("complete filesystem checkout inventory", () => {
     const fixture = await checkout();
     const inventory = readdirSync(fixture.migrations).sort();
     expect(inventory).toEqual(fixture.canonical.canonicalPrismaMigrationNames);
-    expect(inventory).toHaveLength(163);
+    expect(inventory).toHaveLength(164);
+    expect(fixture.read()).toEqual(catalog);
+    rmSync(join(fixture.migrations, reviewerPlanV2MigrationName), {
+      recursive: true,
+    });
+    expect(readdirSync(fixture.migrations)).toHaveLength(163);
     expect(fixture.read()).toEqual(catalog);
     rmSync(join(fixture.migrations, providerQuotaMigrationName), {
       recursive: true,
@@ -3460,6 +3487,7 @@ describe("complete filesystem checkout inventory", () => {
       if (name === usageMemberReportIndexName) {
         expect(() => fixture.read()).toThrow("checkout_extension");
         const extensions = [
+          reviewerPlanV2MigrationName,
           providerQuotaMigrationName,
           claudeApiKeyMigrationName,
           verifiedReplyMigrationName,
@@ -3480,9 +3508,9 @@ describe("complete filesystem checkout inventory", () => {
             extensionBytes,
           );
         }
-      } else if (name === providerQuotaMigrationName) {
-        // Removing only the newest provider-quota tail restores the
-        // checksum-pinned Claude checkout162.
+      } else if (name === reviewerPlanV2MigrationName) {
+        // Removing only the newest reviewer plan v2 tail restores the
+        // checksum-pinned provider-quota checkout163.
         expect(fixture.read()).toEqual(catalog);
       } else expect(() => fixture.read()).toThrow();
       mkdirSync(directory);

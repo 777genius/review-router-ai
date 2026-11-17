@@ -106,7 +106,9 @@ and lifecycle tasks. This reuses today's ordering rule; no new primary selector,
 weights, drag-and-drop or per-reviewer billing UI is added.
 If an optional primary becomes unavailable, auxiliary work reports the existing
 unavailable/incomplete result; required review coverage may still complete.
-Do not silently promote a sibling or select a fallback model.
+Do not silently promote a sibling or select a fallback model. The explicit,
+user-chosen "Fallback in order" roster mode is the only exception; see
+[architecture 67](../architecture/67-provider-interaction-mode.md).
 
 Reuse the existing Max parallel providers and Inline agreement controls in the
 roster editing flow. Preserve saved values. Adding a reviewer does not silently

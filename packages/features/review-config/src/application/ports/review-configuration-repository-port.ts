@@ -21,8 +21,6 @@ export type PersistedReviewConfiguration = {
   readonly version: number;
   /** Runtime configuration materialized from the documents and profiles. */
   readonly config: ReviewConfiguration;
-  /** `config` with every reviewer of the roster; see `EffectiveReviewPolicy`. */
-  readonly rosterConfig: ReviewConfiguration;
   /** The stored document of the source scope. */
   readonly policy: ReviewPolicyDocument;
   readonly source: "workspace" | "repository";
@@ -30,7 +28,7 @@ export type PersistedReviewConfiguration = {
   readonly repositoryVersion: number | null;
   readonly effectivePolicyDigest: string;
   readonly revisionToken?: string;
-  /** Effective provider selections, in the order of `rosterConfig.providers`. */
+  /** Effective provider selections, in the order of `config.providers`. */
   readonly selections: readonly ReviewProviderSelection[];
   /** How the effective reviewers interact. */
   readonly providerMode: ReviewProviderMode;

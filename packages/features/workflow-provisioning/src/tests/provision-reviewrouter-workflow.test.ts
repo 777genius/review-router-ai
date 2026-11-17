@@ -219,7 +219,6 @@ function selectionsOf(config: ReviewConfiguration) {
 function withSelections(config: ReviewConfiguration) {
   return {
     config,
-    rosterConfig: config,
     selections: selectionsOf(config),
     providerMode: "parallel" as const,
   };

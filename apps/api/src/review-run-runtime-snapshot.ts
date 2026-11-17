@@ -45,7 +45,8 @@ import {
   canonicalJson,
   canonicalReviewRunReviewerIdentity,
   canonicalReviewRunReviewerVoteIdentity,
-  supportsProducerReviewerPlanV1,
+  supportsProducerReviewerFallback,
+  supportsProducerReviewerPlans,
   getReviewRunGatewayAllocation,
   parseProducerReviewerPlanProfile,
   type ProviderVoteLane,
@@ -841,9 +842,19 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     reader: RuntimeReader,
     configuration: ReviewConfiguration,
   ): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null> {
+    // A producer without reviewer plan version 2 would run an ordered fallback
+    // as a parallel review, or not at all: refuse it explicitly.
+    if (
+      input.modelTransport === "account_gateway" &&
+      configuration.providerMode === "fallback" &&
+      !supportsProducerReviewerFallback(
+        input.producerRelease.reviewerPlanProfile,
+      )
+    )
+      return { captureDenied: "reviewer_fallback_unsupported" };
     if (
       input.modelTransport !== "account_gateway" ||
-      !supportsProducerReviewerPlanV1(
+      !supportsProducerReviewerPlans(
         input.producerRelease.reviewerPlanProfile,
       ) ||
       configuration.providers.some(
@@ -1006,6 +1017,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         canonicalJson({
           ...common,
           snapshotVersion: 4,
+          ...(configuration.providerMode
+            ? { providerMode: configuration.providerMode }
+            : {}),
           primaryReviewerId: reviewers[0]!.reviewerId,
           maxParallelReviewers: configuration.execution.providerMaxParallel,
           inlineMinAgreement: configuration.execution.inlineMinAgreement,
@@ -1112,7 +1126,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         producer.actionCommitSha !== snapshot.producer.actionCommitSha ||
         producer.runtimeCommitSha !== snapshot.producer.runtimeCommitSha ||
         !producer.agentProfilesJson ||
-        !supportsProducerReviewerPlanV1(
+        !supportsProducerReviewerPlans(
           parseProducerReviewerPlanProfile(producer.reviewerPlanProfile),
         )
       )
@@ -1371,7 +1385,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     try {
       if (original.snapshotVersion === 4) {
         if (
-          !supportsProducerReviewerPlanV1(
+          !supportsProducerReviewerPlans(
             parseProducerReviewerPlanProfile(producer.reviewerPlanProfile),
           )
         )

@@ -134,10 +134,7 @@ async function writeWorkspaceRoster(
     dependencies,
   );
   if (candidate)
-    await dependencies.validator.validate({
-      target,
-      config: candidate.rosterConfig,
-    });
+    await dependencies.validator.validate({ target, config: candidate.config });
   const [saved] = await dependencies.configurations.saveNextVersions({
     workspaceId: input.workspaceId,
     writes: [
@@ -316,10 +313,7 @@ async function saveRepositoryRoster(
     dependencies,
   );
   if (candidate)
-    await dependencies.validator.validate({
-      target,
-      config: candidate.rosterConfig,
-    });
+    await dependencies.validator.validate({ target, config: candidate.config });
   const saved = await dependencies.configurations.saveNextVersions({
     workspaceId: input.workspaceId,
     expectedWorkspaceVersion: input.expectedWorkspaceVersion,

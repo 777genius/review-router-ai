@@ -311,16 +311,8 @@ export class ReviewPolicyMaterializationError extends Error {
 }
 
 export type EffectiveReviewPolicy = Readonly<{
-  /** What a review run executes. */
   config: ReviewConfiguration;
-  /**
-   * The same configuration with every reviewer of the roster, exactly as a
-   * parallel roster runs it. It is `config` itself unless a fallback roster
-   * runs only its first reviewer; writes validate it so the whole roster
-   * stays runnable and its saved limits stay valid for a switch back.
-   */
-  rosterConfig: ReviewConfiguration;
-  /** The effective roster in saved order, aligned with `rosterConfig.providers`. */
+  /** The effective roster in saved order, aligned with `config.providers`. */
   selections: readonly ReviewProviderSelection[];
   providerMode: ReviewProviderMode;
 }>;
@@ -361,36 +353,29 @@ export function resolveEffectiveReviewPolicy(input: {
     workspace,
     repository,
   );
-  const rosterConfig = materialize({
-    ...settings,
-    schemaVersion: REVIEW_POLICY_SCHEMA_VERSION,
-    providers,
-    execution: {
-      providerLimit: providers.length,
-      ...(selectionSource === "repository"
-        ? inheritedExecutionLimits(execution, repository, providers.length)
-        : execution),
-    },
-  });
   // The mode belongs to the roster, so it comes from the same document.
   const providerMode = reviewProviderModeOf(
     (selectionSource === "repository" ? repository : null) ?? workspace,
   );
-  // A fallback roster runs its first reviewer alone; the others are not
-  // dispatched yet (ai-docs/architecture/67-provider-interaction-mode.md).
-  const config =
-    providerMode === "fallback" && providers.length > 1
-      ? materialize({
-          ...rosterConfig,
-          providers: rosterConfig.providers.slice(0, 1),
-          execution: {
-            providerLimit: 1,
-            providerMaxParallel: 1,
-            inlineMinAgreement: 1,
-          },
-        })
-      : rosterConfig;
-  return { config, rosterConfig, selections, providerMode };
+  // An ordered fallback runs one reviewer at a time and its verdict stands
+  // alone; the saved parallel limits stay in the document for a switch back.
+  // A single reviewer runs the same either way, so it carries no mode.
+  const fallback = providerMode === "fallback" && providers.length > 1;
+  const config = materialize({
+    ...settings,
+    schemaVersion: REVIEW_POLICY_SCHEMA_VERSION,
+    providers,
+    ...(fallback ? { providerMode } : {}),
+    execution: {
+      providerLimit: providers.length,
+      ...(fallback
+        ? { providerMaxParallel: 1, inlineMinAgreement: 1 }
+        : selectionSource === "repository"
+          ? inheritedExecutionLimits(execution, repository, providers.length)
+          : execution),
+    },
+  });
+  return { config, selections, providerMode };
 }
 
 /**

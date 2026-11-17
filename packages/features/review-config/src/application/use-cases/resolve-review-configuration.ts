@@ -22,7 +22,6 @@ export type ResolvedReviewConfiguration = {
   readonly effectivePolicyDigest: string;
   readonly revisionToken: string;
   readonly config: ReviewConfiguration;
-  readonly rosterConfig: ReviewConfiguration;
   readonly policy: PersistedReviewConfiguration["policy"];
   readonly selections: readonly ReviewProviderSelection[];
   readonly providerMode: PersistedReviewConfiguration["providerMode"];
@@ -55,7 +54,6 @@ function toResolvedConfiguration(
       persisted.revisionToken ??
       `policy:${persisted.workspaceVersion ?? 0}:${persisted.repositoryVersion ?? 0}:${persisted.effectivePolicyDigest}`,
     config: persisted.config,
-    rosterConfig: persisted.rosterConfig,
     policy: persisted.policy,
     selections: persisted.selections,
     providerMode: persisted.providerMode,

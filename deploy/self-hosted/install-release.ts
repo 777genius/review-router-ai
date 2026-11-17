@@ -64,7 +64,10 @@ const attestationKeys = [
 ] as const;
 
 type OptionalProfiles = Readonly<{
-  reviewerPlanProfile?: Readonly<{ planVersion: 1; descriptorDigest: string }>;
+  reviewerPlanProfile?: Readonly<{
+    planVersion: 1 | 2;
+    descriptorDigest: string;
+  }>;
   contextToolsProfile?: Readonly<{
     extensionId: "context-tools.v1";
     descriptorDigest: string;
@@ -446,13 +449,17 @@ function reviewerPlanProfile(
 ): NonNullable<OptionalProfiles["reviewerPlanProfile"]> {
   const row = record(value, "reviewerPlanProfile");
   exactKeys(row, ["planVersion", "descriptorDigest"]);
+  // Version 2 adds the ordered fallback plan; version 1 releases stay valid.
   if (
-    row.planVersion !== 1 ||
+    (row.planVersion !== 1 && row.planVersion !== 2) ||
     typeof row.descriptorDigest !== "string" ||
     !/^sha256:[a-f0-9]{64}$/u.test(row.descriptorDigest)
   )
     throw new Error("self_hosted_release_reviewer_plan_invalid");
-  return { planVersion: 1, descriptorDigest: row.descriptorDigest };
+  return {
+    planVersion: row.planVersion,
+    descriptorDigest: row.descriptorDigest,
+  };
 }
 
 function prDescriptionProfile(

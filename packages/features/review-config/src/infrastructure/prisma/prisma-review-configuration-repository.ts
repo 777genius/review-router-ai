@@ -616,9 +616,8 @@ async function saveReviewPolicyWrites(
   }
   await assertGatewaySelections(tx, {
     workspaceId,
-    // Every reviewer of a roster, including fallbacks that do not run yet.
     configs: effective.flatMap(({ resolved }) =>
-      resolved ? [resolved.rosterConfig] : [],
+      resolved ? [resolved.config] : [],
     ),
     options: { ...options, personalWriteActorUserId },
   });
@@ -690,7 +689,6 @@ async function saveReviewPolicyWrites(
       configuration: resolved
         ? persistedReviewConfiguration({
             config: resolved.config,
-            rosterConfig: resolved.rosterConfig,
             selections: resolved.selections,
             providerMode: resolved.providerMode,
             policy: write.policy,

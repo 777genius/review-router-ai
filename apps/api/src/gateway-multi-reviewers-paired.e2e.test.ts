@@ -159,7 +159,7 @@ const profileId = "openrouter-openai-responses-apikey-v1";
           ...(mixed ? [{ ...approvedOcr, binarySha256: ocrDigest }] : []),
         ],
         reviewerPlanProfile: {
-          planVersion: 1,
+          planVersion: 2,
           descriptorDigest: reviewerPlanDescriptorDigest,
         },
         ...(mixed ? { modelDispatchProfile } : {}),

@@ -242,7 +242,7 @@ describe("review action v2 operator CLI", () => {
       },
     };
     const reviewerPlanProfile = {
-      planVersion: 1,
+      planVersion: 2,
       descriptorDigest: reviewerPlanDescriptorDigest,
     };
     const qualifiedAgent = {
@@ -295,7 +295,7 @@ describe("review action v2 operator CLI", () => {
       ).toThrow();
     for (const value of [
       null,
-      { ...reviewerPlanProfile, planVersion: 2 },
+      { ...reviewerPlanProfile, planVersion: 3 },
       { ...reviewerPlanProfile, descriptorDigest: "invalid" },
       { ...reviewerPlanProfile, enabled: true },
     ])

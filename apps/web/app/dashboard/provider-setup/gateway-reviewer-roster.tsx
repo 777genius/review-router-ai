@@ -58,9 +58,9 @@ const providerModeOptions = [
   {
     value: "fallback",
     label: "Fallback in order",
-    // Honest about this release: the backups are kept in order but are not
-    // started yet (ai-docs/architecture/67-provider-interaction-mode.md).
-    hint: "Only the first reviewer runs. Any others wait below, in order, as backups. Automatic switching to the next one when a review fails is not available yet.",
+    // Admission runs this only on a runtime that declares the ordered plan
+    // (ai-docs/architecture/67-provider-interaction-mode.md).
+    hint: "Reviewers run one at a time, top to bottom. The next one starts only when the one above it can't finish the review because of quota, sign-in, a timeout or an unavailable model.",
   },
 ] as const satisfies readonly {
   value: ReviewProviderMode;

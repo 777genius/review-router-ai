@@ -668,6 +668,8 @@ export function reviewExecutionIsTerminal(
 export type ReviewCoverageExceptions = Readonly<{
   /** Reviewer votes whose provider quota the relay itself saw exhausted. */
   providerQuotaExhaustedVotes: ReadonlySet<string>;
+  /** Reviewer votes of an ordered fallback, from the captured snapshot (plan 67). */
+  orderedFallbackVotes?: ReadonlySet<string>;
   /** The Action's projection claims complete coverage; it can only narrow. */
   producerCoverageComplete: boolean;
 }>;
@@ -676,9 +678,10 @@ export type ReviewCoverageExceptions = Readonly<{
  * Every required slot must be satisfied. One server-verified exception: an
  * open slot is excused only when it is exhausted (not pending, leased or
  * cancelled) and its reviewer's provider quota was recorded as exhausted by
- * the relay, while another reviewer satisfied all of its required slots. The
- * Action must also claim complete coverage; its claim never excuses a slot on
- * its own.
+ * the relay, while another reviewer satisfied all of its required slots. In
+ * an ordered fallback, the reviewer that finished covers the review for the
+ * whole chain. The Action must also claim complete coverage; its claim never
+ * excuses a slot on its own.
  */
 export function deriveCoverageState(
   slots: readonly ReviewWorkSlot[],
@@ -691,16 +694,46 @@ export function deriveCoverageState(
   if (open.length === 0) return ReviewCoverageState.Completed;
   const openVotes = new Set(open.map((slot) => slot.providerVoteIdentityHash));
   return exceptions?.producerCoverageComplete === true &&
-    open.every(
+    ((open.every(
       (slot) =>
         slot.state === ReviewWorkSlotState.Exhausted &&
         exceptions.providerQuotaExhaustedVotes.has(
           slot.providerVoteIdentityHash,
         ),
     ) &&
-    required.some((slot) => !openVotes.has(slot.providerVoteIdentityHash))
+      required.some((slot) => !openVotes.has(slot.providerVoteIdentityHash))) ||
+      orderedFallbackCovered(required, open, exceptions.orderedFallbackVotes))
     ? ReviewCoverageState.Completed
     : ReviewCoverageState.Partial;
+}
+
+/**
+ * Ordered fallback (plan 67): a reviewer of the captured chain satisfied all
+ * of its required slots, and every other open required slot belongs to the
+ * chain and holds no lease: that reviewer failed earlier or was not needed.
+ */
+function orderedFallbackCovered(
+  required: readonly ReviewWorkSlot[],
+  open: readonly ReviewWorkSlot[],
+  chain: ReadonlySet<string> | undefined,
+): boolean {
+  if (!chain?.size) return false;
+  return (
+    open.every(
+      (slot) =>
+        slot.state !== ReviewWorkSlotState.Leased &&
+        chain.has(slot.providerVoteIdentityHash),
+    ) &&
+    [...chain].some((vote) => {
+      const own = required.filter(
+        (slot) => slot.providerVoteIdentityHash === vote,
+      );
+      return (
+        own.length > 0 &&
+        own.every((slot) => slot.state === ReviewWorkSlotState.Satisfied)
+      );
+    })
+  );
 }
 
 export function validatePublicationPermit(input: {

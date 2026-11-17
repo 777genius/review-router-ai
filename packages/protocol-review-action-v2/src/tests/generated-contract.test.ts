@@ -121,12 +121,12 @@ describe("generated Review Action v2 negotiation contract", () => {
         ),
     );
     expect(sha256(generatedReviewerPlan)).toBe(
-      "bbef9f5bd70778cf7b0858a84e1d866b5d2e8f97c2738c0210ff45705c7cf4c5",
+      "5983677ce11e1b155ea4e020fffddf7da2723bde89f162d040ee2b7215c4fb03",
     );
     expect(manifest.reviewerPlanProfile).toEqual({
-      planVersion: 1,
+      planVersion: 2,
       descriptorDigest:
-        "sha256:f6a45d7039129a813690f5f769052d3ba078418eb123b0c0c710ef790d2919d6",
+        "sha256:53ad81adeb66035203dcd5e17924e3af938bf9e62a803238975f41379e2c649a",
     });
   });
 

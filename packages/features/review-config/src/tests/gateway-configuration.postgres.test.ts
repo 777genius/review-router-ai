@@ -106,9 +106,8 @@ describe.skipIf(!enabled)(
           .sort();
         // Replay all current migrations, including the additive Claude API-key
         // profile and the provider-quota allocation column.
-        expect(names).toHaveLength(163);
+        expect(names).toHaveLength(164);
         expect(names.slice(-25)).toEqual([
-          "000137_review_skills_capture",
           "000138_pr_description",
           "000139_review_context_tools",
           "000140_personal_oauth_method",
@@ -133,6 +132,7 @@ describe.skipIf(!enabled)(
           "000156_verified_thread_reply",
           "000157_claude_code_api_key_secret",
           "000158_review_run_allocation_provider_quota",
+          "000159_producer_reviewer_plan_v2",
         ]);
         let legacyBefore: unknown;
         let legacyBefore146: unknown;

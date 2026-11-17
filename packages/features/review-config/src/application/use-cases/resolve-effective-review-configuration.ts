@@ -125,7 +125,6 @@ export function readyReviewConfiguration(
   return {
     version: resolved.version,
     config: resolved.config,
-    rosterConfig: resolved.rosterConfig,
     policy: resolved.policy,
     source: resolved.source,
     workspaceVersion: resolved.workspaceVersion,
@@ -175,7 +174,6 @@ export function composeEffectiveReviewConfiguration(
     status: "ready",
     ...persistedReviewConfiguration({
       config: effective.config,
-      rosterConfig: effective.rosterConfig,
       selections: effective.selections,
       providerMode: effective.providerMode,
       policy: repositoryPolicy ?? workspacePolicy,
@@ -187,7 +185,6 @@ export function composeEffectiveReviewConfiguration(
 
 export function persistedReviewConfiguration(input: {
   readonly config: ReviewConfiguration;
-  readonly rosterConfig: ReviewConfiguration;
   readonly selections: readonly ReviewProviderSelection[];
   readonly providerMode: ReviewProviderMode;
   readonly policy: ReviewPolicyDocument;
@@ -199,7 +196,6 @@ export function persistedReviewConfiguration(input: {
   return {
     version: repositoryVersion ?? workspaceVersion,
     config: input.config,
-    rosterConfig: input.rosterConfig,
     policy: input.policy,
     source: repositoryVersion === null ? "workspace" : "repository",
     workspaceVersion,

@@ -52,7 +52,6 @@ function fixture(current: PersistedReviewConfiguration | null) {
   >(async (command) => ({
     version: 1,
     config: workspace,
-    rosterConfig: workspace,
     policy: command.policy,
     source: "repository",
     workspaceVersion: 1,
@@ -111,7 +110,6 @@ function persisted(
         ? { schemaVersion: 4, limits: { inlineMaxComments: 0 } }
         : workspacePolicyDocumentFixture(workspace, ["profile_rotating"]),
     config,
-    rosterConfig: config,
     version: 1,
     workspaceVersion: 1,
     repositoryVersion: source === "repository" ? 1 : null,
