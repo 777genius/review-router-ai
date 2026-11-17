@@ -347,6 +347,14 @@ test("readiness validates optional profiles while retaining the complete current
     },
   };
   assert.deepEqual(parseSelfHostedProducerAttestation(complete), complete);
+  const fallbackRelease = {
+    ...complete,
+    reviewerPlanProfile: { ...complete.reviewerPlanProfile, planVersion: 2 },
+  };
+  assert.deepEqual(
+    parseSelfHostedProducerAttestation(fallbackRelease),
+    fallbackRelease,
+  );
   for (const invalid of [
     {
       ...complete,
@@ -357,7 +365,7 @@ test("readiness validates optional profiles while retaining the complete current
     },
     {
       ...complete,
-      reviewerPlanProfile: { ...complete.reviewerPlanProfile, planVersion: 2 },
+      reviewerPlanProfile: { ...complete.reviewerPlanProfile, planVersion: 3 },
     },
     { ...complete, lifecycleVerificationProfile: null },
     {
