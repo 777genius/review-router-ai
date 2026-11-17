@@ -8,13 +8,8 @@ import {
 import { dashboardSectionHref } from "./dashboard-section";
 import { formatAccountTypeLabel } from "./dashboard-copy";
 import { latestInstallationPerAccount } from "../../src/server/dashboard-workspace-model";
-import {
-  repositoryScanProgress,
-  type RepositoryScanProgress,
-  type RepositoryScanSnapshot,
-} from "../../src/features/repository-scan/repository-scan-model";
 import { RepositoryScanRequestForm } from "./repository-scan-status";
-import { repositoryScanKey } from "./repository-scan-api";
+import type { repositoryScanKey } from "./repository-scan-api";
 
 export type WorkspaceSourceInstallation = {
   readonly accountLogin: string;
@@ -44,7 +39,7 @@ export function WorkspaceSourceConnectionPanel({
   installations,
   gitLabInstallations,
   repositories,
-  repositoryScan = null,
+  scanQueryKey = null,
   hasWorkspaceWideAccess,
   mutationsEnabled,
 }: {
@@ -53,18 +48,12 @@ export function WorkspaceSourceConnectionPanel({
   readonly installations: readonly WorkspaceSourceInstallation[];
   readonly gitLabInstallations: readonly WorkspaceGitLabInstallation[];
   readonly repositories: readonly WorkspaceSourceRepository[];
-  /** Scan progress read with the page; null when the viewer cannot see it. */
-  readonly repositoryScan?: {
-    readonly actorId: string;
-    readonly snapshot: RepositoryScanSnapshot;
-  } | null;
+  /** The Repositories list's scan query, refetched after Refresh repos. */
+  readonly scanQueryKey?: ReturnType<typeof repositoryScanKey> | null;
   readonly hasWorkspaceWideAccess: boolean;
   readonly mutationsEnabled: boolean;
 }): React.ReactElement {
   const visibleInstallations = latestInstallationPerAccount(installations);
-  const scanQueryKey = repositoryScan
-    ? repositoryScanKey(repositoryScan.actorId, workspaceId)
-    : null;
   const connectedCount =
     visibleInstallations.length + gitLabInstallations.length;
   const addSourceOpen = connectedCount === 0;
@@ -114,10 +103,6 @@ export function WorkspaceSourceConnectionPanel({
               workspaceId={workspaceId}
               installation={installation}
               repositories={repositories}
-              scanProgress={installationScanProgress(
-                repositoryScan?.snapshot ?? null,
-                installation.githubInstallationId,
-              )}
               scanQueryKey={scanQueryKey}
               hasWorkspaceWideAccess={hasWorkspaceWideAccess}
               mutationsEnabled={mutationsEnabled}
@@ -176,19 +161,6 @@ export function WorkspaceSourceConnectionPanel({
   );
 }
 
-function installationScanProgress(
-  snapshot: RepositoryScanSnapshot | null,
-  githubInstallationId: string,
-): RepositoryScanProgress | null {
-  const scan = snapshot?.installations.find(
-    (installation) =>
-      installation.githubInstallationId === githubInstallationId,
-  );
-  return snapshot && scan
-    ? repositoryScanProgress(scan, snapshot.checkedAt)
-    : null;
-}
-
 function sourceSummary(
   installations: readonly WorkspaceSourceInstallation[],
   gitLabInstallations: readonly WorkspaceGitLabInstallation[],
@@ -208,7 +180,6 @@ function GitHubInstallCard({
   workspaceId,
   installation,
   repositories,
-  scanProgress,
   scanQueryKey,
   hasWorkspaceWideAccess,
   mutationsEnabled,
@@ -216,7 +187,6 @@ function GitHubInstallCard({
   readonly workspaceId: string;
   readonly installation: WorkspaceSourceInstallation;
   readonly repositories: readonly WorkspaceSourceRepository[];
-  readonly scanProgress: RepositoryScanProgress | null;
   readonly scanQueryKey: ReturnType<typeof repositoryScanKey> | null;
   readonly hasWorkspaceWideAccess: boolean;
   readonly mutationsEnabled: boolean;
@@ -285,11 +255,8 @@ function GitHubInstallCard({
             </div>
           ) : (
             <p className="mt-2 text-xs leading-5 text-slate-300">
-              {scanProgress === "scanning" || scanProgress === "retrying"
-                ? "Scanning the selected repositories on GitHub. They appear here when the scan finishes."
-                : scanProgress === "failed" || scanProgress === "stalled"
-                  ? "The last repository scan did not complete. Use Refresh repos to try again."
-                  : "No selected repositories are synced yet. Use Refresh repos to scan GitHub again."}
+              Selected repositories appear here once ReviewRouter has scanned
+              them. The repository list below shows the scan status.
             </p>
           )}
         </div>

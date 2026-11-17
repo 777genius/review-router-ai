@@ -232,8 +232,8 @@ describe("RepositoryScanStatus", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(120_000);
     });
-    // The watch window is one minute.
-    expect(fetch.mock.calls.length).toBeLessThanOrEqual(12);
+    // Every 5 s for the one-minute window, then never again.
+    expect(fetch).toHaveBeenCalledTimes(12);
     const calls = fetch.mock.calls.length;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(120_000);
@@ -259,6 +259,26 @@ describe("RepositoryScanStatus", () => {
       await vi.advanceTimersByTimeAsync(120_000);
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("backs off on a failing status route and stops at the stall ceiling", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(start);
+    const fetch = respond(500);
+    renderWithClient(status(scanned("scanning")));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+    });
+    // Without ageing this was one request every 3 s, about 1,200 an hour.
+    expect(fetch.mock.calls.length).toBeGreaterThan(5);
+    expect(fetch.mock.calls.length).toBeLessThan(60);
+    expect(screen.getByText("Scan did not finish")).toBeTruthy();
+    const calls = fetch.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+    });
+    expect(fetch).toHaveBeenCalledTimes(calls);
   });
 
   it("stops polling and hides progress when access is denied", async () => {

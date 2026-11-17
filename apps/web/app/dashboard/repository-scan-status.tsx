@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { LoaderCircle, TriangleAlert } from "lucide-react";
 import { Badge } from "@reviewrouter/ui";
 import {
+  ageRepositoryScan,
   isNewerRepositoryScan,
   repositoryScanListRefreshKey,
   repositoryScanPollIntervalMs,
@@ -50,9 +51,29 @@ function useRepositoryScan(
   const router = useRouter();
   const queryClient = useQueryClient();
   const [, startTransition] = useTransition();
-  const [expectScanUntil] = useState(() =>
-    expectScan ? Date.now() + REPOSITORY_SCAN_EXPECT_WINDOW_MS : 0,
-  );
+  const [{ mountedAt, expectScanUntil }] = useState(() => {
+    const now = Date.now();
+    return {
+      mountedAt: now,
+      expectScanUntil: expectScan ? now + REPOSITORY_SCAN_EXPECT_WINDOW_MS : 0,
+    };
+  });
+  // While the route fails, the last read keeps ageing (browser time since the
+  // last read; the server render counts from mount), so polling backs off and
+  // stops at the stall ceiling.
+  const readable = (state: {
+    readonly data: RepositoryScanSnapshot | undefined;
+    readonly status: string;
+    readonly dataUpdateCount: number;
+    readonly dataUpdatedAt: number;
+  }): RepositoryScanSnapshot | undefined =>
+    state.data && state.status === "error"
+      ? ageRepositoryScan(
+          state.data,
+          Date.now() -
+            (state.dataUpdateCount > 0 ? state.dataUpdatedAt : mountedAt),
+        )
+      : state.data;
   const query = useQuery({
     queryKey: repositoryScanKey(actorId, workspaceId),
     queryFn: ({ signal }) => fetchRepositoryScan(workspaceId, signal),
@@ -68,7 +89,7 @@ function useRepositoryScan(
       isRepositoryScanAccessFailure(current.state.error)
         ? false
         : repositoryScanPollIntervalMs(
-            current.state.data,
+            readable(current.state),
             expectScanUntil - Date.now(),
           ),
     refetchIntervalInBackground: false,
@@ -95,7 +116,11 @@ function useRepositoryScan(
     startTransition(() => router.refresh());
   }, [initialSnapshot, query.data, router]);
 
-  return isRepositoryScanAccessFailure(query.error) ? null : query.data;
+  if (isRepositoryScanAccessFailure(query.error)) return null;
+  const state = queryClient.getQueryState<RepositoryScanSnapshot>(
+    repositoryScanKey(actorId, workspaceId),
+  );
+  return (state ? readable(state) : query.data) ?? null;
 }
 
 /**
@@ -125,7 +150,10 @@ export function RepositoryScanStatus({
   if (snapshot && summary?.phase === "scanning") {
     const accounts = accountList(summary.installations);
     content = hasRepositories ? (
-      <p className="flex items-center gap-2 border-b border-cyan-200/10 px-4 py-3 text-sm leading-6 text-slate-300 lg:px-6">
+      <p
+        role="status"
+        className="flex items-center gap-2 border-b border-cyan-200/10 px-4 py-3 text-sm leading-6 text-slate-300 lg:px-6"
+      >
         <ScanSpinner />
         Scanning {accounts} on GitHub. New repositories appear here when the
         scan finishes.
@@ -141,7 +169,7 @@ export function RepositoryScanStatus({
             </span>
           ) : null}
         </div>
-        <p className="mt-3 text-sm leading-6 text-slate-300">
+        <p role="status" className="mt-3 text-sm leading-6 text-slate-300">
           ReviewRouter is reading the repositories of {accounts} from GitHub.
           They appear here automatically when the scan finishes, usually within
           a minute.
@@ -180,7 +208,10 @@ export function RepositoryScanStatus({
     const outcome = summary.stalled ? "did not finish" : "failed";
     content = hasRepositories ? (
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-200/10 px-4 py-3 lg:px-6">
-        <p className="inline-flex items-center gap-2 text-sm leading-6 text-amber-100">
+        <p
+          role="status"
+          className="inline-flex items-center gap-2 text-sm leading-6 text-amber-100"
+        >
           <TriangleAlert aria-hidden="true" className="size-4 shrink-0" />
           The last repository scan of {accounts} {outcome}, so this list may be
           out of date.
@@ -190,7 +221,7 @@ export function RepositoryScanStatus({
     ) : summary.stalled ? (
       <div className="p-5">
         <Badge tone="warning">Scan did not finish</Badge>
-        <p className="mt-3 text-sm leading-6 text-slate-300">
+        <p role="status" className="mt-3 text-sm leading-6 text-slate-300">
           The repository scan of {accounts} started more than 15 minutes ago and
           has not finished. Try the scan again. If it still does not finish,
           contact support.
@@ -200,7 +231,7 @@ export function RepositoryScanStatus({
     ) : (
       <div className="p-5">
         <Badge tone="danger">Repository scan failed</Badge>
-        <p className="mt-3 text-sm leading-6 text-slate-300">
+        <p role="status" className="mt-3 text-sm leading-6 text-slate-300">
           ReviewRouter could not read the repositories of {accounts} from
           GitHub. Try the scan again. If it keeps failing, check that the GitHub
           App is still installed and has access to repositories.
@@ -210,7 +241,7 @@ export function RepositoryScanStatus({
     );
   }
 
-  return <div role="status">{content}</div>;
+  return <>{content}</>;
 }
 
 /**

@@ -9,7 +9,7 @@ export type RepositoryScanState =
   | "unknown";
 
 /** A state as of a read: a scan running past its ceiling is `stalled`. */
-export type RepositoryScanProgress = RepositoryScanState | "stalled";
+type RepositoryScanProgress = RepositoryScanState | "stalled";
 
 export type RepositoryScanInstallation = {
   readonly githubInstallationId: string;
@@ -94,7 +94,7 @@ const scanStateByStatus = {
   dead_letter: "failed",
 } as const satisfies Record<OutboxEventStatus, RepositoryScanState>;
 
-export function repositoryScanProgress(
+function repositoryScanProgress(
   installation: RepositoryScanInstallation,
   checkedAt: string,
 ): RepositoryScanProgress {
@@ -102,6 +102,24 @@ export function repositoryScanProgress(
     scanAgeMs(installation, checkedAt) > REPOSITORY_SCAN_STALLED_AFTER_MS
     ? "stalled"
     : installation.state;
+}
+
+/**
+ * The last read as of `unreadForMs` later, while the status cannot be read:
+ * a running scan keeps ageing, so polling backs off and stops at the stall
+ * ceiling instead of retrying a failing route forever.
+ */
+export function ageRepositoryScan(
+  snapshot: RepositoryScanSnapshot,
+  unreadForMs: number,
+): RepositoryScanSnapshot {
+  if (!Number.isFinite(unreadForMs) || unreadForMs <= 0) return snapshot;
+  return {
+    ...snapshot,
+    checkedAt: new Date(
+      Date.parse(snapshot.checkedAt) + unreadForMs,
+    ).toISOString(),
+  };
 }
 
 /** A running scan wins over a failed one: its result may replace the failure. */

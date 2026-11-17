@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /**
  * Repository scan progress of `?workspace=<id>`, polled by the Repositories
  * list while a scan runs. Same read and access rule as the server render:
- * only workspace owners and admins see source installations.
+ * only viewers with workspace-wide access see source installations.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const workspaceId = request.nextUrl.searchParams.get("workspace")?.trim();
@@ -33,6 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       headers: { "cache-control": "private, no-store" },
     });
   } catch {
+    console.error("repository_scan_read_failed", { workspaceId });
     return NextResponse.json(
       { error: "repository_scan_unavailable" },
       { status: 500 },

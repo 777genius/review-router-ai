@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Repository scan progress: [the Repositories list shows a running, failed or stuck GitHub scan and updates by itself](2026-11-17-repository-scan-progress.md), [plan 73](../architecture/73-repository-scan-progress.md) - Web-only ordinary rollout; staging/production `pending`. No migration or configuration. Before the release, read-only check of installations whose newest sync event is dead-lettered (#761): they will show "scan failed" with Retry.
+Repository scan progress: [the Repositories list shows a running, failed or stuck GitHub scan and updates by itself](2026-11-17-repository-scan-progress.md), [PR #898](https://github.com/777genius/review-router-ai/pull/898), [plan 73](../architecture/73-repository-scan-progress.md) - Web-only ordinary rollout; staging/production `pending`. No migration or configuration. Before the release, read-only check of installations whose newest sync event is dead-lettered (#761): they will show "scan failed" with Retry.
 
 Provider quota does not drop a parallel review: [skip a quota-exhausted reviewer while another completes](2026-11-17-provider-quota-nonfatal.md), [PR #888](https://github.com/777genius/review-router-ai/pull/888) and [runtime PR #394](https://github.com/777genius/review-router/pull/394) - additive migration 000158 and API/Web rollout first, then the paired runtime release; staging/production `pending`. No configuration change.
 

@@ -55,6 +55,27 @@ describe("GET /api/dashboard/repositories/scan", () => {
     expect(mocks.loadRepositoryScanSnapshot).not.toHaveBeenCalled();
   });
 
+  it("rejects a missing workspace and reports a failed read safely", async () => {
+    mocks.getDashboardWorkspaceScope.mockResolvedValue({
+      kind: "all",
+      reason: "local_admin_override",
+    });
+    expect((await get("")).status).toBe(400);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.loadRepositoryScanSnapshot.mockRejectedValueOnce(
+      new Error("permission denied for table OutboxEvent"),
+    );
+    const response = await get("workspace-1");
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "repository_scan_unavailable",
+    });
+    expect(log).toHaveBeenCalledWith("repository_scan_read_failed", {
+      workspaceId: "workspace-1",
+    });
+    log.mockRestore();
+  });
+
   it("returns the scan of an accessible workspace without caching", async () => {
     mocks.getDashboardWorkspaceScope.mockResolvedValue({
       kind: "workspace_ids",

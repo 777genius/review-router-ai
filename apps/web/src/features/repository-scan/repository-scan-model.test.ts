@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ageRepositoryScan,
   isNewerRepositoryScan,
   repositoryScanBackoffMs,
   repositoryScanListRefreshKey,
@@ -254,6 +255,23 @@ describe("repositoryScanListRefreshKey", () => {
       { repositoryCount: 13 },
     );
     expect(repositoryScanListRefreshKey(after, before)).not.toBeNull();
+  });
+});
+
+describe("ageRepositoryScan", () => {
+  it("ages an unreadable running scan into a stall that stops polling", () => {
+    const running = snapshot([installation("scanning")]);
+    expect(ageRepositoryScan(running, 0)).toBe(running);
+    expect(ageRepositoryScan(running, Number.NaN)).toBe(running);
+    expect(
+      repositoryScanPollIntervalMs(ageRepositoryScan(running, 60_000)),
+    ).toBe(17_500);
+    const aged = ageRepositoryScan(running, 15 * 60_000);
+    expect(summarizeRepositoryScan(aged)).toMatchObject({
+      phase: "failed",
+      stalled: true,
+    });
+    expect(repositoryScanPollIntervalMs(aged)).toBe(false);
   });
 });
 

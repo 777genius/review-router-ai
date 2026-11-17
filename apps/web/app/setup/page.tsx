@@ -344,9 +344,9 @@ function GitHubAppInstallHandoffCard({
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
             GitHub confirmed the App installation. ReviewRouter is waiting for
-            the signed webhook, which normally arrives within a few seconds.
-            This page checks again automatically and opens the dashboard when
-            the installation is linked.
+            the signed webhook, which normally arrives within a few seconds. For
+            the next few minutes this page checks again by itself and opens the
+            dashboard when the installation is linked.
           </p>
         </div>
         <div className="grid gap-3 sm:flex sm:flex-wrap lg:justify-end">

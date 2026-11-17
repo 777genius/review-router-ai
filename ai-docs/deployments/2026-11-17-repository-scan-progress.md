@@ -9,7 +9,8 @@
 - Affected services/targets: Web only (`apps/web`, plus a read helper exported
   by `@reviewrouter/features-github-installations` that only the Web image
   uses). No API, worker, database, Gateway or Action change.
-- Implementation PR/issue: the PR that adds this file.
+- Implementation PR/issue:
+  [PR #898](https://github.com/777genius/review-router-ai/pull/898).
 - Implementation reference: the branch head of that PR.
 - Dependencies: none for the code. Retry only succeeds where the worker can
   write `RepositoryConnection` - see
@@ -33,9 +34,12 @@
   role already reads `OutboxEvent`. No migration, index, configuration or
   activation step.
 - The new route `GET /api/dashboard/repositories/scan?workspace=<id>` answers
-  only workspace owners/admins (same rule as the server render) and is polled
-  only while a scan runs: every 3 s at first, backing off to 30 s, never on a
-  hidden tab, stopping after 15 minutes of an unfinished scan.
+  only viewers with workspace-wide access (same rule as the server render) and
+  is polled only while a scan runs: every 3 s at first, backing off to 30 s,
+  never on a hidden tab, stopping after 15 minutes of an unfinished scan. While
+  the route itself fails, the last read keeps ageing, so the same 15-minute
+  ceiling stops polling; read failures are logged as
+  `repository_scan_read_failed`.
 
 ## Ordered rollout
 

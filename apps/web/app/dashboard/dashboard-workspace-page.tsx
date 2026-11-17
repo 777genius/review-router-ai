@@ -227,7 +227,9 @@ import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
 import { WorkspaceSourceConnectionPanel } from "./workspace-source-connection";
 import { RepositoryScanStatus } from "./repository-scan-status";
+import { repositoryScanKey } from "./repository-scan-api";
 import { loadRepositoryScanSnapshot } from "../../src/server/repository-scan";
+import { latestInstallationPerAccount } from "../../src/server/dashboard-workspace-model";
 import type { RepositoryScanSnapshot } from "../../src/features/repository-scan/repository-scan-model";
 import {
   HostedPoolSettingsPanel,
@@ -328,7 +330,7 @@ type DashboardWorkspaceData = {
     ReturnType<PrismaOrgRulesetProvisioningRepository["findByWorkspaceId"]>
   > | null;
   hostedPool: Awaited<ReturnType<typeof loadHostedPoolDashboardView>>;
-  /** Scan progress for owners and admins in Repositories; null elsewhere. */
+  /** Scan progress for workspace-wide viewers in Repositories; else null. */
   repositoryScan?: {
     readonly actorId: string;
     readonly snapshot: RepositoryScanSnapshot;
@@ -409,7 +411,12 @@ export async function loadDashboardSectionData(
       ? await loadRepositoryScanSnapshot({
           prisma,
           workspaceId: workspace.id,
-        }).catch(() => null)
+        }).catch(() => {
+          console.error("repository_scan_read_failed", {
+            workspaceId: workspace.id,
+          });
+          return null;
+        })
       : null;
   const [repositories, storedEntitlement] = await Promise.all([
     section === "setup"
@@ -1646,7 +1653,11 @@ export function WorkspaceCard({
               installations={activeInstallations}
               gitLabInstallations={workspace.gitLabInstallations}
               repositories={repositories}
-              repositoryScan={repositoryScan}
+              scanQueryKey={
+                repositoryScan
+                  ? repositoryScanKey(repositoryScan.actorId, workspace.id)
+                  : null
+              }
               hasWorkspaceWideAccess={hasWorkspaceWideAccess}
               mutationsEnabled={mutationsEnabled}
             />
@@ -2169,8 +2180,11 @@ type ProviderDialogProps = Readonly<{
 /** The list is empty and no scan runs or failed. */
 function RepositoryListEmptyState({
   installation,
+  canRequestScan,
 }: {
   readonly installation: DashboardWorkspace["installations"][number] | null;
+  /** The viewer has Refresh repos under Repository sources. */
+  readonly canRequestScan: boolean;
 }): React.ReactElement {
   const settingsUrl = installation
     ? buildInstallationSettingsUrl(installation)
@@ -2195,8 +2209,10 @@ function RepositoryListEmptyState({
           ) : (
             "GitHub settings"
           )}
-          ; ReviewRouter scans again when that access changes. If it already has
-          access, use Refresh repos under Repository sources.
+          ; ReviewRouter scans again when that access changes.
+          {canRequestScan
+            ? " If it already has access, use Refresh repos under Repository sources."
+            : null}
         </p>
       ) : (
         <p className="mt-3 text-sm leading-6 text-slate-300">
@@ -2366,7 +2382,12 @@ function RepositoryTable({
       : cappedRows;
   const emptyState =
     repositories.length === 0 ? (
-      <RepositoryListEmptyState installation={activeInstallations[0] ?? null} />
+      <RepositoryListEmptyState
+        installation={
+          latestInstallationPerAccount(activeInstallations)[0] ?? null
+        }
+        canRequestScan={Boolean(repositoryScan)}
+      />
     ) : null;
   return (
     <RepositorySelectionProvider
