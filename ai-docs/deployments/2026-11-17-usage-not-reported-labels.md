@@ -7,8 +7,8 @@
   filters (period, provider, model, route) evenly with the same text color.
 - Affected services/targets: Web only (`apps/web` and the shared
   `@reviewrouter/ui` SelectField). No API, worker, database or Gateway change.
-- Implementation PR/issue: Draft PR from branch
-  `fix/usage-unknown-partial-20261117` (link added after the PR opens).
+- Implementation PR/issue:
+  [PR #882](https://github.com/777genius/review-router-ai/pull/882).
 - Implementation reference: the branch head of that PR.
 - Dependencies: none.
 - Last updated: `2026-11-17`.
