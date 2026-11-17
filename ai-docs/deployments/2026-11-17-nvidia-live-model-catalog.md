@@ -3,7 +3,7 @@
 - Task ID: `2026-11-17-nvidia-live-model-catalog`
 - Goal: an NVIDIA Build account offers every model of NVIDIA's public list that can review code (anchor first), the coding plan catalogues are no longer cut at 8 models, and a Gateway model can be typed into the model field with a clear message when it is malformed or not in the account's list.
 - Affected targets: native (`agent-teams-ai/sub2api`), Account Gateway service and SDK (`agent-teams-ai/account-gateway`), ReviewRouter Web and API (vendored SDK, conversation source stamp).
-- Implementation: native PR (link added on merge), Gateway PR (link added on merge), this ReviewRouter PR. Design: [68](../architecture/68-nvidia-live-model-catalog.md).
+- Implementation: native [agent-teams-ai/sub2api#101](https://github.com/agent-teams-ai/sub2api/pull/101) (merge `324b336cb65b`), Gateway [agent-teams-ai/account-gateway#111](https://github.com/agent-teams-ai/account-gateway/pull/111) (merge `e70dd9c599f1`, also the SDK archive source), ReviewRouter [PR #889](https://github.com/777genius/review-router-ai/pull/889). Design: [68](../architecture/68-nvidia-live-model-catalog.md).
 - Dependencies: the coding plan catalogues of [64](../architecture/64-gateway-native-ownership-and-model-catalog.md) and [65](../architecture/65-live-coding-plan-model-catalog.md) (native #99/#100, Gateway #109/#110, ReviewRouter #879). They have no deployment record; on 2026-11-17 the registry shows production on Gateway 108 and native 98, so they look undeployed. Verify before rollout.
 - Last updated: 2026-11-17.
 
@@ -22,7 +22,7 @@ No migration, configuration or feature flag. The order matters because the chang
 2. If 64/65 are not deployed there: deploy native at the merge commit of native #100 (without this change), then continue. If they are deployed, skip this step.
 3. Deploy the Gateway with this change (SDK contract 512). Check: Kimi, GLM and MiniMax accounts still read their catalogue, the NVIDIA account still reads its one anchor model.
 4. Deploy ReviewRouter Web and API with the new SDK, together with the conversation requalification that the changed `conversation-source-stamp` requires (as for 64/65).
-5. Deploy native with this change. Check on an NVIDIA account: Providers > model list shows the anchor first and about 18 NVIDIA models, no embed, guard, safety, clip, detector or translate models; native logs a `gateway_native_live_model_catalog` line with `profile` `nvidia-build-chat-apikey-v1`.
+5. Deploy native with this change. Check on an NVIDIA account: Providers > model list shows the anchor first, then the models NVIDIA lists at that moment minus the filtered families (no embed, rerank, retriever, guard, shield, safety, reward, clip, detector or translate models; compare with `returned_count` in the native log rather than a fixed number - 18 of 32 was only the 2026-11-17 observation); native logs a `gateway_native_live_model_catalog` line with `profile` `nvidia-build-chat-apikey-v1`.
 6. Record the actual versions, timestamps and evidence separately per environment.
 
 ## Verification and completion

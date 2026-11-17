@@ -470,4 +470,39 @@ describe("Gateway reviewer roster", () => {
       "executionPatch",
     );
   });
+
+  it("does not save a new reviewer whose typed model the picker marks unusable", async () => {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const profile = accounts.value.profiles[0]!;
+    const props = base();
+    props.view = { ...props.view, defaultSelections: [selection("one")] };
+    // An NVIDIA account without its own fresh catalogue: every model is listed
+    // but marked unusable, so typing its exact name must not make it savable.
+    props.gatewayAccounts = {
+      status: "ok",
+      value: {
+        ...accounts.value,
+        profiles: [
+          {
+            ...profile,
+            connection: { ...profile.connection!, provider: "nvidia" },
+          },
+        ],
+      },
+    };
+    render(<GatewayReviewerRoster {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add reviewer" }));
+    await choose(/^Account for reviewer 2/, /^Team account/);
+    fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
+      target: { value: "model-two" },
+    });
+    expect(
+      screen.getAllByText(/NVIDIA account model qualification unavailable/)
+        .length,
+    ).toBeGreaterThan(0);
+    const save = screen.getByRole("button", { name: "Save reviewers" });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(save);
+    expect(saveProviderRoster).not.toHaveBeenCalled();
+  });
 });
