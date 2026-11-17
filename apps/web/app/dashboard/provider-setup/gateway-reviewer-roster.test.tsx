@@ -259,6 +259,83 @@ describe("Gateway reviewer roster", () => {
     expect(screen.queryByText("Optional")).toBeNull();
   });
 
+  it("orders fallback reviewers and saves the mode with the roster", async () => {
+    render(<GatewayReviewerRoster {...base()} />);
+    expect(screen.queryByRole("button", { name: /Move reviewer/ })).toBeNull();
+    await choose(/^How reviewers work together/, /^Fallback in order/);
+    expect(
+      screen.queryByRole("combobox", { name: /^Max parallel providers/ }),
+    ).toBeNull();
+    expect(screen.getByText(/^Only the first reviewer runs/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Move reviewer 1 up" }),
+    ).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "Move reviewer 2 up" }));
+    expect(screen.getByText(/1\. model-two/)).toBeTruthy();
+    expect(screen.getByText("Fallback")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewers" }));
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerMode: "fallback",
+          reviewers: [
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "two" },
+            }),
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "one" },
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
+  it("opens an inheriting repository with the workspace roster mode", async () => {
+    const props = base();
+    const inherited = view();
+    render(
+      <GatewayReviewerRoster
+        {...props}
+        view={{
+          ...inherited,
+          providerMode: "fallback",
+          repositories: inherited.repositories.map((row) => ({
+            ...row,
+            source: "workspace" as const,
+            selection: null,
+            selections: [],
+            execution: {},
+          })),
+        }}
+        target={{
+          kind: "repository",
+          repository: {
+            id: "r",
+            fullName: "org/repo",
+            visibility: "private",
+            canManageCredentials: true,
+            effective: {
+              authMode: "codex_account_gateway",
+              credentialKind: "gateway_binding",
+            },
+            secretGuidance: null,
+            organizationLogin: null,
+            organizationSecretPolicy: null,
+            rotatingEnabled: false,
+          },
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole("combobox", { name: /^How reviewers work together/ })
+        .textContent,
+    ).toContain("Fallback in order");
+    expect(
+      screen.getByRole("button", { name: "Move reviewer 2 up" }),
+    ).toBeTruthy();
+  });
+
   it("removes only the chosen row and keeps the last reviewer", async () => {
     render(<GatewayReviewerRoster {...base()} />);
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
@@ -392,5 +469,40 @@ describe("Gateway reviewer roster", () => {
     expect(vi.mocked(saveProviderRoster).mock.calls[0]![0]).not.toHaveProperty(
       "executionPatch",
     );
+  });
+
+  it("does not save a new reviewer whose typed model the picker marks unusable", async () => {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const profile = accounts.value.profiles[0]!;
+    const props = base();
+    props.view = { ...props.view, defaultSelections: [selection("one")] };
+    // An NVIDIA account without its own fresh catalogue: every model is listed
+    // but marked unusable, so typing its exact name must not make it savable.
+    props.gatewayAccounts = {
+      status: "ok",
+      value: {
+        ...accounts.value,
+        profiles: [
+          {
+            ...profile,
+            connection: { ...profile.connection!, provider: "nvidia" },
+          },
+        ],
+      },
+    };
+    render(<GatewayReviewerRoster {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add reviewer" }));
+    await choose(/^Account for reviewer 2/, /^Team account/);
+    fireEvent.change(screen.getByRole("combobox", { name: "Model" }), {
+      target: { value: "model-two" },
+    });
+    expect(
+      screen.getAllByText(/NVIDIA account model qualification unavailable/)
+        .length,
+    ).toBeGreaterThan(0);
+    const save = screen.getByRole("button", { name: "Save reviewers" });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(save);
+    expect(saveProviderRoster).not.toHaveBeenCalled();
   });
 });

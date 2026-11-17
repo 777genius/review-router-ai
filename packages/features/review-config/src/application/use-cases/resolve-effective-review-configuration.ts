@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   canonicalJson,
   type ReviewConfiguration,
+  type ReviewProviderMode,
 } from "../../domain/review-configuration";
 import {
   parseRepositoryReviewPolicy,
@@ -124,6 +125,7 @@ export function readyReviewConfiguration(
   return {
     version: resolved.version,
     config: resolved.config,
+    rosterConfig: resolved.rosterConfig,
     policy: resolved.policy,
     source: resolved.source,
     workspaceVersion: resolved.workspaceVersion,
@@ -131,6 +133,7 @@ export function readyReviewConfiguration(
     effectivePolicyDigest: resolved.effectivePolicyDigest,
     revisionToken: resolved.revisionToken,
     selections: resolved.selections,
+    providerMode: resolved.providerMode,
   };
 }
 
@@ -172,7 +175,9 @@ export function composeEffectiveReviewConfiguration(
     status: "ready",
     ...persistedReviewConfiguration({
       config: effective.config,
+      rosterConfig: effective.rosterConfig,
       selections: effective.selections,
+      providerMode: effective.providerMode,
       policy: repositoryPolicy ?? workspacePolicy,
       workspaceVersion: workspace.version,
       repositoryVersion: repository?.version ?? null,
@@ -182,7 +187,9 @@ export function composeEffectiveReviewConfiguration(
 
 export function persistedReviewConfiguration(input: {
   readonly config: ReviewConfiguration;
+  readonly rosterConfig: ReviewConfiguration;
   readonly selections: readonly ReviewProviderSelection[];
+  readonly providerMode: ReviewProviderMode;
   readonly policy: ReviewPolicyDocument;
   readonly workspaceVersion: number;
   readonly repositoryVersion: number | null;
@@ -192,6 +199,7 @@ export function persistedReviewConfiguration(input: {
   return {
     version: repositoryVersion ?? workspaceVersion,
     config: input.config,
+    rosterConfig: input.rosterConfig,
     policy: input.policy,
     source: repositoryVersion === null ? "workspace" : "repository",
     workspaceVersion,
@@ -199,6 +207,7 @@ export function persistedReviewConfiguration(input: {
     effectivePolicyDigest: digest,
     revisionToken: `policy:${workspaceVersion}:${repositoryVersion ?? 0}:${digest}`,
     selections: input.selections,
+    providerMode: input.providerMode,
   };
 }
 

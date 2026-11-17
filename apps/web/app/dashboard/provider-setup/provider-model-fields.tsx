@@ -5,6 +5,7 @@ import { Checkbox, SelectField } from "@reviewrouter/ui";
 import {
   codexModelSupportsFastMode,
   codexModelSupportsReasoningEffort,
+  gatewayModelSchema,
   providerKindForAuthMode,
   type ProviderAuthMode,
   type ReviewModelOption,
@@ -572,6 +573,16 @@ function CheckboxRow({
   );
 }
 
+/**
+ * A typed name on an account catalog: reviews may use only a model the account's
+ * own list includes, so a well-formed name outside it is explained, not accepted.
+ */
+function typedAccountModelHint(value: string): string {
+  return gatewayModelSchema.safeParse(value).success
+    ? "This account's model list does not include this model. Choose a listed model, or refresh the list if the provider added it recently."
+    : "This is not a valid model name. Use letters, digits and . _ : / - without spaces.";
+}
+
 /** A model name with suggestions from the catalog; any typed name is kept. */
 function ProviderModelInput({
   value,
@@ -695,7 +706,7 @@ function ProviderModelInput({
             ? `${selected.description ?? "This model is unavailable for review."} Choose an available model from the catalog.`
             : allowCustomModel
               ? "Not in the list; this name is used as typed."
-              : "Choose an available model from this account's catalog."}
+              : typedAccountModelHint(value)}
         </span>
       ) : null}
       {open ? (

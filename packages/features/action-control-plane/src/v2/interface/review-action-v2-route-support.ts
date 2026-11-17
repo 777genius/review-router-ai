@@ -33,6 +33,8 @@ export type ReviewActionV2RouteRuntimeDependencies = {
     readonly internalFailureCode?: string;
     readonly internalFailureCauseCode?: string;
     readonly internalFailureStage?: ReviewActionV2InternalFailureStage;
+    /** Safe issues of a typed failure the operation contract cannot carry. */
+    readonly internalFailureIssues?: readonly string[];
   }) => void;
 };
 
@@ -62,6 +64,10 @@ const safeInternalFailureClasses = new Set([
   "TypeError",
   "URIError",
 ]);
+
+const safeProtocolErrorCodes: ReadonlySet<string> = new Set(
+  Object.values(ReviewActionV2ProtocolErrorCode),
+);
 
 const safeInternalFailureCodes = new Map<string, string>([
   ["P2000", "prisma_value_too_long"],
@@ -245,9 +251,9 @@ export function registerReviewActionV2Operation<
           protocolIssues: failure.issues,
           requestId,
           statusCode: failure.statusCode,
-          ...(error instanceof ReviewActionV2RouteFailure
-            ? {}
-            : internalFailureDiagnostic(error)),
+          // A typed failure outside this operation's contract is replaced by
+          // the generic fallback; keep its original safe code for operators.
+          ...(failure === error ? {} : internalFailureDiagnostic(error)),
         };
         try {
           if (dependencies.recordProtocolRejection) {
@@ -277,7 +283,18 @@ function internalFailureDiagnostic(error: unknown): Readonly<{
   internalFailureCode: string;
   internalFailureCauseCode?: string;
   internalFailureStage?: ReviewActionV2InternalFailureStage;
+  internalFailureIssues?: readonly string[];
 }> {
+  if (error instanceof ReviewActionV2RouteFailure) {
+    // Issues are already normalized to bounded safe slugs by the constructor.
+    return Object.freeze({
+      internalFailureClass: "ReviewActionV2RouteFailure",
+      internalFailureCode: safeProtocolErrorCodes.has(error.errorCode)
+        ? error.errorCode
+        : "unclassified_internal_error",
+      internalFailureIssues: error.issues,
+    });
+  }
   if (error instanceof Error) {
     const causeCode = safeInternalFailureCauseCode(error);
     const stage = safeInternalFailureStage(error);

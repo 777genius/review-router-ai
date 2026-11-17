@@ -217,7 +217,12 @@ function selectionsOf(config: ReviewConfiguration) {
 }
 
 function withSelections(config: ReviewConfiguration) {
-  return { config, selections: selectionsOf(config) };
+  return {
+    config,
+    rosterConfig: config,
+    selections: selectionsOf(config),
+    providerMode: "parallel" as const,
+  };
 }
 
 function savedConfigurations(
@@ -237,8 +242,7 @@ function savedConfigurations(
             repositoryVersion: selection === "workspace" ? null : 1,
             effectivePolicyDigest: "a".repeat(64),
             policy: { schemaVersion: 4 as const },
-            config: savedGatewayConfig,
-            selections: selectionsOf(savedGatewayConfig),
+            ...withSelections(savedGatewayConfig),
           }
         : null,
     saveNextVersion: async () => {
