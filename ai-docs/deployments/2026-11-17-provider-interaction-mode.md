@@ -33,7 +33,7 @@
 
 1. A workspace with two Gateway reviewers in "Together, in parallel" still runs both.
 2. Switch to "Fallback in order" and save: a pull request runs only the first reviewer; the review is complete and the check passes as usual.
-3. Make the first reviewer unusable (for example an account out of quota or signed out) and re-run: the second reviewer runs and the review is complete; the summary reports one failed reviewer.
+3. Make the first reviewer unusable (for example an account out of quota or signed out) and push a new commit: the second reviewer runs and the review is complete; the summary reports one failed reviewer.
 4. With every reviewer unusable the review is incomplete, as today.
 5. Saving workspace review settings keeps the mode; switching back to parallel restores the saved limits.
 
