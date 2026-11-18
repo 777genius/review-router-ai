@@ -165,13 +165,19 @@ export function summarizeRepositorySetup(
       tone: "danger",
     };
   if (counts.settingUp > 0)
-    return { ...counts, label: `${counts.settingUp} setting up`, tone: "warning" };
+    return {
+      ...counts,
+      label: `${counts.settingUp} setting up`,
+      tone: "warning",
+    };
   if (counts.ready > 0)
     return { ...counts, label: `${counts.ready} ready`, tone: "success" };
   return {
     ...counts,
     label:
-      counts.notSetUp > 0 ? "No repositories set up yet" : "No repositories synced",
+      counts.notSetUp > 0
+        ? "No repositories set up yet"
+        : "No repositories synced",
     tone: "neutral",
   };
 }

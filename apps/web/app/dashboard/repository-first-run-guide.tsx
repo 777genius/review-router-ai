@@ -27,9 +27,8 @@ export function RepositoryFirstRunGuide({
         {providerStep}
       </div>
       <p className="text-sm leading-6 text-slate-300">
-        Then create a setup PR for a repository in the list below and follow
-        its steps. Search for the one you want to start with; the others can
-        wait.
+        Then create a setup PR for a repository in the list below and follow its
+        steps. Search for the one you want to start with; the others can wait.
       </p>
     </section>
   );

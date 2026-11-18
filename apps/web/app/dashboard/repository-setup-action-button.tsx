@@ -65,14 +65,14 @@ export function RepositorySetupActionButton({
   const disabledReason = unavailableReason
     ? unavailableReason
     : !mutationsEnabled
-    ? "Dashboard changes are disabled for this workspace."
-    : !selected
-      ? "This repository is no longer selected for the GitHub App installation."
-      : archived
-        ? "Archived repositories cannot be provisioned."
-        : workflowCurrent && !workflowRefresh
-          ? "ReviewRouter workflow is already current."
-          : undefined;
+      ? "Dashboard changes are disabled for this workspace."
+      : !selected
+        ? "This repository is no longer selected for the GitHub App installation."
+        : archived
+          ? "Archived repositories cannot be provisioned."
+          : workflowCurrent && !workflowRefresh
+            ? "ReviewRouter workflow is already current."
+            : undefined;
 
   function completeWithoutUrl(params: Record<string, string>): void {
     setToast((current) => ({
@@ -198,12 +198,12 @@ export function RepositorySetupMergedButton({
   const disabledReason = unavailableReason
     ? unavailableReason
     : !mutationsEnabled
-    ? "Dashboard changes are disabled for this workspace."
-    : !selected
-      ? "This repository is no longer selected for the GitHub App installation."
-      : archived
-        ? "Archived repositories cannot be provisioned."
-        : undefined;
+      ? "Dashboard changes are disabled for this workspace."
+      : !selected
+        ? "This repository is no longer selected for the GitHub App installation."
+        : archived
+          ? "Archived repositories cannot be provisioned."
+          : undefined;
 
   function completeWithoutUrl(params: Record<string, string>): void {
     setToast((current) => ({

@@ -83,11 +83,13 @@ describe("RepositorySetupProgressPanel", () => {
     expect(
       screen.getByText("Merged. Verify the workflow to start reviews."),
     ).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Verify setup" })).toHaveLength(
-      1,
-    );
+    expect(
+      screen.getAllByRole("button", { name: "Verify setup" }),
+    ).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "I merged it" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Create setup PR/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Create setup PR/ }),
+    ).toBeNull();
   });
 
   it("waits for a provider before a setup PR can be created", () => {

@@ -66,6 +66,8 @@ const repositoryFilterOptions = [
   { value: "not_set_up", label: "Not set up", icon: Circle },
 ] as const satisfies readonly {
   readonly value: RepositorySetupFilter;
+  readonly label: string;
+  readonly icon: unknown;
 }[];
 
 export function RepositoryLiveSearch({
@@ -667,4 +669,3 @@ function searchUrlMatchesCurrentPage(nextUrl: string): boolean {
       (next.searchParams.get(key) ?? ""),
   );
 }
-
