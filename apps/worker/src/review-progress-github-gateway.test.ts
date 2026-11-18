@@ -336,6 +336,55 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toHaveLength(1);
   });
 
+  it("retains an earlier last-page hint when middle pages only link backward", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const canonical = { id: 4, body: desired };
+    const duplicate = { id: 7, body: `duplicate\n${marker}` };
+    const last = '<https://api.github.com/comments?page=3>; rel="last"';
+    const previous = '<https://api.github.com/comments?page=1>; rel="prev"';
+    const fixture = githubFixture([canonical, duplicate], {
+      pagedComments: [[canonical], [], [duplicate]],
+      pageLinks: [last, previous, previous],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 3 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 4,
+      operation: "duplicate_deleted",
+      duplicateCommentIds: [],
+    });
+    expect(
+      fixture.calls
+        .filter(({ route }) => route.includes("/issues/{issue_number}/comments"))
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2, 3]);
+    expect(mutations(fixture.calls)).toHaveLength(1);
+  });
+
+  it("defers an unclassifiable marked comment instead of hiding a duplicate", async () => {
+    const fixture = githubFixture([]);
+    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+      const response = await fixture.request(route, parameters);
+      if (route.includes("/issues/{issue_number}/comments")) {
+        return {
+          data: [
+            {
+              id: 7,
+              body: `unclassified\n${marker}`,
+            },
+          ],
+        };
+      }
+      return response;
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("keeps the cap fail-closed when a full final page links onward", async () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
@@ -367,6 +416,19 @@ describe("ReviewProgressGitHubGateway", () => {
     await expect(
       gateway(fixture.request, { maxCommentPages: 1 }).upsert(input()),
     ).rejects.toMatchObject({ kind: "pagination_inconclusive" });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("defers a marked final page with a malformed Link target", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([{ id: 19, body: desired }], {
+      pagedComments: [[{ id: 19, body: desired }]],
+      pageLinks: ['<not a URL>; rel="prev"'],
+    });
+    await expect(gateway(fixture.request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
     expect(mutations(fixture.calls)).toEqual([]);
   });
 

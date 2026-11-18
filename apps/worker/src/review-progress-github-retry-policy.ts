@@ -68,14 +68,18 @@ export function retryBoundary(
   return new Date(now.getTime() + 1_000);
 }
 
-/** Leave room for the maximum one-second retry jitter. */
+/** Validate the GitHub deadline itself; jitter is clipped separately. */
 function isUsableRetryTimestamp(timestamp: number): boolean {
-  return Number.isFinite(new Date(timestamp + 1_000).getTime());
+  return Number.isFinite(new Date(timestamp).getTime());
 }
 
 export function jitterAfter(boundary: Date, random: () => number): Date {
   const boundedRandom = Math.min(1, Math.max(0, random()));
-  return new Date(boundary.getTime() + 250 + Math.floor(boundedRandom * 750));
+  const jitterMs = 250 + Math.floor(boundedRandom * 750);
+  const boundaryTime = boundary.getTime();
+  // JavaScript Date TimeClip cannot represent instants after this limit.
+  const availableJitter = Math.max(0, 8_640_000_000_000_000 - boundaryTime);
+  return new Date(boundaryTime + Math.min(jitterMs, availableJitter));
 }
 
 /** Normalize GitHub response headers before retry decisions. */

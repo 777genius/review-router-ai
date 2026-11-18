@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  commentPageLinks,
   commentPageScanDecision,
   confirmedReconciliation,
   hasNextCommentPage,
@@ -64,6 +65,18 @@ describe("Review progress GitHub comment policy", () => {
     expect(hasNextCommentPage({ link: later }, 0)).toBe("invalid");
   });
 
+  it("exposes the advertised last page for a later scan request", () => {
+    const last = '<https://api.github.com/comments?page=3>; rel="last"';
+    const previous = '<https://api.github.com/comments?page=1>; rel="prev"';
+    expect(commentPageLinks({ link: last }, 1)).toEqual({
+      hasNextPage: true,
+      lastPage: 3,
+    });
+    expect(commentPageLinks({ link: previous }, 2)).toEqual({
+      hasNextPage: false,
+    });
+  });
+
   it("classifies bounded page scan outcomes", () => {
     const scenarios = [
       [false, 100, 5, 5, "complete"],
@@ -92,12 +105,25 @@ describe("Review progress GitHub comment policy", () => {
     expect(hasNextCommentPage({ link: 42 }, 1)).toBe("invalid");
   });
 
+  it("rejects malformed Link targets even without a next relation", () => {
+    const whitespace = '<not a URL>; rel="prev"';
+    const escape = '<https://api.github.com/comments?page=%ZZ>; rel="last"';
+    expect(hasNextCommentPage({ link: whitespace }, 2)).toBe("invalid");
+    expect(hasNextCommentPage({ link: escape }, 2)).toBe("invalid");
+  });
+
   it("parses only comments with safe IDs, bodies and author logins", () => {
     const raw = { id: 7, body: desired, user: { login: "review-router[bot]" } };
     expect(parseCommentOrNull(raw)).toEqual(marked(7, desired));
     expect(parseCommentOrNull({ ...raw, id: "7" })).toBeNull();
+    expect(parseCommentOrNull({ ...raw, id: 0 })).toBeNull();
+    expect(parseCommentOrNull({ ...raw, id: -1 })).toBeNull();
+    expect(
+      parseCommentOrNull({ ...raw, id: Number.MAX_SAFE_INTEGER + 1 }),
+    ).toBeNull();
     expect(parseCommentOrNull({ ...raw, body: 42 })).toBeNull();
     expect(parseCommentOrNull({ ...raw, user: null })).toBeNull();
+    expect(parseCommentOrNull({ ...raw, user: { login: " " } })).toBeNull();
   });
 
   it("matches markers only for the expected bot", () => {

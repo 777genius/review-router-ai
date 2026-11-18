@@ -1,7 +1,7 @@
 import {
   commentPageScanDecision,
   confirmedReconciliation,
-  hasNextCommentPage,
+  commentPageLinks,
   ownsMarker,
   parseCommentOrNull,
   type ReviewProgressComment,
@@ -291,17 +291,41 @@ export class ReviewProgressGitHubGateway {
     input: UpsertReviewProgressCommentInput,
   ): Promise<ReviewProgressComment[]> {
     const matches: ReviewProgressComment[] = [];
+    let advertisedLastPage: number | undefined;
     for (let page = 1; page <= this.maxCommentPages; page += 1) {
-      const { comments, hasNextPage } = await this.fetchCommentPage(
+      const { comments, hasNextPage, lastPage } = await this.fetchCommentPage(
         input,
         page,
       );
       for (const value of comments) {
         const comment = parseCommentOrNull(value);
         if (comment && ownsMarker(comment, input)) matches.push(comment);
+        if (!comment && hasUnclassifiedMarker(value, input.marker)) {
+          throw failure(
+            "pagination_inconclusive",
+            "github_issue_comments_marked_row_unclassified",
+            true,
+          );
+        }
       }
+      if (lastPage !== undefined) {
+        if (advertisedLastPage !== undefined && lastPage < advertisedLastPage) {
+          throw failure(
+            "pagination_inconclusive",
+            "github_issue_comments_last_page_conflict",
+            true,
+          );
+        }
+        advertisedLastPage = lastPage;
+      }
+      const effectiveNextPage =
+        hasNextPage === "invalid"
+          ? "invalid"
+          : advertisedLastPage !== undefined && page < advertisedLastPage
+            ? true
+            : hasNextPage;
       const decision = commentPageScanDecision(
-        hasNextPage,
+        effectiveNextPage,
         comments.length,
         page,
         this.maxCommentPages,
@@ -324,6 +348,7 @@ export class ReviewProgressGitHubGateway {
   ): Promise<{
     comments: unknown[];
     hasNextPage: boolean | "invalid" | undefined;
+    lastPage?: number;
   }> {
     let response: Awaited<ReturnType<ReviewProgressGitHubRequester>>;
     try {
@@ -343,7 +368,7 @@ export class ReviewProgressGitHubGateway {
     }
     return {
       comments: response.data,
-      hasNextPage: hasNextCommentPage(response.headers, page),
+      ...commentPageLinks(response.headers, page),
     };
   }
 
@@ -392,6 +417,12 @@ function repositoryParameters(
   extra: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
   return { owner: input.owner, repo: input.repo, ...extra };
+}
+
+function hasUnclassifiedMarker(value: unknown, marker: string): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const body = (value as { body?: unknown }).body;
+  return typeof body === "string" && body.includes(marker);
 }
 
 function parseComment(value: unknown): ReviewProgressComment {
