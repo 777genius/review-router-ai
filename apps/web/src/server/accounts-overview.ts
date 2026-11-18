@@ -275,6 +275,12 @@ export function createAccountsOverview(input: {
                 ? "organization"
                 : "operator",
             isOwnedByViewer: source.ownerUserId === who.userId,
+            // The viewer's own connection id, already listed in their own
+            // connections; it lets one list show that connection once.
+            ...(source.ownerUserId === who.userId &&
+            source.ownerWorkspaceId === null
+              ? { sourceId: source.id }
+              : {}),
             canManage: own && isAdmin,
             label: remote?.displayName ?? source.displayName,
             profileId: profile.id,

@@ -40,7 +40,6 @@ import {
   mutateGatewayAccount,
 } from "./account-gateway-account-actions";
 import { AccountsAddDialog } from "./accounts-add-dialog";
-import { AccountsWorkspaceTabs } from "./accounts-workspace-tabs";
 import {
   GatewayModelAccountsProvider,
   type GatewayModelAccountsApi,
@@ -431,17 +430,15 @@ test.each([false, true])(
     const grant = vi.fn();
     render(
       insideAddDialog ? (
-        <AccountsWorkspaceTabs
-          available={
-            <AccountsAddDialog
-              workspaceName="Selected workspace"
-              initiallyOpen
-              personalConnect={controls}
-              organizationConnect={null}
-            />
-          }
-          own={<button onClick={grant}>Grant workspace access</button>}
-        />
+        <>
+          <AccountsAddDialog
+            workspaceName="Selected workspace"
+            initiallyOpen
+            personalConnect={controls}
+            organizationConnect={null}
+          />
+          <button onClick={grant}>Grant workspace access</button>
+        </>
       ) : (
         controls
       ),
@@ -454,13 +451,9 @@ test.each([false, true])(
     );
     if (insideAddDialog) {
       expect(screen.getByRole("dialog", { name: "Add account" })).toBeTruthy();
+      // The connections list sits right under the dialog it closes.
       fireEvent.click(access);
-      await waitFor(() => {
-        expect(screen.queryByRole("dialog")).toBeNull();
-        expect(
-          screen.getByRole("tab", { name: "All my connections" }),
-        ).toHaveProperty("ariaSelected", "true");
-      });
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       expect(
         screen.getAllByRole("button", { name: "Grant workspace access" }),
       ).toHaveLength(1);
@@ -1409,7 +1402,7 @@ test("key continuation reports the server rejection reason for an unsaved key", 
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("The key was not saved.");
   expect(alert.textContent).toContain(
-    "The account changed. Refresh Accounts before trying again.",
+    "The account changed. Refresh connections before trying again.",
   );
   expect(document.body.innerHTML).not.toContain(secret);
 });
@@ -2430,6 +2423,66 @@ test.each([
     expect((field as HTMLInputElement).value).toBe("");
   },
 );
+
+test("a connection started in the Add dialog also shows its status in the list beside it", async () => {
+  page.accounts = [];
+  page.profiles = [
+    {
+      id: "kimi-qualified-profile",
+      label: "Kimi Code",
+      provider: "codex",
+      authKind: "api_key",
+      protocol: "openai-responses",
+      models: ["qualified-model"],
+      connection: {
+        provider: "kimi",
+        planLabel: "Kimi Code",
+        regionLabel: "Global",
+        completionInputKind: "none",
+        limitsContract: "account-limits/v2",
+        modelSettings: [],
+      },
+    },
+  ];
+  const api = personalApi();
+  const bootstrap = { context, page: { status: "ok" as const, value: page } };
+  render(
+    <>
+      <section aria-label="List">
+        <AccountGatewayControls
+          managementScope="personal"
+          api={api}
+          bootstrap={bootstrap}
+        />
+      </section>
+      <section aria-label="Dialog">
+        <AccountGatewayControls
+          connectOnly
+          managementScope="personal"
+          api={api}
+          bootstrap={bootstrap}
+        />
+      </section>
+    </>,
+  );
+  const list = screen.getByRole("region", { name: "List" });
+  const dialog = screen.getByRole("region", { name: "Dialog" });
+  await within(list).findByRole("button", { name: "Refresh connections" });
+  expect(within(list).queryByText("Connection status")).toBeNull();
+  fireEvent.change(await within(dialog).findByLabelText(/Subscription key/), {
+    target: { value: "synthetic-kimi-subscription-secret" },
+  });
+  const connect = within(dialog).getByRole("button", {
+    name: "Connect account",
+  });
+  await waitFor(() =>
+    expect((connect as HTMLButtonElement).disabled).toBe(false),
+  );
+  fireEvent.click(connect);
+  await waitFor(() => expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1));
+  expect(await within(list).findByText("Connection status")).toBeTruthy();
+  expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1);
+});
 
 test.each(["authorization_code", "callback_url"] as const)(
   "Grok's saved %s grammar survives reload and clears pasted input without guessing its representation",

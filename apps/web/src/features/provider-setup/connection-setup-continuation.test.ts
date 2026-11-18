@@ -54,7 +54,7 @@ describe("explicit provider connection continuation", () => {
         workspace: page(),
         personal: page(),
       }),
-    ).toEqual({ autoOpen: true, ownership: "organization", view: "available" });
+    ).toEqual({ autoOpen: true, ownership: "organization" });
   });
   it("does not navigate into legacy central Claude subscription OAuth enrollment", () => {
     const claude: AccountProfileView = {
@@ -79,16 +79,16 @@ describe("explicit provider connection continuation", () => {
         workspace: page(),
         personal: page([claude]),
       }),
-    ).toEqual({ autoOpen: false, ownership: "personal", view: "available" });
+    ).toEqual({ autoOpen: false, ownership: "personal" });
   });
-  it("shows existing personal connections for explicit access instead of prompting for another key", () => {
+  it("does not prompt for another key when a personal connection exists", () => {
     expect(
       connectionSetupContinuation({
         intent,
         workspace: page(),
         personal: page([openrouter], true),
       }),
-    ).toEqual({ autoOpen: false, ownership: "organization", view: "own" });
+    ).toEqual({ autoOpen: false, ownership: "organization" });
   });
   it("finds an existing connection across configured profiles for the same provider", () => {
     const personal = page(
@@ -98,7 +98,7 @@ describe("explicit provider connection continuation", () => {
     );
     expect(
       connectionSetupContinuation({ intent, workspace: page(), personal }),
-    ).toMatchObject({ autoOpen: false, view: "own" });
+    ).toMatchObject({ autoOpen: false });
   });
 
   it("reuses an available connection and does not open enrollment for a GitHub-storage intent", () => {
@@ -126,7 +126,7 @@ describe("explicit provider connection continuation", () => {
         personal: page(),
         available: page(),
       }),
-    ).toEqual({ autoOpen: true, ownership: "personal", view: "available" });
+    ).toEqual({ autoOpen: true, ownership: "personal" });
     expect(
       connectionSetupContinuation({
         intent,
