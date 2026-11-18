@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Simpler repository reviewer list: [the dialog explains workspace inheritance and its copy on save, names the reviewers "Use workspace reviewers" switches to, hides multi-reviewer controls for one reviewer and lets parallel reviewers be reordered](2026-11-18-simple-repo-roster.md), [PR #PR_NUMBER](https://github.com/777genius/review-router-ai/pull/PR_NUMBER), [plan 80](../architecture/80-simple-repo-roster.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway, native or runtime change.
+Simpler repository reviewer list: [the dialog explains workspace inheritance and its copy on save, names the reviewers "Use workspace reviewers" switches to, hides multi-reviewer controls for one reviewer and lets parallel reviewers be reordered](2026-11-18-simple-repo-roster.md), [PR #911](https://github.com/777genius/review-router-ai/pull/911), [plan 80](../architecture/80-simple-repo-roster.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway, native or runtime change.
 
 One Connections list: [no "For this workspace" / "All <login> connections" tabs, each row says whether it is used here, and Codex limits never stay silently Outdated](2026-11-18-single-connections-list.md), [PR #901](https://github.com/777genius/review-router-ai/pull/901), [plan 76](../architecture/76-single-connections-list.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change. After rollout, open the Seventeen Codex card and record whether it refreshed or which reason it shows.
 

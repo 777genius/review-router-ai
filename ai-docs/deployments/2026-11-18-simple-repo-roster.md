@@ -8,7 +8,7 @@
   the mode, limits and reorder arrows are hidden; the arrows also work in
   "Together, in parallel", so the primary can be changed.
 - Affected target: Web only.
-- Implementation: [ReviewRouter AI PR #PR_NUMBER](https://github.com/777genius/review-router-ai/pull/PR_NUMBER). Plan:
+- Implementation: [ReviewRouter AI PR #911](https://github.com/777genius/review-router-ai/pull/911). Plan:
   [80](../architecture/80-simple-repo-roster.md).
 - Dependencies: none. No migration, configuration, feature flag, server action,
   Gateway, native or runtime change.
