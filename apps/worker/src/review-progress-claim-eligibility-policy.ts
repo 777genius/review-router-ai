@@ -109,7 +109,9 @@ export function buildClaimedReviewProgress(input: {
     commentId: publication.commentId,
     publishedBodyHash: publication.publishedBodyHash,
     failureCount: publication.failureCount,
-    lastErrorCode: publication.lastErrorCode,
+    ...(publication.lastErrorCode === undefined
+      ? {}
+      : { lastErrorCode: publication.lastErrorCode }),
     snapshot: progress.snapshotJson,
     terminal: progress.terminalOutcome !== null,
     repository: {

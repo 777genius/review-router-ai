@@ -147,6 +147,15 @@ describe("Review progress claim eligibility policy", () => {
     expect(result.scope).toBe(candidate);
     expect(result.snapshot).toBe(snapshotJson);
     expect(result.claim).toBe(claim);
+    expect(result).not.toHaveProperty("lastErrorCode");
+    for (const lastErrorCode of [null, "review_progress_repair_marker"]) {
+      expect(
+        buildClaimedReviewProgress({
+          ...input,
+          publication: { ...publication, lastErrorCode },
+        }).lastErrorCode,
+      ).toBe(lastErrorCode);
+    }
     expect(
       buildClaimedReviewProgress({
         ...input,
