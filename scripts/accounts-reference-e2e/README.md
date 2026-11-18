@@ -479,8 +479,8 @@ ACCOUNTS_REFERENCE_E2E_GREP='review runtime readiness' \
 ```
 
 It checks confirmed current, old immutable pin on the same transport, unknown
-pin, pending merge and failed setup states. Dashboard and the authenticated
-search route must agree on which repository is Ready; optimistic merge/provider
+pin, pending merge and failed setup states. The dashboard's Ready filter
+holds only the confirmed current repository; optimistic merge/provider
 events cannot promote unknown or stale runtime evidence. Create update PR and
 Verify setup remain distinct actions; an update is explained as a review-workflow
 change to merge on GitHub. The browser checks 1440px desktop and 390px mobile,
