@@ -436,6 +436,23 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("defers contradictory last-page links before mutating comments", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const canonical = { id: 19, body: desired };
+    const conflict =
+      '<https://api.github.com/comments?page=1>; rel="last", ' +
+      "<https://api.github.com/comments?page=3>; rel=last";
+    const fixture = githubFixture([canonical], {
+      pagedComments: [[canonical]],
+      pageLinks: [conflict],
+    });
+    await expect(gateway(fixture.request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("rejects malformed Link on a short page", async () => {
     const markedComment = {
       id: 19,

@@ -77,6 +77,16 @@ describe("Review progress GitHub comment policy", () => {
     });
   });
 
+  it("rejects conflicting last links and supports relative last-page targets", () => {
+    const conflict =
+      '<https://api.github.com/comments?page=1>; rel="last", ' +
+      "<https://api.github.com/comments?page=3>; rel=last";
+    expect(hasNextCommentPage({ link: conflict }, 1)).toBe("invalid");
+    expect(
+      commentPageLinks({ link: "</comments?page=3>; rel=last" }, 1),
+    ).toEqual({ hasNextPage: true, lastPage: 3 });
+  });
+
   it("classifies bounded page scan outcomes", () => {
     const scenarios = [
       [false, 100, 5, 5, "complete"],

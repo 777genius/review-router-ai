@@ -94,12 +94,17 @@ export function commentPageLinks(
   }
 
   const hasNext = entries.some((entry) => /;\s*rel=(?:"next"|next)\s*$/iu.test(entry));
-  const last = entries.find((entry) => /;\s*rel=(?:"last"|last)\s*$/iu.test(entry));
+  const lastEntries = entries.filter((entry) =>
+    /;\s*rel=(?:"last"|last)\s*$/iu.test(entry),
+  );
+  // Multiple last-page declarations cannot establish a safe scan boundary.
+  if (lastEntries.length > 1) return invalid;
+  const last = lastEntries[0];
   if (!last) return { hasNextPage: hasNext };
   const href = last.match(/^\s*<([^>]+)>/u)?.[1];
   if (!href) return invalid;
   try {
-    const value = new URL(href).searchParams.get("page");
+    const value = new URL(href, "https://api.github.com").searchParams.get("page");
     if (!value || !/^[1-9]\d*$/u.test(value)) return invalid;
     const lastPage = Number(value);
     if (!Number.isSafeInteger(lastPage) || lastPage < currentPage) {
