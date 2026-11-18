@@ -69,6 +69,24 @@ describe("Review progress GitHub retry policy", () => {
     }
   });
 
+  it("rejects non-decimal retry delays without bypassing throttle backoff", () => {
+    for (const value of [
+      "0x0",
+      "0b0",
+      "0e0",
+      "+0",
+      "-0",
+      "2026-08-12T12:00:00Z",
+    ]) {
+      const actual = retryBoundary({ "retry-after": value }, now, "rate_limit");
+      expect(actual.getTime()).toBe(now.getTime() + 60_000);
+    }
+    const httpDate = "Wed, 12 Aug 2026 12:00:30 GMT";
+    expect(retryBoundary({ "retry-after": httpDate }, now).getTime()).toBe(
+      now.getTime() + 30_000,
+    );
+  });
+
   it("treats blank Retry-After as absent while retaining an explicit zero", () => {
     for (const retryAfter of ["", " ", "\t"]) {
       const headers = { "retry-after": retryAfter };

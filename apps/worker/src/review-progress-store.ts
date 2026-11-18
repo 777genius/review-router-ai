@@ -107,11 +107,28 @@ export class PrismaReviewProgressPublicationStore {
       },
       data: completionMutationData(input),
     });
-    if (result.count !== 1 && input.repairOnFenceLoss !== false) {
-      await this.requeueAfterClaimLoss({
-        scope: input.publication.scope,
-        now: input.now,
-      });
+    if (result.count !== 1) {
+      if (input.repairOnFenceLoss === false) {
+        // An unchanged stale version must release only its own claim.
+        await this.prisma.reviewProgressPublicationV1.updateMany({
+          where: {
+            ...input.publication.scope,
+            claimId: input.publication.claim.claimId,
+            claimOwnerIdHash: input.publication.claim.ownerIdHash,
+          },
+          data: {
+            claimId: null,
+            claimOwnerIdHash: null,
+            claimUntil: null,
+            updatedAt: input.now,
+          },
+        });
+      } else {
+        await this.requeueAfterClaimLoss({
+          scope: input.publication.scope,
+          now: input.now,
+        });
+      }
     }
     return result.count === 1;
   }

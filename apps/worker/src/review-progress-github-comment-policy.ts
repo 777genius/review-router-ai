@@ -86,7 +86,10 @@ export function commentPageLinks(
     }
     try {
       const target = new URL(href, "https://api.github.com");
-      if (target.origin !== "https://api.github.com") {
+      if (
+        target.protocol !== "https:" ||
+        target.origin !== "https://api.github.com"
+      ) {
         return invalid;
       }
     } catch {

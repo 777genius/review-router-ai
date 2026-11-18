@@ -29,13 +29,17 @@ export function retryBoundary(
   const retryAfter = headers["retry-after"]?.trim();
   let retryAfterTime: number | null = null;
   if (retryAfter) {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds) && seconds >= 0) {
+    if (/^\d+$/u.test(retryAfter)) {
+      const seconds = Number(retryAfter);
       const candidate = now.getTime() + seconds * 1_000;
       if (isUsableRetryTimestamp(candidate)) retryAfterTime = candidate;
     } else {
       const date = Date.parse(retryAfter);
-      if (Number.isFinite(date) && isUsableRetryTimestamp(date)) {
+      if (
+        Number.isFinite(date) &&
+        new Date(date).toUTCString() === retryAfter &&
+        isUsableRetryTimestamp(date)
+      ) {
         retryAfterTime = Math.max(now.getTime(), date);
       }
     }

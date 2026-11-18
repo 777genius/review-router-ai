@@ -146,6 +146,7 @@ describe("Review progress GitHub comment policy", () => {
   it("rejects untrusted Link targets even when the only relation is prev", () => {
     for (const href of [
       "javascript:alert(1)",
+      "blob:https://api.github.com/comments?page=2",
       "data:text/plain,abc",
       "ftp://api.github.com/comments?page=2",
       "http://api.github.com/comments?page=2",

@@ -446,6 +446,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const duplicate = { id: 20, body: `duplicate\n${marker}` };
     for (const href of [
       "javascript:alert(1)",
+      "blob:https://api.github.com/comments?page=2",
       "data:text/plain,abc",
       "ftp://api.github.com/comments?page=2",
       "http://api.github.com/comments?page=2",
