@@ -114,6 +114,26 @@ export function commentPageLinks(
     if (!Number.isSafeInteger(lastPage) || lastPage < currentPage) {
       return invalid;
     }
+    if (hasNext) {
+      const nextEntry = entries.find((entry) =>
+        /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
+      );
+      const nextHref = nextEntry?.match(/^\s*<([^>]+)>/u)?.[1];
+      if (!nextHref) return invalid;
+      const nextTarget = new URL(nextHref, "https://api.github.com");
+      const nextPageValue = nextTarget.searchParams.get("page");
+      if (!nextPageValue || !/^[1-9]\d*$/u.test(nextPageValue)) {
+        return invalid;
+      }
+      const nextPage = Number(nextPageValue);
+      if (
+        !Number.isSafeInteger(nextPage) ||
+        nextPage <= currentPage ||
+        nextPage > lastPage
+      ) {
+        return invalid;
+      }
+    }
     return { hasNextPage: hasNext || lastPage > currentPage, lastPage };
   } catch {
     return invalid;

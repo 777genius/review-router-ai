@@ -485,6 +485,24 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("does not mutate when next contradicts the advertised final page", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const invalid =
+      '<https://api.github.com/comments?page=2>; rel="next", ' +
+      '<https://api.github.com/comments?page=1>; rel="last"';
+    const fixture = githubFixture([{ id: 19, body: desired }], {
+      pagedComments: [[{ id: 19, body: desired }]],
+      pageLinks: [invalid],
+    });
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("rejects malformed Link on a short page", async () => {
     const markedComment = {
       id: 19,
