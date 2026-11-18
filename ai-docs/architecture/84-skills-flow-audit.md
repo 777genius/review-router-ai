@@ -13,6 +13,7 @@
   - 16 - вложенный `metadata` (`:519-528`). Ложный отказ, `metadata` и так не сохраняется.
   - 151 (25%) - ссылки на соседние файлы (`hasCompanionFiles`, `:536`); у 135 только `.md`. Основной текст полезен сам по себе.
   - 6 - больше 32 KiB. Честный отказ.
+- Второй барьер за первым (найден браузерным набором): SkillSpector 2.13.1 на ссылку `references/policy.md` без файла даёт `status: partial`, `ledger_exceptions: [reference_missing, fatal: false]` и `recommendation: CAUTION`. Политика (`domain/skill-scan-report.ts`) требует `complete`, поэтому такой skill получал бы «Could not complete check» и не добавлялся бы никогда.
 - После исправления тот же корпус: принято 591 из 601 (98%). Остальные 10 - честные отказы: 8 по размеру, 2 с описанием длиннее 1024 символов (раньше эта причина пряталась за первой).
 
 ## Карта потока
@@ -27,11 +28,13 @@
    - Настоящие отказы - `SkillImportError` с причиной `too_large`, `invalid_header`, `invalid_content` (тип в домене); текст ошибки для редактора прежний.
 2. Каталог: `resolve` возвращает статус `unsupported` с причиной и точным источником вместо исключения. Код ошибки `unsupported` и общий текст удалены.
 3. Кандидат отдаёт `linkedFiles` и `acknowledgementRequired`; оба считаются в store из сохранённых инструкций одной доменной функцией `omissionAcknowledgementRequired`. Ею же store проверяет подтверждение при импорте. Без миграции.
-4. UI: общий компонент `SkillImportOmissions` для каталога и редактора: «Not used: ... tools and scripts never run», «Linked files are not included: ... The reviewer will not see them». Для `unsupported` - причина простыми словами, ссылка на точную папку на GitHub и совет взять нужную часть через Create skill. Для внешних элементов каталога вместо «Not available to add here» - «Only skills stored on GitHub can be added here» и ссылка на skills.sh. Ссылка в preview ведёт на точный commit и путь.
-5. Подсказку «используйте skills из репозитория» в каталоге не даём: runtime отклоняет лишние поля frontmatter и не-`.md` ссылки, и ревью упало бы. Экспорт со ссылками остаётся `SKILL.draft.md`: в одном файле связанных файлов нет; его текст называет корни `.reviewrouter/skills` и `.agents/skills`.
+4. Политика проверки: единственный допустимый пробел - non-fatal `reference_missing` в фазе `reference_resolution`, без частично или вовсе непроверенных файлов, исключений и ограничений. Тогда отчёт считается полным, а CAUTION без находок не превращается в предупреждение. Любая другая неполнота остаётся `incomplete`; реальные находки предупреждают и блокируют как раньше. Ссылки пользователь уже подтвердил явно.
+5. UI: общий компонент `SkillImportOmissions` для каталога и редактора: «Not used: ... tools and scripts never run», «Linked files are not included: ... The reviewer will not see them». Для `unsupported` - причина простыми словами, ссылка на точную папку на GitHub и совет взять нужную часть через Create skill. Для внешних элементов каталога вместо «Not available to add here» - «Only skills stored on GitHub can be added here» и ссылка на skills.sh. Ссылка в preview ведёт на точный commit и путь.
+6. Подсказку «используйте skills из репозитория» в каталоге не даём: runtime отклоняет лишние поля frontmatter и не-`.md` ссылки, и ревью упало бы. Экспорт со ссылками остаётся `SKILL.draft.md`: в одном файле связанных файлов нет; его текст называет корни `.reviewrouter/skills` и `.agents/skills`.
 
 ## Тесты
 
+- Политика отчёта: захваченный отчёт SkillSpector со ссылкой - `clear`; fatal, другие исключения, исключения области, ограничения и частичный осмотр - `incomplete`; находка при той же ссылке - предупреждение.
 - Парсер, нормализатор, сервис (причины отказа, без staging). PostgreSQL: кандидат со ссылкой без ресурсов требует подтверждения при импорте.
 - Диалог (jsdom): причина и ссылка для `unsupported`, перечень пропущенного, подтверждение.
 - Браузер «Catalog real checked import»: skill с `allowed-tools`, `version` и ссылкой проходит check, подтверждение и добавление; слишком большой skill показывает причину (desktop и mobile). Статических проверок в квитанции CI 9 вместо 8. «Skills real Next»: обзор импорта в редакторе и отказ для файла без заголовка.

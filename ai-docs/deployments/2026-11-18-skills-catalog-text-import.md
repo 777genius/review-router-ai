@@ -6,9 +6,11 @@
   text, after an acknowledgement that names what is left out. Skills that cannot
   be text at all (over 32 KB, no readable header, invalid content) show the
   reason and a link to the exact source instead of a vague error. The editor's
-  SKILL.md import follows the same rules.
-- Affected services/targets: ReviewRouter Web (server actions and UI). The scan
-  worker and scanner are unchanged. No migration, configuration or Gateway change.
+  SKILL.md import follows the same rules. The check accepts a missing linked
+  file as the only gap, so such skills no longer end in "Could not complete
+  check".
+- Affected services/targets: ReviewRouter Web (server actions and UI) and the
+  skills-scan worker (report policy). The scanner service is unchanged. No migration, configuration or Gateway change.
 - Implementation PR/issue: the ReviewRouter PR for plan
   [84](../architecture/84-skills-flow-audit.md).
 - Implementation reference: the merge commit of that PR.
@@ -19,8 +21,8 @@
 
 | Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                       |
 | -------------------- | --------- | ------------------------------- | ------------------- | ---------------------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Ordinary Web rollout.                                |
-| production           | `pending` | Not verified                    | Not verified        | Ordinary Web rollout, then the live check below.     |
+| staging              | `pending` | Not verified                    | Not verified        | Web and skills-scan worker rollout.                  |
+| production           | `pending` | Not verified                    | Not verified        | Web and skills-scan worker, then the live check.     |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -34,7 +36,7 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 
 ## Ordered rollout
 
-1. Ordinary Web rollout through the
+1. Ordinary rollout of Web and the skills-scan worker through the
    [release process](../operations/07-environments-and-release-management.md).
    No migration and no activation step.
 2. Live check in a disposable workspace: open Browse skills, preview a popular
@@ -54,7 +56,7 @@ in the dialog means not deployed.
 
 ## Retry, partial completion, and rollback
 
-All steps are repeatable. Rolling back to the previous Web image restores the
+All steps are repeatable. Rolling back Web and the skills-scan worker to the previous image restores the
 old refusals; no data needs conversion. Skills added in between stay valid text
 skills.
 

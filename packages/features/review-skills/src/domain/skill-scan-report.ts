@@ -20,6 +20,34 @@ const safeText = (value: unknown, limit: number): string | null =>
         )
         .slice(0, limit)
     : null;
+const emptyOrAbsent = (value: unknown) =>
+  value === undefined || (Array.isArray(value) && value.length === 0);
+/** Only SKILL.md text is imported, and the user acknowledges each linked file
+ * that is left out. SkillSpector reports such a link as a non-fatal missing
+ * reference; that one expected gap must not fail the check. Any other gap,
+ * exclusion or limitation keeps the report incomplete. */
+function onlyMissingLinkedFiles(completeness: Record<string, unknown>) {
+  const exceptions = completeness.ledger_exceptions;
+  return (
+    completeness.is_complete === false &&
+    completeness.status === "partial" &&
+    completeness.partially_inspected_files === 0 &&
+    completeness.entirely_uninspected_files === 0 &&
+    emptyOrAbsent(completeness.scope_exclusions) &&
+    emptyOrAbsent(completeness.limitations) &&
+    Array.isArray(exceptions) &&
+    exceptions.length > 0 &&
+    exceptions.every((entry) => {
+      const exception = object(entry);
+      return (
+        exception?.outcome === "partial" &&
+        exception.phase === "reference_resolution" &&
+        exception.reason_code === "reference_missing" &&
+        exception.fatal === false
+      );
+    })
+  );
+}
 export const incompleteSkillScanReport = (
   reportedUsage: ReviewSkillReportedUsage | null = null,
 ): ReviewSkillScanReport => ({
@@ -80,14 +108,18 @@ export function normalizeSkillScanReport(
     risk = object(report?.risk_assessment),
     metadata = object(report?.metadata);
   const reportedUsage = reportedModelUsage(metadata, profile);
+  const linkedFilesOnly = completeness
+    ? onlyMissingLinkedFiles(completeness)
+    : false;
   if (
     !report ||
     !completeness ||
     !risk ||
     !metadata ||
     report.execution_successful !== true ||
-    completeness.is_complete !== true ||
-    completeness.status !== "complete" ||
+    (!linkedFilesOnly &&
+      (completeness.is_complete !== true ||
+        completeness.status !== "complete")) ||
     completeness.execution_successful !== true ||
     metadata.skillspector_version !== profile.scannerVersion ||
     metadata.llm_requested !== (profile.mode === "ai") ||
@@ -144,13 +176,18 @@ export function normalizeSkillScanReport(
           : null,
     });
   }
+  // A partial analysis alone makes SkillSpector say CAUTION. When the only gap
+  // is the acknowledged linked files, that CAUTION carries no finding.
+  const caution =
+    risk.recommendation === "CAUTION" &&
+    !(linkedFilesOnly && worst === 0 && findings.length === 0);
   return {
     verdict:
       worst >= 3 ||
       Number(risk.score) > 50 ||
       risk.recommendation === "DO_NOT_INSTALL"
         ? "blocked"
-        : worst > 0 || findings.length > 0 || risk.recommendation === "CAUTION"
+        : worst > 0 || findings.length > 0 || caution
           ? "warnings"
           : "clear",
     findings: findings.slice(0, 30),
