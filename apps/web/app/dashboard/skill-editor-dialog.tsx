@@ -147,8 +147,7 @@ export function SkillEditorDialog({
         );
       const imported = await parseSkillImport(await file.text());
       setImportError(null);
-      if (dirty || imported.omittedFields.length || imported.linkedFiles.length)
-        setImportReview(imported);
+      if (dirty || leavesOut(imported)) setImportReview(imported);
       else applyImport(imported);
     } catch (error) {
       setImportError(
@@ -183,10 +182,7 @@ export function SkillEditorDialog({
               Cancel import
             </Button>
             <Button type="button" onClick={() => applyImport(importReview)}>
-              {importReview.omittedFields.length ||
-              importReview.linkedFiles.length
-                ? "Import text only"
-                : "Replace draft"}
+              {leavesOut(importReview) ? "Import text only" : "Replace draft"}
             </Button>
           </>
         ) : (
@@ -254,8 +250,7 @@ export function SkillEditorDialog({
           <p className="break-words text-slate-300">
             Importing {importReview.content.name} as editable text instructions.
           </p>
-          {importReview.omittedFields.length ||
-          importReview.linkedFiles.length ? (
+          {leavesOut(importReview) ? (
             <p className="text-amber-100">
               <SkillImportOmissions
                 omittedFields={importReview.omittedFields}
@@ -471,3 +466,6 @@ export function SkillEditorDialog({
     </SkillsDialog>
   );
 }
+
+const leavesOut = (imported: SkillImport) =>
+  imported.omittedFields.length > 0 || imported.linkedFiles.length > 0;

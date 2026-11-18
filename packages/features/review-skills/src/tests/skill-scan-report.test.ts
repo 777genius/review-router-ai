@@ -50,6 +50,7 @@ describe("SkillSpector import policy", () => {
       { ...completeness, scope_exclusions: [{ path: "scripts" }] },
       { ...completeness, limitations: ["timeout"] },
       { ...completeness, partially_inspected_files: 1 },
+      { ...completeness, entirely_uninspected_files: 1 },
       { ...completeness, execution_successful: false },
     ])
       expect(
@@ -58,6 +59,16 @@ describe("SkillSpector import policy", () => {
           scanProfile(),
         ).verdict,
       ).toBe("incomplete");
+    // A CAUTION with a risk score is not explained by the linked file alone.
+    expect(
+      normalizeSkillScanReport(
+        {
+          ...linked,
+          risk_assessment: { ...linked.risk_assessment, score: 45 },
+        },
+        scanProfile(),
+      ).verdict,
+    ).toBe("warnings");
     // A real finding still warns even when the gap is only a linked file.
     expect(
       normalizeSkillScanReport(

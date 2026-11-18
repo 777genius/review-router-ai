@@ -91,6 +91,14 @@ describe("single-file Skills portability", () => {
       await parseSkillImport(file(undefined, `x${"🙂".repeat(60)}: v\n`))
     ).omittedFields;
     expect(emoji).toBe(`x${"🙂".repeat(49)}`);
+    // PostgreSQL JSON rejects lone surrogates; bidi overrides hide text.
+    expect(
+      (
+        await parseSkillImport(
+          file(undefined, '"a\\uD800b": v\n"c\\u202Ed": v\n'),
+        )
+      ).omittedFields,
+    ).toEqual(["ab", "cd"]);
   });
 
   it.each([

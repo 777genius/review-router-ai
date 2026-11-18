@@ -637,27 +637,31 @@ export function SkillCatalogDialog({
             ) : null}
           </section>
           {needsOmissions ? (
-            <label className="flex items-start gap-3 text-sm text-slate-300">
-              <Checkbox
-                checked={acknowledgeOmissions}
-                disabled={locked}
-                onChange={(event) =>
-                  setAcknowledgeOmissions(event.target.checked)
-                }
-              />
-              <span>
-                I understand that only these text instructions will be added.
-                <span className="text-slate-400">
-                  <SkillImportOmissions
-                    omittedFields={candidate.omittedFields}
-                    linkedFiles={candidate.linkedFiles}
-                    otherFiles={
-                      candidate.hasResources && !candidate.linkedFiles.length
-                    }
-                  />
+            <div className="space-y-1 text-sm text-slate-300">
+              <label className="flex items-start gap-3">
+                <Checkbox
+                  checked={acknowledgeOmissions}
+                  disabled={locked}
+                  aria-describedby="skill-catalog-omissions"
+                  onChange={(event) =>
+                    setAcknowledgeOmissions(event.target.checked)
+                  }
+                />
+                <span>
+                  I understand that only these text instructions will be added.
                 </span>
-              </span>
-            </label>
+              </label>
+              <div className="pl-8 text-slate-400">
+                <SkillImportOmissions
+                  id="skill-catalog-omissions"
+                  omittedFields={candidate.omittedFields}
+                  linkedFiles={candidate.linkedFiles}
+                  otherFiles={
+                    candidate.hasResources && !candidate.linkedFiles.length
+                  }
+                />
+              </div>
+            </div>
           ) : null}
           <details open className="space-y-3">
             <summary className="cursor-pointer text-sm font-semibold text-cyan-100">
@@ -683,7 +687,7 @@ const refusalReasons: Record<ReviewSkillImportRefusal, string> = {
   too_large:
     "Its instructions are longer than 32 KB, the most ReviewRouter keeps for one skill.",
   invalid_header:
-    "Its SKILL.md does not start with the name and description header that skills use, so it cannot be read safely.",
+    "Its SKILL.md header with the name and description is missing or cannot be read safely.",
   invalid_content:
     "Its name, description or instructions do not fit a skill: for example, empty instructions, a description over 1024 characters, or characters that cannot be stored.",
 };
@@ -700,7 +704,7 @@ function UnsupportedSkill({
       <h3 className="text-lg font-semibold text-cyan-50">
         This skill cannot be added
       </h3>
-      <p className="text-sm leading-6 text-slate-300">
+      <p role="status" className="text-sm leading-6 text-slate-300">
         {refusalReasons[reason]}
       </p>
       <p className="text-sm leading-6 text-slate-400">

@@ -28,12 +28,16 @@ export const skillImportByteLimit = 64 * 1024;
 const instructionsByteLimit = 32 * 1024;
 const skillImportListLimit = 20;
 
-/** Display-only label: no control characters, at most `max` UTF-16 units,
- * never splitting a character (the store bounds the same units). */
+/** Display-only label: no control, bidi or lone surrogate characters, at
+ * most `max` UTF-16 units and never a split character (the store bounds the
+ * same units, and PostgreSQL JSON rejects lone surrogates). */
 function boundedLabel(value: string, max: number): string {
   let label = "";
-  // eslint-disable-next-line no-control-regex -- Drop ASCII controls from untrusted labels.
-  for (const character of value.replace(/[\x00-\x1f\x7f]/gu, "")) {
+  for (const character of value.replace(
+    // eslint-disable-next-line no-control-regex -- Drop controls, bidi overrides and lone surrogates from untrusted labels.
+    /[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/gu,
+    "",
+  )) {
     if (label.length + character.length > max) break;
     label += character;
   }
@@ -346,11 +350,15 @@ function localDestination(raw: string): string | null {
  * collapsed or shortcut reference definitions, and HTML href/src attributes.
  * Bare prose paths and unused definitions are inert. This is not a resolver for
  * arbitrary Markdown extensions or dependencies mentioned in instructions.
- * Returns up to 20 distinct local paths without anchors, in document order. */
+ * Returns distinct local paths without anchors, in document order. */
 export function linkedFilePaths(markdown: string): string[] {
   const text = withoutCodeExamples(markdown);
   const found = new Set<string>();
+  const visited = new Set<string>();
   const add = (raw: string) => {
+    // Repeated uses of one long definition must stay linear.
+    if (visited.has(raw)) return;
+    visited.add(raw);
     const path = localDestination(raw);
     const label = path && boundedLabel(path.split("#", 1)[0] || path, 200);
     if (label) found.add(label);
@@ -497,7 +505,7 @@ export function linkedFilePaths(markdown: string): string[] {
     const target = definitions.get(normalize(match[1]!));
     if (target) add(target);
   }
-  return [...found].slice(0, skillImportListLimit);
+  return [...found];
 }
 
 export function hasCompanionFiles(markdown: string): boolean {

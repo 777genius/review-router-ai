@@ -180,7 +180,12 @@ export function normalizeSkillScanReport(
   // is the acknowledged linked files, that CAUTION carries no finding.
   const caution =
     risk.recommendation === "CAUTION" &&
-    !(linkedFilesOnly && worst === 0 && findings.length === 0);
+    !(
+      linkedFilesOnly &&
+      worst === 0 &&
+      findings.length === 0 &&
+      Number(risk.score) === 0
+    );
   return {
     verdict:
       worst >= 3 ||
