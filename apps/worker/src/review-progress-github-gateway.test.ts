@@ -438,6 +438,31 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("refuses non-HTTP pagination schemes before duplicate deletion", async () => {
+    const canonical = {
+      id: 19,
+      body: formatReviewProgressComment("working", marker),
+    };
+    const duplicate = { id: 20, body: `duplicate\n${marker}` };
+    for (const href of [
+      "javascript:alert(1)",
+      "data:text/plain,abc",
+      "ftp://api.github.com/comments?page=2",
+    ]) {
+      const fixture = githubFixture([canonical, duplicate], {
+        pagedComments: [[canonical, duplicate]],
+        pageLinks: [`<${href}>; rel="prev"`],
+      });
+      await expect(
+        gateway(fixture.request).upsert(input()),
+      ).rejects.toMatchObject({
+        kind: "pagination_inconclusive",
+        metadata: { retryable: true },
+      });
+      expect(mutations(fixture.calls)).toEqual([]);
+    }
+  });
+
   it("defers contradictory last-page links before mutating comments", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 19, body: desired };

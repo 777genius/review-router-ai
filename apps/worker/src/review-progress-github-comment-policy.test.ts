@@ -124,6 +124,18 @@ describe("Review progress GitHub comment policy", () => {
     expect(hasNextCommentPage({ link: escape }, 2)).toBe("invalid");
   });
 
+  it("rejects non-HTTP Link targets even when the only relation is prev", () => {
+    for (const href of [
+      "javascript:alert(1)",
+      "data:text/plain,abc",
+      "ftp://api.github.com/comments?page=2",
+    ]) {
+      expect(
+        hasNextCommentPage({ link: `<${href}>; rel="prev"` }, 2),
+      ).toBe("invalid");
+    }
+  });
+
   it("parses only comments with safe IDs, bodies and author logins", () => {
     const raw = { id: 7, body: desired, user: { login: "review-router[bot]" } };
     expect(parseCommentOrNull(raw)).toEqual(marked(7, desired));
