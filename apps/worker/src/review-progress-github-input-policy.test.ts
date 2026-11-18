@@ -42,6 +42,17 @@ describe("Review progress GitHub input policy", () => {
     );
   });
 
+  it("rejects multiline markers before formatting can reconstruct them", () => {
+    for (const malformed of ["<!--\\n-->", "<!--\\r-->", "<!--\\u2028-->"]) {
+      expect(() =>
+        validateReviewProgressInput({ ...validInput(), marker: malformed }),
+      ).toThrow("review_progress_marker_invalid");
+      expect(() =>
+        formatReviewProgressComment(`<!--${malformed}-->`, malformed),
+      ).toThrow("review_progress_marker_invalid");
+    }
+  });
+
   it("rejects invalid target, head and bot identity", () => {
     const missingOwner = { ...validInput(), owner: "" };
     const badHead = { ...validInput(), expectedHeadSha: "bad" };

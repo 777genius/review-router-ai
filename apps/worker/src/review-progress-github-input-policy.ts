@@ -21,6 +21,9 @@ export function formatReviewProgressComment(
   body: string,
   marker: string,
 ): string {
+  if (!isSingleLineReviewProgressMarker(marker)) {
+    throw new Error("review_progress_marker_invalid");
+  }
   const withoutMarker = body.split(marker).join("\n").trimEnd();
   return withoutMarker ? `${withoutMarker}\n\n${marker}` : marker;
 }
@@ -49,13 +52,18 @@ export function validateReviewProgressInput(
   ) {
     throw new Error("review_progress_known_comment_id_invalid");
   }
-  if (
-    !input.marker ||
-    !input.marker.startsWith("<!--") ||
-    !input.marker.endsWith("-->")
-  ) {
+  if (!isSingleLineReviewProgressMarker(input.marker)) {
     throw new Error("review_progress_marker_invalid");
   }
+}
+
+/** Require a complete, single-line comment marker before removal or publishing. */
+function isSingleLineReviewProgressMarker(marker: string): boolean {
+  return (
+    marker.startsWith("<!--") &&
+    marker.endsWith("-->") &&
+    !/[\r\n\u2028\u2029]/u.test(marker)
+  );
 }
 
 /** Classify the GitHub target and head fence without performing I/O. */
