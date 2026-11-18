@@ -35,6 +35,8 @@ export type ClaimedReviewProgress = Readonly<{
   commentId: bigint | null;
   publishedBodyHash: string | null;
   failureCount: number;
+  /** Persisted repair marker observed when this claim was acquired. */
+  lastErrorCode?: string | null;
   snapshot: unknown;
   terminal: boolean;
   repository: Readonly<{

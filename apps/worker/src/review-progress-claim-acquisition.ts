@@ -49,6 +49,7 @@ export async function claimPreparedPublication(
     readonly commentId: bigint | null;
     readonly publishedBodyHash: string | null;
     readonly failureCount: number;
+    readonly lastErrorCode: string | null;
   },
   progress: {
     readonly executionId: string;

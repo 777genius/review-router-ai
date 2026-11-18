@@ -728,6 +728,40 @@ describeWithDatabase.sequential(
       expect(repair.nextPublishAt).not.toBeNull();
       expect(repair.nextPublishAt!.getTime()).toBeLessThanOrEqual(Date.now());
 
+      // A stale PATCH rotates the repair marker without releasing the live
+      // successor, so the successor must not settle a possibly stale body.
+      const successor = {
+        ...stale,
+        desiredVersion: settled.desiredVersion,
+        publishedVersion: settled.publishedVersion,
+        lastErrorCode: settled.lastErrorCode,
+        claim: {
+          claimId: successorClaimId,
+          ownerIdHash: successorOwnerHash,
+          claimUntil: successorClaimUntil,
+        },
+      };
+      expect(repair.lastErrorCode).toMatch(
+        /^review_progress_repair_[0-9a-f]{32}$/u,
+      );
+      expect(repair.lastErrorCode).not.toBe(successor.lastErrorCode);
+      await expect(
+        store.complete({
+          publication: successor,
+          commentId: BigInt(comment.id),
+          bodyHash: hash(latestBody),
+          now: new Date(),
+        }),
+      ).resolves.toBe(false);
+      const stillPending =
+        await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
+          where: { activeExecutionId: flow.executionId },
+        });
+      expect(stillPending.publishedVersion).toBeLessThan(
+        stillPending.desiredVersion,
+      );
+      expect(stillPending.claimId).toBe(successorClaimId);
+
       // Release only this test's still-live successor to let another worker
       // claim the repair. A stale repair must never release it implicitly.
       const released = await fixture.prisma.reviewProgressPublicationV1.updateMany({

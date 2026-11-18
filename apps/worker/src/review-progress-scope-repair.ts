@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { ClaimedReviewProgress } from "./review-progress-store";
 
@@ -9,6 +10,9 @@ export async function requeuePublishedScopeAfterClaimLoss(
 ): Promise<void> {
   // Requeue a potentially stale body without revoking a successor's live
   // claim. PostgreSQL evaluates all SET expressions against the old row.
+  // Give each repair a new marker so an in-flight successor cannot settle
+  // over a stale GitHub write without losing its own live claim.
+  const repairMarker = `review_progress_repair_${randomUUID().replaceAll("-", "")}`;
   const repairSql = Prisma.sql`
         UPDATE "ReviewProgressPublicationV1"
         SET "publishedVersion" = CASE
@@ -29,6 +33,7 @@ export async function requeuePublishedScopeAfterClaimLoss(
               WHEN "claimUntil" > CURRENT_TIMESTAMP THEN "claimUntil"
               ELSE NULL
             END,
+            "lastErrorCode" = ${repairMarker},
             "nextPublishAt" = ${now},
             "updatedAt" = ${now}
         WHERE "workspaceId" = ${scope.workspaceId}

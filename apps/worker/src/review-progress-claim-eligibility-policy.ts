@@ -61,6 +61,10 @@ export function claimedPublicationFence(publication: ClaimedReviewProgress) {
     desiredVersion: publication.desiredVersion,
     claimId: publication.claim.claimId,
     claimOwnerIdHash: publication.claim.ownerIdHash,
+    // A stale repair rotates this marker while leaving successor claims alive.
+    ...(publication.lastErrorCode === undefined
+      ? {}
+      : { lastErrorCode: publication.lastErrorCode }),
   };
 }
 
@@ -69,7 +73,11 @@ export function buildClaimedReviewProgress(input: {
   readonly candidate: ClaimedReviewProgress["scope"];
   readonly publication: Pick<
     ClaimedReviewProgress,
-    "publishedVersion" | "commentId" | "publishedBodyHash" | "failureCount"
+    | "publishedVersion"
+    | "commentId"
+    | "publishedBodyHash"
+    | "failureCount"
+    | "lastErrorCode"
   >;
   readonly progress: Pick<
     ClaimedReviewProgress,
@@ -101,6 +109,7 @@ export function buildClaimedReviewProgress(input: {
     commentId: publication.commentId,
     publishedBodyHash: publication.publishedBodyHash,
     failureCount: publication.failureCount,
+    lastErrorCode: publication.lastErrorCode,
     snapshot: progress.snapshotJson,
     terminal: progress.terminalOutcome !== null,
     repository: {

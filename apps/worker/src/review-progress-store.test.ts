@@ -51,6 +51,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     const statement = sql.strings.join(" ");
     expect(statement).toContain('"publishedVersion" = CASE');
     expect(statement).toContain('"publishedVersion" - 1');
+    expect(statement).toContain('"lastErrorCode" = ');
     expect(statement).toContain('"claimId" = CASE');
     expect(statement).toContain('"claimOwnerIdHash" = CASE');
     expect(statement).toContain('"claimUntil" = CASE');
@@ -59,6 +60,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(statement).toContain('THEN "claimOwnerIdHash"');
     expect(statement).toContain('THEN "claimUntil"');
     expect(sql.values).toEqual([
+      expect.stringMatching(/^review_progress_repair_[0-9a-f]{32}$/u),
       now,
       now,
       "workspace-1",
@@ -173,6 +175,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(statement).toContain('WHEN "claimUntil" > CURRENT_TIMESTAMP');
     expect(statement).toContain('THEN "claimId"');
     expect(sql.values).toEqual([
+      expect.stringMatching(/^review_progress_repair_[0-9a-f]{32}$/u),
       now,
       now,
       "workspace-1",
@@ -180,6 +183,26 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       "identity-1",
       42,
     ]);
+  });
+
+  it("fences an in-flight successor against an intervening repair marker", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+    } as never);
+    const publication = { ...claimed(), lastErrorCode: null };
+
+    await store.complete({
+      publication,
+      commentId: 42n,
+      bodyHash: "c".repeat(64),
+      now,
+    });
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ lastErrorCode: null }),
+      }),
+    );
   });
 
   it("releases only its own stale no-write lease without repairing another version", async () => {
