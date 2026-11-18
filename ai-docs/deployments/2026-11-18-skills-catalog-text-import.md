@@ -11,8 +11,8 @@
   check".
 - Affected services/targets: ReviewRouter Web (server actions and UI) and the
   skills-scan worker (report policy). The scanner service is unchanged. No migration, configuration or Gateway change.
-- Implementation PR/issue: the ReviewRouter PR for plan
-  [84](../architecture/84-skills-flow-audit.md).
+- Implementation PR/issue: [ReviewRouter #904](https://github.com/777genius/review-router-ai/pull/904),
+  plan [84](../architecture/84-skills-flow-audit.md).
 - Implementation reference: the merge commit of that PR.
 - Dependencies: none.
 - Last updated: `2026-11-18`.
