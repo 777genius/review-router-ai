@@ -592,7 +592,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     { caseName: "changed generation", mismatch: "generation" },
     { caseName: "changed desired version", mismatch: "desiredVersion" },
   ] as const)(
-    "defers a stale projection ($caseName) before repository lookup",
+    "defers a stale projection ($caseName) without retaining claims or spending failure budget",
     async ({ mismatch }) => {
       const scope = {
         workspaceId: "workspace-1",
@@ -614,6 +614,10 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
                 activeHeadSha: "a".repeat(40),
                 activePlanHash: "b".repeat(64),
                 desiredVersion: 73n,
+                failureCount: 9,
+                claimId: "expired-claim",
+                claimOwnerIdHash: "e".repeat(64),
+                claimUntil: new Date(now.getTime() - 1_000),
               }),
               update: deferUpdate,
             },
@@ -641,13 +645,20 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         }),
       ).resolves.toEqual({ deferred: true });
       expect(repositoryLookup).not.toHaveBeenCalled();
-      expect(deferUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            lastErrorCode: "review_progress_projection_identity_corrupted",
-          }),
-        }),
-      );
+      expect(deferUpdate).toHaveBeenCalledWith({
+        where: {
+          workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+            scope,
+        },
+        data: {
+          claimId: null,
+          claimOwnerIdHash: null,
+          claimUntil: null,
+          lastErrorCode: "review_progress_projection_identity_corrupted",
+          nextPublishAt: new Date(now.getTime() + 60_000),
+          updatedAt: now,
+        },
+      });
     },
   );
 
@@ -671,7 +682,7 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       identityId: "other-identity",
     },
   ])(
-    "defers $name before writing a claim",
+    "defers $name without retaining claims or spending failure budget",
     async ({ status, workspaceId, identityId }) => {
       const scope = {
         workspaceId: "workspace-1",
@@ -692,6 +703,10 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
                 activeHeadSha: "a".repeat(40),
                 activePlanHash: "b".repeat(64),
                 desiredVersion: 73n,
+                failureCount: 9,
+                claimId: "expired-claim",
+                claimOwnerIdHash: "e".repeat(64),
+                claimUntil: new Date(now.getTime() - 1_000),
               }),
               update: publicationUpdate,
             },
@@ -734,7 +749,9 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
             scope,
         },
         data: {
-          failureCount: { increment: 1 },
+          claimId: null,
+          claimOwnerIdHash: null,
+          claimUntil: null,
           lastErrorCode: "review_progress_github_repository_unavailable",
           nextPublishAt: new Date(now.getTime() + 60_000),
           updatedAt: now,

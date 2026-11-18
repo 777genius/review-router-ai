@@ -89,7 +89,11 @@ async function deferUnavailablePublication(
         scope,
     },
     data: {
-      failureCount: { increment: 1 },
+      // An unavailable projection is not a failed publication attempt.
+      // Invalidate any expired owner's fence before permitting later retries.
+      claimId: null,
+      claimOwnerIdHash: null,
+      claimUntil: null,
       lastErrorCode: code,
       nextPublishAt: new Date(now.getTime() + 60_000),
       updatedAt: now,
