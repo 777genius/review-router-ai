@@ -330,7 +330,9 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls
-        .filter(({ route }) => route.includes("/issues/{issue_number}/comments"))
+        .filter(
+          ({ route }) => route.includes("/issues/{issue_number}/comments"),
+        )
         .map(({ parameters }) => parameters.page),
     ).toEqual([1, 2]);
     expect(mutations(fixture.calls)).toHaveLength(1);
@@ -355,7 +357,9 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls
-        .filter(({ route }) => route.includes("/issues/{issue_number}/comments"))
+        .filter(
+          ({ route }) => route.includes("/issues/{issue_number}/comments"),
+        )
         .map(({ parameters }) => parameters.page),
     ).toEqual([1, 2, 3]);
     expect(mutations(fixture.calls)).toHaveLength(1);
