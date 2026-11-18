@@ -3,11 +3,13 @@
 - Task ID: `2026-11-18-remove-dead-account-exports`
 - Goal: no user-visible change. Four exports that nothing calls are removed
   and the Providers list and setup dialog build their saved-provider rows with
-  one shared server function instead of two copies.
+  one shared server function (`saved-provider-profiles.ts`) instead of two
+  copies.
 - Affected services/targets: Web only (`apps/web`). No API, worker, database,
   configuration, Gateway or native change.
-- Implementation PR/issue: the PR that adds this file; plan 83 §7 in
-  [PR #908](https://github.com/777genius/review-router-ai/pull/908).
+- Implementation PR/issue:
+  [PR #910](https://github.com/777genius/review-router-ai/pull/910); plan
+  [83 §7](https://github.com/777genius/review-router-ai/blob/4e9f89330c7b827c3b73a407c4744d10c68a7ad9/ai-docs/architecture/83-file-size-governance.md).
 - Implementation reference: the branch head of that PR.
 - Dependencies: none.
 - Last updated: `2026-11-18`.
@@ -26,7 +28,8 @@
 
 - Refactor only: the removed exports had no callers, and the shared mapping
   returns the same fields as both previous copies.
-- `reconcileGatewayAccountFence` is intentionally kept (see plan 83 §7): it is the only targeted retry for a workspace binding fence stuck in `remote_pending`.
+- `reconcileGatewayAccountFence` is intentionally kept (plan 83 §7): it is the
+  only targeted retry for a workspace binding fence stuck in `remote_pending`.
 
 ## Ordered rollout
 
@@ -45,7 +48,7 @@ Stateless; roll back by deploying the previous Web image.
 
 ## Related links
 
-- Plan 83: [PR #908](https://github.com/777genius/review-router-ai/pull/908).
+- [Plan 83](https://github.com/777genius/review-router-ai/blob/4e9f89330c7b827c3b73a407c4744d10c68a7ad9/ai-docs/architecture/83-file-size-governance.md) ([PR #908](https://github.com/777genius/review-router-ai/pull/908)).
 - [Release process](../operations/07-environments-and-release-management.md).
 
 ## Execution log

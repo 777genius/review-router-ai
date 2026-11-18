@@ -1,7 +1,7 @@
 import {
   savedProfileBindingIds,
   savedProviderProfileFacts,
-} from "./provider-identity";
+} from "./saved-provider-profiles";
 import type { PrismaClient } from "@prisma/client";
 import {
   listWorkspaceProviderProfiles,
