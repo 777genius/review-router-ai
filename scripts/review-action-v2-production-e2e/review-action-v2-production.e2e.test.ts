@@ -692,6 +692,20 @@ describeWithDatabase.sequential(
       expect(settled.desiredVersion).toBe(settled.publishedVersion);
       expect(settled.desiredVersion).toBeGreaterThan(stale.desiredVersion);
 
+      // Another worker may hold an unexpired claim when the older PATCH lands.
+      // Model its live lease in the real PG row before the stale repair.
+      const successorClaimId = "review-progress-successor";
+      const successorOwnerHash = "b".repeat(64);
+      const successorClaimUntil = new Date(Date.now() + 120_000);
+      await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: stale.scope,
+        data: {
+          claimId: successorClaimId,
+          claimOwnerIdHash: successorOwnerHash,
+          claimUntil: successorClaimUntil,
+        },
+      });
+
       // Simulate the delayed old GitHub PATCH winning after the new write.
       comment.body = staleBody;
       await expect(
@@ -708,10 +722,27 @@ describeWithDatabase.sequential(
         });
       expect(repair.desiredVersion).toBe(settled.desiredVersion);
       expect(repair.publishedVersion).toBe(settled.publishedVersion - 1n);
-      expect(repair.claimId).toBeNull();
+      expect(repair.claimId).toBe(successorClaimId);
+      expect(repair.claimOwnerIdHash).toBe(successorOwnerHash);
+      expect(repair.claimUntil).toEqual(successorClaimUntil);
       expect(repair.nextPublishAt).not.toBeNull();
       expect(repair.nextPublishAt!.getTime()).toBeLessThanOrEqual(Date.now());
 
+      // Release only this test's still-live successor to let another worker
+      // claim the repair. A stale repair must never release it implicitly.
+      const released = await fixture.prisma.reviewProgressPublicationV1.updateMany({
+        where: {
+          ...stale.scope,
+          claimId: successorClaimId,
+          claimOwnerIdHash: successorOwnerHash,
+        },
+        data: {
+          claimId: null,
+          claimOwnerIdHash: null,
+          claimUntil: null,
+        },
+      });
+      expect(released.count).toBe(1);
       // Do not reset publication eligibility: only the stale completion may
       // schedule its durable repair. Release the installation budget alone.
       await makeInstallationBudgetDue();
