@@ -31,10 +31,11 @@ export function retryBoundary(
   if (retryAfter) {
     const seconds = Number(retryAfter);
     if (Number.isFinite(seconds) && seconds >= 0) {
-      retryAfterTime = now.getTime() + seconds * 1_000;
+      const candidate = now.getTime() + seconds * 1_000;
+      if (isUsableRetryTimestamp(candidate)) retryAfterTime = candidate;
     } else {
       const date = Date.parse(retryAfter);
-      if (Number.isFinite(date)) {
+      if (Number.isFinite(date) && isUsableRetryTimestamp(date)) {
         retryAfterTime = Math.max(now.getTime(), date);
       }
     }
@@ -43,7 +44,9 @@ export function retryBoundary(
   const resetHeader = headers["x-ratelimit-reset"];
   const resetSeconds = resetHeader?.trim() ? Number(resetHeader) : Number.NaN;
   const resetTime =
-    Number.isFinite(resetSeconds) && resetSeconds >= 0
+    Number.isFinite(resetSeconds) &&
+    resetSeconds >= 0 &&
+    isUsableRetryTimestamp(resetSeconds * 1_000)
       ? Math.max(now.getTime(), resetSeconds * 1_000)
       : null;
 
@@ -63,6 +66,11 @@ export function retryBoundary(
   }
   if (resetTime !== null) return new Date(resetTime);
   return new Date(now.getTime() + 1_000);
+}
+
+/** Leave room for the maximum one-second retry jitter. */
+function isUsableRetryTimestamp(timestamp: number): boolean {
+  return Number.isFinite(new Date(timestamp + 1_000).getTime());
 }
 
 export function jitterAfter(boundary: Date, random: () => number): Date {

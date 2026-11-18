@@ -80,6 +80,34 @@ describe("Review progress GitHub retry policy", () => {
     );
   });
 
+  it("ignores oversized retry headers while preserving usable boundaries", () => {
+    const oversized = "10000000000000";
+    const nearDateLimit = "8639999999999.5";
+    const fallback = retryBoundary({ "retry-after": oversized }, now);
+    const reset = retryBoundary(
+      { "retry-after": oversized, "x-ratelimit-reset": "1786536060" },
+      now,
+    );
+    const quota = retryBoundary(
+      { "x-ratelimit-reset": nearDateLimit },
+      now,
+      "rate_limit",
+    );
+    expect(fallback).toEqual(new Date(now.getTime() + 1_000));
+    expect(reset).toEqual(new Date(now.getTime() + 60_000));
+    expect(quota).toEqual(new Date(now.getTime() + 60_000));
+
+    const unavailable = classifyGitHubFailure(
+      { status: 503, response: { headers: { "retry-after": oversized } } },
+      "github_request_failed",
+      () => now,
+      () => 0,
+    );
+    expect(unavailable.metadata.retryAt).toEqual(
+      new Date(now.getTime() + 1_250),
+    );
+  });
+
   it("falls back to reset time or a one-second delay", () => {
     const headers = {
       "retry-after": "invalid",
