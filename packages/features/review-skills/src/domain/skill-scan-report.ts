@@ -22,10 +22,11 @@ const safeText = (value: unknown, limit: number): string | null =>
     : null;
 const emptyOrAbsent = (value: unknown) =>
   value === undefined || (Array.isArray(value) && value.length === 0);
-/** Only SKILL.md text is imported, and the user acknowledges each linked file
- * that is left out. SkillSpector reports such a link as a non-fatal missing
- * reference; that one expected gap must not fail the check. Any other gap,
- * exclusion or limitation keeps the report incomplete. */
+/** Only SKILL.md text is imported; linked files are listed and acknowledged.
+ * SkillSpector reports a path it cannot resolve as a non-fatal missing
+ * reference. Such a file is equally absent from what the reviewer gets, and
+ * the scanned text is exactly the imported text, so that one gap must not fail
+ * the check. Any other gap, exclusion or limitation keeps it incomplete. */
 function onlyMissingLinkedFiles(completeness: Record<string, unknown>) {
   const exceptions = completeness.ledger_exceptions;
   return (
