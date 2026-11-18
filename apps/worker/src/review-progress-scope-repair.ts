@@ -7,8 +7,8 @@ export async function requeuePublishedScopeAfterClaimLoss(
   scope: ClaimedReviewProgress["scope"],
   now: Date,
 ): Promise<void> {
-  // Requeue without changing desiredVersion, invalidating any active claim
-  // so a delayed settlement cannot silently erase the repair.
+  // Requeue a potentially stale body without revoking a successor's live
+  // claim. PostgreSQL evaluates all SET expressions against the old row.
   const repairSql = Prisma.sql`
         UPDATE "ReviewProgressPublicationV1"
         SET "publishedVersion" = CASE
@@ -17,9 +17,18 @@ export async function requeuePublishedScopeAfterClaimLoss(
               THEN "publishedVersion" - 1
               ELSE "publishedVersion"
             END,
-            "claimId" = NULL,
-            "claimOwnerIdHash" = NULL,
-            "claimUntil" = NULL,
+            "claimId" = CASE
+              WHEN "claimUntil" > CURRENT_TIMESTAMP THEN "claimId"
+              ELSE NULL
+            END,
+            "claimOwnerIdHash" = CASE
+              WHEN "claimUntil" > CURRENT_TIMESTAMP THEN "claimOwnerIdHash"
+              ELSE NULL
+            END,
+            "claimUntil" = CASE
+              WHEN "claimUntil" > CURRENT_TIMESTAMP THEN "claimUntil"
+              ELSE NULL
+            END,
             "nextPublishAt" = ${now},
             "updatedAt" = ${now}
         WHERE "workspaceId" = ${scope.workspaceId}

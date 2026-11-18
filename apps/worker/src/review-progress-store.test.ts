@@ -51,7 +51,13 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     const statement = sql.strings.join(" ");
     expect(statement).toContain('"publishedVersion" = CASE');
     expect(statement).toContain('"publishedVersion" - 1');
-    expect(statement).toContain('"claimId" = NULL');
+    expect(statement).toContain('"claimId" = CASE');
+    expect(statement).toContain('"claimOwnerIdHash" = CASE');
+    expect(statement).toContain('"claimUntil" = CASE');
+    expect(statement).toContain('WHEN "claimUntil" > CURRENT_TIMESTAMP');
+    expect(statement).toContain('THEN "claimId"');
+    expect(statement).toContain('THEN "claimOwnerIdHash"');
+    expect(statement).toContain('THEN "claimUntil"');
     expect(sql.values).toEqual([
       now,
       now,
@@ -162,7 +168,10 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
       strings: readonly string[];
       values: readonly unknown[];
     };
-    expect(sql.strings.join(" ")).toContain('"claimId" = NULL');
+    const statement = sql.strings.join(" ");
+    expect(statement).toContain('"claimId" = CASE');
+    expect(statement).toContain('WHEN "claimUntil" > CURRENT_TIMESTAMP');
+    expect(statement).toContain('THEN "claimId"');
     expect(sql.values).toEqual([
       now,
       now,
