@@ -99,9 +99,11 @@ describe("Review progress GitHub comment policy", () => {
   });
 
   it("rejects empty, malformed and non-string Link headers", () => {
-    const malformed = `<https://api.github.com/comments?page=2>; rel=next`;
+    const malformed = `<https://api.github.com/comments?page=2>; rel="next`;
+    const unquoted = `<https://api.github.com/comments?page=2>; rel=next`;
     expect(hasNextCommentPage({ link: "" }, 1)).toBe("invalid");
     expect(hasNextCommentPage({ link: malformed }, 1)).toBe("invalid");
+    expect(hasNextCommentPage({ link: unquoted }, 1)).toBe(true);
     expect(hasNextCommentPage({ link: 42 }, 1)).toBe("invalid");
   });
 

@@ -415,7 +415,7 @@ describe("ReviewProgressGitHubGateway", () => {
     }));
     const fixture = githubFixture([], {
       pagedComments: [fullPage],
-      pageLinks: ["<https://api.github.com/comments?page=2>; rel=next"],
+      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
     });
     await expect(
       gateway(fixture.request, { maxCommentPages: 1 }).upsert(input()),
@@ -443,7 +443,7 @@ describe("ReviewProgressGitHubGateway", () => {
     };
     const fixture = githubFixture([], {
       pagedComments: [[markedComment]],
-      pageLinks: ["<https://api.github.com/comments?page=2>; rel=next"],
+      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
     });
 
     await expect(
@@ -459,7 +459,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const marked = { id: 19, body: `old\n${marker}` };
     const fixture = githubFixture([], {
       pagedComments: [[marked], []],
-      pageLinks: ["<https://api.github.com/comments?page=2>; rel=next"],
+      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
     });
 
     await expect(

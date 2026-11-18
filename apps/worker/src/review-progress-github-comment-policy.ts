@@ -69,7 +69,7 @@ export function commentPageLinks(
   const entries = link.split(/,\s*(?=<)/u);
   if (
     !entries.every((entry) =>
-      /^\s*<[^>]+>\s*;\s*rel="(?:next|prev|first|last)"\s*$/iu.test(entry),
+      /^\s*<[^>]+>\s*;\s*rel=(?:"(?:next|prev|first|last)"|(?:next|prev|first|last))\s*$/iu.test(entry),
     )
   ) {
     return invalid;
@@ -93,8 +93,8 @@ export function commentPageLinks(
     }
   }
 
-  const hasNext = entries.some((entry) => /;\s*rel="next"/iu.test(entry));
-  const last = entries.find((entry) => /;\s*rel="last"/iu.test(entry));
+  const hasNext = entries.some((entry) => /;\s*rel=(?:"next"|next)\s*$/iu.test(entry));
+  const last = entries.find((entry) => /;\s*rel=(?:"last"|last)\s*$/iu.test(entry));
   if (!last) return { hasNextPage: hasNext };
   const href = last.match(/^\s*<([^>]+)>/u)?.[1];
   if (!href) return invalid;
