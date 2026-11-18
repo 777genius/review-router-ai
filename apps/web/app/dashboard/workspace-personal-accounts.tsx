@@ -379,7 +379,7 @@ function WorkspacePersonalRows({
             ? "Detachment could not be confirmed. Check the original request."
             : null;
   return (
-    <section aria-label="Available connections">
+    <section aria-label="Workspace connections">
       {pages.isPending ? <p role="status">Loading connections...</p> : null}
       {failed ? (
         <p role="status">Connections could not be refreshed. Try again.</p>

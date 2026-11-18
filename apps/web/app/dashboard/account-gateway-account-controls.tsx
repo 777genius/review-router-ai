@@ -145,6 +145,12 @@ const centrallyEnrollAllowed = (profile: AccountProfileView) =>
 // Small safe keys: scoped stable user/workspace locator; no signature or secret.
 const pageKey = (scope: string, cursor: string | null) =>
   ["gateway-accounts", scope, "page", cursor] as const;
+/** Same-tab signal: a view saved or dismissed a connection of this owner. */
+const operationsChangedEvent = "rr-account-operations-changed";
+const announceOperationsChanged = (storageKey: string) =>
+  window.dispatchEvent(
+    new CustomEvent(operationsChangedEvent, { detail: storageKey }),
+  );
 const operationKey = (scope: string, nonce: string) =>
   ["gateway-accounts", scope, "operation", nonce] as const;
 const noncePattern =
@@ -600,6 +606,24 @@ function Controls({
       );
     }
   }, [storageKey, connectWorkspacesKey]);
+  useEffect(() => {
+    // The Add dialog and the list beside it are separate views of the same
+    // owner. A connection saved or dismissed in one shows its status in both.
+    const sync = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== storageKey) return;
+      try {
+        const saved = savedNonces(storageKey);
+        setNonces(saved);
+        setConnectWorkspaces(
+          savedConnectWorkspaces(connectWorkspacesKey, saved),
+        );
+      } catch {
+        /* Keep the statuses already shown. */
+      }
+    };
+    window.addEventListener(operationsChangedEvent, sync);
+    return () => window.removeEventListener(operationsChangedEvent, sync);
+  }, [storageKey, connectWorkspacesKey]);
   const refresh = useCallback(async () => {
     // Refresh every already displayed page with exact keys; no unrelated dashboard cache.
     await Promise.all(
@@ -611,9 +635,11 @@ function Controls({
         ),
     );
     // A personal connection, including one made in the Add dialog, also changes
-    // the owner's source list, access summaries and the workspace overview.
+    // the owner's source list, access summaries and the workspace overview. That
+    // refresh covers the same viewer's model options (the dashboard scopes them
+    // by the personal context), so they are not invalidated twice.
     if (personal) await refreshPersonalAccountViews(client, context, false);
-    await optionsCache?.refresh();
+    else await optionsCache?.refresh();
   }, [client, scope, personal, context, optionsCache]);
   const offerCompletionHandoff = useCallback((nonce: string) => {
     if (completionHandoffRef.current) return;
@@ -652,6 +678,7 @@ function Controls({
       setNonces(next);
       setActiveNonce(nonce);
       setMessage("");
+      announceOperationsChanged(storageKey);
       return nonce;
     } catch {
       setMessage(
@@ -666,6 +693,7 @@ function Controls({
       sessionStorage.setItem(storageKey, JSON.stringify(next));
       setNonces(next);
       if (activeNonce === nonce) setActiveNonce(null);
+      announceOperationsChanged(storageKey);
       setDeviceHandoffs((previous) => {
         const next = { ...previous };
         delete next[nonce];

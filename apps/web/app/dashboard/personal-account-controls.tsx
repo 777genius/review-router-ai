@@ -18,6 +18,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -669,6 +670,11 @@ function PersonalControls({
   const inventory = [
     ...new Set([...sourcesById.keys(), ...managementById.keys()]),
   ];
+  const inventoryKey = inventory.join("\n");
+  const listedIds = useMemo(
+    () => new Set(inventoryKey ? inventoryKey.split("\n") : []),
+    [inventoryKey],
+  );
   const unresolved = nonces.some((nonce) => !resolvedNonces.has(nonce));
   const unidentifiedPending = nonces.some(
     (nonce) => !resolvedNonces.has(nonce) && !pairs[nonce],
@@ -690,7 +696,8 @@ function PersonalControls({
   return (
     <section
       className="space-y-4"
-      aria-label="Personal account workspace access"
+      // Inside the combined list the outer Connections region names it.
+      aria-label={listing ? undefined : "Personal account workspace access"}
     >
       <details onToggle={(event) => setBulk(event.currentTarget.open)}>
         <summary className="w-fit cursor-pointer text-sm text-slate-400">
@@ -773,7 +780,16 @@ function PersonalControls({
               source.profileId !== null &&
               !source.sourceOperationPending &&
               !lifecycleActivities.has(id);
-            const use = ownConnectionWorkspaceUse(id, overview);
+            const use = ownConnectionWorkspaceUse(
+              id,
+              overview,
+              Boolean(
+                accessSummary?.organizations.some(
+                  (organization) =>
+                    organization.workspaceId === currentWorkspaceId,
+                ),
+              ),
+            );
             const usedRow = overview?.bySource.get(id);
             const addHere = Boolean(
               listing?.canAddHere && use === "not_added" && canAdd,
@@ -947,7 +963,7 @@ function PersonalControls({
           })}
         </div>
         {listing ? (
-          <OwnConnectionIdsContext.Provider value={new Set(inventory)}>
+          <OwnConnectionIdsContext.Provider value={listedIds}>
             {/* Workspace rows read their own limits scope, not the owner's. */}
             <AccountLimitsReadContext.Provider value={null}>
               <div

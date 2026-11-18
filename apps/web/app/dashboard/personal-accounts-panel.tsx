@@ -59,7 +59,7 @@ export function PersonalAccountsPanel({
     <section
       id="your-accounts"
       className="space-y-4"
-      aria-label="Personal connection management"
+      aria-label={workspaceList ? undefined : "Personal connection management"}
     >
       <AccountGatewayControls
         key={management.context}

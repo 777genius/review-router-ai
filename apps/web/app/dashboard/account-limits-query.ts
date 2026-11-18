@@ -47,6 +47,27 @@ export function claimAccountLimitsAutoRefresh(
   return true;
 }
 
+/** Newest window observation of a snapshot, or -Infinity without one. */
+function newestObservation(view: AccountLimitsView): number {
+  if (view.status !== "snapshot") return -Infinity;
+  return Math.max(
+    -Infinity,
+    ...view.windows.flatMap((window) => {
+      const observed = window.observedAt ? Date.parse(window.observedAt) : NaN;
+      return Number.isFinite(observed) ? [observed] : [];
+    }),
+  );
+}
+
+/**
+ * Result of a refresh that reached the cache: whether the source reported an
+ * observation newer than the one shown before. Undefined when a newer view or
+ * another account lifetime made the result irrelevant.
+ */
+export type AccountLimitsRefreshOutcome =
+  | { readonly newer: boolean }
+  | undefined;
+
 export function accountLimitsRefreshOptions(
   scope: string,
   request: AccountLimitsRequest,
@@ -60,7 +81,7 @@ export function accountLimitsRefreshOptions(
     ] as const,
     retry: false,
     gcTime: 0,
-    mutationFn: async () => {
+    mutationFn: async (): Promise<AccountLimitsRefreshOutcome> => {
       const key = accountLimitsKey(scope, request.connectionId);
       const before =
         client.getQueryData<AccountsResult<AccountLimitsView>>(key);
@@ -105,6 +126,10 @@ export function accountLimitsRefreshOptions(
         });
       if (result.value.fetchedAt < current.value.fetchedAt) return;
       client.setQueryData(key, result);
+      return {
+        newer:
+          newestObservation(result.value) > newestObservation(before.value),
+      };
     },
   });
 }

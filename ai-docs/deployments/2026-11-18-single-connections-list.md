@@ -9,7 +9,7 @@
   Outdated: the refresh capability check is reused across requests, and a refresh
   that brings nothing newer says so.
 - Affected target: Web only.
-- Implementation: PR link added on merge. Plan:
+- Implementation: [ReviewRouter AI PR #901](https://github.com/777genius/review-router-ai/pull/901). Plan:
   [76](../architecture/76-single-connections-list.md).
 - Dependencies: none. No migration, configuration, feature flag, Gateway or
   native change.
@@ -50,8 +50,10 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 ## Retry and rollback
 
 Each check is a normal dashboard read or action; the attach and revoke reuse the
-existing owner operations. The only server change is a read field (`sourceId`)
-on the viewer's own overview rows. Rolling back is an ordinary web image
+existing owner operations. The web server changes are a read field (`sourceId`)
+on the viewer's own overview rows and an in-memory, per-process reuse of the
+Gateway refresh capability answer (10 minutes, rechecked in the background,
+failures never kept). Nothing is stored. Rolling back is an ordinary web image
 rollback. Record any rollback as `rolled_back` with the previous image.
 
 ## Execution log

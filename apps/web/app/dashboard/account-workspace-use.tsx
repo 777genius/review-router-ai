@@ -67,16 +67,19 @@ export function overviewOwnRows(
 }
 
 /**
- * The overview lists every active binding of the viewer's own connection here,
+ * The overview lists every usable binding of the viewer's own connection here,
  * including one that waits for a fence after Update key or Reconnect. A missing
- * row means "not added" only when the whole overview loaded.
+ * row means "not added" only when the whole overview loaded and the owner's
+ * access summary does not name this workspace either (a binding the overview
+ * cannot use, e.g. for a profile outside its catalog, makes no claim).
  */
 export function ownConnectionWorkspaceUse(
   sourceId: string,
   overview: OverviewOwnRows | null,
+  namedInAccessSummary: boolean,
 ): WorkspaceUse {
   if (overview?.bySource.has(sourceId)) return "used";
-  return overview?.complete ? "not_added" : "unknown";
+  return overview?.complete && !namedInAccessSummary ? "not_added" : "unknown";
 }
 
 export function bindingWorkspaceUse(

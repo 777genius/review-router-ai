@@ -340,7 +340,7 @@ test("account limits restrict shared rows before native reads and fence a delaye
       page.getByRole("tab", { name: /RR E2E Org Bravo/ }),
     ).toHaveAttribute("aria-selected", "true");
     await expect(
-      page.getByRole("region", { name: "Available connections" }),
+      page.getByRole("region", { name: "Workspace connections" }),
     ).toBeVisible();
   } finally {
     releaseResponse();

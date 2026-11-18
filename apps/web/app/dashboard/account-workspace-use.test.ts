@@ -67,6 +67,16 @@ test.each([
     expected: "used",
   },
   { name: "no overview yet is unknown", input: null, expected: "unknown" },
-])("$name", ({ input, expected }) => {
-  expect(ownConnectionWorkspaceUse("mine", input)).toBe(expected);
+  {
+    // The owner's summary names this workspace although the overview cannot
+    // use the binding: never claim "not added" and offer to add it again.
+    name: "a binding the overview leaves out makes no claim",
+    input: overview(ok([])),
+    namedInAccessSummary: true,
+    expected: "unknown",
+  },
+])("$name", ({ input, namedInAccessSummary = false, expected }) => {
+  expect(ownConnectionWorkspaceUse("mine", input, namedInAccessSummary)).toBe(
+    expected,
+  );
 });

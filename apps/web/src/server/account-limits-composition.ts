@@ -197,7 +197,9 @@ function discoverRefreshProfiles(
   if (!entry.pending && now - entry.checkedAt >= REFRESH_DISCOVERY_TTL_MS) {
     const current = entry;
     current.checkedAt = now;
-    current.pending = load()
+    // A synchronous throw (e.g. invalid settings) must reject, not escape.
+    current.pending = Promise.resolve()
+      .then(load)
       .then((profiles) => (current.profiles = profiles))
       .catch((error) => {
         // Failed discovery is not evidence of an unsupported profile: never

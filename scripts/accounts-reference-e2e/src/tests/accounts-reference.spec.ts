@@ -258,9 +258,11 @@ test.describe("Accounts UX reference browser contract", () => {
     await trigger.click();
     const dialog = dialogFor(page);
     await expect(dialog).toBeVisible();
+    // The grant row is the closest block that also holds its Remove action;
+    // the workspace name sits inside a nested identity block.
     const alphaGrant = dialog
       .getByText("RR E2E Org Alpha", { exact: true })
-      .locator("xpath=../..");
+      .locator("xpath=ancestor::div[.//button][1]");
     await alphaGrant.getByRole("button", { name: /^Remove access$/ }).click();
     await expect
       .poll(async () =>

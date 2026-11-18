@@ -392,9 +392,9 @@ export function AccountLimitsLine({
         {query.isError || query.data?.status === "unavailable" ? (
           <p role="status">Could not reload saved limits.</p>
         ) : null}
-        {refresh.isSuccess && outdatedWhenRead ? (
-          // A completed refresh that still reports old windows must say so
-          // instead of leaving a silent Outdated badge.
+        {refresh.data?.newer === false && outdatedWhenRead ? (
+          // A refresh whose newest observation is no newer than before must
+          // say so instead of leaving a silent Outdated badge.
           <p role="status">
             Refresh returned no newer limits. Try again later, or reconnect the
             account if this keeps happening.

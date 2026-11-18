@@ -150,7 +150,9 @@ export async function AccountGatewayAccountsSection({
     > = {},
   ) =>
     management && ownBootstrap && ownApi ? (
+      // A new workspace starts with fresh dialogs, messages and selections.
       <PersonalAccountsPanel
+        key={workspaceId}
         bootstrap={ownBootstrap}
         api={ownApi}
         accessReadContext={management.context}
@@ -236,7 +238,9 @@ export async function AccountGatewayAccountsSection({
         // added here. Owners and admins choose who owns it in Add account.
         initiallyOpenConnect: !recipient.canDetach && continuation.autoOpen,
         connectEntry: recipient.canDetach ? (
+          // Rendered beside the refresh button in a client toolbar.
           <AccountsAddDialog
+            key="add-account"
             initiallyOpen={continuation.autoOpen}
             initialOwnership={continuation.ownership}
             personalConnect={personalConnect}
