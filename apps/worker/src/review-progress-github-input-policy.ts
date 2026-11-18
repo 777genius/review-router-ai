@@ -60,6 +60,7 @@ export function validateReviewProgressInput(
 /** Require a complete, single-line comment marker before removal or publishing. */
 function isSingleLineReviewProgressMarker(marker: string): boolean {
   return (
+    typeof marker === "string" &&
     marker.startsWith("<!--") &&
     marker.endsWith("-->") &&
     !/[\r\n\u2028\u2029]/u.test(marker)

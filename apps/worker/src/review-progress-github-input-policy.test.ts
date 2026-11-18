@@ -82,6 +82,14 @@ describe("Review progress GitHub input policy", () => {
     expect(() => validateReviewProgressInput(badMarker)).toThrow(
       "review_progress_marker_invalid",
     );
+    for (const invalidMarker of [null, undefined, 42]) {
+      expect(() =>
+        validateReviewProgressInput({
+          ...validInput(),
+          marker: invalidMarker as never,
+        }),
+      ).toThrow("review_progress_marker_invalid");
+    }
   });
 
   it("keeps the expected remote pull identity contract", () => {
