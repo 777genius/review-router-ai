@@ -51,10 +51,12 @@ export function commentPageScanDecision(
 /** Only complete pagination on a well-formed GitHub Link header. */
 export function hasNextCommentPage(
   headers: Readonly<Record<string, string | number | undefined>> | undefined,
+  currentPage: number,
 ): boolean | "invalid" | undefined {
   const link = Object.entries(headers ?? {}).find(
     ([key]) => key.toLowerCase() === "link",
   )?.[1];
+  if (!Number.isSafeInteger(currentPage) || currentPage < 1) return "invalid";
   if (link === undefined) return undefined;
   if (typeof link !== "string" || !link.trim()) return "invalid";
   const entries = link.split(/,\s*(?=<)/u);
@@ -65,7 +67,22 @@ export function hasNextCommentPage(
   ) {
     return "invalid";
   }
-  return entries.some((entry) => /;\s*rel="next"/iu.test(entry));
+  if (entries.some((entry) => /;\s*rel="next"/iu.test(entry))) return true;
+  const last = entries.find((entry) => /;\s*rel="last"/iu.test(entry));
+  if (!last) return false;
+  const href = last.match(/^\s*<([^>]+)>/u)?.[1];
+  if (!href) return "invalid";
+  try {
+    const value = new URL(href).searchParams.get("page");
+    if (!value || !/^[1-9]\d*$/u.test(value)) return "invalid";
+    const lastPage = Number(value);
+    if (!Number.isSafeInteger(lastPage) || lastPage < currentPage) {
+      return "invalid";
+    }
+    return lastPage > currentPage;
+  } catch {
+    return "invalid";
+  }
 }
 
 export function parseCommentOrNull(

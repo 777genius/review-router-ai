@@ -343,7 +343,7 @@ export class ReviewProgressGitHubGateway {
     }
     return {
       comments: response.data,
-      hasNextPage: hasNextCommentPage(response.headers),
+      hasNextPage: hasNextCommentPage(response.headers, page),
     };
   }
 

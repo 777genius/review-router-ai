@@ -47,10 +47,21 @@ describe("Review progress GitHub comment policy", () => {
   it("distinguishes next, final and absent pagination links", () => {
     const next = `<https://api.github.com/comments?page=2>; rel="next"`;
     const previous = `<https://api.github.com/comments?page=1>; rel="prev"`;
-    expect(hasNextCommentPage({ Link: next })).toBe(true);
-    expect(hasNextCommentPage({ link: previous })).toBe(false);
-    expect(hasNextCommentPage({ LINK: `${previous}, ${next}` })).toBe(true);
-    expect(hasNextCommentPage({})).toBeUndefined();
+    expect(hasNextCommentPage({ Link: next }, 1)).toBe(true);
+    expect(hasNextCommentPage({ link: previous }, 2)).toBe(false);
+    expect(hasNextCommentPage({ LINK: `${previous}, ${next}` }, 1)).toBe(true);
+    expect(hasNextCommentPage({}, 1)).toBeUndefined();
+  });
+
+  it("continues on a last-only Link that identifies a later page", () => {
+    const later = '<https://api.github.com/comments?page=3>; rel="last"';
+    const final = '<https://api.github.com/comments?page=3>; rel="last"';
+    const invalid = '<https://api.github.com/comments?page=oops>; rel="last"';
+    expect(hasNextCommentPage({ link: later }, 1)).toBe(true);
+    expect(hasNextCommentPage({ link: final }, 3)).toBe(false);
+    expect(hasNextCommentPage({ link: later }, 4)).toBe("invalid");
+    expect(hasNextCommentPage({ link: invalid }, 1)).toBe("invalid");
+    expect(hasNextCommentPage({ link: later }, 0)).toBe("invalid");
   });
 
   it("classifies bounded page scan outcomes", () => {
@@ -76,9 +87,9 @@ describe("Review progress GitHub comment policy", () => {
 
   it("rejects empty, malformed and non-string Link headers", () => {
     const malformed = `<https://api.github.com/comments?page=2>; rel=next`;
-    expect(hasNextCommentPage({ link: "" })).toBe("invalid");
-    expect(hasNextCommentPage({ link: malformed })).toBe("invalid");
-    expect(hasNextCommentPage({ link: 42 })).toBe("invalid");
+    expect(hasNextCommentPage({ link: "" }, 1)).toBe("invalid");
+    expect(hasNextCommentPage({ link: malformed }, 1)).toBe("invalid");
+    expect(hasNextCommentPage({ link: 42 }, 1)).toBe("invalid");
   });
 
   it("parses only comments with safe IDs, bodies and author logins", () => {

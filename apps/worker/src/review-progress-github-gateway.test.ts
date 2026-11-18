@@ -312,6 +312,30 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("checks the final page from a last-only Link before duplicate cleanup", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const canonical = { id: 4, body: desired };
+    const duplicate = { id: 7, body: `duplicate\n${marker}` };
+    const last = '<https://api.github.com/comments?page=2>; rel="last"';
+    const fixture = githubFixture([canonical, duplicate], {
+      pagedComments: [[canonical], [duplicate]],
+      pageLinks: [last, last],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 4,
+      operation: "duplicate_deleted",
+      duplicateCommentIds: [],
+    });
+    expect(
+      fixture.calls
+        .filter(({ route }) => route.includes("/issues/{issue_number}/comments"))
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2]);
+    expect(mutations(fixture.calls)).toHaveLength(1);
+  });
+
   it("keeps the cap fail-closed when a full final page links onward", async () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
