@@ -71,9 +71,9 @@ describe("Review progress GitHub retry policy", () => {
 
   it("treats blank Retry-After as absent while retaining an explicit zero", () => {
     for (const retryAfter of ["", " ", "\t"]) {
-      expect(
-        retryBoundary({ "retry-after": retryAfter }, now, "rate_limit").getTime(),
-      ).toBe(now.getTime() + 60_000);
+      const headers = { "retry-after": retryAfter };
+      const retryAt = retryBoundary(headers, now, "rate_limit");
+      expect(retryAt.getTime()).toBe(now.getTime() + 60_000);
     }
     expect(retryBoundary({ "retry-after": "0" }, now, "rate_limit")).toEqual(
       now,
