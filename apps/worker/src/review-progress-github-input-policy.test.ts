@@ -43,7 +43,12 @@ describe("Review progress GitHub input policy", () => {
   });
 
   it("rejects multiline markers before formatting can reconstruct them", () => {
-    for (const malformed of ["<!--\\n-->", "<!--\\r-->", "<!--\\u2028-->"]) {
+    for (const malformed of [
+      "<!--\n-->",
+      "<!--\r-->",
+      "<!--\u2028-->",
+      "<!--\u2029-->",
+    ]) {
       expect(() =>
         validateReviewProgressInput({ ...validInput(), marker: malformed }),
       ).toThrow("review_progress_marker_invalid");
