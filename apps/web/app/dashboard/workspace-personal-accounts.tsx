@@ -28,9 +28,10 @@ import {
   AccountActionsMenu,
   AccountMenuItem,
   accountMenuItemClass,
+  useAccountMenuReturnFocus,
 } from "./account-actions-menu";
 import { AccountIdentity } from "./account-identity";
-import { AccountOwner } from "./account-owner";
+import { AccountOwner, connectionOwnerKind } from "./account-owner";
 import { AccountUsageLine } from "./account-usage-line";
 import { readAccountResult } from "./account-read-result";
 import { accountsGridColumns } from "./accounts-grid";
@@ -44,6 +45,8 @@ import {
   accountsCopy,
   accountStatusInfo,
   pendingStatusCopy,
+  removeFromWorkspaceCopy,
+  type ConnectionOwnerKind,
 } from "./accounts-copy";
 import { AccountStatusLine } from "./account-status-icon";
 
@@ -60,6 +63,12 @@ import {
 } from "./gateway-model-account-options";
 
 type DetachRequest = { bindingId: string; expectedBindingRevision: number };
+type DetachSelection = {
+  label: string;
+  ownerKind: ConnectionOwnerKind;
+  request: DetachRequest;
+  returnFocus: HTMLElement | null;
+};
 type DetachResult = AccountsResult<{
   bindingId: string;
   workspaceId: string;
@@ -98,15 +107,12 @@ function AccountRowMenu({
   managementRows: readonly AccountView[];
   managementActions?: ((account: AccountView) => React.ReactNode) | undefined;
   canDetach: boolean;
-  selectDetach(): void;
+  selectDetach(request: DetachSelection): void;
 }) {
   const managed = managementRows.find(
     (row) => row.connectionId === account.connectionId,
   );
-  const canDetachRow =
-    canDetach &&
-    account.binding?.state === "active" &&
-    account.allowedActions?.includes("detach");
+  const binding = account.binding;
   return (
     <AccountActionsMenu label={account.label}>
       {managed && managementActions ? managementActions(managed) : null}
@@ -117,19 +123,45 @@ function AccountRowMenu({
         client={client}
         usage={account.usage}
       />
-      {canDetachRow ? (
-        <AccountMenuItem>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={accountMenuItemClass}
-            onClick={selectDetach}
-          >
-            {accountsCopy.detach}
-          </Button>
-        </AccountMenuItem>
+      {canDetach &&
+      binding?.state === "active" &&
+      account.allowedActions?.includes("detach") ? (
+        <DetachMenuItem
+          select={(returnFocus) =>
+            selectDetach({
+              label: account.label,
+              ownerKind: connectionOwnerKind(account),
+              request: {
+                bindingId: binding.id,
+                expectedBindingRevision: binding.revision,
+              },
+              returnFocus,
+            })
+          }
+        />
       ) : null}
     </AccountActionsMenu>
+  );
+}
+
+// Inside the menu so the confirmation can return focus to its trigger.
+function DetachMenuItem({
+  select,
+}: {
+  select(returnFocus: HTMLElement | null): void;
+}) {
+  const trigger = useAccountMenuReturnFocus();
+  return (
+    <AccountMenuItem>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={accountMenuItemClass}
+        onClick={() => select(trigger?.current ?? null)}
+      >
+        {accountsCopy.detach}
+      </Button>
+    </AccountMenuItem>
   );
 }
 
@@ -209,10 +241,10 @@ function WorkspacePersonalRows({
     };
   }, [client, limitsScope, initialPage, scope]);
   const pageKey = accountsOverviewKey(scope);
-  const [selection, setSelection] = useState<{
-    label: string;
-    request: DetachRequest | null;
-  } | null>(null);
+  const [selection, setSelection] = useState<DetachSelection | null>(null);
+  // The last opened confirmation keeps its text while closing and returns
+  // focus to its row menu afterwards.
+  const [shown, setShown] = useState<DetachSelection | null>(null);
   const [last, setLast] = useState<{
     request: DetachRequest;
     result: DetachResult;
@@ -369,14 +401,14 @@ function WorkspacePersonalRows({
   const message =
     result?.status === "ok"
       ? result.value.remoteFenceDelivery === "remote_pending"
-        ? "Access revoked locally in this organization; gateway confirmation pending."
-        : "Access revoked in this organization; gateway confirmation received."
+        ? removeFromWorkspaceCopy.pending
+        : removeFromWorkspaceCopy.done
       : result?.status === "conflict"
         ? "This connection changed. Refresh connections and try again."
         : result?.status === "denied"
           ? "Your access changed. Refresh connections to see the available actions."
           : result
-            ? "Detachment could not be confirmed. Check the original request."
+            ? removeFromWorkspaceCopy.unconfirmed
             : null;
   return (
     <section aria-label="Workspace connections">
@@ -485,27 +517,6 @@ function WorkspacePersonalRows({
             !row.binding.fencePending ? (
               <ChooseForReviewsLink workspaceId={workspaceId} />
             ) : null}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={failed}
-              onClick={() =>
-                setSelection({
-                  label: row.label,
-                  request:
-                    canDetach &&
-                    row.binding?.state === "active" &&
-                    row.allowedActions?.includes("detach")
-                      ? {
-                          bindingId: row.binding.id,
-                          expectedBindingRevision: row.binding.revision,
-                        }
-                      : null,
-                })
-              }
-            >
-              {accountsCopy.access}
-            </Button>
             {!failed &&
             (managementActions ||
               canDetach ||
@@ -519,18 +530,10 @@ function WorkspacePersonalRows({
                 managementRows={managementRows}
                 managementActions={managementActions}
                 canDetach={canDetach}
-                selectDetach={() =>
-                  setSelection({
-                    label: row.label,
-                    request:
-                      row.binding?.state === "active"
-                        ? {
-                            bindingId: row.binding.id,
-                            expectedBindingRevision: row.binding.revision,
-                          }
-                        : null,
-                  })
-                }
+                selectDetach={(next) => {
+                  setShown(next);
+                  setSelection(next);
+                }}
               />
             ) : null}
           </div>
@@ -589,14 +592,20 @@ function WorkspacePersonalRows({
       >
         <Dialog.Portal>
           <Dialog.Backdrop />
-          <Dialog.Popup>
+          <Dialog.Popup
+            finalFocus={() =>
+              shown?.returnFocus?.isConnected ? shown.returnFocus : true
+            }
+          >
             <Dialog.Title>
-              {accountsCopy.access} · {selection?.label}
+              {accountsCopy.detach} · {shown?.label}
             </Dialog.Title>
             <Dialog.Description>
-              Access only covers reviews in this organization. Your personal
-              account and other organizations stay unchanged. Ownership,
-              credentials, and control are not transferred.
+              {
+                removeFromWorkspaceCopy.description[
+                  shown?.ownerKind ?? "unknown"
+                ]
+              }
             </Dialog.Description>
             <div className="mt-4 flex gap-2">
               <Button
@@ -604,15 +613,15 @@ function WorkspacePersonalRows({
                 disabled={submitting}
                 onClick={() => setSelection(null)}
               >
-                Close
+                Cancel
               </Button>
               <Button
-                disabled={!canDetach || submitting || !selection?.request}
+                disabled={!canDetach || submitting || !selection}
                 onClick={() => {
-                  if (selection?.request) void submit(selection.request);
+                  if (selection) void submit(selection.request);
                 }}
               >
-                Revoke access
+                {removeFromWorkspaceCopy.confirm}
               </Button>
             </div>
           </Dialog.Popup>
