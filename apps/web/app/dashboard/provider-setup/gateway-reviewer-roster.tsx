@@ -316,6 +316,7 @@ export function GatewayReviewerRoster({
   // mode stays as saved and the server fits the limits to the count.
   const several = rows.length > 1;
   const inherited = repository?.source === "workspace";
+  const ownRoster = repository?.source === "repository";
   const workspaceDefaults = workspaceDefaultSelections(observed);
   const executionValue = (
     field: "providerMaxParallel" | "inlineMinAgreement",
@@ -404,7 +405,7 @@ export function GatewayReviewerRoster({
           <h3 className="text-sm font-semibold text-cyan-50">Reviewers</h3>
           <p className="text-xs leading-5 text-slate-400">
             Each reviewer keeps its own model and settings. The first reviewer
-            is the primary: it also writes the pull request summary (when
+            is the primary: it also updates the pull request description (when
             enabled) and re-checks whether earlier findings were fixed.
           </p>
         </div>
@@ -847,20 +848,38 @@ export function GatewayReviewerRoster({
           >
             Choose another provider
           </Button>
-          {target.kind === "repository" &&
-          repository?.source === "repository" ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={
-                blocked || stale || repository.useDefault.allowed === false
-              }
-              aria-describedby={`${prefix}-workspace-default`}
-              onClick={() => void save(true)}
-            >
-              Use workspace reviewers
-            </Button>
+          {ownRoster ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={
+                  blocked || stale || repository?.useDefault.allowed === false
+                }
+                aria-describedby={`${prefix}-workspace-default`}
+                onClick={() => void save(true)}
+              >
+                Use workspace reviewers
+              </Button>
+              <p
+                id={`${prefix}-workspace-default`}
+                className="w-full break-words text-xs leading-5 text-slate-400"
+              >
+                {workspaceDefaults.length
+                  ? `Workspace default: ${reviewerNames(
+                      workspaceDefaults.map((selection) => {
+                        const profile = observed.profiles.find(
+                          (candidate) => candidate.id === selection.profileId,
+                        );
+                        return profile
+                          ? { label: profile.label, model: profile.model }
+                          : null;
+                      }),
+                    )}.`
+                  : "Choosing Use workspace reviewers stops reviews here: the workspace has no default reviewers."}
+              </p>
+            </>
           ) : null}
         </div>
         <Button
@@ -876,25 +895,6 @@ export function GatewayReviewerRoster({
               ? "Save for this repository"
               : "Save reviewers"}
         </Button>
-        {target.kind === "repository" && repository?.source === "repository" ? (
-          <p
-            id={`${prefix}-workspace-default`}
-            className="w-full break-words text-xs leading-5 text-slate-400"
-          >
-            {workspaceDefaults.length
-              ? `Workspace default: ${reviewerNames(
-                  workspaceDefaults.map((selection) => {
-                    const profile = observed.profiles.find(
-                      (candidate) => candidate.id === selection.profileId,
-                    );
-                    return profile
-                      ? { label: profile.label, model: profile.model }
-                      : null;
-                  }),
-                )}.`
-              : "The workspace has no default reviewers, so this repository will stop reviewing."}
-          </p>
-        ) : null}
       </div>
     </div>
   );

@@ -407,6 +407,20 @@ describe("Gateway reviewer roster", () => {
     );
   });
 
+  it("shows the parallel controls only while there are several reviewers", async () => {
+    render(<GatewayReviewerRoster {...base()} />);
+    const controls = () =>
+      ["How reviewers work together", "Max parallel providers"].map((name) =>
+        screen.queryByRole("combobox", { name: new RegExp(`^${name}`) }),
+      );
+    expect(controls().every(Boolean)).toBe(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    expect(controls().some(Boolean)).toBe(false);
+    expect(screen.queryByRole("button", { name: /Move reviewer/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add reviewer" }));
+    expect(controls().every(Boolean)).toBe(true);
+  });
+
   it("hides the controls for several reviewers while one is left and keeps its saved mode", async () => {
     const props = base();
     props.view = {
@@ -473,10 +487,14 @@ describe("Gateway reviewer roster", () => {
     };
     render(<GatewayReviewerRoster {...props} target={repositoryTarget} />);
     expect(
+      screen
+        .getByRole("button", { name: "Use workspace reviewers" })
+        .getAttribute("aria-describedby"),
+    ).toBe(
       screen.getByText(
         "Workspace default: Profile one · model-one; Reviewer unavailable.",
-      ),
-    ).toBeTruthy();
+      ).id,
+    );
     expect(screen.getByRole("button", { name: "Save reviewers" })).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Use workspace reviewers" }),
@@ -504,7 +522,7 @@ describe("Gateway reviewer roster", () => {
     render(<GatewayReviewerRoster {...props} target={repositoryTarget} />);
     expect(
       screen.getByText(
-        "The workspace has no default reviewers, so this repository will stop reviewing.",
+        "Choosing Use workspace reviewers stops reviews here: the workspace has no default reviewers.",
       ),
     ).toBeTruthy();
     expect(
