@@ -124,11 +124,14 @@ describe("Review progress GitHub comment policy", () => {
     expect(hasNextCommentPage({ link: escape }, 2)).toBe("invalid");
   });
 
-  it("rejects non-HTTP Link targets even when the only relation is prev", () => {
+  it("rejects untrusted Link targets even when the only relation is prev", () => {
     for (const href of [
       "javascript:alert(1)",
       "data:text/plain,abc",
       "ftp://api.github.com/comments?page=2",
+      "http://api.github.com/comments?page=2",
+      "https://untrusted.example/comments?page=2",
+      "//untrusted.example/comments?page=2",
     ]) {
       expect(
         hasNextCommentPage({ link: `<${href}>; rel="prev"` }, 2),

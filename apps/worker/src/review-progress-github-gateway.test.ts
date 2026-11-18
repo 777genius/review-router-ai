@@ -438,7 +438,7 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
-  it("refuses non-HTTP pagination schemes before duplicate deletion", async () => {
+  it("refuses untrusted pagination links before duplicate deletion", async () => {
     const canonical = {
       id: 19,
       body: formatReviewProgressComment("working", marker),
@@ -448,6 +448,9 @@ describe("ReviewProgressGitHubGateway", () => {
       "javascript:alert(1)",
       "data:text/plain,abc",
       "ftp://api.github.com/comments?page=2",
+      "http://api.github.com/comments?page=2",
+      "https://untrusted.example/comments?page=2",
+      "//untrusted.example/comments?page=2",
     ]) {
       const fixture = githubFixture([canonical, duplicate], {
         pagedComments: [[canonical, duplicate]],
