@@ -1099,62 +1099,80 @@ describe("ReviewProgressPublisher", () => {
     expect(store.requeueAfterClaimLoss).not.toHaveBeenCalled();
   });
 
-  it.each([{ repairFails: false }, { repairFails: true }])(
-    "repairs a potentially landed non-retryable DELETE when repair fails=$repairFails",
-    async ({ repairFails }) => {
-      const publication = { ...claimed(), commentId: 77n };
+  it.each(["POST", "PATCH", "DELETE"] as const)(
+    "suppresses definitive permission rejection on %s without requeue",
+    async (operation) => {
+      const publication = {
+        ...claimed(),
+        commentId: operation === "POST" ? null : 77n,
+      };
       const store = fakeStore(publication);
-      if (repairFails) {
-        store.requeueAfterClaimLoss.mockRejectedValueOnce(
-          new Error("scope_repair_failed"),
-        );
-      }
+      let suppressed = false;
+      store.claimNext.mockImplementation(async () =>
+        suppressed ? null : publication,
+      );
+      store.suppress.mockImplementation(async () => {
+        suppressed = true;
+        return true;
+      });
       const body = formatReviewProgressComment(
         formatGithubProgressComment(progressSnapshot()),
         githubProgressCommentMarker,
       );
-      const publisher = createPublisher(store, async () => ({
-        botLogin: "review-router[bot]",
-        request: async (route, parameters = {}) => {
-          if (route.includes("/pulls/")) return pull();
-          if (route.startsWith("GET")) {
-            return {
-              data: [77, 78].map((id) => ({
+      const rows =
+        operation === "POST"
+          ? []
+          : operation === "PATCH"
+            ? [
+                {
+                  id: 77,
+                  body: githubProgressCommentMarker,
+                  user: { login: "review-router[bot]" },
+                },
+              ]
+            : [77, 78].map((id) => ({
                 id,
                 body,
                 user: { login: "review-router[bot]" },
-              })),
-            };
-          }
-          if (route.startsWith("DELETE")) {
-            expect(parameters.comment_id).toBe(78);
+              }));
+      const mutations: string[] = [];
+      const publisher = createPublisher(store, async () => ({
+        botLogin: "review-router[bot]",
+        request: async (route) => {
+          if (route.includes("/pulls/")) return pull();
+          if (route.startsWith("GET")) return { data: rows };
+          if (route.startsWith(operation)) {
+            mutations.push(route);
             throw { status: 403, response: { headers: {} } };
           }
           throw new Error(`unexpected:${route}`);
         },
       }));
 
-      if (repairFails) {
-        await expect(publisher.runMaintenance()).rejects.toThrow(
-          "scope_repair_failed",
-        );
-      } else {
-        await expect(publisher.runMaintenance()).resolves.toEqual({
-          claimed: 1,
-          published: 0,
-          deferred: 1,
-          suppressed: 0,
-          failed: 0,
-        });
-      }
-      expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
-      expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
-        scope: publication.scope,
-        now,
+      await expect(publisher.runMaintenance()).resolves.toEqual({
+        claimed: 1,
+        published: 0,
+        deferred: 0,
+        suppressed: 1,
+        failed: 0,
       });
-      expect(store.suppress).not.toHaveBeenCalled();
+      await expect(publisher.runMaintenance()).resolves.toEqual({
+        claimed: 0,
+        published: 0,
+        deferred: 0,
+        suppressed: 0,
+        failed: 0,
+      });
+      expect(mutations).toHaveLength(1);
+      expect(store.suppress).toHaveBeenCalledOnce();
+      expect(store.suppress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publication,
+          safeCode: "review_progress_revoked_app",
+        }),
+      );
+      expect(store.requeueAfterClaimLoss).not.toHaveBeenCalled();
       expect(store.retry).not.toHaveBeenCalled();
-      expect(store.complete).not.toHaveBeenCalled();
     },
   );
 
