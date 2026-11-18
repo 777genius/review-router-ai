@@ -17,7 +17,10 @@ import type {
   PersonalSource,
 } from "../../src/features/account-gateway/personal-accounts";
 import { useContext } from "react";
-import { PersonalAccountControls } from "./personal-account-controls";
+import {
+  PersonalAccountControls,
+  refreshPersonalAccountViews,
+} from "./personal-account-controls";
 import { OwnConnectionIdsContext } from "./account-workspace-use";
 
 const clients = new Set<QueryClient>();
@@ -196,6 +199,23 @@ test("selects accounts across pages and shares independently with exact predeces
 function combinedList(canAddHere: boolean) {
   const { bootstrap, api } = fixture();
   const sources = [source("source-0"), source("source-1")];
+  // "Not added" needs the owner's loaded access summary to agree.
+  api.listAccessSummaries.mockResolvedValue({
+    status: "ok",
+    value: {
+      summaries: sources.map(({ sourceId }) => ({
+        sourceId,
+        organizationCount: sourceId === "source-0" ? 1 : 0,
+        hasRestrictedAccess: false,
+        organizations:
+          sourceId === "source-0"
+            ? [{ workspaceId: "workspace-x", label: "Workspace X" }]
+            : [],
+        personalWorkspaceId: "personal-own",
+        complete: true as const,
+      })),
+    },
+  });
   function SharedRows() {
     const ids = useContext(OwnConnectionIdsContext);
     return <p>Shared rows after {[...(ids ?? [])].join(",")}</p>;
@@ -259,7 +279,7 @@ test("the combined list shows each own connection once with its state in this wo
   ).toBeTruthy();
   const notAdded = screen.getByRole("article", { name: "Personal source-1" });
   expect(
-    within(notAdded).getByText("Not added to this workspace"),
+    await within(notAdded).findByText("Not added to this workspace"),
   ).toBeTruthy();
   expect(
     within(notAdded).getByRole("button", {
@@ -277,13 +297,34 @@ test("the combined list shows each own connection once with its state in this wo
   expect(screen.queryByRole("tab")).toBeNull();
 });
 
+test("refreshing after a detach also rereads the workspace's own connection list", async () => {
+  const client = new QueryClient();
+  clients.add(client);
+  const keys = {
+    personal: ["gateway-accounts", "personal:user-personal", "page", null],
+    // The workspace list beside it: its row menus (Remove, Add to this
+    // workspace) follow the binding a detach just changed.
+    workspace: ["gateway-accounts", "workspace-context", "page", null],
+    overview: ["accounts-overview", "user-personal:workspace:workspace-x"],
+    unrelated: ["review-skills", "workspace-x"],
+  } as const;
+  for (const key of Object.values(keys)) client.setQueryData(key, {});
+  await refreshPersonalAccountViews(client, "user-personal");
+  const invalidated = (key: readonly unknown[]) =>
+    client.getQueryState(key)?.isInvalidated;
+  expect(invalidated(keys.personal)).toBe(true);
+  expect(invalidated(keys.workspace)).toBe(true);
+  expect(invalidated(keys.overview)).toBe(true);
+  expect(invalidated(keys.unrelated)).toBe(false);
+});
+
 test("a member sees why an own connection cannot be added here and keeps Access", async () => {
   const { api } = combinedList(false);
   const notAdded = await screen.findByRole("article", {
     name: "Personal source-1",
   });
   expect(
-    within(notAdded).getByText(
+    await within(notAdded).findByText(
       "Only workspace owners and admins can add connections here.",
     ),
   ).toBeTruthy();

@@ -392,7 +392,11 @@ export function AccountLimitsLine({
         {query.isError || query.data?.status === "unavailable" ? (
           <p role="status">Could not reload saved limits.</p>
         ) : null}
-        {refresh.data?.newer === false && outdatedWhenRead ? (
+        {refresh.data?.newer === false &&
+        // Only beside the snapshot that refresh installed, not a later one.
+        refresh.data.displayToken === view?.displayToken &&
+        refresh.data.fetchedAt === view.fetchedAt &&
+        outdatedWhenRead ? (
           // A refresh whose newest observation is no newer than before must
           // say so instead of leaving a silent Outdated badge.
           <p role="status">

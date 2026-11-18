@@ -75,8 +75,16 @@ test.each([
     namedInAccessSummary: true,
     expected: "unknown",
   },
-])("$name", ({ input, namedInAccessSummary = false, expected }) => {
-  expect(ownConnectionWorkspaceUse("mine", input, namedInAccessSummary)).toBe(
-    expected,
+  {
+    name: "an access summary still loading or failed makes no claim",
+    input: overview(ok([])),
+    namedInAccessSummary: undefined,
+    expected: "unknown",
+  },
+])("$name", (testCase) => {
+  const named =
+    "namedInAccessSummary" in testCase ? testCase.namedInAccessSummary : false;
+  expect(ownConnectionWorkspaceUse("mine", testCase.input, named)).toBe(
+    testCase.expected,
   );
 });

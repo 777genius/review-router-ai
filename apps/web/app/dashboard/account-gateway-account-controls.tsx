@@ -205,7 +205,7 @@ function statusText(
       ? "Sign in as the owner of this personal account."
       : "You need workspace owner or admin access."
     : status === "conflict"
-      ? "The account changed. Refresh Accounts before trying again."
+      ? "The account changed. Refresh connections before trying again."
       : status === "invalid"
         ? "Check the account fields."
         : "Account management is unavailable. Refresh or check the connection later.";
@@ -614,6 +614,10 @@ function Controls({
       try {
         const saved = savedNonces(storageKey);
         setNonces(saved);
+        // A request dismissed in the other view no longer holds this one.
+        setActiveNonce((active) =>
+          active && !saved.includes(active) ? null : active,
+        );
         setConnectWorkspaces(
           savedConnectWorkspaces(connectWorkspacesKey, saved),
         );
@@ -625,6 +629,11 @@ function Controls({
     return () => window.removeEventListener(operationsChangedEvent, sync);
   }, [storageKey, connectWorkspacesKey]);
   const refresh = useCallback(async () => {
+    // A personal connection, including one made in the Add dialog, also changes
+    // the owner's sources, access summaries, the workspace overview and the
+    // workspace's own list in the same view; that refresh covers this list and
+    // the viewer's model options too.
+    if (personal) return refreshPersonalAccountViews(client, context);
     // Refresh every already displayed page with exact keys; no unrelated dashboard cache.
     await Promise.all(
       client
@@ -634,12 +643,7 @@ function Controls({
           client.invalidateQueries({ queryKey: query.queryKey, exact: true }),
         ),
     );
-    // A personal connection, including one made in the Add dialog, also changes
-    // the owner's source list, access summaries and the workspace overview. That
-    // refresh covers the same viewer's model options (the dashboard scopes them
-    // by the personal context), so they are not invalidated twice.
-    if (personal) await refreshPersonalAccountViews(client, context, false);
-    else await optionsCache?.refresh();
+    await optionsCache?.refresh();
   }, [client, scope, personal, context, optionsCache]);
   const offerCompletionHandoff = useCallback((nonce: string) => {
     if (completionHandoffRef.current) return;
@@ -905,7 +909,7 @@ function Controls({
       await refresh();
     },
     onError: () =>
-      setMessage("Binding status is unavailable. Refresh Accounts."),
+      setMessage("Binding status is unavailable. Refresh connections."),
   });
   const visiblePages =
     hydratedBootstrap.current !== bootstrap.page

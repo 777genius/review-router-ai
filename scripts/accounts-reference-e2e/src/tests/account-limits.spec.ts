@@ -10,6 +10,7 @@ import {
   browserRequestsFor,
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
+  connectionsListRegion,
   openAccounts,
   sourceRow,
   useOtherSession,
@@ -339,9 +340,9 @@ test("account limits restrict shared rows before native reads and fence a delaye
     await expect(
       page.getByRole("tab", { name: /RR E2E Org Bravo/ }),
     ).toHaveAttribute("aria-selected", "true");
-    await expect(
-      page.getByRole("region", { name: "Workspace connections" }),
-    ).toBeVisible();
+    // Bravo's list holds only the viewer's own connection, drawn above the
+    // workspace rows, so the combined list region is the visible anchor.
+    await expect(connectionsListRegion(page)).toBeVisible();
   } finally {
     releaseResponse();
     if (deliveryStarted) await delivery;

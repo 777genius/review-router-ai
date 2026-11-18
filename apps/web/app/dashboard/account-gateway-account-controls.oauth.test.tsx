@@ -1402,7 +1402,7 @@ test("key continuation reports the server rejection reason for an unsaved key", 
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("The key was not saved.");
   expect(alert.textContent).toContain(
-    "The account changed. Refresh Accounts before trying again.",
+    "The account changed. Refresh connections before trying again.",
   );
   expect(document.body.innerHTML).not.toContain(secret);
 });

@@ -372,9 +372,9 @@ function WorkspacePersonalRows({
         ? "Access revoked locally in this organization; gateway confirmation pending."
         : "Access revoked in this organization; gateway confirmation received."
       : result?.status === "conflict"
-        ? "This binding changed. Refresh and confirm the current selection."
+        ? "This connection changed. Refresh connections and try again."
         : result?.status === "denied"
-          ? "Your access changed. Refresh to see the available actions."
+          ? "Your access changed. Refresh connections to see the available actions."
           : result
             ? "Detachment could not be confirmed. Check the original request."
             : null;
@@ -536,26 +536,32 @@ function WorkspacePersonalRows({
           </div>
         </article>
       ))}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={pages.isFetching || submitting}
-          onClick={() => void pages.refetch()}
-        >
-          Refresh connections
-        </Button>
-        {pages.hasNextPage ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={pages.isFetching || submitting}
-            onClick={() => void pages.fetchNextPage()}
-          >
-            Load more
-          </Button>
-        ) : null}
-      </div>
+      {/* In the combined list its toolbar refresh already rereads these rows;
+          a separate button stays only to recover from a failed read. */}
+      {!ownConnectionIds || failed || pages.hasNextPage ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {!ownConnectionIds || failed ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pages.isFetching || submitting}
+              onClick={() => void pages.refetch()}
+            >
+              Refresh connections
+            </Button>
+          ) : null}
+          {pages.hasNextPage ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pages.isFetching || submitting}
+              onClick={() => void pages.fetchNextPage()}
+            >
+              Load more
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {message ? (
         <p className="mt-3 text-sm" role="status">
           {message}

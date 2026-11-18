@@ -6,8 +6,9 @@
   tabs. Each row says "Used in this workspace" or "Not added to this workspace";
   the viewer's own connections keep Edit, Update key, Reconnect, Disable, Remove,
   Access and limits, and appear once. Codex limits no longer stay silently
-  Outdated: the refresh capability check is reused across requests, and a refresh
-  that brings nothing newer says so.
+  Outdated: the refresh capability check is reused across requests, a later
+  list read no longer brings back an older saved observation over a fresh
+  refresh, and a refresh that brings nothing newer says so.
 - Affected target: Web only.
 - Implementation: [ReviewRouter AI PR #901](https://github.com/777genius/review-router-ai/pull/901). Plan:
   [76](../architecture/76-single-connections-list.md).
@@ -53,7 +54,8 @@ Each check is a normal dashboard read or action; the attach and revoke reuse the
 existing owner operations. The web server changes are a read field (`sourceId`)
 on the viewer's own overview rows and an in-memory, per-process reuse of the
 Gateway refresh capability answer (10 minutes, rechecked in the background,
-failures never kept). Nothing is stored. Rolling back is an ordinary web image
+failures never kept). Nothing is stored. The browser keeps the newest window
+observation when a later list read carries an older one. Rolling back is an ordinary web image
 rollback. Record any rollback as `rolled_back` with the previous image.
 
 ## Execution log

@@ -89,9 +89,7 @@ const keys = {
 export async function refreshPersonalAccountViews(
   client: QueryClient,
   scope: string,
-  includeManagement = true,
 ) {
-  const canonicalScope = `personal:${scope.split(".")[0] ?? ""}`;
   const queries = client
     .getQueryCache()
     .getAll()
@@ -107,9 +105,9 @@ export async function refreshPersonalAccountViews(
         ) &&
           typeof query.queryKey[1] === "string" &&
           query.queryKey[1].startsWith(`${scope}:workspace:`)) ||
-        (includeManagement &&
-          query.queryKey[0] === "gateway-accounts" &&
-          query.queryKey[1] === canonicalScope &&
+        // Connection management pages of the owner and of the workspace in the
+        // same list: a detach or attach changes the actions their rows offer.
+        (query.queryKey[0] === "gateway-accounts" &&
           query.queryKey[2] === "page"),
     );
   await Promise.all(
@@ -783,11 +781,9 @@ function PersonalControls({
             const use = ownConnectionWorkspaceUse(
               id,
               overview,
-              Boolean(
-                accessSummary?.organizations.some(
-                  (organization) =>
-                    organization.workspaceId === currentWorkspaceId,
-                ),
+              accessSummary?.organizations.some(
+                (organization) =>
+                  organization.workspaceId === currentWorkspaceId,
               ),
             );
             const usedRow = overview?.bySource.get(id);
