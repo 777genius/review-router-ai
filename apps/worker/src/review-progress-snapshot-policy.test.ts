@@ -235,9 +235,17 @@ describe("Review progress snapshot policy", () => {
     expect(
       parseSnapshot({ ...validSnapshot, fileCoverage }).fileCoverage,
     ).toEqual(fileCoverage);
+    // Files already covered by completed units cannot also be unassigned.
+    expect(
+      parseSnapshot({
+        ...validSnapshot,
+        fileCoverage: { ...fileCoverage, total: 3 },
+      }).fileCoverage,
+    ).toEqual({ ...fileCoverage, total: 3 });
     for (const invalid of [
       { ...fileCoverage, covered: 3 },
       { ...fileCoverage, uncovered: 3 },
+      { ...fileCoverage, covered: 2, uncovered: 1 },
     ]) {
       expect(() =>
         parseSnapshot({ ...validSnapshot, fileCoverage: invalid }),

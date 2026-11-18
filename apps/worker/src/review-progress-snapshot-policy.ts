@@ -110,7 +110,8 @@ function validCoverage(value: unknown): boolean {
     isNonNegativeSafeInteger(value.uncovered) &&
     isNonNegativeSafeInteger(value.excluded) &&
     value.covered <= value.total &&
-    value.uncovered <= value.total
+    value.uncovered <= value.total &&
+    value.covered <= value.total - value.uncovered
   );
 }
 

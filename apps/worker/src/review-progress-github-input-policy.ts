@@ -21,7 +21,7 @@ export function formatReviewProgressComment(
   body: string,
   marker: string,
 ): string {
-  const withoutMarker = body.split(marker).join("").trimEnd();
+  const withoutMarker = body.split(marker).join("\n").trimEnd();
   return withoutMarker ? `${withoutMarker}\n\n${marker}` : marker;
 }
 

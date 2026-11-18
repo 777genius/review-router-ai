@@ -69,6 +69,17 @@ describe("Review progress GitHub retry policy", () => {
     }
   });
 
+  it("treats blank Retry-After as absent while retaining an explicit zero", () => {
+    for (const retryAfter of ["", " ", "\t"]) {
+      expect(
+        retryBoundary({ "retry-after": retryAfter }, now, "rate_limit").getTime(),
+      ).toBe(now.getTime() + 60_000);
+    }
+    expect(retryBoundary({ "retry-after": "0" }, now, "rate_limit")).toEqual(
+      now,
+    );
+  });
+
   it("falls back to reset time or a one-second delay", () => {
     const headers = {
       "retry-after": "invalid",

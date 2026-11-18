@@ -26,7 +26,7 @@ export function retryBoundary(
   now: Date,
   kind: "rate_limit" | "server_unavailable" = "server_unavailable",
 ): Date {
-  const retryAfter = headers["retry-after"];
+  const retryAfter = headers["retry-after"]?.trim();
   let retryAfterTime: number | null = null;
   if (retryAfter) {
     const seconds = Number(retryAfter);

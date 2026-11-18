@@ -34,6 +34,12 @@ describe("Review progress GitHub input policy", () => {
       `working\n\n${marker}`,
     );
     expect(formatReviewProgressComment(marker, marker)).toBe(marker);
+
+    // Removing an embedded marker must not stitch its fragments into another.
+    const stitched = marker.slice(0, 1) + marker + marker.slice(1);
+    expect(formatReviewProgressComment(stitched, marker)).toBe(
+      `${marker.slice(0, 1)}\n${marker.slice(1)}\n\n${marker}`,
+    );
   });
 
   it("rejects invalid target, head and bot identity", () => {
