@@ -122,7 +122,7 @@ describe("Review progress GitHub comment policy", () => {
     const escape = '<https://api.github.com/comments?page=%ZZ>; rel="last"';
     expect(hasNextCommentPage({ link: whitespace }, 2)).toBe("invalid");
     expect(hasNextCommentPage({ link: escape }, 2)).toBe("invalid");
-    for (const character of ["\\u0000", "\\t", "\\n", "\\r", "\\u007f"]) {
+    for (const character of ["\u0000", "\t", "\n", "\r", "\u007f"]) {
       const control = `<https://api.github.com/comments?bad=${character}>; rel="prev"`;
       expect(hasNextCommentPage({ link: control }, 2)).toBe("invalid");
     }
