@@ -94,12 +94,12 @@ describe("Review progress GitHub comment policy", () => {
     expect(
       commentPageLinks({ link: [next, last].join(", ") }, 1).hasNextPage,
     ).toBe("invalid");
-    expect(
-      commentPageLinks({ link: [next, validLast].join(", ") }, 1),
-    ).toEqual({
-      hasNextPage: true,
-      lastPage: 3,
-    });
+    expect(commentPageLinks({ link: [next, validLast].join(", ") }, 1)).toEqual(
+      {
+        hasNextPage: true,
+        lastPage: 3,
+      },
+    );
   });
 
   it("classifies bounded page scan outcomes", () => {
@@ -153,9 +153,9 @@ describe("Review progress GitHub comment policy", () => {
       "https://untrusted.example/comments?page=2",
       "//untrusted.example/comments?page=2",
     ]) {
-      expect(
-        hasNextCommentPage({ link: `<${href}>; rel="prev"` }, 2),
-      ).toBe("invalid");
+      expect(hasNextCommentPage({ link: `<${href}>; rel="prev"` }, 2)).toBe(
+        "invalid",
+      );
     }
   });
 

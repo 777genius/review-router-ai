@@ -69,7 +69,9 @@ export function commentPageLinks(
   const entries = link.split(/,\s*(?=<)/u);
   if (
     !entries.every((entry) =>
-      /^\s*<[^>]+>\s*;\s*rel=(?:"(?:next|prev|first|last)"|(?:next|prev|first|last))\s*$/iu.test(entry),
+      /^\s*<[^>]+>\s*;\s*rel=(?:"(?:next|prev|first|last)"|(?:next|prev|first|last))\s*$/iu.test(
+        entry,
+      ),
     )
   ) {
     return invalid;

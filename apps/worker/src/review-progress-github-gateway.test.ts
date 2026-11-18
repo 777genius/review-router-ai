@@ -330,8 +330,8 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls
-        .filter(
-          ({ route }) => route.includes("/issues/{issue_number}/comments"),
+        .filter(({ route }) =>
+          route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
     ).toEqual([1, 2]);
@@ -357,8 +357,8 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls
-        .filter(
-          ({ route }) => route.includes("/issues/{issue_number}/comments"),
+        .filter(({ route }) =>
+          route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
     ).toEqual([1, 2, 3]);
@@ -367,7 +367,10 @@ describe("ReviewProgressGitHubGateway", () => {
 
   it("defers an unclassifiable marked comment instead of hiding a duplicate", async () => {
     const fixture = githubFixture([]);
-    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
       const response = await fixture.request(route, parameters);
       if (route.includes("/issues/{issue_number}/comments")) {
         return {
@@ -1506,7 +1509,7 @@ function githubFixture(
             sha:
               options.staleHeadAfterFirstRead && pullReads > 1
                 ? "b".repeat(40)
-                : (options.currentHead ?? head),
+                : options.currentHead ?? head,
           },
           base: {
             repo: { full_name: options.repositoryFullName ?? "acme/rocket" },
@@ -1518,7 +1521,7 @@ function githubFixture(
       const pageIndex = Number(parameters.page) - 1;
       const visible = options.pagedComments
         ? (options.pagedComments[pageIndex] ?? []).map(toStoredComment)
-        : (options.listedComments?.map(toStoredComment) ?? comments);
+        : options.listedComments?.map(toStoredComment) ?? comments;
       return {
         data: visible.map(toResponseComment),
         ...(options.pageLinks

@@ -130,9 +130,7 @@ describe("Review progress GitHub retry policy", () => {
       () => 1,
     );
     expect(throttled.metadata.retryNotBefore).toEqual(quota);
-    expect(throttled.metadata.retryAt).toEqual(
-      new Date(8_640_000_000_000_000),
-    );
+    expect(throttled.metadata.retryAt).toEqual(new Date(8_640_000_000_000_000));
 
     const unavailable = classifyGitHubFailure(
       { status: 503, response: { headers: { "retry-after": oversized } } },
@@ -169,10 +167,7 @@ describe("Review progress GitHub retry policy", () => {
     expect(low).toBe(now.getTime() + 250);
     expect(high).toBe(now.getTime() + 1_000);
     expect(fallback).toBe(now.getTime() + 1_250);
-    const clippedJitter = jitterAfter(
-      new Date(8_639_999_999_999_500),
-      () => 1,
-    );
+    const clippedJitter = jitterAfter(new Date(8_639_999_999_999_500), () => 1);
     expect(clippedJitter).toEqual(new Date(8_640_000_000_000_000));
   });
 
