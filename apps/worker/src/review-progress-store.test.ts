@@ -1119,6 +1119,8 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
               activeHeadSha: "a".repeat(40),
               activePlanHash: "b".repeat(64),
               desiredVersion: 73n,
+              failureCount: 2,
+              lastErrorCode: "review_progress_publish_failed",
             }),
             update: publicationUpdate,
           },
@@ -1169,6 +1171,8 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
         version: { increment: 1n },
         desiredVersion: 74n,
         nextPublishAt: now,
+        failureCount: 0,
+        lastErrorCode: null,
         updatedAt: now,
       },
     });

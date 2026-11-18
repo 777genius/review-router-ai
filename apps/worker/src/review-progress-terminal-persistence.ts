@@ -234,6 +234,9 @@ async function persistTerminalPublicationSchedule(
       version: { increment: 1n },
       desiredVersion: input.desiredVersion,
       nextPublishAt: input.now,
+      // A new version must not inherit the previous version's error budget.
+      failureCount: 0,
+      lastErrorCode: null,
       updatedAt: input.now,
       // Preserve a live claim. Its completion is fenced by desiredVersion,
       // while clearing it here could allow two simultaneous GitHub writes.
