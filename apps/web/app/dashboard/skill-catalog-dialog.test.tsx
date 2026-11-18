@@ -439,7 +439,10 @@ describe("catalog client command lifetime", () => {
               candidate: {
                 ...candidate(),
                 omittedFields: ["allowed-tools", "version"],
-                linkedFiles: ["references/checklist.md"],
+                linkedFiles: [
+                  "references/checklist.md",
+                  ...Array.from({ length: 21 }, (_, i) => `references/${i}.md`),
+                ],
                 acknowledgementRequired: true,
               },
             }
@@ -449,7 +452,7 @@ describe("catalog client command lifetime", () => {
     await preview();
     expect(
       screen.getByText(
-        /Linked files are not included: references\/checklist\.md\./,
+        /Linked files are not included: references\/checklist\.md, .* and 2 more\./,
       ),
     ).toBeTruthy();
     expect(
@@ -459,11 +462,16 @@ describe("catalog client command lifetime", () => {
     await screen.findByText("No issues found");
     const add = screen.getByRole("button", { name: "Add to library" });
     expect((add as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: /only these text instructions will be added/,
-      }),
-    );
+    // The list describes the checkbox instead of becoming its name.
+    const acknowledgement = screen.getByRole("checkbox", {
+      name: "I understand that only these text instructions will be added.",
+    });
+    expect(
+      document.getElementById(
+        acknowledgement.getAttribute("aria-describedby") ?? "",
+      )?.textContent,
+    ).toContain("references/checklist.md");
+    fireEvent.click(acknowledgement);
     expect((add as HTMLButtonElement).disabled).toBe(false);
   });
 });

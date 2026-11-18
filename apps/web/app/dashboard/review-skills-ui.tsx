@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@reviewrouter/ui";
 import type { ReactNode, RefObject } from "react";
+import { skillImportListLimit } from "../../src/features/review-skills/portable-skill";
 export const skillFieldClass =
   "w-full rounded-lg border border-cyan-200/25 bg-slate-950/70 px-3 py-2 text-sm text-cyan-50 outline-none focus:border-cyan-200 focus:ring-2 focus:ring-cyan-300/20 disabled:opacity-50";
 export const skillCellClass = "px-3 py-3 text-left align-top text-sm";
@@ -133,10 +134,9 @@ export function SkillSearch({
   );
 }
 
-const shownOmissions = 20;
 const listed = (values: readonly string[]) =>
-  values.length > shownOmissions
-    ? `${values.slice(0, shownOmissions).join(", ")} and ${values.length - shownOmissions} more`
+  values.length > skillImportListLimit
+    ? `${values.slice(0, skillImportListLimit).join(", ")} and ${values.length - skillImportListLimit} more`
     : values.join(", ");
 
 /** Names what a text-only import leaves out, shared by every import path. */

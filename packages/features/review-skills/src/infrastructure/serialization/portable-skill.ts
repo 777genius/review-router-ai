@@ -26,7 +26,8 @@ const textEncoder = new TextEncoder();
 export const skillImportByteLimit = 64 * 1024;
 // Mirrors reviewSkillsLimits.instructionsBytes; that module is not browser-safe.
 const instructionsByteLimit = 32 * 1024;
-const skillImportListLimit = 20;
+/** Most names any import list stores or shows before "and N more". */
+export const skillImportListLimit = 20;
 
 /** Display-only label: no control, bidi or lone surrogate characters, at
  * most `max` UTF-16 units and never a split character (the store bounds the
