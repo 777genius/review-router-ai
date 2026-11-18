@@ -1,9 +1,10 @@
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   accountLimitsReader,
   accountLimitsRefresher,
+  REFRESH_DISCOVERY_TTL_MS,
 } from "./account-limits-composition";
 
 const profileId = "kimi-code-global-responses-apikey-v1";
@@ -370,4 +371,49 @@ it("retries quota refresh capability discovery after one transport failure", asy
     "GET /v1/capabilities/account-limits-refresh",
     "GET /v1/capabilities/account-limits-refresh",
   ]);
+});
+
+it("shares refresh capability discovery across requests and rechecks it in the background", async () => {
+  const calls: string[] = [];
+  let profileIds = ["openai-codex-oauth-responses-v1"];
+  const server = createServer((request, response) => {
+    calls.push(`${request.method} ${request.url}`);
+    response.setHeader("content-type", "application/json");
+    response.end(
+      JSON.stringify({
+        contract: "account-limits-refresh/v1",
+        quotaOnlyRefresh: true,
+        profileIds,
+      }),
+    );
+  });
+  servers.push(server);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fixture");
+  // Each page request composes a new refresher for the same Gateway.
+  const refresherForRequest = () =>
+    accountLimitsRefresher({
+      role: "management",
+      origin: `http://127.0.0.1:${address.port}`,
+      token: "test-credential",
+    });
+  const id = "openai-codex-oauth-responses-v1";
+  expect(await refresherForRequest().supports(id)).toBe(true);
+  expect(await refresherForRequest().supports(id)).toBe(true);
+  expect(calls).toHaveLength(1);
+  // After the reuse period the known answer serves at once while the Gateway
+  // is asked again; its new answer applies to later reads.
+  profileIds = [];
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + REFRESH_DISCOVERY_TTL_MS);
+  try {
+    expect(await refresherForRequest().supports(id)).toBe(true);
+    await vi.waitFor(async () =>
+      expect(await refresherForRequest().supports(id)).toBe(false),
+    );
+    expect(calls).toHaveLength(2);
+  } finally {
+    vi.restoreAllMocks();
+  }
 });
