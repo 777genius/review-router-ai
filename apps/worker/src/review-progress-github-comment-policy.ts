@@ -79,12 +79,10 @@ export function commentPageLinks(
   // or malformed percent escapes. Bad Link metadata cannot prove completeness.
   for (const entry of entries) {
     const href = entry.match(/^\s*<([^>]+)>/u)?.[1];
-    if (
-      !href ||
-      /[\u0000-\u0020\u007f]/u.test(href) ||
-      /%(?![\da-f]{2})/iu.test(href)
-    ) {
-      return invalid;
+    if (!href || /%(?![\da-f]{2})/iu.test(href)) return invalid;
+    for (let index = 0; index < href.length; index += 1) {
+      const code = href.charCodeAt(index);
+      if (code <= 0x20 || code === 0x7f) return invalid;
     }
     try {
       const target = new URL(href, "https://api.github.com");
