@@ -53,6 +53,9 @@ function updateRequired(input: {
       {
         id: "repo_1",
         fullName: "acme/widget",
+        provider: "github",
+        selected: true,
+        archived: false,
         setupStatus: "configured",
         setupNeedsAttention: false,
         installedWorkflowRequirement: input.installed,

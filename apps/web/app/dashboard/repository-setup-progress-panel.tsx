@@ -64,6 +64,8 @@ export function RepositorySetupProgressPanel({
   runtimeCompatibility = "compatible",
   mutationsEnabled,
   initialStep,
+  verificationNeeded,
+  providerRequired = false,
   expectedProviderAuthModes = [],
   providerLine,
   enableReviewAction,
@@ -82,6 +84,10 @@ export function RepositorySetupProgressPanel({
   readonly runtimeCompatibility?: ReviewRuntimeCompatibility;
   readonly mutationsEnabled: boolean;
   readonly initialStep: SetupStep;
+  /** The installed workflow is configured but not verified (readiness owns it). */
+  readonly verificationNeeded: boolean;
+  /** No provider applies yet, so setup actions wait for one. */
+  readonly providerRequired?: boolean;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
   /** "Provider: X · Change" above the steps. */
   readonly providerLine?: ReactNode;
@@ -111,8 +117,6 @@ export function RepositorySetupProgressPanel({
   const runtimeMigrationUpdate =
     runtimeCompatibility === "update_required" &&
     expectedProviderAuthModes.includes("codex_subscription_oauth_rotating");
-  const runtimeVerificationNeeded =
-    runtimeCompatibility === "unknown" && setupStatus === "configured";
   const gatewayBlocked =
     expectedProviderAuthModes.includes("codex_account_gateway") &&
     gatewayReviewV2Readiness?.status !== "ready";
@@ -369,7 +373,8 @@ export function RepositorySetupProgressPanel({
     setupIssueGuidance,
     workflowCurrent,
     runtimeCompatibility,
-    runtimeVerificationNeeded,
+    runtimeVerificationNeeded: verificationNeeded,
+    providerRequired,
     mutationsEnabled,
     currentStep: displayStep,
     enableReviewAction:
@@ -433,7 +438,7 @@ export function RepositorySetupProgressPanel({
           {repositorySetupProgressSummary(displayStep, {
             providerSetupBeforeWorkflow:
               providerSetupBeforeWorkflow && !runtimeMigrationUpdate,
-            verificationNeeded: runtimeVerificationNeeded,
+            verificationNeeded,
             workflowUpdateRequired: runtimeCompatibility === "update_required",
           })}
         </span>
@@ -499,6 +504,7 @@ function buildSetupSteps({
   workflowCurrent,
   runtimeCompatibility,
   runtimeVerificationNeeded,
+  providerRequired,
   mutationsEnabled,
   currentStep,
   enableReviewAction,
@@ -519,6 +525,7 @@ function buildSetupSteps({
   readonly workflowCurrent: boolean;
   readonly runtimeCompatibility: ReviewRuntimeCompatibility;
   readonly runtimeVerificationNeeded: boolean;
+  readonly providerRequired: boolean;
   readonly mutationsEnabled: boolean;
   readonly currentStep: SetupStep;
   readonly enableReviewAction?: ReactNode;
@@ -531,6 +538,12 @@ function buildSetupSteps({
   readonly onMergeComplete: (params: Record<string, string>) => void;
 }): readonly RepositorySetupProgressStep[] {
   const position = setupStepNumber[currentStep];
+  const providerUnavailableReason = providerRequired
+    ? "Choose a provider above first."
+    : undefined;
+  // Unverified after a merge (Gateway): verification is step 2, not step 1.
+  const verifyAtFirstStep =
+    runtimeVerificationNeeded && currentStep === "setup_pr";
   const workflowRefresh =
     runtimeCompatibility === "update_required" ||
     (providerSetupBeforeWorkflow && currentStep === "provider") ||
@@ -552,13 +565,14 @@ function buildSetupSteps({
           ↗
         </span>
       </LinkButton>
-    ) : runtimeVerificationNeeded ? (
+    ) : verifyAtFirstStep ? (
       <RepositorySetupMergedButton
         workspaceId={workspaceId}
         repositoryId={repositoryId}
         selected={selected}
         archived={archived}
         mutationsEnabled={mutationsEnabled}
+        unavailableReason={providerUnavailableReason}
         onComplete={onMergeComplete}
         label="Verify setup"
       />
@@ -572,6 +586,7 @@ function buildSetupSteps({
         workflowCurrent={workflowCurrent}
         workflowRefresh={workflowRefresh}
         mutationsEnabled={mutationsEnabled}
+        unavailableReason={providerUnavailableReason}
         onComplete={onSetupComplete}
       />
     ) : null;
@@ -589,8 +604,11 @@ function buildSetupSteps({
         selected={selected}
         archived={archived}
         mutationsEnabled={mutationsEnabled}
+        unavailableReason={providerUnavailableReason}
         onComplete={onMergeComplete}
-        {...(workflowRefresh ? { label: "Verify setup" as const } : {})}
+        {...(workflowRefresh || runtimeVerificationNeeded
+          ? { label: "Verify setup" as const }
+          : {})}
       />
     ) : null;
   const preWorkflowProviderAction =
@@ -628,22 +646,24 @@ function buildSetupSteps({
     ? setupIssueHelperText(setupIssue)
     : setupIssueGuidance
       ? setupIssueGuidance
-      : runtimeVerificationNeeded
+      : verifyAtFirstStep
         ? repositoryWorkflowVerificationCopy.helper
         : position > setupStepNumber.setup_pr
           ? "Setup PR exists."
           : workflowRefresh
             ? repositoryWorkflowUpdateCopy.helper
-            : providerSetupBeforeWorkflow
-              ? "Connect Codex, then create and merge the setup PR."
-              : "Add the workflow by PR.";
+            : providerUnavailableReason
+              ? providerUnavailableReason
+              : providerSetupBeforeWorkflow
+                ? "Connect Codex, then create and merge the setup PR."
+                : "Add the workflow by PR.";
 
   return [
     {
       id: "setup_pr",
       title: setupIssue
         ? "Recover setup PR"
-        : runtimeVerificationNeeded
+        : verifyAtFirstStep
           ? "Verify setup"
           : workflowRefresh
             ? repositoryWorkflowUpdateCopy.stepTitle
@@ -659,7 +679,9 @@ function buildSetupSteps({
       helper:
         position > setupStepNumber.merge_setup_pr
           ? "Workflow is on the default branch."
-          : "Merge on GitHub.",
+          : runtimeVerificationNeeded && currentStep === "merge_setup_pr"
+            ? "Merged. Verify the workflow to start reviews."
+            : "Merge on GitHub.",
       action: mergeConfirmAction,
     },
     {
