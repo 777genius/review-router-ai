@@ -1,6 +1,7 @@
 import {
   resolveEffectiveProviderReadiness,
   type EffectiveProviderReadiness,
+  type GatewayAuthorizationState,
 } from "@reviewrouter/features-provider-setup";
 import type { RepositoryHealthStatus } from "@reviewrouter/features-repo-health";
 import type {
@@ -25,10 +26,12 @@ import {
   isGatewayReviewV2RepositoryReady,
   type GatewayReviewV2RepositoryReadiness,
 } from "./prisma-gateway-review-v2-provisioning";
+import { describeRepositoryHealth } from "./repository-health-view";
 import {
-  repositorySearchReadiness,
-  type RepositorySearchReadiness,
-} from "./repository-search";
+  isRepositoryAvailableForSetup,
+  repositorySetupState,
+  type RepositorySetupState,
+} from "../features/repository-setup/repository-setup-state";
 import {
   installedReviewRuntimeCompatibility,
   type DashboardRuntimeReleases,
@@ -62,6 +65,9 @@ export function dashboardRepositoryConfigs(
 export type DashboardReadinessRepository = Readonly<{
   id: string;
   fullName: string;
+  provider: string;
+  selected: boolean;
+  archived: boolean;
   setupStatus: string;
   setupNeedsAttention: boolean;
   /** What the installed workflow was rendered for; null when not recorded. */
@@ -77,12 +83,12 @@ export type DashboardRepositoryReadiness<
 > = EffectiveProviderReadiness &
   Readonly<{
     repository: Repository;
-    readiness: RepositorySearchReadiness;
+    state: RepositorySetupState;
   }>;
 
 /**
- * The one composition of readiness facts shared by the dashboard page and the
- * repository search route, so both show the same setup step and filter bucket.
+ * The one composition of readiness facts: the setup step of each repository
+ * row and the state its counts, filter and order use.
  */
 export function resolveDashboardRepositoryReadiness<
   Repository extends DashboardReadinessRepository,
@@ -140,9 +146,9 @@ export function resolveDashboardRepositoryReadiness<
       required && comparableWorkflowRequirement(required, transition);
     const installedComparable =
       installed && comparableWorkflowRequirement(installed, transition);
-    const gatewayAuthorizationReady = isGatewayReviewV2RepositoryReady(
-      input.gatewayReadiness.get(repository.id),
-    );
+    const gatewayReadiness = input.gatewayReadiness.get(repository.id);
+    const gatewayAuthorizationReady =
+      isGatewayReviewV2RepositoryReady(gatewayReadiness);
     const readiness = resolveEffectiveProviderReadiness({
       providers: config?.providers ?? null,
       requiredWorkflowRequirement: requiredComparable,
@@ -166,17 +172,26 @@ export function resolveDashboardRepositoryReadiness<
       gatewayAccountReady: config
         ? isGatewayProviderSetupReady(config, input.gatewayAccounts)
         : false,
-      gatewayAuthorizationReady,
+      gatewayAuthorization: gatewayAuthorizationState(gatewayReadiness),
       providerSecretCheckFailed:
         repository.fullName ===
         input.providerSecretCheckFailedRepositoryFullName,
     });
+    const healthView = describeRepositoryHealth(readiness.healthStatus);
     return {
       ...readiness,
       repository,
-      readiness: repositorySearchReadiness({
-        setupProgressStep: readiness.step,
-        healthStatus: readiness.healthStatus,
+      state: repositorySetupState({
+        available: isRepositoryAvailableForSetup(repository),
+        step: readiness.step,
+        healthDanger: healthView.tone === "danger",
+        healthBlocksReview: healthView.blocksReview,
+        setupNeedsAttention: repository.setupNeedsAttention,
+        gatewayAuthorization: readiness.gatewayAuthorization,
+        gatewayAccountsRead: input.gatewayAccounts?.status === "ok",
+        setupStarted:
+          repository.workflowProvisioning != null ||
+          repository.setupStatus !== "not_configured",
       }),
     };
   });
@@ -194,6 +209,23 @@ export function gatewayReviewRepositoryIds(
         (provider) => provider.authMode === "codex_account_gateway",
       ),
   );
+}
+
+/**
+ * A missing authority or repository identity is what a merged setup has before
+ * its verification; every other refusal is an operator state (pause, drain,
+ * legacy enrollment, safety block) that verification does not clear.
+ */
+function gatewayAuthorizationState(
+  readiness: GatewayReviewV2RepositoryReadiness | undefined,
+): GatewayAuthorizationState {
+  if (!readiness) return "not_established";
+  if (readiness.status === "ready") return "ready";
+  return "issue" in readiness &&
+    (readiness.issue === "mutation_authority_unavailable" ||
+      readiness.issue === "gateway_repository_identity_missing")
+    ? "not_established"
+    : "blocked";
 }
 
 function knownWorkflowRequirement(
