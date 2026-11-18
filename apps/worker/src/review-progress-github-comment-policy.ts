@@ -93,7 +93,9 @@ export function commentPageLinks(
     }
   }
 
-  const hasNext = entries.some((entry) => /;\s*rel=(?:"next"|next)\s*$/iu.test(entry));
+  const hasNext = entries.some((entry) =>
+    /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
+  );
   const lastEntries = entries.filter((entry) =>
     /;\s*rel=(?:"last"|last)\s*$/iu.test(entry),
   );
@@ -104,9 +106,10 @@ export function commentPageLinks(
   const href = last.match(/^\s*<([^>]+)>/u)?.[1];
   if (!href) return invalid;
   try {
-    const value = new URL(href, "https://api.github.com").searchParams.get("page");
-    if (!value || !/^[1-9]\d*$/u.test(value)) return invalid;
-    const lastPage = Number(value);
+    const value = new URL(href, "https://api.github.com");
+    const pageValue = value.searchParams.get("page");
+    if (!pageValue || !/^[1-9]\d*$/u.test(pageValue)) return invalid;
+    const lastPage = Number(pageValue);
     if (!Number.isSafeInteger(lastPage) || lastPage < currentPage) {
       return invalid;
     }

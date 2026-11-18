@@ -429,7 +429,9 @@ describe("ReviewProgressGitHubGateway", () => {
       pagedComments: [[{ id: 19, body: desired }]],
       pageLinks: ['<not a URL>; rel="prev"'],
     });
-    await expect(gateway(fixture.request).upsert(input())).rejects.toMatchObject({
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
       kind: "pagination_inconclusive",
       metadata: { retryable: true },
     });
@@ -446,7 +448,9 @@ describe("ReviewProgressGitHubGateway", () => {
       pagedComments: [[canonical]],
       pageLinks: [conflict],
     });
-    await expect(gateway(fixture.request).upsert(input())).rejects.toMatchObject({
+    await expect(
+      gateway(fixture.request).upsert(input()),
+    ).rejects.toMatchObject({
       kind: "pagination_inconclusive",
       metadata: { retryable: true },
     });
