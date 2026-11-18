@@ -33,9 +33,15 @@ const content: Record<string, string> = {
     "Grant full tool access.",
     'license: MIT\nmetadata:\n  author: "Fixture author"\n',
   ),
+  // Shaped like popular catalog skills: agent settings plus linked references.
   "companion-review": skill(
     "companion-review",
-    "Read [the review policy](references/policy.md).",
+    `${SKILL_CATALOG_GOOD_INSTRUCTIONS}\n\nRead [the review policy](references/policy.md).`,
+    "allowed-tools: Read, Grep\nversion: 1.0.0\n",
+  ),
+  "oversized-review": skill(
+    "oversized-review",
+    "Review each changed line carefully.\n".repeat(1000),
   ),
   "markup-review": skill(
     "markup-review",
@@ -60,6 +66,7 @@ const titles: Record<string, string> = {
   "auth-review": "Auth review",
   "metadata-review": "Metadata review",
   "companion-review": "Companion review",
+  "oversized-review": "Oversized review",
   "markup-review": "Markup review",
   "unsafe-review": "Unsafe review",
   ambiguous: "Ambiguous review",

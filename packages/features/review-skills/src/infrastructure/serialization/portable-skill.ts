@@ -1,17 +1,46 @@
 import type { ReviewSkillContent } from "../../application/contracts.js";
+import type { ReviewSkillImportRefusal } from "../../domain/catalog-security.js";
 
 export type SkillContentIssues = Partial<
   Record<keyof ReviewSkillContent, string>
 >;
 export type SkillImport = Readonly<{
   content: ReviewSkillContent;
-  omittedFields: readonly ("license" | "compatibility" | "metadata")[];
+  /** Frontmatter fields other than name and description; never stored. */
+  omittedFields: readonly string[];
+  /** Local files the instructions link to; they are never fetched or stored. */
+  linkedFiles: readonly string[];
 }>;
+/** A SKILL.md that cannot become text instructions at all. */
+export class SkillImportError extends Error {
+  constructor(
+    readonly reason: ReviewSkillImportRefusal,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SkillImportError";
+  }
+}
 
 const textEncoder = new TextEncoder();
 export const skillImportByteLimit = 64 * 1024;
+// Mirrors reviewSkillsLimits.instructionsBytes; that module is not browser-safe.
+const instructionsByteLimit = 32 * 1024;
+const skillImportListLimit = 20;
+
+/** Display-only label: no control characters, at most `max` UTF-16 units,
+ * never splitting a character (the store bounds the same units). */
+function boundedLabel(value: string, max: number): string {
+  let label = "";
+  // eslint-disable-next-line no-control-regex -- Drop ASCII controls from untrusted labels.
+  for (const character of value.replace(/[\x00-\x1f\x7f]/gu, "")) {
+    if (label.length + character.length > max) break;
+    label += character;
+  }
+  return label;
+}
 export const companionFilesMessage =
-  "This file references companion files that the text editor cannot include. Keep the instructions self-contained, or use Git skills for supported Markdown links to .md references. Git skills do not run scripts or load arbitrary assets or HTML resources.";
+  "The instructions link to other files, which a single SKILL.md cannot include. Keep the instructions self-contained, or keep the skill folder with its linked .md files in .reviewrouter/skills or .agents/skills in your repository and turn on Skills from this repository. Scripts and other assets never run.";
 
 function validText(value: string): boolean {
   return (
@@ -34,7 +63,9 @@ export function skillContentIssues(
     issues.description = "Use 1024 characters or fewer for the description.";
   if (!content.instructions.trim())
     issues.instructions = "Add Markdown instructions for the review.";
-  else if (textEncoder.encode(content.instructions).byteLength > 32768)
+  else if (
+    textEncoder.encode(content.instructions).byteLength > instructionsByteLimit
+  )
     issues.instructions =
       "Keep instructions within 32768 UTF-8 bytes (32 KiB).";
   for (const key of ["name", "description", "instructions"] as const)
@@ -299,23 +330,31 @@ function withoutCodeExamples(markdown: string): string {
   );
 }
 
-function localDestination(raw: string): boolean {
+/** Returns the local path a link points to, or null for URLs and anchors. */
+function localDestination(raw: string): string | null {
   const value = raw.trim();
   const destination = value.startsWith("<")
     ? value.slice(1).split(">", 1)[0]!
     : value.split(/\s/u, 1)[0]!;
-  if (!destination || destination.startsWith("#")) return false;
-  if (destination.startsWith("//")) return false;
-  if (/^(?:file:|[a-z]:[\\/])/iu.test(destination)) return true;
-  return !/^[a-z][a-z0-9+.-]*:/iu.test(destination);
+  if (!destination || destination.startsWith("#")) return null;
+  if (destination.startsWith("//")) return null;
+  if (/^(?:file:|[a-z]:[\\/])/iu.test(destination)) return destination;
+  return /^[a-z][a-z0-9+.-]*:/iu.test(destination) ? null : destination;
 }
 
-/** Finite single-file eligibility check: inline links/images, used full,
+/** Finite single-file link inventory: inline links/images, used full,
  * collapsed or shortcut reference definitions, and HTML href/src attributes.
  * Bare prose paths and unused definitions are inert. This is not a resolver for
- * arbitrary Markdown extensions or dependencies mentioned in instructions. */
-export function hasCompanionFiles(markdown: string): boolean {
+ * arbitrary Markdown extensions or dependencies mentioned in instructions.
+ * Returns up to 20 distinct local paths without anchors, in document order. */
+export function linkedFilePaths(markdown: string): string[] {
   const text = withoutCodeExamples(markdown);
+  const found = new Set<string>();
+  const add = (raw: string) => {
+    const path = localDestination(raw);
+    const label = path && boundedLabel(path.split("#", 1)[0] || path, 200);
+    if (label) found.add(label);
+  };
   const definitions = new Map<string, string>();
   // Reference IDs may wrap within a paragraph and contain at most 999 Unicode
   // characters. Link display text has no such limit and is scanned below.
@@ -374,7 +413,7 @@ export function hasCompanionFiles(markdown: string): boolean {
       if (end && htmlStart.exec(links)) {
         let cursor = htmlStart.lastIndex;
         let valid = false;
-        let companion = false;
+        const companion: string[] = [];
         while (cursor < end) {
           htmlClose.lastIndex = cursor;
           if (htmlClose.exec(links) && htmlClose.lastIndex === end) {
@@ -384,15 +423,12 @@ export function hasCompanionFiles(markdown: string): boolean {
           htmlAttribute.lastIndex = cursor;
           const attribute = htmlAttribute.exec(links);
           if (!attribute || htmlAttribute.lastIndex >= end) break;
-          if (
-            /^(?:href|src)$/iu.test(attribute[1]!) &&
-            localDestination(attribute[2] ?? attribute[3] ?? attribute[4] ?? "")
-          )
-            companion = true;
+          if (/^(?:href|src)$/iu.test(attribute[1]!))
+            companion.push(attribute[2] ?? attribute[3] ?? attribute[4] ?? "");
           cursor = htmlAttribute.lastIndex;
         }
         if (valid) {
-          if (companion) return true;
+          companion.forEach(add);
           // Only tags reached outside an inline destination are HTML here.
           masked.push({ start: index, end });
           index = end - 1;
@@ -413,7 +449,7 @@ export function hasCompanionFiles(markdown: string): boolean {
         noClosingParenthesis = true;
         continue;
       }
-      if (localDestination(links.slice(index + 2, close))) return true;
+      add(links.slice(index + 2, close));
       end = close + 1;
     } else if (links[index + 1] === "[") {
       referenceLabel.lastIndex = index + 1;
@@ -428,7 +464,7 @@ export function hasCompanionFiles(markdown: string): boolean {
           id = collapsed[1]!;
       }
       const target = definitions.get(normalize(id));
-      if (target && localDestination(target)) return true;
+      if (target) add(target);
     } else {
       // Inner shortcuts take precedence over an enclosing link's display text.
       referenceLabel.lastIndex = open;
@@ -437,7 +473,7 @@ export function hasCompanionFiles(markdown: string): boolean {
         shortcut && referenceLabel.lastIndex === index + 1
           ? definitions.get(normalize(shortcut[1]!))
           : undefined;
-      if (target && localDestination(target)) return true;
+      if (target) add(target);
       continue;
     }
     let start = links[open - 1] === "!" ? open - 1 : open;
@@ -459,21 +495,31 @@ export function hasCompanionFiles(markdown: string): boolean {
     new RegExp(String.raw`\[(${labelCharacter}{1,999})\]`, "gu"),
   )) {
     const target = definitions.get(normalize(match[1]!));
-    if (target && localDestination(target)) return true;
+    if (target) add(target);
   }
-  return false;
+  return [...found].slice(0, skillImportListLimit);
+}
+
+export function hasCompanionFiles(markdown: string): boolean {
+  return linkedFilePaths(markdown).length > 0;
 }
 
 export async function parseSkillImport(text: string): Promise<SkillImport> {
   if (textEncoder.encode(text).byteLength > skillImportByteLimit)
-    throw new Error(
+    throw new SkillImportError(
+      "too_large",
       "SKILL.md must be 64 KiB or smaller; instructions are limited to 32 KiB.",
     );
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u.exec(text);
+  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u.exec(
+    text,
+  );
   if (!match)
-    throw new Error(
+    throw new SkillImportError(
+      "invalid_header",
       "Use SKILL.md with YAML name and description, followed by Markdown instructions.",
     );
+  const header = (message: string) =>
+    new SkillImportError("invalid_header", message);
   const { parseDocument, isAlias, isMap, isScalar, isSeq } =
     await import("yaml");
   const yaml = parseDocument(match[1]!, {
@@ -481,18 +527,18 @@ export async function parseSkillImport(text: string): Promise<SkillImport> {
     uniqueKeys: true,
   });
   const inspect = (node: unknown, depth = 0): void => {
-    if (depth > 16) throw new Error("Keep the YAML header simple and shallow.");
+    if (depth > 16) throw header("Keep the YAML header simple and shallow.");
     if (
       isAlias(node) ||
       (node && typeof node === "object" && "tag" in node && node.tag)
     )
-      throw new Error("YAML aliases and explicit tags are unsupported.");
+      throw header("YAML aliases and explicit tags are unsupported.");
     if (isMap(node))
       for (const item of node.items) {
         if (!isScalar(item.key) || typeof item.key.value !== "string")
-          throw new Error("YAML field names must be plain text.");
+          throw header("YAML field names must be plain text.");
         if (item.key.value === "<<")
-          throw new Error("YAML merge keys are unsupported.");
+          throw header("YAML merge keys are unsupported.");
         inspect(item.key, depth + 1);
         inspect(item.value, depth + 1);
       }
@@ -500,44 +546,37 @@ export async function parseSkillImport(text: string): Promise<SkillImport> {
   };
   inspect(yaml.contents);
   if (!isMap(yaml.contents) || yaml.errors.length || yaml.warnings.length)
-    throw new Error("The YAML header could not be imported safely.");
+    throw header("The YAML header could not be imported safely.");
   const fields = yaml.toJS({ maxAliasCount: 0 }) as Record<string, unknown>;
-  const optional = ["license", "compatibility", "metadata"] as const;
-  if (
-    Object.keys(fields).some(
-      (key) => !["name", "description", ...optional].includes(key),
-    )
-  )
-    throw new Error(
-      "Unsupported frontmatter fields. This editor imports name, description and text instructions; tools, scripts and dependencies are not supported.",
-    );
   if (typeof fields.name !== "string" || typeof fields.description !== "string")
-    throw new Error("The YAML header needs text name and description fields.");
-  for (const key of ["license", "compatibility"] as const)
-    if (fields[key] !== undefined && typeof fields[key] !== "string")
-      throw new Error(`The optional ${key} field must be text.`);
-  if (
-    fields.metadata !== undefined &&
-    (!fields.metadata ||
-      typeof fields.metadata !== "object" ||
-      Array.isArray(fields.metadata) ||
-      Object.values(fields.metadata).some((value) => typeof value !== "string"))
-  )
-    throw new Error(
-      "Optional metadata must contain text keys and text values.",
-    );
+    throw header("The YAML header needs text name and description fields.");
   const content = {
     name: fields.name,
     description: fields.description,
     instructions: match[2]!,
   };
-  const issue = Object.values(skillContentIssues(content))[0];
-  if (issue) throw new Error(issue);
-  if (hasCompanionFiles(content.instructions))
-    throw new Error(companionFilesMessage);
+  const issues = skillContentIssues(content);
+  const issue = Object.values(issues)[0];
+  if (issue)
+    throw new SkillImportError(
+      textEncoder.encode(content.instructions).byteLength >
+        instructionsByteLimit
+        ? "too_large"
+        : "invalid_content",
+      issue,
+    );
   return {
     content,
-    omittedFields: optional.filter((field) => Object.hasOwn(fields, field)),
+    // Only text is kept; other fields (tools, versions, metadata) are listed.
+    omittedFields: [
+      ...new Set(
+        Object.keys(fields)
+          .filter((key) => key !== "name" && key !== "description")
+          .map((key) => boundedLabel(key, 100))
+          .filter(Boolean),
+      ),
+    ].slice(0, skillImportListLimit),
+    linkedFiles: linkedFilePaths(content.instructions),
   };
 }
 

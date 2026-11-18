@@ -7,7 +7,12 @@ import {
   requestReviewSkills,
   ReviewSkillsClientError,
 } from "../../src/features/review-skills/client-adapter";
-import { SkillsDialog, SkillsError, skillFieldClass } from "./review-skills-ui";
+import {
+  SkillImportOmissions,
+  SkillsDialog,
+  SkillsError,
+  skillFieldClass,
+} from "./review-skills-ui";
 import {
   parseSkillImport,
   skillContentIssues,
@@ -142,7 +147,8 @@ export function SkillEditorDialog({
         );
       const imported = await parseSkillImport(await file.text());
       setImportError(null);
-      if (dirty || imported.omittedFields.length) setImportReview(imported);
+      if (dirty || imported.omittedFields.length || imported.linkedFiles.length)
+        setImportReview(imported);
       else applyImport(imported);
     } catch (error) {
       setImportError(
@@ -177,7 +183,8 @@ export function SkillEditorDialog({
               Cancel import
             </Button>
             <Button type="button" onClick={() => applyImport(importReview)}>
-              {importReview.omittedFields.length
+              {importReview.omittedFields.length ||
+              importReview.linkedFiles.length
                 ? "Import text only"
                 : "Replace draft"}
             </Button>
@@ -247,11 +254,13 @@ export function SkillEditorDialog({
           <p className="break-words text-slate-300">
             Importing {importReview.content.name} as editable text instructions.
           </p>
-          {importReview.omittedFields.length ? (
+          {importReview.omittedFields.length ||
+          importReview.linkedFiles.length ? (
             <p className="text-amber-100">
-              This editor does not store these fields:{" "}
-              {importReview.omittedFields.join(", ")}. Import text only keeps
-              the name, description and Markdown instructions.
+              <SkillImportOmissions
+                omittedFields={importReview.omittedFields}
+                linkedFiles={importReview.linkedFiles}
+              />
             </p>
           ) : null}
           {dirty ? (

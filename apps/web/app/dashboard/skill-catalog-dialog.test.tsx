@@ -27,7 +27,8 @@ vi.mock("../../src/features/review-skills/catalog-client-adapter", () => ({
   },
 }));
 // These tests exercise command/query state. Real dialog geometry/focus has its browser lane.
-vi.mock("./review-skills-ui", () => ({
+vi.mock("./review-skills-ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./review-skills-ui")>()),
   SkillsDialog: ({
     open,
     title,
@@ -87,7 +88,9 @@ function candidate(id = "candidate"): ReviewSkillImportCandidate {
     },
     source: { repository: "example/skills", commit: "1".repeat(40), path: "" },
     omittedFields: [],
+    linkedFiles: [],
     hasResources: false,
+    acknowledgementRequired: false,
     expiresAt: expiry,
     aiAvailable: true,
   };
@@ -393,5 +396,74 @@ describe("catalog client command lifetime", () => {
       .map(([, input]) => input);
     expect(commands).toHaveLength(2);
     expect(commands[1]).toEqual(commands[0]);
+  });
+
+  it("explains why a skill cannot be added and links to its exact source", async () => {
+    const normal = h.request.getMockImplementation()!;
+    h.request.mockImplementation(
+      async (method: string, input: { mode?: "static" | "ai" }) =>
+        method === "resolve"
+          ? {
+              status: "unsupported",
+              reason: "too_large",
+              source: {
+                repository: "example/skills",
+                commit: "1".repeat(40),
+                path: "review",
+              },
+            }
+          : normal(method, input),
+    );
+    mount();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Preview Review helper" }),
+    );
+    await screen.findByRole("heading", { name: "This skill cannot be added" });
+    expect(screen.getByText(/longer than 32 KB/)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Open example/skills on GitHub" })
+        .getAttribute("href"),
+    ).toBe(`https://github.com/example/skills/tree/${"1".repeat(40)}/review`);
+    expect(screen.queryByRole("button", { name: "Check skill" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add to library" })).toBeNull();
+  });
+
+  it("names the settings and linked files left out before the acknowledgement", async () => {
+    const normal = h.request.getMockImplementation()!;
+    h.request.mockImplementation(
+      async (method: string, input: { mode?: "static" | "ai" }) =>
+        method === "resolve"
+          ? {
+              status: "resolved",
+              candidate: {
+                ...candidate(),
+                omittedFields: ["allowed-tools", "version"],
+                linkedFiles: ["references/checklist.md"],
+                acknowledgementRequired: true,
+              },
+            }
+          : normal(method, input),
+    );
+    mount();
+    await preview();
+    expect(
+      screen.getByText(
+        /Linked files are not included: references\/checklist\.md\./,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/^Not used: allowed-tools, version\./),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Check skill" }));
+    await screen.findByText("No issues found");
+    const add = screen.getByRole("button", { name: "Add to library" });
+    expect((add as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /only these text instructions will be added/,
+      }),
+    );
+    expect((add as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hasCompanionFiles,
+  linkedFilePaths,
   parseSkillImport,
   portableSkillName,
   skillContentIssues,
@@ -21,7 +22,11 @@ describe("single-file Skills portability", () => {
     const parsed = await parseSkillImport(
       `---\nname: ${JSON.stringify(legacy.name)}\ndescription: ""\n---\n${legacy.instructions}`,
     );
-    expect(parsed).toEqual({ content: legacy, omittedFields: [] });
+    expect(parsed).toEqual({
+      content: legacy,
+      omittedFields: [],
+      linkedFiles: [],
+    });
     const download = skillDownload(legacy);
     expect(download.portableName).toBe("api");
     expect(download.usesFallbackDescription).toBe(true);
@@ -56,16 +61,36 @@ describe("single-file Skills portability", () => {
     });
   });
 
+  // Real catalog skills carry agent settings; text import lists and drops them.
   it.each([
-    "allowed-tools: Bash\n",
-    "tools: [Bash]\n",
-    "scripts: run.sh\n",
-    "dependencies: package\n",
-    "custom: value\n",
-  ])("refuses unsupported frontmatter %s", async (header) => {
-    await expect(parseSkillImport(file(undefined, header))).rejects.toThrow(
-      "Unsupported frontmatter",
+    ["allowed-tools: Bash\n", ["allowed-tools"]],
+    ["tools: [Bash]\nversion: 1.0.0\n", ["tools", "version"]],
+    ["metadata: [a, b]\n", ["metadata"]],
+    [
+      "metadata:\n  nested: {a: b}\nuser-invocable: false\n",
+      ["metadata", "user-invocable"],
+    ],
+  ])("keeps text and lists unused frontmatter %s", async (header, omitted) => {
+    const parsed = await parseSkillImport(file(undefined, header));
+    expect(parsed.content).toEqual(content);
+    expect(parsed.omittedFields).toEqual(omitted);
+  });
+
+  it("bounds the listed unused field names", async () => {
+    const header = Array.from(
+      { length: 30 },
+      (_, index) => `k${index}${"k".repeat(150)}: v\n`,
+    ).join("");
+    const parsed = await parseSkillImport(file(undefined, header));
+    expect(parsed.omittedFields).toHaveLength(20);
+    expect(parsed.omittedFields.every((name) => name.length === 100)).toBe(
+      true,
     );
+    // The store bounds UTF-16 units; a cut never splits an emoji.
+    const [emoji] = (
+      await parseSkillImport(file(undefined, `x${"🙂".repeat(60)}: v\n`))
+    ).omittedFields;
+    expect(emoji).toBe(`x${"🙂".repeat(49)}`);
   });
 
   it.each([
@@ -73,28 +98,43 @@ describe("single-file Skills portability", () => {
     "name: !!str example\ndescription: text",
     "name: example\ndescription: text\n<<: {license: MIT}",
     "name: example\nname: duplicate\ndescription: text",
-    "name: example\ndescription: text\nmetadata: [a, b]",
-    "name: example\ndescription: text\nmetadata:\n  nested: {a: b}",
+    "name: [example]\ndescription: text",
   ])(
     "rejects unsafe or unsupported YAML without returning a draft",
     async (header) => {
       await expect(
         parseSkillImport(`---\n${header}\n---\nReview.`),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ reason: "invalid_header" });
     },
   );
 
+  it("reads a SKILL.md saved with a byte order mark", async () => {
+    expect((await parseSkillImport(`\uFEFF${file()}`)).content).toEqual(
+      content,
+    );
+  });
+
   it("bounds file and app content sizes before import", async () => {
-    await expect(parseSkillImport("x".repeat(64 * 1024 + 1))).rejects.toThrow(
-      "64 KiB",
-    );
-    await expect(parseSkillImport(file("x".repeat(32769)))).rejects.toThrow(
-      "32768 UTF-8 bytes",
-    );
-    await expect(parseSkillImport(file("\0"))).rejects.toThrow(
-      "null characters",
-    );
-    await expect(parseSkillImport(file(" \n"))).rejects.toThrow("Add Markdown");
+    await expect(
+      parseSkillImport("x".repeat(64 * 1024 + 1)),
+    ).rejects.toMatchObject({
+      reason: "too_large",
+      message: expect.stringContaining("64 KiB"),
+    });
+    await expect(
+      parseSkillImport(file("x".repeat(32769))),
+    ).rejects.toMatchObject({
+      reason: "too_large",
+      message: expect.stringContaining("32768 UTF-8 bytes"),
+    });
+    await expect(parseSkillImport(file("\0"))).rejects.toMatchObject({
+      reason: "invalid_content",
+      message: expect.stringContaining("null characters"),
+    });
+    await expect(parseSkillImport(file(" \n"))).rejects.toMatchObject({
+      reason: "invalid_content",
+      message: expect.stringContaining("Add Markdown"),
+    });
     expect(
       skillContentIssues({ ...content, name: "x".repeat(121) }),
     ).toHaveProperty("name");
@@ -177,15 +217,15 @@ describe("single-file Skills portability", () => {
     "[review\nrules]\n\n[review rules]: references/guide.md",
     "[guide][review rules]\n\n[review\nrules]: references/guide.md",
   ])(
-    "rejects actual companion references and offers draft-only export: %s",
+    "lists actual companion references and offers draft-only export: %s",
     async (instructions) => {
       expect(hasCompanionFiles(instructions)).toBe(true);
-      await expect(parseSkillImport(file(instructions))).rejects.toThrow(
-        "companion files",
-      );
+      const imported = await parseSkillImport(file(instructions));
+      expect(imported.content.instructions).toBe(instructions);
+      expect(imported.linkedFiles).toHaveLength(1);
       const download = skillDownload({ ...content, instructions });
       expect(download.filename).toBe("SKILL.draft.md");
-      expect(download.issue).toContain("companion files");
+      expect(download.issue).toContain("link to other files");
       expect(download.text.endsWith(instructions)).toBe(true);
     },
   );
@@ -277,6 +317,14 @@ describe("single-file Skills portability", () => {
       );
     },
   );
+
+  it("lists each linked path once, without anchors, in document order", () => {
+    expect(
+      linkedFilePaths(
+        '[A](references/a.md#x) [B][b] <img src="assets/d.png"> [A2](references/a.md) [Web](https://example.test)\n\n[b]: ./b.md',
+      ),
+    ).toEqual(["references/a.md", "./b.md", "assets/d.png"]);
+  });
 
   it.each([999, 1000])(
     "honors the reference label boundary at %s Unicode characters",

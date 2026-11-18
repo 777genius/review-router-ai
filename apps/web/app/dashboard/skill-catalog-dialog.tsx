@@ -10,6 +10,8 @@ import {
 import { Button, Checkbox } from "@reviewrouter/ui";
 import type { ReviewSkillDocument } from "../../src/features/review-skills/contracts";
 import type {
+  ReviewSkillCatalogSource,
+  ReviewSkillImportRefusal,
   ReviewSkillScan,
   ReviewSkillScanMode,
   ReviewSkillsCatalogSelection,
@@ -20,7 +22,12 @@ import {
   SkillCatalogClientError,
 } from "../../src/features/review-skills/catalog-client-adapter";
 import { skillCatalogKeys } from "../../src/features/review-skills/catalog-query-keys";
-import { SkillsDialog, SkillsError, SkillSearch } from "./review-skills-ui";
+import {
+  SkillImportOmissions,
+  SkillsDialog,
+  SkillsError,
+  SkillSearch,
+} from "./review-skills-ui";
 
 type ScanAttempt = Readonly<{
   command: SkillCatalogInput<"requestScan">;
@@ -205,9 +212,7 @@ export function SkillCatalogDialog({
     (scan.verdict === "clear" || scan.verdict === "warnings") &&
     !expired &&
     !scanRefused;
-  const needsOmissions = Boolean(
-    candidate?.omittedFields.length || candidate?.hasResources,
-  );
+  const needsOmissions = candidate?.acknowledgementRequired === true;
   const scanAvailable = configuration.data?.scanAvailable === true;
   const selectedProfileAvailable =
     scanAvailable &&
@@ -404,7 +409,15 @@ export function SkillCatalogDialog({
                   </p>
                   {!item.available ? (
                     <p className="mt-1 text-xs text-slate-400">
-                      Not available to add here
+                      Only skills stored on GitHub can be added here.{" "}
+                      <a
+                        href={item.providerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-cyan-200 underline"
+                      >
+                        View on skills.sh
+                      </a>
                     </p>
                   ) : null}
                 </div>
@@ -497,6 +510,11 @@ export function SkillCatalogDialog({
             ))}
           </ul>
         </section>
+      ) : resolution?.status === "unsupported" ? (
+        <UnsupportedSkill
+          reason={resolution.reason}
+          source={resolution.source}
+        />
       ) : resolution?.status === "not_found" ||
         resolution?.status === "incomplete" ? (
         <p role="status" className="text-sm text-slate-300">
@@ -514,7 +532,7 @@ export function SkillCatalogDialog({
               {candidate.content.description}
             </p>
             <a
-              href={`https://github.com/${candidate.source.repository}`}
+              href={sourceUrl(candidate.source)}
               target="_blank"
               rel="noopener noreferrer"
               className="break-words text-sm text-cyan-200 underline"
@@ -629,8 +647,14 @@ export function SkillCatalogDialog({
               />
               <span>
                 I understand that only these text instructions will be added.
-                <span className="mt-1 block text-xs leading-5 text-slate-400">
-                  Extra files and other setup details are not included.
+                <span className="text-slate-400">
+                  <SkillImportOmissions
+                    omittedFields={candidate.omittedFields}
+                    linkedFiles={candidate.linkedFiles}
+                    otherFiles={
+                      candidate.hasResources && !candidate.linkedFiles.length
+                    }
+                  />
                 </span>
               </span>
             </label>
@@ -646,6 +670,52 @@ export function SkillCatalogDialog({
         </>
       ) : null}
     </SkillsDialog>
+  );
+}
+
+/** The exact checked source folder, with each path segment encoded. */
+function sourceUrl(source: ReviewSkillCatalogSource): string {
+  const path = source.path.split("/").map(encodeURIComponent).join("/");
+  return `https://github.com/${source.repository}/tree/${source.commit}/${path}`;
+}
+
+const refusalReasons: Record<ReviewSkillImportRefusal, string> = {
+  too_large:
+    "Its instructions are longer than 32 KB, the most ReviewRouter keeps for one skill.",
+  invalid_header:
+    "Its SKILL.md does not start with the name and description header that skills use, so it cannot be read safely.",
+  invalid_content:
+    "Its name, description or instructions do not fit a skill: for example, empty instructions, a description over 1024 characters, or characters that cannot be stored.",
+};
+
+function UnsupportedSkill({
+  reason,
+  source,
+}: {
+  readonly reason: ReviewSkillImportRefusal;
+  readonly source: ReviewSkillCatalogSource;
+}) {
+  return (
+    <section aria-label="Skill not supported" className="space-y-3">
+      <h3 className="text-lg font-semibold text-cyan-50">
+        This skill cannot be added
+      </h3>
+      <p className="text-sm leading-6 text-slate-300">
+        {refusalReasons[reason]}
+      </p>
+      <p className="text-sm leading-6 text-slate-400">
+        You can open it on GitHub, copy the parts you need, and add them with
+        Create skill.
+      </p>
+      <a
+        href={sourceUrl(source)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="break-words text-sm text-cyan-200 underline"
+      >
+        Open {source.repository} on GitHub
+      </a>
+    </section>
   );
 }
 

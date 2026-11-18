@@ -132,3 +132,37 @@ export function SkillSearch({
     </label>
   );
 }
+
+/** Names what a text-only import leaves out, shared by every import path. */
+export function SkillImportOmissions({
+  omittedFields,
+  linkedFiles,
+  otherFiles = false,
+}: {
+  readonly omittedFields: readonly string[];
+  readonly linkedFiles: readonly string[];
+  readonly otherFiles?: boolean;
+}) {
+  const note = "mt-1 block break-words text-xs leading-5";
+  return (
+    <>
+      {omittedFields.length ? (
+        <span className={note}>
+          Not used: {omittedFields.join(", ")}. The reviewer only gets the name,
+          description and instructions as text; tools and scripts never run.
+        </span>
+      ) : null}
+      {linkedFiles.length ? (
+        <span className={note}>
+          Linked files are not included: {linkedFiles.join(", ")}. The reviewer
+          will not see them.
+        </span>
+      ) : null}
+      {otherFiles ? (
+        <span className={note}>
+          Other files in the skill folder are not included.
+        </span>
+      ) : null}
+    </>
+  );
+}

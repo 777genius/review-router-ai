@@ -3,6 +3,8 @@
 Status: implementation plan v2 accepted after two independent critique rounds; implementation in progress.
 Owner: ReviewRouter Skills. Date: 2026-10-27.
 
+Update 2026-11-18: the text-only refusals in §3 (linked companion files) and §5 (extra frontmatter fields through the shared parser) are replaced by [the Skills flow audit](../architecture/84-skills-flow-audit.md). Such skills now add as text after an explicit acknowledgement that names what is left out; only content that cannot be text at all is refused, with its reason.
+
 ## 1. Outcome and acceptance boundary
 
 A signed-in user who can create workspace Skills can find a skill in the UAP catalog, read its actual instructions, run NVIDIA SkillSpector, and add the exact checked text to the existing library. The existing repository-assignment flow follows import. Static checks work independently; a separately configured, explicitly selected AI-assisted check is optional. The product never labels a skill as guaranteed safe.
