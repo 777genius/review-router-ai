@@ -45,8 +45,11 @@ export function retryBoundary(
     }
   }
 
-  const resetHeader = headers["x-ratelimit-reset"];
-  const resetSeconds = resetHeader?.trim() ? Number(resetHeader) : Number.NaN;
+  const resetHeader = headers["x-ratelimit-reset"]?.trim();
+  const resetSeconds =
+    resetHeader && /^\d+(?:\.\d+)?$/u.test(resetHeader)
+      ? Number(resetHeader)
+      : Number.NaN;
   const resetTime =
     Number.isFinite(resetSeconds) &&
     resetSeconds >= 0 &&

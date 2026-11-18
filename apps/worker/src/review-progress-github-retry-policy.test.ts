@@ -69,6 +69,26 @@ describe("Review progress GitHub retry policy", () => {
     }
   });
 
+  it("rejects malformed primary reset headers without bypassing backoff", () => {
+    for (const reset of [
+      "0x0",
+      "0b0",
+      "0e0",
+      "+0",
+      "-0",
+      "Infinity",
+      "2026-08-12T12:00:00Z",
+    ]) {
+      expect(
+        retryBoundary(
+          { "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset },
+          now,
+          "rate_limit",
+        ).getTime(),
+      ).toBe(now.getTime() + 60_000);
+    }
+  });
+
   it("rejects non-decimal retry delays without bypassing throttle backoff", () => {
     for (const value of [
       "0x0",
