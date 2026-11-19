@@ -392,6 +392,58 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("defers an expected-bot comment whose body cannot be read", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([{ id: 8, body: desired }]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route.includes("/issues/{issue_number}/comments")) {
+        return {
+          data: [
+            { id: 8, body: desired, user: { login: "review-router[bot]" } },
+            { id: 9, user: { login: "review-router[bot]" } },
+          ],
+        };
+      }
+      return response;
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("ignores unreadable bodies from verified foreign authors", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([{ id: 8, body: desired }]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route.includes("/issues/{issue_number}/comments")) {
+        return {
+          data: [
+            { id: 8, body: desired, user: { login: "review-router[bot]" } },
+            { id: 9, user: { login: "other[bot]" } },
+          ],
+        };
+      }
+      return response;
+    };
+
+    await expect(gateway(request).upsert(input())).resolves.toMatchObject({
+      commentId: 8,
+      operation: "unchanged",
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("keeps the cap fail-closed when a full final page links onward", async () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,

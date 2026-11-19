@@ -102,6 +102,19 @@ describe("Review progress GitHub comment policy", () => {
     );
   });
 
+  it("rejects current and forward prev links", () => {
+    for (const page of [2, 3]) {
+      const previous = `</comments?page=${page}>; rel="prev"`;
+      expect(hasNextCommentPage({ link: previous }, 2)).toBe("invalid");
+    }
+    expect(
+      hasNextCommentPage(
+        { link: '<https://api.github.com/comments?page=1>; rel="prev"' },
+        2,
+      ),
+    ).toBe(false);
+  });
+
   it("classifies bounded page scan outcomes", () => {
     const scenarios = [
       [false, 100, 5, 5, "complete"],

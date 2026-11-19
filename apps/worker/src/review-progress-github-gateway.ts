@@ -301,7 +301,10 @@ export class ReviewProgressGitHubGateway {
       for (const value of comments) {
         const comment = parseCommentOrNull(value);
         if (comment && ownsMarker(comment, input)) matches.push(comment);
-        if (!comment && hasUnclassifiedMarker(value, input.marker)) {
+        if (
+          !comment &&
+          hasUnclassifiedMarker(value, input.marker, input.expectedBotLogin)
+        ) {
           throw failure(
             "pagination_inconclusive",
             "github_issue_comments_marked_row_unclassified",
@@ -423,10 +426,21 @@ function repositoryParameters(
   return { owner: input.owner, repo: input.repo, ...extra };
 }
 
-function hasUnclassifiedMarker(value: unknown, marker: string): boolean {
+function hasUnclassifiedMarker(
+  value: unknown,
+  marker: string,
+  expectedBotLogin: string,
+): boolean {
   if (typeof value !== "object" || value === null) return false;
   const body = (value as { body?: unknown }).body;
-  return typeof body === "string" && body.includes(marker);
+  if (typeof body === "string") return body.includes(marker);
+  const user = (value as { user?: unknown }).user;
+  if (typeof user !== "object" || user === null) return false;
+  const login = (user as { login?: unknown }).login;
+  return (
+    typeof login === "string" &&
+    login.toLowerCase() === expectedBotLogin.toLowerCase()
+  );
 }
 
 function parseComment(value: unknown): ReviewProgressComment {

@@ -102,6 +102,25 @@ export function commentPageLinks(
   const hasNext = entries.some((entry) =>
     /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
   );
+
+  // A malformed or forward previous-page hint cannot certify a final page.
+  const previousEntries = entries.filter((entry) =>
+    /;\s*rel=(?:"prev"|prev)\s*$/iu.test(entry),
+  );
+  if (previousEntries.length > 1) return invalid;
+  const previousHref = previousEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
+  if (previousHref) {
+    const previousUrl = new URL(previousHref, "https://api.github.com");
+    const previousPageValue = previousUrl.searchParams.get("page");
+    if (!previousPageValue || !/^[1-9]\d*$/u.test(previousPageValue)) {
+      return invalid;
+    }
+    const previousPage = Number(previousPageValue);
+    if (!Number.isSafeInteger(previousPage) || previousPage >= currentPage) {
+      return invalid;
+    }
+  }
+
   const lastEntries = entries.filter((entry) =>
     /;\s*rel=(?:"last"|last)\s*$/iu.test(entry),
   );
