@@ -94,6 +94,7 @@ test("an NVIDIA account's model list updates itself when it lapses, with Try aga
   await expect(model).toHaveValue(nvidia.model);
   const status = dialog.getByRole("status").filter({ hasText: /model list/i });
   await expect(status.first()).toHaveText(/^Model list updated just now\./);
+  await status.first().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: info.outputPath("model-list-fresh.png"),
     fullPage: true,
@@ -118,6 +119,7 @@ test("an NVIDIA account's model list updates itself when it lapses, with Try aga
   const beforeReopen = (await fixture()).nvidiaModelReads.length;
   await openWithAccount(page, name);
   await expect(status.first()).toHaveText(/Updating/);
+  await status.first().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: info.outputPath("model-list-expired-updating.png"),
     fullPage: true,
@@ -126,6 +128,7 @@ test("an NVIDIA account's model list updates itself when it lapses, with Try aga
     timeout: 30_000,
   });
   await expectSelectable(page);
+  await status.first().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: info.outputPath("model-list-expired-updated.png"),
     fullPage: true,
@@ -145,6 +148,7 @@ test("an NVIDIA account's model list updates itself when it lapses, with Try aga
   );
   const retry = dialog.getByRole("button", { name: "Try again" });
   await expect(retry).toBeVisible();
+  await status.first().scrollIntoViewIfNeeded();
   await page.screenshot({
     path: info.outputPath("model-list-failed.png"),
     fullPage: true,
