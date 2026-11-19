@@ -1746,7 +1746,9 @@ describe("ProviderSetupDialog", () => {
       name: "Refresh models",
     });
     expect(refresh).toHaveLength(1);
-    expect(screen.queryByText("Access to these models has not been checked.")).toBeNull();
+    expect(
+      screen.queryByText("Access to these models has not been checked."),
+    ).toBeNull();
     fireEvent.click(refresh[0]!);
     await waitFor(() =>
       expect(publicApi).toHaveBeenCalledWith(
