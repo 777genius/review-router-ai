@@ -7,8 +7,9 @@
 - Affected services: Web; Account Gateway SDK dependency; native and Gateway
   producers must precede the consumer. Personal operation journal compatibility
   is part of the selected import work.
-- Implementation: branch `feat/native-account-info-imports`; implementation and
-  verification are in progress. A branch or PR does not establish deployment.
+- Implementation: implemented in [PR #914](https://github.com/777genius/review-router-ai/pull/914);
+  qualification evidence is tracked in [Gateway PR #116](https://github.com/agent-teams-ai/account-gateway/pull/116).
+  A branch, PR or merge does not establish deployment.
 - Source baseline: `f1cde67a2baf7416ea1d2341f6c9a98e64750aa4`.
 - Canonical contract and parallel plans: `agent-teams-ai/account-gateway`,
   `docs/reference/native-account-contracts.md` and
@@ -93,6 +94,7 @@ rollback must not create a second facts store.
 
 ## Execution log
 
-| Time       | Target       | Step and observed result                                                                                                             | Next action                                         |
-| ---------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| 2026-11-19 | local source | Additional plan review identified the final post-hydration privacy fence; canonical contract updated. No runtime checks claimed yet. | Implement M1 and qualify the exact SDK integration. |
+| Time       | Target           | Step and observed result                                                                                                                                                                              | Next action                                                                                                                                                  |
+| ---------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-11-19 | local source     | Additional plan review identified the final post-hydration privacy fence; canonical contract updated. No runtime checks claimed yet.                                                                  | Implement M1 and qualify the exact SDK integration.                                                                                                          |
+| 2026-11-19 | local / isolated | Source `43e475d455e2931b39adef2652c5b8fe921c693e`: strict scoped metadata typecheck, layout/profile and AST boundary checks passed; 92 focused runtime tests and 12 metadata PostgreSQL cases passed. | Final CI and exact paired native/CLI qualification are tracked in PR #914 and Gateway PR #116; no complete joined pass or deployment is claimed by this row. |

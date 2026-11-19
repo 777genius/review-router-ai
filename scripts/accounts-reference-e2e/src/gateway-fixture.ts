@@ -7,17 +7,17 @@ import {
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { FIXTURES, type FixtureSecrets } from "./contracts.ts";
+import { FIXTURES, type FixtureSecrets } from "./contracts.js";
 import {
   createAccountModelsFixture,
   CODEX_MODEL_PROFILE,
-} from "./account-models-fixture.ts";
-import { createLimitsFixture } from "./limits-fixture.ts";
+} from "./account-models-fixture.js";
+import { createLimitsFixture } from "./limits-fixture.js";
 import {
   createSubscriptionFixture,
   subscriptionProfiles,
   apiKeyStorageProfiles,
-} from "./subscription-fixture.ts";
+} from "./subscription-fixture.js";
 
 export type WireAccount = {
   readonly accountRef: string;

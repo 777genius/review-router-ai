@@ -1,5 +1,5 @@
 import type { WireAccount } from "./gateway-fixture.ts";
-import { FIXTURES } from "./contracts.ts";
+import { FIXTURES } from "./contracts.js";
 
 export const CODEX_MODEL_PROFILE = "openai-codex-oauth-responses-v1";
 export const CODEX_SAVED_PROFILE = "rr-e2e-provider-codex-saved";
