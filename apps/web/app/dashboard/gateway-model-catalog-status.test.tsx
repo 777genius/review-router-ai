@@ -32,6 +32,7 @@ it("distinguishes configured profile choices from account discovery and offers n
   const refresh = vi.fn();
   render(
     <GatewayModelCatalogStatus
+      profile={undefined}
       account={account}
       loading={false}
       canRefresh
@@ -49,6 +50,7 @@ it("distinguishes configured profile choices from account discovery and offers n
 it("does not offer refresh after an explicit unsupported discovery response", () => {
   render(
     <GatewayModelCatalogStatus
+      profile={undefined}
       account={{
         ...account,
         modelCatalog: {
@@ -72,6 +74,7 @@ it("keeps an unavailable discovery retryable without calling a saved choice unsu
   const refresh = vi.fn(async () => {});
   render(
     <GatewayModelCatalogStatus
+      profile={undefined}
       account={{
         ...account,
         modelCatalog: {
@@ -91,7 +94,7 @@ it("keeps an unavailable discovery retryable without calling a saved choice unsu
   expect(screen.getByRole("status").textContent).toContain(
     "Your saved selection is unchanged",
   );
-  fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
 });
 
@@ -114,6 +117,7 @@ it("a pending refresh on another binding does not disable or fail the new accoun
   };
   const { rerender } = render(
     <GatewayModelCatalogStatus
+      profile={undefined}
       account={selected}
       loading={false}
       canRefresh
@@ -124,6 +128,7 @@ it("a pending refresh on another binding does not disable or fail the new accoun
   expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(true);
   rerender(
     <GatewayModelCatalogStatus
+      profile={undefined}
       account={{
         ...selected,
         connectionId: "connection-2",
@@ -139,7 +144,7 @@ it("a pending refresh on another binding does not disable or fail the new accoun
   );
   await act(async () => reject(new Error("refresh failed")));
   expect(screen.getByRole("status").textContent).toContain(
-    "Account model catalog",
+    "Model list updated",
   );
   expect(screen.getByRole("status").textContent).not.toContain("Could not");
 });
@@ -176,7 +181,11 @@ it("refreshes public metadata from the same button and reports its failure on it
     onRefresh: refreshAccount,
   };
   const { rerender } = render(
-    <GatewayModelCatalogStatus {...props} publicCatalog={publicCatalog} />,
+    <GatewayModelCatalogStatus
+      {...props}
+      profile={undefined}
+      publicCatalog={publicCatalog}
+    />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
   await waitFor(() => expect(publicCatalog.refresh).toHaveBeenCalledTimes(1));
@@ -184,6 +193,7 @@ it("refreshes public metadata from the same button and reports its failure on it
   expect(screen.getAllByRole("status")).toHaveLength(1);
   rerender(
     <GatewayModelCatalogStatus
+      profile={undefined}
       {...props}
       publicCatalog={{ ...publicCatalog, failed: true }}
     />,
@@ -197,11 +207,12 @@ it("refreshes public metadata from the same button and reports its failure on it
     screen.getAllByRole("button", { name: "Refresh models" }),
   ).toHaveLength(1);
   expect(screen.getAllByRole("status")[0]!.textContent).toMatch(
-    /^Account model catalog\./,
+    /^Model list updated/,
   );
   // A later cooldown answer keeps the earlier source error.
   rerender(
     <GatewayModelCatalogStatus
+      profile={undefined}
       {...props}
       publicCatalog={{
         ...publicCatalog,
@@ -225,6 +236,7 @@ it("keeps public metadata refreshable when the account cannot list models", asyn
   const refreshPublic = vi.fn(async () => {});
   render(
     <GatewayModelCatalogStatus
+      profile={undefined}
       account={{
         ...account,
         modelCatalog: {

@@ -44,7 +44,7 @@ export function gatewayProviderModelOptions(
     // it is read again. The catalogue status says so once, above the list, so
     // no option carries a reason of its own.
     if (required && !freshNative) {
-      const blocked: ReviewModelOption = { ...option, disabled: true };
+      const blocked = { ...option, disabled: true };
       delete blocked.description;
       return blocked;
     }

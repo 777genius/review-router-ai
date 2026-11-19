@@ -237,6 +237,7 @@ function RefreshCatalogHarness() {
       </span>
       <GatewayModelCatalogStatus
         account={selected}
+        profile={options.profileFor(selected)}
         loading={options.loading}
         canRefresh={options.canRefresh}
         onRefresh={() => options.refreshModels("saved-binding")}
@@ -284,7 +285,7 @@ test.each(["unavailable", "transport"] as const)(
     fireEvent.click(screen.getByRole("button", { name: /^Refresh models$/ }));
     await waitFor(() =>
       expect(screen.getByRole("status").textContent).toContain(
-        "Could not load account models. Try refreshing the model list. Your saved selection is unchanged.",
+        "Could not load account models. Your saved selection is unchanged.",
       ),
     );
     expect(screen.getByText("Models:")).toBeTruthy();
@@ -293,7 +294,7 @@ test.each(["unavailable", "transport"] as const)(
       (screen.getByLabelText("Saved model") as HTMLInputElement).value,
     ).toBe("historical-model");
     const retry = screen.getByRole("button", {
-      name: /^Refresh models$/,
+      name: "Try again",
     }) as HTMLButtonElement;
     expect(retry.disabled).toBe(false);
     fireEvent.click(retry);
@@ -305,11 +306,7 @@ test.each(["unavailable", "transport"] as const)(
     ]);
     get.mockResolvedValueOnce({ status: "denied" });
     fireEvent.click(screen.getByRole("button", { name: /^Refresh models$/ }));
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("button", { name: /^Refresh models$/ }),
-      ).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByRole("button")).toBeNull());
     expect(screen.getByText("Models:")).toBeTruthy();
   },
 );

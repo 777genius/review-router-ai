@@ -173,23 +173,42 @@ describe("Gateway model catalog presentation", () => {
     expect(long.map((option) => option.value)).toEqual(listed);
     expect(long.every((option) => !option.disabled)).toBe(true);
 
-    const [wrongSource] = gatewayProviderModelOptions([], profile, {
-      catalog: { ...catalog, source: "openrouter" },
-      requiresTools: true,
+    // A list that is not this account's fresh proof blocks every choice. The
+    // catalogue status explains it once above the list, so no option carries
+    // a misleading reason of its own; models other than NVIDIA's are unaffected.
+    const publicNemotron = {
+      value: modelId,
+      label: "Nemotron",
+      provider: "nvidia" as const,
+      description: "Public metadata",
+    };
+    for (const stale of [
+      { ...catalog, source: "openrouter" as const },
+      { ...catalog, expiresAt: new Date(Date.now() - 60_000).toISOString() },
+      { status: "unknown" as const, source: "legacy_profile" as const, models: [] },
+      undefined,
+    ]) {
+      const [blocked] = gatewayProviderModelOptions([publicNemotron], profile, {
+        catalog: stale,
+        requiresTools: true,
+      });
+      expect(blocked).toEqual({
+        value: modelId,
+        label: "Nemotron",
+        provider: "nvidia",
+        disabled: true,
+      });
+    }
+    // A fresh list that does not include the model keeps a per-option reason.
+    const [missing] = gatewayProviderModelOptions(
+      [],
+      { ...profile, models: [modelId, "nvidia/other"] },
+      { catalog, requiresTools: true },
+    ).filter((option) => option.value === "nvidia/other");
+    expect(missing).toMatchObject({
+      disabled: true,
+      description: "This account's model list does not include it.",
     });
-    expect(wrongSource?.disabled).toBe(true);
-    expect(wrongSource?.description).toContain(
-      "NVIDIA account model qualification unavailable.",
-    );
-
-    const [expired] = gatewayProviderModelOptions([], profile, {
-      catalog: {
-        ...catalog,
-        expiresAt: new Date(Date.now() - 60_000).toISOString(),
-      },
-      requiresTools: true,
-    });
-    expect(expired?.disabled).toBe(true);
 
     const noTools = {
       ...profile,
