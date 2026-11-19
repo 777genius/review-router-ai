@@ -5,12 +5,14 @@ import type {
 } from "./contracts.js";
 
 import type {
+  ReviewSkillImportRefusal,
   ReviewSkillScanMode,
   ReviewSkillScanVerdict,
   ReviewSkillScanFinding,
   ReviewSkillScanProfile,
 } from "../domain/catalog-security.js";
 export type {
+  ReviewSkillImportRefusal,
   ReviewSkillScanMode,
   ReviewSkillScanVerdict,
   ReviewSkillScanFinding,
@@ -50,8 +52,13 @@ export type ReviewSkillImportCandidate = Readonly<{
   id: string;
   content: ReviewSkillContent;
   source: ReviewSkillCatalogSource;
+  /** Frontmatter fields that are not stored. */
   omittedFields: readonly string[];
+  /** Local files the instructions link to; never fetched or stored. */
+  linkedFiles: readonly string[];
+  /** The source folder has other files that are not included. */
   hasResources: boolean;
+  acknowledgementRequired: boolean;
   expiresAt: string;
   aiAvailable: boolean;
 }>;
@@ -65,6 +72,11 @@ export type ReviewSkillsCatalogUnresolved =
   | Readonly<{ status: "not_found" | "incomplete" }>;
 export type ReviewSkillsCatalogResolution =
   | Readonly<{ status: "resolved"; candidate: ReviewSkillImportCandidate }>
+  | Readonly<{
+      status: "unsupported";
+      reason: ReviewSkillImportRefusal;
+      source: ReviewSkillCatalogSource;
+    }>
   | ReviewSkillsCatalogUnresolved;
 export type ReviewSkillScan = Readonly<{
   id: string;
@@ -136,7 +148,12 @@ export interface ReviewSkillsCatalogSourcePort {
   >;
 }
 export interface ReviewSkillImportNormalizerPort {
-  normalize(rawContent: string): Promise<ReviewSkillNormalizedImport>;
+  normalize(
+    rawContent: string,
+  ): Promise<
+    | Readonly<{ status: "supported"; value: ReviewSkillNormalizedImport }>
+    | Readonly<{ status: "unsupported"; reason: ReviewSkillImportRefusal }>
+  >;
 }
 export type ReviewSkillsCatalogOperation =
   | "search"

@@ -1,4 +1,23 @@
 export type ReviewSkillScanMode = "static" | "ai";
+/** Why a source SKILL.md cannot become text instructions at all. */
+export type ReviewSkillImportRefusal =
+  | "too_large"
+  | "invalid_header"
+  | "invalid_content";
+/** Anything left out of the text import must be acknowledged before adding. */
+export function omissionAcknowledgementRequired(
+  input: Readonly<{
+    omittedFields: readonly string[];
+    linkedFiles: readonly string[];
+    hasResources: boolean;
+  }>,
+): boolean {
+  return (
+    input.omittedFields.length > 0 ||
+    input.linkedFiles.length > 0 ||
+    input.hasResources
+  );
+}
 export type ReviewSkillScanVerdict =
   | "clear"
   | "warnings"

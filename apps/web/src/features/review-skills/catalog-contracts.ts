@@ -1,5 +1,7 @@
 import type { ReviewSkillsCatalogService } from "@reviewrouter/features-review-skills";
 export type {
+  ReviewSkillCatalogSource,
+  ReviewSkillImportRefusal,
   ReviewSkillsCatalogItem,
   ReviewSkillsCatalogPage,
   ReviewSkillsCatalogResolution,
