@@ -1,4 +1,7 @@
-import type { ProgressSnapshot } from "@reviewrouter/features-review-progress";
+import {
+  completeOutcomeCountsValid,
+  type ProgressSnapshot,
+} from "@reviewrouter/features-review-progress";
 
 export function parseSnapshot(value: unknown): ProgressSnapshot {
   if (!isRecord(value) || value.schemaVersion !== 1) {
@@ -86,13 +89,7 @@ function validTerminalCounts(
   value: Record<string, unknown>,
 ): boolean {
   const counts = value as unknown as ProgressSnapshot["counts"];
-  if (terminal === "complete") {
-    return (
-      counts.requiredCompleted === counts.requiredTotal &&
-      counts.requiredExhausted === 0 &&
-      counts.requiredCancelled === 0
-    );
-  }
+  if (terminal === "complete") return completeOutcomeCountsValid(counts);
   if (terminal === "complete_with_gaps") {
     return (
       counts.requiredCompleted !== counts.requiredTotal &&

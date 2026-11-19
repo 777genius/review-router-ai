@@ -188,6 +188,35 @@ describe("formatGithubProgressComment", () => {
     expect(comment).not.toMatch(/\bETA\b|raw error/i);
   });
 
+  it("shows an ordered fallback as fully reviewed by the parts it needed", () => {
+    const snapshot = computeProgressSnapshot({
+      generation: 1,
+      phase: "assembling",
+      terminal: "none",
+      updatedAt: "2026-08-12T17:00:00Z",
+      slots: [
+        { slotId: "first-1", required: true, state: "exhausted" },
+        { slotId: "second-1", required: true, state: "accepted" },
+        { slotId: "second-2", required: true, state: "accepted" },
+        { slotId: "third-1", required: true, state: "cancelled" },
+      ],
+    });
+    const comment = formatGithubProgressComment({
+      ...snapshot,
+      phase: "terminal",
+      terminal: "complete",
+    });
+    expect(comment).toContain("**Phase:** Complete");
+    expect(comment).toContain("Progress: 2 of 2 parts reviewed (100%)");
+    expect(comment).toContain("Parts not needed: 1");
+    expect(comment).toContain("Parts that could not be finished: 1");
+
+    // While the review runs, every required part still counts.
+    expect(formatGithubProgressComment(snapshot)).toContain(
+      "Progress: 2 of 4 parts reviewed (50%)",
+    );
+  });
+
   it("uses required units as the primary numerator and denominator", () => {
     const comment = formatGithubProgressComment(
       computeProgressSnapshot({

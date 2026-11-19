@@ -7,8 +7,11 @@ import { requeuePublishedScopeAfterClaimLoss } from "./review-progress-scope-rep
 import { claimDuePublication } from "./review-progress-claim-acquisition";
 import {
   promoteSettledExecutions,
+  scanPromotionCandidates,
+  type PromotionScanCursor,
   type SettledExecutionInput,
 } from "./review-progress-terminal-persistence";
+import { retryOnSerializationConflict } from "./review-progress-transaction-retry";
 import {
   completionMutationData,
   retryMutationData,
@@ -76,10 +79,12 @@ export class PrismaReviewProgressPublicationStore {
     const repositoryPredicate = repositoryCohortPredicate(
       this.allowedRepositoryFullNames,
     );
-    return this.prisma.$transaction(
-      (transaction) =>
-        claimDuePublication(transaction, input, repositoryPredicate),
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    return retryOnSerializationConflict(() =>
+      this.prisma.$transaction(
+        (transaction) =>
+          claimDuePublication(transaction, input, repositoryPredicate),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      ),
     );
   }
 
@@ -89,9 +94,11 @@ export class PrismaReviewProgressPublicationStore {
     readonly minimumIntervalMs: number;
   }): Promise<{ allowed: true } | { allowed: false; retryAt: Date }> {
     assertDuration(input.minimumIntervalMs);
-    return this.prisma.$transaction(
-      (transaction) => reserveInstallationBudgetMutation(transaction, input),
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    return retryOnSerializationConflict(() =>
+      this.prisma.$transaction(
+        (transaction) => reserveInstallationBudgetMutation(transaction, input),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      ),
     );
   }
 
@@ -128,11 +135,14 @@ export class PrismaReviewProgressPublicationStore {
   async requeueAfterClaimLoss(input: {
     readonly scope: ClaimedReviewProgress["scope"];
     readonly now: Date;
+    /** GitHub's retry deadline for the write that may have landed. */
+    readonly retryAt?: Date | undefined;
   }): Promise<void> {
     await requeuePublishedScopeAfterClaimLoss(
       this.prisma,
       input.scope,
       input.now,
+      input.retryAt,
     );
   }
 
@@ -144,10 +154,14 @@ export class PrismaReviewProgressPublicationStore {
     readonly now: Date;
     readonly maxFailures: number;
     readonly countFailure?: boolean | undefined;
+    /** The canonical body was written; earlier failures no longer count. */
+    readonly resetFailureCount?: boolean | undefined;
   }): Promise<"retried" | "suppressed" | "stale"> {
     assertDuration(input.maxFailures);
-    return this.prisma.$transaction((transaction) =>
-      retryPublicationMutation(transaction, input),
+    return retryOnSerializationConflict(() =>
+      this.prisma.$transaction((transaction) =>
+        retryPublicationMutation(transaction, input),
+      ),
     );
   }
 
@@ -204,6 +218,14 @@ export class PrismaReviewProgressPublicationStore {
     input: SettledExecutionInput,
   ): Promise<number> {
     return promoteSettledExecutions(this.prisma, input);
+  }
+
+  async scanPromotionCandidates(input: {
+    readonly after: PromotionScanCursor | null;
+    readonly limit: number;
+  }) {
+    assertDuration(input.limit);
+    return scanPromotionCandidates(this.prisma, input);
   }
 }
 

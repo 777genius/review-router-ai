@@ -265,6 +265,32 @@ function assertLifecycle(
   }
 }
 
+/**
+ * Required counts a "complete" outcome may show. The execution's coverage
+ * verdict owns completeness: an ordered fallback completes once one reviewer
+ * covers the review, leaving later reviewers' parts cancelled or a failed
+ * earlier reviewer's parts exhausted. Complete therefore needs every required
+ * part settled and at least one finished, not every required part finished.
+ */
+export function completeOutcomeCountsValid(
+  counts: Pick<
+    ProgressCounts,
+    | "requiredTotal"
+    | "requiredCompleted"
+    | "requiredExhausted"
+    | "requiredCancelled"
+  >,
+): boolean {
+  const settled =
+    counts.requiredCompleted +
+    counts.requiredExhausted +
+    counts.requiredCancelled;
+  return (
+    settled === counts.requiredTotal &&
+    (counts.requiredTotal === 0 || counts.requiredCompleted > 0)
+  );
+}
+
 function assertOutcomeCounts(
   input: ComputeProgressSnapshotInput,
   counts: ProgressCounts,
@@ -277,12 +303,7 @@ function assertOutcomeCounts(
   ) {
     throw new Error("progress_partial_outcome_inconsistent");
   }
-  if (
-    input.terminal === "complete" &&
-    (counts.requiredCompleted !== counts.requiredTotal ||
-      counts.requiredExhausted > 0 ||
-      counts.requiredCancelled > 0)
-  ) {
+  if (input.terminal === "complete" && !completeOutcomeCountsValid(counts)) {
     throw new Error("progress_complete_outcome_inconsistent");
   }
   if (

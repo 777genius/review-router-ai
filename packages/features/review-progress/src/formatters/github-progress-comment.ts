@@ -46,11 +46,20 @@ export function formatGithubProgressComment(
   snapshot: ProgressSnapshot,
 ): string {
   const { counts } = snapshot;
-  const multiPart = counts.requiredTotal >= 2;
+  // A complete review counts only the parts that covered it. An ordered
+  // fallback completes once one reviewer covers the review: the parts of later
+  // reviewers were not needed, and a failed earlier reviewer's parts still
+  // show as "could not be finished".
+  const complete =
+    snapshot.phase === "terminal" && snapshot.terminal === "complete";
+  const partsNotNeeded = complete ? counts.requiredCancelled : 0;
+  const partsTotal = complete ? counts.requiredCompleted : counts.requiredTotal;
+  const multiPart = partsTotal >= 2;
   const details = [
     ...(multiPart
-      ? partsProgressLines(counts.requiredCompleted, counts.requiredTotal)
+      ? partsProgressLines(counts.requiredCompleted, partsTotal)
       : []),
+    ...nonZeroLine("Parts not needed", partsNotNeeded),
     ...(snapshot.fileCoverage.valid
       ? [
           `Files fully reviewed: ${snapshot.fileCoverage.covered} of ${snapshot.fileCoverage.total}`,

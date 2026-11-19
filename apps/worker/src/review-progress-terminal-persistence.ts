@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  ReviewProgressPhaseV1,
   ReviewPublicationAttemptStateV2,
   ReviewPublicationOperationStateV2,
   ReviewPublicationTerminalOutcomeV2,
@@ -12,6 +13,7 @@ import {
   type TerminalOutcome,
 } from "./review-progress-terminal-policy";
 import type { ClaimedReviewProgress } from "./review-progress-store";
+import { retryOnSerializationConflict } from "./review-progress-transaction-retry";
 
 /** Read and fence the active progress generation before terminal promotion. */
 async function loadPromotableProgress(
@@ -151,10 +153,8 @@ async function promoteSettledExecution(
 }
 
 export type SettledExecutionInput = {
-  readonly settlements: readonly Readonly<{
-    executionId: string;
-    outcome: "succeeded" | "failed" | "superseded";
-  }>[];
+  /** Candidates only: each promotion rereads the durable settlement. */
+  readonly executionIds: readonly string[];
   readonly now: Date;
 };
 
@@ -165,13 +165,16 @@ export async function promoteSettledExecutions(
 ): Promise<number> {
   let promoted = 0;
   const failures: unknown[] = [];
-  const executionIds = new Set(input.settlements.map((s) => s.executionId));
-  for (const executionId of executionIds) {
+  for (const executionId of new Set(input.executionIds)) {
     try {
-      const changed = await prisma.$transaction(
-        (transaction) =>
-          promoteSettledExecution(transaction, executionId, input.now),
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      // Promotion is idempotent: a rerun after a conflict rereads the progress
+      // row and stops once another worker made it terminal.
+      const changed = await retryOnSerializationConflict(() =>
+        prisma.$transaction(
+          (transaction) =>
+            promoteSettledExecution(transaction, executionId, input.now),
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        ),
       );
       if (changed) promoted += 1;
     } catch (error) {
@@ -183,6 +186,82 @@ export async function promoteSettledExecutions(
     throw new AggregateError(failures, "review_progress_settlements_failed");
   }
   return promoted;
+}
+
+/** Keyset position of the promotion sweep over publication scopes. */
+export type PromotionScanCursor = ClaimedReviewProgress["scope"];
+
+/**
+ * Read one bounded page of publication scopes in key order and return the
+ * active executions whose posted comment still waits at "assembling".
+ * Promotion rechecks every candidate, so this read only has to be a superset.
+ *
+ * A scope without a posted comment is skipped: nothing on GitHub is stuck, and
+ * promoting it would post a new comment on a PR whose review ended long ago
+ * (for example rows closed by the operator's backlog expiry).
+ */
+export async function scanPromotionCandidates(
+  prisma: PrismaClient,
+  input: {
+    readonly after: PromotionScanCursor | null;
+    readonly limit: number;
+  },
+): Promise<{
+  readonly executionIds: readonly string[];
+  readonly nextCursor: PromotionScanCursor | null;
+}> {
+  const page = await prisma.reviewProgressPublicationV1.findMany({
+    ...(input.after
+      ? {
+          cursor: {
+            workspaceId_repositoryConnectionId_scmRepositoryIdentityId_pullRequestNumber:
+              input.after,
+          },
+          skip: 1,
+        }
+      : {}),
+    orderBy: [
+      { workspaceId: "asc" },
+      { repositoryConnectionId: "asc" },
+      { scmRepositoryIdentityId: "asc" },
+      { pullRequestNumber: "asc" },
+    ],
+    take: input.limit,
+    select: {
+      workspaceId: true,
+      repositoryConnectionId: true,
+      scmRepositoryIdentityId: true,
+      pullRequestNumber: true,
+      activeExecutionId: true,
+      commentId: true,
+    },
+  });
+  const last = page.at(-1);
+  const nextCursor =
+    last && page.length === input.limit
+      ? {
+          workspaceId: last.workspaceId,
+          repositoryConnectionId: last.repositoryConnectionId,
+          scmRepositoryIdentityId: last.scmRepositoryIdentityId,
+          pullRequestNumber: last.pullRequestNumber,
+        }
+      : null;
+  // Filter after the keyed read so one pass reads each scope exactly once.
+  const posted = page.filter(({ commentId }) => commentId !== null);
+  if (posted.length === 0) return { executionIds: [], nextCursor };
+  const assembling = await prisma.reviewExecutionProgressV1.findMany({
+    where: {
+      executionId: { in: posted.map((scope) => scope.activeExecutionId) },
+      phase: ReviewProgressPhaseV1.assembling,
+      terminalOutcome: null,
+    },
+    orderBy: { executionId: "asc" },
+    select: { executionId: true },
+  });
+  return {
+    executionIds: assembling.map(({ executionId }) => executionId),
+    nextCursor,
+  };
 }
 
 /** Write a terminal snapshot and its publication version in one transaction. */
