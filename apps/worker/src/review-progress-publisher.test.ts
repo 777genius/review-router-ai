@@ -958,6 +958,41 @@ describe("ReviewProgressPublisher", () => {
     },
   );
 
+  it("preserves retry and claim-repair failures after a landed write", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const retryError = new Error("retry_unavailable");
+    const repairError = new Error("repair_unavailable");
+    store.complete.mockRejectedValueOnce(new Error("settlement_unavailable"));
+    store.retry.mockRejectedValueOnce(retryError);
+    store.requeueAfterClaimLoss.mockRejectedValueOnce(repairError);
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route, parameters = {}) => {
+        if (route.includes("/pulls/")) return pull();
+        if (route.startsWith("GET")) return { data: [] };
+        if (route.startsWith("POST")) {
+          return {
+            data: {
+              id: 77,
+              body: parameters.body,
+              user: { login: "review-router[bot]" },
+            },
+          };
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    const error = await publisher.runMaintenance().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toEqual([retryError, repairError]);
+    expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
+      scope: publication.scope,
+      now,
+    });
+  });
+
   it("does not requeue failed bookkeeping before any GitHub write", async () => {
     const store = fakeStore(claimed());
     store.retry.mockRejectedValueOnce(new Error("retry_unavailable"));

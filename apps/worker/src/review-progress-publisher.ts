@@ -338,10 +338,17 @@ export class ReviewProgressPublisher {
     } catch (retryError) {
       if (mutationMayHaveLanded) {
         // Retry bookkeeping can fail after GitHub has already changed the body.
-        await this.store.requeueAfterClaimLoss({
-          scope: publication.scope,
-          now: this.clock.now(),
-        });
+        try {
+          await this.store.requeueAfterClaimLoss({
+            scope: publication.scope,
+            now: this.clock.now(),
+          });
+        } catch (repairError) {
+          throw new AggregateError(
+            [retryError, repairError],
+            "review_progress_retry_and_repair_failed",
+          );
+        }
       }
       throw retryError;
     }
