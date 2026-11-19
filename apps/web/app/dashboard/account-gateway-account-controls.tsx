@@ -61,7 +61,7 @@ import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import {
   accountsCopy,
   connectionRowStatus,
-  removeFromWorkspaceCopy,
+  removedFromWorkspaceText,
 } from "./accounts-copy";
 import { bindingWorkspaceUse, WorkspaceUseLine } from "./account-workspace-use";
 import { useShowConnectionsList } from "./accounts-add-dialog";
@@ -959,9 +959,7 @@ function Controls({
     onSuccess: async (result) => {
       setMessage(
         result.status === "ok"
-          ? result.value.remoteFenceDelivery === "remote_pending"
-            ? removeFromWorkspaceCopy.pending
-            : removeFromWorkspaceCopy.done
+          ? removedFromWorkspaceText(result.value.remoteFenceDelivery)
           : statusText(result.status),
       );
       await refresh();

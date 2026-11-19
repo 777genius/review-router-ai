@@ -57,6 +57,15 @@ export const removeFromWorkspaceCopy = {
   } satisfies Record<ConnectionOwnerKind, string>,
 } as const;
 
+/** The receipt of a removal: done, or still waiting for the gateway. */
+export function removedFromWorkspaceText(
+  remoteFenceDelivery: "remote_pending" | "remote_applied" | "not_required",
+): string {
+  return remoteFenceDelivery === "remote_pending"
+    ? removeFromWorkspaceCopy.pending
+    : removeFromWorkspaceCopy.done;
+}
+
 export type AccountStatusKind =
   | "ready"
   | "confirming"
@@ -74,14 +83,14 @@ export type AccountStatusInfo = {
 
 // Status texts not read from the account state itself: local lifecycle
 // activity, changes in progress, and rows whose state could not be established.
-export const pendingStatusCopy = {
+const pendingStatusCopy = {
   removing: "Removing…",
   confirming: "Confirming change",
   unknown: "Status unknown",
   refreshFailed: "Details could not be refreshed",
 } as const;
 
-export function accountStatusInfo(
+function accountStatusInfo(
   account: Pick<AccountView, "state" | "readiness" | "lifecycle">,
 ): AccountStatusInfo {
   if (
@@ -123,7 +132,10 @@ export function connectionRowStatus({
     | undefined;
   readonly refreshFailed?: boolean | undefined;
   /** A lifecycle action this page started and has not settled yet. */
-  readonly localAction?: string | undefined;
+  readonly localAction?:
+    | NonNullable<AccountView["lifecycle"]>["action"]
+    | "unknown"
+    | undefined;
   /** A change the server reports as in progress (an operation or a fence). */
   readonly pendingChange?: boolean | undefined;
 }): AccountStatusInfo {

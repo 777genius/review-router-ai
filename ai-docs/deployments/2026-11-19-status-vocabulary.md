@@ -4,11 +4,11 @@
 - Goal: a Connections row whose state could not be established says "Status
   unknown" instead of "Outcome not confirmed yet" when no operation is behind
   it. The fallback Connections list (shown when personal sharing is off or the
-  workspace access read fails) shows the same status line and "Used in this
-  workspace" / "Not added to this workspace" as the main list instead of raw
-  states such as "quarantined" and binding/fence wording, and a binding that
-  waits for the gateway shows "Confirming change" instead of "Ready". Both lists
-  share one status order (`connectionRowStatus`).
+  workspace access read fails) uses the main list's status words and its "Used
+  in this workspace" / "Not added to this workspace" line instead of raw states
+  such as "quarantined" and binding/fence wording; a binding that waits for the
+  gateway shows "Confirming change". All lists share one status order
+  (`connectionRowStatus`).
 - Affected target: Web only.
 - Implementation: [ReviewRouter AI PR #915](https://github.com/777genius/review-router-ai/pull/915). Plan:
   [82](../architecture/82-status-vocabulary.md).

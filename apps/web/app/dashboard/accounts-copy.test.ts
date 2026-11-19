@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { connectionRowStatus } from "./accounts-copy";
+import {
+  connectionRowStatus,
+  removedFromWorkspaceText,
+  removeFromWorkspaceCopy,
+} from "./accounts-copy";
 
 const ready = { state: "active", readiness: "ready" } as const;
 const pendingDelete = {
@@ -61,5 +65,15 @@ describe("connectionRowStatus", () => {
     ["a row without a loaded account", {}, "unknown", "Status unknown"],
   ] as const)("%s", (_name, input, kind, text) => {
     expect(connectionRowStatus(input)).toEqual({ kind, text });
+  });
+});
+
+describe("removedFromWorkspaceText", () => {
+  test.each([
+    ["remote_pending", removeFromWorkspaceCopy.pending],
+    ["remote_applied", removeFromWorkspaceCopy.done],
+    ["not_required", removeFromWorkspaceCopy.done],
+  ] as const)("%s", (delivery, text) => {
+    expect(removedFromWorkspaceText(delivery)).toBe(text);
   });
 });

@@ -44,6 +44,7 @@ import {
 import {
   accountsCopy,
   connectionRowStatus,
+  removedFromWorkspaceText,
   removeFromWorkspaceCopy,
   type ConnectionOwnerKind,
 } from "./accounts-copy";
@@ -408,9 +409,7 @@ function WorkspacePersonalRows({
   const result = last?.result;
   const message =
     result?.status === "ok"
-      ? result.value.remoteFenceDelivery === "remote_pending"
-        ? removeFromWorkspaceCopy.pending
-        : removeFromWorkspaceCopy.done
+      ? removedFromWorkspaceText(result.value.remoteFenceDelivery)
       : result?.status === "conflict"
         ? "This connection changed. Refresh connections and try again."
         : result?.status === "denied"

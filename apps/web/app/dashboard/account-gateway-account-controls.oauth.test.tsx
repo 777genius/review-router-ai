@@ -1002,19 +1002,20 @@ test("the engine's own list shows plain statuses, never internal states or fence
         fencePending: true,
       },
     },
-    { ...row("tombstoned"), connectionId: "retired", label: "Retired one" },
+    { ...row("tombstoned"), connectionId: "retired", label: "Old one" },
   ];
   const view = await mount();
-  const fencedUse = await screen.findByText("Waiting use");
-  const fencedRemoval = screen.getByText("Waiting removal");
-  const rowOf = (element: HTMLElement) =>
-    element.closest(".py-4") as HTMLElement;
-  expect(rowOf(fencedUse).textContent).toContain("Confirming change");
-  expect(rowOf(fencedUse).textContent).toContain(accountsCopy.usedHere);
-  expect(rowOf(fencedRemoval).textContent).toContain("Confirming change");
-  expect(rowOf(fencedRemoval).textContent).toContain(accountsCopy.notAddedHere);
-  expect(view.container.textContent).toContain("Needs attention");
-  expect(view.container.textContent).toContain("Retired");
+  const rowOf = (label: string) =>
+    screen.getByText(label).closest(".py-4") as HTMLElement;
+  await screen.findByText("Waiting use");
+  expect(rowOf("Waiting use").textContent).toContain("Confirming change");
+  expect(rowOf("Waiting use").textContent).toContain(accountsCopy.usedHere);
+  expect(rowOf("Waiting removal").textContent).toContain("Confirming change");
+  expect(rowOf("Waiting removal").textContent).toContain(
+    accountsCopy.notAddedHere,
+  );
+  expect(rowOf("Q").textContent).toContain("Needs attention");
+  expect(rowOf("Old one").textContent).toContain("Retired");
   const titles = [...view.container.querySelectorAll("[title]")]
     .map((element) => element.getAttribute("title"))
     .join(" ");
@@ -1051,6 +1052,21 @@ test("removal from the engine's own list reports the result in plain words", asy
   );
   expect(await screen.findByText(removeFromWorkspaceCopy.pending)).toBeTruthy();
   expect(document.body.textContent).not.toMatch(/fence/i);
+});
+
+test("a lost response on Add asks to refresh instead of naming bindings", async () => {
+  page.accounts = [row("active")];
+  vi.mocked(bindGatewayAccount).mockRejectedValue(new Error("lost response"));
+  await mount();
+  fireEvent.click(
+    await screen.findByRole("button", { name: accountsCopy.addHere }),
+  );
+  expect(
+    await screen.findByText(
+      "Could not confirm adding it to this workspace. Refresh connections to check.",
+    ),
+  ).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/binding/i);
 });
 
 test("personal scope reuses canonical controls through injected actions and never offers workspace use management", async () => {
