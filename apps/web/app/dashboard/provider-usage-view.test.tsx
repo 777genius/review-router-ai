@@ -317,9 +317,7 @@ describe("provider usage interactive report", () => {
       screen.getByText(/Some sources last reported Oct 30, 2026, 19:40 UTC/),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        /At least N: Some calls did not report a token total/,
-      ),
+      screen.getByText(/At least N: Some calls did not report a token total/),
     ).toBeTruthy();
     expect(
       screen.getByText(
