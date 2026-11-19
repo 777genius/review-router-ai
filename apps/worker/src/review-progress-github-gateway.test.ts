@@ -69,7 +69,10 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], { throwAfterPost: true });
     let pullReads = 0;
     const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
-    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
       const response = await fixture.request(route, parameters);
       if (route !== pullRoute) return response;
       pullReads += 1;
