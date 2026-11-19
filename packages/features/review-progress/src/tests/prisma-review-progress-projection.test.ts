@@ -212,9 +212,7 @@ describe("Prisma review progress projection", () => {
                 phase: previousPhase,
                 terminal: "none",
                 updatedAt: "2026-08-12T11:59:00.000Z",
-                slots: [
-                  { slotId: "slot-1", required: true, state: "pending" },
-                ],
+                slots: [{ slotId: "slot-1", required: true, state: "pending" }],
               }),
             },
       publication: {
