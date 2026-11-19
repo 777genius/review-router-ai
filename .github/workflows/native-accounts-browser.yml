@@ -78,7 +78,7 @@ jobs:
         run: >-
           pnpm provider-setup:visual --no-personal-sharing
           --only 'native-account-info|native-import'
-          --next-heap-mb 2048 --out tmp/native-accounts-browser
+          --next-heap-mb 4096 --out tmp/native-accounts-browser
       - name: Assert all 34 screenshots and exact source receipt
         run: |
           node --input-type=module <<'NODE'
@@ -151,7 +151,7 @@ jobs:
           if (existsSync(logPath)) {
             const lines = readFileSync(logPath, 'utf8').split('\n');
             console.log(JSON.stringify({ nextFailureDiagnostics: lines
-              .filter(line => /error|failed|timeout|ERR_|SIGKILL|out of memory|Prisma/i.test(line))
+              .filter(line => /error|failed|timeout|ERR_|SIGKILL|memory|restarting|Prisma/i.test(line))
               .slice(-40).map(safe) }));
             console.log(JSON.stringify({ nextRequestTimings: lines
               .filter(line => /GET \/dashboard|POST \/dashboard|[Cc]ompil|[Rr]eady in/.test(line))
