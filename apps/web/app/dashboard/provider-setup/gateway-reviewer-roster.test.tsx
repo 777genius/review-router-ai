@@ -122,6 +122,23 @@ function view(): ProviderSetupView {
     viewerIsAdmin: true,
   };
 }
+const repositoryTarget = {
+  kind: "repository" as const,
+  repository: {
+    id: "r",
+    fullName: "org/repo",
+    visibility: "private" as const,
+    canManageCredentials: true,
+    effective: {
+      authMode: "codex_account_gateway" as const,
+      credentialKind: "gateway_binding" as const,
+    },
+    secretGuidance: null,
+    organizationLogin: null,
+    organizationSecretPolicy: null,
+    rotatingEnabled: false,
+  },
+};
 const base = () => ({
   workspaceId: "w",
   target: { kind: "workspace" as const },
@@ -258,9 +275,31 @@ describe("Gateway reviewer roster", () => {
     expect(screen.queryByText("Optional")).toBeNull();
   });
 
+  it("reorders parallel reviewers to change the primary", async () => {
+    render(<GatewayReviewerRoster {...base()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Move reviewer 2 up" }));
+    expect(screen.getByText(/1\. model-two/)).toBeTruthy();
+    expect(screen.queryByText("Fallback")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewers" }));
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerMode: "parallel",
+          reviewers: [
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "two" },
+            }),
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "one" },
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
   it("orders fallback reviewers and saves the mode with the roster", async () => {
     render(<GatewayReviewerRoster {...base()} />);
-    expect(screen.queryByRole("button", { name: /Move reviewer/ })).toBeNull();
     await choose(/^How reviewers work together/, /^Fallback in order/);
     expect(
       screen.queryByRole("combobox", { name: /^Max parallel providers/ }),
@@ -290,7 +329,7 @@ describe("Gateway reviewer roster", () => {
     );
   });
 
-  it("opens an inheriting repository with the workspace roster mode", async () => {
+  it("explains an inheriting repository and copies the workspace roster with its mode", async () => {
     const props = base();
     const inherited = view();
     render(
@@ -307,25 +346,12 @@ describe("Gateway reviewer roster", () => {
             execution: {},
           })),
         }}
-        target={{
-          kind: "repository",
-          repository: {
-            id: "r",
-            fullName: "org/repo",
-            visibility: "private",
-            canManageCredentials: true,
-            effective: {
-              authMode: "codex_account_gateway",
-              credentialKind: "gateway_binding",
-            },
-            secretGuidance: null,
-            organizationLogin: null,
-            organizationSecretPolicy: null,
-            rotatingEnabled: false,
-          },
-        }}
+        target={repositoryTarget}
       />,
     );
+    expect(
+      screen.getByText(/^This repository uses the workspace default reviewers/),
+    ).toBeTruthy();
     expect(
       screen.getByRole("combobox", { name: /^How reviewers work together/ })
         .textContent,
@@ -333,6 +359,28 @@ describe("Gateway reviewer roster", () => {
     expect(
       screen.getByRole("button", { name: "Move reviewer 2 up" }),
     ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Use workspace reviewers" }),
+    ).toBeNull();
+    // Saving unchanged reviewers is allowed: it pins the current list here.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save for this repository" }),
+    );
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerMode: "fallback",
+          reviewers: [
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "one" },
+            }),
+            expect.objectContaining({
+              provider: { kind: "profile", profileId: "two" },
+            }),
+          ],
+        }),
+      ),
+    );
   });
 
   it("removes only the chosen row and keeps the last reviewer", async () => {
@@ -357,6 +405,48 @@ describe("Gateway reviewer roster", () => {
         }),
       ),
     );
+  });
+
+  it("shows the parallel controls only while there are several reviewers", async () => {
+    render(<GatewayReviewerRoster {...base()} />);
+    const controls = () =>
+      ["How reviewers work together", "Max parallel providers"].map((name) =>
+        screen.queryByRole("combobox", { name: new RegExp(`^${name}`) }),
+      );
+    expect(controls().every(Boolean)).toBe(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    expect(controls().some(Boolean)).toBe(false);
+    expect(screen.queryByRole("button", { name: /Move reviewer/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add reviewer" }));
+    expect(controls().every(Boolean)).toBe(true);
+  });
+
+  it("hides the controls for several reviewers while one is left and keeps its saved mode", async () => {
+    const props = base();
+    props.view = {
+      ...props.view,
+      providerMode: "fallback",
+      defaultSelections: [selection("one")],
+    };
+    render(<GatewayReviewerRoster {...props} />);
+    expect(
+      screen.queryByRole("combobox", { name: /^How reviewers work together/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: /^Max parallel providers/ }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Move reviewer/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewers" }));
+    await waitFor(() =>
+      expect(saveProviderRoster).toHaveBeenCalledWith(
+        expect.objectContaining({ providerMode: "fallback" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add reviewer" }));
+    expect(
+      screen.getByRole("combobox", { name: /^How reviewers work together/ })
+        .textContent,
+    ).toContain("Fallback in order");
   });
 
   it("retains a stale edited draft through background refetch and only reloads on request", async () => {
@@ -391,28 +481,21 @@ describe("Gateway reviewer roster", () => {
 
   it("restores the complete workspace roster with both observed versions", async () => {
     const props = base();
-    render(
-      <GatewayReviewerRoster
-        {...props}
-        target={{
-          kind: "repository",
-          repository: {
-            id: "r",
-            fullName: "org/repo",
-            visibility: "private",
-            canManageCredentials: true,
-            effective: {
-              authMode: "codex_account_gateway",
-              credentialKind: "gateway_binding",
-            },
-            secretGuidance: null,
-            organizationLogin: null,
-            organizationSecretPolicy: null,
-            rotatingEnabled: false,
-          },
-        }}
-      />,
+    props.view = {
+      ...props.view,
+      defaultSelections: [selection("one"), selection("missing")],
+    };
+    render(<GatewayReviewerRoster {...props} target={repositoryTarget} />);
+    expect(
+      screen
+        .getByRole("button", { name: "Use workspace reviewers" })
+        .getAttribute("aria-describedby"),
+    ).toBe(
+      screen.getByText(
+        "Workspace default: Profile one · model-one; Reviewer unavailable.",
+      ).id,
     );
+    expect(screen.getByRole("button", { name: "Save reviewers" })).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Use workspace reviewers" }),
     );
@@ -427,6 +510,24 @@ describe("Gateway reviewer roster", () => {
         reviewers: null,
       }),
     );
+  });
+
+  it("warns that going back stops reviews while the workspace has no default", () => {
+    const props = base();
+    props.view = {
+      ...props.view,
+      defaultSelection: null,
+      defaultSelections: [],
+    };
+    render(<GatewayReviewerRoster {...props} target={repositoryTarget} />);
+    expect(
+      screen.getByText(
+        "Choosing Use workspace reviewers stops reviews here: the workspace has no default reviewers.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Use workspace reviewers" }),
+    ).toHaveProperty("disabled", false);
   });
 
   it("adds a new independently configured reviewer without raising parallelism", async () => {
