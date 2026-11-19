@@ -26,6 +26,7 @@ describe("OctokitReviewSizeLimitNoticeGateway", () => {
     expect(body).toContain("1,912,457 lines");
     expect(body).toContain("the limit is 250,000");
     expect(body).toContain("`REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES`");
+    expect(body).not.toContain("REVIEW_ROUTER_MAX_CHANGED_LINES`");
     expect(body).toContain("Checked commit `63927aec0000`");
     expect(body.endsWith(reviewSizeLimitNoticeMarker)).toBe(true);
   });

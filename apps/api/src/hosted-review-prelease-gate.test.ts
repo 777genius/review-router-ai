@@ -134,14 +134,55 @@ describe("ProductionHostedReviewPreleaseGate", () => {
       status: "skipped",
       changedLines: 300_000,
     });
-    await vi.waitFor(() =>
-      expect(warn).toHaveBeenCalledWith("review_size_limit_notice_failed", {
-        repository: "777genius/agent-teams-ai",
-        pullRequestNumber: 252,
-        status: 502,
-      }),
-    );
-    warn.mockRestore();
+    try {
+      await vi.waitFor(() =>
+        expect(warn).toHaveBeenCalledWith("review_size_limit_notice_failed", {
+          repository: "777genius/agent-teams-ai",
+          pullRequestNumber: 252,
+          status: 502,
+          reason: null,
+        }),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("answers at once while the notice hangs or throws synchronously", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const hanging = buildGate({
+        additions: 300_000,
+        deletions: 0,
+        sizeLimitNotices: { publish: () => new Promise<void>(() => undefined) },
+      });
+      await expect(hanging.gate.evaluate(input())).resolves.toMatchObject({
+        status: "skipped",
+      });
+
+      const throwing = buildGate({
+        additions: 300_000,
+        deletions: 0,
+        sizeLimitNotices: {
+          publish: () => {
+            throw new Error("review_size_limit_notice_target_invalid");
+          },
+        },
+      });
+      await expect(throwing.gate.evaluate(input())).resolves.toMatchObject({
+        status: "skipped",
+      });
+      await vi.waitFor(() =>
+        expect(warn).toHaveBeenCalledWith(
+          "review_size_limit_notice_failed",
+          expect.objectContaining({
+            reason: "review_size_limit_notice_target_invalid",
+          }),
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("does not post a notice for an admitted review", async () => {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { decidePullRequestReviewAdmission } from "@reviewrouter/features-codex-oauth-rotating";
 import type {
   ActionRepositoryContext,
+  HostedReviewPreleaseGateDecision,
   HostedReviewPreleaseGatePort,
 } from "@reviewrouter/features-action-control-plane";
 import {
@@ -145,7 +146,8 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
     if (!decision || decision.decisionHash !== decisionHash) {
       throw new Error("review_request_admission_transition_conflict");
     }
-    return this.explainRefusal(input.repository, intent, decision);
+    this.noticeRefusal(input.repository, intent, decision);
+    return decision;
   }
 
   /**
@@ -153,42 +155,31 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
    * the background so a slow or failing GitHub call never delays or alters the
    * authorization answer.
    */
-  private explainRefusal<
-    TDecision extends
-      | { readonly status: "admitted" }
-      | {
-          readonly status: "skipped";
-          readonly changedLines: number;
-          readonly maxChangedLines: number;
-        },
-  >(
+  private noticeRefusal(
     repository: ActionRepositoryContext,
     intent: ReviewRequestedIntent,
-    decision: TDecision,
-  ): TDecision {
+    decision: HostedReviewPreleaseGateDecision,
+  ): void {
     const notices = this.dependencies.sizeLimitNotices;
-    if (decision.status === "skipped" && notices) {
-      notices
-        .publish({
-          githubInstallationId: repository.githubInstallationId,
-          repositoryFullName: repository.fullName,
+    if (decision.status !== "skipped" || !notices) return;
+    const notice = {
+      githubInstallationId: repository.githubInstallationId,
+      repositoryFullName: repository.fullName,
+      pullRequestNumber: intent.pullRequestNumber,
+      headSha: intent.revision.headSha,
+      changedLines: decision.changedLines,
+      maxChangedLines: decision.maxChangedLines,
+    };
+    // Detached from the request: even a synchronous throw lands in catch.
+    void Promise.resolve()
+      .then(() => notices.publish(notice))
+      .catch((error: unknown) => {
+        console.warn("review_size_limit_notice_failed", {
+          repository: repository.fullName,
           pullRequestNumber: intent.pullRequestNumber,
-          headSha: intent.revision.headSha,
-          changedLines: decision.changedLines,
-          maxChangedLines: decision.maxChangedLines,
-        })
-        .catch((error: unknown) => {
-          console.warn("review_size_limit_notice_failed", {
-            repository: repository.fullName,
-            pullRequestNumber: intent.pullRequestNumber,
-            status:
-              typeof error === "object" && error !== null && "status" in error
-                ? error.status
-                : null,
-          });
+          ...safeNoticeFailure(error),
         });
-    }
-    return decision;
+      });
   }
 
   private findIntent(input: {
@@ -410,6 +401,19 @@ function sumChangedLines(additions: number, deletions: number): number {
     throw new Error("hosted_review_changed_lines_invalid");
   }
   return changedLines;
+}
+
+function safeNoticeFailure(error: unknown) {
+  const status =
+    typeof error === "object" && error !== null && "status" in error
+      ? error.status
+      : null;
+  const reason =
+    error instanceof Error &&
+    /^review_size_limit_notice_[a-z_]+$/u.test(error.message)
+      ? error.message
+      : null;
+  return { status, reason };
 }
 
 function digest(value: string): string {

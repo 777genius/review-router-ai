@@ -44,13 +44,14 @@ export class OctokitReviewSizeLimitNoticeGateway implements ReviewSizeLimitNotic
 
   async publish(notice: ReviewSizeLimitNotice): Promise<void> {
     const [owner, repo, extra] = notice.repositoryFullName.split("/");
-    const installationId = Number(notice.githubInstallationId);
+    const installationId = /^[1-9][0-9]*$/u.test(notice.githubInstallationId)
+      ? Number(notice.githubInstallationId)
+      : Number.NaN;
     if (
       !owner ||
       !repo ||
       extra !== undefined ||
-      !Number.isSafeInteger(installationId) ||
-      installationId < 1
+      !Number.isSafeInteger(installationId)
     ) {
       throw new Error("review_size_limit_notice_target_invalid");
     }

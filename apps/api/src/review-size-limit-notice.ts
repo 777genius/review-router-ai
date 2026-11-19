@@ -32,7 +32,7 @@ export function renderReviewSizeLimitNotice(
     "",
     `It changes ${lines(notice.changedLines)} lines (additions plus deletions) and the limit is ${lines(notice.maxChangedLines)}, so no AI review was started. The failed ReviewRouter run on this pull request is this limit, not a problem in the code.`,
     "",
-    "To get a review, split the change into smaller pull requests. The limit is the server setting `REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES`: on hosted ReviewRouter ask the ReviewRouter team, on a self-hosted install your operator can raise it. The repository variable `REVIEW_ROUTER_MAX_CHANGED_LINES` can only lower it.",
+    "To get a review, split the change into smaller pull requests. The limit is set on the ReviewRouter server, not in the repository: on hosted ReviewRouter contact the ReviewRouter team, on a self-hosted install your operator can raise `REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES`.",
     "",
     `Checked commit \`${notice.headSha.slice(0, 12)}\`.`,
     "",

@@ -32,10 +32,21 @@ Merging the PR did not deploy anything.
   with 403 and the run is still red.
 - After the refusal is decided (or restored on a retry), the API posts or
   rewrites one App comment marked `<!-- reviewrouter:size-limit-notice:v1 -->`
-  with the changed lines, the limit, the commit and how to proceed. It runs in
+  with the changed lines, the limit, the commit and how to proceed (split the
+  pull request; the limit is a server setting, not a repository one). It runs in
   the background; a GitHub failure only logs `review_size_limit_notice_failed`.
 - Evidence of the gap: agent-teams-ai#1192 (1,912,457 changed lines) had
   repeated red runs with `review_run_authorize http_status=403` and no comment.
+
+## Known limits
+
+- The run is still red; only the pull request comment explains it. A neutral
+  run needs a typed "skipped" answer from `review_run_authorize` and an Action
+  release (proposal in PR #938).
+- The notice is English only and stays after the pull request shrinks and is
+  reviewed (it names the commit it checked).
+- Two refusals on the same pull request at nearly the same moment can both
+  post, leaving one stale duplicate notice.
 
 ## Ordered rollout
 
