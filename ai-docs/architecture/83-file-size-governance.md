@@ -71,7 +71,7 @@
 
 ## 8. Шаги, тесты, деплой
 
-1. PR B (сейчас): удаление и общий маппинг по §7. На Hetzner: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, vitest `provider-list-view`, `provider-identity`, `account-lifecycle*`, `personal-account*`. Общий маппинг покрывает tsc, поведение read model не меняется; новых тестов нет (`provider-list-view.test.ts` проверяет только пустой список, `provider-setup-view.test.ts` нет).
+1. PR B (#910): удаление и общий маппинг по §7 в `src/server/saved-provider-profiles.ts`. На Hetzner: `pnpm lint`, `pnpm format:check`, typecheck apps/web, vitest затронутых модулей. Поведение read model не меняется; добавлен один табличный тест `saved-provider-profiles.test.ts` на правило personal binding (оно управляет подсказками прав на обоих экранах провайдеров).
 2. PR A (после партии, если владелец за): блоки в `eslint.config.mjs` и строка в AGENTS.md. Проверки: `pnpm lint`, `pnpm format:check`; руками: +1 строка в гиганте и новый файл в 601 строку дают ошибку.
 3. Деплой: A продукт не меняет. B - web без изменения поведения, едет с ближайшим релизом, запись в `ai-docs/deployments/` для B.
 
