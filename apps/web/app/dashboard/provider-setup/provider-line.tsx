@@ -4,7 +4,10 @@ import type { ProviderIdentity } from "../../../src/features/provider-setup/prov
 
 import type { ProviderCredentialKind } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import type { ProviderAuthMode } from "@reviewrouter/features-review-providers";
-import { sourceTitle } from "../../../src/features/provider-setup/provider-setup-model";
+import {
+  reviewerNames,
+  sourceTitle,
+} from "../../../src/features/provider-setup/provider-setup-model";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import {
   ProviderSetupDialog,
@@ -143,13 +146,7 @@ export function providerLineCopy(
   const profiles =
     summary.profiles ?? (summary.profile ? [summary.profile] : []);
   if (profiles.length > 1) {
-    const names = profiles
-      .map((profile) =>
-        profile
-          ? `${profile.label} · ${profile.model}`
-          : "Reviewer unavailable",
-      )
-      .join("; ");
+    const names = reviewerNames(profiles);
     return {
       title:
         target === "workspace"
