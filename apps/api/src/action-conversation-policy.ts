@@ -52,7 +52,11 @@ function primaryConversationProvider(
   if (
     primary?.authMode !== "codex_account_gateway" ||
     configuration.providers.some(
-      (provider) => provider.authMode !== "codex_account_gateway",
+      (provider) =>
+        provider.authMode !== "codex_account_gateway" ||
+        // Free Build trial has only synthetic review checkout permission;
+        // a later discussion has no equivalent repository/payload fence.
+        provider.gatewayProfileRef === "nvidia-build-chat-apikey-v1",
     )
   )
     throw new ConversationError("unavailable");

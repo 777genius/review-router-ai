@@ -1,7 +1,6 @@
 import { accountProviderIdentity } from "../features/provider-setup/provider-identity";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { GatewayError } from "@agent-teams/account-gateway/http";
-import { isPersonalOwnerOnlyProfile } from "@reviewrouter/features-provider-accounts";
 import type { AccountProfileView } from "./account-gateway-accounts";
 import {
   subscriptionProfileDefinition,
@@ -20,6 +19,19 @@ export function configuredSubscriptionProfiles(
   )
     throw new Error("accounts_unavailable");
   return profiles;
+}
+
+/** The only qualified NVIDIA profile; deployments cannot rename it. */
+export const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
+function qualifiedNvidia(wire: c.ProviderConnectionCapability): boolean {
+  return (
+    wire.profileId === nvidiaProfileId &&
+    wire.provider.identity === "nvidia" &&
+    wire.protocol === "openai-responses" &&
+    wire.authMethods.includes("api_key") &&
+    wire.completionInputKind === "none" &&
+    wire.availability === "enabled"
+  );
 }
 
 /** Project the qualified deployment catalog; this read has no provider effects. */
@@ -49,10 +61,15 @@ export async function connectionProfiles(input: {
   const byId = new Map(capabilities.map((row) => [row.profileId, row]));
   if (byId.size !== capabilities.length)
     throw new Error("accounts_unavailable");
-  const result = input.legacy.map((legacy) => {
+  const result: AccountProfileView[] = input.legacy.map((legacy) => {
     const wire = byId.get(legacy.id);
-    if (!wire) return legacy;
     const provider = accountProviderIdentity(legacy);
+    if (
+      (legacy.id === nvidiaProfileId || provider === "nvidia") &&
+      (!wire || !qualifiedNvidia(wire))
+    )
+      return { ...legacy, availability: "deployment_configuration_required" };
+    if (!wire) return legacy;
     if (
       wire.protocol !== legacy.protocol ||
       (provider !== undefined && wire.provider.identity !== provider) ||
@@ -81,6 +98,19 @@ export async function connectionProfiles(input: {
       },
     };
   });
+  const nvidia = capabilities.find(qualifiedNvidia);
+  if (nvidia && !result.some((profile) => profile.id === nvidia.profileId))
+    result.push({
+      id: nvidia.profileId,
+      label: nvidia.provider.label,
+      provider: "nvidia",
+      protocol: nvidia.protocol,
+      models: [...nvidia.modelIds],
+      authKind: "api_key",
+      canReconnect: nvidia.reconnect === "replace_api_key",
+      availability: nvidia.availability,
+      connection: connectionView(nvidia),
+    });
   if (input.subscriptionProfileIds === undefined) return result;
   for (const id of Object.keys(subscriptionProfileProviders)) {
     const wire = byId.get(id);
@@ -115,15 +145,14 @@ export async function connectionProfiles(input: {
   }
   return result;
 }
-function connectionView(
+export function connectionView(
   wire: c.ProviderConnectionCapability,
 ): NonNullable<AccountProfileView["connection"]> {
   return {
     provider: wire.provider.identity,
-    planLabel: wire.plan.label,
+    planLabel: qualifiedNvidia(wire) ? "API key" : wire.plan.label,
     regionLabel: wire.region.label,
     completionInputKind: wire.completionInputKind,
-    personalOnly: isPersonalOwnerOnlyProfile(wire.profileId),
     limitsContract: wire.limitsContract,
     modelSettings: wire.models,
   };
@@ -142,6 +171,5 @@ export function operationCompletion(
     providerLabel: profile.label,
     providerId: accountProviderIdentity(profile),
     inputKind,
-    ...(profile.connection?.personalOnly ? { personalOnly: true } : {}),
   };
 }

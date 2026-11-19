@@ -25,14 +25,21 @@ function fixture(
   model = "gpt-prefix/dynamic",
   reasoningEffort?: "minimal" | "high" | "max" | "ultra",
   options: {
-    readonly source?: "codex" | "openrouter";
+    readonly source?: "codex" | "openrouter" | "glm" | "kimi" | "minimax";
   } = {},
 ) {
   const source = options.source ?? "codex";
   const profileRef =
     source === "codex"
       ? codexOAuthModelSettingsProfile
-      : "openrouter-openai-responses-apikey-v1";
+      : source === "glm"
+        ? "glm-coding-global-responses-apikey-v1"
+        : source === "kimi"
+          ? "kimi-code-global-responses-apikey-v1"
+          : source === "minimax"
+            ? "minimax-mplan-global-responses-apikey-v1"
+            : "openrouter-openai-responses-apikey-v1";
+
   const configuration = parseReviewConfigurationStrict({
     ...workspacePolicyFixture,
     providers: [
@@ -82,6 +89,7 @@ function fixture(
       policySubject: "binding-1",
       policyRevision: 1,
       permittedAccountRef: "account-private",
+      ...(source === "glm" ? { expectedAuthorizationEpoch: 7 } : {}),
       profileRef,
       invocationId: "invocation-1",
       attemptId: "attempt-1",
@@ -113,7 +121,19 @@ function fixture(
     maxExpiresAt: new Date(deadline),
     runtimeSnapshotCanonicalJson: canonicalJson(snapshot),
   } as ReviewRunAuthorization;
+  // The GLM case uses a personal-owner fixture: a user-owned binding in its owner's workspace.
+  const personalOwner = source === "glm";
   let row: BindingSelection | null = {
+    ...(personalOwner
+      ? {
+          personalUse: {
+            workspaceId: "workspace-1",
+            personalOwnerUserId: "user-1",
+            donorUserId: "user-1",
+            donorRole: "owner" as const,
+          },
+        }
+      : {}),
     binding: {
       id: "binding-1",
       workspaceId: "workspace-1",
@@ -126,7 +146,10 @@ function fixture(
     },
     connection: {
       id: "connection-private",
-      owner: { kind: "workspace", workspaceId: "workspace-1" },
+      owner: personalOwner
+        ? { kind: "user", userId: "user-1" }
+        : { kind: "workspace", workspaceId: "workspace-1" },
+      ...(personalOwner ? { authorizationEpochMirror: 7 } : {}),
       gatewayAccountRef: "account-private",
       gatewayOperationRef: null,
       profileRef,
@@ -137,7 +160,9 @@ function fixture(
   };
   let account: c.Account = {
     accountRef: "account-private",
-    ownerRef: `rrw_${createHash("sha256").update("rr-workspace-owner-v1\0workspace-1").digest("hex")}`,
+    ownerRef: personalOwner
+      ? `rru_${createHash("sha256").update("rr-user-owner-v1\0user-1").digest("hex")}`
+      : `rrw_${createHash("sha256").update("rr-workspace-owner-v1\0workspace-1").digest("hex")}`,
     profileId: profileRef,
     displayName: "Account",
     state: "active",
@@ -166,7 +191,11 @@ function fixture(
           ],
         }
       : {
-          source,
+          // The GLM plan serves its catalogue from native, not from a vendor source.
+          source:
+            source === "glm" || source === "kimi" || source === "minimax"
+              ? ("native_catalog" as const)
+              : ("openrouter" as const),
           models: [
             {
               modelId: model,
@@ -204,7 +233,17 @@ function fixture(
       {
         profileId: profileRef,
         protocol: "openai-responses",
-        modelIds: [source === "codex" ? "gpt-5.6-sol" : "openai/gpt-5.4-mini"],
+        modelIds: [
+          source === "codex"
+            ? "gpt-5.6-sol"
+            : source === "glm"
+              ? "glm-5.3-flash"
+              : source === "kimi"
+                ? "k3-256k"
+                : source === "minimax"
+                  ? "MiniMax-M3.1-Flash"
+                  : "openai/gpt-5.4-mini",
+        ],
         authKinds: [source === "codex" ? "oauth" : "api_key"],
       },
     ],
@@ -644,3 +683,97 @@ it("does not infer OpenRouter reasoning efforts or reuse Codex aliases", async (
     '{"model":"new-vendor/new-review-model","reasoning":{"allowed":["ultra"],"default":"ultra"}}',
   );
 });
+
+const glmCatalog = { source: "glm" } as const;
+
+it("checks out the GLM catalogue model beside the anchor from a fresh native_catalog snapshot", async () => {
+  const f = fixture("glm-5.3", undefined, glmCatalog);
+  const result = await f.issue();
+  expect(
+    JSON.parse(
+      result.runtimeConfig.runtimeEnv[gatewayModelSettingsRuntimeEnvKey]!,
+    ),
+  ).toEqual({ model: "glm-5.3", reasoning: null });
+  expect(f.readAccountModels).toHaveBeenCalledWith(
+    expect.objectContaining({
+      profileId: "glm-coding-global-responses-apikey-v1",
+    }),
+    expect.anything(),
+  );
+  expect(f.issuer).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the GLM anchor usable when the catalogue is only unavailable, but not the catalogue model", async () => {
+  const anchor = fixture("glm-5.3-flash", undefined, glmCatalog);
+  anchor.catalog({ status: "unavailable" });
+  await anchor.issue();
+  expect(anchor.issuer).toHaveBeenCalledTimes(1);
+
+  const other = fixture("glm-5.3", undefined, glmCatalog);
+  other.catalog({ status: "unavailable" });
+  await expect(other.issue()).rejects.toThrow();
+  expect(other.issuer).not.toHaveBeenCalled();
+});
+
+it.each([
+  "unknown",
+  "unsupported",
+  "removed",
+  "expired",
+  "wrong-source",
+] as const)(
+  "refuses GLM %s catalogue metadata before minting repository access",
+  async (mode) => {
+    const f = fixture("glm-5.3", undefined, glmCatalog);
+    if (mode === "wrong-source") {
+      f.catalog(fixture("glm-5.3").snapshot());
+    } else if (mode === "removed" || mode === "expired") {
+      const catalog = f.snapshot();
+      if (mode === "removed") catalog.models = [];
+      else {
+        catalog.fetchedAt = new Date(Date.now() - 600000).toISOString();
+        catalog.expiresAt = new Date(Date.now() - 300000).toISOString();
+      }
+      f.catalog(catalog);
+    } else f.catalog({ status: mode });
+    await expect(f.issue()).rejects.toThrow();
+    expect(f.issuer).not.toHaveBeenCalled();
+  },
+);
+
+// Kimi and MiniMax serve a native catalogue too: a live-listed model is checked out
+// from a fresh snapshot, and only the anchor survives an unavailable catalogue.
+it.each([
+  ["kimi", "k3-256k"],
+  ["minimax", "MiniMax-M3.1-Flash"],
+] as const)(
+  "checks out a listed %s model and keeps its anchor when the catalogue is unavailable",
+  async (source, anchor) => {
+    const live = fixture("vendor/live-listed-model", undefined, { source });
+    const result = await live.issue();
+    expect(
+      JSON.parse(
+        result.runtimeConfig.runtimeEnv[gatewayModelSettingsRuntimeEnvKey]!,
+      ),
+    ).toEqual({ model: "vendor/live-listed-model", reasoning: null });
+    expect(live.readAccountModels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profileId:
+          source === "kimi"
+            ? "kimi-code-global-responses-apikey-v1"
+            : "minimax-mplan-global-responses-apikey-v1",
+      }),
+      expect.anything(),
+    );
+
+    const unavailable = fixture(anchor, undefined, { source });
+    unavailable.catalog({ status: "unavailable" });
+    await unavailable.issue();
+    expect(unavailable.issuer).toHaveBeenCalledTimes(1);
+
+    const other = fixture("vendor/live-listed-model", undefined, { source });
+    other.catalog({ status: "unavailable" });
+    await expect(other.issue()).rejects.toThrow();
+    expect(other.issuer).not.toHaveBeenCalled();
+  },
+);

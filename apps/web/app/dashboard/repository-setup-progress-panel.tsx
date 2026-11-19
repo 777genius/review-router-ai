@@ -376,7 +376,6 @@ export function RepositorySetupProgressPanel({
       canManage && !runtimeMigrationUpdate ? enableReviewAction : null,
     providerSetupBeforeWorkflow:
       providerSetupBeforeWorkflow && !runtimeMigrationUpdate,
-    showDiscussionModeOption: !runtimeMigrationUpdate,
     gatewayProviderSetup: expectedProviderAuthModes.includes(
       "codex_account_gateway",
     ),
@@ -504,7 +503,6 @@ function buildSetupSteps({
   currentStep,
   enableReviewAction,
   providerSetupBeforeWorkflow,
-  showDiscussionModeOption,
   gatewayProviderSetup,
   gatewayReviewV2Readiness,
   onSetupComplete,
@@ -525,7 +523,6 @@ function buildSetupSteps({
   readonly currentStep: SetupStep;
   readonly enableReviewAction?: ReactNode;
   readonly providerSetupBeforeWorkflow: boolean;
-  readonly showDiscussionModeOption: boolean;
   readonly gatewayProviderSetup: boolean;
   readonly gatewayReviewV2Readiness?:
     | GatewayReviewV2ProvisioningResult
@@ -575,8 +572,6 @@ function buildSetupSteps({
         workflowCurrent={workflowCurrent}
         workflowRefresh={workflowRefresh}
         mutationsEnabled={mutationsEnabled}
-        gatewayWorkflow={gatewayProviderSetup}
-        showDiscussionModeOption={showDiscussionModeOption}
         onComplete={onSetupComplete}
       />
     ) : null;

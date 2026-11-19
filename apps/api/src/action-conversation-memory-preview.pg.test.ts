@@ -532,6 +532,17 @@ describe.skipIf(!databaseUrl)(
           },
         };
         const selection = await f.selector().prepareParent(prepared);
+        expect(
+          selection.observationEvidence?.candidates.map(
+            (message) => message.id,
+          ),
+        ).toEqual([snapshot.sourceId]);
+        expect(selection.manifest.evidenceDigest).toBe(
+          conversationDigest(selection.observationEvidence),
+        );
+        expect(JSON.stringify(selection.manifest)).not.toContain(
+          snapshot.messages[1]!.body,
+        );
         const row = await prisma.conversationProcessing.findUniqueOrThrow({
           where: { id: f.parentId },
         });
@@ -1132,6 +1143,68 @@ describe.skipIf(!databaseUrl)(
       expect((await f.preview()).status).toBe("incomplete");
       expect(f.prepares).toHaveLength(1);
     });
+    it("presents only checked human candidate revisions while retaining the full reply discussion", async () => {
+      const current = snapshot.messages[1]!;
+      const earlier = {
+        ...current,
+        id: "github-node:earlier-human",
+        commentId: "3",
+        body: "Upload buffers hold at most 128 records.",
+        createdAt: new Date(Date.parse(current.createdAt) - 1000).toISOString(),
+        updatedAt: new Date(Date.parse(current.updatedAt) - 1000).toISOString(),
+      };
+      const revised = {
+        ...earlier,
+        id: "github-node:late-revision",
+        commentId: "4",
+        updatedAt: new Date(Date.parse(current.updatedAt) + 1000).toISOString(),
+      };
+      const later = {
+        ...current,
+        id: "github-node:future-human",
+        commentId: "5",
+        createdAt: new Date(Date.parse(current.createdAt) + 1000).toISOString(),
+      };
+      const context = {
+        ...snapshot,
+        messages: [snapshot.messages[0]!, earlier, revised, current, later].map(
+          (message) => ({
+            ...message,
+            bodyDigest: createHash("sha256").update(message.body).digest("hex"),
+          }),
+        ),
+      };
+      const f = await fixture(
+        undefined,
+        false,
+        true,
+        "medium",
+        undefined,
+        context,
+      );
+      expect((await f.preview()).status).toBe("complete");
+      const task = f.requests[0] as {
+        input: { content: { text: string }[] }[];
+      };
+      const projection = JSON.parse(task.input[0]!.content[0]!.text);
+      expect(projection.observationEvidence.selectedSourceId).toBe(
+        snapshot.sourceId,
+      );
+      expect(
+        projection.observationEvidence.candidates.map(
+          (message: { id: string }) => message.id,
+        ),
+      ).toEqual([earlier.id, current.id]);
+      expect(projection.observationEvidence.candidates[0].body).toBe(
+        earlier.body,
+      );
+      expect(projection.checkedDiscussion.messages).toEqual(context.messages);
+      expect(projection.contextEvidence.messages).toHaveLength(5);
+      expect(f.prepares).toHaveLength(1);
+      expect(f.requests).toHaveLength(1);
+      expect(f.closes()).toBe(1);
+    });
+
     it("accepts a literal current endorsement with a full-thread referent and strips sourceQuote from the domain result", async () => {
       const body = "Yes, that is how cache keys behave.";
       const context = {

@@ -34,6 +34,7 @@ import {
   renderCanonicalCodexRotatingInteractionWorkflowV1,
   renderCanonicalCodexRotatingInteractionWorkflowV2,
   renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCanonicalCodexRotatingInteractionWorkflowV4,
 } from "@reviewrouter/features-workflow-provisioning";
 import { isLoopbackHostname } from "@reviewrouter/platform-config";
 import {
@@ -767,6 +768,18 @@ export class OctokitCodexRotatingGitHubSecretGateway
         actionRef: metadata.actionRef,
         apiUrl: metadata.apiUrl,
         runtimeConfigMode: "oidc",
+      }),
+      renderCanonicalCodexRotatingInteractionWorkflowV3({
+        actionRef: metadata.actionRef,
+        apiUrl: metadata.apiUrl,
+        runtimeConfigMode: "oidc",
+        discussionMode: "suggest",
+      }),
+      renderCanonicalCodexRotatingInteractionWorkflowV4({
+        actionRef: metadata.actionRef,
+        apiUrl: metadata.apiUrl,
+        runtimeConfigMode: "oidc",
+        discussionMode: "suggest",
       }),
       renderCanonicalCodexRotatingInteractionWorkflowV2({
         actionRef: metadata.actionRef,

@@ -45,7 +45,7 @@ it("rejects raw native selectors and invalid IDs before composition", async () =
     { ...request, connectionId: "" },
     { ...request, connectionId: "invalid/id" },
   ])
-    expect(await refreshAccountLimitsAction(invalid)).toEqual({
+    expect(await refreshAccountLimitsAction(invalid)).toMatchObject({
       status: "invalid",
     });
   expect(h.production).not.toHaveBeenCalled();
@@ -58,7 +58,10 @@ it("uses the signed context's sole workspace authority", async () => {
       context: "signed.context",
       workspaceId: "org",
     }),
-  ).toEqual({ status: "invalid" });
+  ).toMatchObject({
+    status: "invalid",
+    diagnosis: { code: "invalid_request", source: "application" },
+  });
   expect(h.adapter).not.toHaveBeenCalled();
   expect(
     await refreshAccountLimitsAction({ ...request, context: "signed.context" }),

@@ -14,6 +14,7 @@ export const reviewProviderAuthModes = [
   "codex_account_gateway",
   "mimo_token_plan_api_key",
   "claude_code_oauth",
+  "claude_code_api_key",
   "openrouter_api_key",
   "kimi_code_api_key",
 ] as const;
@@ -53,6 +54,7 @@ export type RuntimeAuthMode =
   | "codex-account-gateway"
   | "mimo-token-plan-api"
   | "claude-oauth"
+  | "claude-api-key"
   | "openrouter-api"
   | "kimi-code-api";
 
@@ -82,6 +84,7 @@ export type ProviderSetupKind =
   | "account_gateway"
   | "mimo_token_plan_api_key"
   | "claude_code_oauth"
+  | "claude_code_api_key"
   | "openrouter_api_key"
   | "kimi_code_api_key";
 
@@ -154,11 +157,11 @@ const providerCatalog = {
   claude: {
     kind: "claude",
     label: "Claude Code",
-    authModes: ["claude_code_oauth"],
+    authModes: ["claude_code_oauth", "claude_code_api_key"],
     defaultAuthMode: "claude_code_oauth",
     defaultModel: "sonnet",
     runtimeProviderPrefix: "claude",
-    capabilities: ["static_model_catalog", "subscription_oauth"],
+    capabilities: ["static_model_catalog", "subscription_oauth", "api_key"],
   },
   openrouter: {
     kind: "openrouter",
@@ -222,6 +225,14 @@ const authModeMetadata = {
     setupKind: "claude_code_oauth",
     label: "Claude Code subscription",
     secretNames: ["CLAUDE_CODE_OAUTH_TOKEN"],
+  },
+  claude_code_api_key: {
+    authMode: "claude_code_api_key",
+    providerKind: "claude",
+    runtimeAuthMode: "claude-api-key",
+    setupKind: "claude_code_api_key",
+    label: "Anthropic API key",
+    secretNames: ["ANTHROPIC_API_KEY"],
   },
   openrouter_api_key: {
     authMode: "openrouter_api_key",

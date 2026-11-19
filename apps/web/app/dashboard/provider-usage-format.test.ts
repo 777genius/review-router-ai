@@ -8,7 +8,13 @@ import {
   intervalLabel,
   humanUtc,
   humanUtcRange,
+  isFreeModel,
+  latencyLabel,
   metricLabel,
+  observedPair,
+  tokenCoverage,
+  unreportedUsageNote,
+  usagePricing,
   utcDays,
 } from "./provider-usage-format";
 const totals: UsageTotals = {
@@ -47,14 +53,14 @@ describe("usage presentation invariants", () => {
         "tokens",
         undefined,
       ),
-    ).toBe("130 (known part; some total tokens unknown)");
+    ).toBe("130 (known part)");
     expect(
       metricLabel(
         { ...totals, tokens: { ...totals.tokens, total: null } },
         "tokens",
         undefined,
       ),
-    ).toBe("Unknown");
+    ).toBe("Not reported");
     expect(
       metricLabel(
         { ...totals, tokens: { ...totals.tokens, total: 0 } },
@@ -74,7 +80,7 @@ describe("usage presentation invariants", () => {
       }),
     ).toBe("No USD source reported amount");
     expect(costsLabel(totals, "EUR")).toBe("No EUR amount");
-    expect(costsLabel({ ...totals, costs: [] }, "USD")).toBe("Unknown");
+    expect(costsLabel({ ...totals, costs: [] }, "USD")).toBe("Not reported");
     expect(
       costsLabel(
         {
@@ -110,5 +116,123 @@ describe("usage presentation invariants", () => {
     expect(
       humanUtcRange("2026-10-22T15:12:33.999Z", "2026-10-22T16:20:00.000Z"),
     ).toBe("Oct 22, 2026, 15:12 - 16:20 UTC");
+  });
+  it("summarizes incomplete token data as an exact call count and keeps the source breakdown", () => {
+    expect(tokenCoverage(totals)).toEqual({
+      label: "Reported observations",
+      detail: undefined,
+      incomplete: false,
+    });
+    expect(
+      tokenCoverage({
+        unknownCount: 79,
+        partialCount: 1047,
+        unknownTotalTokenCount: 1124,
+      }),
+    ).toEqual({
+      label: "1,126 calls with incomplete token data",
+      detail:
+        "79 calls without token counts · 1,047 calls marked partial by the source · 1,124 calls without total tokens",
+      incomplete: true,
+    });
+    expect(
+      tokenCoverage({
+        unknownCount: 0,
+        partialCount: 1,
+        unknownTotalTokenCount: 1,
+      }).label,
+    ).toBe("1 call with incomplete token data");
+    // A complete source flag with no total still never reads as complete.
+    expect(
+      tokenCoverage({
+        unknownCount: 0,
+        partialCount: 0,
+        unknownTotalTokenCount: 2,
+      }).label,
+    ).toBe("2 calls without total tokens");
+  });
+  it("labels omitted source fields as not reported without inventing values", () => {
+    expect(observedPair(null, null)).toBe("Not reported");
+    expect(observedPair("codex", null)).toBe("codex / Not reported");
+    expect(latencyLabel(null, null)).toBe("Not reported");
+    expect(latencyLabel(1250, null)).toBe("1,250 ms / Not reported");
+  });
+  it("proves zero cost only for OpenRouter free variants", () => {
+    expect(
+      isFreeModel({
+        provider: "openrouter",
+        requestedModel: "nvidia/nemotron-3-ultra-550b-a55b:free",
+      }),
+    ).toBe(true);
+    for (const identity of [
+      { provider: "openrouter", requestedModel: "openai/gpt-5.3-codex" },
+      { provider: "openrouter", requestedModel: "openrouter/free" },
+      { provider: "openrouter", requestedModel: null },
+      { provider: "codex", requestedModel: "vendor/model:free" },
+      { provider: "codex", requestedModel: "gpt-5.6-sol" },
+    ])
+      expect(isFreeModel(identity)).toBe(false);
+  });
+  it("labels a bucket free or subscription-priced only when every call in it is", () => {
+    const free = { provider: "openrouter", requestedModel: "a/b:free" };
+    const glm = { provider: "glm", requestedModel: "glm-5.3" };
+    const codex = { provider: "codex", requestedModel: "gpt-5.6-sol" };
+    const plans = ["claude", "codex", "glm", "grok", "kimi", "minimax"];
+    expect(usagePricing([], ["gateway"], plans)).toBeUndefined();
+    expect(usagePricing([free], ["gateway"], plans)).toBe("free_model");
+    expect(usagePricing([glm, codex], ["gateway"], plans)).toBe("subscription");
+    // A direct-route key may be pay-as-you-go: only the Gateway profile proves a plan.
+    expect(usagePricing([codex], ["direct"], plans)).toBeUndefined();
+    expect(usagePricing([codex], ["gateway", "direct"], plans)).toBeUndefined();
+    expect(usagePricing([free, codex], ["gateway"], plans)).toBeUndefined();
+    expect(
+      usagePricing(
+        [{ provider: "openrouter", requestedModel: "x/y" }],
+        ["gateway"],
+        plans,
+      ),
+    ).toBeUndefined();
+  });
+  // get-tok onboarding audit: a missing subscription cost read as lost usage.
+  it("names each missing measurement in the footer and skips costs a plan explains", () => {
+    const note = (
+      models: {
+        provider: string;
+        route: "gateway" | "direct";
+        unknownCostCount: number;
+      }[],
+      overall: Partial<UsageTotals> = {},
+    ) =>
+      unreportedUsageNote({
+        totals: { ...totals, ...overall },
+        subscriptionProviders: ["codex"],
+        overview: {
+          models: models.map(({ provider, route, unknownCostCount }) => ({
+            provider,
+            requestedModel: "model",
+            route,
+            observedModels: [],
+            hasUnknownObservedModel: false,
+            totals: { ...totals, unknownCostCount },
+          })),
+        },
+      });
+    const subscription = {
+      provider: "codex",
+      route: "gateway" as const,
+      unknownCostCount: 8,
+    };
+    expect(note([subscription])).toBeNull();
+    expect(
+      note([subscription, { ...subscription, route: "direct" as const }]),
+    ).toBe("△ 8 calls without reported cost");
+    expect(note([subscription], { unknownCount: 1 })).toBe(
+      "△ 1 call with incomplete token data",
+    );
+    expect(
+      note([{ ...subscription, provider: "openrouter" }], {
+        unknownTotalTokenCount: 2,
+      }),
+    ).toBe("△ 2 calls without total tokens · 8 calls without reported cost");
   });
 });

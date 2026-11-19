@@ -143,3 +143,117 @@ it("a pending refresh on another binding does not disable or fail the new accoun
   );
   expect(screen.getByRole("status").textContent).not.toContain("Could not");
 });
+
+it("refreshes public metadata from the same button and reports its failure on its own line", async () => {
+  const refreshAccount = vi.fn(async () => {});
+  const publicCatalog = {
+    snapshot: {
+      providerKind: "codex" as const,
+      models: [],
+      source: "local" as const,
+      fetchedAt: Date.now(),
+      lastAttemptAt: Date.now(),
+      state: "fresh" as const,
+      error: null,
+      refresh: "cached" as const,
+    },
+    loading: false,
+    failed: false,
+    refresh: vi.fn(async () => {}),
+  };
+  const props = {
+    account: {
+      ...account,
+      modelCatalog: {
+        status: "snapshot" as const,
+        source: "codex" as const,
+        models: ["model"],
+        fetchedAt: "2026-10-26T12:00:00.000Z",
+      },
+    },
+    loading: false,
+    canRefresh: true,
+    onRefresh: refreshAccount,
+  };
+  const { rerender } = render(
+    <GatewayModelCatalogStatus {...props} publicCatalog={publicCatalog} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
+  await waitFor(() => expect(publicCatalog.refresh).toHaveBeenCalledTimes(1));
+  expect(refreshAccount).toHaveBeenCalledTimes(1);
+  expect(screen.getAllByRole("status")).toHaveLength(1);
+  rerender(
+    <GatewayModelCatalogStatus
+      {...props}
+      publicCatalog={{ ...publicCatalog, failed: true }}
+    />,
+  );
+  expect(
+    screen.getByText(
+      "Could not update public model metadata. Showing saved model choices.",
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getAllByRole("button", { name: "Refresh models" }),
+  ).toHaveLength(1);
+  expect(screen.getAllByRole("status")[0]!.textContent).toMatch(
+    /^Account model catalog\./,
+  );
+  // A later cooldown answer keeps the earlier source error.
+  rerender(
+    <GatewayModelCatalogStatus
+      {...props}
+      publicCatalog={{
+        ...publicCatalog,
+        snapshot: {
+          ...publicCatalog.snapshot,
+          error: "source_unavailable",
+          refresh: "cooldown",
+        },
+      }}
+    />,
+  );
+  expect(
+    screen.getByText(
+      "Could not update public model metadata. Showing saved model choices.",
+    ),
+  ).toBeTruthy();
+});
+
+it("keeps public metadata refreshable when the account cannot list models", async () => {
+  const refreshAccount = vi.fn(async () => {});
+  const refreshPublic = vi.fn(async () => {});
+  render(
+    <GatewayModelCatalogStatus
+      account={{
+        ...account,
+        modelCatalog: {
+          status: "unsupported",
+          source: "legacy_profile",
+          models: [],
+        },
+      }}
+      loading={false}
+      canRefresh
+      onRefresh={refreshAccount}
+      publicCatalog={{
+        snapshot: {
+          providerKind: "codex",
+          models: [],
+          source: "local",
+          fetchedAt: Date.now(),
+          lastAttemptAt: Date.now(),
+          state: "fresh",
+          error: null,
+          refresh: "cached",
+        },
+        loading: false,
+        failed: false,
+        refresh: refreshPublic,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
+  await waitFor(() => expect(refreshPublic).toHaveBeenCalledTimes(1));
+  expect(refreshAccount).not.toHaveBeenCalled();
+});

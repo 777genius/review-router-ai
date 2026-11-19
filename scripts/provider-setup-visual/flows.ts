@@ -622,32 +622,48 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
   {
     id: "flow-step3-create-attach",
     title:
-      "Step 3 opens the dialog for the repository; a new provider is attached, listed and not the default; the stepper reaches Ready",
+      "A repository without verified runtime can save a provider and verify its secret, but cannot claim Ready",
     run: async (flow) => {
       const repositoryKey: VisualRepositoryKey = "mainNeedsSecret";
       const workspace = VISUAL_WORKSPACES.main;
       const repository = VISUAL_REPOSITORIES[repositoryKey];
       const fullName = visualRepositoryFullName(repository);
       const defaultBefore = await defaultProfileId(flow.prisma, workspace.id);
-      const page = await flow.open("owner", repositoryRoute(repositoryKey), {
-        theme: "light",
-      });
-
-      await flow.check("the repository waits on step 3", async () =>
-        expectMatch(
-          await stepTitle(page, repositoryKey),
-          /^3 of 4/,
-          "step pill title",
-        ),
+      const page = await flow.open(
+        "owner",
+        workspaceRoute("main", "repositories", {
+          workspace: workspace.installation.accountLogin,
+          repository: fullName,
+        }),
+        { theme: "light" },
       );
+
+      await flow.check(
+        "the unverified runtime does not claim completed setup",
+        async () =>
+          expectMatch(
+            await stepTitle(page, repositoryKey),
+            /^1 of 4 - verification needed$/,
+            "step pill title",
+          ),
+      );
+      const panel = repositorySetupPanel(page, repositoryKey);
+      if (!(await panel.isVisible())) {
+        await (await repositoryStepPill(page, repositoryKey)).click();
+      }
+      await visible(panel);
       const dialog = await openDialog(
         page,
-        repositorySetupPanel(page, repositoryKey).getByRole("button", {
-          name: "Add secret",
+        panel.getByRole("button", {
+          name: "Use a different provider",
+          exact: true,
         }),
       );
+      // The provider line is available even while workflow attestation is
+      // pending; its credentials tab remains a real user-accessible step.
+      await dialog.getByRole("button", { name: "2. Add secret" }).click();
       await flow.check(
-        "the step button opens the one provider dialog fixed to this repository, on its secret",
+        "the provider line opens the one dialog fixed to this repository, on its secret",
         async () => {
           await visible(
             dialog.getByRole("heading", { name: `Provider for ${fullName}` }),
@@ -692,7 +708,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           );
           expectMatch(
             await stepTitle(page, repositoryKey),
-            /^3 of 4/,
+            /^1 of 4 - verification needed$/,
             "step with missing secret",
           );
         },
@@ -701,13 +717,32 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       await dialog.getByRole("button", { name: "1. Provider" }).click();
       await chooseNewProvider(dialog);
       await chooseSource(page, dialog, SOURCE.claudeSecret);
+      await flow.check(
+        "subscription selection remains OAuth, never the Anthropic API-key source",
+        async () => {
+          expectEqual(
+            await dialog
+              .getByRole("radio", { name: "Claude subscription" })
+              .getAttribute("aria-checked"),
+            "true",
+            "subscription selected",
+          );
+          expectEqual(
+            await dialog
+              .getByRole("radio", { name: "Anthropic API key" })
+              .getAttribute("aria-checked"),
+            "false",
+            "API key unselected",
+          );
+        },
+      );
       const model =
         getDefaultProviderConfigForAuthMode("claude_code_oauth").model;
       await flow.check(
         "a new provider starts from its default model",
         async () =>
           expectEqual(
-            await dialog.getByRole("textbox", { name: "Model" }).inputValue(),
+            await dialog.getByRole("combobox", { name: "Model" }).inputValue(),
             model,
             "model",
           ),
@@ -787,14 +822,14 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         () => returnFromSetupDialog(page, dialog, "Back to repository setup"),
       );
       await flow.check(
-        "returning reloads the same repository and preserves confirmed readiness",
+        "returning confirms the secret without qualifying an unverified workflow",
         async () => {
           await assertRepositoryExpanded(page, repositoryKey);
           await expectEventually(async () =>
             expectMatch(
               await stepTitle(page, repositoryKey),
-              /^4 of 4/,
-              "step pill title",
+              /^1 of 4 - (verification needed|workflow update needed)$/,
+              "workflow verification remains pending",
             ),
           );
         },
@@ -808,11 +843,12 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
         );
       });
       await page.setViewportSize({ width: 390, height: 844 });
-      await flow.check("the ready repository remains usable on mobile", () =>
-        assertNoHorizontalOverflow(page),
+      await flow.check(
+        "the repository with confirmed credentials remains usable on mobile",
+        () => assertNoHorizontalOverflow(page),
       );
       await repositorySetupPanel(page, repositoryKey).scrollIntoViewIfNeeded();
-      await flow.shot(page, "stepper-ready");
+      await flow.shot(page, "stepper-workflow-pending");
 
       await gotoDashboard(page, workspaceRoute("main", "providers"));
       const row = providerListRow(page, created!.label);
@@ -829,6 +865,235 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
       );
     },
   },
+  {
+    id: "flow-claude-api-key-github-secrets",
+    title:
+      "Claude API key: select one provider, persist its profile and verify synthetic GitHub Secret without claiming workflow readiness",
+    run: async (flow) => {
+      const repositoryKey: VisualRepositoryKey = "mainNeedsSecret";
+      const workspace = VISUAL_WORKSPACES.main;
+      const repository = VISUAL_REPOSITORIES[repositoryKey];
+      const fullName = visualRepositoryFullName(repository);
+      const defaultBefore = await defaultProfileId(flow.prisma, workspace.id);
+      // Use the canonical GitHub organization workspace URL: the return link
+      // in the provider dialog intentionally navigates to that same alias.
+      const page = await flow.open(
+        "owner",
+        workspaceRoute("main", "repositories", {
+          workspace: workspace.installation.accountLogin,
+          repository: fullName,
+        }),
+        { theme: "dark" },
+      );
+      // The direct repository URL already identifies and renders this row.
+      // Changing the search query here updates history and can re-render the
+      // page while the provider dialog opens, dropping the active click.
+      // Use the selected repository's real disclosure without a second route.
+      await flow.check(
+        "the repository is visible but does not claim verified workflow readiness",
+        async () => {
+          await visible(repositoryRowHeader(page, repositoryKey));
+          return expectMatch(
+            await stepTitle(page, repositoryKey),
+            /^1 of 4 - verification needed$/,
+            "repository setup step",
+          );
+        },
+      );
+      const panel = repositorySetupPanel(page, repositoryKey);
+      if (!(await panel.isVisible())) {
+        await (await repositoryStepPill(page, repositoryKey)).click();
+      }
+      await visible(panel);
+      // This fixture's workflow has not been verified. The credential-step
+      // button is intentionally unavailable until workflow verification.
+      // Use the provider-line action, which remains available to configure
+      // the next provider without pretending the repository is ready.
+      const dialog = await openDialog(
+        page,
+        panel.getByRole("button", {
+          name: "Use a different provider",
+          exact: true,
+        }),
+      );
+      await dialog.getByRole("button", { name: "1. Provider" }).click();
+      await chooseNewProvider(dialog);
+      await chooseSource(page, dialog, /^Claude Code(?: · GitHub Secrets)?$/);
+
+      await flow.check(
+        "Claude is one provider with two explicit credential methods",
+        async () => {
+          await visible(
+            dialog.getByRole("radio", { name: "Claude subscription" }),
+          );
+          await visible(
+            dialog.getByRole("radio", { name: "Anthropic API key" }),
+          );
+        },
+      );
+      await dialog.getByRole("radio", { name: "Anthropic API key" }).click();
+      await flow.check(
+        "an API key selects the repository-owned secret, not subscription OAuth",
+        async () => {
+          expectEqual(
+            await dialog
+              .getByRole("radio", { name: "GitHub Secrets" })
+              .getAttribute("aria-checked"),
+            "true",
+            "GitHub Secrets selected",
+          );
+          expectEqual(
+            await dialog
+              .getByRole("radio", { name: "Anthropic API key" })
+              .getAttribute("aria-checked"),
+            "true",
+            "API-key credential selected",
+          );
+          expectEqual(
+            await dialog
+              .getByRole("radio", { name: "Claude subscription" })
+              .getAttribute("aria-checked"),
+            "false",
+            "subscription method is visible but not selected",
+          );
+          expectEqual(
+            await dialog
+              .getByRole("radiogroup", { name: "GitHub secret delivery" })
+              .count(),
+            0,
+            "Claude setup must not duplicate the key-storage choice",
+          );
+          await assertNoHorizontalOverflow(page);
+        },
+      );
+      await flow.shot(page, "claude-api-key-selection");
+
+      await dialog
+        .getByRole("button", { name: "Use for this repository" })
+        .click();
+      await flow.check(
+        "saving advances to the API-key secret confirmation step",
+        async () => {
+          await expectEventually(async () => {
+            expectEqual(
+              await dialog
+                .getByRole("button", { name: "2. Add secret" })
+                .getAttribute("aria-current"),
+              "step",
+              "selected credential setup step",
+            );
+          });
+          await visible(dialog.getByText(/ANTHROPIC_API_KEY/).first());
+        },
+      );
+      const model = getDefaultProviderConfigForAuthMode(
+        "claude_code_api_key",
+      ).model;
+      const created = await flow.prisma.workspaceProviderProfile.findFirst({
+        where: {
+          workspaceId: workspace.id,
+          credentialKind: "user_ci_secret",
+          authMode: "claude_code_api_key",
+          model,
+          archivedAt: null,
+        },
+      });
+      await flow.check(
+        "database persists the Anthropic API-key profile, not subscription OAuth",
+        async () => {
+          if (!created)
+            throw new Error("Claude API-key profile was not persisted");
+          expectEqual(
+            created.createdByUserId,
+            VISUAL_USERS.owner.id,
+            "credential owner",
+          );
+          expectEqual(
+            await repositoryProfileId(flow.prisma, workspace.id, repository.id),
+            created.id,
+            "repository credential binding",
+          );
+          expectEqual(
+            await defaultProfileId(flow.prisma, workspace.id),
+            defaultBefore,
+            "workspace default unaffected",
+          );
+        },
+      );
+      await dialog.getByRole("button", { name: "Check GitHub setup" }).click();
+      await flow.check(
+        "a missing Anthropic API key cannot be confirmed",
+        async () => {
+          await visible(
+            dialog.getByText(
+              `ANTHROPIC_API_KEY is not in the Actions secrets of ${fullName} yet. Run the command, then check again.`,
+              { exact: true },
+            ),
+          );
+          expectEqual(
+            await dialog.getByText("Secret available", { exact: true }).count(),
+            0,
+            "no success badge for an absent API key",
+          );
+          expectMatch(
+            await stepTitle(page, repositoryKey),
+            /^1 of 4 - verification needed$/,
+            "missing API key does not complete setup",
+          );
+          await visible(dialog.getByRole("button", { name: "Check again" }));
+        },
+      );
+      await flow.shot(page, "claude-api-key-secret-missing");
+
+      // Fixture writes only GitHub secret metadata, never real secret material.
+      await flow.env.writeGitHubState({
+        repositorySecrets: [
+          ...flow.seed.github.repositorySecrets,
+          visualRepositorySecretKey(fullName, "ANTHROPIC_API_KEY"),
+        ],
+      });
+      await dialog.getByRole("button", { name: "Check again" }).click();
+      await flow.check(
+        "the synthetic Anthropic secret is confirmed without upstream inference",
+        async () => {
+          await visible(
+            dialog.getByText(`ANTHROPIC_API_KEY is set for ${fullName}.`),
+          );
+          expectEqual(
+            await dialog.getByText("Model answered", { exact: true }).count(),
+            0,
+            "no fabricated Anthropic response",
+          );
+        },
+      );
+      await returnFromSetupDialog(page, dialog, "Back to repository setup");
+      await flow.check(
+        "credential verification does not certify an unverified review workflow",
+        async () => {
+          await assertRepositoryExpanded(page, repositoryKey, workspace.id);
+          await expectEventually(async () =>
+            expectMatch(
+              await stepTitle(page, repositoryKey),
+              /^1 of 4 - (verification needed|workflow update needed)$/,
+              "workflow must still be verified or updated",
+            ),
+          );
+        },
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      await flow.check("Claude API-key setup fits a mobile viewport", () =>
+        assertNoHorizontalOverflow(page),
+      );
+      // Show the selected repository's actual setup status in the screenshot,
+      // rather than capturing only the dashboard header after a route change.
+      await repositorySetupPanel(page, repositoryKey).scrollIntoViewIfNeeded();
+      await flow.shot(
+        page,
+        "claude-api-key-credential-verified-workflow-pending",
+      );
+    },
+  },
+
   {
     id: "flow-default-inherited",
     title:
@@ -1982,9 +2247,23 @@ async function returnFromSetupDialog(
   const link = dialog.getByRole("link", { name: linkName, exact: true });
   const target = new URL((await link.getAttribute("href"))!, page.url());
   const current = new URL(page.url());
+  // The fixture accepts either the workspace ID or its GitHub-org alias.
+  // Both identify the same workspace, but the setup return link can select
+  // the other representation. Compare canonical routes rather than aliases.
+  const canonicalRoute = (url: URL): string => {
+    const route = new URL(url);
+    const workspace = route.searchParams.get("workspace");
+    if (
+      workspace === VISUAL_WORKSPACES.main.installation.accountLogin &&
+      route.searchParams.get("repository")?.startsWith(`${workspace}/`)
+    ) {
+      route.searchParams.set("workspace", VISUAL_WORKSPACES.main.id);
+    }
+    return `${route.origin}${route.pathname}${route.search}`;
+  };
   expectEqual(
-    `${current.origin}${current.pathname}${current.search}`,
-    `${target.origin}${target.pathname}${target.search}`,
+    canonicalRoute(current),
+    canonicalRoute(target),
     "same dashboard route before returning",
   );
   await Promise.all([
@@ -2013,6 +2292,7 @@ async function returnFromSetupDialog(
 async function assertRepositoryExpanded(
   page: Page,
   key: VisualRepositoryKey,
+  expectedWorkspace = VISUAL_WORKSPACES[VISUAL_REPOSITORIES[key].workspace].id,
 ): Promise<void> {
   const repository = VISUAL_REPOSITORIES[key];
   const url = new URL(page.url());
@@ -2023,7 +2303,7 @@ async function assertRepositoryExpanded(
   );
   expectEqual(
     url.searchParams.get("workspace"),
-    VISUAL_WORKSPACES[repository.workspace].id,
+    expectedWorkspace,
     "returned workspace",
   );
   await visible(repositorySetupPanel(page, key));

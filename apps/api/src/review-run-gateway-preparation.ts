@@ -450,6 +450,11 @@ export function createReviewRunGatewayPreparation(input: {
       !inFlight &&
       (!initialAttempted || noExecutionProven) &&
       !session,
+    // Unknown preparation remains owned by its immutable authorization snapshot
+    // and by Gateway's deadline/physical cleanup. Only an empty settled local
+    // handle can be detached; a retained capability must still be closed.
+    canDetachUnknownWithoutCapability: () =>
+      closed && !inFlight && initialAttempted && !noExecutionProven && !session,
     usageBinding: () => (session?.attached ? { ...session.binding } : null),
     needsRecovery: () =>
       initialAttempted && !session?.attached && !noExecutionProven,

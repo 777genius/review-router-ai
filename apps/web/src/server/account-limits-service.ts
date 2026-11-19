@@ -6,6 +6,10 @@ import {
   type AccountLimitsRefresher,
   type AccountLimitsView,
 } from "@reviewrouter/features-provider-accounts";
+import {
+  AccountDiagnosisError,
+  type AccountDiagnosis,
+} from "../features/account-gateway/account-diagnosis";
 import type { AccountsResult, AccountView } from "./account-gateway-accounts";
 
 type Scope = { userId: string; workspaceId?: string };
@@ -130,12 +134,20 @@ export function createAccountLimitsService(input: {
       )
         return { status: "ok", value: view("unavailable", token) };
       let refreshAvailable = false;
+      let refreshDiagnosis: AccountDiagnosis | undefined;
       const value = await readAccountLimits({
         reader: {
           async read(target) {
             const supported =
               source.state === "active" && input.refresher
-                ? input.refresher.supports(target.profileId).catch(() => false)
+                ? input.refresher.supports(target.profileId).catch((error) => {
+                    if (explicitRefresh)
+                      refreshDiagnosis =
+                        error instanceof AccountDiagnosisError
+                          ? error.diagnosis
+                          : { code: "unavailable", source: "network" };
+                    return false;
+                  })
                 : Promise.resolve(false);
             if (!explicitRefresh) {
               let timer: ReturnType<typeof setTimeout> | undefined;
@@ -163,7 +175,13 @@ export function createAccountLimitsService(input: {
             // the explicit effect, then readAccountLimits fences its result again.
             if (!(await authorizeObservation()))
               return { status: "unknown", reason: "generation_changed" };
-            return input.refresher.refresh(target);
+            try {
+              return await input.refresher.refresh(target);
+            } catch (error) {
+              if (error instanceof AccountDiagnosisError)
+                refreshDiagnosis = error.diagnosis;
+              return { status: "unavailable", reason: "source_unavailable" };
+            }
           },
         },
         now,
@@ -199,6 +217,9 @@ export function createAccountLimitsService(input: {
       // Ownership was established above. A later scope/lifetime fence is an
       // authorization failure, not evidence that this viewer is a recipient.
       if (value.status === "restricted") return { status: "denied" };
+      // Release a safe source diagnosis only after the same live authority fence.
+      if (refreshDiagnosis)
+        return { status: "unavailable", diagnosis: refreshDiagnosis };
       return { status: "ok", value: { ...value, refreshAvailable } };
     } catch {
       // Session/DB failure and transport diagnostics never become browser labels.

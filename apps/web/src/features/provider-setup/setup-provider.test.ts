@@ -42,6 +42,7 @@ describe("provider setup registry", () => {
       ["openrouter", "OpenRouter"],
       ["mimo", "MiMo Token Plan"],
       ["kimi", "Kimi Code"],
+      ["nvidia", "NVIDIA Build"],
       ["glm", "GLM Coding Plan"],
       ["minimax", "MiniMax M Plan"],
       ["grok", "Grok"],
@@ -55,6 +56,7 @@ describe("provider setup registry", () => {
   it.each([
     ["repository_rotating", "codex"],
     ["user_ci_secret:claude_code_oauth", "claude-code"],
+    ["user_ci_secret:claude_code_api_key", "claude-code"],
     ["user_ci_secret:openrouter_api_key", "openrouter"],
     ["managed_api_key:openrouter_api_key", "openrouter"],
     ["user_ci_secret:mimo_token_plan_api_key", "mimo"],
@@ -81,13 +83,23 @@ describe("provider setup registry", () => {
     expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe(
       "claude-code",
     );
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe(
+      "claude-code",
+    );
   });
 
-  it("advertises Codex and Claude enrollment before any accounts exist", () => {
+  it("never advertises central Claude subscription OAuth enrollment", () => {
     expect(gatewaySetupProvidersForProfiles([codex, claude])).toEqual([
       "codex",
-      "claude-code",
     ]);
+    expect(gatewaySetupProvidersForProfiles([claude])).toEqual([]);
+    // The user-owned GitHub Secret routes are still available.
+    expect(setupProviderForDirectAuthMode("claude_code_oauth")).toBe(
+      "claude-code",
+    );
+    expect(setupProviderForDirectAuthMode("claude_code_api_key")).toBe(
+      "claude-code",
+    );
   });
 
   it.each([
@@ -107,7 +119,6 @@ describe("provider setup registry", () => {
           regionLabel: "Global",
           completionInputKind:
             authKind === "oauth" ? "authorization_code" : "none",
-          personalOnly: false,
           limitsContract: "account-limits/v2",
           modelSettings: [],
         },
@@ -135,6 +146,41 @@ describe("provider setup registry", () => {
       ).toEqual([]);
     },
   );
+
+  it("admits NVIDIA only as its own Gateway API-key profile, without a direct secret", () => {
+    const nvidia = profile({
+      id: "nvidia-build-chat-apikey-v1",
+      provider: "nvidia",
+      authKind: "api_key",
+      connection: {
+        provider: "nvidia",
+        planLabel: "NVIDIA Build evaluation",
+        regionLabel: "Global",
+        completionInputKind: "none",
+        limitsContract: "none",
+        modelSettings: [],
+      },
+    });
+    expect(setupProviderForGatewayProfile(nvidia)).toBe("nvidia");
+    expect(gatewaySetupProvidersForProfiles([nvidia])).toEqual(["nvidia"]);
+    expect(getSetupProvider("nvidia").githubSource).toBeNull();
+    expect(getSetupProvider("nvidia").publicCatalogProvider).toBeNull();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, id: "unqualified-nvidia" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, authKind: "oauth" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({ ...nvidia, provider: "openrouter" }),
+    ).toBeUndefined();
+    expect(
+      setupProviderForGatewayProfile({
+        ...nvidia,
+        connection: { ...nvidia.connection!, provider: "openrouter" },
+      }),
+    ).toBeUndefined();
+  });
 
   it("uses the authenticated deployment availability and deduplicates profiles", () => {
     expect(
@@ -187,7 +233,6 @@ describe("provider setup registry", () => {
         planLabel: "Untrusted display label",
         regionLabel: "Global",
         completionInputKind: "callback_url",
-        personalOnly: false,
         limitsContract: "none",
         modelSettings: [],
       };
@@ -201,7 +246,7 @@ describe("provider setup registry", () => {
 
   it("maps qualified connection metadata and ignores editable labels or models", () => {
     expect(setupProviderForGatewayProfile(codex)).toBe("codex");
-    expect(setupProviderForGatewayProfile(claude)).toBe("claude-code");
+    expect(setupProviderForGatewayProfile(claude)).toBeUndefined();
     expect(
       setupProviderForGatewayProfile(
         profile({

@@ -3,12 +3,23 @@
 import { useState } from "react";
 import { Button } from "@reviewrouter/ui";
 import type { AccountView } from "../../src/server/account-gateway-accounts";
+import {
+  publicCatalogRefreshFailed,
+  type ProviderModelCatalogState,
+} from "./provider-model-catalog";
 
 type CatalogStatusProps = {
   account: AccountView | undefined;
   loading: boolean;
   canRefresh: boolean;
   onRefresh: () => Promise<void>;
+  /**
+   * Public metadata for the same provider. It shares this status and button,
+   * so a Gateway selection never shows a second, contradicting catalog line.
+   * The button stays available for it even when the account cannot list
+   * models itself.
+   */
+  publicCatalog?: ProviderModelCatalogState | null;
 };
 
 /** Discovery state belongs to the selected binding, including an empty result. */
@@ -29,6 +40,7 @@ function CatalogStatus({
   loading,
   canRefresh,
   onRefresh,
+  publicCatalog,
 }: CatalogStatusProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
@@ -53,40 +65,47 @@ function CatalogStatus({
               ? `Could not load account models. ${catalog.models.length ? "Showing configured profile choices." : "Try refreshing the model list."} Your saved selection is unchanged.`
               : "Models from the connected profile. Account-specific discovery is not offered.";
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-      <span role="status">
-        {message}
-        {catalog?.status === "snapshot" && catalog.fetchedAt ? (
-          <>
-            {" "}
-            Updated{" "}
-            <time dateTime={catalog.fetchedAt}>
-              {new Date(catalog.fetchedAt).toLocaleString()}
-            </time>
-            .
-          </>
-        ) : null}
-      </span>
-      {refreshSupported ? (
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={loading || refreshing}
-          onClick={async () => {
-            setRefreshFailed(false);
-            setRefreshing(true);
-            try {
-              await onRefresh();
-            } catch {
-              setRefreshFailed(true);
-            } finally {
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+        <span role="status">
+          {message}
+          {catalog?.status === "snapshot" && catalog.fetchedAt ? (
+            <>
+              {" "}
+              Updated{" "}
+              <time dateTime={catalog.fetchedAt}>
+                {new Date(catalog.fetchedAt).toLocaleString()}
+              </time>
+              .
+            </>
+          ) : null}
+        </span>
+        {refreshSupported || publicCatalog ? (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={loading || refreshing}
+            onClick={async () => {
+              setRefreshFailed(false);
+              setRefreshing(true);
+              // The public refresh reports its own failure through its query.
+              const [accountRefresh] = await Promise.allSettled([
+                refreshSupported ? onRefresh() : undefined,
+                publicCatalog?.refresh(),
+              ]);
+              if (accountRefresh.status === "rejected") setRefreshFailed(true);
               setRefreshing(false);
-            }
-          }}
-        >
-          Refresh models
-        </Button>
+            }}
+          >
+            Refresh models
+          </Button>
+        ) : null}
+      </div>
+      {publicCatalog && publicCatalogRefreshFailed(publicCatalog) ? (
+        <p role="status" className="text-xs text-slate-400">
+          Could not update public model metadata. Showing saved model choices.
+        </p>
       ) : null}
-    </div>
+    </>
   );
 }

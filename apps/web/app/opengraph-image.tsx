@@ -82,7 +82,7 @@ export default async function Image(): Promise<ImageResponse> {
             letterSpacing: 0,
           }}
         >
-          Free privacy-first AI code review in your CI
+          Open-source AI review. Full control and security.
         </div>
         <div
           style={{

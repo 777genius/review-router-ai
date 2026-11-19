@@ -19,6 +19,16 @@
       "production": "./dist/card/index.js",
       "default": "./src/card/index.ts"
     },
+    "./accordion": {
+      "types": "./src/accordion/index.ts",
+      "production": "./dist/accordion/index.js",
+      "default": "./src/accordion/index.ts"
+    },
+    "./tabs": {
+      "types": "./src/tabs/index.ts",
+      "production": "./dist/tabs/index.js",
+      "default": "./src/tabs/index.ts"
+    },
     "./badge": {
       "types": "./src/badge/index.ts",
       "production": "./dist/badge/index.js",

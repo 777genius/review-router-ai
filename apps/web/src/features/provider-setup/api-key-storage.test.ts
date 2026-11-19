@@ -81,10 +81,52 @@ describe("API key storage and safe continuation", () => {
     },
   );
 
+  it.each(["subscription", "api_key"] as const)(
+    "preserves the selected Claude %s mode when continuing repository setup",
+    (claudeMethod) => {
+      const intent: ApiKeySetupIntent = {
+        provider: "claude-code",
+        storage: "github_secrets",
+        claudeMethod,
+        workspaceId: "workspace-one",
+        repositoryIds: ["repo-a"],
+      };
+      const url = new URL(
+        apiKeySetupHref("repositories", intent),
+        "https://example.test",
+      );
+      expect(url.searchParams.get("keyClaudeMethod")).toBe(claudeMethod);
+      expect(
+        readApiKeySetupIntent(
+          {
+            ...Object.fromEntries(url.searchParams),
+            keyRepository: url.searchParams.getAll("keyRepository"),
+          },
+          "workspace-one",
+        ),
+      ).toEqual(intent);
+      expect(
+        readApiKeySetupIntent(
+          {
+            ...Object.fromEntries(url.searchParams),
+            keyStorage: "reviewrouter",
+          },
+          "workspace-one",
+        ),
+      ).toEqual(
+        claudeMethod === "api_key"
+          ? { ...intent, storage: "reviewrouter", repositoryIds: ["repo-a"] }
+          : null,
+      );
+    },
+  );
+
   it.each([
     { keyProvider: "unsupported" },
     { keyProvider: ["kimi", "mimo"] },
     { keyStorage: "server-ciphertext-installer" },
+    { keyClaudeMethod: "api_key" },
+    { keyClaudeMethod: ["api_key", "subscription"] },
     { keyRepository: ["repo-a", "repo-a"] },
     { keyRepository: ["https://other.test"] },
     { keyRepository: Array.from({ length: 101 }, (_, i) => `repo-${i}`) },
@@ -106,7 +148,7 @@ describe("API key storage and safe continuation", () => {
     window.history.replaceState(
       null,
       "",
-      "/dashboard?section=providers&workspace=workspace-one&q=kept&keyProvider=kimi&keyStorage=reviewrouter&keyWorkspace=workspace-one&keyRepository=repo-a#dashboard-section-content",
+      "/dashboard?section=providers&workspace=workspace-one&q=kept&keyProvider=kimi&keyStorage=reviewrouter&keyWorkspace=workspace-one&keyRepository=repo-a&keyClaudeMethod=api_key#dashboard-section-content",
     );
     consumeApiKeySetupIntent();
     expect(window.location.href).not.toContain("keyProvider");

@@ -1,3 +1,4 @@
+import type { AccountDiagnosis } from "./account-diagnosis";
 export type ConnectionProbeRequest = {
   context: string;
   workspaceId: string;
@@ -20,6 +21,7 @@ export type ConnectionProbeEvent =
   | {
       type: "result";
       ok: false;
+      diagnosis?: AccountDiagnosis | undefined;
       code:
         | "denied"
         | "unavailable"
@@ -30,3 +32,19 @@ export type ConnectionProbeEvent =
         | "rate_limited"
         | "cleanup_pending";
     };
+
+export function connectionProbeDiagnosis(
+  code: Extract<ConnectionProbeEvent, { ok: false }>["code"],
+): AccountDiagnosis {
+  const meanings: Record<typeof code, AccountDiagnosis> = {
+    denied: { code: "access_denied", source: "application" },
+    unavailable: { code: "unavailable", source: "gateway" },
+    invalid_response: { code: "invalid_response", source: "provider" },
+    timeout: { code: "timeout", source: "network" },
+    cancelled: { code: "cancelled", source: "application" },
+    busy: { code: "busy", source: "gateway" },
+    rate_limited: { code: "rate_limited", source: "application" },
+    cleanup_pending: { code: "cleanup_pending", source: "gateway" },
+  };
+  return meanings[code];
+}

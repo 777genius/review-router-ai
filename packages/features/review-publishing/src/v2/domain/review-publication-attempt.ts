@@ -66,6 +66,7 @@ export enum ReviewPublicationKind {
   PendingReviewSubmit = "pending_review_submit",
   SubmittedReview = "submitted_review",
   ThreadLifecycle = "thread_lifecycle",
+  ThreadReply = "thread_reply",
 }
 
 export enum ReviewPublicationExternalEffectKind {
@@ -670,6 +671,20 @@ export function isOptionalPrDescriptionContinuation(input: {
   );
 }
 
+/** The required review is proven; an ambiguous optional body remains unknown,
+ * and its tombstone prevents another write without delaying review settlement. */
+export function mayCloseAmbiguousOptionalDescription(input: {
+  readonly publicationOperationId: string;
+  readonly operations: readonly ReviewPublicationOperation[];
+  readonly receipts: readonly ReviewPublicationReceipt[];
+  readonly lastErrorCode: string;
+}): boolean {
+  return (
+    input.lastErrorCode === "pr_description_write_outcome_unknown" &&
+    isOptionalPrDescriptionContinuation(input)
+  );
+}
+
 export function selectCanonicalExternalEffect(
   effects: readonly ReviewPublicationExternalEffect[],
 ): ReviewPublicationExternalEffect | null {
@@ -895,6 +910,15 @@ function assertOperationPolicy(
       }
       return;
     case ReviewPublicationKind.SubmittedReview:
+      if (
+        operation.effectStrategy !==
+          ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt ||
+        operation.role !== ReviewPublicationOperationRole.Standalone
+      ) {
+        throw new Error("publication_operation_policy_invalid");
+      }
+      return;
+    case ReviewPublicationKind.ThreadReply:
       if (
         operation.effectStrategy !==
           ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt ||

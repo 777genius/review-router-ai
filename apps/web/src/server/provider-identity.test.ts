@@ -16,6 +16,7 @@ describe("saved provider display identity", () => {
       apiKeyProfiles: new Map([
         ["profile-mimo", "MiMo"],
         ["profile-router", "OpenRouter"],
+        ["profile-nvidia", "NVIDIA Build"],
       ]),
     });
     expect(
@@ -30,6 +31,19 @@ describe("saved provider display identity", () => {
         gatewayProfileRef: "profile-router",
       }),
     ).toBe("openrouter");
+    expect(
+      savedProviderIdentity({
+        authMode: "codex_account_gateway",
+        gatewayProfileRef: "profile-nvidia",
+      }),
+    ).toBe("nvidia");
+    // A model-looking but unconfigured reference cannot supply an identity.
+    expect(
+      savedProviderIdentity({
+        authMode: "codex_account_gateway",
+        gatewayProfileRef: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+      }),
+    ).toBeUndefined();
   });
 
   it("keeps fixed qualified profile identity available without guessing from a model", () => {
@@ -48,6 +62,29 @@ describe("saved provider display identity", () => {
     expect(savedProviderIdentity({ authMode: "mimo_token_plan_api_key" })).toBe(
       "mimo",
     );
+  });
+
+  it("shows NVIDIA for its qualified profile even when the deployment does not name it", () => {
+    // A deployment may name only some API-key profiles (no NVIDIA setting);
+    // the NVIDIA profile then comes from the Gateway capability catalog alone.
+    configuration.mockReturnValue({
+      apiKeyProfiles: new Map([["profile-router", "OpenRouter"]]),
+    });
+    expect(
+      savedProviderIdentity({
+        authMode: "codex_account_gateway",
+        gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+      }),
+    ).toBe("nvidia");
+    configuration.mockImplementation(() => {
+      throw new Error("accounts_unavailable");
+    });
+    expect(
+      savedProviderIdentity({
+        authMode: "codex_account_gateway",
+        gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+      }),
+    ).toBe("nvidia");
   });
 
   it("leaves unknown or unavailable Gateway identity neutral", () => {

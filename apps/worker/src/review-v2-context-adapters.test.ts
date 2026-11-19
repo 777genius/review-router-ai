@@ -163,32 +163,122 @@ describe("review v2 worker context adapters", () => {
     const snapshot = executionSnapshot();
     const scoped = await publicationRequestFactory().build(snapshot);
     if (!scoped) throw new Error("test_publication_command_missing");
-    const scopedPrefix = `review-publication:${scoped.publicationAttemptId}:`;
-    const legacyOperations = scoped.operations.map((operation) => ({
-      ...operation,
-      publicationOperationId: operation.publicationOperationId.replace(
-        scopedPrefix,
-        "review-publication:",
-      ),
-      dependsOnOperationId:
-        operation.dependsOnOperationId?.replace(
-          scopedPrefix,
-          "review-publication:",
-        ) ?? null,
-    }));
+    // A real stored legacy plan has a request hash for its legacy IDs.
+    const legacy = legacyProjectionScopedCommand(scoped);
     const attempts = new FakePublicationAttempts();
-    attempts.store(
-      publicationView({
-        ...scoped,
-        operations: legacyOperations,
-      }),
-    );
+    attempts.store(publicationView(legacy));
 
     await expect(
       publicationRequestFactory(completionProjectionMapper(), attempts).build(
         snapshot,
       ),
-    ).resolves.toMatchObject({ operations: legacyOperations });
+    ).resolves.toEqual(legacy);
+  });
+
+  it("keeps a previously persisted request byte-identical despite newly available thread replies", async () => {
+    const snapshot = executionSnapshot();
+    const original = await publicationRequestFactory().build(snapshot);
+    if (!original) throw new Error("historical_publication_missing");
+    const attempts = new FakePublicationAttempts();
+    attempts.store(publicationView(original));
+    const seenPolicies: (boolean | undefined)[] = [];
+    const base = completionProjectionMapper();
+    const mapper: ReviewCompletionProjectionMapperPort = {
+      ...base,
+      async publicationEnvelope(artifact, options) {
+        seenPolicies.push(options?.includeVerifiedFixReplies);
+        const initial = await base.publicationEnvelope(artifact);
+        if (!initial) return null;
+        return {
+          ...initial,
+          lifecycle:
+            options?.includeVerifiedFixReplies === false
+              ? []
+              : [
+                  {
+                    chunkIndex: 0,
+                    semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+                    ...publicationBody("f", "9"),
+                  },
+                ],
+        };
+      },
+    };
+
+    const restored = await publicationRequestFactory(mapper, attempts).build(
+      snapshot,
+    );
+    expect(seenPolicies).toEqual([false]);
+    expect(restored?.requestHash).toBe(original.requestHash);
+    expect(restored?.operations).toEqual(original.operations);
+
+    const newAttempt = await publicationRequestFactory(mapper).build(snapshot);
+    expect(seenPolicies).toEqual([false, true]);
+    expect(
+      newAttempt?.operations.map((operation) => operation.publicationKind),
+    ).toEqual([
+      ReviewPublicationKind.Summary,
+      ReviewPublicationKind.ThreadReply,
+    ]);
+  });
+
+  it("restores lifecycle indexes when all optional replies were excluded by capacity", async () => {
+    const snapshot = executionSnapshot();
+    const attempts = new FakePublicationAttempts();
+    const base = completionProjectionMapper();
+    const seenPolicies: boolean[] = [];
+    const mapper: ReviewCompletionProjectionMapperPort = {
+      ...base,
+      async publicationEnvelope(artifact, options) {
+        seenPolicies.push(options?.includeVerifiedFixReplies === true);
+        const initial = await base.publicationEnvelope(artifact);
+        if (!initial) return null;
+        const resolution = {
+          chunkIndex: 0,
+          semantic: ReviewPublicationLifecycleSemantic.Resolve,
+          ...publicationBody("c", "d"),
+        };
+        return {
+          ...initial,
+          lifecycle:
+            options?.includeVerifiedFixReplies === false
+              ? [resolution]
+              : [
+                  {
+                    chunkIndex: 0,
+                    semantic: ReviewPublicationLifecycleSemantic.ConfirmReply,
+                    ...publicationBody("e", "f"),
+                  },
+                  { ...resolution, chunkIndex: 1 },
+                ],
+        };
+      },
+    };
+    const limits = {
+      ...publicationLimits(),
+      maxPublicationOperations: 2,
+      maxPublicationChunks: 2,
+    };
+    const factory = new DeterministicReviewPublicationRequestFactory(
+      mapper,
+      new ReviewPublicationOperationPlanningService(
+        new InMemoryReviewPublicationReleaseLimitsQuery([limits]),
+      ),
+      attempts,
+    );
+    const first = await factory.build(snapshot);
+    if (!first) throw new Error("test_publication_command_missing");
+    expect(
+      first.operations.map((operation) => operation.publicationKind),
+    ).toEqual([
+      ReviewPublicationKind.Summary,
+      ReviewPublicationKind.ThreadLifecycle,
+    ]);
+    expect(first.operations[1]?.chunkIndex).toBe(1);
+    attempts.store(publicationView(first));
+    const restored = await factory.build(snapshot);
+    expect(restored).toEqual(first);
+    expect(seenPolicies).toEqual([true, false, true]);
   });
 
   it("replans against a concurrent legacy winning identity before retrying", async () => {

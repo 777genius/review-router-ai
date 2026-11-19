@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -16,6 +17,7 @@ import type {
 } from "../../src/server/account-gateway-accounts";
 import type { GatewayModelAccountsApi } from "./gateway-model-account-options";
 import { WorkspacePersonalAccounts } from "./workspace-personal-accounts";
+import { OwnConnectionIdsContext } from "./account-workspace-use";
 
 const context = vi.hoisted(() => ({ client: null as QueryClient | null }));
 vi.mock("./gateway-model-account-options", () => ({
@@ -150,6 +152,90 @@ test.each([false, true])(
     expect(f.detach).not.toHaveBeenCalled();
   },
 );
+test.each([
+  { listedAbove: ["source-mine"], ownRowShown: false },
+  // The viewer's own list failed to show it: keep it here rather than lose it.
+  { listedAbove: [], ownRowShown: true },
+])(
+  "in the combined list, hides only own rows already listed above ($listedAbove)",
+  async ({ listedAbove, ownRowShown }) => {
+    const f = fixture();
+    f.api.list.mockResolvedValue(
+      page([
+        { ...account("mine"), sourceId: "source-mine", isOwnedByViewer: true },
+        account("theirs"),
+        {
+          ...account("org-unbound", "organization"),
+          canManage: true,
+          binding: null,
+        },
+      ]),
+    );
+    render(
+      <OwnConnectionIdsContext.Provider value={new Set(listedAbove)}>
+        <WorkspacePersonalAccounts
+          scope="org-x"
+          api={f.api}
+          canDetach={false}
+          detach={f.detach}
+          readDetach={f.readDetach}
+        />
+      </OwnConnectionIdsContext.Provider>,
+    );
+    const theirs = await screen.findByRole("article", {
+      name: "Canonical theirs",
+    });
+    expect(within(theirs).getByText("Used in this workspace")).toBeTruthy();
+    expect(
+      within(
+        screen.getByRole("article", { name: "Canonical org-unbound" }),
+      ).getByText("Not added to this workspace"),
+    ).toBeTruthy();
+    expect(
+      screen.queryAllByRole("article", { name: "Canonical mine" }),
+    ).toHaveLength(ownRowShown ? 1 : 0);
+    // One header for the whole list is drawn above the viewer's own rows.
+    expect(screen.queryByText("Owner")).toBeNull();
+  },
+);
+
+test.each([
+  { listedAbove: ["source-mine"], empty: false },
+  { listedAbove: [], empty: true },
+])(
+  "shows the empty state only when the whole list is empty ($listedAbove)",
+  async ({ listedAbove, empty }) => {
+    const f = fixture();
+    f.api.list.mockResolvedValue(
+      page([
+        { ...account("mine"), sourceId: "source-mine", isOwnedByViewer: true },
+      ]),
+    );
+    render(
+      <OwnConnectionIdsContext.Provider
+        value={new Set(empty ? [] : listedAbove)}
+      >
+        <WorkspacePersonalAccounts
+          scope="org-x"
+          api={
+            empty
+              ? { ...f.api, list: vi.fn().mockResolvedValue(page([])) }
+              : f.api
+          }
+          canDetach={false}
+          detach={f.detach}
+          readDetach={f.readDetach}
+        />
+      </OwnConnectionIdsContext.Provider>,
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Loading connections...")).toBeNull(),
+    );
+    expect(Boolean(screen.queryByText(/^No connections yet/))).toBe(empty);
+    expect(screen.queryByRole("article")).toBeNull();
+  },
+);
+
 test("an empty filtered page keeps the next page reachable", async () => {
   const f = fixture();
   f.api.list
@@ -165,9 +251,9 @@ test("an empty filtered page keeps the next page reachable", async () => {
     />,
   );
   expect(
-    await screen.findByText("No available connections on the loaded pages."),
+    await screen.findByText("No connections on the loaded pages."),
   ).toBeTruthy();
-  expect(screen.queryByText("No available connections.")).toBeNull();
+  expect(screen.queryByText(/^No connections yet/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Load more" }));
   expect(await screen.findByText("Canonical offpage")).toBeTruthy();
   expect(f.api.list).toHaveBeenNthCalledWith(2, {
@@ -387,7 +473,7 @@ test("retains stale rows without actions on unavailable, then clears them on den
     (screen.getByRole("button", { name: "Access" }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
-  expect(screen.queryByRole("link", { name: "Choose in Models" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Choose for reviews" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Canonical old-BX" })).toBeNull();
   f.api.list.mockResolvedValue({ status: "denied" });
   fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));

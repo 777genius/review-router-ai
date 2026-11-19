@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import type { AccountsBootstrap } from "../../src/server/account-gateway-accounts";
 import type {
@@ -10,10 +10,11 @@ import type {
 import {
   AccountGatewayControls,
   type AccountGatewayManagementApi,
+  type AddConnectionToWorkspace,
 } from "./account-gateway-account-controls";
 import {
   PersonalAccountControls,
-  refreshPersonalAccountViews,
+  type PersonalWorkspaceList,
 } from "./personal-account-controls";
 import { personalAccountAccessReads } from "./personal-account-access-api";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
@@ -28,6 +29,9 @@ export function PersonalAccountsPanel({
   accessReadContext,
   setupIntent,
   initiallyOpenConnect = false,
+  addToWorkspace,
+  connectEntry,
+  workspaceList,
 }: {
   bootstrap: PersonalAccountsBootstrap;
   api: PersonalAccountsApi;
@@ -37,6 +41,9 @@ export function PersonalAccountsPanel({
   accessReadContext?: string;
   setupIntent?: ApiKeySetupIntent | undefined;
   initiallyOpenConnect?: boolean;
+  addToWorkspace?: AddConnectionToWorkspace | undefined;
+  connectEntry?: ReactNode;
+  workspaceList?: PersonalWorkspaceList | undefined;
 }) {
   const readApi = useMemo(
     () =>
@@ -48,15 +55,11 @@ export function PersonalAccountsPanel({
   const options = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
   const client = options?.client ?? fallback;
-  const refreshSharing = useCallback(
-    () => refreshPersonalAccountViews(client, bootstrap.scope, false),
-    [client, bootstrap.scope],
-  );
   return (
     <section
       id="your-accounts"
       className="space-y-4"
-      aria-label="Personal connection management"
+      aria-label={workspaceList ? undefined : "Personal connection management"}
     >
       <AccountGatewayControls
         key={management.context}
@@ -65,9 +68,10 @@ export function PersonalAccountsPanel({
         workspaceId={workspaceId}
         setupIntent={setupIntent}
         initiallyOpenConnect={initiallyOpenConnect}
+        addToWorkspace={addToWorkspace}
+        connectEntry={connectEntry}
         api={managementApi}
         queryClient={client}
-        refreshRelated={refreshSharing}
         renderAccounts={(accounts, actions) => (
           <PersonalAccountControls
             bootstrap={bootstrap}
@@ -76,6 +80,7 @@ export function PersonalAccountsPanel({
             currentWorkspaceId={workspaceId}
             managementRows={accounts}
             managementActions={actions}
+            workspaceList={workspaceList}
           />
         )}
       />

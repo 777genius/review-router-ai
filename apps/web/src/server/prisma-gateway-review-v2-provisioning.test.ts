@@ -1,4 +1,7 @@
 import type { SqlDriverAdapterFactory } from "@prisma/client/runtime/client";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PrismaClient } from "@reviewrouter/platform-db";
 import { ReviewMutationLaneKind } from "@reviewrouter/features-review-run-control";
 import { expect, it, vi } from "vitest";
@@ -104,6 +107,26 @@ it.each([
       .spyOn(ProvisionGatewayReviewV2Repository.prototype, "execute")
       .mockRejectedValueOnce(new Error(code));
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    const directory = mkdtempSync(join(tmpdir(), "provisioning-registry-"));
+    const registryFile = join(directory, "registry.json");
+    writeFileSync(
+      registryFile,
+      JSON.stringify([
+        {
+          producerReleaseId: "release-fixture",
+          distributionKind: "public_reusable",
+          actionCommitSha: "a".repeat(40),
+          runtimeCommitSha: "b".repeat(40),
+          wrapperEntrypointDigest: null,
+          runtimeEntrypointDigest: "a".repeat(64),
+          schemaDigest: "b".repeat(64),
+          canonicalizerDigest: "c".repeat(64),
+          capabilityProfile: "exact_revision_v2",
+          protocolLimitsProfileId: "limits-fixture",
+          operationalSloProfileId: "slo-fixture",
+        },
+      ]),
+    );
     try {
       await expect(
         provisionGatewayReviewV2Repository({
@@ -112,22 +135,8 @@ it.each([
             REVIEW_ROUTER_REVIEW_V2_WORKER_ENABLED: "1",
             GITHUB_APP_ID: "123",
             GITHUB_APP_PRIVATE_KEY: "fixture-key-never-used-for-authentication",
-            REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_JSON:
-              JSON.stringify([
-                {
-                  producerReleaseId: "release-fixture",
-                  distributionKind: "public_reusable",
-                  actionCommitSha: "a".repeat(40),
-                  runtimeCommitSha: "b".repeat(40),
-                  wrapperEntrypointDigest: null,
-                  runtimeEntrypointDigest: "a".repeat(64),
-                  schemaDigest: "b".repeat(64),
-                  canonicalizerDigest: "c".repeat(64),
-                  capabilityProfile: "exact_revision_v2",
-                  protocolLimitsProfileId: "limits-fixture",
-                  operationalSloProfileId: "slo-fixture",
-                },
-              ]),
+            REVIEW_ROUTER_REVIEW_V2_PRODUCER_RELEASE_ATTESTATIONS_FILE:
+              registryFile,
           },
           command: {
             workspaceId: "workspace:test",
@@ -153,6 +162,7 @@ it.each([
       ).resolves.toEqual({ status: "blocked", issue });
       expect(execute).toHaveBeenCalledOnce();
     } finally {
+      rmSync(directory, { recursive: true, force: true });
       vi.restoreAllMocks();
     }
   },

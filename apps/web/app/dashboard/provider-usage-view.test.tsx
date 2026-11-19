@@ -104,8 +104,10 @@ const report: ProviderUsageReport = {
   logicalRuns: 2,
   unknown: 1,
   partial: 0,
+  latestPendingAt: null,
   unboundedSummaries: 0,
   hasMore: true,
+  subscriptionProviders: ["codex", "glm"],
   nextCursor: "observation-page",
   groups: [],
   totals,
@@ -218,6 +220,111 @@ describe("provider usage interactive report", () => {
     ).toBe("/dashboard/setup?workspace=workspace#dashboard-section-content");
     expect(container.textContent).not.toContain("Quota / limits: unknown");
   });
+  it("labels Gateway subscription models as included and keeps direct calls unpriced", () => {
+    const noCost = { ...totals, costs: [], unknownCostCount: 2 };
+    render(
+      <Harness
+        seed={{
+          ...report,
+          overview: {
+            ...report.overview,
+            models: [
+              {
+                ...model,
+                provider: "glm",
+                requestedModel: "glm-5.3",
+                route: "gateway",
+                totals: noCost,
+              },
+              { ...model, totals: noCost },
+            ],
+          },
+        }}
+      />,
+    );
+    const table = screen.getByRole("table", { name: "Requested model usage" });
+    const [glm, direct] = within(table).getAllByRole("row").slice(1);
+    expect(within(glm!).getByText("Included in subscription")).toBeTruthy();
+    expect(within(direct!).queryByText("Included in subscription")).toBeNull();
+    expect(within(direct!).getByTitle(/No cost was reported/)).toBeTruthy();
+  });
+  it("shows only reported delivery losses and the token status wording of the tables in Details", () => {
+    const coverage = {
+      schemaVersion: 1 as const,
+      revision: 1,
+      state: "partial" as const,
+      reason: "spool_overflow" as const,
+      droppedEvents: 3,
+      occurredAt: "2026-10-20T00:00:00Z",
+    };
+    render(
+      <Harness
+        seed={{
+          ...report,
+          deliveryCoverage: [
+            { invocationId: "quiet", coverage: null },
+            { invocationId: "lossy", coverage },
+            { invocationId: "quiet", coverage: null },
+          ],
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Details"));
+    const delivery = screen.getByLabelText("Producer delivery coverage");
+    expect(
+      within(delivery)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "Runtime delivery: partial (spool_overflow, 3 dropped events)",
+      "No delivery loss reported by 2 runtime sessions",
+    ]);
+    expect(screen.getByText(/1 call without token counts/)).toBeTruthy();
+    expect(screen.queryByText(/\d+ unknown · \d+ partial/)).toBeNull();
+    expect(
+      screen.getByText("No native source checkpoint for this workspace."),
+    ).toBeTruthy();
+  });
+  it("separates the latest update from older sources and partial day measurements", () => {
+    render(
+      <Harness
+        seed={{
+          ...report,
+          asOf: "2026-10-30T19:40:12.000Z",
+          latestSourceAsOf: "2026-11-10T16:44:32.000Z",
+          sources: [
+            {
+              sourceInstance: "old",
+              coveredFrom: report.from,
+              asOf: "2026-10-30T19:40:12.000Z",
+              lagMs: 1000,
+            },
+            {
+              sourceInstance: "current",
+              coveredFrom: report.from,
+              asOf: "2026-11-10T16:44:32.000Z",
+              lagMs: 10,
+            },
+          ],
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("Latest update Nov 10, 2026, 16:44 UTC"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Details"));
+    expect(
+      screen.getByText(/Some sources last reported Oct 30, 2026, 19:40 UTC/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/A partial day covers only part of a UTC day/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "△ 1 call with incomplete token data · 1 call without reported cost",
+      ),
+    ).toBeTruthy();
+  });
   it("hydrates the exact review key and preserves exact currency/basis and requested/observed identities", () => {
     render(<Harness />);
     expect(fetchProviderUsage).not.toHaveBeenCalled();
@@ -247,7 +354,7 @@ describe("provider usage interactive report", () => {
     ).toContain("codex / requested-alpha");
     expect(
       screen.getByRole("table", { name: "Requested model usage" }).textContent,
-    ).toContain("Observed: actual-beta +1 · includes Unknown");
+    ).toContain("Observed: actual-beta +1 · some not reported");
     fireEvent.click(screen.getByRole("button", { name: "Cost" }));
     expect(screen.queryByLabelText("Cost basis")).toBeNull();
     expect(fetchProviderUsage).not.toHaveBeenCalled();
@@ -593,17 +700,17 @@ describe("provider usage interactive report", () => {
     expect(
       within(
         screen.getByRole("table", { name: "Requested model usage" }),
-      ).getByText(/Observed:.*includes Unknown/),
+      ).getByText(/Observed:.*some not reported/),
     ).toBeTruthy();
     const disclosure = within(
       screen.getByRole("table", { name: "Requested model usage" }),
     )
-      .getByText(/Observed:.*includes Unknown/)
+      .getByText(/Observed:.*some not reported/)
       .closest("details")!;
     fireEvent.click(disclosure.querySelector("summary")!);
     expect(disclosure.open).toBe(true);
     expect(within(disclosure).getByText(actual)).toBeTruthy();
-    expect(within(disclosure).getByText("Unknown")).toBeTruthy();
+    expect(within(disclosure).getByText("Not reported")).toBeTruthy();
   });
   it("keeps Details open when a new observation page replaces the loading context, then resets it for fresh SSR", async () => {
     const firstRow: ProviderUsageReport["rows"][number] = {
@@ -910,6 +1017,9 @@ describe("provider usage interactive report", () => {
     expect(
       screen.getByText(/No measured observations for this interval/),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("definition", { name: "Not reported" }).textContent,
+    ).toBe("Not reported");
   });
   it("resets dimension filters and both cursors while preserving interval, purpose, currency and period", async () => {
     const selectedFilters: UsageFilters = {
@@ -918,6 +1028,8 @@ describe("provider usage interactive report", () => {
       provider: "codex",
       model: "requested-alpha",
       route: "direct",
+      bindingId: "binding-from-details",
+      runId: "run-from-details",
       after: "old-call-cursor",
       runAfter: "old-run-cursor",
     };
@@ -977,29 +1089,32 @@ describe("provider usage interactive report", () => {
       "2026-10-21",
     );
   });
-  it.each(["unknownCostCount", "unknownTotalTokenCount"] as const)(
-    "polls when %s is the only incomplete metric and stops after full measurements",
+  const settled = {
+    ...report,
+    unknown: 0,
+    partial: 0,
+    totals: {
+      ...totals,
+      unknownCount: 0,
+      partialCount: 0,
+      unknownCostCount: 0,
+      unknownTotalTokenCount: 0,
+    },
+  };
+  it.each(["unknown", "partial"] as const)(
+    "polls while %s usage reports may still change and stops once they settle",
     async (field) => {
-      const incomplete = {
-        ...report,
-        unknown: 0,
-        partial: 0,
-        totals: {
-          ...totals,
-          unknownCount: 0,
-          partialCount: 0,
-          unknownCostCount: 0,
-          unknownTotalTokenCount: 0,
-          [field]: 1,
-        },
-      };
-      const complete = {
-        ...incomplete,
-        totals: { ...incomplete.totals, [field]: 0 },
-      };
-      vi.mocked(fetchProviderUsage).mockResolvedValue(complete);
+      vi.mocked(fetchProviderUsage).mockResolvedValue(settled);
       vi.useFakeTimers();
-      render(<Harness seed={incomplete} />);
+      render(
+        <Harness
+          seed={{
+            ...settled,
+            [field]: 1,
+            latestPendingAt: new Date(Date.now() - 60_000).toISOString(),
+          }}
+        />,
+      );
       await act(async () => {
         await vi.advanceTimersByTimeAsync(30_000);
       });
@@ -1011,6 +1126,51 @@ describe("provider usage interactive report", () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
       expect(fetchProviderUsage).toHaveBeenCalledTimes(1);
+    },
+  );
+  // Production had ~79 calls that will never get a report; they used to keep
+  // the page re-reading the heavy report every 30 seconds forever.
+  it("does not poll for calls that stayed without a report for over an hour", async () => {
+    vi.useFakeTimers();
+    render(
+      <Harness
+        seed={{
+          ...settled,
+          unknown: 79,
+          latestPendingAt: new Date(Date.now() - 61 * 60_000).toISOString(),
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+    expect(fetchProviderUsage).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["unknownCostCount", "△ 1 call without reported cost"],
+    ["unknownTotalTokenCount", "△ 1 call without total tokens"],
+  ] as const)(
+    "does not poll when only %s is missing and names that measurement",
+    async (field, note) => {
+      vi.useFakeTimers();
+      const missing = { ...settled.totals, [field]: 1 };
+      render(
+        <Harness
+          seed={{
+            ...settled,
+            totals: missing,
+            overview: {
+              ...settled.overview,
+              models: [{ ...model, totals: missing }],
+            },
+          }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90_000);
+      });
+      expect(fetchProviderUsage).not.toHaveBeenCalled();
+      expect(screen.getByText(note)).toBeTruthy();
     },
   );
 });

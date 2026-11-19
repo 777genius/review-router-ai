@@ -1,4 +1,5 @@
 import { connectionProfiles } from "./account-connection-catalog";
+import { gatewayAPIKeyProviderKinds } from "../features/provider-setup/provider-identity";
 import { createAccountLimitsService } from "./account-limits-service";
 import {
   accountLimitsReader,
@@ -42,6 +43,7 @@ import {
 import { getPrisma } from "./prisma";
 import { PrismaPersonalAccountSharingQueries } from "./personal-account-sharing-queries";
 import { createPersonalAccountSharingApi } from "./personal-account-sharing";
+import { createConnectWorkspaceAttach } from "./personal-connect-attach";
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import { createAccountsOverview } from "./accounts-overview";
 import { createGatewayModelAccountOptions } from "./gateway-model-account-options";
@@ -106,9 +108,12 @@ export async function productionPersonalAccounts() {
   > = [...settings.apiKeyProfiles].map(([id, name]) => ({
     id,
     label: name,
-    provider: name === "MiMo" ? "codex-mimo" : "openrouter",
+    provider: gatewayAPIKeyProviderKinds[name],
     authKind: "api_key" as "api_key" | "oauth",
     canReconnect: true,
+    ...(name === "NVIDIA Build"
+      ? { availability: "deployment_configuration_required" as const }
+      : {}),
     ...(settings.apiKeyProfileBaseURLs.has(id)
       ? { dedicatedBaseURL: settings.apiKeyProfileBaseURLs.get(id)! }
       : {}),
@@ -136,10 +141,9 @@ export async function productionPersonalAccounts() {
     | Promise<c.ProviderConnectionCapabilities>
     | undefined;
   if (
-    settings.subscriptionProfileIds !== undefined &&
-    (settings.subscriptionProfileIds.length > 0 ||
-      (process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
-        process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN))
+    (settings.subscriptionProfileIds?.length ?? 0) > 0 ||
+    (process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN)
   ) {
     const management = createManagementClient({
       role: "management",
@@ -154,15 +158,19 @@ export async function productionPersonalAccounts() {
     const subscriptions = await checked(() =>
       connectionProfiles({
         legacy: [],
-        subscriptionProfileIds: settings.subscriptionProfileIds,
+        subscriptionProfileIds: settings.subscriptionProfileIds ?? [],
         capabilities: () => connectionCapabilities!,
       }),
     );
-    profiles.push(
-      ...subscriptions.flatMap((profile) =>
-        profile.authKind ? [{ ...profile, authKind: profile.authKind }] : [],
-      ),
-    );
+    for (const profile of subscriptions) {
+      if (!profile.authKind) continue;
+      const captured = { ...profile, authKind: profile.authKind };
+      const index = profiles.findIndex(
+        (existing) => existing.id === profile.id,
+      );
+      if (index === -1) profiles.push(captured);
+      else profiles[index] = captured;
+    }
   }
   const ingress = new Map(
     profiles.map((profile) => [
@@ -660,6 +668,18 @@ export async function productionPersonalAccounts() {
       );
     return readWorkspaceDetachment(workspaceId, request);
   }
+  const attachConnected = createConnectWorkspaceAttach({
+    actorUserId: userId,
+    readOperation: (nonce) => checked(() => store.readOperation(userId, nonce)),
+    workspaceAccess,
+    hasActiveBinding: async (workspaceId, connectionId) =>
+      (await checked(() =>
+        prisma.workspaceAccountBinding.count({
+          where: { workspaceId, connectionId, state: "active" },
+        }),
+      )) > 0,
+    attach: (request) => sharing.attach(request),
+  });
   const scope = `personal-${createHash("sha256").update(`rr-personal-ui-v1\0${userId}`).digest("hex")}`;
   function probe(workspaceId: string) {
     return (
@@ -718,6 +738,7 @@ export async function productionPersonalAccounts() {
     overview,
     reviewProfiles,
     workspaceAccess,
+    attachConnected,
     detachRecipient,
     detachWorkspaceUse,
     readWorkspaceDetachment,

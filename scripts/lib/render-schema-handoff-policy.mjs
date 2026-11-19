@@ -321,6 +321,81 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // Reviewer plan version 2 (plan 67) only widens the producer profile CHECK
+  // to admit planVersion 2. Require its exact SQL and the full 164-row
+  // inventory before reducing to the provider-quota checkout163; managed92 is
+  // never expanded.
+  const reviewerPlanV2Migration = catalog.find(
+    (row) => row.migrationName === "000159_producer_reviewer_plan_v2",
+  );
+  if (reviewerPlanV2Migration) {
+    if (
+      catalog.length !== 164 ||
+      catalog.at(-1) !== reviewerPlanV2Migration ||
+      reviewerPlanV2Migration.checksum !==
+        "190dbed29df726398a750d0555fb20113607730ac4b5e753cdd26d7aa180ad58"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== reviewerPlanV2Migration),
+    );
+  }
+  // The provider-quota fact (plan 69) is an additive nullable column on the
+  // checkout-only allocation table. Require its exact SQL and the full 163-row
+  // inventory before reducing to checkout162; managed92 is never expanded.
+  const providerQuotaMigration = catalog.find(
+    (row) =>
+      row.migrationName === "000158_review_run_allocation_provider_quota",
+  );
+  if (providerQuotaMigration) {
+    if (
+      catalog.length !== 163 ||
+      catalog.at(-1) !== providerQuotaMigration ||
+      providerQuotaMigration.checksum !==
+        "e7ca2b8ac7be046093607f22323f97f874f4c3648e609f10c6e5ebfa4d855730"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== providerQuotaMigration),
+    );
+  }
+  // Additive Claude auth-mode CHECK is an application-only checkout tail.
+  // The exact new SQL and full 162-row inventory are required before reducing
+  // to the previously signed checkout160; managed92 is never expanded.
+  const claudeApiKeyMigration = catalog.find(
+    (row) => row.migrationName === "000157_claude_code_api_key_secret",
+  );
+  if (claudeApiKeyMigration) {
+    if (
+      catalog.length !== 162 ||
+      catalog.at(-1) !== claudeApiKeyMigration ||
+      claudeApiKeyMigration.checksum !==
+        "f329d536172a46caef5ebe37fd76dc398394141052bd9271819a4bee881bc89e"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== claudeApiKeyMigration),
+    );
+  }
+  // Only the exact review-thread reply enum migration may extend this
+  // checkout. Remove it for the immutable historical handoff verification,
+  // which still pins the full prior inventory and every earlier checksum.
+  const verifiedReplyMigration = catalog.find(
+    (row) => row.migrationName === "000156_verified_thread_reply",
+  );
+  if (verifiedReplyMigration) {
+    if (
+      verifiedReplyMigration.checksum !==
+        "690327803b321cad8914c1ac489751ad140e7b39126115bf826138959b3f3888" ||
+      catalog.at(-1) !== verifiedReplyMigration ||
+      manifest(catalog.slice(0, -1)) !==
+        "sha256:59f0189f4e0083528dbcdf75c05b509019f1f1ba74cec7df7a157f926198db54"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== verifiedReplyMigration),
+    );
+  }
   // The concurrent member-read index belongs only to ordinary Prisma deploy.
   // Pin its exact SQL and complete checkout160, then retain the unchanged
   // checkout159 -> managed92 admission. It never enters a repair transaction.

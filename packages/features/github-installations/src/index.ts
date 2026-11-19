@@ -9,6 +9,7 @@ export * from "./application/ports/webhook-delivery-repository-port";
 export * from "./application/use-cases/handle-github-installation-webhook";
 export * from "./infrastructure/crypto/github-webhook-signature";
 export * from "./infrastructure/outbox/outbox-installation-sync-requester";
+export * from "./infrastructure/outbox/prisma-installation-sync-status-reader";
 export * from "./infrastructure/prisma/prisma-github-installation-repository";
 export * from "./infrastructure/prisma/prisma-installation-workspace-owner-grant";
 export * from "./infrastructure/prisma/prisma-webhook-delivery-repository";

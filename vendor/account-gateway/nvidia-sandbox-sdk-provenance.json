@@ -1,0 +1,28 @@
+{
+  "contract": "nvidia-sandbox-sdk-provenance/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz",
+  "sha256": "0a142ee84cd9b8fa2d843379ca15e328651142a03e11c0024922e03cb0723de6",
+  "integrity": "sha512-e8eM2zesEg08ZALzbGyKOiaUYA5x+xnoOLUbHhkKVRMoBI9Dq+doON8EuTK0h4fOWlWPlIroPOatVmquiZ1atQ==",
+  "sdkSourceRepository": "agent-teams-ai/account-gateway",
+  "sdkSourceCommit": "0c68a5d544ff417e0aae703cd868eef448966f7f",
+  "artifactRun": null,
+  "artifactBuilt": "pnpm pack of the merged Gateway main commit (agent-teams-ai/account-gateway#113); two independent packs produced identical bytes. The Gateway has no CI job that uploads the SDK archive.",
+  "nativeSourceRepository": "agent-teams-ai/sub2api",
+  "nativeSourceCommit": "324b336cb65b34a2cb841cca7b793e97bdee01a5",
+  "qualification": {
+    "sdkArchiveBuilt": true,
+    "archiveChecksumVerified": true,
+    "pnpmLockfileRegenerated": true,
+    "sdkConsumerChecks": "reviewrouter-ai local typecheck, eslint, prettier and vitest of the affected packages on the exact head",
+    "nativeGoUnitAndTransportTests": "passed_controlled_fixtures_no_live_provider",
+    "liveGlmProviderRequest": "not_performed",
+    "conversationRequalification": "required_before_deploy_source_stamp_changed"
+  },
+  "rollout": {
+    "syntheticSandboxOnly": true,
+    "publicPublished": false,
+    "productionActivated": false
+  },
+  "change": "providerConnectionIdentity/providerConnectionIdentities name the vendor and plan of every qualified profile, and usage observations may report completeness unknown; see ai-docs/architecture/72-usage-statistics-audit.md",
+  "previousProvenance": "nvidia-c32ef9ed3360-sdk-provenance.json"
+}

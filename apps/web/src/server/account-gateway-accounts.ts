@@ -44,6 +44,10 @@ import {
   canonicalMimoBaseURL,
   suggestedAccountLabel,
 } from "../features/account-gateway/connection-options";
+import {
+  gatewayAPIKeyProviderKinds,
+  type GatewayAPIKeyProfileName,
+} from "../features/provider-setup/provider-identity";
 import type { AccountUsageView } from "./account-usage";
 import type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
 export type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
@@ -66,6 +70,7 @@ export type AccountsResult<T> =
   | { status: "ok"; value: T }
   | {
       status: "denied" | "conflict" | "invalid" | "unavailable";
+      diagnosis?: import("../features/account-gateway/account-diagnosis").AccountDiagnosis;
     };
 
 export type AccountProfileView = {
@@ -78,7 +83,9 @@ export type AccountProfileView = {
     | import("../features/account-gateway/connection-capabilities").AccountConnectionView
     | undefined;
   // Trusted configured vendor; never derived from an editable account label.
-  provider?: import("@reviewrouter/features-review-providers").ProviderKind;
+  provider?:
+    | import("@reviewrouter/features-review-providers").ProviderKind
+    | "nvidia";
   // Additive display fields; older safe bootstrap consumers may omit them.
   // The authorized adapter always supplies both from its configured catalog.
   authKind?: c.Profile["authKinds"][number];
@@ -114,6 +121,8 @@ export type AccountView = {
   origin?: "organization" | "personal" | "operator";
   // Display-only identity fact; never permission to manage a shared source.
   isOwnedByViewer?: boolean;
+  /** Workspace overview only: the viewer's own personal connection id. */
+  sourceId?: string;
   canManage?: boolean;
   owner?: AccountOwnerView;
   allowedActions?: readonly AccountAllowedAction[];
@@ -158,7 +167,6 @@ export type AccountOperationView = {
       | import("../features/provider-setup/provider-identity").ProviderIdentity
       | undefined;
     inputKind: "none" | "callback_url" | "authorization_code";
-    personalOnly?: boolean;
   };
   account?: AccountView;
   // Original safe reconnect fields, present only after durable fences are ready.
@@ -399,7 +407,7 @@ export function createAccountsAdapter(input: {
   synchronization: ProviderAccountSynchronizationPort;
   bindingDependencies: ProviderAccountDependencies;
   fences?: WorkspaceBindingFenceRepositoryPort;
-  apiKeyProfiles: ReadonlyMap<string, "MiMo" | "OpenRouter">;
+  apiKeyProfiles: ReadonlyMap<string, GatewayAPIKeyProfileName>;
   apiKeyProfileBaseURLs?: ReadonlyMap<string, string>;
   codexOAuthProfileId?: typeof codexOAuthProfileId;
   claudeOAuthProfileId?: typeof claudeOAuthProfileId;
@@ -419,7 +427,7 @@ export function createAccountsAdapter(input: {
       id,
       {
         label: name,
-        provider: name === "MiMo" ? "codex-mimo" : "openrouter",
+        provider: gatewayAPIKeyProviderKinds[name],
         authKind: "api_key",
         canReconnect: true,
       },
@@ -1018,7 +1026,16 @@ export function createAccountsAdapter(input: {
         const profile = catalogue.find(
           (p) => p.id === intent.profileId && p.authKind === "api_key",
         );
-        if (!profile) throw new Denied();
+        if (
+          !profile ||
+          // Fresh NVIDIA enrollment requires qualified upstream capabilities.
+          // Reconnect remains on the separate existing-account path.
+          (profile.id === "nvidia-build-chat-apikey-v1" &&
+            (profile.provider !== "nvidia" ||
+              profile.availability !== "enabled" ||
+              profile.connection?.provider !== "nvidia"))
+        )
+          throw new Denied();
         if (
           intent.baseURL !== undefined &&
           (!profile.dedicatedBaseURL ||
@@ -1144,6 +1161,9 @@ export function createAccountsAdapter(input: {
           account.metadataRevision !== intent.gatewayRevision
         )
           return { status: "conflict" };
+        // Legacy reads remain available, but ReviewRouter must not reconnect
+        // third-party Claude subscription OAuth through the SaaS.
+        if (account.profileId === claudeOAuthProfileId) throw new Denied();
         const profile = catalogue.find((p) => p.id === account.profileId);
         if (
           profile?.authKind !== "oauth" ||
@@ -1162,6 +1182,9 @@ export function createAccountsAdapter(input: {
           method: oauthMethodFor(profile, intent.method),
         });
       } else {
+        // Subscription reviews use the customer's GitHub Secret and official
+        // Claude Code CLI; centralized OAuth enrollment is not supported.
+        if (intent.profileId === claudeOAuthProfileId) throw new Denied();
         const profile = catalogue.find(
           (p) => p.id === intent.profileId && p.authKind === "oauth",
         );
@@ -1923,6 +1946,9 @@ export function createDisabledPersonalAccountsAdapter(input: {
       credential?: string,
     ) {
       const safe = oauthIntentSchema.parse(raw);
+      // Personal enrollment is a separate entry point from workspace OAuth.
+      if (safe.profileId === claudeOAuthProfileId)
+        throw new ProviderAccountError("invalid_input");
       const key = credential;
       const actorUserId = await input.authorizeUser();
       const ingress = profiles.get(safe.profileId);
@@ -2062,16 +2088,23 @@ export function accountGatewayProfilesConfiguration() {
   const contextKey =
     process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_ACCOUNTS_CONTEXT_SECRET ?? "";
   if (contextKey.length < 32) throw new Error("accounts_unavailable");
-  const apiKeyProfiles = new Map<string, "MiMo" | "OpenRouter">();
+  const apiKeyProfiles = new Map<string, GatewayAPIKeyProfileName>();
   for (const [value, name] of [
     [process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MIMO_PROFILE_ID, "MiMo"],
     [
       process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID,
       "OpenRouter",
     ],
+    [
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID,
+      "NVIDIA Build",
+    ],
   ] as const)
     if (value) {
       c.reference.parse(value);
+      // A deployment setting may select only the source-qualified profile.
+      if (name === "NVIDIA Build")
+        z.literal("nvidia-build-chat-apikey-v1").parse(value);
       if (apiKeyProfiles.has(value)) throw new Error("accounts_unavailable");
       apiKeyProfiles.set(value, name);
     }
@@ -2094,7 +2127,11 @@ export function accountGatewayProfilesConfiguration() {
     !apiKeyProfiles.size &&
     !oauthProfile &&
     !claudeProfile &&
-    !subscriptionProfileIds.length
+    !subscriptionProfileIds.length &&
+    !(
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
+      process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN
+    )
   )
     throw new Error("accounts_unavailable");
   // Operator pairs this public URL with the exact fixed Gateway service profile.

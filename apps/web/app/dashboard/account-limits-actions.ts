@@ -33,13 +33,22 @@ export async function refreshAccountLimitsAction(request: {
       return current?.scope === input.context ? result : { status: "denied" };
     }
     // The signed context itself binds its workspace, without a second selector.
-    if (input.workspaceId) return { status: "invalid" };
+    if (input.workspaceId)
+      return {
+        status: "invalid",
+        diagnosis: { code: "invalid_request", source: "application" },
+      };
     const { accountsServerAdapter } =
       await import("../../src/server/account-gateway-accounts");
     return await (
       await accountsServerAdapter()
     ).refreshLimits(input.context, input.connectionId);
   } catch (error) {
-    return { status: error instanceof z.ZodError ? "invalid" : "denied" };
+    return error instanceof z.ZodError
+      ? {
+          status: "invalid",
+          diagnosis: { code: "invalid_request", source: "application" },
+        }
+      : { status: "denied" };
   }
 }

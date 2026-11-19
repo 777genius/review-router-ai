@@ -1,5 +1,47 @@
 # Account Gateway SDK artifacts
 
+## Native catalogue SDK (not production)
+
+The three Review Router consumers pin the source-built
+`agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz` archive. It carries the
+`native_catalog` account model source of the GLM, MiniMax and Kimi coding plans
+and lets the `nvidia` and `native_catalog` snapshots hold up to 512 models, so
+NVIDIA Build can offer NVIDIA's filtered public model list
+(`ai-docs/architecture/68-nvidia-live-model-catalog.md`). It also exposes
+`providerConnectionIdentity`, the vendor and plan of each qualified profile that
+Usage attributes Gateway calls to, and the `unknown` usage completeness
+(`ai-docs/architecture/72-usage-statistics-audit.md`). It was packed from the
+merged Gateway main commit recorded in `nvidia-sandbox-sdk-provenance.json`.
+The conversation source stamp changed with it, so full-thread
+conversation qualification must be reissued before deploy. The provenance of the
+previous archive is kept in `nvidia-c32ef9ed3360-sdk-provenance.json`. Design and
+rollout order: `ai-docs/architecture/64-gateway-native-ownership-and-model-catalog.md`.
+
+## NVIDIA Build sandbox candidate (PR #854; not production)
+
+The previous archive was
+`agent-teams-account-gateway-0.1.0-nvidia-c32ef9ed3360.tgz`.
+The SHA-256 checksum, exact SDK source commit and successful packaging run are
+recorded in `nvidia-c32ef9ed3360-sdk-provenance.json`. Source comparison confirmed
+that later Gateway PR #105 commits changed CI/test fixture pins only, not SDK
+source; PR #105 is now merged. This artifact is **not an npm release**.
+
+NVIDIA Build has one independently qualified account profile, exposing the
+hosted-tested `nvidia/nemotron-3.5-super-vl-120b-a12b` model through the existing
+Gateway Responses-to-protected-Chat bridge. Its synthetic streaming tool call,
+second-turn tool-result replay and native PostgreSQL account lifecycle passed
+their bounded qualifications. DeepSeek and GLM are **not** in the profile:
+their earlier Chat requests timed out without a confirmed HTTP response.
+
+A passing provider canary is not a completed Review Router E2E. Only the
+disposable synthetic repository `777genius/rr-hosted-pool-e2e-20260927`
+is eligible for trial checkout. Customer source, production deployment and
+direct GitHub Secrets integration remain forbidden. Actual GitHub-App-authored
+review of synthetic PR #32 and exact-head RR consumer CI are separate gates.
+
+The previously production-qualified SDK provenance below is retained untouched
+as historical proof; it does not qualify the NVIDIA branch.
+
 The current private provider-connections SDK is
 `agent-teams-account-gateway-0.1.0-dynamic-models-d3c310431c0c.tgz`.
 `provider-connections-provenance.json` binds the archive to committed SDK source

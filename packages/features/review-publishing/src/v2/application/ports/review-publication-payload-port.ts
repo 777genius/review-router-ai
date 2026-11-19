@@ -11,6 +11,7 @@ export enum ReviewV2PublicationPayloadKind {
   PendingReviewSubmit = "pending_review_submit",
   SubmittedReview = "submitted_review",
   ThreadLifecycle = "thread_lifecycle",
+  ThreadReply = "thread_reply",
 }
 
 type ReviewV2PublicationPayloadIdentity = {
@@ -56,6 +57,12 @@ export type ReviewV2PublicationPayload =
       readonly kind: ReviewV2PublicationPayloadKind.ThreadLifecycle;
       readonly threadId: string;
       readonly resolve: boolean;
+    })
+  | (ReviewV2PublicationPayloadIdentity & {
+      readonly kind: ReviewV2PublicationPayloadKind.ThreadReply;
+      readonly threadId: string;
+      readonly targetId: string;
+      readonly body: string;
     });
 
 export interface ReviewV2PublicationPayloadPort {

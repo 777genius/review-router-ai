@@ -116,11 +116,20 @@ export function workspacePolicyDocumentFixture(
 ): WorkspaceReviewPolicy {
   return parseWorkspaceReviewPolicy({
     schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
-    ...(profileIds.length
-      ? { providers: selectionsFor(config, profileIds) }
-      : {}),
+    ...(profileIds.length ? rosterFor(config, profileIds) : {}),
     ...storedSettingsOf(config),
   });
+}
+
+/** The stored roster of a configuration: its providers and their mode. */
+function rosterFor(
+  config: ReturnType<typeof parseReviewConfigurationStrict>,
+  profileIds: readonly string[],
+) {
+  return {
+    providers: selectionsFor(config, profileIds),
+    ...(config.providerMode ? { providerMode: config.providerMode } : {}),
+  };
 }
 
 /** Every stored setting of a runtime configuration except its providers. */
@@ -182,7 +191,7 @@ export function systemPolicyWriteFixture(
   }));
   const document = {
     schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
-    providers: selectionsFor(
+    ...rosterFor(
       config,
       profileDrafts.map((draft) => draft.draftId),
     ),
@@ -205,7 +214,7 @@ export function repositoryPolicyDocumentFixture(
 ): RepositoryReviewPolicy {
   return parseRepositoryReviewPolicy({
     schemaVersion: STORED_REVIEW_POLICY_SCHEMA_VERSION,
-    providers: selectionsFor(config, profileIds),
+    ...rosterFor(config, profileIds),
     ...overrides,
   });
 }
@@ -263,6 +272,7 @@ export function credentialSourceFixture(
     case "kimi_code_api_key":
     case "mimo_token_plan_api_key":
     case "claude_code_oauth":
+    case "claude_code_api_key":
       return { kind: "user_ci_secret", authMode: provider.authMode };
   }
 }

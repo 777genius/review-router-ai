@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   canonicalJson,
   type ReviewConfiguration,
+  type ReviewProviderMode,
 } from "../../domain/review-configuration";
 import {
   parseRepositoryReviewPolicy,
@@ -131,6 +132,7 @@ export function readyReviewConfiguration(
     effectivePolicyDigest: resolved.effectivePolicyDigest,
     revisionToken: resolved.revisionToken,
     selections: resolved.selections,
+    providerMode: resolved.providerMode,
   };
 }
 
@@ -173,6 +175,7 @@ export function composeEffectiveReviewConfiguration(
     ...persistedReviewConfiguration({
       config: effective.config,
       selections: effective.selections,
+      providerMode: effective.providerMode,
       policy: repositoryPolicy ?? workspacePolicy,
       workspaceVersion: workspace.version,
       repositoryVersion: repository?.version ?? null,
@@ -183,6 +186,7 @@ export function composeEffectiveReviewConfiguration(
 export function persistedReviewConfiguration(input: {
   readonly config: ReviewConfiguration;
   readonly selections: readonly ReviewProviderSelection[];
+  readonly providerMode: ReviewProviderMode;
   readonly policy: ReviewPolicyDocument;
   readonly workspaceVersion: number;
   readonly repositoryVersion: number | null;
@@ -199,6 +203,7 @@ export function persistedReviewConfiguration(input: {
     effectivePolicyDigest: digest,
     revisionToken: `policy:${workspaceVersion}:${repositoryVersion ?? 0}:${digest}`,
     selections: input.selections,
+    providerMode: input.providerMode,
   };
 }
 

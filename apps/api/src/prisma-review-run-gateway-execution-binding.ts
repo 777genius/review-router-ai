@@ -156,6 +156,40 @@ export class PrismaReviewRunGatewayExecutionBinding implements ReviewRunGatewayE
       : null;
   }
 
+  async recordProviderQuotaExhausted(owner: {
+    readonly authorizationId: string;
+    readonly allocationId: string;
+  }): Promise<boolean> {
+    const where = {
+      authorizationId: owner.authorizationId,
+      allocationId: owner.allocationId,
+    };
+    const { count } =
+      await this.prisma.reviewRunGatewayAllocationExecution.updateMany({
+        where: { ...where, providerQuotaExhaustedAt: null },
+        data: { providerQuotaExhaustedAt: new Date() },
+      });
+    // Zero rows means either an earlier request recorded it or there is no row.
+    return (
+      count === 1 ||
+      (await this.prisma.reviewRunGatewayAllocationExecution.count({
+        where: { ...where, providerQuotaExhaustedAt: { not: null } },
+      })) === 1
+    );
+  }
+
+  async providerQuotaExhaustedAllocations(
+    authorizationId: string,
+  ): Promise<readonly string[]> {
+    const rows = await this.prisma.reviewRunGatewayAllocationExecution.findMany(
+      {
+        where: { authorizationId, providerQuotaExhaustedAt: { not: null } },
+        select: { allocationId: true },
+      },
+    );
+    return rows.map((row) => row.allocationId);
+  }
+
   async completeCleanup(
     raw: ReviewRunGatewayExecutionOwner,
     selected: ReviewRunGatewayExecutionBinding,

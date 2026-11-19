@@ -3,6 +3,8 @@ import * as c from "@agent-teams/account-gateway/contracts";
 import type { productionPersonalAccounts } from "./personal-account-composition";
 import type { ConnectionProbeEvent } from "../features/account-gateway/connection-probe";
 
+import { diagnoseAccountGatewayFailure } from "./account-gateway-diagnosis";
+
 const schema = z.strictObject({
   context: z.string().min(1).max(256),
   workspaceId: c.reference,
@@ -80,8 +82,13 @@ export function createConnectionProbeHandler(
               emit,
               signal,
             );
-        } catch {
-          emit({ type: "result", ok: false, code: "unavailable" });
+        } catch (error) {
+          emit({
+            type: "result",
+            ok: false,
+            code: "unavailable",
+            diagnosis: diagnoseAccountGatewayFailure(error),
+          });
         } finally {
           if (!signal.aborted) controller.close();
         }

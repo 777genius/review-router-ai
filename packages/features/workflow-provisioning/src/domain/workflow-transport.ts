@@ -11,7 +11,10 @@ import {
 } from "@reviewrouter/features-review-config";
 import type { ProviderKind } from "@reviewrouter/features-review-providers";
 import { hostedPoolSessionMode } from "./hosted-pool-workflow-template";
-import { codexRotatingProviderSecretInputsForRuntimeEnv } from "./workflow-template";
+import {
+  codexRotatingProviderSecretInputsForRuntimeEnv,
+  type ReviewRouterDiscussionMode,
+} from "./workflow-template";
 
 /** How a repository workflow receives the credentials of its provider. */
 export type WorkflowTransport =
@@ -144,6 +147,15 @@ export function ciSecretsWorkflowProviderKind(
     : undefined;
 }
 
+/** Onboarding default; never inferred from client-submitted form values. */
+export function defaultReviewDiscussionMode(
+  transport: WorkflowTransport,
+): ReviewRouterDiscussionMode {
+  // Only the rotating Codex workflow has a qualified source-verified legacy
+  // discussion responder. Gateway has its own separately qualified caller.
+  return transport === "rotating" ? "suggest" : "off";
+}
+
 /** The native subscription caller has one credential and one selected model. */
 export function isClaudeSubscriptionConfiguration(
   config: ReviewConfiguration,
@@ -190,12 +202,16 @@ export function renderedWorkflowRequirement(
       transport,
       secrets.mimoTokenPlanApiKeySecret
         ? ["codex-mimo"]
-        : secrets.claudeCodeOAuthTokenSecret
+        : secrets.claudeCodeOAuthTokenSecret ||
+            staticRuntimeEnv?.REVIEW_AUTH_MODE === "claude-api-key"
           ? ["claude"]
           : [],
     );
   return workflowRequirement(transport, [
-    ...(secrets.claudeCodeOAuthTokenSecret ? (["claude"] as const) : []),
+    ...(secrets.claudeCodeOAuthTokenSecret ||
+    staticRuntimeEnv?.REVIEW_AUTH_MODE === "claude-api-key"
+      ? (["claude"] as const)
+      : []),
     ...(secrets.mimoTokenPlanApiKeySecret ? (["codex-mimo"] as const) : []),
     ...(secrets.openRouterApiKeySecret ? (["openrouter"] as const) : []),
   ]);

@@ -46,6 +46,7 @@ for (const viewport of [
           (response) =>
             response.request().method() === "POST" &&
             response.request().headers()["next-action"] !== undefined,
+          { timeout: 30_000 },
         ),
         page
           .getByRole("button", { name: "Save memory settings", exact: true })

@@ -1,7 +1,10 @@
+import type { AccountModelSource } from "@agent-teams/account-gateway/contracts";
+
 /** Safe connection metadata. Upstream identity is independent of the review engine. */
 export type AccountUpstreamProvider =
   | "mimo"
   | "openrouter"
+  | "nvidia"
   | "openai"
   | "anthropic"
   | "kimi"
@@ -24,7 +27,6 @@ export type AccountConnectionView = {
   planLabel: string;
   regionLabel: string;
   completionInputKind: "none" | "callback_url" | "authorization_code";
-  personalOnly: boolean;
   limitsContract: "account-limits/v1" | "account-limits/v2" | "none";
   modelSettings: readonly AccountModelSettings[];
 };
@@ -32,7 +34,7 @@ export type AccountConnectionView = {
 /** Account-scoped discovery metadata; never contains Gateway identity/fences. */
 export type AccountModelCatalogView = {
   status: "snapshot" | "unsupported" | "unavailable" | "unknown";
-  source: "codex" | "openrouter" | "legacy_profile";
+  source: AccountModelSource | "legacy_profile";
   fetchedAt?: string;
   expiresAt?: string;
   models: readonly string[];

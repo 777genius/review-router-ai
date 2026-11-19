@@ -151,6 +151,32 @@ export class PrismaReviewExecutionStore
         snapshot.stream.activeExecutionId === snapshot.execution.executionId,
     );
   }
+  /** Candidates only; exact source terminality and authority are rechecked before mutation. */
+  async listRevokedRunning(input: {
+    readonly before: Date;
+    readonly after: string;
+    readonly limit: number;
+  }) {
+    assertLimit(input.limit);
+    const records = await this.prisma.$queryRaw<{ executionId: string }[]>`
+      SELECT e."executionId" FROM "ReviewExecutionV2" e
+      JOIN "ReviewRunAuthorization" a ON a."authorizationId"=e."authorizationId"
+      JOIN "ReviewExecutionStreamV2" s ON s."activeExecutionId"=e."executionId"
+      JOIN "ReviewRequestedIntent" i ON i."executionId"=e."executionId"
+        AND i."authorizationId"=e."authorizationId" AND i."sourceRunId"=e."sourceRunId"
+        AND i."sourceRunAttempt"=e."sourceRunAttempt"
+      WHERE e.state='running' AND a.state IN ('revoked','expired')
+        AND e."updatedAt"<=${input.before} AND e."executionId">${input.after}
+      ORDER BY e."executionId" LIMIT ${input.limit}`;
+    const snapshots = await Promise.all(
+      records.map((record) => this.findExecution(record.executionId)),
+    );
+    return snapshots.filter(
+      (snapshot): snapshot is ReviewExecutionSnapshot =>
+        snapshot !== null &&
+        snapshot.stream.activeExecutionId === snapshot.execution.executionId,
+    );
+  }
   constructor(
     private readonly prisma: PrismaClient,
     private readonly options: Readonly<{
@@ -1210,6 +1236,27 @@ export class PrismaReviewExecutionStore
     );
   }
 
+  async failObservedTerminalRunningExecution(
+    command: FailExpiredRunningExecutionCommand & {
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly authorizationId: string;
+    },
+  ) {
+    return this.transitionExecutionLifecycle(
+      command,
+      (snapshot, now) =>
+        decideExpiredRunningExecutionFailure({
+          stream: snapshot.stream,
+          execution: snapshot.execution,
+          activeLeases: snapshot.activeLeases,
+          now,
+          sourceTerminal: true,
+        }),
+      command,
+    );
+  }
+
   async pruneRetainedHistory(input: { readonly limit: number }) {
     assertLimit(input.limit);
     return this.prisma.$transaction(
@@ -1447,6 +1494,11 @@ export class PrismaReviewExecutionStore
       snapshot: ReviewExecutionSnapshot,
       now: Date,
     ) => ReturnType<typeof decideAbandonedPreparationFailure>,
+    terminalProof?: {
+      readonly sourceRunId: string;
+      readonly sourceRunAttempt: string;
+      readonly authorizationId: string;
+    },
   ) {
     try {
       return await this.prisma.$transaction(
@@ -1459,6 +1511,32 @@ export class PrismaReviewExecutionStore
             return {
               status: ReviewExecutionLifecycleTransitionStatus.Missing,
             };
+          }
+          if (terminalProof) {
+            const e = snapshot.execution;
+            if (
+              e.authorizationId !== terminalProof.authorizationId ||
+              e.sourceRunId !== terminalProof.sourceRunId ||
+              e.sourceRunAttempt !== terminalProof.sourceRunAttempt
+            )
+              return {
+                status: ReviewExecutionLifecycleTransitionStatus.NotEligible,
+              };
+            const authority = await transaction.$queryRaw<{ state: string }[]>`
+              SELECT a.state::text AS state FROM "ReviewRunAuthorization" a
+              JOIN "ReviewRequestedIntent" i ON i."authorizationId"=a."authorizationId"
+              WHERE a."authorizationId"=${terminalProof.authorizationId} AND a.state IN ('revoked','expired')
+                AND a."workspaceId"=${e.workspaceId} AND a."repositoryConnectionId"=${e.repositoryConnectionId}
+                AND a."scmRepositoryIdentityId"=${e.scmRepositoryIdentityId} AND a."pullRequestNumber"=${e.pullRequestNumber}
+                AND a."sourceRunId"=${terminalProof.sourceRunId} AND a."sourceRunAttempt"=${terminalProof.sourceRunAttempt}
+                AND i."workspaceId"=${e.workspaceId} AND i."repositoryConnectionId"=${e.repositoryConnectionId}
+                AND i."scmRepositoryIdentityId"=${e.scmRepositoryIdentityId} AND i."pullRequestNumber"=${e.pullRequestNumber}
+                AND i."executionId"=${command.executionId} AND i."sourceRunId"=${terminalProof.sourceRunId}
+                AND i."sourceRunAttempt"=${terminalProof.sourceRunAttempt} FOR SHARE OF a,i`;
+            if (authority.length !== 1)
+              return {
+                status: ReviewExecutionLifecycleTransitionStatus.NotEligible,
+              };
           }
           const decision = decide(snapshot, await databaseNow(transaction));
           if (decision.status === ExecutionLifecycleDecisionStatus.Restored) {

@@ -45,7 +45,8 @@ import {
   canonicalJson,
   canonicalReviewRunReviewerIdentity,
   canonicalReviewRunReviewerVoteIdentity,
-  supportsProducerReviewerPlanV1,
+  supportsProducerReviewerFallback,
+  supportsProducerReviewerPlans,
   getReviewRunGatewayAllocation,
   parseProducerReviewerPlanProfile,
   type ProviderVoteLane,
@@ -128,6 +129,26 @@ export function readServerApprovedReviewRunGatewayPolicy(
   } catch {
     throw new Error("review_run_gateway_policy_invalid");
   }
+}
+
+/**
+ * A relay profile missing from the run policy can be routed but never
+ * authorized, so every review that uses it fails at admission. Refuse that
+ * configuration at startup. Profile IDs are public names, not secrets.
+ */
+export function assertRelayProfilesApprovedForRuns(
+  relayProfileIds: readonly string[],
+  runPolicy: ServerApprovedReviewRunGatewayPolicy | undefined,
+): void {
+  if (!runPolicy) return;
+  const approved = new Set(runPolicy.profiles.map((p) => p.profileRef));
+  const missing = [
+    ...new Set(relayProfileIds.filter((id) => !approved.has(id))),
+  ].sort();
+  if (missing.length)
+    throw new Error(
+      `review_run_gateway_relay_profile_unapproved:${missing.join(",")}`,
+    );
 }
 
 export type ServerReviewRunGatewayRequestCap = Readonly<{
@@ -512,7 +533,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
       const limits = this.approvedLimits.get(
         selected.provider.gatewayProfileRef,
       );
-      if (!limits) return null;
+      // Saved policy may name any connected profile; only the server policy
+      // grants a run allowance. This is a configuration error, never a race.
+      if (!limits) return { captureDenied: "gateway_profile_unapproved" };
       const bindingId = selected.provider.gatewayBindingId;
       const selection = await this.accounts.findBinding(
         { workspaceId: identity.workspaceId, bindingId },
@@ -530,8 +553,10 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         if (error instanceof ProviderAccountError) return null;
         throw error;
       }
+      // The saved reviewer names a profile its connection does not have: the
+      // same actionable configuration error, not a changed admission fact.
       if (binding.profileRef !== selected.provider.gatewayProfileRef)
-        return null;
+        return { captureDenied: "gateway_profile_unapproved" };
       gateway = {
         providerIndex: selected.providerIndex,
         bindingId: binding.bindingId,
@@ -839,9 +864,19 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     reader: RuntimeReader,
     configuration: ReviewConfiguration,
   ): Promise<ReviewRunRuntimeSnapshot | ReviewRunRuntimeCaptureDenial | null> {
+    // A producer without reviewer plan version 2 would run an ordered fallback
+    // as a parallel review, or not at all: refuse it explicitly.
+    if (
+      input.modelTransport === "account_gateway" &&
+      configuration.providerMode === "fallback" &&
+      !supportsProducerReviewerFallback(
+        input.producerRelease.reviewerPlanProfile,
+      )
+    )
+      return { captureDenied: "reviewer_fallback_unsupported" };
     if (
       input.modelTransport !== "account_gateway" ||
-      !supportsProducerReviewerPlanV1(
+      !supportsProducerReviewerPlans(
         input.producerRelease.reviewerPlanProfile,
       ) ||
       configuration.providers.some(
@@ -1004,6 +1039,9 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         canonicalJson({
           ...common,
           snapshotVersion: 4,
+          ...(configuration.providerMode
+            ? { providerMode: configuration.providerMode }
+            : {}),
           primaryReviewerId: reviewers[0]!.reviewerId,
           maxParallelReviewers: configuration.execution.providerMaxParallel,
           inlineMinAgreement: configuration.execution.inlineMinAgreement,
@@ -1110,7 +1148,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
         producer.actionCommitSha !== snapshot.producer.actionCommitSha ||
         producer.runtimeCommitSha !== snapshot.producer.runtimeCommitSha ||
         !producer.agentProfilesJson ||
-        !supportsProducerReviewerPlanV1(
+        !supportsProducerReviewerPlans(
           parseProducerReviewerPlanProfile(producer.reviewerPlanProfile),
         )
       )
@@ -1369,7 +1407,7 @@ export class ProductionReviewRunRuntimeSnapshot implements ReviewRunRuntimeSnaps
     try {
       if (original.snapshotVersion === 4) {
         if (
-          !supportsProducerReviewerPlanV1(
+          !supportsProducerReviewerPlans(
             parseProducerReviewerPlanProfile(producer.reviewerPlanProfile),
           )
         )

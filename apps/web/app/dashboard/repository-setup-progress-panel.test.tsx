@@ -523,7 +523,7 @@ describe("RepositorySetupProgressPanel", () => {
     expect(screen.queryByText("Enable AI suggested replies")).toBeNull();
   });
 
-  it("keeps the AI suggested replies option on legacy setup actions", () => {
+  it("removes the AI discussion option from legacy setup actions", () => {
     render(
       <RepositorySetupProgressPanel
         workspaceId="workspace_1"
@@ -540,7 +540,7 @@ describe("RepositorySetupProgressPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Enable AI suggested replies")).toBeTruthy();
+    expect(screen.queryByText("Enable AI suggested replies")).toBeNull();
   });
 
   // Regression: step 3 opened the old "Connect model credentials" dialog.

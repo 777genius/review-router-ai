@@ -57,13 +57,18 @@ import {
   useGatewayModelAccounts,
   useCurrentGatewayModelAccountsCache,
 } from "./gateway-model-account-options";
-import { dashboardSectionHref } from "./dashboard-section";
+import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import { accountsCopy } from "./accounts-copy";
-import { useOwnAccountsView } from "./accounts-workspace-tabs";
+import { useShowConnectionsList } from "./accounts-add-dialog";
+import { refreshPersonalAccountViews } from "./personal-account-controls";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
 import { AccountStatusLine } from "./account-status-icon";
 import { readAccountResult } from "./account-read-result";
-import { personalAccountOriginText } from "../../src/features/account-gateway/personal-accounts";
+import {
+  personalAccountOriginText,
+  type ConnectWorkspaceAttachment,
+  type PersonalAccountsResult,
+} from "../../src/features/account-gateway/personal-accounts";
 import {
   canonicalMimoBaseURL,
   mimoTokenPlanEndpoints,
@@ -126,10 +131,26 @@ export type AccountRowsRenderer = (
 ) => ReactNode;
 
 type ManagementScope = "workspace" | "personal";
+/** Server action bound to the current workspace; adds a just-connected
+ * personal connection there when its owner may grant it. */
+export type AddConnectionToWorkspace = (
+  connectNonce: string,
+) => Promise<PersonalAccountsResult<ConnectWorkspaceAttachment>>;
+
+// Legacy Claude OAuth accounts remain readable, but customers may only enroll
+// subscription credentials locally in their own GitHub Actions CLI workflow.
+const centrallyEnrollAllowed = (profile: AccountProfileView) =>
+  profile.id !== "anthropic-claude-oauth-messages-v1";
 
 // Small safe keys: scoped stable user/workspace locator; no signature or secret.
 const pageKey = (scope: string, cursor: string | null) =>
   ["gateway-accounts", scope, "page", cursor] as const;
+/** Same-tab signal: a view saved or dismissed a connection of this owner. */
+const operationsChangedEvent = "rr-account-operations-changed";
+const announceOperationsChanged = (storageKey: string) =>
+  window.dispatchEvent(
+    new CustomEvent(operationsChangedEvent, { detail: storageKey }),
+  );
 const operationKey = (scope: string, nonce: string) =>
   ["gateway-accounts", scope, "operation", nonce] as const;
 const noncePattern =
@@ -143,6 +164,24 @@ function savedNonces(key: string): string[] {
   )
     throw new Error();
   return [...new Set(saved as string[])];
+}
+// A connect started while viewing a workspace records that workspace with its
+// nonce. Only that workspace may receive it automatically; nonces without a
+// record (rename, reconnect, requests from before this record) never attach.
+function savedConnectWorkspaces(
+  key: string,
+  nonces: readonly string[],
+): Record<string, string> {
+  const saved: unknown = JSON.parse(sessionStorage.getItem(key) ?? "{}");
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+  return Object.fromEntries(
+    nonces.flatMap((nonce) => {
+      const workspaceId = (saved as Record<string, unknown>)[nonce];
+      return typeof workspaceId === "string" && workspaceId.length <= 160
+        ? [[nonce, workspaceId] as const]
+        : [];
+    }),
+  );
 }
 type DeviceAuthorization = {
   userCode: string;
@@ -166,7 +205,7 @@ function statusText(
       ? "Sign in as the owner of this personal account."
       : "You need workspace owner or admin access."
     : status === "conflict"
-      ? "The account changed. Refresh Accounts before trying again."
+      ? "The account changed. Refresh connections before trying again."
       : status === "invalid"
         ? "Check the account fields."
         : "Account management is unavailable. Refresh or check the connection later.";
@@ -209,25 +248,29 @@ export function AccountGatewayControls({
   api = defaultManagementApi,
   managementScope = "workspace",
   queryClient,
-  refreshRelated,
   renderAccounts,
-  hideConnect = false,
+  hideToolbar = false,
+  connectEntry,
   connectOnly = false,
   workspaceId,
   setupIntent,
   initiallyOpenConnect = false,
+  addToWorkspace,
 }: {
   bootstrap: AccountsBootstrap;
   api?: AccountGatewayManagementApi;
   managementScope?: ManagementScope;
   queryClient?: QueryClient;
-  refreshRelated?: () => Promise<void>;
   renderAccounts?: AccountRowsRenderer;
-  hideConnect?: boolean;
+  /** Rows inside another list: no own connect or refresh unless loading failed. */
+  hideToolbar?: boolean;
+  /** Replaces the default connect button, e.g. with the Add account dialog. */
+  connectEntry?: ReactNode;
   connectOnly?: boolean;
   workspaceId?: string | undefined;
   setupIntent?: ApiKeySetupIntent | undefined;
   initiallyOpenConnect?: boolean;
+  addToWorkspace?: AddConnectionToWorkspace | undefined;
 }) {
   const optionsCache = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
@@ -339,12 +382,15 @@ export function AccountGatewayControls({
             acknowledgeBootstrap={acknowledgeBootstrap}
             api={api}
             managementScope={managementScope}
-            refreshRelated={refreshRelated}
             renderAccounts={renderAccounts}
-            hideConnect={hideConnect}
+            hideToolbar={hideToolbar}
+            connectEntry={connectEntry}
             connectOnly={connectOnly}
             initiallyOpenConnect={initiallyOpenConnect}
             workspaceId={workspaceId}
+            addToWorkspace={
+              managementScope === "personal" ? addToWorkspace : undefined
+            }
           />
         </ApiKeySetupContext.Provider>
       </AccountLimitsReadContext.Provider>
@@ -359,12 +405,13 @@ function Controls({
   acknowledgeBootstrap,
   api,
   managementScope,
-  refreshRelated,
   renderAccounts,
-  hideConnect,
+  hideToolbar,
+  connectEntry,
   connectOnly,
   initiallyOpenConnect,
   workspaceId,
+  addToWorkspace,
 }: {
   bootstrap: AccountsBootstrap;
   bootstrapReadScope: string;
@@ -372,12 +419,13 @@ function Controls({
   acknowledgeBootstrap(page: AccountsBootstrap["page"], scope: string): void;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
-  refreshRelated: (() => Promise<void>) | undefined;
   renderAccounts: AccountRowsRenderer | undefined;
-  hideConnect: boolean;
+  hideToolbar: boolean;
+  connectEntry: ReactNode;
   connectOnly: boolean;
   initiallyOpenConnect: boolean;
   workspaceId: string | undefined;
+  addToWorkspace: AddConnectionToWorkspace | undefined;
 }) {
   const setup = useContext(ApiKeySetupContext);
   const { context } = bootstrap;
@@ -385,6 +433,8 @@ function Controls({
   const personal = managementScope === "personal";
   const scope = personal ? `personal:${contextScope}` : contextScope;
   const storageKey = `rr-c3-account-operations:${scope}`;
+  const connectWorkspacesKey = `${storageKey}:connect-workspaces`;
+  const attachWorkspaceId = addToWorkspace ? workspaceId : undefined;
   const client = useQueryClient();
   const limitsScope = accountLimitsScope(
     context,
@@ -429,7 +479,9 @@ function Controls({
         exact: true,
       });
       if (!current) return;
-      await removeAccountLimits(client, limitsScope);
+      // A connect-only view draws no rows. Dropping limits here would discard a
+      // fresher observation that a list beside it already shows.
+      if (!connectOnly) await removeAccountLimits(client, limitsScope);
       if (!current) return;
       const first = extractAccountLimits(client, limitsScope, bootstrap.page);
       hydratedBootstrap.current = bootstrap.page;
@@ -450,6 +502,7 @@ function Controls({
     bootstrapReadScope,
     acknowledgeBootstrap,
     scope,
+    connectOnly,
   ]);
   useEffect(
     () =>
@@ -498,6 +551,9 @@ function Controls({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeNonce, setActiveNonce] = useState<string | null>(null);
+  const [connectWorkspaces, setConnectWorkspaces] = useState<
+    Record<string, string>
+  >({});
   const [deviceHandoffs, setDeviceHandoffs] = useState<
     Record<string, DeviceAuthorization>
   >({});
@@ -536,14 +592,48 @@ function Controls({
       const saved = savedNonces(storageKey);
       setNonces(saved);
       setActiveNonce(saved.at(-1) ?? null);
+      try {
+        setConnectWorkspaces(
+          savedConnectWorkspaces(connectWorkspacesKey, saved),
+        );
+      } catch {
+        /* An unreadable record only skips automatic workspace attach. */
+      }
       setReady(true);
     } catch {
       setMessage(
         "Connection status is unavailable in this tab. Enable session storage before starting a connection.",
       );
     }
-  }, [storageKey]);
+  }, [storageKey, connectWorkspacesKey]);
+  useEffect(() => {
+    // The Add dialog and the list beside it are separate views of the same
+    // owner. A connection saved or dismissed in one shows its status in both.
+    const sync = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== storageKey) return;
+      try {
+        const saved = savedNonces(storageKey);
+        setNonces(saved);
+        // A request dismissed in the other view no longer holds this one.
+        setActiveNonce((active) =>
+          active && !saved.includes(active) ? null : active,
+        );
+        setConnectWorkspaces(
+          savedConnectWorkspaces(connectWorkspacesKey, saved),
+        );
+      } catch {
+        /* Keep the statuses already shown. */
+      }
+    };
+    window.addEventListener(operationsChangedEvent, sync);
+    return () => window.removeEventListener(operationsChangedEvent, sync);
+  }, [storageKey, connectWorkspacesKey]);
   const refresh = useCallback(async () => {
+    // A personal connection, including one made in the Add dialog, also changes
+    // the owner's sources, access summaries, the workspace overview and the
+    // workspace's own list in the same view; that refresh covers this list and
+    // the viewer's model options too.
+    if (personal) return refreshPersonalAccountViews(client, context);
     // Refresh every already displayed page with exact keys; no unrelated dashboard cache.
     await Promise.all(
       client
@@ -553,9 +643,8 @@ function Controls({
           client.invalidateQueries({ queryKey: query.queryKey, exact: true }),
         ),
     );
-    await refreshRelated?.();
     await optionsCache?.refresh();
-  }, [client, scope, refreshRelated, optionsCache]);
+  }, [client, scope, personal, context, optionsCache]);
   const offerCompletionHandoff = useCallback((nonce: string) => {
     if (completionHandoffRef.current) return;
     completionHandoffRef.current = nonce;
@@ -566,7 +655,7 @@ function Controls({
     completionHandoffRef.current = null;
     setCompletionHandoff((current) => (current === nonce ? null : current));
   }, []);
-  function reserveNonce(): string | null {
+  function reserveNonce(connectWorkspaceId?: string): string | null {
     if (!ready || nonces.length >= 8) {
       setMessage(
         "Check recent connections or hide old results before starting another.",
@@ -577,11 +666,23 @@ function Controls({
     try {
       const next = [...savedNonces(storageKey), nonce];
       if (next.length > 8) throw new Error();
+      if (connectWorkspaceId) {
+        let records: Record<string, string> = {};
+        try {
+          records = savedConnectWorkspaces(connectWorkspacesKey, next);
+        } catch {
+          /* Replace an unreadable record; it only names connect workspaces. */
+        }
+        records[nonce] = connectWorkspaceId;
+        sessionStorage.setItem(connectWorkspacesKey, JSON.stringify(records));
+        setConnectWorkspaces(records);
+      }
       // Persist BEFORE request entry: a lost response/reload preserves the operation identity.
       sessionStorage.setItem(storageKey, JSON.stringify(next));
       setNonces(next);
       setActiveNonce(nonce);
       setMessage("");
+      announceOperationsChanged(storageKey);
       return nonce;
     } catch {
       setMessage(
@@ -596,6 +697,7 @@ function Controls({
       sessionStorage.setItem(storageKey, JSON.stringify(next));
       setNonces(next);
       if (activeNonce === nonce) setActiveNonce(null);
+      announceOperationsChanged(storageKey);
       setDeviceHandoffs((previous) => {
         const next = { ...previous };
         delete next[nonce];
@@ -639,7 +741,9 @@ function Controls({
         ? nonces.includes(existingNonce)
           ? existingNonce
           : null
-        : reserveNonce();
+        : reserveNonce(
+            "connectionId" in intent ? undefined : attachWorkspaceId,
+          );
     } catch {
       tab?.close();
       setMessage(
@@ -759,7 +863,9 @@ function Controls({
     credential?: string,
   ) {
     if (submitting.current) return;
-    const nonce = reserveNonce();
+    const nonce = reserveNonce(
+      intent.kind === "connect" ? attachWorkspaceId : undefined,
+    );
     if (!nonce) return;
     submitting.current = true;
     setBusy(true);
@@ -803,7 +909,7 @@ function Controls({
       await refresh();
     },
     onError: () =>
-      setMessage("Binding status is unavailable. Refresh Accounts."),
+      setMessage("Binding status is unavailable. Refresh connections."),
   });
   const visiblePages =
     hydratedBootstrap.current !== bootstrap.page
@@ -885,9 +991,7 @@ function Controls({
           <AccountForm
             account={account}
             mode="rename"
-            profiles={data.value.profiles.filter(
-              (p) => personal || !p.connection?.personalOnly,
-            )}
+            profiles={data.value.profiles}
             disabled={sourceBusy || account.canManage !== true}
             disabledReason={manageReason}
             managementScope={managementScope}
@@ -902,9 +1006,7 @@ function Controls({
           <AccountForm
             account={account}
             mode="reconnect"
-            profiles={data.value.profiles.filter(
-              (p) => personal || !p.connection?.personalOnly,
-            )}
+            profiles={data.value.profiles}
             disabled={sourceBusy || account.canManage !== true}
             disabledReason={manageReason}
             submit={submit}
@@ -912,6 +1014,7 @@ function Controls({
           />
         ) : null}
         {account.authKind === "oauth" &&
+        account.profileId !== "anthropic-claude-oauth-messages-v1" &&
         account.state !== "disabled" &&
         account.state !== "tombstoned" &&
         data.value.profiles.find((p) => p.id === account.profileId)
@@ -965,45 +1068,54 @@ function Controls({
       </>
     );
   }
+  const enrollmentProfiles =
+    data?.status === "ok"
+      ? data.value.profiles.filter(
+          (p) =>
+            centrallyEnrollAllowed(p) &&
+            (p.provider !== "nvidia" ||
+              (p.id === "nvidia-build-chat-apikey-v1" &&
+                p.availability === "enabled" &&
+                p.connection?.provider === "nvidia")),
+        )
+      : [];
+  const enrollmentAccounts = data?.status === "ok" ? data.value.accounts : [];
+  const fullToolbar = !connectOnly && !hideToolbar;
+  // Refresh stays available whenever the list could not load.
+  const showToolbar = fullToolbar || page.isError || Boolean(failure);
   return (
     <div className="space-y-4">
-      {connectOnly && data?.status === "ok" && !activeNonce ? (
+      {connectOnly && !activeNonce && enrollmentProfiles.length > 0 ? (
         <ConnectionForm
-          profiles={data.value.profiles.filter(
-            (p) => personal || !p.connection?.personalOnly,
-          )}
-          accounts={data.value.accounts}
+          profiles={enrollmentProfiles}
+          accounts={enrollmentAccounts}
           disabled={disabled}
           managementScope={managementScope}
           begin={beginOAuth}
           submit={submit}
         />
       ) : null}
-      <div className="flex flex-wrap gap-3">
-        {!connectOnly &&
-        !hideConnect &&
-        (!initiallyOpenConnect || ready) &&
-        data?.status === "ok" &&
-        data.value.profiles.some(
-          (p) =>
-            (p.authKind === "api_key" || p.authKind === "oauth") &&
-            (personal || !p.connection?.personalOnly),
-        ) ? (
-          <ConnectAccountDialog
-            initiallyOpen={initiallyOpenConnect && !activeNonce}
-            profiles={data.value.profiles.filter(
-              (p) =>
-                (p.authKind === "api_key" || p.authKind === "oauth") &&
-                (personal || !p.connection?.personalOnly),
-            )}
-            accounts={data.value.accounts}
-            disabled={disabled}
-            managementScope={managementScope}
-            begin={beginOAuth}
-            submit={submit}
-          />
-        ) : null}
-        {!connectOnly || page.isError || failure ? (
+      {showToolbar ? (
+        <div className="flex flex-wrap gap-3">
+          {!fullToolbar ? null : connectEntry !== undefined ? (
+            connectEntry
+          ) : (!initiallyOpenConnect || ready) &&
+            enrollmentProfiles.some(
+              (p) => p.authKind === "api_key" || p.authKind === "oauth",
+            ) ? (
+            <ConnectAccountDialog
+              initiallyOpen={initiallyOpenConnect && !activeNonce}
+              profiles={enrollmentProfiles.filter(
+                (p) => p.authKind === "api_key" || p.authKind === "oauth",
+              )}
+              accounts={enrollmentAccounts}
+              disabled={disabled}
+              managementScope={managementScope}
+              addsToWorkspace={Boolean(addToWorkspace)}
+              begin={beginOAuth}
+              submit={submit}
+            />
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
@@ -1020,8 +1132,8 @@ function Controls({
           >
             <RefreshCw aria-hidden="true" className="size-4" />
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {message ? (
         <p role="status" className="text-sm text-slate-300">
           {message}
@@ -1074,14 +1186,16 @@ function Controls({
                 consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
                 oauthEnabled={
                   data?.status === "ok" &&
-                  data.value.profiles.some(
-                    (p) =>
-                      p.authKind === "oauth" &&
-                      (personal || !p.connection?.personalOnly),
-                  )
+                  data.value.profiles.some((p) => p.authKind === "oauth")
                 }
                 api={api}
                 managementScope={managementScope}
+                addToWorkspace={
+                  attachWorkspaceId &&
+                  connectWorkspaces[nonce] === attachWorkspaceId
+                    ? addToWorkspace
+                    : undefined
+                }
                 renderSetupContinuation={
                   setup.intent?.storage === "reviewrouter" &&
                   data?.status === "ok"
@@ -1218,12 +1332,7 @@ function Controls({
                 {!personal &&
                 account.binding?.state === "active" &&
                 !account.binding.fencePending ? (
-                  <a
-                    className="text-sm text-cyan-200 underline"
-                    href={dashboardSectionHref("policy", workspaceId)}
-                  >
-                    Choose for reviews
-                  </a>
+                  <ChooseForReviewsLink workspaceId={workspaceId} />
                 ) : null}
                 {renderActions(account)}
               </div>
@@ -1263,7 +1372,7 @@ function ConnectionSetupContinuation({
   ): Promise<AccountsResult<{ label: string }>>;
 }): React.ReactElement {
   const router = useRouter();
-  const showOwnConnections = useOwnAccountsView();
+  const showConnectionsList = useShowConnectionsList();
   const targetAccounts = useGatewayModelAccounts(undefined, []);
   const personal = managementScope === "personal";
   const availableForProvider = hasReadySetupProvider(
@@ -1314,11 +1423,11 @@ function ConnectionSetupContinuation({
         >
           Continue provider setup
         </Button>
-        {showOwnConnections ? (
+        {showConnectionsList ? (
           <button
             type="button"
             className="w-fit font-semibold text-cyan-200 underline"
-            onClick={showOwnConnections}
+            onClick={showConnectionsList}
           >
             Manage workspace access
           </button>
@@ -1377,10 +1486,12 @@ function ConnectAccountDialog({
   accounts,
   disabled,
   managementScope,
+  addsToWorkspace = false,
   begin,
   submit,
 }: Parameters<typeof ConnectionForm>[0] & {
   initiallyOpen?: boolean;
+  addsToWorkspace?: boolean;
 }): React.ReactElement {
   const [open, setOpen] = useState(initiallyOpen);
   return (
@@ -1401,7 +1512,9 @@ function ConnectAccountDialog({
           <Dialog.Description>
             Choose a provider, then connect its account or credential.
             {managementScope === "personal"
-              ? " This connection belongs to you. You choose which workspaces can use it."
+              ? addsToWorkspace
+                ? " This connection belongs to you. It is added to this workspace if you are a workspace owner or admin."
+                : " This connection belongs to you. You choose which workspaces can use it."
               : " This connection belongs to this workspace."}
           </Dialog.Description>
           {open ? (
@@ -1497,9 +1610,6 @@ function ConnectionForm({
             (row.authKind === "oauth" ? "Sign in" : "API key"),
         }))}
       />
-      {profile?.connection?.personalOnly ? (
-        <p className="text-xs text-slate-400">Personal use</p>
-      ) : null}
       {profile?.authKind === "oauth" ? (
         <OAuthForm
           key={profile.id}
@@ -1792,6 +1902,7 @@ function OperationReadback({
   consumeCompletionHandoff,
   api,
   managementScope,
+  addToWorkspace,
   renderSetupContinuation,
 }: {
   context: string;
@@ -1810,6 +1921,7 @@ function OperationReadback({
   consumeCompletionHandoff(): void;
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
+  addToWorkspace?: AddConnectionToWorkspace | undefined;
   renderSetupContinuation?: ((account: AccountView) => ReactNode) | undefined;
 }) {
   const client = useQueryClient();
@@ -1995,10 +2107,11 @@ function OperationReadback({
           label: savedCompletion.providerLabel,
           providerId: savedCompletion.providerId,
           inputKind: savedCompletion.inputKind,
-          personalOnly: savedCompletion.personalOnly,
         }
     : completionProvider;
   const terminal = state === "applied" || state === "rejected";
+  const attachConnected =
+    addToWorkspace && state === "applied" ? addToWorkspace : undefined;
   return (
     <div className="space-y-4 text-sm text-slate-300">
       <div role="status" className="space-y-3">
@@ -2037,10 +2150,8 @@ function OperationReadback({
             {data?.status === "ok" && data.value.oauthMethod
               ? "Sign-in complete."
               : "Request completed."}{" "}
-            {completion?.personalOnly ||
-            (data?.status === "ok" &&
-              data.value.account?.connection?.personalOnly)
-              ? "Personal use."
+            {attachConnected
+              ? null
               : managementScope === "personal"
                 ? "Organization access can be granted separately via Access."
                 : "Availability for reviews depends on workspace access and model selection."}
@@ -2057,6 +2168,13 @@ function OperationReadback({
           </p>
         ) : null}
       </div>
+      {attachConnected ? (
+        <ConnectWorkspaceAttach
+          nonce={nonce}
+          addToWorkspace={attachConnected}
+          refresh={refresh}
+        />
+      ) : null}
       {state === "applied" && data?.status === "ok" && data.value.account
         ? renderSetupContinuation?.(data.value.account)
         : null}
@@ -2136,6 +2254,86 @@ function OperationReadback({
       {(terminal && !inline) || state === "unknown" ? (
         <Button variant="outline" size="sm" onClick={dismiss}>
           {state === "unknown" ? "Hide" : "Dismiss"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+const connectAttachText: Record<
+  Extract<ConnectWorkspaceAttachment, { status: "not_attached" }>["reason"],
+  string
+> = {
+  not_permitted:
+    "Not added to this workspace. Only workspace owners and admins can add their own connections. It stays in your connections.",
+  not_connected:
+    "Not added to this workspace yet. Check the connection status, then try again.",
+  removed:
+    "Removed from this workspace after it was added. Use Access in your connections to add it again.",
+  unavailable:
+    "Could not add it to this workspace. Try again, or use Access in your connections.",
+};
+
+/** Runs once per applied connect. The server action is idempotent per nonce
+ * and workspace, so a remount only reads the original result back. */
+function ConnectWorkspaceAttach({
+  nonce,
+  addToWorkspace,
+  refresh,
+}: {
+  nonce: string;
+  addToWorkspace: AddConnectionToWorkspace;
+  refresh(): Promise<void>;
+}) {
+  const attach = useMutation({
+    mutationKey: ["connect-workspace-attach", nonce] as const,
+    mutationFn: () => addToWorkspace(nonce),
+    onSuccess: (result) => {
+      if (result.status === "ok" && result.value.status === "attached")
+        void refresh();
+    },
+    retry: false,
+    gcTime: 0,
+  });
+  const { mutate } = attach;
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    mutate();
+  }, [mutate]);
+  const result = attach.data;
+  const text = attach.isError
+    ? connectAttachText.unavailable
+    : !result
+      ? "Adding to this workspace…"
+      : result.status !== "ok"
+        ? statusText(result.status, "personal")
+        : result.value.status === "attached"
+          ? "Added to this workspace. Choose it in Review providers to use it for reviews."
+          : connectAttachText[result.value.reason];
+  const retryable =
+    !attach.isPending &&
+    (attach.isError ||
+      (result !== undefined &&
+        (result.status === "unavailable" ||
+          (result.status === "ok" &&
+            result.value.status === "not_attached" &&
+            (result.value.reason === "unavailable" ||
+              result.value.reason === "not_connected")))));
+  return (
+    <div className="grid gap-2">
+      <p role="status" className="text-sm text-slate-300">
+        {text}
+      </p>
+      {retryable ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          onClick={() => mutate()}
+        >
+          Try again
         </Button>
       ) : null}
     </div>

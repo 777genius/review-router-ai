@@ -21,8 +21,26 @@ describe("durable GitHub webhook failure privacy", () => {
     "installation_not_found_for_owner_grant",
     "installation_owner_grant_identity_ambiguous",
     "repository_identity_epoch_time_missing",
+    "repository_webhook_binding_cas_failed",
   ])("preserves reviewed internal diagnostic code %s", (code) => {
     expect(safeGitHubWebhookFailureSummary(new Error(code))).toBe(code);
+  });
+
+  // Production: a third of repository "edited" deliveries were stored only as
+  // github_webhook_processing_failed, hiding serialization/persistence causes.
+  it("records only the bounded persistence code of a database failure", () => {
+    const error = Object.assign(
+      new Error("Transaction failed for workspace private-team"),
+      { code: "P2034" },
+    );
+    expect(safeGitHubWebhookFailureSummary(error)).toBe(
+      "github_webhook_persistence_failed:P2034",
+    );
+    expect(
+      safeGitHubWebhookFailureSummary(
+        Object.assign(new Error("secret"), { code: "P2034; private" }),
+      ),
+    ).toBe("github_webhook_processing_failed");
   });
 
   it("does not trust a safe-looking prefix with attached arbitrary details", () => {

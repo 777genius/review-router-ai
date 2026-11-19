@@ -38,7 +38,7 @@ const capabilityGolden = JSON.parse(
 describe("review Action v2 release manifests", () => {
   it("binds reviewer-plan compatibility through manifest and registration only with its canonical parser", () => {
     const reviewerPlanProfile = {
-      planVersion: 1,
+      planVersion: 2,
       descriptorDigest: reviewerPlanDescriptorDigest,
     };
     const generated = JSON.parse(fixture("contract-source/manifest.json"));
@@ -77,7 +77,9 @@ describe("review Action v2 release manifests", () => {
     ).toEqual(reviewerPlanProfile);
     for (const invalid of [
       null,
-      { ...reviewerPlanProfile, planVersion: 2 },
+      // The version 1 digest belongs only to planVersion 1, and vice versa.
+      { ...reviewerPlanProfile, planVersion: 1 },
+      { ...reviewerPlanProfile, planVersion: 3 },
       { ...reviewerPlanProfile, enabled: true },
       { ...reviewerPlanProfile, descriptorDigest: `sha256:${"0".repeat(64)}` },
     ])

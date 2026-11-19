@@ -6,6 +6,7 @@ import {
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
   createExecutionClient,
+  GatewayError,
   type ConsumerControlClient,
   type ExecutionClient,
 } from "@agent-teams/account-gateway/http";
@@ -19,10 +20,15 @@ import type {
   ConnectionProbeRequest,
 } from "../features/account-gateway/connection-probe";
 
+import { diagnoseAccountGatewayFailure } from "./account-gateway-diagnosis";
+import { connectionProbeDiagnosis } from "../features/account-gateway/connection-probe";
+import type { AccountDiagnosis } from "../features/account-gateway/account-diagnosis";
+
 type Selection = SafeBindingTuple & { authorizationEpoch: number };
 class ProbeFailure extends Error {
   constructor(
     readonly code: Extract<ConnectionProbeEvent, { ok: false }>["code"],
+    readonly diagnosis?: AccountDiagnosis,
   ) {
     super(code);
   }
@@ -59,6 +65,7 @@ export function createGatewayConnectionProbe(input: {
     const abort = AbortSignal.any([signal, timeout]);
     let client: ExecutionClient | undefined;
     let executionRef: string | undefined;
+    let checkAuthority: (() => Promise<void>) | undefined;
     let response: Awaited<ReturnType<ExecutionClient["request"]>> | undefined;
     let outcome: Extract<ConnectionProbeEvent, { type: "result" }> | undefined;
     const id = (kind: string) =>
@@ -72,12 +79,13 @@ export function createGatewayConnectionProbe(input: {
     try {
       progress("authorizing");
       const original = await input.resolve(request.bindingId, request.model);
-      const check = async () => {
-        abort.throwIfAborted();
+      const check = async (ignoreTimeout = false) => {
+        if (!ignoreTimeout) abort.throwIfAborted();
         const live = await input.resolve(request.bindingId, request.model);
         if (JSON.stringify(live) !== JSON.stringify(original))
           throw new ProbeFailure("denied");
       };
+      checkAuthority = () => check(true);
       await input.admit();
       await check();
       progress("connecting");
@@ -189,6 +197,17 @@ export function createGatewayConnectionProbe(input: {
           response.status.error?.code === "admission_limited"
             ? "busy"
             : "unavailable",
+          response.status.error
+            ? diagnoseAccountGatewayFailure(
+                new GatewayError(
+                  "safe_error",
+                  response.status.effect,
+                  undefined,
+                  response.status.requestRef,
+                  response.status.error,
+                ),
+              )
+            : undefined,
         );
       await check();
       const reader = response.body.getReader();
@@ -224,10 +243,28 @@ export function createGatewayConnectionProbe(input: {
         elapsedMs: Date.now() - start,
         model: request.model,
       };
-    } catch (error) {
+    } catch (caught) {
+      let error = caught;
+      // Provider evidence is account-owned data too. Revalidate before exposing
+      // it after an awaited failure; missing authority stays privacy-denied.
+      if (!abort.aborted && checkAuthority) {
+        try {
+          await checkAuthority();
+        } catch {
+          error = new ProbeFailure("denied");
+        }
+      }
+      const diagnosis = timeout.aborted
+        ? connectionProbeDiagnosis("timeout")
+        : signal.aborted
+          ? connectionProbeDiagnosis("cancelled")
+          : error instanceof ProbeFailure
+            ? (error.diagnosis ?? connectionProbeDiagnosis(error.code))
+            : diagnoseAccountGatewayFailure(error);
       outcome = {
         type: "result",
         ok: false,
+        diagnosis,
         code: timeout.aborted
           ? "timeout"
           : signal.aborted
@@ -260,11 +297,56 @@ export function createGatewayConnectionProbe(input: {
             { signal: AbortSignal.timeout(10000) },
           );
           if (closed.state !== "applied" || closed.operationRef !== id("close"))
-            outcome = { type: "result", ok: false, code: "cleanup_pending" };
+            outcome = {
+              type: "result",
+              ok: false,
+              code: "cleanup_pending",
+              diagnosis:
+                outcome?.ok === false
+                  ? (outcome.diagnosis ??
+                    connectionProbeDiagnosis(outcome.code))
+                  : connectionProbeDiagnosis("cleanup_pending"),
+            };
         } catch {
-          outcome = { type: "result", ok: false, code: "cleanup_pending" };
+          outcome = {
+            type: "result",
+            ok: false,
+            code: "cleanup_pending",
+            diagnosis:
+              outcome?.ok === false
+                ? (outcome.diagnosis ?? connectionProbeDiagnosis(outcome.code))
+                : connectionProbeDiagnosis("cleanup_pending"),
+          };
         }
       }
+    }
+    // Close can await another ten seconds. A revocation during that window
+    // must not release an earlier provider diagnosis or a now-private success.
+    if (!signal.aborted && checkAuthority) {
+      try {
+        await checkAuthority();
+      } catch {
+        outcome = {
+          type: "result",
+          ok: false,
+          code: "denied",
+          diagnosis: connectionProbeDiagnosis("denied"),
+        };
+      }
+    }
+    // Cancellation may arrive during close or the final authority read. Never
+    // release a previously prepared success or account-owned diagnosis then.
+    if (signal.aborted) {
+      const code =
+        outcome?.ok === false && outcome.code === "cleanup_pending"
+          ? "cleanup_pending"
+          : "cancelled";
+      outcome = {
+        type: "result",
+        ok: false,
+        code,
+        diagnosis: connectionProbeDiagnosis(code),
+      };
     }
     emit(outcome ?? { type: "result", ok: false, code: "unavailable" });
   };

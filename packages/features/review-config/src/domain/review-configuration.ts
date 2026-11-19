@@ -209,6 +209,19 @@ export const reviewExecutionConfigurationSchema = z
   })
   .strict();
 
+/**
+ * How the reviewers of one roster interact. `parallel` runs every reviewer
+ * on the same pull request and merges their findings; `fallback` runs them
+ * one at a time in the saved order, the next only when the one before could
+ * not finish. Documents and configurations keep only the non-default mode,
+ * so a parallel roster never carries the field.
+ */
+export const reviewProviderModes = ["parallel", "fallback"] as const;
+export const reviewProviderModeSchema = z.enum(reviewProviderModes);
+export type ReviewProviderMode = z.infer<typeof reviewProviderModeSchema>;
+export const defaultReviewProviderMode =
+  "parallel" satisfies ReviewProviderMode;
+
 export const reviewInvestigationRolloutConfigurationSchema = z
   .object({
     recordingEnabled: z.boolean(),
@@ -224,6 +237,9 @@ export const reviewConfigurationSchema = z
   .object({
     schemaVersion: z.literal(REVIEW_POLICY_SCHEMA_VERSION),
     providers: z.array(reviewProviderConfigurationSchema).min(1).max(16),
+    providerMode: reviewProviderModeSchema
+      .exclude([defaultReviewProviderMode])
+      .optional(),
     execution: reviewExecutionConfigurationSchema,
     blockingPolicy: blockingPolicySchema,
     limits: limitsSchema,
@@ -236,6 +252,34 @@ export const reviewConfigurationSchema = z
   .strict()
   .superRefine((configuration, context) => {
     assertProviderRowsAreExplicitAndUnique(configuration.providers, context);
+    const claudeAuthModes = new Set(
+      configuration.providers
+        .filter((provider) => provider.kind === "claude")
+        .map((provider) => provider.authMode),
+    );
+    if (claudeAuthModes.size > 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["providers"],
+        message: "claude_conflicting_auth_modes",
+      });
+    }
+    // The rotating Codex workflow currently forwards only Claude subscription
+    // OAuth, never ANTHROPIC_API_KEY. Do not offer an unqualified combination.
+    if (
+      configuration.providers.some(
+        (provider) => provider.authMode === "codex_subscription_oauth_rotating",
+      ) &&
+      configuration.providers.some(
+        (provider) => provider.authMode === "claude_code_api_key",
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["providers"],
+        message: "claude_api_key_rotating_transport_unsupported",
+      });
+    }
     if (
       configuration.execution.providerLimit !==
         configuration.providers.length ||
@@ -250,7 +294,51 @@ export const reviewConfigurationSchema = z
         message: "review execution limits do not match providers",
       });
     }
+    if (configuration.providerMode === "fallback")
+      assertOrderedFallback(configuration, context);
   });
+
+/**
+ * An ordered fallback runs one Gateway reviewer at a time through the
+ * reviewer plan, and the reviewer that finishes decides alone. A single
+ * reviewer runs the same in either mode, so it never carries the mode.
+ */
+function assertOrderedFallback(
+  configuration: Readonly<{
+    providers: readonly Readonly<{ authMode: string }>[];
+    execution: Readonly<{
+      providerMaxParallel: number;
+      inlineMinAgreement: number;
+    }>;
+  }>,
+  context: z.RefinementCtx,
+): void {
+  if (configuration.providers.length < 2)
+    context.addIssue({
+      code: "custom",
+      path: ["providerMode"],
+      message: "review fallback needs several reviewers",
+    });
+  if (
+    configuration.providers.some(
+      (provider) => provider.authMode !== "codex_account_gateway",
+    )
+  )
+    context.addIssue({
+      code: "custom",
+      path: ["providers"],
+      message: "review_fallback_requires_gateway_reviewers",
+    });
+  if (
+    configuration.execution.providerMaxParallel !== 1 ||
+    configuration.execution.inlineMinAgreement !== 1
+  )
+    context.addIssue({
+      code: "custom",
+      path: ["execution"],
+      message: "review fallback runs one reviewer at a time",
+    });
+}
 
 export type ReviewProviderConfiguration = z.infer<
   typeof reviewProviderConfigurationSchema

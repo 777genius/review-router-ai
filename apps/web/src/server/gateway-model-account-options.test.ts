@@ -45,16 +45,21 @@ const snapshot = (
 });
 function fixture(
   env: Readonly<Record<string, string | undefined>> = {},
-  source: "codex" | "openrouter" = "codex",
+  source: "codex" | "openrouter" | "nvidia" = "codex",
 ) {
   const profileRef =
     source === "codex"
       ? "openai-codex-oauth-responses-v1"
-      : "openrouter-openai-responses-apikey-v1";
+      : source === "nvidia"
+        ? "nvidia-build-chat-apikey-v1"
+        : "openrouter-openai-responses-apikey-v1";
   let authorized = true;
   let revision = 1;
   let duringModels: (() => void) | undefined;
-  let response = snapshot(["new-authorized-model"], source);
+  let response: c.AccountModels =
+    source === "nvidia"
+      ? { status: "unavailable" }
+      : snapshot(["new-authorized-model"], source);
   vi.spyOn(
     PrismaProviderAccountRepository.prototype,
     "findBinding",
@@ -117,11 +122,19 @@ function fixture(
     profiles: [
       {
         id: profileRef,
-        label: source === "codex" ? "Codex" : "OpenRouter",
+        label:
+          source === "codex"
+            ? "Codex"
+            : source === "nvidia"
+              ? "NVIDIA Build"
+              : "OpenRouter",
         protocol: "openai-responses",
         provider: source,
         authKind: source === "codex" ? "oauth" : "api_key",
-        models: ["old-seed"],
+        models:
+          source === "nvidia"
+            ? ["nvidia/nemotron-3.5-super-vl-120b-a12b"]
+            : ["old-seed"],
       },
     ],
     gateway: { get, readAccountModels },
@@ -293,6 +306,26 @@ test.each([401, 404, 503])(
     expect(f.readAccountModels).toHaveBeenCalledTimes(2);
   },
 );
+
+test("NVIDIA trial denies unavailable catalog and never offers the enrollment anchor", async () => {
+  const f = fixture({}, "nvidia");
+  f.respond({ status: "unavailable" });
+  const result = await f.api.get("binding", { forceRefresh: true });
+  expect(result.status).toBe("ok");
+  if (result.status !== "ok") throw new Error("account_expected");
+  expect(result.value.profile.models).toEqual([]);
+  expect(result.value.account.modelCatalog).toMatchObject({
+    source: "legacy_profile",
+    status: "unavailable",
+    models: [],
+  });
+  await expect(
+    f.api.resolveProbe("binding", "nvidia/nemotron-3.5-super-vl-120b-a12b"),
+  ).rejects.toMatchObject({ code: "binding_unavailable" });
+  expect(f.readAccountModels).toHaveBeenCalledWith(
+    expect.objectContaining({ profileId: "nvidia-build-chat-apikey-v1" }),
+  );
+});
 
 const openRouterEnvironment = {};
 

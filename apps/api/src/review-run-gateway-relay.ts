@@ -228,6 +228,13 @@ export function createReviewRunGatewayRelay(input: {
     | "expireOrRevokeReviewRunAuthorization"
   >;
   readonly queries: ReviewRunAuthorizationQueryPort;
+  /** Resolve the current authorized workspace/installation repository binding before NVIDIA dispatch. */
+  readonly resolveNvidiaRepository?: (
+    authorization: ReviewRunAuthorization,
+  ) => Promise<{
+    readonly githubRepositoryId: string;
+    readonly repositoryFullName: string;
+  } | null>;
   // Full SCM freshness at phase boundaries; opaque chunks keep every local guard.
   readonly checkAuthority: (
     authorization: ReviewRunAuthorization,
@@ -810,9 +817,22 @@ export function createReviewRunGatewayRelay(input: {
           : deadline - Date.now();
       if (remaining <= 0)
         throw new RelayFailure("close_pending", 409, "effect_unknown");
-      const operation = await session.preparation.close(reason, {
-        signal: AbortSignal.timeout(remaining),
-      });
+      let operation: Awaited<ReturnType<typeof session.preparation.close>>;
+      try {
+        operation = await session.preparation.close(reason, {
+          signal: AbortSignal.timeout(remaining),
+        });
+      } catch (error) {
+        // Readback can fail while Gateway is unavailable. Only a settled empty
+        // handle may continue to the durable-authority fence below; never hide
+        // a failure while a local capability or request is still held.
+        if (
+          session.aborts.size !== 0 ||
+          !session.preparation.canDetachUnknownWithoutCapability()
+        )
+          throw error;
+        operation = { state: "unknown" };
+      }
       if (
         operation.state === "applied" ||
         session.preparation.canReleaseWithoutRemoteClose()
@@ -822,6 +842,29 @@ export function createReviewRunGatewayRelay(input: {
         const pendingTermination = parentTermination();
         if (pendingTermination) await pendingTermination;
         sessions.delete(session.key);
+      } else if (
+        session.aborts.size === 0 &&
+        session.preparation.canDetachUnknownWithoutCapability()
+      ) {
+        // Dropping a settled empty cache entry does not settle the remote
+        // operation. Its original intent remains on the terminal authorization
+        // and Gateway owns deadline and physical cleanup. Never synthesize an
+        // applied close, replay a prepare, or discard a retained bearer.
+        const termination = parentTermination();
+        const owner = termination ? await termination : undefined;
+        if (
+          owner &&
+          (owner.state === ReviewRunAuthorizationState.Revoked ||
+            owner.state === ReviewRunAuthorizationState.Expired) &&
+          owner.authorizationId === session.authorizationId &&
+          owner.runtimeSnapshotCanonicalJson === session.canonical &&
+          canonicalJson(reviewRunGatewayOwnedIdentity(owner)) ===
+            session.identity &&
+          owner.maxExpiresAt.getTime() === session.deadline &&
+          session.aborts.size === 0 &&
+          session.preparation.canDetachUnknownWithoutCapability()
+        )
+          sessions.delete(session.key);
       }
       return operation;
     } finally {
@@ -977,12 +1020,22 @@ export function createReviewRunGatewayRelay(input: {
         body: new ReadableStream<Uint8Array>(
           {
             async pull(target) {
+              let phase:
+                | "upstream_read"
+                | "authority_recheck"
+                | "cancelled"
+                | "native_status"
+                | "stream_byte_limit"
+                | "downstream" = "upstream_read";
               try {
                 const chunk = await reader.read();
+                phase = "authority_recheck";
                 await localFresh();
+                phase = "cancelled";
                 if (signal.aborted) throw new Error("companion_cancelled");
                 if (chunk.done) {
                   // EOF alone is not native no-dispatch/completion evidence.
+                  phase = "native_status";
                   const status = await session.preparation.status(
                     requestRef,
                     { signal },
@@ -994,11 +1047,31 @@ export function createReviewRunGatewayRelay(input: {
                   target.close();
                 } else {
                   received += chunk.value.byteLength;
+                  phase = "stream_byte_limit";
                   if (received > maxResponseBytes)
                     throw new Error("companion_response_too_large");
+                  phase = "downstream";
                   target.enqueue(chunk.value);
                 }
-              } catch {
+              } catch (error) {
+                try {
+                  const detail = captureStreamFailureDiagnostic(
+                    error,
+                    "upstream_read",
+                    signal.aborted,
+                    requestRef,
+                  );
+                  console.error({
+                    event: "review_run_companion_stream_failure",
+                    phase,
+                    requestRef,
+                    receivedBytes: received,
+                    maxStreamBytes: maxResponseBytes,
+                    ...(detail?.sdkCode ? { sdkCode: detail.sdkCode } : {}),
+                  });
+                } catch {
+                  /* Diagnostics must not affect settlement. */
+                }
                 await unknown();
                 cleanup();
                 await stream.cancel().catch(() => {});
@@ -1096,21 +1169,33 @@ export function createReviewRunGatewayRelay(input: {
         if (controller.signal.aborted) aborted();
       });
       let auth: ReviewRunAuthorization;
+      let lane: ReturnType<typeof selected>;
       try {
-        // This phase reads authority only. A caller cancellation releases the
-        // incoming reservation; a late read must never continue into session
-        // creation, capability preparation or inference. Do not race effectful
-        // prepare/close work or discard a retained native capability here.
+        // Authority and repository reads remain cancellable, so an aborted
+        // preflight cannot retain capacity or proceed into native inference.
         auth = await Promise.race([
           resolve(token, "full", reviewerId),
           cancelled,
         ]);
+        if (controller.signal.aborted)
+          throw new RelayFailure("authorization_denied", 401);
+        lane = selected(auth, reviewerId);
+        // Checkout is not mandatory for every relay caller: require the trusted
+        // current repository binding again at the actual inference boundary.
+        if (lane.gateway.profileRef === "nvidia-build-chat-apikey-v1") {
+          const source = await Promise.race([
+            input.resolveNvidiaRepository?.(auth) ?? Promise.resolve(null),
+            cancelled,
+          ]);
+          if (controller.signal.aborted)
+            throw new RelayFailure("authorization_denied", 401);
+          if (!source) throw new RelayFailure("authorization_denied", 403);
+        }
       } finally {
         controller.signal.removeEventListener("abort", aborted);
       }
       if (controller.signal.aborted)
         throw new RelayFailure("authorization_denied", 401);
-      const lane = selected(auth, reviewerId);
       const { snapshot, gateway } = lane;
       // Parent headers are untrusted until the existing authority read selects
       // the frozen route. Reject out-of-budget contexts before native prepare.
@@ -1356,9 +1441,11 @@ export function createReviewRunGatewayRelay(input: {
             fresh,
             () => check(token, auth, session, "local", reviewerId),
             finish,
+            // Companion response limits apply to the final model result, not
+            // the raw SSE stream (which also contains deltas and reasoning).
+            // Keep the separately authorized aggregate wire budget enforced.
             Math.min(
               gateway.limits.outputBytes,
-              isCompanion ? capability!.maxResponseBytes : Infinity,
               modelBudget?.maxResponseBytes ?? Infinity,
             ),
             diagnostic,
@@ -1632,6 +1719,18 @@ export function createReviewRunGatewayRelay(input: {
           /budget|exhaust|epoch|execution_(?:closed|expired|revoked)|account_revoked/.test(
             failure.code,
           );
+        // Plan 69: the Action may skip this reviewer only for a quota the
+        // server recorded itself; without that record it sees no quota.
+        const providerQuota =
+          failure.providerQuota &&
+          (await input.bindings
+            .recordProviderQuotaExhausted?.({
+              authorizationId: auth.authorizationId,
+              allocationId: lane.reviewer.transport.allocationId,
+            })
+            .catch(() => false))
+            ? failure.providerQuota
+            : undefined;
         throw new RelayFailure(
           failure.code,
           failure.statusCode,
@@ -1640,7 +1739,7 @@ export function createReviewRunGatewayRelay(input: {
           failure.dispatch,
           allocationFailure ? "allocation" : "reviewer",
           lane.reviewer.concurrencyGroupId,
-          failure.providerQuota,
+          providerQuota,
         );
       }
     } catch (error) {

@@ -48,8 +48,17 @@ export function createGatewayUsageRecorder(
       executionRef: string;
       requestRef: string;
       model: string;
+      gatewayProfileRef: string;
       deadline: Date;
     }) {
+      // The validated profile identifies the configured provider, not the
+      // adapter engine or independently observed upstream vendor/model.
+      const configured = providerUsageConfiguredProvider({
+        kind: "unknown",
+        authMode: "codex_account_gateway",
+        model: input.model,
+        gatewayProfileRef: input.gatewayProfileRef,
+      });
       const fact: UsageFact = {
         schemaVersion: 1,
         sourceInstance,
@@ -69,8 +78,8 @@ export function createGatewayUsageRecorder(
           authorizationId: input.invocationId,
           route: "gateway",
           purpose: "diagnostic",
-          provider: "unknown",
-          requestedModel: input.model,
+          provider: configured.provider,
+          requestedModel: configured.requestedModel,
           runtimeType: "diagnostic",
           parentScope: null,
           granularity: "call",

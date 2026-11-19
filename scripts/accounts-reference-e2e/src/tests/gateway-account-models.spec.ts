@@ -163,6 +163,12 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   if (await useDefault.isChecked()) await useDefault.uncheck();
   await choose(page, "Model", CODEX_B_MODEL);
   await expect(accountCatalogStatus).toBeVisible();
+  // The account status also refreshes public metadata; a second public
+  // catalog line and button would contradict it.
+  await expect(
+    dialog.getByRole("button", { name: "Refresh models", exact: true }),
+  ).toHaveCount(1);
+  await expect(dialog.getByText("Model list is up to date.")).toHaveCount(0);
   await dialog
     .getByRole("button", { name: "Add provider", exact: true })
     .click();

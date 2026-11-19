@@ -65,7 +65,7 @@ describe("public Review Action v2 contract handoff", () => {
     const release = generateReleaseManifest(input);
     expect(release.manifest.modelDispatchProfile).toEqual(dispatchProfile);
     expect(release.manifest.reviewerPlanProfile).toEqual({
-      planVersion: 1,
+      planVersion: 2,
       descriptorDigest: reviewerPlanDescriptorDigest,
     });
     expect(parseReleaseManifest(release.bytes)).toEqual(release.manifest);
@@ -738,7 +738,7 @@ async function createDispatchRelease(kind = "supported") {
     JSON.stringify({
       ...JSON.parse(readFileSync(sourceManifestPath, "utf8")),
       reviewerPlanProfile: {
-        planVersion: 1,
+        planVersion: 2,
         descriptorDigest: reviewerPlanDescriptorDigest,
       },
     }),

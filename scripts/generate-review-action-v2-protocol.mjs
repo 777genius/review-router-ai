@@ -60,7 +60,7 @@ export async function generateReviewActionV2Protocol(input = {}) {
       .href
   );
   manifest.reviewerPlanProfile = {
-    planVersion: 1,
+    planVersion: reviewerPlan.reviewerPlanContract.planVersion,
     descriptorDigest: reviewerPlan.reviewerPlanDescriptorDigest,
   };
   const generatedIndex = await format(generatedIndexSource(), {

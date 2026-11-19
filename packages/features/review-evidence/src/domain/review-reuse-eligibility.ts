@@ -432,12 +432,14 @@ function qualityPenalty(
       case ReviewObservationQualityFlag.ProviderWarning:
         return total + 1;
       case ReviewObservationQualityFlag.ContextInspectionIncomplete:
+      case ReviewObservationQualityFlag.UnverifiedNativeSpan:
         return total + 100;
       case ReviewObservationQualityFlag.ContextAttestationUnavailable:
         return total + 50;
       case ReviewObservationQualityFlag.CrossRevisionReuseDisabled:
         return total + 1;
       case ReviewObservationQualityFlag.InvestigationFindings:
+      case ReviewObservationQualityFlag.InvestigationVerifiedClean:
         return total;
       case ReviewObservationQualityFlag.InvestigationInconclusive:
         return total + 100;

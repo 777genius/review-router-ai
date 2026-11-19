@@ -101,7 +101,6 @@ it("renders and preserves legacy Ultra without silently choosing a new saved eff
     planLabel: "Codex",
     regionLabel: "Global",
     completionInputKind: "none",
-    personalOnly: false,
     limitsContract: "none",
     modelSettings: [
       {
@@ -260,7 +259,6 @@ it("preserves an omitted Codex account default and only corrects confirmed incom
       planLabel: "Codex",
       regionLabel: "Global",
       completionInputKind: "none" as const,
-      personalOnly: false,
       limitsContract: "none" as const,
       modelSettings: [
         {
@@ -303,7 +301,6 @@ it("keeps Gateway file reading an explicit engine choice when upstream tool meta
     planLabel: "API",
     regionLabel: "Global",
     completionInputKind: "none",
-    personalOnly: false,
     limitsContract: "none",
     modelSettings: [
       {
@@ -403,4 +400,57 @@ it("searchable account models skip disabled choices during keyboard selection", 
   fireEvent.keyDown(input, { key: "Enter" });
   expect(onModelChange).toHaveBeenCalledExactlyOnceWith("available/model");
   expect(screen.queryByRole("listbox")).toBeNull();
+});
+
+it("an account catalog takes a typed model only from its list and explains the rest", () => {
+  const options = [
+    {
+      provider: "nvidia" as const,
+      value: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+      label: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+    },
+    {
+      provider: "nvidia" as const,
+      value: "openai/gpt-oss-20b",
+      label: "openai/gpt-oss-20b",
+    },
+  ];
+  const picker = (model: string, onModelChange = vi.fn()) => (
+    <ProviderModelPicker
+      model={model}
+      onModelChange={onModelChange}
+      modelChoice="catalog"
+      allowCustomModel={false}
+      disabled={false}
+      modelOptions={options}
+    />
+  );
+  const onModelChange = vi.fn();
+  const { rerender } = render(picker("", onModelChange));
+  const input = screen.getByRole("combobox", { name: "Model" });
+  fireEvent.change(input, { target: { value: "gpt-oss" } });
+  expect(onModelChange).toHaveBeenLastCalledWith("gpt-oss");
+
+  // Typing filters the list; the listed model is chosen from it.
+  rerender(picker("gpt-oss", onModelChange));
+  expect(
+    screen.getAllByRole("option").map((option) => option.textContent),
+  ).toEqual([expect.stringContaining("openai/gpt-oss-20b")]);
+  fireEvent.click(screen.getByRole("option", { name: "openai/gpt-oss-20b" }));
+  expect(onModelChange).toHaveBeenLastCalledWith("openai/gpt-oss-20b");
+
+  // A well-formed name outside the account's list is explained, not accepted.
+  rerender(picker("vendor/unlisted-model"));
+  expect(
+    screen.getByText(/model list does not include this model/),
+  ).toBeTruthy();
+
+  // A malformed name gets the shape rule.
+  rerender(picker("not a model"));
+  expect(screen.getByText(/not a valid model name/)).toBeTruthy();
+
+  // An exact listed name needs no hint.
+  rerender(picker("openai/gpt-oss-20b"));
+  expect(screen.queryByText(/model list does not include/)).toBeNull();
+  expect(screen.queryByText(/not a valid model name/)).toBeNull();
 });

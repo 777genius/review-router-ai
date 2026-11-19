@@ -10,11 +10,17 @@ and review rules in one dashboard.
 
 ## Dashboard preview
 
-<img width="1136" height="681" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/18b8e7bd-88a3-4235-bfb2-2110ae284ce7" />
-<img width="721" height="630" alt="ReviewRouter review comment" src="https://github.com/user-attachments/assets/3def12b4-ad47-4b85-95b7-5cc585e4ff72" />
-<img width="1145" height="737" alt="ReviewRouter Accounts" src="https://github.com/user-attachments/assets/5b7b1383-683b-4266-9da5-74c48f1d94c9" />
-<img width="1135" height="737" alt="ReviewRouter usage" src="https://github.com/user-attachments/assets/447a4f0c-5527-41bd-a08e-6bb540eb3943" />
-<img width="1135" height="737" alt="ReviewRouter statistics" src="https://github.com/user-attachments/assets/9a6d86ae-1884-45f4-9c89-3c5851bd2ccf" />
+<p align="center">
+  <img width="49%" alt="ReviewRouter usage" src="https://github.com/user-attachments/assets/447a4f0c-5527-41bd-a08e-6bb540eb3943" />
+  <img width="49%" alt="ReviewRouter statistics" src="https://github.com/user-attachments/assets/9a6d86ae-1884-45f4-9c89-3c5851bd2ccf" />
+</p>
+<p align="center">
+  <img width="49%" alt="ReviewRouter Accounts" src="https://github.com/user-attachments/assets/5b7b1383-683b-4266-9da5-74c48f1d94c9" />
+  <img width="49%" alt="ReviewRouter dashboard" src="https://github.com/user-attachments/assets/18b8e7bd-88a3-4235-bfb2-2110ae284ce7" />
+</p>
+<p align="center">
+  <img width="49%" alt="ReviewRouter review comment" src="https://github.com/user-attachments/assets/3def12b4-ad47-4b85-95b7-5cc585e4ff72" />
+</p>
 
 ## Features
 
@@ -72,6 +78,12 @@ and review rules in one dashboard.
 
 - **GitHub App setup.** Select repositories, create an inspectable setup PR
   for workflow changes and verify readiness in the dashboard.
+- **AI finding discussions.** New qualified rotating Codex workflows enable
+  suggest-only replies for the same-repository PR author by default; other
+  commenters do not trigger paid AI discussion. Qualified managed Gateway
+  workflows have an independent default. Opt out with repository variable
+  `REVIEW_ROUTER_DISCUSSION_MODE=off`. Unsupported providers remain disabled,
+  and earlier installed workflows change only after an approved setup PR.
 - **Organization-wide checks.** In eligible GitHub organizations, configure a
   shared required workflow through GitHub Rulesets for selected or all repos.
   Requires a supported GitHub plan and organization permissions.
@@ -83,6 +95,30 @@ and review rules in one dashboard.
 
 Availability varies by provider, installed workflows and deployment. See
 [capabilities and limits](./docs/capabilities.md).
+
+## PR comment commands
+
+With the **ReviewRouter Interaction** workflow installed, `/rr help`, `/rr status`
+and `/rr review` work in the PR conversation; replies to a ReviewRouter
+inline finding can use `/rr skip`, `/rr unskip`, `/rr explain`, `/rr fixed`
+and `/rr suggest fix`.
+
+- `/rr fixed` checks **one** existing finding against the current HEAD and
+  reports whether it is fixed, still present or cannot be verified.
+- `/rr suggest fix` may produce **one human-applied GitHub code suggestion**
+  for a verified current changed line; it does not commit, push or resolve threads.
+
+These two focused commands require a qualified managed Conversation Gateway,
+an authorized repository maintainer, a same-repository PR and a direct reply
+to the original verified inline finding. Publishing focused replies also
+requires an eligible managed interaction caller with effective `discussion_mode: suggest`.
+Qualified managed Gateway callers default to `suggest`; older reusable callers
+can still default to `off` until configured. Repository variable
+`REVIEW_ROUTER_DISCUSSION_MODE=off` disables published replies.
+Provider and workflow availability vary; some standalone Action installs only
+listen to inline review replies.
+See the [complete command reference](https://github.com/777genius/review-router#pr-comment-commands)
+for all supported commands, permissions, Memory options and limitations.
 
 ## Start with GitHub
 

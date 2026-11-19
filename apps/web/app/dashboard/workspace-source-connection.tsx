@@ -5,11 +5,11 @@ import {
   SourceProviderLabel,
   SourceProviderLogo,
 } from "../source-provider-logo";
-import { FormSubmitButton } from "../form-submit-button";
-import { DashboardActionForm } from "./dashboard-action-form";
-import { requestInstallationSyncClientAction } from "./actions";
 import { dashboardSectionHref } from "./dashboard-section";
 import { formatAccountTypeLabel } from "./dashboard-copy";
+import { latestInstallationPerAccount } from "../../src/server/dashboard-workspace-model";
+import { RepositoryScanRequestForm } from "./repository-scan-status";
+import type { repositoryScanKey } from "./repository-scan-api";
 
 export type WorkspaceSourceInstallation = {
   readonly accountLogin: string;
@@ -39,6 +39,7 @@ export function WorkspaceSourceConnectionPanel({
   installations,
   gitLabInstallations,
   repositories,
+  scanQueryKey = null,
   hasWorkspaceWideAccess,
   mutationsEnabled,
 }: {
@@ -47,10 +48,12 @@ export function WorkspaceSourceConnectionPanel({
   readonly installations: readonly WorkspaceSourceInstallation[];
   readonly gitLabInstallations: readonly WorkspaceGitLabInstallation[];
   readonly repositories: readonly WorkspaceSourceRepository[];
+  /** The Repositories list's scan query, refetched after Refresh repos. */
+  readonly scanQueryKey?: ReturnType<typeof repositoryScanKey> | null;
   readonly hasWorkspaceWideAccess: boolean;
   readonly mutationsEnabled: boolean;
 }): React.ReactElement {
-  const visibleInstallations = dedupeGitHubInstallations(installations);
+  const visibleInstallations = latestInstallationPerAccount(installations);
   const connectedCount =
     visibleInstallations.length + gitLabInstallations.length;
   const addSourceOpen = connectedCount === 0;
@@ -100,6 +103,7 @@ export function WorkspaceSourceConnectionPanel({
               workspaceId={workspaceId}
               installation={installation}
               repositories={repositories}
+              scanQueryKey={scanQueryKey}
               hasWorkspaceWideAccess={hasWorkspaceWideAccess}
               mutationsEnabled={mutationsEnabled}
             />
@@ -157,36 +161,6 @@ export function WorkspaceSourceConnectionPanel({
   );
 }
 
-function dedupeGitHubInstallations(
-  installations: readonly WorkspaceSourceInstallation[],
-): readonly WorkspaceSourceInstallation[] {
-  const byAccount = new Map<string, WorkspaceSourceInstallation>();
-  for (const installation of installations) {
-    const key =
-      `${installation.accountType}:${installation.accountLogin}`.toLowerCase();
-    const current = byAccount.get(key);
-    if (
-      !current ||
-      compareInstallationIds(
-        installation.githubInstallationId,
-        current.githubInstallationId,
-      ) > 0
-    ) {
-      byAccount.set(key, installation);
-    }
-  }
-  return [...byAccount.values()];
-}
-
-function compareInstallationIds(left: string, right: string): number {
-  if (/^[0-9]+$/u.test(left) && /^[0-9]+$/u.test(right)) {
-    const leftId = BigInt(left);
-    const rightId = BigInt(right);
-    return leftId === rightId ? 0 : leftId > rightId ? 1 : -1;
-  }
-  return left.localeCompare(right);
-}
-
 function sourceSummary(
   installations: readonly WorkspaceSourceInstallation[],
   gitLabInstallations: readonly WorkspaceGitLabInstallation[],
@@ -206,12 +180,14 @@ function GitHubInstallCard({
   workspaceId,
   installation,
   repositories,
+  scanQueryKey,
   hasWorkspaceWideAccess,
   mutationsEnabled,
 }: {
   readonly workspaceId: string;
   readonly installation: WorkspaceSourceInstallation;
   readonly repositories: readonly WorkspaceSourceRepository[];
+  readonly scanQueryKey: ReturnType<typeof repositoryScanKey> | null;
   readonly hasWorkspaceWideAccess: boolean;
   readonly mutationsEnabled: boolean;
 }): React.ReactElement {
@@ -279,8 +255,8 @@ function GitHubInstallCard({
             </div>
           ) : (
             <p className="mt-2 text-xs leading-5 text-slate-300">
-              Refresh repositories to show the exact selected repository list if
-              the GitHub webhook has not synced it yet.
+              Selected repositories appear here once ReviewRouter has scanned
+              them. The repository list below shows the scan status.
             </p>
           )}
         </div>
@@ -296,30 +272,15 @@ function GitHubInstallCard({
         </div>
       )}
       {hasWorkspaceWideAccess ? (
-        <DashboardActionForm
-          action={requestInstallationSyncClientAction}
-          fallbackParams={{
-            error: "dashboard_action_failed",
-            workspace: workspaceId,
-            section: "repositories",
-          }}
-          refresh={false}
-        >
-          <input type="hidden" name="workspaceId" value={workspaceId} />
-          <input
-            type="hidden"
-            name="githubInstallationId"
-            value={installation.githubInstallationId}
-          />
-          <FormSubmitButton
-            variant="outline"
-            size="sm"
-            className="w-full sm:w-auto"
-            disabled={!mutationsEnabled || installation.status !== "active"}
-            idleLabel="Refresh repos"
-            pendingLabel="Refreshing..."
-          />
-        </DashboardActionForm>
+        <RepositoryScanRequestForm
+          workspaceId={workspaceId}
+          githubInstallationId={installation.githubInstallationId}
+          scanQueryKey={scanQueryKey}
+          className="w-full sm:w-auto"
+          disabled={!mutationsEnabled || installation.status !== "active"}
+          idleLabel="Refresh repos"
+          pendingLabel="Refreshing..."
+        />
       ) : (
         <p className="rounded-xl border border-cyan-200/10 bg-slate-950/55 p-3 text-xs leading-5 text-slate-400">
           You can manage repositories where your GitHub role has write,

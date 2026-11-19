@@ -20,7 +20,10 @@ async function fixture(
     | "mismatch"
     | "timeout"
     | "busy"
-    | "cleanup" = "ok",
+    | "cleanup"
+    | "quota"
+    | "quota_slow_close"
+    | "opaque" = "ok",
   selection: { profileRef: string; model: string } = {
     profileRef: "responses-profile",
     model: "test-model",
@@ -28,6 +31,7 @@ async function fixture(
 ) {
   const calls: { path: string; body: Record<string, unknown> }[] = [];
   const bearer = "synthetic-test-execution-bearer";
+  const quotaResetAt = new Date(Date.now() + 3600000).toISOString();
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -85,6 +89,29 @@ async function fixture(
       const admitted = JSON.parse(String(req.headers["x-gateway-admission"]));
       expect(admitted.limits.requests).toBe(1);
       expect(admitted.accountRef).toBe("shared-test-account");
+      const quotaLike = mode === "quota" || mode === "quota_slow_close";
+      if (quotaLike || mode === "opaque") {
+        const payload = quotaLike
+          ? {
+              code: "upstream_failure",
+              traceRef: "quota-test",
+              effect: "effect_unknown",
+              retry: { kind: "readback" },
+              providerQuota: {
+                provider: "openrouter",
+                limit: 1000,
+                remaining: 0,
+                resetAt: quotaResetAt,
+              },
+            }
+          : {
+              error: "private-provider-secret",
+              claimedProviderStatus: 429,
+            };
+        res.statusCode = 502;
+        res.end(JSON.stringify(payload));
+        return;
+      }
       if (mode === "busy") {
         res.writeHead(202, { "content-type": "application/json" });
         res.end(
@@ -122,14 +149,16 @@ async function fixture(
         res.end(
           'data: {"type":"response.completed","response":{"status":"completed","output":[]}}\n\n',
         );
-    } else if (req.url?.endsWith("/close"))
+    } else if (req.url?.endsWith("/close")) {
+      if (mode === "quota_slow_close")
+        await new Promise((resolve) => setTimeout(resolve, 1600));
       res.end(
         JSON.stringify({
           operationRef: data.operationId,
           state: mode === "cleanup" ? "pending" : "applied",
         }),
       );
-    else {
+    } else {
       res.statusCode = 404;
       res.end("{}");
     }
@@ -157,6 +186,7 @@ async function fixture(
   };
   return {
     calls,
+    quotaResetAt,
     tuple,
     origin,
     control: createConsumerControlClient({
@@ -297,7 +327,12 @@ it("rejects unavailable shared authority before preparation", async () => {
     control: f.control,
     executionOrigin: f.origin,
   })(request(), (e) => events.push(e), new AbortController().signal);
-  expect(events.at(-1)).toEqual({ type: "result", ok: false, code: "denied" });
+  expect(events.at(-1)).toEqual({
+    type: "result",
+    ok: false,
+    code: "denied",
+    diagnosis: { code: "access_denied", source: "application" },
+  });
   expect(f.calls).toHaveLength(0);
 });
 it("closes without inference when binding revisions change during preparation", async () => {
@@ -342,7 +377,163 @@ it("reports occupied account capacity without retrying inference and closes the 
     control: f.control,
     executionOrigin: f.origin,
   })(request(), (event) => events.push(event), new AbortController().signal);
-  expect(events.at(-1)).toEqual({ type: "result", ok: false, code: "busy" });
+  expect(events.at(-1)).toMatchObject({
+    type: "result",
+    ok: false,
+    code: "busy",
+    diagnosis: { code: "busy", source: "gateway" },
+  });
+  expect(
+    f.calls.filter((call) => call.path.endsWith("/requests")),
+  ).toHaveLength(1);
+  expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(
+    1,
+  );
+});
+
+it.each(["quota", "opaque"] as const)(
+  "preserves only attested %s failure through real SDK HTTP without replay",
+  async (mode) => {
+    const f = await fixture(mode);
+    const events: ConnectionProbeEvent[] = [];
+    await createGatewayConnectionProbe({
+      resolve: async () => f.tuple,
+      admit: async () => {},
+      control: f.control,
+      executionOrigin: f.origin,
+    })(request(), (e) => events.push(e), new AbortController().signal);
+    expect(events.at(-1)).toMatchObject({
+      type: "result",
+      ok: false,
+      diagnosis:
+        mode === "quota"
+          ? {
+              code: "quota_exhausted",
+              source: "provider",
+              httpStatus: 429,
+              retryAt: f.quotaResetAt,
+            }
+          : { code: "unavailable", source: "gateway" },
+    });
+    expect(f.calls.filter((c) => c.path.endsWith("/requests"))).toHaveLength(1);
+    expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(1);
+    expect(JSON.stringify(events)).not.toContain("private-provider-secret");
+  },
+);
+
+it("does not reveal provider quota after account authority is lost during the failure", async () => {
+  const f = await fixture("quota");
+  const events: ConnectionProbeEvent[] = [];
+  await createGatewayConnectionProbe({
+    resolve: async () => {
+      if (f.calls.some((c) => c.path.endsWith("/requests")))
+        throw new ProviderAccountError("binding_unavailable");
+      return f.tuple;
+    },
+    admit: async () => {},
+    control: f.control,
+    executionOrigin: f.origin,
+  })(request(), (e) => events.push(e), new AbortController().signal);
+  expect(events.at(-1)).toMatchObject({
+    ok: false,
+    code: "denied",
+    diagnosis: { code: "access_denied", source: "application" },
+  });
+  expect(JSON.stringify(events)).not.toContain("quota_exhausted");
+  expect(f.calls.filter((c) => c.path.endsWith("/close"))).toHaveLength(1);
+});
+
+it.each(["ok", "quota", "cleanup"] as const)(
+  "does not disclose %s probe results after revocation during close",
+  async (mode) => {
+    const f = await fixture(mode);
+    const events: ConnectionProbeEvent[] = [];
+    await createGatewayConnectionProbe({
+      resolve: async () => {
+        if (f.calls.some((call) => call.path.endsWith("/close")))
+          throw new ProviderAccountError("binding_unavailable");
+        return f.tuple;
+      },
+      admit: async () => {},
+      control: f.control,
+      executionOrigin: f.origin,
+    })(request(), (event) => events.push(event), new AbortController().signal);
+    expect(events.at(-1)).toEqual({
+      type: "result",
+      ok: false,
+      code: "denied",
+      diagnosis: { code: "access_denied", source: "application" },
+    });
+    expect(JSON.stringify(events)).not.toContain("quota_exhausted");
+    expect(events.filter((event) => event.type === "result")).toHaveLength(1);
+    expect(
+      f.calls.filter((call) => call.path.endsWith("/requests")),
+    ).toHaveLength(1);
+    expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(
+      1,
+    );
+  },
+);
+
+it("never exposes an earlier provider quota after revocation during a timed-out close", async () => {
+  const f = await fixture("quota_slow_close");
+  const events: ConnectionProbeEvent[] = [];
+  await createGatewayConnectionProbe({
+    resolve: async () => {
+      if (f.calls.some((call) => call.path.endsWith("/close")))
+        throw new ProviderAccountError("binding_unavailable");
+      return f.tuple;
+    },
+    admit: async () => {},
+    control: f.control,
+    executionOrigin: f.origin,
+    timeoutMs: 1200,
+  })(request(), (event) => events.push(event), new AbortController().signal);
+  expect(events.at(-1)).toEqual({
+    type: "result",
+    ok: false,
+    code: "denied",
+    diagnosis: { code: "access_denied", source: "application" },
+  });
+  expect(JSON.stringify(events)).not.toContain("quota_exhausted");
+  expect(
+    f.calls.filter((call) => call.path.endsWith("/requests")),
+  ).toHaveLength(1);
+  expect(f.calls.filter((call) => call.path.endsWith("/close"))).toHaveLength(
+    1,
+  );
+});
+
+it("does not release a prepared provider quota if the user cancels during close", async () => {
+  const f = await fixture("quota_slow_close");
+  const events: ConnectionProbeEvent[] = [];
+  const controller = new AbortController();
+  let cancel: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await createGatewayConnectionProbe({
+      resolve: async () => f.tuple,
+      admit: async () => {},
+      control: f.control,
+      executionOrigin: f.origin,
+    })(
+      request(),
+      (event) => {
+        events.push(event);
+        if (event.type === "progress" && event.stage === "closing")
+          cancel = setTimeout(() => controller.abort(), 50);
+      },
+      controller.signal,
+    );
+  } finally {
+    if (cancel) clearTimeout(cancel);
+  }
+  expect(events.at(-1)).toEqual({
+    type: "result",
+    ok: false,
+    code: "cancelled",
+    diagnosis: { code: "cancelled", source: "application" },
+  });
+  expect(JSON.stringify(events)).not.toContain("quota_exhausted");
   expect(
     f.calls.filter((call) => call.path.endsWith("/requests")),
   ).toHaveLength(1);

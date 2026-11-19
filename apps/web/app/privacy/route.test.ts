@@ -40,7 +40,7 @@ describe("Public Privacy response", () => {
     expect(text).toContain("before later maintenance pruning");
     expect(text).toContain("Deleted Memory is excluded from Memory exports");
     expect(
-      page.querySelector('a[href="mailto:quantjumppro@gmail.com"]'),
+      page.querySelector('a[href="mailto:support@reviewrouter.org"]'),
     ).toBeTruthy();
   });
 });

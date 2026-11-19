@@ -591,6 +591,79 @@ describe("review execution domain", () => {
     );
   });
 
+  // Production 2026-11-17, PR 821: synchronize was dispatched, then
+  // ready_for_review for the same head started a second run that took over
+  // the first run's execution after 19 minutes of reviewer work.
+  it("joins a lifecycle event to the dispatched request for the same revision", () => {
+    const awaiting = {
+      ...createReviewRequestedIntent(
+        intentCandidate("request-dispatched", "93", scope, revision),
+      ),
+      version: 4n,
+      state: ReviewRequestedIntentState.AwaitingAuthorization,
+      nextResolutionAt: new Date(baseTime.getTime() + 1_000),
+      resolutionDeadlineAt: new Date(baseTime.getTime() + 60_000),
+      sourceRunId: "source-run-dispatched",
+      sourceRunAttempt: "1",
+    };
+    const decide = (
+      candidateRevision: typeof revision,
+      triggerKind = ReviewRequestedTriggerKind.PullRequestReadyForReview,
+      createdAt = baseTime,
+    ) =>
+      decideReviewRequestedRegistration({
+        candidate: {
+          ...intentCandidate(
+            "request-lifecycle",
+            "94",
+            scope,
+            candidateRevision,
+          ),
+          triggerKind,
+          notBefore: createdAt,
+          createdAt,
+        },
+        existingByDelivery: null,
+        existingByRequestId: null,
+        preAdmissionInScope: awaiting,
+      });
+
+    const same = decide(revision);
+    expect(same.status).toBe(
+      ReviewRequestedRegistrationDecisionStatus.RegisterSuperseded,
+    );
+    expect(same.intent).toMatchObject({
+      requestId: "request-lifecycle",
+      state: ReviewRequestedIntentState.Superseded,
+      supersededByRequestId: awaiting.requestId,
+    });
+    if (
+      same.status !==
+      ReviewRequestedRegistrationDecisionStatus.RegisterSuperseded
+    ) {
+      throw new Error("expected_joined_request");
+    }
+    expect(same.supersededIntent).toBeNull();
+
+    // An explicit rerun, or a dispatch past its authorization window, keeps
+    // the new request on its own.
+    expect(
+      decide(revision, ReviewRequestedTriggerKind.ManualCommand).status,
+    ).toBe(ReviewRequestedRegistrationDecisionStatus.Register);
+    expect(
+      decide(
+        revision,
+        ReviewRequestedTriggerKind.PullRequestReadyForReview,
+        plus(60_000),
+      ).status,
+    ).toBe(ReviewRequestedRegistrationDecisionStatus.Register);
+
+    // A new head still replaces a dispatch that has not been admitted.
+    expect(decide(nextRevision).status).toBe(
+      ReviewRequestedRegistrationDecisionStatus.RegisterAndSupersede,
+    );
+  });
+
   it("cancels a queued request when workspace eligibility changes before dispatch", async () => {
     const intents = new InMemoryReviewRequestedIntentStore();
     await intents.registerIntent({

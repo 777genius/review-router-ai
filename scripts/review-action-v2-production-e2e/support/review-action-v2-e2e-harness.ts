@@ -205,7 +205,10 @@ export type ReviewActionV2E2EHarnessOptions = Readonly<{
   fixtureScope?: Readonly<{ prefix: string; workspaceId: string }>;
   /** Registered test producer definitions, shared by DB row and attestation. */
   agentProfiles?: readonly ReviewAgentProfile[];
-  reviewerPlanProfile?: Readonly<{ planVersion: 1; descriptorDigest: string }>;
+  reviewerPlanProfile?: Readonly<{
+    planVersion: 1 | 2;
+    descriptorDigest: string;
+  }>;
   /** The controlled local Gateway remains real HTTP while GitHub stays synthetic. */
   gatewayFixtureOrigin?: string;
   /** Signed workflow identity; independent of the configured policy. */
@@ -1552,6 +1555,11 @@ export class ReviewActionV2E2EHarness {
     );
   }
 
+  /** Pump one maintenance pass while a review runner is still in progress. */
+  async runWorkerMaintenanceOnce(): Promise<void> {
+    await this.worker.runMaintenance();
+  }
+
   async runWorkerUntilSettled(maxPasses = 12): Promise<void> {
     for (let pass = 0; pass < maxPasses; pass += 1) {
       await this.worker.runMaintenance();
@@ -1568,6 +1576,26 @@ export class ReviewActionV2E2EHarness {
       });
       if (active === 0) return;
     }
+    // Retain safe publication state diagnostics for paired CI failures.
+    // No receipt bodies, credentials, repository identifiers or secrets.
+    const pending = await this.prisma.reviewPublicationOperationV2.findMany({
+      select: {
+        publicationKind: true,
+        state: true,
+        lastErrorCode: true,
+        nextEligibleAt: true,
+      },
+      take: 24,
+    });
+    console.error(
+      "review_v2_e2e_worker_stalled",
+      pending.map((operation) => ({
+        kind: operation.publicationKind,
+        state: operation.state,
+        code: operation.lastErrorCode,
+        eligibleInMs: operation.nextEligibleAt.getTime() - Date.now(),
+      })),
+    );
     throw new Error("review_v2_e2e_worker_did_not_settle");
   }
 
@@ -2327,7 +2355,7 @@ async function seedProductionControlPlane(
     protocolMaxAttemptsPerSlot?: number;
     agentProfiles?: readonly ReviewAgentProfile[];
     reviewerPlanProfile?: Readonly<{
-      planVersion: 1;
+      planVersion: 1 | 2;
       descriptorDigest: string;
     }>;
     prDescriptionProfile?: boolean;
@@ -2609,7 +2637,7 @@ function productionEnv(input: {
   readonly releaseCandidate?: ProducerReleaseCandidate;
   readonly agentProfiles?: readonly ReviewAgentProfile[];
   readonly reviewerPlanProfile?: Readonly<{
-    planVersion: 1;
+    planVersion: 1 | 2;
     descriptorDigest: string;
   }>;
   readonly appPrivateKey: string;

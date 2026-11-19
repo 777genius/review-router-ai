@@ -1,3 +1,5 @@
+import { AccountDiagnosisError } from "../features/account-gateway/account-diagnosis";
+import { diagnoseAccountGatewayFailure } from "./account-gateway-diagnosis";
 import type {
   AccountLimitsReader,
   AccountLimitsRefresher,
@@ -139,7 +141,12 @@ export async function accountLimitsReader(
                     .filter((item) => item.availability === "enabled")
                     .map((item) => [item.profileId, item.limitsContract]),
                 ),
-            );
+            )
+            .catch((error) => {
+              // A transient discovery outage must not poison subsequent reads.
+              contracts = undefined;
+              throw error;
+            });
           if ((await contracts).get(target.profileId) !== "account-limits/v2")
             return { status: "unsupported", reason: "unsupported_profile" };
           return subscriptions.read(target);
@@ -169,6 +176,46 @@ export async function accountLimitsReader(
   }
 }
 
+/** How long a Gateway refresh capability answer is reused before rechecking. */
+export const REFRESH_DISCOVERY_TTL_MS = 600_000;
+type RefreshDiscovery = {
+  checkedAt: number;
+  profiles?: ReadonlySet<string>;
+  pending?: Promise<ReadonlySet<string>> | undefined;
+};
+// Shared by every request of this process. Cached reads give discovery only
+// 250 ms, so a cold per-request call could silently drop the refresh action.
+const refreshDiscoveries = new Map<string, RefreshDiscovery>();
+
+function discoverRefreshProfiles(
+  key: string,
+  load: () => Promise<ReadonlySet<string>>,
+  now = Date.now(),
+): Promise<ReadonlySet<string>> {
+  let entry = refreshDiscoveries.get(key);
+  if (!entry) refreshDiscoveries.set(key, (entry = { checkedAt: 0 }));
+  if (!entry.pending && now - entry.checkedAt >= REFRESH_DISCOVERY_TTL_MS) {
+    const current = entry;
+    current.checkedAt = now;
+    // A synchronous throw (e.g. invalid settings) must reject, not escape.
+    current.pending = Promise.resolve()
+      .then(load)
+      .then((profiles) => (current.profiles = profiles))
+      .catch((error) => {
+        // Failed discovery is not evidence of an unsupported profile: never
+        // cache it, so the next read asks again.
+        current.checkedAt = 0;
+        throw error;
+      })
+      .finally(() => {
+        current.pending = undefined;
+      });
+    // A known answer keeps serving while it is rechecked in the background.
+    current.pending.catch(() => undefined);
+  }
+  return entry.profiles ? Promise.resolve(entry.profiles) : entry.pending!;
+}
+
 /** Separate explicit effect; cached readers never gain refresh side effects. */
 export function accountLimitsRefresher(
   settings:
@@ -176,7 +223,6 @@ export function accountLimitsRefresher(
     | { role: "management"; origin: string; token: string },
 ): AccountLimitsRefresher {
   let client: ReturnType<typeof createAccountLimitsRefreshClient> | undefined;
-  let profiles: Promise<ReadonlySet<string>> | undefined;
   const getClient = () =>
     (client ??= createAccountLimitsRefreshClient({
       ...settings,
@@ -185,22 +231,22 @@ export function accountLimitsRefresher(
     }));
   return {
     async supports(profileId) {
-      try {
-        profiles ??= getClient()
-          .getAccountLimitsRefreshCapabilities()
-          .then(
-            (value) =>
-              new Set(
-                value.contract === "account-limits-refresh/v1" &&
-                  value.quotaOnlyRefresh
-                  ? value.profileIds
-                  : [],
-              ),
-          );
-        return (await profiles).has(profileId);
-      } catch {
-        return false;
-      }
+      const profiles = await discoverRefreshProfiles(
+        `${settings.role}\0${settings.origin}`,
+        () =>
+          getClient()
+            .getAccountLimitsRefreshCapabilities()
+            .then(
+              (value) =>
+                new Set(
+                  value.contract === "account-limits-refresh/v1" &&
+                    value.quotaOnlyRefresh
+                    ? value.profileIds
+                    : [],
+                ),
+            ),
+      );
+      return profiles.has(profileId);
     },
     async refresh(target) {
       try {
@@ -214,7 +260,7 @@ export function accountLimitsRefresher(
           )
         )
           return { status: "unknown", reason: "generation_changed" };
-        return { status: "unavailable", reason: "source_unavailable" };
+        throw new AccountDiagnosisError(diagnoseAccountGatewayFailure(error));
       }
     },
   };

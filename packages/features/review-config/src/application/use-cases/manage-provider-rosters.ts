@@ -1,13 +1,16 @@
 import { z } from "zod";
 import type { ProviderRepositoryFacts } from "../../domain/provider-management-policy";
+import type { ReviewProviderMode } from "../../domain/review-configuration";
 import { ProviderManagementDeniedError } from "../../domain/provider-management-policy";
 import {
   defaultWorkspaceReviewPolicy,
   fitExecutionLimits,
   parseRepositoryReviewPolicy,
   parseWorkspaceReviewPolicy,
+  reviewProviderModeOf,
   reviewProviderSelectionSchema,
   withProviderSelections,
+  type ReviewPolicyDocument,
   type ReviewProviderSelection,
 } from "../../domain/review-policy-document";
 import type { ProviderProfileActor } from "../ports/workspace-provider-profile-repository-port";
@@ -57,6 +60,8 @@ type Dependencies = Readonly<{
 type Roster = Readonly<{
   selections: readonly ReviewProviderSelection[];
   drafts?: readonly ProviderSelectionDraft[];
+  /** How the reviewers interact; absent keeps the saved mode of the document. */
+  providerMode?: ReviewProviderMode;
 }>;
 
 /** A displayed whole-list draft is written once against its observed version, never retried. */
@@ -114,7 +119,7 @@ async function writeWorkspaceRoster(
   const next = parseWorkspaceReviewPolicy(
     fitExecutionLimits(
       {
-        ...withProviderSelections(current, selections),
+        ...withProviderSelections(current, selections, input.providerMode),
         execution: { ...current.execution, ...patch },
       },
       selections?.length ?? 0,
@@ -149,6 +154,7 @@ async function writeWorkspaceRoster(
       action: selections
         ? "provider_selection.default_set"
         : "provider_selection.default_cleared",
+      metadata: rosterAuditMetadata(next),
     },
   });
   return saved!;
@@ -254,6 +260,7 @@ async function saveRepositoryRoster(
     expectedWorkspaceVersion: number | null;
     selections: readonly ReviewProviderSelection[] | null;
     drafts: readonly ProviderSelectionDraft[];
+    providerMode?: ReviewProviderMode;
     executionPatch?: RepositoryReviewerExecutionPatch;
   }>,
   dependencies: Dependencies,
@@ -272,8 +279,6 @@ async function saveRepositoryRoster(
     (heads.repository
       ? parseStoredReviewPolicy("repository", heads.repository)
       : null) ?? parseRepositoryReviewPolicy({ schemaVersion: 4 });
-  const { providers: _providers, ...rest } = current;
-  void _providers;
   const execution = { ...current.execution };
   const patch = repositoryReviewerExecutionPatchSchema.parse(
     input.executionPatch ?? {},
@@ -286,8 +291,11 @@ async function saveRepositoryRoster(
   const next = parseRepositoryReviewPolicy(
     fitExecutionLimits(
       {
-        ...rest,
-        ...(input.selections ? { providers: [...input.selections] } : {}),
+        ...withProviderSelections(
+          current,
+          input.selections,
+          input.providerMode,
+        ),
         ...(Object.keys(execution).length
           ? { execution }
           : { execution: undefined }),
@@ -342,9 +350,19 @@ async function saveRepositoryRoster(
       action: input.selections
         ? "provider_selection.assigned"
         : "provider_selection.cleared",
+      metadata: rosterAuditMetadata(next),
     },
   });
   return saved.at(-1)!;
+}
+
+/** A saved roster records its mode, so a change of the mode alone is visible. */
+function rosterAuditMetadata(
+  document: ReviewPolicyDocument,
+): Readonly<Record<string, unknown>> {
+  return document.providers
+    ? { providerMode: reviewProviderModeOf(document) }
+    : {};
 }
 
 function parseRoster(input: Roster): {

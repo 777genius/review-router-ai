@@ -49,10 +49,7 @@ function Consumer({ kind }: { kind: PublicCatalogProvider }) {
   const catalogs = useProviderModelCatalogs([]);
   return (
     <>
-      <ProviderModelCatalogStatus
-        status={catalogs.status(kind)}
-        publicSelection
-      />
+      <ProviderModelCatalogStatus status={catalogs.status(kind)} />
       <div data-testid="options">
         {catalogs.options.map((option) => option.value).join(",")}
       </div>

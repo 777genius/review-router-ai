@@ -4,9 +4,13 @@ import {
   type ReviewAgentProfile,
 } from "./review-agent-profile.js";
 
-/** Safe scheduling facts. This descriptor never grants execution authority. */
+/**
+ * Safe scheduling facts. This descriptor never grants execution authority.
+ * Version 2 adds the ordered fallback plan; a version 2 producer also reads
+ * every version 1 plan, which keeps its exact form for parallel reviewers.
+ */
 export const reviewerPlanContract = Object.freeze({
-  planVersion: 1,
+  planVersion: 2,
   maxReviewers: 16,
   maxPlanBytes: 65_536,
   runtimeEnvKey: "REVIEW_ROUTER_REVIEWER_PLAN_JSON",
@@ -14,9 +18,14 @@ export const reviewerPlanContract = Object.freeze({
   transport: "account_gateway",
   investigationDescriptorVersion: 3,
   reviewerAvailability: 1,
+  providerModes: Object.freeze(["parallel", "fallback"] as const),
 } as const);
 
 export const reviewerPlanDescriptorDigest =
+  "sha256:53ad81adeb66035203dcd5e17924e3af938bf9e62a803238975f41379e2c649a";
+
+/** The version 1 descriptor registered producers still declare: parallel only. */
+export const reviewerPlanV1DescriptorDigest =
   "sha256:f6a45d7039129a813690f5f769052d3ba078418eb123b0c0c710ef790d2919d6";
 
 export type ReviewReasoningEffort =
@@ -92,6 +101,13 @@ export type ReviewReviewerPlanV1 = Readonly<{
     maxParallel: number;
   }>[];
 }>;
+/**
+ * Ordered fallback: reviewers run one at a time in plan order, the next only
+ * after the previous one could not finish, so one review needs one reviewer.
+ */
+export type ReviewReviewerPlanV2 = Omit<ReviewReviewerPlanV1, "planVersion"> &
+  Readonly<{ planVersion: 2; providerMode: "fallback" }>;
+export type ReviewReviewerPlan = ReviewReviewerPlanV1 | ReviewReviewerPlanV2;
 
 /** Undefined is handled by the legacy-only caller; every supplied selector is exact. */
 export function parseReviewReviewerId(value: unknown): string {
@@ -123,7 +139,7 @@ const dependencies: Readonly<
 };
 
 /** One parser is exported to the Action by the canonical protocol generator. */
-export function parseReviewReviewerPlan(value: unknown): ReviewReviewerPlanV1 {
+export function parseReviewReviewerPlan(value: unknown): ReviewReviewerPlan {
   if (typeof value === "string") {
     if (bytes(value) > reviewerPlanContract.maxPlanBytes) fail();
     value = JSON.parse(value);
@@ -138,8 +154,15 @@ export function parseReviewReviewerPlan(value: unknown): ReviewReviewerPlanV1 {
       "inlineMinAgreement",
       "reviewers",
       "concurrencyGroups",
+      ...(value.planVersion === 2 ? ["providerMode"] : []),
     ]) ||
-    value.planVersion !== 1 ||
+    (value.planVersion !== 1 &&
+      !(
+        value.planVersion === 2 &&
+        value.providerMode === "fallback" &&
+        value.maxParallelReviewers === 1 &&
+        value.inlineMinAgreement === 1
+      )) ||
     !Array.isArray(value.reviewers) ||
     value.reviewers.length < 1 ||
     value.reviewers.length > 16 ||
@@ -188,14 +211,20 @@ export function parseReviewReviewerPlan(value: unknown): ReviewReviewerPlanV1 {
     )
   )
     fail();
-  return Object.freeze({
-    planVersion: 1,
+  const plan = {
     primaryReviewerId: String(value.primaryReviewerId),
     maxParallelReviewers: value.maxParallelReviewers,
     inlineMinAgreement: value.inlineMinAgreement,
     reviewers: Object.freeze(reviewers),
     concurrencyGroups: Object.freeze(groups),
-  });
+  };
+  return value.planVersion === 2
+    ? Object.freeze({
+        planVersion: 2,
+        providerMode: "fallback",
+        ...plan,
+      })
+    : Object.freeze({ planVersion: 1, ...plan });
 }
 
 function parseReviewer(value: unknown): ReviewReviewerPlanReviewerV1 {

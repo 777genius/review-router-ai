@@ -17,10 +17,17 @@ describe("Prisma review observation store", () => {
       ReviewObservationQualityFlag.ContextInspectionIncomplete,
       ReviewObservationQualityFlag.ContextAttestationUnavailable,
       ReviewObservationQualityFlag.CrossRevisionReuseDisabled,
+      ReviewObservationQualityFlag.UnverifiedNativeSpan,
+      ReviewObservationQualityFlag.InvestigationVerifiedClean,
     ] as const;
-    const create = vi.fn(async ({ data }: { data: unknown }) => data);
+    let row: unknown = null;
+    const create = vi.fn(async ({ data }: { data: unknown }) => {
+      row = data;
+      return data;
+    });
+    const findUnique = vi.fn(async () => row);
     const store = new PrismaReviewObservationStore({
-      reviewEvidenceObservation: { create },
+      reviewEvidenceObservation: { create, findUnique },
     } as unknown as PrismaClient);
     const candidate = observation({ qualityFlags });
 
@@ -29,23 +36,31 @@ describe("Prisma review observation store", () => {
       observation: { qualityFlags: candidate.qualityFlags },
     });
     expect(create).toHaveBeenCalledOnce();
+    await expect(
+      store.findById(candidate.observationId),
+    ).resolves.toMatchObject({
+      qualityFlags: candidate.qualityFlags,
+    });
   });
 
-  it("rejects inherited object keys as persisted quality flags", async () => {
-    const create = vi.fn(
-      async ({ data }: { data: Record<string, unknown> }) => ({
-        ...data,
-        qualityFlagsJson: ["toString"],
-      }),
-    );
-    const store = new PrismaReviewObservationStore({
-      reviewEvidenceObservation: { create },
-    } as unknown as PrismaClient);
+  it.each(["unknown", "unsupported_quality_flag", "toString"])(
+    "rejects unsupported persisted quality flag %s",
+    async (flag) => {
+      const create = vi.fn(
+        async ({ data }: { data: Record<string, unknown> }) => ({
+          ...data,
+          qualityFlagsJson: [flag],
+        }),
+      );
+      const store = new PrismaReviewObservationStore({
+        reviewEvidenceObservation: { create },
+      } as unknown as PrismaClient);
 
-    await expect(store.acceptObservation(observation())).rejects.toThrow(
-      "review_observation_quality_flag_invalid:toString",
-    );
-  });
+      await expect(store.acceptObservation(observation())).rejects.toThrow(
+        `review_observation_quality_flag_invalid:${flag}`,
+      );
+    },
+  );
 
   it("round-trips ocr through ReviewProviderKindV2 without touching legacy rows", async () => {
     let row: Record<string, unknown> | null = null;

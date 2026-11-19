@@ -27,6 +27,7 @@ import {
 import { PrismaReviewObservationStore } from "@reviewrouter/features-review-evidence/composition";
 import { PrismaInvestigationStore } from "@reviewrouter/features-review-investigations/composition";
 import { ResolveInvestigationRollout } from "@reviewrouter/features-review-investigation-operations";
+import type { Logger } from "@reviewrouter/platform-logger";
 import {
   EnvironmentInvestigationRolloutPolicyQuery,
   RunControlInvestigationEmergencyStopQuery,
@@ -152,6 +153,7 @@ import {
 import {
   createReviewV2WorkerOwnerId,
   type ReviewV2CompletionRuntime,
+  type ReviewV2ExecutionRecoveryRuntime,
   type ReviewV2PublicationMaintenanceRuntime,
   type ReviewV2ProgressMaintenanceRuntime,
 } from "./review-v2-worker-runtime";
@@ -161,6 +163,7 @@ import {
 } from "./review-progress-publisher";
 import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
+import { ReviewV2TerminalRunRecovery } from "./review-v2-terminal-run-recovery";
 import { GitHubReviewRequestEligibilityGateway } from "./review-v2-request-eligibility-gateway";
 import { createGitHubReviewRequestIngressHandler } from "./review-v2-github-request-ingress-handler";
 import { createWorkspaceDraftDispatchGate } from "./review-v2-draft-dispatch-gate";
@@ -202,7 +205,7 @@ export type ProductionReviewV2WorkerRuntime = {
       readonly failed: number;
     }>;
   };
-  readonly executionRecovery: RecoverExpiredReviewExecutions;
+  readonly executionRecovery: ReviewV2ExecutionRecoveryRuntime;
   readonly publication: ReviewV2PublicationMaintenanceRuntime;
   readonly progress?: ReviewV2ProgressMaintenanceRuntime;
   readonly ingressHandlers: readonly OutboxHandler[];
@@ -216,6 +219,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
   readonly settlementHook: ReviewCompletionSettlementHook;
+  readonly logger?: Pick<Logger, "info">;
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
   const historyWriter =
@@ -240,7 +244,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
         }
       : {}),
   });
-  const executionRecovery = new RecoverExpiredReviewExecutions(
+  const expiredExecutionRecovery = new RecoverExpiredReviewExecutions(
     executions,
     executions,
     input.clock,
@@ -411,6 +415,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     githubRepositories,
     projections,
     assertUnreservedCheckIdentity,
+    trustedReviewCommandLedgerAuthorsFromEnv(input.env),
   );
   const operationCapabilityIssuer =
     new RotatingReviewV2OperationCapabilityIssuer(
@@ -483,6 +488,24 @@ export function createProductionReviewV2WorkerRuntime(input: {
     input.env.REVIEW_ROUTER_REVIEW_V2_WORKFLOW_PATH?.trim() ||
       reviewRouterWorkflowPath,
   );
+  const terminalRunRecovery = new ReviewV2TerminalRunRecovery(
+    executions,
+    requestedIntents,
+    intentGateway,
+    input.clock,
+  );
+  const executionRecovery: ReviewV2ExecutionRecoveryRuntime = {
+    async execute(options) {
+      const expired = await expiredExecutionRecovery.execute(options);
+      const terminal = await terminalRunRecovery.execute(options);
+      return {
+        scanned: expired.scanned + terminal.scanned,
+        recovered: expired.recovered + terminal.recovered,
+        conflicts: expired.conflicts + terminal.conflicts,
+        failures: expired.failures + terminal.failures,
+      };
+    },
+  };
   const ingressHandlers = [
     createReviewRequestedDispatchCleanupHandler({
       intents: requestedIntents,
@@ -491,6 +514,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
     createGitHubReviewRequestIngressHandler({
       repositories: new PrismaActionControlPlaneRepository(input.prisma),
       identities: new PrismaScmRepositoryIdentityRepository(input.prisma),
+      authorities,
+      ...(input.logger ? { logger: input.logger } : {}),
       application: ingressApplication,
       readyQuietPeriodMs: positiveInteger(
         input.env.REVIEW_ROUTER_REVIEW_V2_READY_QUIET_PERIOD_MS,

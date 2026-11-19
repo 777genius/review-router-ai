@@ -49,6 +49,7 @@ export interface UsageReportAggregateInput {
   unboundedSummaryCount: number;
   hasDirectObservations: boolean;
   observationsWithoutRunId: number;
+  latestPendingAt: string | null;
 }
 
 export function finalizeUsageTotals(raw: UsageAggregateTotals): UsageTotals {
@@ -138,6 +139,7 @@ export function buildUsagePeriodReportFromAggregates(
     nextCursor: input.nextCursor,
     partialChildCount: input.partialChildCount,
     unboundedSummaryCount: input.unboundedSummaryCount,
+    latestPendingAt: input.latestPendingAt,
     unattributedCount: null,
     deliveryCoverage: [],
     sources: [],

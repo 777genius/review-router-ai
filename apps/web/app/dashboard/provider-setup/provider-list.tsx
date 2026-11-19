@@ -63,6 +63,7 @@ import {
   archiveProviderProfile,
   clearWorkspaceDefaultProvider,
   updateProviderProfile,
+  useProviderListView,
   useProviderSetupCompletion,
 } from "./provider-setup-api";
 import { ProviderSetupDialog } from "./provider-setup-dialog";
@@ -109,7 +110,8 @@ function shown(
  * visible, disabled, with its reason.
  */
 export function ProviderList(props: ProviderListProps): React.ReactElement {
-  const { view, mutationsEnabled } = props;
+  const { mutationsEnabled } = props;
+  const view = useProviderListView(props.view);
   const dialog = {
     workspaceId: view.workspaceId,
     mutationsEnabled,
@@ -613,29 +615,15 @@ function ProviderProfileEditForm({
           account={gatewayAccount}
           loading={gatewayOptions.loading}
           canRefresh={gatewayOptions.canRefresh}
-          onRefresh={async () => {
-            await Promise.all([
-              gatewayOptions.refreshModels(row.gatewayBindingId ?? ""),
-              catalogProvider
-                ? catalogs.status(catalogProvider)?.refresh()
-                : undefined,
-            ]);
-          }}
+          onRefresh={() =>
+            gatewayOptions.refreshModels(row.gatewayBindingId ?? "")
+          }
+          publicCatalog={
+            catalogProvider ? catalogs.status(catalogProvider) : null
+          }
         />
-      ) : null}
-      {gateway &&
-      catalogProvider &&
-      (catalogs.status(catalogProvider)?.failed ||
-        catalogs.status(catalogProvider)?.snapshot?.refresh === "failed") ? (
-        <p role="status" className="text-xs text-slate-400">
-          Could not update public model metadata. Showing saved model choices.
-        </p>
-      ) : null}
-      {!gateway && catalogProvider ? (
-        <ProviderModelCatalogStatus
-          status={catalogs.status(catalogProvider)}
-          publicSelection={!gateway}
-        />
+      ) : catalogProvider ? (
+        <ProviderModelCatalogStatus status={catalogs.status(catalogProvider)} />
       ) : null}
       {gateway && row.gatewayBindingId ? (
         <GatewayConnectionTest

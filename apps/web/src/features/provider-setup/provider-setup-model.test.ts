@@ -73,6 +73,10 @@ function facts(
         uploaded: true,
         installedRepositoryIds: new Set(["repo_a"]),
       },
+      claude_code_api_key: {
+        uploaded: false,
+        installedRepositoryIds: new Set(),
+      },
     },
     claudeCodeEnabled: true,
     ...overrides,
@@ -223,8 +227,59 @@ describe("provider setup view", () => {
     const view = buildProviderSetupView(facts({ claudeCodeEnabled: false }));
     expect(sourceOf(view, "user_ci_secret:claude_code_oauth")).toBeUndefined();
     expect(
+      sourceOf(view, "user_ci_secret:claude_code_api_key"),
+    ).toBeUndefined();
+    expect(
+      sourceOf(view, "managed_api_key:claude_code_api_key"),
+    ).toBeUndefined();
+    expect(
       sourceOf(view, "user_ci_secret:mimo_token_plan_api_key"),
     ).toBeDefined();
+  });
+
+  it("keeps both Claude CI auth modes separate under the same provider", () => {
+    const view = buildProviderSetupView(facts());
+    expect(sourceOf(view, "user_ci_secret:claude_code_oauth")).toMatchObject({
+      credentialKind: "user_ci_secret",
+      authMode: "claude_code_oauth",
+      decision: { allowed: true },
+    });
+    expect(sourceOf(view, "user_ci_secret:claude_code_api_key")).toMatchObject({
+      credentialKind: "user_ci_secret",
+      authMode: "claude_code_api_key",
+      decision: { allowed: true },
+    });
+    expect(
+      view.sources.filter((source) =>
+        source.key.startsWith("user_ci_secret:claude_code_"),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("offers the existing encrypted managed-key path to an authorized workspace admin", () => {
+    const view = buildProviderSetupView(
+      facts({
+        actor: { userId: "user_admin", role: "admin" },
+        managedKeys: {
+          ...facts().managedKeys,
+          claude_code_api_key: {
+            uploaded: false,
+            installedRepositoryIds: new Set(),
+          },
+        },
+      }),
+    );
+    expect(sourceOf(view, "managed_api_key:claude_code_api_key")).toMatchObject(
+      {
+        credentialKind: "managed_api_key",
+        authMode: "claude_code_api_key",
+        decision: { allowed: true },
+        managedKey: {
+          uploaded: false,
+          install: { allowed: true },
+        },
+      },
+    );
   });
 
   it("does not advertise rotating Codex when its repository deployment gate is off", () => {

@@ -145,6 +145,7 @@ describe("resolveEffectiveReviewConfiguration", () => {
       effectivePolicyDigest: digest(claudeConfig),
       revisionToken: `policy:2:0:${digest(claudeConfig)}`,
       selections: workspaceDefault.providers,
+      providerMode: "parallel",
     });
   });
 

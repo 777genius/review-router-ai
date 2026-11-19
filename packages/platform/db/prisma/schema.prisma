@@ -1331,6 +1331,7 @@ model ReviewRunGatewayAllocationExecution {
   gatewayExecutionCanonicalJson String
   createdAt DateTime @default(now())
   cleanupCompletedAt DateTime?
+  providerQuotaExhaustedAt DateTime?
   authorization ReviewRunAuthorization @relation(fields: [authorizationId], references: [authorizationId], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([authorizationId, allocationId])
@@ -4073,6 +4074,7 @@ enum ReviewPublicationKindV2 {
   pending_review_submit
   submitted_review
   thread_lifecycle
+  thread_reply
 }
 
 enum ReviewPublicationEffectStrategyV2 {

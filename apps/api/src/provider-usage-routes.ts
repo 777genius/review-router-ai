@@ -694,7 +694,9 @@ export function createProviderUsageApi(input: ProviderUsageDependencies) {
         if (!durable || canonicalJson(durable) !== canonicalJson(i))
           throw new UsageAccessError("usage_scope_mismatch");
         selectedExpected = {
-          provider: providerUsageConfiguredProvider(lane).provider,
+          // The server wrote this identity at prepare; a later label mapping
+          // must not reject reports of calls prepared before it.
+          provider: durable.provider,
           requestedModel: reviewer.requestedModel,
           runtimeType: durable.runtimeType,
           purpose: "review",

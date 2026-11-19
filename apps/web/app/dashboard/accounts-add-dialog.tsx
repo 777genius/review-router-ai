@@ -1,12 +1,22 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import { accountsCopy } from "./accounts-copy";
-import {
-  OwnAccountsViewContext,
-  useOwnAccountsView,
-} from "./accounts-workspace-tabs";
+
+/**
+ * Closes the Add dialog to reveal the Connections list right under it. Null
+ * outside the dialog, where callers link to the list instead.
+ */
+const ShowConnectionsListContext = createContext<(() => void) | null>(null);
+export const useShowConnectionsList = () =>
+  useContext(ShowConnectionsListContext);
 
 export function AccountsAddDialog({
   personalConnect,
@@ -25,7 +35,6 @@ export function AccountsAddDialog({
   const [path, setPath] = useState(initialOwnership);
   const cancel = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
-  const showOwnConnections = useOwnAccountsView();
   function clearUnsubmittedCredentials() {
     popup.current
       ?.querySelectorAll<HTMLInputElement>(
@@ -35,15 +44,12 @@ export function AccountsAddDialog({
         field.value = "";
       });
   }
-  function showOwnConnectionsFromDialog() {
+  function showConnectionsList() {
     clearUnsubmittedCredentials();
     setOpen(false);
-    showOwnConnections?.();
   }
   return (
-    <OwnAccountsViewContext.Provider
-      value={showOwnConnections ? showOwnConnectionsFromDialog : null}
-    >
+    <ShowConnectionsListContext.Provider value={showConnectionsList}>
       <Dialog.Root
         open={open}
         onOpenChange={(next) => {
@@ -65,15 +71,13 @@ export function AccountsAddDialog({
             <Dialog.Description>
               Choose your provider and connect securely.
             </Dialog.Description>
-            {showOwnConnections ? (
-              <Button
-                variant="ghost"
-                className="mt-3"
-                onClick={showOwnConnectionsFromDialog}
-              >
-                Use an existing connection
-              </Button>
-            ) : null}
+            <Button
+              variant="ghost"
+              className="mt-3"
+              onClick={showConnectionsList}
+            >
+              Use an existing connection
+            </Button>
             <div className="my-4 max-w-sm">
               <SelectField
                 name="connectionOwnership"
@@ -105,8 +109,8 @@ export function AccountsAddDialog({
             </div>
             <div hidden={path !== "personal"}>
               <p className="mb-4 text-sm text-slate-400">
-                You own this connection. After connecting, choose Access to
-                enable it for {workspaceName}.
+                You own this connection. It is added to {workspaceName} as soon
+                as it connects.
               </p>
               {personalConnect}
             </div>
@@ -118,6 +122,6 @@ export function AccountsAddDialog({
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-    </OwnAccountsViewContext.Provider>
+    </ShowConnectionsListContext.Provider>
   );
 }

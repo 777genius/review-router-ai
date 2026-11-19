@@ -59,6 +59,7 @@ function fixture(current: PersistedReviewConfiguration | null) {
     effectivePolicyDigest: "sha256:test",
     revisionToken: "saved-revision",
     selections: command.policy.providers ?? selections,
+    providerMode: command.policy.providerMode ?? "parallel",
   }));
   const dependencies: OperatorReviewConfigurationDependencies = {
     authorization: {
@@ -95,25 +96,27 @@ function fixture(current: PersistedReviewConfiguration | null) {
 function persisted(
   source: "workspace" | "repository",
 ): PersistedReviewConfiguration {
+  const config =
+    source === "repository"
+      ? parseReviewConfiguration({
+          ...workspace,
+          limits: { ...workspace.limits, inlineMaxComments: 0 },
+        })
+      : workspace;
   return {
     source,
     policy:
       source === "repository"
         ? { schemaVersion: 4, limits: { inlineMaxComments: 0 } }
         : workspacePolicyDocumentFixture(workspace, ["profile_rotating"]),
-    config:
-      source === "repository"
-        ? parseReviewConfiguration({
-            ...workspace,
-            limits: { ...workspace.limits, inlineMaxComments: 0 },
-          })
-        : workspace,
+    config,
     version: 1,
     workspaceVersion: 1,
     repositoryVersion: source === "repository" ? 1 : null,
     effectivePolicyDigest: "sha256:test",
     revisionToken: "expected-revision",
     selections,
+    providerMode: "parallel",
   };
 }
 describe("operator writes sparse current policy", () => {
@@ -143,6 +146,18 @@ describe("operator writes sparse current policy", () => {
     expect(commit.mock.calls[0]?.[0].expectedRevisionToken).toBe(
       "expected-revision",
     );
+  });
+  it("copies an inherited fallback roster together with its mode", async () => {
+    const { dependencies, commit } = fixture({
+      ...persisted("workspace"),
+      providerMode: "fallback",
+    });
+    await setOperatorReviewReasoningEffort(input, dependencies);
+    expect(commit.mock.calls[0]?.[0].policy).toEqual({
+      schemaVersion: 4,
+      providers: [{ ...selections[0], reasoningEffort: "high" }],
+      providerMode: "fallback",
+    });
   });
   it("preserves an existing explicit zero override", async () => {
     const { dependencies, commit } = fixture(persisted("repository"));

@@ -13,6 +13,7 @@ import type {
   ManagedApiKeyAuthMode,
   UserCiSecretAuthMode,
 } from "@reviewrouter/features-review-config/workspace-provider-profile";
+import type { ReviewProviderMode } from "@reviewrouter/features-review-config/review-configuration";
 import type { ReviewProviderSelection } from "@reviewrouter/features-review-config/review-policy-document";
 import {
   apiKeyProviders,
@@ -33,6 +34,17 @@ export const PROVIDER_SETUP_MAX_REPOSITORIES = 100;
 /** "1 repository", "3 repositories". */
 export function repositoryCountLabel(count: number): string {
   return `${count} ${count === 1 ? "repository" : "repositories"}`;
+}
+
+/** "Account · model; Other · model", in roster order; null is a missing profile. */
+export function reviewerNames(
+  profiles: readonly (Readonly<{ label: string; model: string }> | null)[],
+): string {
+  return profiles
+    .map((profile) =>
+      profile ? `${profile.label} · ${profile.model}` : "Reviewer unavailable",
+    )
+    .join("; ");
 }
 
 /** Who the dialog configures. Repository targets are fixed by the caller. */
@@ -77,7 +89,9 @@ export type ProviderSourceKey =
   | "gateway_binding"
   | "managed_api_key:mimo_token_plan_api_key"
   | "managed_api_key:openrouter_api_key"
+  | "managed_api_key:claude_code_api_key"
   | "user_ci_secret:claude_code_oauth"
+  | "user_ci_secret:claude_code_api_key"
   | "user_ci_secret:mimo_token_plan_api_key"
   | "user_ci_secret:openrouter_api_key"
   | "user_ci_secret:kimi_code_api_key"
@@ -107,6 +121,8 @@ export type ProviderSetupRepositoryView = Readonly<{
   /** Its own selection, when it has one. */
   selection: ReviewProviderSelection | null;
   selections?: readonly ReviewProviderSelection[];
+  /** How its own reviewers interact; only meaningful with its own selection. */
+  providerMode?: ReviewProviderMode;
   version?: number | null;
   execution?: Readonly<{
     providerMaxParallel?: number | undefined;
@@ -122,6 +138,8 @@ export type ProviderSetupView = Readonly<{
   repositories: readonly ProviderSetupRepositoryView[];
   defaultSelection: ReviewProviderSelection | null;
   defaultSelections?: readonly ReviewProviderSelection[];
+  /** How the workspace default reviewers interact. */
+  providerMode?: ReviewProviderMode;
   workspaceVersion?: number | null;
   execution?: Readonly<{
     providerMaxParallel: number;
@@ -155,6 +173,7 @@ export type ProviderSetupFacts = Readonly<{
   }>[];
   defaultSelection: ReviewProviderSelection | null;
   defaultSelections?: readonly ReviewProviderSelection[];
+  providerMode?: ReviewProviderMode;
   workspaceVersion?: number | null;
   execution?: Readonly<{
     providerMaxParallel: number;
@@ -166,6 +185,7 @@ export type ProviderSetupFacts = Readonly<{
     capability: ProviderRepositoryCapability | null;
     ownSelection: ReviewProviderSelection | null;
     ownSelections?: readonly ReviewProviderSelection[];
+    providerMode?: ReviewProviderMode;
     version?: number | null;
     execution?: Readonly<{
       providerMaxParallel?: number | undefined;
@@ -190,6 +210,7 @@ const allowed: ProviderSetupDecision = { allowed: true };
 
 const ciSecretSources = [
   "user_ci_secret:claude_code_oauth",
+  "user_ci_secret:claude_code_api_key",
   ...apiKeyProviders.map(
     (provider) => `user_ci_secret:${provider.directAuthMode}` as const,
   ),
@@ -351,8 +372,18 @@ export function buildProviderSetupView(
         repositoryId: null,
       }),
     },
-    ...(["mimo_token_plan_api_key", "openrouter_api_key"] as const).map(
-      (authMode): ProviderSourceOption => {
+    ...(
+      [
+        "mimo_token_plan_api_key",
+        "openrouter_api_key",
+        "claude_code_api_key",
+      ] as const
+    )
+      .filter(
+        (authMode) =>
+          authMode !== "claude_code_api_key" || facts.claudeCodeEnabled,
+      )
+      .map((authMode): ProviderSourceOption => {
         const key = facts.managedKeys[authMode];
         const install = admin
           ? decide({ kind: "manage_managed_key" })
@@ -388,12 +419,12 @@ export function buildProviderSetupView(
             install,
           },
         };
-      },
-    ),
+      }),
     ...ciSecretSources
       .filter(
         (key) =>
-          key !== "user_ci_secret:claude_code_oauth" || facts.claudeCodeEnabled,
+          !key.startsWith("user_ci_secret:claude_code_") ||
+          facts.claudeCodeEnabled,
       )
       .map((key): ProviderSourceOption => {
         const authMode = key.slice(
@@ -443,6 +474,9 @@ export function buildProviderSetupView(
       selections:
         repository.ownSelections ??
         (repository.ownSelection ? [repository.ownSelection] : []),
+      ...(repository.providerMode
+        ? { providerMode: repository.providerMode }
+        : {}),
       version: repository.version ?? null,
       execution: repository.execution ?? {},
       useDefault: decide({
@@ -454,6 +488,7 @@ export function buildProviderSetupView(
     defaultSelections:
       facts.defaultSelections ??
       (facts.defaultSelection ? [facts.defaultSelection] : []),
+    ...(facts.providerMode ? { providerMode: facts.providerMode } : {}),
     workspaceVersion: facts.workspaceVersion ?? null,
     execution: facts.execution ?? {
       providerMaxParallel: 1,
@@ -475,7 +510,8 @@ function managedKeyInstalled(
 ): boolean {
   return (
     (authMode === "mimo_token_plan_api_key" ||
-      authMode === "openrouter_api_key") &&
+      authMode === "openrouter_api_key" ||
+      authMode === "claude_code_api_key") &&
     facts.managedKeys[authMode].installedRepositoryIds.has(repositoryId)
   );
 }

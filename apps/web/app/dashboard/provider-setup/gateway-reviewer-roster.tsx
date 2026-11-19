@@ -1,8 +1,13 @@
 "use client";
 
 import { useId, useState } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { Badge, Button, SelectField } from "@reviewrouter/ui";
 import type { ReviewModelOption } from "@reviewrouter/features-review-providers";
+import {
+  defaultReviewProviderMode,
+  type ReviewProviderMode,
+} from "@reviewrouter/features-review-config/review-configuration";
 import type { ReviewProviderSelection } from "@reviewrouter/features-review-config/review-policy-document";
 import type {
   ProviderRosterSaveRequest,
@@ -16,12 +21,14 @@ import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agen
 import { gatewayProviderModelOptions } from "../../../src/features/provider-setup/provider-model-options";
 import {
   providerSetupDenialText,
+  reviewerNames,
   type ProviderSetupView,
 } from "../../../src/features/provider-setup/provider-setup-model";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
 import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import { dashboardErrorText } from "../dashboard-copy";
+import { isFreeModel } from "../provider-usage-format";
 import { GatewayAccountLoadMore } from "./gateway-account-load-more";
 import {
   defaultProviderSelectionSettings,
@@ -43,6 +50,57 @@ type Row = {
 };
 type Patch = NonNullable<ProviderRosterSaveRequest["executionPatch"]>;
 
+const providerModeOptions = [
+  {
+    value: "parallel",
+    label: "Together, in parallel",
+    hint: "Every reviewer checks each pull request and their findings are combined.",
+  },
+  {
+    value: "fallback",
+    label: "Fallback in order",
+    // Admission runs this only on a runtime that declares the ordered plan
+    // (ai-docs/architecture/67-provider-interaction-mode.md).
+    hint: "Reviewers run one at a time, top to bottom. The next one starts only when the one above it can't finish the review because of quota, sign-in, a timeout or an unavailable model.",
+  },
+] as const satisfies readonly {
+  value: ReviewProviderMode;
+  label: string;
+  hint: string;
+}[];
+
+/**
+ * The mode of the roster the editor opens with: the workspace default, or a
+ * repository's own roster or the workspace roster it inherits. A bulk
+ * assignment starts an empty roster with the default mode.
+ */
+function storedMode(
+  view: ProviderSetupView,
+  target: ProviderSetupDialogTarget,
+): ReviewProviderMode {
+  if (target.kind === "repositories") return defaultReviewProviderMode;
+  const repository =
+    target.kind === "repository"
+      ? view.repositories.find((row) => row.id === target.repository.id)
+      : null;
+  const ownSelections = Boolean(
+    repository?.selections?.length || repository?.selection,
+  );
+  return (
+    (ownSelections ? repository?.providerMode : view.providerMode) ??
+    defaultReviewProviderMode
+  );
+}
+
+function workspaceDefaultSelections(
+  view: ProviderSetupView,
+): readonly ReviewProviderSelection[] {
+  return (
+    view.defaultSelections ??
+    (view.defaultSelection ? [view.defaultSelection] : [])
+  );
+}
+
 function storedRows(
   view: ProviderSetupView,
   target: ProviderSetupDialogTarget,
@@ -56,9 +114,7 @@ function storedRows(
   const own =
     repository?.selections ??
     (repository?.selection ? [repository.selection] : []);
-  const defaults =
-    view.defaultSelections ??
-    (view.defaultSelection ? [view.defaultSelection] : []);
+  const defaults = workspaceDefaultSelections(view);
   const selections =
     target.kind === "workspace"
       ? defaults
@@ -139,6 +195,7 @@ export function GatewayReviewerRoster({
   const [rows, setRows] = useState(() =>
     storedRows(view, target, prefix, initialProfileId),
   );
+  const [mode, setMode] = useState(() => storedMode(view, target));
   const [nextRow, setNextRow] = useState(0);
   const [editing, setEditing] = useState<string | null>(
     () => rows.find((row) => row.profileId === initialProfileId)?.id ?? null,
@@ -182,6 +239,16 @@ export function GatewayReviewerRoster({
     };
   };
 
+  const rowModelOptions = (
+    row: Row,
+    account: (typeof accounts)[number] | undefined,
+    profile: ReturnType<typeof options.profileFor>,
+  ) =>
+    gatewayProviderModelOptions(modelOptions, profile, {
+      catalog: account?.modelCatalog,
+      requiresTools: row.settings.agenticContext,
+    });
+
   const identities = rows.map((row) =>
     JSON.stringify([
       row.bindingId,
@@ -214,6 +281,12 @@ export function GatewayReviewerRoster({
         !account.binding.fencePending &&
         profile?.id === row.profileRef &&
         profile.models.includes(row.model) &&
+        // A new or changed reviewer needs a model the picker offers as usable,
+        // as in the setup dialog; a typed name cannot pick a disabled option.
+        (row.profileId !== undefined ||
+          rowModelOptions(row, account, profile).some(
+            (option) => option.value === row.model && !option.disabled,
+          )) &&
         (row.savedSettings === true ||
           profile.connection?.modelSettings.some(
             (model) => model.modelId === row.model,
@@ -231,6 +304,20 @@ export function GatewayReviewerRoster({
     setRows((current) =>
       current.map((row) => (row.id === id ? { ...row, ...change } : row)),
     );
+  const move = (index: number, offset: -1 | 1) =>
+    setRows((current) => {
+      const next = [...current];
+      const [row] = next.splice(index, 1);
+      next.splice(index + offset, 0, row!);
+      return next;
+    });
+  const fallback = mode === "fallback";
+  // How several reviewers work together means nothing for one reviewer: its
+  // mode stays as saved and the server fits the limits to the count.
+  const several = rows.length > 1;
+  const inherited = repository?.source === "workspace";
+  const ownRoster = repository?.source === "repository";
+  const workspaceDefaults = workspaceDefaultSelections(observed);
   const executionValue = (
     field: "providerMaxParallel" | "inlineMinAgreement",
   ): string => {
@@ -279,6 +366,7 @@ export function GatewayReviewerRoster({
                   },
               settings: settingsFor(row),
             })),
+        ...(inherit ? {} : { providerMode: mode }),
         ...(Object.keys(patch).length ? { executionPatch: patch } : {}),
       });
       if (result.status === "error") {
@@ -316,8 +404,9 @@ export function GatewayReviewerRoster({
         <div>
           <h3 className="text-sm font-semibold text-cyan-50">Reviewers</h3>
           <p className="text-xs leading-5 text-slate-400">
-            Each reviewer keeps its own model and settings. The first handles
-            pull request description updates when enabled.
+            Each reviewer keeps its own model and settings. The first reviewer
+            is the primary: it also updates the pull request description (when
+            enabled) and re-checks whether earlier findings were fixed.
           </p>
         </div>
         <Button
@@ -348,10 +437,26 @@ export function GatewayReviewerRoster({
           Add reviewer
         </Button>
       </div>
-      {repository?.source === "workspace" ? (
-        <p className="text-sm text-slate-300">
-          Using all workspace reviewers. Saving creates a complete repository
-          roster.
+      {several ? (
+        <SelectField
+          label="How reviewers work together"
+          value={mode}
+          disabled={blocked}
+          options={providerModeOptions.map(({ value, label }) => ({
+            value,
+            label,
+          }))}
+          hint={
+            providerModeOptions.find((option) => option.value === mode)!.hint
+          }
+          onValueChange={(value) => setMode(value as ReviewProviderMode)}
+        />
+      ) : null}
+      {inherited ? (
+        <p className="text-sm leading-6 text-slate-300">
+          This repository uses the workspace default reviewers below. Saving
+          gives it its own copy; later changes to the workspace default
+          won&apos;t apply here until you choose Use workspace reviewers.
         </p>
       ) : null}
       {rows.length === 0 ? (
@@ -374,13 +479,26 @@ export function GatewayReviewerRoster({
                 ? existing.decision.reason
                 : null;
             return (
-              <li key={row.id} className="py-4">
+              <li
+                key={row.id}
+                // The reviewer being edited carries the accent edge of the
+                // active dashboard section, so its fields read as its own. An
+                // inset edge leaves the list's dividers untouched; other rows
+                // stay aligned with the Reviewers heading.
+                className={
+                  expanded
+                    ? "bg-cyan-300/[0.05] px-3 py-4 shadow-[inset_2px_0_0_var(--color-cyan-200)]"
+                    : "py-4"
+                }
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 text-sm">
                     <p className="break-words font-medium text-cyan-50">
                       {index + 1}. {row.model || "Choose a model"}{" "}
                       {index === 0 ? (
                         <Badge tone="neutral">Primary</Badge>
+                      ) : fallback ? (
+                        <Badge tone="neutral">Fallback</Badge>
                       ) : null}{" "}
                     </p>
                     <p className="break-words text-xs leading-5 text-slate-400">
@@ -414,8 +532,45 @@ export function GatewayReviewerRoster({
                         Review settings need updating for this model.
                       </p>
                     ) : null}
+                    {isFreeModel({
+                      provider: profile?.connection?.provider ?? "",
+                      requestedModel: row.model,
+                    }) ? (
+                      <p className="text-xs leading-5 text-slate-400">
+                        Free OpenRouter models have a daily request limit. When
+                        it runs out, this reviewer stops until the limit resets.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
+                    {several ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="px-3"
+                          disabled={blocked || index === 0}
+                          aria-label={`Move reviewer ${index + 1} up`}
+                          title="Move up"
+                          onClick={() => move(index, -1)}
+                        >
+                          <ArrowUp aria-hidden className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="px-3"
+                          disabled={blocked || index === rows.length - 1}
+                          aria-label={`Move reviewer ${index + 1} down`}
+                          title="Move down"
+                          onClick={() => move(index, 1)}
+                        >
+                          <ArrowDown aria-hidden className="size-4" />
+                        </Button>
+                      </>
+                    ) : null}
                     <Button
                       type="button"
                       variant="ghost"
@@ -523,15 +678,8 @@ export function GatewayReviewerRoster({
                           },
                         })
                       }
-                      modelOptions={gatewayProviderModelOptions(
-                        modelOptions,
-                        profile,
-                        {
-                          catalog: account?.modelCatalog,
-                          requiresTools: row.settings.agenticContext,
-                        },
-                      )}
-                      modelChoice="list"
+                      modelOptions={rowModelOptions(row, account, profile)}
+                      modelChoice="catalog"
                       allowCustomModel={false}
                       settings={settingsFor(row)}
                       onSettingsChange={(settings) =>
@@ -600,50 +748,52 @@ export function GatewayReviewerRoster({
           </Button>
         ) : null}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {(["providerMaxParallel", "inlineMinAgreement"] as const).map(
-          (field) => (
-            <SelectField
-              key={field}
-              label={
-                field === "providerMaxParallel"
-                  ? "Max parallel providers"
-                  : "Inline agreement"
-              }
-              value={executionValue(field)}
-              disabled={blocked}
-              options={[
-                ...(target.kind === "workspace"
-                  ? []
-                  : [
-                      {
-                        value: "inherit",
-                        label: `Workspace default (${Math.min(defaults[field], rows.length || 1)})`,
-                      },
-                    ]),
-                ...Array.from(
-                  {
-                    length: Math.max(
-                      rows.length,
-                      Number(executionValue(field)) || 1,
-                    ),
-                  },
-                  (_, index) => ({
-                    value: String(index + 1),
-                    label: String(index + 1),
-                  }),
-                ),
-              ]}
-              onValueChange={(value) =>
-                setPatch((current) => ({
-                  ...current,
-                  [field]: value === "inherit" ? null : Number(value),
-                }))
-              }
-            />
-          ),
-        )}
-      </div>
+      {fallback || !several ? null : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(["providerMaxParallel", "inlineMinAgreement"] as const).map(
+            (field) => (
+              <SelectField
+                key={field}
+                label={
+                  field === "providerMaxParallel"
+                    ? "Max parallel providers"
+                    : "Inline agreement"
+                }
+                value={executionValue(field)}
+                disabled={blocked}
+                options={[
+                  ...(target.kind === "workspace"
+                    ? []
+                    : [
+                        {
+                          value: "inherit",
+                          label: `Workspace default (${Math.min(defaults[field], rows.length || 1)})`,
+                        },
+                      ]),
+                  ...Array.from(
+                    {
+                      length: Math.max(
+                        rows.length,
+                        Number(executionValue(field)) || 1,
+                      ),
+                    },
+                    (_, index) => ({
+                      value: String(index + 1),
+                      label: String(index + 1),
+                    }),
+                  ),
+                ]}
+                onValueChange={(value) =>
+                  setPatch((current) => ({
+                    ...current,
+                    [field]: value === "inherit" ? null : Number(value),
+                  }))
+                }
+              />
+            ),
+          )}
+        </div>
+      )}
       {duplicate ? (
         <p role="status" className="text-sm text-amber-100">
           Choose a different account, model, or review engine for each reviewer.
@@ -666,6 +816,7 @@ export function GatewayReviewerRoster({
             if (!latest) return;
             setObserved(latest);
             setRows(storedRows(latest, target, prefix));
+            setMode(storedMode(latest, target));
             setPatch({});
             setStale(false);
             setError(null);
@@ -686,7 +837,8 @@ export function GatewayReviewerRoster({
         </p>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-cyan-200/10 pt-4">
-        <div className="flex flex-wrap gap-2">
+        {/* Grows beside Save, so its full-width caption keeps Save on the right. */}
+        <div className="flex flex-wrap gap-2 sm:min-w-0 sm:flex-1">
           <Button
             type="button"
             variant="ghost"
@@ -697,19 +849,38 @@ export function GatewayReviewerRoster({
           >
             Choose another provider
           </Button>
-          {target.kind === "repository" &&
-          repository?.source === "repository" ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={
-                blocked || stale || repository.useDefault.allowed === false
-              }
-              onClick={() => void save(true)}
-            >
-              Use workspace reviewers
-            </Button>
+          {ownRoster ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={
+                  blocked || stale || repository?.useDefault.allowed === false
+                }
+                aria-describedby={`${prefix}-workspace-default`}
+                onClick={() => void save(true)}
+              >
+                Use workspace reviewers
+              </Button>
+              <p
+                id={`${prefix}-workspace-default`}
+                className="w-full break-words text-xs leading-5 text-slate-400"
+              >
+                {workspaceDefaults.length
+                  ? `Workspace default: ${reviewerNames(
+                      workspaceDefaults.map((selection) => {
+                        const profile = observed.profiles.find(
+                          (candidate) => candidate.id === selection.profileId,
+                        );
+                        return profile
+                          ? { label: profile.label, model: profile.model }
+                          : null;
+                      }),
+                    )}.`
+                  : "Choosing Use workspace reviewers stops reviews here: the workspace has no default reviewers."}
+              </p>
+            </>
           ) : null}
         </div>
         <Button
@@ -719,7 +890,11 @@ export function GatewayReviewerRoster({
           aria-busy={pending}
           onClick={() => void save()}
         >
-          {pending ? "Saving…" : "Save reviewers"}
+          {pending
+            ? "Saving…"
+            : inherited
+              ? "Save for this repository"
+              : "Save reviewers"}
         </Button>
       </div>
     </div>

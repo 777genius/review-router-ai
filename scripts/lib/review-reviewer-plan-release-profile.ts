@@ -1,22 +1,33 @@
-import { reviewerPlanDescriptorDigest } from "../../packages/shared/dist/review-reviewer-plan.js";
+import {
+  reviewerPlanContract,
+  reviewerPlanDescriptorDigest,
+  reviewerPlanV1DescriptorDigest,
+} from "../../packages/shared/dist/review-reviewer-plan.js";
 
-/** The immutable manifest describes this exact reviewed wire capability. */
+/**
+ * The immutable manifest describes this exact reviewed wire capability: the
+ * current descriptor, or the version 1 descriptor of an earlier release.
+ */
 export function parseProducerReviewerPlanReleaseProfile(value: unknown) {
+  const known = new Map<number, string>([
+    [1, reviewerPlanV1DescriptorDigest],
+    [reviewerPlanContract.planVersion, reviewerPlanDescriptorDigest],
+  ]);
   if (
     !value ||
     typeof value !== "object" ||
     Array.isArray(value) ||
     Object.keys(value).sort().join(",") !== "descriptorDigest,planVersion" ||
     !("planVersion" in value) ||
-    value.planVersion !== 1 ||
+    typeof value.planVersion !== "number" ||
     !("descriptorDigest" in value) ||
-    value.descriptorDigest !== reviewerPlanDescriptorDigest
+    known.get(value.planVersion) !== value.descriptorDigest
   )
     throw new Error("unsupported reviewer plan release profile");
   return Object.freeze({
-    planVersion: 1,
-    descriptorDigest: reviewerPlanDescriptorDigest,
-  } as const);
+    planVersion: value.planVersion,
+    descriptorDigest: value.descriptorDigest as string,
+  });
 }
 
 /** The optional compatibility fact must travel with its canonical parser bytes. */

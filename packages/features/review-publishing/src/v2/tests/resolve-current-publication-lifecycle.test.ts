@@ -402,6 +402,44 @@ describe("ResolveCurrentPublicationLifecycle", () => {
     });
   });
 
+  it("accepts the exact pre-reply V1 witness only when the live adapter proves a trusted acknowledgement", async () => {
+    const verified = await resolver({
+      expectation: expectationWithObservation(),
+      live: availableLive({
+        targets: liveTargets().map((target) =>
+          target.targetId === "rrt_first"
+            ? {
+                ...target,
+                threadStateHash: "9".repeat(64),
+                verifiedReplyPrefixHashes: [targetThreadStateHash],
+                hasRelevantInteractionAfterParent: true,
+                lastRelevantChangeAt: new Date("2026-07-23T10:00:30.000Z"),
+              }
+            : target,
+        ),
+      }),
+    }).resolve(scope);
+    expect(verified.status).toBe(CurrentPublicationLifecycleStatus.Current);
+
+    const humanReply = await resolver({
+      expectation: expectationWithObservation(),
+      live: availableLive({
+        targets: liveTargets().map((target) =>
+          target.targetId === "rrt_first"
+            ? {
+                ...target,
+                threadStateHash: "9".repeat(64),
+                verifiedReplyPrefixHashes: [],
+                hasRelevantInteractionAfterParent: true,
+                lastRelevantChangeAt: new Date("2026-07-23T10:00:30.000Z"),
+              }
+            : target,
+        ),
+      }),
+    }).resolve(scope);
+    expect(humanReply.status).toBe(CurrentPublicationLifecycleStatus.Changed);
+  });
+
   it("rejects an exact-v1 external resolution when mutation was not authorized", async () => {
     const result = await resolver({
       expectation: expectationWithObservation(),

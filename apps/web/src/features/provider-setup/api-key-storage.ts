@@ -52,6 +52,8 @@ export type ApiKeySetupIntent = Readonly<{
   storage: ApiKeyStorage;
   workspaceId: string;
   repositoryIds: readonly string[];
+  /** Navigation hint only; a selected Claude API key must not become OAuth. */
+  claudeMethod?: "subscription" | "api_key";
 }>;
 
 const intentKeys = [
@@ -59,6 +61,7 @@ const intentKeys = [
   "keyStorage",
   "keyWorkspace",
   "keyRepository",
+  "keyClaudeMethod",
 ] as const;
 const reference = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/;
 
@@ -73,19 +76,33 @@ export function readApiKeySetupIntent(
     (row) => row.id === one("keyProvider"),
   )?.id;
   const storage = one("keyStorage");
+  const claudeMethod = one("keyClaudeMethod");
   const raw = params.keyRepository;
   const repositoryIds =
     raw === undefined ? [] : typeof raw === "string" ? [raw] : raw;
   if (
     !provider ||
     (storage !== "github_secrets" && storage !== "reviewrouter") ||
+    (params.keyClaudeMethod !== undefined &&
+      (typeof params.keyClaudeMethod !== "string" ||
+        provider !== "claude-code" ||
+        (claudeMethod !== "subscription" && claudeMethod !== "api_key") ||
+        (storage === "reviewrouter" && claudeMethod !== "api_key"))) ||
     one("keyWorkspace") !== workspaceId ||
     repositoryIds.length > 100 ||
     repositoryIds.some((id) => !reference.test(id)) ||
     new Set(repositoryIds).size !== repositoryIds.length
   )
     return null;
-  return { provider, storage, workspaceId, repositoryIds };
+  return {
+    provider,
+    storage,
+    workspaceId,
+    repositoryIds,
+    ...(claudeMethod === "subscription" || claudeMethod === "api_key"
+      ? { claudeMethod }
+      : {}),
+  };
 }
 
 export function apiKeySetupHref(
@@ -99,6 +116,8 @@ export function apiKeySetupHref(
     keyWorkspace: intent.workspaceId,
   });
   if (destination !== "accounts") query.set("section", destination);
+  if (intent.provider === "claude-code" && intent.claudeMethod)
+    query.set("keyClaudeMethod", intent.claudeMethod);
   for (const id of intent.repositoryIds) query.append("keyRepository", id);
   return `${destination === "accounts" ? "/dashboard/setup" : "/dashboard"}?${query}`;
 }

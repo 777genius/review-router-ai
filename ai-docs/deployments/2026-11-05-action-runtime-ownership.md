@@ -1,19 +1,26 @@
 # Action runtime ownership refactor
 
+<a id="current-code-reconciliation-2026-11-14"></a>
+
+## Current code reconciliation (2026-11-15)
+
+PR #815 is merged. Its private code ancestry is included in installed d2f and retained signed 238/source 75b, as reconciled in the [current registry baseline](README.md#current-coordinated-rollout-reconciliation-2026-11-14). Earlier pending-source/no-installation statements below describe historical delivery checkpoints. There is no new schema/configuration/activation step or reason to redeploy this behavior-preserving code merely to clear a stale task status. This is **installed ordinary code**, not a claim of feature activation, independent live qualification or public Action artifact proof inferred from ancestry. Preserve separate semantic Memory, public distribution, self-hosted and GitLab acceptance boundaries.
+
 - Task ID: `2026-11-05-action-runtime-ownership`
 - Goal: preserve existing GitHub Action reviews while assigning credential-safe checkout, HTTP retries, subprocess custody/redaction, bundle verification, provider environment policy and workflow attestation to bounded owners.
 - Affected targets: `777genius/review-router-ai` Action source and checked-in `action-dist/index.cjs`; paired public Action distribution `777genius/review-router` **only if and when a release is separately authorized**.
 - Implementation PR: [ReviewRouter #815](https://github.com/777genius/review-router-ai/pull/815) (Draft candidate).
 - Implementation reference: PR HEAD at delivery; initial candidate `e0e06ae6ce22b91bd84d108c103cea7fe0639f0e` is source provenance, not deployed evidence.
 - Dependencies: verified deterministic Action artifact, release approval and compatible paired Action release under the [release process](../operations/07-environments-and-release-management.md).
-- Last updated: 2026-11-05.
+- Last updated: 2026-11-15.
 
 ## Environment status
 
-| Environment / target               | Status    | Actual deployed version / image               | Last verified (UTC)          | Evidence / next step                                                          |
-| ---------------------------------- | --------- | --------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------- |
-| staging                            | `pending` | Not verified                                  | Not verified                 | No deployment requested; confirm release selection and target before rollout. |
-| production / public Action channel | `pending` | Existing installed revisions remain unchanged | Not verified for this change | Do not move Action refs, tags or workflow-v1 based on a Draft PR.             |
+| Environment / target             | Status      | Actual deployed version / image     | Last verified (UTC) | Evidence / next step                                                                                  |
+| -------------------------------- | ----------- | ----------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------- |
+| staging                          | `pending`   | Not verified                        | Not verified        | No deployment requested; confirm release selection and target before rollout.                         |
+| production / private runtime     | `installed` | Signed private 238/source 75b       | 2026-11-15          | Code included; no separate rollout.                                                                   |
+| production / public distribution | `installed` | Public 238/42b37d74, paired release | 2026-11-15          | Artifact/channel published; feature-specific live ownership acceptance is not inferred from ancestry. |
 
 `pending` records absent proof for this task; it does not assert that a version was observed missing.
 

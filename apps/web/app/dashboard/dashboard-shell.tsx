@@ -162,10 +162,16 @@ function DashboardLayoutMetrics({
     const header = document.querySelector<HTMLElement>("[data-global-header]");
     const workspaceBar = document.getElementById("dashboard-workspace-bar");
     const compactNav = document.getElementById("dashboard-compact-nav");
-    const read = (element: HTMLElement | null) =>
+    const read = (element: HTMLElement | null) => {
+      if (!element) return 0;
       // Sticky offsets are CSS layout pixels. Viewport rects include CSS zoom,
       // which would apply the scale twice when published back into CSS.
-      element ? element.offsetHeight : 0;
+      // offsetHeight rounds to a whole pixel, which leaves a hairline gap
+      // between the stuck header and the bar below it; the computed height
+      // keeps the fractional part.
+      const exact = Number.parseFloat(getComputedStyle(element).height);
+      return Number.isFinite(exact) && exact > 0 ? exact : element.offsetHeight;
+    };
     const previousPadding = root.style.scrollPaddingTop;
     const publish = () => {
       root.style.setProperty("--rr-header-height", `${read(header)}px`);

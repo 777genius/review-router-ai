@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  AccountDiagnosisError,
+  accountDiagnosisMessage,
+} from "../../src/features/account-gateway/account-diagnosis";
+
 import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
 import { Button } from "@reviewrouter/ui";
@@ -12,6 +17,8 @@ import {
   accountLimitsOptions,
   accountLimitsKey,
   accountLimitsRefreshOptions,
+  ACCOUNT_LIMITS_OUTDATED_AFTER_MS,
+  claimAccountLimitsAutoRefresh,
   releaseAccountLimits,
   removeAccountLimits,
 } from "./account-limits-query";
@@ -63,6 +70,40 @@ const statusText = {
   unavailable: "",
   restricted: "Limits visible to the owner only",
 };
+
+type LimitsWindow = Extract<
+  AccountLimitsView,
+  { status: "snapshot" }
+>["windows"][number];
+
+/** The compact summary: at most two known plan windows, rate limits last. */
+function summaryWindows(windows: readonly LimitsWindow[]) {
+  return windows
+    .filter(
+      (window) =>
+        window.dimension === undefined ||
+        window.remainingPercent !== null ||
+        (window.dimension === "plan_quota" && window.resetAt !== null),
+    )
+    .sort(
+      (left, right) =>
+        Number(left.dimension === "rate_limit") -
+        Number(right.dimension === "rate_limit"),
+    )
+    .slice(0, 2);
+}
+
+/** One rule for the Outdated badge and for refreshing when an account opens. */
+function outdated(window: LimitsWindow, now: number) {
+  const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
+  const observed = window.observedAt ? Date.parse(window.observedAt) : NaN;
+  return (
+    window.stale ||
+    !Number.isFinite(observed) ||
+    now - observed >= ACCOUNT_LIMITS_OUTDATED_AFTER_MS ||
+    (Number.isFinite(reset) && now >= reset)
+  );
+}
 
 function resetText(reset: number, now: number) {
   if (!Number.isFinite(reset)) return "Reset unknown";
@@ -159,23 +200,41 @@ export function AccountLimitsLine({
       cachedView.fetchedAt <= expectedFetchedAt);
   const view = changed ? null : cachedView;
   const fetchedAt = view?.fetchedAt;
-  const refreshMissing =
-    view?.status === "unknown" &&
-    view.reason === "missing_snapshot" &&
-    view.refreshAvailable;
+  // A source with quota-only refresh (today Codex, which has no background
+  // collector) refreshes once when the card opens showing missing or Outdated
+  // limits. Sources without it stay cached-only. Judged as the card opens.
+  const outdatedWhenRead =
+    view?.status === "snapshot" &&
+    summaryWindows(view.windows).some((window) =>
+      outdated(window, Date.parse(view.fetchedAt)),
+    );
+  const refreshOnOpen =
+    view?.refreshAvailable === true &&
+    ((view.status === "unknown" && view.reason === "missing_snapshot") ||
+      outdatedWhenRead);
   const displayToken = view?.displayToken;
   useEffect(() => {
     if (
       !context ||
       blocked ||
-      !refreshMissing ||
+      !refreshOnOpen ||
       !displayToken ||
       initialRefresh.current === displayToken
     )
       return;
     initialRefresh.current = displayToken;
+    if (!claimAccountLimitsAutoRefresh(scope, connectionId, displayToken))
+      return;
     refreshCurrent();
-  }, [context, blocked, refreshMissing, displayToken, refreshCurrent]);
+  }, [
+    context,
+    blocked,
+    refreshOnOpen,
+    displayToken,
+    scope,
+    connectionId,
+    refreshCurrent,
+  ]);
   useEffect(() => {
     setLocal(true);
     const started = Date.now();
@@ -225,80 +284,62 @@ export function AccountLimitsLine({
       <div className="min-w-0 flex-1 space-y-2">
         {view?.status === "snapshot" ? (
           <>
-            {view.windows
-              .filter(
-                (window) =>
-                  window.dimension === undefined ||
-                  window.remainingPercent !== null ||
-                  (window.dimension === "plan_quota" &&
-                    window.resetAt !== null),
-              )
-              .sort(
-                (left, right) =>
-                  Number(left.dimension === "rate_limit") -
-                  Number(right.dimension === "rate_limit"),
-              )
-              .slice(0, 2)
-              .map((window, index) => {
-                const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
-                const observed = window.observedAt
-                  ? Date.parse(window.observedAt)
-                  : NaN;
-                const elapsed = Number.isFinite(reset) && now >= reset;
-                const stale =
-                  window.stale ||
-                  !Number.isFinite(observed) ||
-                  now - observed >= 300_000 ||
-                  elapsed;
-                return (
-                  <div
-                    key={`${window.label}:${index}`}
-                    className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5"
-                  >
-                    <span className="min-w-4 shrink-0">{window.label}</span>
-                    <span className="min-w-20 font-semibold tabular-nums text-slate-100">
-                      {window.remainingPercent === null
-                        ? window.dimension === "plan_quota"
-                          ? "Remaining not reported"
-                          : "Remaining unknown"
-                        : `${window.remainingPercent}% left`}
-                    </span>
-                    {window.remainingPercent !== null ? (
+            {summaryWindows(view.windows).map((window, index) => {
+              const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
+              const stale = outdated(window, now);
+              return (
+                <div
+                  key={`${window.label}:${index}`}
+                  className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5"
+                >
+                  <span className="min-w-4 shrink-0">{window.label}</span>
+                  <span className="min-w-20 font-semibold tabular-nums text-slate-100">
+                    {window.remainingPercent === null
+                      ? window.dimension === "plan_quota"
+                        ? "Remaining not reported"
+                        : "Remaining unknown"
+                      : `${window.remainingPercent}% left`}
+                  </span>
+                  {window.remainingPercent !== null ? (
+                    <div
+                      role="progressbar"
+                      aria-label={`${window.label} remaining`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={window.remainingPercent}
+                      aria-valuetext={`${window.remainingPercent}% remaining${window.usedPercent === null ? "" : `; ${window.usedPercent}% used`}`}
+                      className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-700 sm:w-20"
+                    >
                       <div
-                        role="progressbar"
-                        aria-label={`${window.label} remaining`}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={window.remainingPercent}
-                        aria-valuetext={`${window.remainingPercent}% remaining${window.usedPercent === null ? "" : `; ${window.usedPercent}% used`}`}
-                        className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-700 sm:w-20"
-                      >
-                        <div
-                          className={
-                            window.remainingPercent <= 5
-                              ? "h-full bg-rose-400"
-                              : window.remainingPercent <= 20
-                                ? "h-full bg-amber-400"
-                                : "h-full bg-cyan-400"
-                          }
-                          style={{ width: `${window.remainingPercent}%` }}
-                        />
-                      </div>
-                    ) : null}
-                    <span className="whitespace-nowrap tabular-nums">
-                      {resetText(reset, now)}
+                        className={
+                          window.remainingPercent <= 5
+                            ? "h-full bg-rose-400"
+                            : window.remainingPercent <= 20
+                              ? "h-full bg-amber-400"
+                              : "h-full bg-cyan-400"
+                        }
+                        style={{ width: `${window.remainingPercent}%` }}
+                      />
+                    </div>
+                  ) : null}
+                  <span className="whitespace-nowrap tabular-nums">
+                    {resetText(reset, now)}
+                  </span>
+                  {stale ? (
+                    <span
+                      className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
+                      title={
+                        view.refreshAvailable
+                          ? "These limits may have changed. Refresh fetches current limits without running a model; Ready describes the connection, not its remaining quota."
+                          : "These saved limits may have changed. Reload checks the latest saved snapshot; Ready describes the connection, not its remaining quota."
+                      }
+                    >
+                      Outdated
                     </span>
-                    {stale ? (
-                      <span
-                        className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
-                        title="These saved limits may have changed. Reload checks the latest saved snapshot; Ready describes the connection, not its remaining quota."
-                      >
-                        Outdated
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
+                  ) : null}
+                </div>
+              );
+            })}
             <details>
               <summary className="w-fit cursor-pointer rounded text-slate-500 hover:text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300/70">
                 Details
@@ -351,9 +392,26 @@ export function AccountLimitsLine({
         {query.isError || query.data?.status === "unavailable" ? (
           <p role="status">Could not reload saved limits.</p>
         ) : null}
+        {refresh.data?.newer === false &&
+        // Only beside the snapshot that refresh installed, not a later one.
+        refresh.data.displayToken === view?.displayToken &&
+        refresh.data.fetchedAt === view.fetchedAt &&
+        outdatedWhenRead ? (
+          // A refresh whose newest observation is no newer than before must
+          // say so instead of leaving a silent Outdated badge.
+          <p role="status">
+            Refresh returned no newer limits. Try again later, or reconnect the
+            account if this keeps happening.
+          </p>
+        ) : null}
         {refresh.isError ? (
           <p role="status">
-            Could not refresh current limits. Saved observations are unchanged.
+            {accountDiagnosisMessage(
+              refresh.error instanceof AccountDiagnosisError
+                ? refresh.error.diagnosis
+                : undefined,
+            )}{" "}
+            Saved observations are unchanged.
           </p>
         ) : null}
       </div>

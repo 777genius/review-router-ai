@@ -23,7 +23,7 @@ import {
   defaultWorkflowPath,
   getCodexRotatingWorkflowSetupContentMarkerGroups,
   getWorkflowSetupContentMarkerGroups,
-  renderCanonicalCodexRotatingInteractionWorkflowV3,
+  renderCodexRotatingInteractionWorkflow,
   type ReviewRouterDiscussionMode,
   renderAccountGatewayWorkflow,
   renderAccountGatewayInteractionWorkflow,
@@ -75,8 +75,9 @@ export function workflowSetupReadinessMode(
   if (
     input.discussionMode === "suggest" &&
     !(
-      input.codexSessionMode === "account-gateway" &&
-      input.gatewayInteractionRuntimeSha
+      (input.codexSessionMode === "account-gateway" &&
+        input.gatewayInteractionRuntimeSha) ||
+      (input.codexRotatingProviderInstanceId && !input.codexSessionMode)
     )
   )
     return "invalid";
@@ -353,12 +354,14 @@ export async function isWorkflowSetupAlreadyCurrent(
 
   let expectedInteractionWorkflow: string;
   try {
-    expectedInteractionWorkflow =
-      renderCanonicalCodexRotatingInteractionWorkflowV3({
-        actionRef: input.actionRef,
-        apiUrl: expectedPublicApiUrl!,
-        runtimeConfigMode: "oidc",
-      });
+    expectedInteractionWorkflow = renderCodexRotatingInteractionWorkflow({
+      actionRef: input.actionRef,
+      apiUrl: expectedPublicApiUrl!,
+      runtimeConfigMode: "oidc",
+      ...(input.discussionMode !== undefined
+        ? { discussionMode: input.discussionMode }
+        : {}),
+    });
   } catch {
     return false;
   }

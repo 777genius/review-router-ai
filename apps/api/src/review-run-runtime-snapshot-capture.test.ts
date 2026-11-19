@@ -3,6 +3,7 @@ import {
   providerApiAuthModes,
   providerApiDescriptors,
   reviewerPlanDescriptorDigest,
+  reviewerPlanV1DescriptorDigest,
   reviewModelDispatchContract,
   reviewModelDispatchDescriptorDigest,
   reviewModelDispatchCapacity128Contract,
@@ -24,6 +25,7 @@ import {
   parseReviewConfigurationStrict,
 } from "@reviewrouter/features-review-config";
 import {
+  buildReviewRunReviewerPlan,
   parseReviewAgentProfiles,
   parseReviewRunRuntimeSnapshot,
   ManageReviewRunAuthorizations,
@@ -36,6 +38,7 @@ import { createReviewRunControlTestKit } from "../../../packages/features/review
 import { provisionV2AuthorizationContext } from "../../../packages/features/review-run-control/src/tests/fixtures";
 import { storedPolicyForConfiguration } from "../../../packages/features/review-config/src/tests/current-policy-fixture";
 import {
+  assertRelayProfilesApprovedForRuns,
   readServerApprovedReviewRunGatewayPolicy,
   readServerReviewAgentProfileRef,
   readServerReviewRunGatewayRequestCaps,
@@ -339,7 +342,7 @@ describe("multi-reviewer immutable capture", () => {
       producerRelease: {
         ...original.producerRelease,
         reviewerPlanProfile: {
-          planVersion: 1 as const,
+          planVersion: 2 as const,
           descriptorDigest: reviewerPlanDescriptorDigest,
         },
       },
@@ -435,6 +438,162 @@ describe("multi-reviewer immutable capture", () => {
         readerFor(canonicalJson(config)),
       ),
     ).toBeNull();
+  });
+  // Production regression: reviewer 2 used a connected NVIDIA profile missing
+  // from the server-approved policy. Capture returned null, admission reported
+  // admission_facts_changed and the route replaced it with an opaque 500.
+  it("denies a reviewer whose Gateway profile the server policy does not approve", async () => {
+    const config = multiConfiguration();
+    const unapproved = parseReviewConfigurationStrict({
+      ...config,
+      providers: [
+        config.providers[0],
+        {
+          ...config.providers[1],
+          gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+        },
+      ],
+    });
+    await expect(
+      snapshotSource().capture(
+        multiInput(),
+        readerFor(canonicalJson(unapproved)),
+      ),
+    ).resolves.toEqual({ captureDenied: "gateway_profile_unapproved" });
+    const single = parseReviewConfigurationStrict({
+      ...JSON.parse(gatewayPolicyJson({})),
+      providers: [
+        {
+          ...JSON.parse(gatewayPolicyJson({})).providers[0],
+          gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+        },
+      ],
+    });
+    await expect(
+      snapshotSource().capture(
+        captureInput(),
+        readerFor(canonicalJson(single)),
+      ),
+    ).resolves.toEqual({ captureDenied: "gateway_profile_unapproved" });
+  });
+  // An approved profile that is not the one of the saved connection used to
+  // return null, which the authorize route turned into an opaque 500.
+  it("denies a reviewer whose saved profile is not its connection's profile", async () => {
+    const limits = {
+      requests: 2,
+      concurrency: 1,
+      requestBytes: 4096,
+      outputBytes: 196608,
+      tokens: 128,
+    };
+    const source = new ProductionReviewRunRuntimeSnapshot(
+      {} as PrismaClient,
+      {
+        profiles: [
+          { profileRef: gatewayProfileRef, limits },
+          { profileRef: "nvidia-build-chat-apikey-v1", limits },
+        ],
+      },
+      undefined,
+      false,
+      "codex-default",
+    );
+    const saved = JSON.parse(gatewayPolicyJson({}));
+    const mismatched = parseReviewConfigurationStrict({
+      ...saved,
+      providers: [
+        {
+          ...saved.providers[0],
+          gatewayProfileRef: "nvidia-build-chat-apikey-v1",
+        },
+      ],
+    });
+    await expect(
+      source.capture(captureInput(), readerFor(canonicalJson(mismatched))),
+    ).resolves.toEqual({ captureDenied: "gateway_profile_unapproved" });
+  });
+  it("refuses at startup a relay profile the run policy does not approve", () => {
+    const limits = {
+      requests: 2,
+      concurrency: 1,
+      requestBytes: 4096,
+      outputBytes: 196608,
+      tokens: 128,
+    };
+    const runPolicy = {
+      profiles: [{ profileRef: gatewayProfileRef, limits }],
+    };
+    expect(() =>
+      assertRelayProfilesApprovedForRuns(
+        [gatewayProfileRef, "nvidia-build-chat-apikey-v1", "glm-coding-v1"],
+        runPolicy,
+      ),
+    ).toThrow(
+      "review_run_gateway_relay_profile_unapproved:glm-coding-v1,nvidia-build-chat-apikey-v1",
+    );
+    expect(() =>
+      assertRelayProfilesApprovedForRuns([gatewayProfileRef], runPolicy),
+    ).not.toThrow();
+    // Without a run policy no Gateway run is authorized at all; the relay may
+    // still serve dashboard probes, so this is not a startup error.
+    expect(() =>
+      assertRelayProfilesApprovedForRuns([gatewayProfileRef], undefined),
+    ).not.toThrow();
+  });
+  it("captures an ordered fallback only for a producer that runs reviewer plan v2", async () => {
+    const parallel = multiConfiguration();
+    const fallback = parseReviewConfigurationStrict({
+      ...parallel,
+      providerMode: "fallback",
+      execution: { ...parallel.execution, providerMaxParallel: 1 },
+    });
+    const captured = await snapshotSource().capture(
+      multiInput(),
+      readerFor(canonicalJson(fallback)),
+    );
+    if (
+      !captured ||
+      "captureDenied" in captured ||
+      captured.snapshotVersion !== 4
+    )
+      throw new Error("v4_capture_required");
+    expect(captured.providerMode).toBe("fallback");
+    expect(captured.maxParallelReviewers).toBe(1);
+    expect(buildReviewRunReviewerPlan(captured)).toMatchObject({
+      planVersion: 2,
+      providerMode: "fallback",
+    });
+    // A parallel roster keeps its exact version 1 plan.
+    const parallelCapture = await snapshotSource().capture(
+      multiInput(),
+      readerFor(canonicalJson(parallel)),
+    );
+    expect(parallelCapture).not.toHaveProperty("providerMode");
+    // A version 1 producer, or one without any plan profile, is refused.
+    for (const reviewerPlanProfile of [
+      {
+        planVersion: 1 as const,
+        descriptorDigest: reviewerPlanV1DescriptorDigest,
+      },
+      undefined,
+    ]) {
+      const input = multiInput();
+      const { reviewerPlanProfile: _profile, ...release } =
+        input.producerRelease;
+      void _profile;
+      expect(
+        await snapshotSource().capture(
+          {
+            ...input,
+            producerRelease: {
+              ...release,
+              ...(reviewerPlanProfile ? { reviewerPlanProfile } : {}),
+            },
+          },
+          readerFor(canonicalJson(fallback)),
+        ),
+      ).toEqual({ captureDenied: "reviewer_fallback_unsupported" });
+    }
   });
   it("accepts sixteen while rejecting a Default and explicit equivalent engine identity", async () => {
     const maximum = await snapshotSource().capture(

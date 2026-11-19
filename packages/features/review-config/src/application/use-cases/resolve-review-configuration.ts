@@ -24,6 +24,7 @@ export type ResolvedReviewConfiguration = {
   readonly config: ReviewConfiguration;
   readonly policy: PersistedReviewConfiguration["policy"];
   readonly selections: readonly ReviewProviderSelection[];
+  readonly providerMode: PersistedReviewConfiguration["providerMode"];
 };
 
 export type ResolvedReviewRuntimeEnv = ResolvedReviewConfiguration & {
@@ -55,6 +56,7 @@ function toResolvedConfiguration(
     config: persisted.config,
     policy: persisted.policy,
     selections: persisted.selections,
+    providerMode: persisted.providerMode,
   };
 }
 

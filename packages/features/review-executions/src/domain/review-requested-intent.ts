@@ -434,8 +434,10 @@ export function decideReviewRequestedRegistration(input: {
   const intent = createReviewRequestedIntent(input.candidate);
   const preAdmission = input.preAdmissionInScope;
   if (
-    preAdmission?.state === ReviewRequestedIntentState.PendingDispatch &&
-    compareIngressOrder(input.candidate, preAdmission) < 0
+    preAdmission !== null &&
+    ((preAdmission.state === ReviewRequestedIntentState.PendingDispatch &&
+      compareIngressOrder(input.candidate, preAdmission) < 0) ||
+      joinsDispatchedRun(input.candidate, preAdmission))
   ) {
     return {
       status: ReviewRequestedRegistrationDecisionStatus.RegisterSuperseded,
@@ -475,6 +477,26 @@ export function decideReviewRequestedRegistration(input: {
     intent,
     supersededIntent: null,
   };
+}
+
+/**
+ * A pull request event for the revision whose workflow run is already
+ * dispatched and still within its authorization window adds nothing: a second
+ * run would take the first run's execution over and discard its reviewer work.
+ * A manual command stays an explicit rerun, and a dispatch whose run is not
+ * confirmed or whose window has passed does not absorb the new request.
+ */
+function joinsDispatchedRun(
+  candidate: ReviewRequestedIntentCandidate,
+  dispatched: ReviewRequestedIntent,
+): boolean {
+  return (
+    candidate.triggerKind !== ReviewRequestedTriggerKind.ManualCommand &&
+    dispatched.state === ReviewRequestedIntentState.AwaitingAuthorization &&
+    dispatched.resolutionDeadlineAt !== null &&
+    dispatched.resolutionDeadlineAt > candidate.createdAt &&
+    reviewRevisionsEqual(dispatched.revision, candidate.revision)
+  );
 }
 
 function compareIngressOrder(

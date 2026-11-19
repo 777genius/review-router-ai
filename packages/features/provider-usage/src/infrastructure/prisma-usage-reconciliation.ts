@@ -85,8 +85,13 @@ export class PrismaUsageReconciliation {
   ): Promise<void> {
     if (!/^[a-z0-9_]{1,80}$/.test(input.code))
       throw new Error("usage_invalid_error_code");
+    // A Gateway outage can outlast the retry budget. Keep its cursor and
+    // retry at the existing capped backoff; data/integrity errors still stop.
+    const transientGateway =
+      lease.sourceInstance.startsWith("gateway/") &&
+      input.code === "native_source_unavailable";
     const count = await this.prisma
-      .$executeRaw`UPDATE "UsageSourceCheckpoint" SET "failureCount"="failureCount"+1,"lastErrorCode"=${input.code},"nextAttemptAt"=statement_timestamp()+(LEAST(3600,60*power(2,LEAST("failureCount",6))) * INTERVAL '1 second'),"deadLetteredAt"=CASE WHEN "failureCount">=7 THEN statement_timestamp() ELSE NULL END,"leaseOwner"=NULL,"leaseUntil"=NULL WHERE "sourceInstance"=${lease.sourceInstance} AND "workspaceId"=${lease.workspaceId} AND "leaseOwner"=${lease.owner} AND "fence"=${lease.fence} AND "leaseUntil">statement_timestamp() AND "disabledAt" IS NULL`;
+      .$executeRaw`UPDATE "UsageSourceCheckpoint" SET "failureCount"="failureCount"+1,"lastErrorCode"=${input.code},"nextAttemptAt"=statement_timestamp()+(LEAST(3600,60*power(2,LEAST("failureCount",6))) * INTERVAL '1 second'),"deadLetteredAt"=CASE WHEN "failureCount">=7 AND NOT ${transientGateway} THEN statement_timestamp() ELSE NULL END,"leaseOwner"=NULL,"leaseUntil"=NULL WHERE "sourceInstance"=${lease.sourceInstance} AND "workspaceId"=${lease.workspaceId} AND "leaseOwner"=${lease.owner} AND "fence"=${lease.fence} AND "leaseUntil">statement_timestamp() AND "disabledAt" IS NULL`;
     if (count !== 1) throw new UsageError("usage_checkpoint_stale");
   }
   async prune(now: Date): Promise<void> {

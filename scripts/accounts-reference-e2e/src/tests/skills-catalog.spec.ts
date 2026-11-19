@@ -571,7 +571,7 @@ test.describe("Catalog real checked import", () => {
     await capture(dialog, "skills-catalog-inert-preview-mobile.png");
   });
 
-  test("Catalog immutable source choice, unsupported companions and incomplete discovery stay understandable", async ({
+  test("Catalog immutable source choice, agent-style skills, oversized refusal and incomplete discovery stay understandable", async ({
     page,
   }) => {
     const dialog = await openCatalog(page);
@@ -605,12 +605,85 @@ test.describe("Catalog real checked import", () => {
     await dialog
       .getByRole("button", { name: "Preview Companion review" })
       .click();
-    await expect(dialog.getByRole("alert")).toContainText(
-      "This skill cannot be added as text instructions.",
+    await expect(
+      dialog.getByRole("heading", { name: "companion-review", exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText(
+        /Linked files are not included: references\/policy\.md\./u,
+      ),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText(/^Not used: allowed-tools, version\./u),
+    ).toBeVisible();
+    await check(dialog);
+    await expect(
+      dialog.getByRole("button", { name: "Add to library" }),
+    ).toBeDisabled();
+    await dialog
+      .getByRole("checkbox", {
+        name: /I understand that only these text instructions will be added/,
+      })
+      .check();
+    await capture(dialog, "skills-catalog-linked-files-desktop.png");
+    await dialog
+      .getByRole("button", { name: "Add to library", exact: true })
+      .click();
+    const assign = page.getByRole("dialog", {
+      name: "Assign skill to repositories",
+    });
+    await expect(assign).toBeVisible();
+    const added = (
+      await sql<{
+        omittedFields: string[];
+        hasResources: boolean;
+        instructions: string;
+        importedSkillId: string | null;
+      }>(
+        `SELECT "omittedFields","hasResources",instructions,"importedSkillId" FROM "ReviewSkillImportCandidate" WHERE name='companion-review' ORDER BY "createdAt" DESC LIMIT 1`,
+      )
+    )[0]!;
+    expect(added.omittedFields).toEqual(["allowed-tools", "version"]);
+    expect(added.hasResources).toBe(true);
+    expect(added.instructions).toContain("references/policy.md");
+    expect(added.importedSkillId).toBeTruthy();
+    await assign
+      .getByRole("button", { name: /^Close/u })
+      .first()
+      .click();
+    await expect(assign).toBeHidden();
+    await page
+      .getByRole("button", { name: "Browse catalog", exact: true })
+      .click();
+    await expect(dialog).toBeVisible();
+    await dialog
+      .getByRole("searchbox", { name: "Search the catalog" })
+      .fill("Oversized review");
+    await dialog
+      .getByRole("button", { name: "Preview Oversized review" })
+      .click();
+    await expect(
+      dialog.getByRole("heading", { name: "This skill cannot be added" }),
+    ).toBeVisible();
+    await expect(dialog.getByText(/longer than 32 KB/u)).toBeVisible();
+    await expect(
+      dialog.getByRole("link", {
+        name: "Open rr-catalog-fixture/skills on GitHub",
+      }),
+    ).toHaveAttribute(
+      "href",
+      `https://github.com/rr-catalog-fixture/skills/tree/${"1".repeat(40)}/oversized-review`,
     );
+    await expect(
+      dialog.getByRole("button", { name: "Check skill" }),
+    ).toHaveCount(0);
     await expect(
       dialog.getByRole("button", { name: "Add to library" }),
     ).toHaveCount(0);
+    await capture(dialog, "skills-catalog-unsupported-desktop.png");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await capture(dialog, "skills-catalog-unsupported-mobile.png");
+    await page.setViewportSize({ width: 1280, height: 900 });
     await dialog.getByRole("button", { name: "Back to results" }).click();
     await dialog
       .getByRole("searchbox", { name: "Search the catalog" })

@@ -93,6 +93,7 @@ import {
   effectiveReviewSettings,
   readyReviewConfiguration,
   resolveEffectiveReviewConfigurations,
+  reviewProviderModeOf,
   type EffectiveReviewConfiguration,
   type PersistedReviewConfiguration,
   type RepositoryReviewPolicy,
@@ -225,6 +226,11 @@ import { memoryDashboardPublicError } from "../../src/features/memory/adapters/m
 import { DashboardActionForm } from "./dashboard-action-form";
 import { repositorySourceUrl } from "./repository-source-url";
 import { WorkspaceSourceConnectionPanel } from "./workspace-source-connection";
+import { RepositoryScanStatus } from "./repository-scan-status";
+import { repositoryScanKey } from "./repository-scan-api";
+import { loadRepositoryScanSnapshot } from "../../src/server/repository-scan";
+import { latestInstallationPerAccount } from "../../src/server/dashboard-workspace-model";
+import type { RepositoryScanSnapshot } from "../../src/features/repository-scan/repository-scan-model";
 import {
   HostedPoolSettingsPanel,
   RepositorySessionSourceSelector,
@@ -324,6 +330,11 @@ type DashboardWorkspaceData = {
     ReturnType<PrismaOrgRulesetProvisioningRepository["findByWorkspaceId"]>
   > | null;
   hostedPool: Awaited<ReturnType<typeof loadHostedPoolDashboardView>>;
+  /** Scan progress for workspace-wide viewers in Repositories; else null. */
+  repositoryScan?: {
+    readonly actorId: string;
+    readonly snapshot: RepositoryScanSnapshot;
+  } | null;
 };
 
 export async function loadDashboardSectionData(
@@ -393,6 +404,20 @@ export async function loadDashboardSectionData(
   // Observe that rejection now; the awaited aggregate below still propagates it.
   void independentReadsPromise.catch(() => {});
 
+  // Before the list: every repository of a scan read as finished is in it.
+  // Progress is auxiliary, so a failed read keeps the plain list.
+  const repositoryScanSnapshot =
+    section === "repositories" && hasWorkspaceWideAccess
+      ? await loadRepositoryScanSnapshot({
+          prisma,
+          workspaceId: workspace.id,
+        }).catch(() => {
+          console.error("repository_scan_read_failed", {
+            workspaceId: workspace.id,
+          });
+          return null;
+        })
+      : null;
   const [repositories, storedEntitlement] = await Promise.all([
     section === "setup"
       ? Promise.resolve([])
@@ -639,6 +664,13 @@ export async function loadDashboardSectionData(
     supportDiagnostics,
     orgRuleset,
     hostedPool,
+    repositoryScan: repositoryScanSnapshot
+      ? {
+          // Scopes the client cache; the polled route authorizes by session.
+          actorId: signedInActor?.userId ?? "signed-out",
+          snapshot: repositoryScanSnapshot,
+        }
+      : null,
   };
 }
 
@@ -1275,6 +1307,7 @@ export function WorkspaceCard({
     supportDiagnostics,
     orgRuleset,
     hostedPool,
+    repositoryScan = null,
   } = data;
   const keySetupIntent = readApiKeySetupIntent(params, workspace.id);
   const providerHubNav =
@@ -1620,6 +1653,11 @@ export function WorkspaceCard({
               installations={activeInstallations}
               gitLabInstallations={workspace.gitLabInstallations}
               repositories={repositories}
+              scanQueryKey={
+                repositoryScan
+                  ? repositoryScanKey(repositoryScan.actorId, workspace.id)
+                  : null
+              }
               hasWorkspaceWideAccess={hasWorkspaceWideAccess}
               mutationsEnabled={mutationsEnabled}
             />
@@ -1669,6 +1707,11 @@ export function WorkspaceCard({
                 mutationsEnabled && hasWorkspaceWideAccess
               }
               gatewayReadiness={gatewayReadiness}
+              repositoryScan={repositoryScan}
+              expectRepositoryScan={
+                readParam(params.notice) === "app_installed"
+              }
+              activeInstallations={activeInstallations}
             />
             {hasWorkspaceWideAccess ? (
               <OrgRulesetAdvancedCard
@@ -1717,7 +1760,14 @@ export function WorkspaceCard({
                   workspaceId={workspace.id}
                   expectedVersion={data.reviewConfigExpectedVersion}
                   settings={workspaceSettings}
-                  providerCount={data.workspacePolicy?.providers?.length ?? 1}
+                  providerCount={
+                    // A fallback roster runs one reviewer at a time, so the
+                    // parallel limits do not apply to it.
+                    data.workspacePolicy &&
+                    reviewProviderModeOf(data.workspacePolicy) === "fallback"
+                      ? 1
+                      : (data.workspacePolicy?.providers?.length ?? 1)
+                  }
                   primaryAuthMode={defaultSummary.profile?.authMode}
                   contextConnections={contextConnections}
                   mutationsEnabled={mutationsEnabled}
@@ -2127,6 +2177,54 @@ type ProviderDialogProps = Readonly<{
   initialIntent?: ApiKeySetupIntent | undefined;
 }>;
 
+/** The list is empty and no scan runs or failed. */
+function RepositoryListEmptyState({
+  installation,
+  canRequestScan,
+}: {
+  readonly installation: DashboardWorkspace["installations"][number] | null;
+  /** The viewer has Refresh repos under Repository sources. */
+  readonly canRequestScan: boolean;
+}): React.ReactElement {
+  const settingsUrl = installation
+    ? buildInstallationSettingsUrl(installation)
+    : null;
+  return (
+    <div className="p-5">
+      <Badge tone="warning">No repositories yet</Badge>
+      {installation ? (
+        <p className="mt-3 text-sm leading-6 text-slate-300">
+          ReviewRouter does not see any repositories of{" "}
+          {installation.accountLogin} yet. Check that the GitHub App can access
+          at least one repository in its{" "}
+          {settingsUrl ? (
+            <a
+              href={settingsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-cyan-100 underline decoration-cyan-300/40 underline-offset-4"
+            >
+              GitHub settings
+            </a>
+          ) : (
+            "GitHub settings"
+          )}
+          ; ReviewRouter scans again when that access changes.
+          {canRequestScan
+            ? " If it already has access, use Refresh repos under Repository sources."
+            : null}
+        </p>
+      ) : (
+        <p className="mt-3 text-sm leading-6 text-slate-300">
+          No source repositories are connected to this workspace yet. Use
+          Connect source to add GitHub App repositories. GitLab is in
+          development and not available yet.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RepositoryTable({
   workspace,
   repositoryReadiness,
@@ -2147,6 +2245,9 @@ function RepositoryTable({
   hostedPool,
   hostedPoolMutationsEnabled,
   gatewayReadiness,
+  repositoryScan,
+  expectRepositoryScan,
+  activeInstallations,
 }: {
   readonly workspace: DashboardWorkspace;
   readonly repositoryReadiness: readonly DashboardRepositoryReadiness<
@@ -2172,6 +2273,10 @@ function RepositoryTable({
   readonly hostedPool: DashboardWorkspaceData["hostedPool"];
   readonly hostedPoolMutationsEnabled: boolean;
   readonly gatewayReadiness: DashboardWorkspaceData["gatewayReadiness"];
+  readonly repositoryScan: DashboardWorkspaceData["repositoryScan"];
+  /** Opened right after a GitHub App install or access change. */
+  readonly expectRepositoryScan: boolean;
+  readonly activeInstallations: DashboardWorkspace["installations"];
 }): React.ReactElement {
   const repositoryConfigById = new Map(
     repositoryConfigs.map((item) => [item.repositoryId, item] as const),
@@ -2275,6 +2380,15 @@ function RepositoryTable({
     !cappedRows.some((row) => row.repository.id === selectedRow.repository.id)
       ? [selectedRow, ...cappedRows.slice(0, MAX_RENDERED_REPOSITORY_ROWS - 1)]
       : cappedRows;
+  const emptyState =
+    repositories.length === 0 ? (
+      <RepositoryListEmptyState
+        installation={
+          latestInstallationPerAccount(activeInstallations)[0] ?? null
+        }
+        canRequestScan={Boolean(repositoryScan)}
+      />
+    ) : null;
   return (
     <RepositorySelectionProvider
       key={workspace.id}
@@ -2304,16 +2418,23 @@ function RepositoryTable({
             is available.
           </p>
         ) : null}
-        {repositories.length === 0 ? (
-          <div className="p-5">
-            <Badge tone="warning">No repositories yet</Badge>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-              No source repositories are connected to this workspace yet. Use
-              Connect source to add GitHub App repositories. GitLab is in
-              development and not available yet.
-            </p>
-          </div>
+        {repositoryScan ? (
+          <RepositoryScanStatus
+            scope={{
+              actorId: repositoryScan.actorId,
+              workspaceId: workspace.id,
+            }}
+            initialSnapshot={repositoryScan.snapshot}
+            hasRepositories={repositories.length > 0}
+            mutationsEnabled={mutationsEnabled}
+            expectScan={expectRepositoryScan}
+          >
+            {emptyState}
+          </RepositoryScanStatus>
         ) : (
+          emptyState
+        )}
+        {repositories.length === 0 ? null : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-200/10 px-4 py-3 lg:px-6">
               <p className="text-sm font-semibold text-cyan-100">
@@ -2565,7 +2686,13 @@ function RepositoryTable({
                           expectedVersion={
                             repositoryPolicy?.expectedVersion ?? null
                           }
-                          providerCount={Math.max(reviewProviders.length, 1)}
+                          providerCount={
+                            // A fallback roster runs one reviewer at a time.
+                            repositoryPolicy?.effective?.providerMode ===
+                            "fallback"
+                              ? 1
+                              : Math.max(reviewProviders.length, 1)
+                          }
                           primaryAuthMode={reviewProviders[0]?.authMode}
                           contextConnections={contextConnections}
                           mutationsEnabled={
@@ -2756,6 +2883,7 @@ function repositoryProviderContext(input: {
           (
             [
               "claude_code_oauth",
+              "claude_code_api_key",
               ...apiKeyProviders.map((provider) => provider.directAuthMode),
             ] as UserCiSecretAuthMode[]
           ).map((authMode) => [

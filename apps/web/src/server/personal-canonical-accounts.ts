@@ -677,6 +677,12 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     if (
       !profile ||
       profile.availability === "deployment_configuration_required" ||
+      // Fresh trial enrollment needs the qualified upstream capability.
+      // Keep this identity in ingress for existing-account lifecycle/reconnect.
+      (profile.id === "nvidia-build-chat-apikey-v1" &&
+        (profile.provider !== "nvidia" ||
+          profile.availability !== "enabled" ||
+          profile.connection?.provider !== "nvidia")) ||
       (credential !== undefined
         ? profile.authKind !== "api_key"
         : profile.authKind !== "oauth")

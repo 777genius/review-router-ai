@@ -76,6 +76,110 @@ describe("canonical review v2 projection adapter", () => {
     ).rejects.toThrow("publication_verification_invalid");
   });
 
+  it("plans a report-only verified fix as an independent, canonical native reply payload", async () => {
+    const base = finalizedArtifact();
+    const projection = JSON.parse(base.projectionEnvelopeJson);
+    const targetId = "rrt_report_1";
+    projection.publishing.lifecycle = [
+      {
+        targetId,
+        threadId: "PRRT_report_1",
+        verdict: "resolved",
+        mutationEligible: false,
+        verification: {
+          targetId,
+          semanticVerdict: "resolved",
+          confirmationState: "fix_confirmed_thread_open",
+          severity: "major",
+          observationIds: ["observation-1"],
+          providerVoteKeys: ["verifier/account"],
+          reasonCodes: ["accepted_verification"],
+          mutationStatus: "report_only",
+        },
+      },
+    ];
+    const projectionEnvelopeJson = canonicalJson(projection);
+    const projectionHash = hash(projectionEnvelopeJson);
+    const artifact = {
+      ...base,
+      projectionPolicyVersion:
+        "review-projection-policy.v7-lifecycle-verification",
+      projectionEnvelopeJson,
+      projectionHash,
+      publicationPermit: { ...base.publicationPermit, projectionHash },
+    };
+    const adapter = new CanonicalReviewV2ProjectionAdapter({
+      async findArtifact() {
+        return {
+          artifact,
+          protocolLimitsProfileId: "limits-1",
+          limitsDigest: hash("8"),
+        };
+      },
+    });
+    const envelope = await adapter.publicationEnvelope(artifact);
+    expect(envelope?.lifecycle).toHaveLength(1);
+    expect(envelope?.lifecycle[0]).toMatchObject({
+      semantic: "confirm_reply",
+      chunkIndex: 0,
+    });
+    const planner = new ReviewPublicationOperationPlanningService({
+      async findReleaseBoundLimits() {
+        return {
+          producerReleaseId: "release-1",
+          protocolLimitsProfileId: "limits-1",
+          limitsDigest: hash("8"),
+          maxPublicationOperations: 20,
+          maxPublicationChunks: 20,
+          maxPublicationBodyBytes: 1_000_000,
+          maxReconciliationDurationMs: 60_000,
+        };
+      },
+    });
+    const plan = await planner.plan({
+      identity: {
+        publicationAttemptId: "publication-report-only",
+        version: ReviewPublicationOperationIdentityVersion.AttemptScopedV2,
+      },
+      envelope: envelope!,
+    });
+    const reply = plan.find(
+      (item) => item.publicationKind === ReviewPublicationKind.ThreadReply,
+    );
+    expect(reply).toMatchObject({
+      effectStrategy:
+        ReviewPublicationEffectStrategy.AppendOnlyCanonicalReceipt,
+      role: ReviewPublicationOperationRole.Standalone,
+      required: true,
+    });
+    expect(
+      plan.some(
+        (item) =>
+          item.publicationKind === ReviewPublicationKind.ThreadLifecycle,
+      ),
+    ).toBe(false);
+    const payload = await adapter.resolve({
+      permit: artifact.publicationPermit,
+      operation: {
+        ...reply!,
+        publicationAttemptId: "publication-report-only",
+        state: ReviewPublicationOperationState.Planned,
+      },
+    });
+    expect(payload).toMatchObject({
+      kind: ReviewV2PublicationPayloadKind.ThreadReply,
+      threadId: "PRRT_report_1",
+      targetId,
+      markerHash: reply!.markerHash,
+      bodyHash: reply!.bodyHash,
+    });
+    if (payload?.kind !== ReviewV2PublicationPayloadKind.ThreadReply)
+      throw new Error("expected_native_thread_reply");
+    expect(payload.body).toContain(
+      "<!-- reviewrouter:fix-verified:v1:rrt_report_1 -->",
+    );
+  });
+
   it("derives the same bounded payload identities used by planning and SCM", async () => {
     const artifact = finalizedArtifact();
     const adapter = new CanonicalReviewV2ProjectionAdapter({

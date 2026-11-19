@@ -25,6 +25,7 @@ import {
   type ReviewExecutionObservationRef,
   type ReviewExecutionScope,
   type ReviewExecutionStream,
+  type ReviewCoverageExceptions,
   type ReviewInvocationLease,
   type ReviewRevision,
   type ReviewWorkSlot,
@@ -1083,6 +1084,7 @@ export type FinalizeExecutionTransitionInput = {
   readonly publicationNotAfter: Date;
   readonly permitEpoch: bigint;
   readonly allowPartial: boolean;
+  readonly coverageExceptions?: ReviewCoverageExceptions;
   readonly limits: ReviewExecutionLimits;
   readonly now: Date;
   readonly retainUntil: Date;
@@ -1104,7 +1106,10 @@ export function decideExecutionFinalization(
   ) {
     return { status: ExecutionFinalizationDecisionStatus.NotRunnable };
   }
-  const coverageState = deriveCoverageState(input.execution.workSlots);
+  const coverageState = deriveCoverageState(
+    input.execution.workSlots,
+    input.coverageExceptions,
+  );
   if (coverageState === ReviewCoverageState.Partial && !input.allowPartial) {
     return {
       status: ExecutionFinalizationDecisionStatus.RequiredCoverageIncomplete,
@@ -1366,6 +1371,8 @@ export function decideExpiredRunningExecutionFailure(input: {
   readonly execution: ReviewExecution;
   readonly activeLeases: readonly ReviewInvocationLease[];
   readonly now: Date;
+  /** The worker proved this exact source attempt failed and its authority is terminal. */
+  readonly sourceTerminal?: boolean;
 }): ExecutionLifecycleDecision {
   assertDate(input.now, "execution_expiry_now");
   if (input.execution.state === ReviewExecutionState.Failed) {
@@ -1382,7 +1389,7 @@ export function decideExpiredRunningExecutionFailure(input: {
   if (
     input.execution.state !== ReviewExecutionState.Running ||
     input.stream.activeExecutionId !== input.execution.executionId ||
-    input.execution.executionDeadlineAt > input.now
+    (!input.sourceTerminal && input.execution.executionDeadlineAt > input.now)
   ) {
     return unchangedLifecycle(
       ExecutionLifecycleDecisionStatus.NotEligible,

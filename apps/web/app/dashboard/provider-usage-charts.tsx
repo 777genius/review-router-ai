@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { UsageCosts } from "./provider-usage-tables";
+import { UsageCosts, UsageCoverage } from "./provider-usage-tables";
 import type { ProviderUsageReport } from "./provider-usage-model";
 import {
   chartNumber,
@@ -17,6 +17,7 @@ import {
   compact,
   costKey,
   dayLabel,
+  isFreeModel,
   metricLabel,
   metricValue,
   providerColor,
@@ -154,15 +155,15 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                             {row.provider}:{" "}
                             {metricLabel(row.totals, metric, bucket)}
                             {row.totals.unknownCount || row.totals.partialCount
-                              ? " · unknown or partial observations"
+                              ? " · some token data incomplete"
                               : ""}
                             {metric === "cost" && row.totals.unknownCostCount
-                              ? " · some cost unknown"
+                              ? " · some cost not reported"
                               : ""}
                           </p>
                         ))
                       ) : (
-                        <p>No observations; coverage unknown</p>
+                        <p>No usage recorded</p>
                       )}
                     </div>
                   );
@@ -215,8 +216,9 @@ export function UsageCharts({ report, metric, bucket }: Props) {
           ))}
         </ul>
         <p className="mt-2 text-xs text-slate-500">
-          UTC days · ○ No observations or unknown value · Partial days at period
-          boundaries
+          UTC days · ○ No usage recorded or value not reported · Partial days at
+          period boundaries describe the time window, not measurement
+          completeness
         </p>
       </section>
       <section
@@ -315,6 +317,7 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                           unknownCostCount={row.totals.unknownCostCount}
                           selectedCurrency={bucket?.currency}
                           basis={bucket?.basis}
+                          pricing={isFreeModel(row) ? "free_model" : undefined}
                         />
                       ) : (
                         compact(value)
@@ -386,7 +389,7 @@ export function DailyUsageTable({
                   >
                     <th scope="row" className="px-2 py-2 font-normal">
                       {day.day}
-                      {day.partial ? " (partial)" : ""}
+                      {day.partial ? " (partial day)" : ""}
                     </th>
                     <td>{row.provider}</td>
                     <td>{metricLabel(row.totals, "tokens", undefined)}</td>
@@ -400,8 +403,7 @@ export function DailyUsageTable({
                       />
                     </td>
                     <td>
-                      {row.totals.unknownCount} unknown /{" "}
-                      {row.totals.partialCount} partial
+                      <UsageCoverage totals={row.totals} />
                     </td>
                   </tr>
                 ))
@@ -409,9 +411,9 @@ export function DailyUsageTable({
                   <tr key={day.day} className="border-b border-slate-800/70">
                     <th scope="row" className="px-2 py-2 font-normal">
                       {day.day}
-                      {day.partial ? " (partial)" : ""}
+                      {day.partial ? " (partial day)" : ""}
                     </th>
-                    <td colSpan={5}>No observations; coverage unknown</td>
+                    <td colSpan={5}>No usage recorded</td>
                   </tr>,
                 ];
           })}

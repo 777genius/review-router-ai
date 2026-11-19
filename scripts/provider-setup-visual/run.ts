@@ -140,6 +140,7 @@ async function main(): Promise<void> {
     await writeJson(join(options.outDir, "seed.json"), await reseed());
     if (!options.flags.personalSharing)
       gateway = await startGatewayCatalogFixture({
+        nvidiaEvaluation: options.flags.nvidiaEvaluation === true,
         reviewerAccounts:
           options.flows &&
           options.only?.test("flow-gateway-reviewer-roster") === true,
@@ -291,6 +292,7 @@ function readOptions(): RunOptions {
       port: { type: "string" },
       rotating: { type: "boolean", default: false },
       "no-personal-sharing": { type: "boolean", default: false },
+      "nvidia-evaluation": { type: "boolean", default: false },
       flows: { type: "boolean", default: false },
       "flows-only": { type: "boolean", default: false },
       "require-onboarding": { type: "boolean", default: false },
@@ -314,6 +316,7 @@ function readOptions(): RunOptions {
     flags: {
       rotating: values.rotating ?? false,
       personalSharing: !values["no-personal-sharing"],
+      nvidiaEvaluation: values["nvidia-evaluation"] === true,
     },
     shots: !values["flows-only"],
     flows: Boolean(values.flows || values["flows-only"]),

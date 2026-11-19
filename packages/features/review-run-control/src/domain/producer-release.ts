@@ -20,10 +20,13 @@ import {
   parseReviewAgentProfiles,
   type ReviewAgentProfile,
 } from "./review-agent-profile";
-import { reviewerPlanDescriptorDigest } from "@reviewrouter/shared";
+import {
+  reviewerPlanDescriptorDigest,
+  reviewerPlanV1DescriptorDigest,
+} from "@reviewrouter/shared";
 
 export type ProducerReviewerPlanProfile = Readonly<{
-  planVersion: 1;
+  planVersion: 1 | 2;
   descriptorDigest: string;
 }>;
 
@@ -37,23 +40,35 @@ export function parseProducerReviewerPlanProfile(
     Array.isArray(value) ||
     Object.keys(value).sort().join(",") !== "descriptorDigest,planVersion" ||
     !("planVersion" in value) ||
-    value.planVersion !== 1 ||
+    (value.planVersion !== 1 && value.planVersion !== 2) ||
     !("descriptorDigest" in value) ||
     typeof value.descriptorDigest !== "string" ||
     !/^sha256:[a-f0-9]{64}$/.test(value.descriptorDigest)
   )
     invalid("producer_reviewer_plan_profile_invalid");
   return Object.freeze({
-    planVersion: 1,
+    planVersion: value.planVersion,
     descriptorDigest: value.descriptorDigest,
   });
 }
 
-export function supportsProducerReviewerPlanV1(
+/** The producer reads reviewer plans: version 1 (parallel) or 2 (also fallback). */
+export function supportsProducerReviewerPlans(
   value: ProducerReviewerPlanProfile | undefined,
 ): boolean {
   return (
-    value?.planVersion === 1 &&
+    (value?.planVersion === 1 &&
+      value.descriptorDigest === reviewerPlanV1DescriptorDigest) ||
+    supportsProducerReviewerFallback(value)
+  );
+}
+
+/** Only a version 2 producer runs an ordered fallback plan. */
+export function supportsProducerReviewerFallback(
+  value: ProducerReviewerPlanProfile | undefined,
+): boolean {
+  return (
+    value?.planVersion === 2 &&
     value.descriptorDigest === reviewerPlanDescriptorDigest
   );
 }

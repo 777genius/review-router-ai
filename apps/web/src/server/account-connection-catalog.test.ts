@@ -54,7 +54,6 @@ describe("qualified connection catalog", () => {
       authKind: "api_key",
       connection: {
         provider: "glm",
-        personalOnly: true,
         modelSettings: [{ reasoning: null, fast: null }],
       },
     });
@@ -126,6 +125,87 @@ describe("qualified connection catalog", () => {
       }),
     ).rejects.toThrow();
   });
+  it("uses the standard API-key display label for qualified NVIDIA", async () => {
+    const [profile] = await connectionProfiles({
+      legacy: [],
+      capabilities: async () => ({
+        contract: "provider-connections/v1",
+        capabilities: [
+          {
+            ...capability,
+            profileId: "nvidia-build-chat-apikey-v1",
+            provider: { identity: "nvidia", label: "NVIDIA Build" },
+            plan: {
+              identity: "unknown",
+              label: "NVIDIA API trial (evaluation only)",
+            },
+          },
+        ],
+      }),
+    });
+    expect(profile).toMatchObject({
+      provider: "nvidia",
+      availability: "enabled",
+      connection: { planLabel: "API key" },
+    });
+  });
+  it.each([
+    "missing",
+    "disabled",
+    "absent_endpoint",
+    "custom_profile",
+  ] as const)(
+    "does not enable configured NVIDIA with %s capability",
+    async (state) => {
+      const legacy = {
+        id:
+          state === "custom_profile"
+            ? "custom-nvidia-profile"
+            : "nvidia-build-chat-apikey-v1",
+        label: "NVIDIA Build",
+        provider: "nvidia" as const,
+        protocol: "openai-responses" as const,
+        models: ["nvidia/model"],
+        authKind: "api_key" as const,
+        canReconnect: true,
+      };
+      const profiles = await connectionProfiles({
+        legacy: [legacy],
+        capabilities: async () => {
+          if (state === "absent_endpoint")
+            throw Object.assign(
+              new GatewayError("safe_error", "not_dispatched"),
+              {
+                httpStatus: 404,
+              },
+            );
+          return {
+            contract: "provider-connections/v1",
+            capabilities:
+              state === "missing"
+                ? []
+                : [
+                    {
+                      ...capability,
+                      profileId: legacy.id,
+                      provider: { identity: "nvidia", label: "NVIDIA Build" },
+                      availability:
+                        state === "custom_profile"
+                          ? "enabled"
+                          : "deployment_configuration_required",
+                    },
+                  ],
+          };
+        },
+      });
+      expect(profiles).toMatchObject([
+        {
+          id: legacy.id,
+          availability: "deployment_configuration_required",
+        },
+      ]);
+    },
+  );
   it("rejects unknown and duplicate deployment profile IDs", () => {
     expect(configuredSubscriptionProfiles(undefined)).toEqual([]);
     expect(configuredSubscriptionProfiles(` ${profileId} `)).toEqual([
@@ -148,7 +228,6 @@ describe("qualified connection catalog", () => {
           planLabel: "Subscription",
           regionLabel: "Global",
           completionInputKind: "authorization_code",
-          personalOnly: false,
           limitsContract: "account-limits/v2",
           modelSettings: [],
         },

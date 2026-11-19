@@ -221,6 +221,7 @@ boundaries:
       - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-report.ts
       - packages/features/provider-usage/src/infrastructure/usage-requested-provider-sql.ts
+      - packages/features/provider-usage/src/infrastructure/gateway-profile-provider.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-source-redrive.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
       - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts
@@ -229,6 +230,7 @@ boundaries:
       - packages/features/provider-usage/src/infrastructure/prisma-usage-reconciliation.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-report.ts
       - packages/features/provider-usage/src/infrastructure/usage-requested-provider-sql.ts
+      - packages/features/provider-usage/src/infrastructure/gateway-profile-provider.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-source-redrive.ts
       - packages/features/provider-usage/src/infrastructure/prisma-usage-store.ts
       - packages/features/provider-usage/src/infrastructure/public-model-price-snapshot.ts

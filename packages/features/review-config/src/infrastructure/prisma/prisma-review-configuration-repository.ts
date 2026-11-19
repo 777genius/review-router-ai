@@ -9,13 +9,14 @@ import {
 import {
   parseReviewPolicyDocument,
   resolveEffectiveReviewPolicy,
+  providerRosterOf,
   ReviewPolicyMaterializationError,
-  sameProviderSelections,
+  sameProviderRosters,
   STORED_REVIEW_POLICY_SCHEMA_VERSION,
   withProviderSelections,
   type RepositoryReviewPolicy,
   type ReviewPolicyDocument,
-  type ReviewProviderSelection,
+  type ReviewProviderRoster,
   type WorkspaceReviewPolicy,
 } from "../../domain/review-policy-document";
 import {
@@ -321,8 +322,8 @@ type PlannedWrite = Readonly<{
   implicit?: boolean;
 }>;
 
-/** Selections of a head; "unreadable" when a retired head may hold some. */
-type StoredSelections = readonly ReviewProviderSelection[] | undefined;
+/** Roster of a head; "unreadable" when a retired head may hold one. */
+type StoredRoster = ReviewProviderRoster | null;
 
 /**
  * Lock order: scope guards for every written scope -> Workspace (selection
@@ -472,9 +473,9 @@ async function saveReviewPolicyWrites(
     for (const write of writes) {
       const stored = storedHeads.get(write.targetKey) ?? null;
       if (
-        sameStoredSelections(
-          storedSelections(write.target.scope, stored),
-          write.policy.providers,
+        sameStoredRoster(
+          storedRoster(write.target.scope, stored),
+          providerRosterOf(write.policy),
         )
       )
         continue;
@@ -689,6 +690,7 @@ async function saveReviewPolicyWrites(
         ? persistedReviewConfiguration({
             config: resolved.config,
             selections: resolved.selections,
+            providerMode: resolved.providerMode,
             policy: write.policy,
             workspaceVersion,
             repositoryVersion:
@@ -812,24 +814,22 @@ async function readRepositoryHeads(
   );
 }
 
-const unreadableSelections = Symbol("unreadable_selections");
+const unreadableRoster = Symbol("unreadable_roster");
 
-function storedSelections(
+function storedRoster(
   scope: ReviewConfigurationTarget["scope"],
   head: ReviewPolicyHead | null,
-): StoredSelections | typeof unreadableSelections {
-  if (!head) return undefined;
+): StoredRoster | typeof unreadableRoster {
+  if (!head) return null;
   const policy = parseStoredReviewPolicy(scope, head);
-  return policy ? policy.providers : unreadableSelections;
+  return policy ? providerRosterOf(policy) : unreadableRoster;
 }
 
-function sameStoredSelections(
-  stored: StoredSelections | typeof unreadableSelections,
-  next: StoredSelections,
+function sameStoredRoster(
+  stored: StoredRoster | typeof unreadableRoster,
+  next: StoredRoster,
 ): boolean {
-  return (
-    stored !== unreadableSelections && sameProviderSelections(stored, next)
-  );
+  return stored !== unreadableRoster && sameProviderRosters(stored, next);
 }
 
 async function lockSelectedProfiles(
@@ -873,7 +873,7 @@ async function deleteReviewConfigurationTarget(
   if (
     selectionAuthority &&
     lockedAuthority &&
-    !sameStoredSelections(storedSelections(target.scope, current), undefined)
+    !sameStoredRoster(storedRoster(target.scope, current), null)
   )
     selectionAuthority.authorize({
       ...lockedAuthority,

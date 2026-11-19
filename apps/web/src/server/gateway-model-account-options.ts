@@ -241,16 +241,29 @@ export function createGatewayModelAccountOptions(input: {
         after.account.mirrorRevision !== row.connection.metadataRevision
       )
         throw new RowDenied();
+      // A source without a known upstream identity (e.g. a native catalogue on a
+      // profile that has no connection projection) cannot be presented as another
+      // vendor: fail closed instead of defaulting to OpenRouter.
+      const fallbackProvider =
+        discoverySource === "codex"
+          ? ("openai" as const)
+          : discoverySource === "nvidia"
+            ? ("nvidia" as const)
+            : discoverySource === "openrouter"
+              ? ("openrouter" as const)
+              : undefined;
+      if (
+        models.status === "snapshot" &&
+        !profile.connection &&
+        !fallbackProvider
+      )
+        models = { status: "unknown" };
       if (models.status === "snapshot") {
         const connection = profile.connection ?? {
-          provider:
-            discoverySource === "codex"
-              ? ("openai" as const)
-              : ("openrouter" as const),
+          provider: fallbackProvider ?? ("openrouter" as const),
           planLabel: profile.label,
           regionLabel: "Global",
           completionInputKind: "none" as const,
-          personalOnly: false,
           limitsContract: "none" as const,
           modelSettings: [],
         };
@@ -270,7 +283,9 @@ export function createGatewayModelAccountOptions(input: {
         // Only the Gateway's unavailable fallback admits the configured anchor.
         // Unsupported/unknown discovery cannot authorize profile seed models.
         const legacyModels =
-          models.status === "unavailable" ? [...profile.models] : [];
+          models.status === "unavailable" && discoverySource !== "nvidia"
+            ? [...profile.models]
+            : [];
         scopedProfile = {
           ...profile,
           models: legacyModels,

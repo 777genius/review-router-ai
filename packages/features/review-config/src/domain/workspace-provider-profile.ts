@@ -22,13 +22,18 @@ export type ProviderCredentialKind = (typeof providerCredentialKinds)[number];
 /** Auth modes each credential kind can deliver. */
 const credentialAuthModes = {
   gateway_binding: ["codex_account_gateway"],
-  managed_api_key: ["mimo_token_plan_api_key", "openrouter_api_key"],
+  managed_api_key: [
+    "mimo_token_plan_api_key",
+    "openrouter_api_key",
+    "claude_code_api_key",
+  ],
   hosted_pool: ["codex_subscription_oauth_hosted_pool"],
   repository_rotating: ["codex_subscription_oauth_rotating"],
   // Fixed repository secrets are read only by the approved direct runtime.
   user_ci_secret: [
     "mimo_token_plan_api_key",
     "claude_code_oauth",
+    "claude_code_api_key",
     "openrouter_api_key",
     "kimi_code_api_key",
   ],
@@ -46,6 +51,7 @@ export type UserCiSecretAuthMode =
 export const managedApiKeyProviderTypes = {
   mimo_token_plan_api_key: "mimo",
   openrouter_api_key: "openrouter",
+  claude_code_api_key: "anthropic",
 } as const satisfies Record<ManagedApiKeyAuthMode, string>;
 
 /**
@@ -358,6 +364,7 @@ export function providerCredentialRequestFor(
         ? { kind: "managed_api_key", authMode: provider.authMode }
         : { kind: "user_ci_secret", authMode: provider.authMode };
     case "openrouter_api_key":
+    case "claude_code_api_key":
       return managedApiKeyServes(
         target.managedApiKeys,
         provider.authMode,

@@ -18,6 +18,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -30,7 +31,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Badge, Button, Checkbox, Dialog } from "@reviewrouter/ui";
+import { Button, Checkbox, Dialog } from "@reviewrouter/ui";
 import { GitHubAccountAvatar } from "../github-account-avatar";
 import { AccountIdentity } from "./account-identity";
 import { readAccountResult } from "./account-read-result";
@@ -44,8 +45,22 @@ import {
 } from "./accounts-copy";
 import { AccountStatusLine } from "./account-status-icon";
 
-import type { AccountView } from "../../src/server/account-gateway-accounts";
+import type {
+  AccountsPage,
+  AccountsResult,
+  AccountView,
+} from "../../src/server/account-gateway-accounts";
+import { AccountOwner } from "./account-owner";
+import { AccountUsageLine } from "./account-usage-line";
+import {
+  OwnConnectionIdsContext,
+  ownConnectionWorkspaceUse,
+  overviewOwnRows,
+  useCachedAccountsOverview,
+  WorkspaceUseLine,
+} from "./account-workspace-use";
 import { dashboardSectionHref } from "./dashboard-section";
+import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
 import { readOwnAccessSummaries } from "../../src/features/account-gateway/personal-accounts";
 import type {
@@ -74,9 +89,7 @@ const keys = {
 export async function refreshPersonalAccountViews(
   client: QueryClient,
   scope: string,
-  includeManagement = true,
 ) {
-  const canonicalScope = `personal:${scope.split(".")[0] ?? ""}`;
   const queries = client
     .getQueryCache()
     .getAll()
@@ -92,9 +105,9 @@ export async function refreshPersonalAccountViews(
         ) &&
           typeof query.queryKey[1] === "string" &&
           query.queryKey[1].startsWith(`${scope}:workspace:`)) ||
-        (includeManagement &&
-          query.queryKey[0] === "gateway-accounts" &&
-          query.queryKey[1] === canonicalScope &&
+        // Connection management pages of the owner and of the workspace in the
+        // same list: a detach or attach changes the actions their rows offer.
+        (query.queryKey[0] === "gateway-accounts" &&
           query.queryKey[2] === "page"),
     );
   await Promise.all(
@@ -186,6 +199,22 @@ function isTerminalReceipt(receipt: PersonalMutationReceipt) {
   );
 }
 
+/** The combined Connections list of a shared workspace. */
+export type PersonalWorkspaceList = {
+  /** Live owner/admin role in this workspace, read on the server. */
+  readonly canAddHere: boolean;
+  readonly viewer: {
+    readonly login: string | null;
+    readonly avatarUrl: string | null;
+  };
+  /** Cache scope of the workspace overview listed under the viewer's rows. */
+  readonly overviewScope: string;
+  /** Its first page from the server render, until the overview caches it. */
+  readonly initialOverview?: AccountsResult<AccountsPage> | undefined;
+  /** Every other connection this workspace can use. */
+  readonly sharedRows: ReactNode;
+};
+
 // Deliberately inert unless the server supplies both the accepted H gate and
 // authenticated actions. This component never discovers or enables the feature.
 export function PersonalAccountControls({
@@ -195,6 +224,7 @@ export function PersonalAccountControls({
   managementRows = [],
   managementActions,
   currentWorkspaceId,
+  workspaceList,
 }: {
   bootstrap?: PersonalAccountsBootstrap;
   api?: PersonalAccountsApi;
@@ -202,6 +232,7 @@ export function PersonalAccountControls({
   currentWorkspaceId?: string | undefined;
   managementRows?: readonly AccountView[];
   managementActions?: (account: AccountView) => ReactNode;
+  workspaceList?: PersonalWorkspaceList | undefined;
 }) {
   const [client] = useState(() => queryClient ?? new QueryClient());
   if (!bootstrap?.enabled || !api) return null;
@@ -214,6 +245,7 @@ export function PersonalAccountControls({
         currentWorkspaceId={currentWorkspaceId}
         managementRows={managementRows}
         managementActions={managementActions}
+        workspaceList={workspaceList}
       />
     </QueryClientProvider>
   );
@@ -225,14 +257,29 @@ function PersonalControls({
   managementRows,
   managementActions,
   currentWorkspaceId,
+  workspaceList,
 }: {
   bootstrap: PersonalAccountsBootstrap;
   api: PersonalAccountsApi;
   currentWorkspaceId: string | undefined;
   managementRows: readonly AccountView[];
   managementActions: ((account: AccountView) => ReactNode) | undefined;
+  workspaceList: PersonalWorkspaceList | undefined;
 }) {
   const client = useQueryClient();
+  const listing = currentWorkspaceId ? workspaceList : undefined;
+  const cachedOverview = useCachedAccountsOverview(
+    client,
+    listing?.overviewScope,
+  );
+  const overview = listing
+    ? overviewOwnRows(
+        cachedOverview ??
+          (listing.initialOverview
+            ? { pages: [listing.initialOverview], pageParams: [null] }
+            : undefined),
+      )
+    : null;
   const limitsContext = useContext(AccountLimitsReadContext);
   const lifecycleActivities = useAccountLifecycleActivities(client);
   const [selected, setSelected] = useState<
@@ -516,16 +563,6 @@ function PersonalControls({
     choices = selected,
   ) {
     if (busyRef.current) return;
-    if (
-      choices.some((choice) =>
-        managementRows.some(
-          (account) =>
-            account.connectionId === choice.sourceId &&
-            account.connection?.personalOnly,
-        ),
-      )
-    )
-      return;
     if (choices.some((source) => lifecycleActivities.has(source.sourceId))) {
       setMessage(
         "Confirming connection change. The new access has not been sent yet.",
@@ -610,11 +647,6 @@ function PersonalControls({
   }
   const selectionStale = selected.some(
     (selection) =>
-      managementRows.some(
-        (account) =>
-          account.connectionId === selection.sourceId &&
-          account.connection?.personalOnly,
-      ) ||
       !sourceRows.some(
         (source) =>
           source.sourceId === selection.sourceId &&
@@ -636,6 +668,11 @@ function PersonalControls({
   const inventory = [
     ...new Set([...sourcesById.keys(), ...managementById.keys()]),
   ];
+  const inventoryKey = inventory.join("\n");
+  const listedIds = useMemo(
+    () => new Set(inventoryKey ? inventoryKey.split("\n") : []),
+    [inventoryKey],
+  );
   const unresolved = nonces.some((nonce) => !resolvedNonces.has(nonce));
   const unidentifiedPending = nonces.some(
     (nonce) => !resolvedNonces.has(nonce) && !pairs[nonce],
@@ -657,7 +694,8 @@ function PersonalControls({
   return (
     <section
       className="space-y-4"
-      aria-label="Personal account workspace access"
+      // Inside the combined list the outer Connections region names it.
+      aria-label={listing ? undefined : "Personal account workspace access"}
     >
       <details onToggle={(event) => setBulk(event.currentTarget.open)}>
         <summary className="w-fit cursor-pointer text-sm text-slate-400">
@@ -717,12 +755,15 @@ function PersonalControls({
           aria-hidden="true"
         >
           <span>Account</span>
-          <span>Available in</span>
+          <span>{listing ? "Owner" : "Available in"}</span>
           <span>Status</span>
           <span />
         </div>
         <div className="divide-y divide-cyan-200/10">
-          {!inventory.length && !sourceFailure && !sources.isError ? (
+          {!inventory.length &&
+          !sourceFailure &&
+          !sources.isError &&
+          !listing ? (
             <p className="py-4 text-sm text-slate-400">
               No personal accounts on the loaded pages.
             </p>
@@ -732,13 +773,23 @@ function PersonalControls({
             const account = managementById.get(id);
             const accessSummary = summaryBySource.get(id);
             const label = account?.label ?? source!.label;
-            const personalOnly = account?.connection?.personalOnly === true;
             const canAdd =
-              !personalOnly &&
               source?.state === "active" &&
               source.profileId !== null &&
               !source.sourceOperationPending &&
               !lifecycleActivities.has(id);
+            const use = ownConnectionWorkspaceUse(
+              id,
+              overview,
+              accessSummary?.organizations.some(
+                (organization) =>
+                  organization.workspaceId === currentWorkspaceId,
+              ),
+            );
+            const usedRow = overview?.bySource.get(id);
+            const addHere = Boolean(
+              listing?.canAddHere && use === "not_added" && canAdd,
+            );
             const status: AccountStatusInfo = sources.isError
               ? { kind: "unknown", text: "Details could not be refreshed" }
               : lifecycleActivities.get(id) === "delete" ||
@@ -758,7 +809,7 @@ function PersonalControls({
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-3">
-                    {bulk && source && !personalOnly ? (
+                    {bulk && source ? (
                       <Checkbox
                         aria-label={`Select ${label}`}
                         checked={selected.some(
@@ -792,6 +843,7 @@ function PersonalControls({
                         : {})}
                     />
                   </div>
+                  {usedRow ? <AccountUsageLine usage={usedRow.usage} /> : null}
                   <AccountLimitsLine
                     scope={
                       limitsContext?.scope ??
@@ -830,16 +882,41 @@ function PersonalControls({
                     </p>
                   ) : null}
                 </div>
-                {personalOnly ? (
-                  <span className="text-xs text-slate-400">Personal use</span>
+                {listing ? (
+                  <AccountOwner
+                    account={{
+                      origin: "personal",
+                      owner: {
+                        kind: "personal",
+                        isViewer: true,
+                        handle: listing.viewer.login,
+                        avatarUrl: listing.viewer.avatarUrl,
+                      },
+                    }}
+                  />
                 ) : (
-                  <AccessSummaryChips summary={accessSummary} />
+                  <AccessSummaryChips
+                    summary={accessSummary}
+                    currentWorkspaceId={currentWorkspaceId}
+                  />
                 )}
-                <p className="text-sm text-slate-300">
+                <div className="text-sm text-slate-300">
                   <AccountStatusLine {...status} />
-                </p>
+                  {listing ? <WorkspaceUseLine use={use} /> : null}
+                  {listing && use === "not_added" && !listing.canAddHere ? (
+                    <span className="mt-1 block text-xs text-slate-400">
+                      {accountsCopy.addHereAdminsOnly}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {source && !personalOnly ? (
+                  {usedRow?.readiness === "ready" &&
+                  usedRow.binding?.state === "active" &&
+                  !usedRow.binding.fencePending &&
+                  !lifecycleActivities.has(id) ? (
+                    <ChooseForReviewsLink workspaceId={currentWorkspaceId} />
+                  ) : null}
+                  {source ? (
                     <WorkspaceAccess
                       scope={bootstrap.scope}
                       summary={accessSummary}
@@ -858,20 +935,7 @@ function PersonalControls({
                       }
                       revoke={revoke}
                       currentWorkspace={currentWorkspaceId ?? currentWorkspace}
-                      addToWorkspace={Boolean(
-                        canAdd &&
-                        accessSummary &&
-                        !accessSummary.hasRestrictedAccess &&
-                        accessSummary.organizationCount ===
-                          accessSummary.organizations.length &&
-                        accessSummary.personalWorkspaceId !==
-                          (currentWorkspaceId ?? currentWorkspace) &&
-                        !accessSummary.organizations.some(
-                          (organization) =>
-                            organization.workspaceId ===
-                            (currentWorkspaceId ?? currentWorkspace),
-                        ),
-                      )}
+                      addToWorkspace={addHere}
                       message={sourceMessages[source.sourceId]}
                     />
                   ) : null}
@@ -894,6 +958,20 @@ function PersonalControls({
             );
           })}
         </div>
+        {listing ? (
+          <OwnConnectionIdsContext.Provider value={listedIds}>
+            {/* Workspace rows read their own limits scope, not the owner's. */}
+            <AccountLimitsReadContext.Provider value={null}>
+              <div
+                className={
+                  inventory.length ? "border-t border-cyan-200/10" : undefined
+                }
+              >
+                {listing.sharedRows}
+              </div>
+            </AccountLimitsReadContext.Provider>
+          </OwnConnectionIdsContext.Provider>
+        ) : null}
       </div>
       {sources.hasNextPage ? (
         <Button
@@ -953,26 +1031,39 @@ function PersonalControls({
   );
 }
 
+// Only real workspaces are listed. The personal workspace is hidden from the
+// workspace picker once others exist, so it appears only while it is current.
 function AccessSummaryChips({
   summary,
+  currentWorkspaceId,
 }: {
   summary: PersonalAccessSummary | undefined;
+  currentWorkspaceId: string | undefined;
 }) {
   const organizations = summary?.organizations ?? [];
+  const personalCurrent = Boolean(
+    summary?.personalWorkspaceId &&
+    summary.personalWorkspaceId === currentWorkspaceId,
+  );
   return (
     <div
       className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-300"
       aria-label="Available in"
     >
-      <AccessChip
-        {...(summary?.personalWorkspaceId
-          ? {
-              href: dashboardSectionHref("setup", summary.personalWorkspaceId),
-            }
-          : {})}
-      >
-        {accountsCopy.personal}
-      </AccessChip>
+      {personalCurrent ? (
+        <AccessChip
+          title={summary?.personalWorkspace?.label}
+          avatarUrl={summary?.personalWorkspace?.avatarUrl}
+        >
+          {summary?.personalWorkspace?.label ?? accountsCopy.personal}
+        </AccessChip>
+      ) : null}
+      {summary &&
+      !personalCurrent &&
+      !organizations.length &&
+      !summary.hasRestrictedAccess ? (
+        <span className="text-slate-400">{accountsCopy.notShared}</span>
+      ) : null}
       {organizations.map((organization) => (
         <AccessChip
           key={organization.workspaceId}
@@ -1364,9 +1455,9 @@ function WorkspaceAccess({
     >
       <Dialog.Trigger
         render={<Button variant="outline" size="sm" disabled={disabled} />}
-        aria-label={`${addToWorkspace ? "Add to workspace" : accountsCopy.access}: ${source.label}`}
+        aria-label={`${addToWorkspace ? accountsCopy.addHere : accountsCopy.access}: ${source.label}`}
       >
-        {addToWorkspace ? "Add to workspace" : accountsCopy.access}
+        {addToWorkspace ? accountsCopy.addHere : accountsCopy.access}
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Backdrop />
@@ -1375,8 +1466,8 @@ function WorkspaceAccess({
             {accountsCopy.access} · {source.label}
           </Dialog.Title>
           <Dialog.Description>
-            Your personal access is permanent. Share review access with other
-            workspaces while keeping ownership and connection control.
+            Choose the workspaces where this connection can be used for reviews.
+            You keep ownership and control of the connection.
           </Dialog.Description>
           {message ? (
             <p role="status" className="mt-3 text-sm text-cyan-100">
@@ -1384,20 +1475,6 @@ function WorkspaceAccess({
             </p>
           ) : null}
           <div className="mt-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-cyan-200/10 py-3">
-              <AccessWorkspaceIdentity
-                label={
-                  summary?.personalWorkspace?.label ?? "Personal workspace"
-                }
-                avatarUrl={summary?.personalWorkspace?.avatarUrl}
-                kind="Personal workspace"
-                current={Boolean(
-                  summary?.personalWorkspaceId &&
-                  summary.personalWorkspaceId === currentWorkspace,
-                )}
-              />
-              <Badge tone="neutral">Your account</Badge>
-            </div>
             <h4 className="font-medium">Workspace access</h4>
             {grants.isPending ? <p role="status">Loading access...</p> : null}
             {grantFailure ? (
@@ -1457,15 +1534,9 @@ function WorkspaceAccess({
                     {grant.state === "active" &&
                     grant.remoteFenceDelivery !== "remote_pending" &&
                     grant.organizationLabel ? (
-                      <a
-                        className="text-sm text-cyan-200 underline"
-                        href={dashboardSectionHref(
-                          "policy",
-                          grant.targetWorkspaceId,
-                        )}
-                      >
-                        Choose in Models
-                      </a>
+                      <ChooseForReviewsLink
+                        workspaceId={grant.targetWorkspaceId}
+                      />
                     ) : null}
                   </div>
                   {grant.canRevoke ? (
@@ -1779,12 +1850,7 @@ function OperationStatus({
         {result?.status === "ok" &&
         result.value.operation.available &&
         grant?.organizationLabel ? (
-          <a
-            className="text-sm text-cyan-200 underline"
-            href={dashboardSectionHref("policy", grant.targetWorkspaceId)}
-          >
-            Choose for reviews
-          </a>
+          <ChooseForReviewsLink workspaceId={grant.targetWorkspaceId} />
         ) : null}
         <Button
           variant="outline"

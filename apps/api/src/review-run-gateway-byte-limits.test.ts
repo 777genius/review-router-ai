@@ -624,6 +624,112 @@ it("forwards the captured nine-request native grant unchanged through actual pre
   }
 });
 
+it("streams lifecycle SSE larger than the result limit while keeping the authorized wire budget", async () => {
+  const state = companionReservation();
+  const forward = vi.fn(
+    async (...args: Parameters<ReviewRunModelDispatchAdmission["forward"]>) => {
+      const result = await state.admission.claim(...args);
+      if (result.status !== "restored") throw new Error("reservation_required");
+      return { ...result, status: "claimed" as const };
+    },
+  );
+  const frame = `data: ${JSON.stringify({ type: "response.reasoning_summary_text.delta", item_id: "rs_" + "a".repeat(40), output_index: 0, summary_index: 0, sequence_number: 1, delta: "x" })}\n\n`;
+  const terminal = `data: ${JSON.stringify({ type: "response.completed", response: { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "{}" }] }], usage: { output_tokens: 400 } } })}\n\n`;
+  const expected = frame.repeat(300) + terminal;
+  expect(Buffer.byteLength(expected)).toBeGreaterThan(32768);
+  expect(Buffer.byteLength(expected)).toBeLessThan(65536);
+  const f = await fixture(
+    65536,
+    0,
+    2,
+    5000,
+    async (res) => {
+      res.end(expected);
+    },
+    { admission: { ...state.admission, forward }, modelDispatchV2: true },
+  );
+  const app = Fastify();
+  const bytes = companionEnvelope();
+  const context = {
+    ...companionContext,
+    dispatchVersion: 2 as const,
+    requestOrdinal: 1,
+    routeIdentityHash: "e".repeat(64),
+  };
+  const reserved = await state.admission.claim(
+    f.authorization(),
+    context,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  state.rows.set(context.dispatchId, {
+    ...reserved.dispatch,
+    dispatchVersion: 2,
+    requestOrdinal: 1,
+    routeIdentityHash: context.routeIdentityHash,
+    requestBytes: bytes.byteLength,
+    maxOutputTokens: 4096,
+  });
+  await registerReviewRunGatewayRelayRoutes(app, f.relay);
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${(app.server.address() as AddressInfo).port}/api/action/v2/account-gateway/responses`,
+      { method: "POST", headers: modelForwardHeaders(1), body: bytes },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(expected);
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "completed",
+    );
+    expect(f.requestRefs).toHaveLength(1);
+    expect(forward).toHaveBeenCalledTimes(1);
+  } finally {
+    await app.close();
+    await f.relay.shutdown();
+  }
+});
+
+it("keeps oversized companion streams unknown and logs a safe failure phase", async () => {
+  const state = companionReservation();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const f = await fixture(49152, 60000, 2, 5000, undefined, {
+    admission: state.admission,
+  });
+  try {
+    const response = await f.relay.responses(
+      "authorization-1",
+      companionEnvelope(),
+      new AbortController(),
+      undefined,
+      companionContext,
+    );
+    if (response.kind !== "stream") throw new Error("stream_expected");
+    const reader = response.body.getReader();
+    await expect(
+      (async () => {
+        while (!(await reader.read()).done) {
+          /* consume */
+        }
+      })(),
+    ).rejects.toMatchObject({ effect: "effect_unknown" });
+    expect(state.rows.get(companionContext.dispatchId)?.state).toBe(
+      "effect_unknown",
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review_run_companion_stream_failure",
+        phase: "upstream_read",
+        maxStreamBytes: 49152,
+        receivedBytes: expect.any(Number),
+      }),
+    );
+    expect(f.requestRefs).toHaveLength(1);
+  } finally {
+    await f.relay.shutdown();
+    log.mockRestore();
+  }
+});
+
 it("companion chunks use local authority while phase and EOF status retain full freshness", async () => {
   const state = companionReservation();
   const eof = deferred();
@@ -876,6 +982,59 @@ it("preserves confirmed provider quota without replaying the companion request",
     await f.relay.shutdown();
   }
 });
+
+it.each(["recorded", "not recorded", "record failed", "no recorder"] as const)(
+  "returns a reviewer's provider quota only after the relay recorded it (%s)",
+  async (outcome) => {
+    const recorded = outcome === "recorded";
+    const providerQuota = {
+      provider: "openrouter" as const,
+      limit: 1000,
+      remaining: 0 as const,
+      resetAt: "2026-11-18T00:00:00.000Z",
+    };
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      { admission: companionReservation().admission, providerQuota },
+      undefined,
+      undefined,
+      { models: ["gpt-5.6-sol", "gpt-5.5"], independentAllocations: true },
+    );
+    const record = vi.fn(async () => {
+      if (outcome === "record failed") throw new Error("database_unavailable");
+      return recorded;
+    });
+    if (outcome !== "no recorder")
+      Object.assign(f.bindings, { recordProviderQuotaExhausted: record });
+    try {
+      await expect(
+        f.relay.responses(
+          "authorization-1",
+          Buffer.from("{}"),
+          new AbortController(),
+          undefined,
+          undefined,
+          "reviewer-0",
+        ),
+      ).rejects.toMatchObject({
+        code: "provider_quota_exhausted",
+        failureScope: "allocation",
+        providerQuota: recorded ? providerQuota : undefined,
+      });
+      if (outcome !== "no recorder")
+        expect(record).toHaveBeenCalledWith({
+          authorizationId: "authorization-1",
+          allocationId: "allocation-0",
+        });
+    } finally {
+      await f.relay.shutdown();
+    }
+  },
+);
 
 it.each([403, 503])(
   "ordinary request logs closed SDK refusal fields for HTTP %s without retrying",
@@ -1145,6 +1304,131 @@ it("companion usage failure after SDK forward stays unknown without a second SDK
     await f.relay.shutdown();
   }
 });
+it("allows NVIDIA relay for an ordinary authorized repository and preserves pre-dispatch denials", async () => {
+  const model = "nvidia/nemotron-3.5-super-vl-120b-a12b";
+  const selection = {
+    profileId: "nvidia-build-chat-apikey-v1",
+    model,
+    authKind: "api_key" as const,
+  };
+  const repository = {
+    githubRepositoryId: "456",
+    repositoryFullName: "customer/private-source",
+  };
+  for (const failure of [
+    null,
+    "missing repository",
+    "foreign authority",
+    "stale allocation",
+  ] as const) {
+    const f = await fixture(
+      32768,
+      0,
+      2,
+      5000,
+      undefined,
+      undefined,
+      128,
+      selection,
+      { models: [model], independentAllocations: true },
+      undefined,
+      failure === "missing repository" ? null : repository,
+    );
+    try {
+      if (failure === "foreign authority") f.revoke("authorization-1");
+      if (failure === "stale allocation")
+        f.revokedAllocations.add("allocation-0");
+      const pending = f.relay.responses(
+        "authorization-1",
+        companionEnvelope(model),
+        new AbortController(),
+        undefined,
+        undefined,
+        "reviewer-0",
+      );
+      if (failure) {
+        await expect(pending).rejects.toMatchObject({
+          effect: "not_dispatched",
+        });
+        expect(f.intents).toHaveLength(0);
+        expect(f.admissions).toHaveLength(0);
+        expect(f.requestBodies).toHaveLength(0);
+      } else {
+        const response = await pending;
+        expect(response.kind).toBe("stream");
+        if (response.kind !== "stream") throw new Error("stream_expected");
+        const reader = response.body.getReader();
+        while (!(await reader.read()).done) {
+          // Consume the synthetic native terminal response.
+        }
+        expect(f.requestBodies).toHaveLength(1);
+      }
+    } finally {
+      await f.relay.shutdown();
+    }
+  }
+});
+
+it("releases NVIDIA relay capacity when repository lookup stalls and caller aborts", async () => {
+  const model = "nvidia/nemotron-3.5-super-vl-120b-a12b";
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let reads = 0;
+  const f = await fixture(
+    32768,
+    0,
+    2,
+    5000,
+    undefined,
+    undefined,
+    128,
+    { profileId: "nvidia-build-chat-apikey-v1", model, authKind: "api_key" },
+    undefined,
+    undefined,
+    async () => {
+      if (++reads === 1) {
+        entered();
+        return new Promise<never>(() => {});
+      }
+      return {
+        githubRepositoryId: "1390973362",
+        repositoryFullName: "777genius/rr-hosted-pool-e2e-20260927",
+      };
+    },
+  );
+  const relay = f.restartRelay(2, 1);
+  try {
+    const controller = new AbortController();
+    const pending = relay.responses(
+      "authorization-1",
+      companionEnvelope(model),
+      controller,
+    );
+    await started;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({
+      code: "authorization_denied",
+    });
+    const result = await relay.responses(
+      "authorization-1",
+      companionEnvelope(model),
+      new AbortController(),
+    );
+    expect(result.kind).toBe("stream");
+    if (result.kind !== "stream") throw new Error("stream_expected");
+    const reader = result.body.getReader();
+    while (!(await reader.read()).done) {
+      // Consume the synthetic terminal response.
+    }
+    expect(f.requestBodies).toHaveLength(1);
+  } finally {
+    await relay.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
 const servers: Server[] = [];
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -1187,6 +1471,16 @@ async function fixture(
     grantConcurrency?: number;
   },
   nativeRefusalStatus?: number,
+  nvidiaRepository?:
+    | {
+        readonly githubRepositoryId: string;
+        readonly repositoryFullName: string;
+      }
+    | (() => Promise<{
+        readonly githubRepositoryId: string;
+        readonly repositoryFullName: string;
+      } | null>)
+    | null,
 ) {
   const deadline = new Date(Date.now() + 120_000).toISOString();
   const limits = {
@@ -1437,7 +1731,7 @@ async function fixture(
   const nativeExecutions = new Map<string, "active" | "closed">();
   const nativeCloses: string[] = [];
   const nativeCloseReasons: c.Close["reason"][] = [];
-  let closeState: "applied" | "unknown" = "applied";
+  let closeState: "applied" | "unknown" | "failure" = "applied";
   let closeGate: Promise<void> | undefined;
   let closeStarted: (() => void) | undefined;
   let prepareGate: Promise<void> | undefined;
@@ -1448,6 +1742,7 @@ async function fixture(
     | undefined;
   const operations = new Map<string, c.Operation>();
   const operationReads: string[] = [];
+  let operationReadFailure = false;
   const intents: c.Prepare[] = [];
   const admissions: c.Admission[] = [];
   const requestModels: string[] = [];
@@ -1638,6 +1933,10 @@ async function fixture(
       nativeCloseReasons.push(JSON.parse(raw).reason);
       closeStarted?.();
       await closeGate;
+      if (closeState === "failure") {
+        res.writeHead(503).end();
+        return;
+      }
       if (closeState === "applied")
         nativeExecutions.set(execution[1]!, "closed");
       res.writeHead(200, { "content-type": "application/json" }).end(
@@ -1681,7 +1980,12 @@ async function fixture(
             profileId: selection.profileId,
             protocol: "openai-responses",
             modelIds: [
-              ...(multi?.profileModelIds ?? multi?.models ?? ["gpt-5.6-sol"]),
+              ...(multi?.profileModelIds ??
+                multi?.models ?? [
+                  selection.profileId === "nvidia-build-chat-apikey-v1"
+                    ? selection.model
+                    : "gpt-5.6-sol",
+                ]),
             ],
             authKinds: [selection.authKind ?? "oauth"],
           },
@@ -1699,6 +2003,7 @@ async function fixture(
     isSourceRunTerminal: async (auth) => terminalRuns.has(auth.authorizationId),
     readPreparationOperation: async (operationId) => {
       operationReads.push(operationId);
+      if (operationReadFailure) throw Error("operation_read_failed");
       return operations.get(operationId);
     },
     authorizations: {
@@ -1724,6 +2029,10 @@ async function fixture(
       },
     },
     queries: queries as never,
+    resolveNvidiaRepository: async () =>
+      typeof nvidiaRepository === "function"
+        ? nvidiaRepository()
+        : (nvidiaRepository ?? null),
     checkAuthority: async (auth, freshness) => {
       authorityChecks.push(freshness);
       const held = heldAuthority;
@@ -1772,6 +2081,7 @@ async function fixture(
   const relay = createReviewRunGatewayRelay(relayInput);
   return {
     preparation,
+    bindings,
     rejectPreparation(
       statusCode: number,
       body: (intent: c.Prepare) => unknown,
@@ -1836,6 +2146,9 @@ async function fixture(
     },
     setCloseState(state: typeof closeState) {
       closeState = state;
+    },
+    setOperationReadFailure(value = true) {
+      operationReadFailure = value;
     },
     setPrepareFailure(value = true) {
       prepareFailure = value;
@@ -2498,19 +2811,80 @@ it("releases an unstarted revoked status session without calling native close", 
   }
 });
 
-it("retains a lost Prepare result and never retries it during capacity cleanup", async () => {
+it("releases only an empty unknown v3 handle after durable revocation without retrying Prepare", async () => {
   const f = await fixture(MiB, 0, 1);
   try {
     f.setPrepareFailure();
     await expect(streamRun(f, "authorization-1")).rejects.toBeDefined();
     f.revoke("authorization-1");
+    expect(await f.relay.closeRun("authorization-1", "cancelled")).toEqual({
+      state: "unknown",
+    });
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    expect(f.nativeCloses).toHaveLength(0);
+    expect(f.intents).toHaveLength(1);
+    // The old applied execution is not replayed or falsely reported closed.
+    expect(await f.relay.closeRun("authorization-1", "cancelled")).toEqual({
+      state: "unknown",
+    });
+    f.setPrepareFailure(false);
+    await expect(streamRun(f, "authorization-2")).resolves.toBe("stream");
+    expect(f.intents).toHaveLength(2);
+    expect(
+      f.intents.filter(
+        (intent) => intent.operationId === "operation-authorization-1",
+      ),
+    ).toHaveLength(1);
+    expect(f.nativeExecutions.get("execution-operation-authorization-1")).toBe(
+      "active",
+    );
+    expect(f.nativeCloses).toHaveLength(0);
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each(["active", "different_identity", "read_failure"] as const)(
+  "does not detach an unknown preparation with %s authority",
+  async (mode) => {
+    const f = await fixture(MiB, 0, 1);
+    try {
+      f.setPrepareFailure();
+      await expect(streamRun(f, "authorization-1")).rejects.toBeDefined();
+      if (mode !== "active") {
+        f.revoke("authorization-1");
+        if (mode === "different_identity")
+          f.overrides.set("authorization-1", { sourceRunId: "another-run" });
+        else f.lookupFailures.add("authorization-1");
+      }
+      await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
+        code: "relay_saturated",
+      });
+      expect(f.intents).toHaveLength(1);
+      expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+    } finally {
+      f.lookupFailures.clear();
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("does not detach an unknown preparation while its HTTP request is still in flight", async () => {
+  const f = await fixture(MiB, 0, 1);
+  const gate = f.holdPrepare();
+  let first: Promise<unknown> | undefined;
+  try {
+    f.setPrepareFailure();
+    first = streamRun(f, "authorization-1").catch(() => undefined);
+    await gate.started;
+    f.revoke("authorization-1");
     await expect(streamRun(f, "authorization-2")).rejects.toMatchObject({
       code: "relay_saturated",
     });
     expect(f.intents).toHaveLength(1);
-    expect(f.admissions).toHaveLength(0);
-    expect(f.nativeCloses).toHaveLength(0);
   } finally {
+    gate.release();
+    await first;
     await f.relay.shutdown();
   }
 });
@@ -3342,6 +3716,127 @@ it("v4 missing original cleanup operation stays unknown and cannot mint a replac
     expect(f.nativeCloses).toHaveLength(0);
   } finally {
     await restarted?.shutdown();
+    await f.relay.shutdown();
+  }
+});
+
+it("v4 frees an empty unknown handle only after parent revocation without replay", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    { models: ["gpt-5.6-sol", "gpt-5.5"], grantConcurrency: 2 },
+  );
+  try {
+    f.setPrepareFailure();
+    await expect(
+      streamRun(f, "authorization-1", "reviewer-0"),
+    ).rejects.toBeDefined();
+    f.operations.clear(); // Readback cannot prove the delayed Prepare's outcome.
+    f.revoke("authorization-1");
+    expect(await f.relay.closeRun("authorization-1", "cancelled")).toEqual({
+      state: "unknown",
+    });
+    expect(f.intents).toHaveLength(1);
+    expect(f.requestModels).toHaveLength(0);
+    expect(f.nativeCloses).toHaveLength(0);
+    f.setPrepareFailure(false);
+    await expect(streamRun(f, "authorization-2", "reviewer-0")).resolves.toBe(
+      "stream",
+    );
+    expect(f.intents).toHaveLength(2);
+    expect(
+      f.nativeExecutions.get(`execution-${f.intents[0]!.operationId}`),
+    ).toBe("active");
+  } finally {
+    await f.relay.shutdown();
+  }
+});
+
+it.each(["terminal", "different_identity", "read_failure"] as const)(
+  "v4 readback outage detaches only with matching %s authority",
+  async (mode) => {
+    const f = await fixture(
+      32768,
+      0,
+      1,
+      5000,
+      undefined,
+      undefined,
+      9,
+      undefined,
+      {
+        models: ["gpt-5.6-sol", "gpt-5.5"],
+        grantConcurrency: 2,
+      },
+    );
+    try {
+      f.setPrepareFailure();
+      await expect(
+        streamRun(f, "authorization-1", "reviewer-0"),
+      ).rejects.toBeDefined();
+      f.revoke("authorization-1");
+      f.setOperationReadFailure();
+      if (mode === "different_identity")
+        f.overrides.set("authorization-1", { sourceRunId: "another-run" });
+      if (mode === "read_failure") f.lookupFailures.add("authorization-1");
+      f.setPrepareFailure(false);
+      if (mode === "terminal") {
+        expect(await f.relay.closeRun("authorization-1", "cancelled")).toEqual({
+          state: "unknown",
+        });
+        await expect(
+          streamRun(f, "authorization-2", "reviewer-0"),
+        ).resolves.toBe("stream");
+        expect(f.intents).toHaveLength(2);
+        expect(f.nativeCloses).toHaveLength(0);
+      } else {
+        await expect(
+          streamRun(f, "authorization-2", "reviewer-0"),
+        ).rejects.toMatchObject({ code: "relay_saturated" });
+        expect(f.intents).toHaveLength(1);
+      }
+    } finally {
+      f.lookupFailures.clear();
+      f.setOperationReadFailure(false);
+      await f.relay.shutdown();
+    }
+  },
+);
+
+it("v4 never discards a retained capability when native close fails", async () => {
+  const f = await fixture(
+    32768,
+    0,
+    1,
+    5000,
+    undefined,
+    undefined,
+    9,
+    undefined,
+    {
+      models: ["gpt-5.6-sol", "gpt-5.5"],
+      grantConcurrency: 2,
+    },
+  );
+  try {
+    await expect(streamRun(f, "authorization-1", "reviewer-0")).resolves.toBe(
+      "stream",
+    );
+    f.revoke("authorization-1");
+    f.setCloseState("failure");
+    await expect(
+      streamRun(f, "authorization-2", "reviewer-0"),
+    ).rejects.toMatchObject({ code: "relay_saturated" });
+    expect(f.intents).toHaveLength(1);
+    expect([...f.nativeExecutions.values()]).toEqual(["active"]);
+  } finally {
+    f.setCloseState("applied");
     await f.relay.shutdown();
   }
 });

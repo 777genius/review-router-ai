@@ -5,39 +5,29 @@ import { useId, useState } from "react";
 
 const faqItems = [
   {
-    question: "Does ReviewRouter see my source code?",
+    question: "Can I use my own AI subscription?",
     answer:
-      "No. Reviews run inside your GitHub Actions, so the AI reads the diff on your runners. Our dashboard gets the review result and run status — never your files.",
+      "Yes. Connect a supported Codex or Claude subscription, or use a compatible provider API key.",
   },
   {
-    question: "What does the GitHub App read then?",
+    question: "Is the platform really free?",
     answer:
-      "Pull request titles, states, check results, and workflow settings. It does not open your source tree or download repository contents.",
+      "The control plane is free to start under fair-use limits. Your AI provider or subscription and CI runners can have separate costs.",
   },
   {
-    question: "Which AI can I use?",
+    question: "Where does my code go?",
     answer:
-      "Your own Codex or Claude subscription, or an API key for MiMo, OpenRouter, or another compatible provider. Credentials can live in GitHub Actions secrets or in our encrypted account pool — you choose, and you can remove them whenever you want.",
+      "Review execution runs in your GitHub Actions by default. The selected AI provider receives the review context your workflow sends; ReviewRouter's control plane does not download your repository source by default.",
   },
   {
-    question: "Is it really free?",
+    question: "Can I self-host?",
     answer:
-      "Yes, within clear fair-use limits. There is no seat pricing and no credit card. When you stop using ReviewRouter, delete the workflow and reviews stop with it.",
-  },
-  {
-    question: "Can I run everything myself?",
-    answer:
-      "Yes. ReviewRouter is open source and the dashboard can run on your own server. Reviews already run in your CI either way, so your code never moves.",
-  },
-  {
-    question: "Where do I get help?",
-    answer:
-      "The support page is the fastest route during beta. The security page lists exactly what ReviewRouter can and cannot see.",
+      "Yes. ReviewRouter has a guided self-hosted deployment. You retain control of your infrastructure and settings.",
   },
 ] as const;
 
 export function HomeFaq(): React.ReactElement {
-  const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
   const baseId = useId();
 
   return (
@@ -53,7 +43,7 @@ export function HomeFaq(): React.ReactElement {
           id="home-faq-title"
           className="mt-3 text-3xl font-semibold tracking-tight text-cyan-50 sm:text-4xl"
         >
-          Questions, answered
+          Short answers, clear control
         </h2>
       </div>
 

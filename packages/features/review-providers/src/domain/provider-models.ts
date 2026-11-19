@@ -3,7 +3,8 @@ import { defaultCodexModel, type ProviderKind } from "./provider-catalog";
 export type ReviewModelOption = {
   readonly value: string;
   readonly label: string;
-  readonly provider: ProviderKind;
+  /** UI source identity; NVIDIA still executes through the existing Codex Gateway runtime. */
+  readonly provider: ProviderKind | "nvidia";
   readonly description?: string;
   /** Catalog facts only, without transport/capability refusal text. */
   readonly metadataDescription?: string;

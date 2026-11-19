@@ -23,6 +23,7 @@ import {
   ReviewExecutionAdmissionVerdict,
   ReviewExecutionFinalizeStatus,
   ReviewExecutionPrepareStatus,
+  ReviewExecutionLifecycleTransitionStatus,
   ReviewInvocationLeaseAcquireStatus,
 } from "../application/ports/review-execution-ports";
 import {
@@ -86,6 +87,104 @@ if (databaseUrl) {
   runReviewExecutionStoreContract("Prisma", createHarness);
 
   describe("Prisma review execution PostgreSQL invariants", () => {
+    it("recovers a proven failed attempt only while revoked authority and stream identity still match", async () => {
+      const harness = await createHarness();
+      const executions = harness.executions as PrismaReviewExecutionStore;
+      const authority = await prisma.reviewRunAuthorization.findUniqueOrThrow({
+        omit: historicalAuthorizationOmit,
+        where: { authorizationId: harness.authorizationId },
+      });
+      const running = (
+        await prepareAndAdmit(harness, authority.sourceRunId.slice(4))
+      ).snapshot;
+      const now = new Date();
+      const requestId = `terminal-recovery-${randomUUID()}`;
+      await prisma.reviewRequestedIntent.create({
+        data: {
+          ...harness.scope,
+          requestId,
+          baseSha: "a".repeat(40),
+          mergeBaseSha: "b".repeat(40),
+          headSha: "c".repeat(40),
+          reviewRevisionHash: hash(1),
+          triggerKind: ReviewRequestedTriggerKind.PullRequestSynchronized,
+          deliveryIdentityHash: hashFromText(requestId),
+          canonicalRequestHash: hashFromText(`${requestId}-canonical`),
+          notBefore: now,
+          createdAt: now,
+          updatedAt: now,
+          retainUntil: new Date(now.getTime() + 86_400_000),
+          authorizationId: harness.authorizationId,
+          executionId: running.execution.executionId,
+          sourceRunId: authority.sourceRunId,
+          sourceRunAttempt: authority.sourceRunAttempt,
+        },
+      });
+      const command = {
+        scope: harness.scope,
+        executionId: running.execution.executionId,
+        expectedStreamVersion: running.stream.version,
+        authorizationId: harness.authorizationId,
+        sourceRunId: authority.sourceRunId,
+        sourceRunAttempt: authority.sourceRunAttempt,
+        now,
+      };
+      const listing = {
+        before: new Date(now.getTime() + 1000),
+        after: "",
+        limit: 6,
+      };
+      expect(await executions.listRevokedRunning(listing)).toHaveLength(0);
+      expect(
+        await executions.failObservedTerminalRunningExecution(command),
+      ).toMatchObject({
+        status: ReviewExecutionLifecycleTransitionStatus.NotEligible,
+      });
+      await prisma.reviewRunAuthorization.update({
+        where: { authorizationId: harness.authorizationId },
+        data: { state: "revoked", revokedAt: now },
+        omit: historicalAuthorizationOmit,
+      });
+      expect(await executions.listRevokedRunning(listing)).toHaveLength(1);
+      await prisma.reviewRequestedIntent.update({
+        where: { requestId },
+        data: { sourceRunAttempt: "2" },
+      });
+      expect(
+        await executions.failObservedTerminalRunningExecution(command),
+      ).toMatchObject({
+        status: ReviewExecutionLifecycleTransitionStatus.NotEligible,
+      });
+      await prisma.reviewRequestedIntent.update({
+        where: { requestId },
+        data: { sourceRunAttempt: authority.sourceRunAttempt },
+      });
+      expect(
+        await executions.failObservedTerminalRunningExecution({
+          ...command,
+          sourceRunAttempt: "2",
+        }),
+      ).toMatchObject({
+        status: ReviewExecutionLifecycleTransitionStatus.NotEligible,
+      });
+      expect(
+        await executions.failObservedTerminalRunningExecution({
+          ...command,
+          expectedStreamVersion: running.stream.version - 1n,
+        }),
+      ).toMatchObject({
+        status: ReviewExecutionLifecycleTransitionStatus.ConcurrencyConflict,
+      });
+      expect(
+        await executions.failObservedTerminalRunningExecution(command),
+      ).toMatchObject({
+        status: ReviewExecutionLifecycleTransitionStatus.Applied,
+        snapshot: {
+          execution: { state: "failed" },
+          stream: { activeExecutionId: null },
+        },
+      });
+    });
     it("rejects stale input before charging a budget-one slot and restores an already granted capability", async () => {
       const harness = await createHarness();
       const identity = `memory-input-${randomUUID()}`;
