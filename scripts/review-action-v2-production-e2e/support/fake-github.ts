@@ -72,7 +72,7 @@ export class FakeGitHubTransport {
     }
   }
 
-  seedProgressDuplicate(body: string): number {
+  seedAppComment(body: string): number {
     const id = this.nextExternalId++;
     this.comments.push({
       id,
