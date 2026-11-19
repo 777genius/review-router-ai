@@ -32,7 +32,7 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query";
-import { Badge, Button, Dialog, SelectField } from "@reviewrouter/ui";
+import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import {
   apiKeyProviderForGatewayProfile,
   apiKeySetupHref,
@@ -58,14 +58,18 @@ import {
   useCurrentGatewayModelAccountsCache,
 } from "./gateway-model-account-options";
 import { ChooseForReviewsLink } from "./choose-for-reviews-link";
-import { accountsCopy } from "./accounts-copy";
+import {
+  accountsCopy,
+  connectionRowStatus,
+  removedFromWorkspaceText,
+} from "./accounts-copy";
+import { bindingWorkspaceUse, WorkspaceUseLine } from "./account-workspace-use";
 import { useShowConnectionsList } from "./accounts-add-dialog";
 import { refreshPersonalAccountViews } from "./personal-account-controls";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
 import { AccountStatusLine } from "./account-status-icon";
 import { readAccountResult } from "./account-read-result";
 import {
-  personalAccountOriginText,
   type ConnectWorkspaceAttachment,
   type PersonalAccountsResult,
 } from "../../src/features/account-gateway/personal-accounts";
@@ -908,8 +912,11 @@ function Controls({
       );
       await refresh();
     },
+    // The request may have reached the server; only a reread can tell.
     onError: () =>
-      setMessage("Binding status is unavailable. Refresh connections."),
+      setMessage(
+        "Could not confirm adding it to this workspace. Refresh connections to check.",
+      ),
   });
   const visiblePages =
     hydratedBootstrap.current !== bootstrap.page
@@ -952,7 +959,7 @@ function Controls({
     onSuccess: async (result) => {
       setMessage(
         result.status === "ok"
-          ? `Workspace use detached; ${result.value.remoteFenceDelivery === "remote_applied" ? "gateway fence acknowledged" : "gateway fence pending"}.`
+          ? removedFromWorkspaceText(result.value.remoteFenceDelivery)
           : statusText(result.status),
       );
       await refresh();
@@ -981,7 +988,7 @@ function Controls({
       : account.state !== "active"
         ? "The account is inactive — enable it first."
         : account.binding?.fencePending
-          ? "Workspace binding in progress — please wait."
+          ? "A workspace change is being confirmed. Try again later."
           : account.canManage !== true
             ? "You cannot manage this connection."
             : undefined;
@@ -1281,34 +1288,28 @@ function Controls({
                     account.state === "tombstoned"
                   }
                 />
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge tone="neutral">{account.state}</Badge>
-                  {personalAccountOriginText(account) ? (
-                    <Badge tone="neutral">
-                      {personalAccountOriginText(account)}
-                    </Badge>
-                  ) : null}
-                  {account.binding ? (
-                    <Badge tone="neutral">
-                      {account.binding.fencePending
-                        ? "Binding locally denied; remote fence pending"
-                        : account.binding.state === "active"
-                          ? "Workspace binding ready"
-                          : "Binding revoked"}
-                    </Badge>
-                  ) : null}
+                <div className="mt-2 text-sm text-slate-300">
+                  <AccountStatusLine
+                    {...connectionRowStatus({
+                      account,
+                      // A failed reread keeps the previous rows on screen.
+                      refreshFailed: page.isError,
+                      localAction: lifecycleActivities.get(
+                        account.connectionId,
+                      ),
+                      pendingChange: account.binding?.fencePending,
+                    })}
+                  />
+                  {personal ? null : (
+                    <WorkspaceUseLine
+                      use={bindingWorkspaceUse(account.binding)}
+                    />
+                  )}
                 </div>
                 {account.state === "quarantined" ? (
                   <p className="mt-1 text-xs text-slate-400">
                     Connection could not be confirmed. Use a supported reconnect
                     action if available, or check the original request below.
-                  </p>
-                ) : null}
-                {account.state === "disabled" ||
-                account.state === "tombstoned" ? (
-                  <p className="mt-1 text-xs text-slate-400">
-                    Logical denial only; credential erasure and transport
-                    cleanup are unverified.
                   </p>
                 ) : null}
               </div>
