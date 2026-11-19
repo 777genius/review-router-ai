@@ -19,62 +19,58 @@
 
 ## 3. Вердикт
 
-- **Включать только для канарейки безопасно для всех, кроме самой канарейки.** Остальные 1098 pending строк publisher не выберет, в GitHub по ним ничего не уйдёт. Promotion будет менять их в БД, на GitHub это не влияет.
-- **Первый прогон без подготовки:** по 33 строкам будет `GET` и `suppress` без записи. На 7 открытых PR канарейки появятся новые комментарии "Assembling results" к давно законченным review, и такими они останутся. Вред небольшой, репозиторий одноразовый, но канарейка перестаёт быть чистым сигналом.
-- **Расширять allow-list (новые репозитории или `*`) без истечения backlog нельзя.** Устаревшие "Assembling results" и "Failed" появятся на открытых PR, в том числе на чужих (padelapp-club). Отменить это трудно.
+- **Только канарейка: для чужих репозиториев безопасно.** Остальные 1098 pending строк publisher не выберет, в GitHub по ним ничего не уйдёт. Promotion в БД начнёт закрывать только новые завершённые review всех репозиториев, старые строки не трогает. Общий риск для всех один: ошибка фазы `review_v2.progress_*` переводит весь цикл worker на `errorDelayMs` (`outbox-worker-loop.ts`), и тогда review и outbox идут медленнее.
+- **Первый прогон без подготовки:** по 33 строкам будет `GET` и `suppress` без записи. На 7 открытых PR канарейки (все 7 в `assembling`) появятся новые комментарии "Assembling results" к давно законченным review, и такими они останутся. Вред небольшой, репозиторий одноразовый, но канарейка уже не даёт чистого сигнала.
+- **Расширять allow-list (новые репозитории или `*`) без истечения backlog нельзя.** Устаревшие "Assembling results" и "Failed" появятся на открытых PR, в том числе чужих (padelapp-club). Отменить это трудно.
 
 ## 4. Backlog: варианты (не запускать без апрува)
 
-1. **(Рекомендую) Закрыть строки канарейки одним guarded UPDATE.** Эффект тот же, что у `suppress`, без GitHub. Запускать при флаге 0, в сессии владельца БД (как в `deploy/hetzner/db-grants/README.md`). Перед расширением тем же запросом закрыть строки целевых репозиториев с отсечкой на момент расширения. Новый review на том же PR поднимает `desiredVersion` и снова открывает строку, поэтому живой прогресс не теряется. Надёжность 9/10, уверенность 8/10.
+1. **(Рекомендую) Закрыть строки канарейки одним guarded UPDATE.** Эффект тот же, что у `suppress`, но без GitHub. Запускать при флаге 0, в сессии владельца БД (как в `deploy/hetzner/db-grants/README.md`). Число в проверке берётся из `SELECT count(*)` с теми же условиями прямо перед запуском. При несовпадении `DO`-блок откатывается целиком. Перед расширением тот же запрос для целевых репозиториев с отсечкой на момент расширения. Новый review на том же PR поднимет `desiredVersion` и снова откроет строку. Надёжность 9/10, уверенность 8/10.
 
    ```sql
-   BEGIN;
-   UPDATE "ReviewProgressPublicationV1" p
-      SET "publishedVersion" = p."desiredVersion", "lastErrorCode" = 'review_progress_backlog_expired', "updatedAt" = now()
-     FROM "RepositoryConnection" r
-    WHERE r."id" = p."repositoryConnectionId" AND lower(r."fullName") = '777genius/rr-codex-rotating-e2e'
-      AND p."desiredVersion" > p."publishedVersion" AND p."claimId" IS NULL AND p."updatedAt" < now() - interval '1 hour';
-   -- Ожидается UPDATE 40 (сверить с SELECT count(*) по тем же условиям). Иначе ROLLBACK.
-   COMMIT;
+   DO $$ DECLARE n int; BEGIN
+     UPDATE "ReviewProgressPublicationV1" p
+        SET "publishedVersion" = p."desiredVersion", "lastErrorCode" = 'review_progress_backlog_expired', "updatedAt" = now() AT TIME ZONE 'UTC'
+       FROM "RepositoryConnection" r
+      WHERE r."id" = p."repositoryConnectionId" AND lower(r."fullName") = '777genius/rr-codex-rotating-e2e'
+        AND p."desiredVersion" > p."publishedVersion" AND p."claimId" IS NULL
+        AND p."updatedAt" < (now() AT TIME ZONE 'UTC') - interval '1 hour';
+     GET DIAGNOSTICS n = ROW_COUNT;
+     IF n <> 40 THEN RAISE EXCEPTION 'expected 40 rows, got %', n; END IF;
+   END $$;
    ```
 
-2. Ничего не трогать в БД, принять 7 устаревших комментариев в канарейке и удалить их руками. Для расширения не годится. Надёжность 6/10, уверенность 9/10.
-3. Отсечка по возрасту в коде (пропускать строки старше N часов). Это правильнее надолго, но сейчас лишнее. Можно вернуться к ней при расширении. Надёжность 8/10, уверенность 6/10.
+2. В БД ничего не трогать, принять 7 устаревших комментариев в канарейке и удалить их руками. Для расширения не годится. Надёжность 6/10, уверенность 9/10.
+3. Отсечка по возрасту в коде (пропускать строки старше N часов). На длинной дистанции правильнее, но сейчас лишнее. Вернуться к ней при расширении. Надёжность 8/10, уверенность 6/10.
 
 ## 5. Канарейка: шаги
 
-**Предусловия:** апрув владельца. На prod образ с #821 (`061f04bc` это так). Выполнен вариант 1 из раздела 4, и SELECT показывает 0 pending строк канарейки. Записан baseline: pending по репозиториям и `max("lastPublishedAt")` вне канарейки. Параллельно не идёт другой релиз.
+**Предусловия:** апрув владельца. На prod образ с #821 (`061f04bc` это так). Выполнен вариант 1 из раздела 4: 0 pending строк канарейки. Записан baseline: pending по репозиториям и `max("lastPublishedAt")` вне канарейки. Параллельно не идёт другой релиз.
 
-**Смена env** одним прогоном `deploy/hetzner/fleet-overlay` (`set`, роль worker; пересоздаётся весь флот, короткий простой, старые контейнеры `*-before-ovl-*`):
+**Смена env** одним прогоном `deploy/hetzner/fleet-overlay` (`set`, роль worker; значения уходят и в канонический env-файл; пересоздаётся весь флот, будет короткий простой). В `REVIEW_ROUTER_PROGRESS_REPOSITORIES` оставить только канарейку, `review-router-saas-e2e` убрать. `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES` поставить в 1. `REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE` и `REVIEW_ROUTER_PROGRESS_FILE_COVERAGE` не трогать.
 
-- `REVIEW_ROUTER_PROGRESS_REPOSITORIES`: только канарейка, `review-router-saas-e2e` убрать;
-- `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES`: 1.
+**Шаги и наблюдение.** Отдельных логов успеха у publisher нет: счётчики `progress*` в лог не выводятся. Ошибки видны в строке `ReviewRouter worker phases failed` с фазами `review_v2.progress_*`, коды — только в `lastErrorCode` в БД.
 
-`PROGRESS_PROJECTION_CAPTURE` и `PROGRESS_FILE_COVERAGE` не трогать.
-
-**Шаги:**
-
-1. После apply: worker running, 0 рестартов. Поля `progress*` в итоге maintenance не `null`. Первые проходы дают `progressClaimed` 0.
-2. Один review в канарейке: новый PR или новый коммит в переиспользуемый PR 135. Ожидается ровно один комментарий `review-router-ai[bot]`. Он обновляется, пока идёт review (до 90 с), и приходит в Complete или Complete with gaps примерно за 30 с после App summary. В строке `publishedVersion = desiredVersion`, `lastErrorCode` пуст.
-3. Новый коммит посреди review: тот же комментарий обновляется на месте, без дубля.
-
-**Что смотреть 24 ч:** в логах worker коды `review_progress_*`, особенно `snapshot_invalid`, `pagination_inconclusive` и `github_*`. Рост `progressFailed`. Распределение `lastErrorCode` в канарейке. Вне канарейки не должно появиться ни одной строки с `lastPublishedAt` или `commentId` после момента включения.
+1. После apply: worker running, 0 рестартов, нет `phases failed` с `review_v2.progress_*`. Пока нет нового review, у строк канарейки не меняются `lastErrorCode` и `updatedAt`.
+2. Один review в канарейке: новый PR или новый коммит в переиспользуемый PR 135. Ровно один комментарий с маркером `<!-- review-router-live-progress -->`. Он обновляется во время review (до 90 с) и приходит в Complete или Complete with gaps примерно через 30 с после App summary. В строке `publishedVersion = desiredVersion`, `lastErrorCode` и `failureCount` пусты.
+3. Новый коммит посреди review: тот же комментарий обновляется на месте, дубля нет.
+4. 24 ч, SQL раз в несколько часов. По канарейке: `lastErrorCode`, `failureCount` и возраст строк с `desiredVersion > publishedVersion`. Вне канарейки ни одной строки с `lastPublishedAt` или `commentId` после включения.
 
 ## 6. Откат
 
-`fleet-overlay` `set` `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES` в 0 или возврат контейнеров `*-before-ovl-*` этого прогона. Запись в GitHub прекращается только после пересоздания worker. Чинить данные не нужно: claim истекают через 25 с, строки остаются согласованными, backlog снова растёт (capture включён). Нельзя откатить уже опубликованные комментарии. Комментарий review, который шёл в момент отката, застынет в промежуточном состоянии. Владелец удаляет его руками (он admin канарейки).
+`fleet-overlay` `set` `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES` в 0. Если вместо этого запускаются старые контейнеры `*-before-ovl-*`, канонический env-файл нужно восстановить из `snapshot.json` custody-каталога, иначе в нём останется 1. Запись в GitHub прекращается только после пересоздания worker. Данные чинить не нужно: claim истекают через 25 с, строки остаются согласованными, backlog снова растёт (capture включён). Опубликованные комментарии назад не забрать. Комментарий review, который шёл во время отката, застынет в промежуточном состоянии. Владелец удаляет его руками, он admin канарейки.
 
 ## 7. Go / no-go
 
 - **GO для канарейки:** выполнены все предусловия, allow-list состоит ровно из канарейки.
-- **Сразу откат:** запись вне канарейки. Дубль комментария. Комментарий без терминала дольше 5 мин после App summary. Всплеск `snapshot_invalid` или `pagination_inconclusive`. Растёт `progressFailed`.
-- **Расширение** решается отдельно и требует: не меньше 3 чистых review в канарейке, включая supersession; смёрженный и выкаченный #920 (Draft, fence пагинации комментариев); закрытый backlog целевых репозиториев. Для чужих workspace это видимое новое поведение на их PR, то есть продуктовое решение.
+- **Немедленный откат:** запись вне канарейки. Дубль комментария. Комментарий без терминала дольше 5 мин после App summary. Повторяющиеся `phases failed` по `review_v2.progress_*`. Рост `failureCount` или `snapshot_invalid` / `pagination_inconclusive` в `lastErrorCode`.
+- **Расширение** — отдельное решение. Нужны: не меньше 3 чистых review в канарейке, включая supersession; гейты шага 4 из `docs/operations/live-review-progress-rollout.md` (restart, duplicate reconciliation, permission loss, rate-limit cooldown); смёрженный и выкаченный #920 (fence пагинации, Draft); закрытый backlog целевых репозиториев. Для чужих workspace это новое видимое поведение на их PR, то есть продуктовое решение. Каждый шаг активации записывать в `ai-docs/deployments/2026-11-19-worker-progress-comment-refactor.md`.
 
 ## 8. Dead letter `installation.sync_requested`
 
-**Что ловит verify.** Проверка в `scripts/check-runtime-db-privileges.mjs` смотрит permission dead letters только за 7 дней. Её 9 событий относятся к одной установке: организация agent-teams-ai (`129733005`), 2026-11-14 20:47 – 2026-11-15 21:47, до возврата гранта 2026-11-17. Сами выйдут из окна **2026-11-22 21:47 UTC**. Retry scan их не уберёт: он создаёт новое событие (ключ на установку и минуту), старые dead letter остаются.
+**Что ловит verify.** `scripts/check-runtime-db-privileges.mjs` смотрит permission dead letters только за 7 дней. Все 9 событий относятся к одной установке: организация agent-teams-ai (`129733005`), 2026-11-14 20:47 – 2026-11-15 21:47, до возврата гранта 2026-11-17. Из окна они выйдут сами **2026-11-22 21:47 UTC**. Retry scan их не уберёт: он создаёт новое событие (ключ на установку и минуту), старые dead letter остаются.
 
-**Отдельная группа:** 6 активных установок, у которых последнее событие dead letter. После #898 они видят "Repository scan failed" и Retry scan:
+**Отдельная группа:** 6 активных установок с dead letter в последнем событии. С #898 пять видимых в дашборде показывают "Repository scan failed" и Retry scan:
 
 | Установка (workspace)         | Причина                                                                                | Сейчас                                                    | Действие                                                      |
 | ----------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------- |
@@ -85,6 +81,6 @@
 | chadalanlester `135326125`    | permission denied for table (исправлено)                                               | 12 repo на 07-05                                          | Пользователь сам                                              |
 | ibotpafos `158042724`         | как у padelapp-club (исправлено)                                                       | 15 repo                                                   | Пользователь сам                                              |
 
-**Механизм.** Retry scan и Refresh repos вызывают `requestInstallationSyncClientAction`. Нужен участник workspace с правом изменений и entitlement. Есть rate limit, lease lock и аудит. Обработчик заново сверяет весь список репозиториев установки с GitHub. Повтор безопасен; репозитории, которых установка больше не видит, помечаются removed. Сейчас это безопасно: 7 проверок прав worker в verify проходят. Retry из списка outbox (`retryDeadLetter`) здесь не подходит: у sync-событий нет `workspaceId`. Скрипта оператора нет. Ручной requeue (2026-10-31) повторять без отдельного апрува не стоит.
+**Механизм.** Retry scan и Refresh repos вызывают `requestInstallationSyncClientAction`. Нужен участник workspace с правом изменений и entitlement. Есть rate limit, lease lock и аудит. Обработчик заново сверяет весь список репозиториев установки с GitHub, поэтому повтор безопасен. Репозитории, которых установка больше не видит, помечаются removed. Сейчас это безопасно: 7 проверок прав worker в verify проходят. `retryDeadLetter` из списка outbox не подходит: у sync-событий нет `workspaceId`. Скрипта оператора нет. Ручной requeue, как 2026-10-31, без отдельного апрува не повторять.
 
-**Verify.** Самое маленькое изменение: никакого. До 2026-11-22 21:47 UTC считать строку "9 / `installation.sync_requested` / latest 2026-11-15 21:47:43" известной базой в записи релиза. Если нужно раньше и строже: в `permissionDeadLetterQuery` не учитывать dead letter, после которого есть `processed` событие того же `type` и `aggregateId`. Это около 4 строк и 1 тест; тогда verify очистится сразу после Retry scan в agent-teams-ai. Ручку с датой baseline не добавлять.
+**Verify.** Самое маленькое изменение: ничего не менять. До 2026-11-22 21:47 UTC в записи релиза считать строку "9 / `installation.sync_requested` / latest 2026-11-15 21:47:43" известной базой. Учесть, что `cmd_verify` при этой ошибке падает раньше `check_ready`, поэтому `/ready` проверять руками. Если нужно раньше и строже: в `permissionDeadLetterQuery` пропускать dead letter, у которого есть событие того же `type` и `aggregateId` со `status = 'processed'` и `processedAt > deadLetteredAt`. Это около 4 строк и 1 тест. Тогда verify станет чистым сразу после Retry scan в agent-teams-ai. Ручку с датой baseline не добавлять.
