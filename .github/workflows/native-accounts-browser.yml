@@ -111,6 +111,53 @@ jobs:
           }
           assert.equal(expected.size, 0);
           NODE
+      - name: Report bounded native browser failure evidence
+        if: failure()
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync, readFileSync } from 'node:fs';
+          const directory = 'tmp/native-accounts-browser';
+          const safe = value => String(value ?? '')
+            .replace(/\x1b\[[0-9;]*m/g, '')
+            .replace(/https?:\/\/[^\s"'<>]+/g, value => {
+              try { const url = new URL(value); return url.origin + url.pathname; }
+              catch { return '[url]'; }
+            })
+            .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+            .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[opaque]')
+            .slice(0, 1200);
+          const errors = values => (Array.isArray(values) ? values : []).slice(0, 5).map(safe);
+          const manifestPath = directory + '/manifest.json';
+          if (existsSync(manifestPath)) {
+            const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+            console.log(JSON.stringify({
+              nativeBrowserReceipt: {
+                revision: manifest.revision,
+                sourceBefore: manifest.sourceBefore,
+                sourceAfter: manifest.sourceAfter,
+                summary: manifest.summary,
+                shots: (manifest.shots ?? []).slice(0, 40).map(shot => ({
+                  scenario: shot.scenario, user: shot.user, width: shot.width,
+                  theme: shot.theme, status: shot.status, httpStatus: shot.httpStatus,
+                  reason: safe(shot.reason), problems: errors(shot.problems),
+                  pageErrors: errors(shot.pageErrors), consoleErrors: errors(shot.consoleErrors),
+                  blockedRequests: errors(shot.blockedRequests),
+                  horizontalOverflow: shot.probe?.horizontalOverflow,
+                })),
+              },
+            }));
+          } else console.log('Native browser manifest was not created.');
+          const logPath = directory + '/next-app.log';
+          if (existsSync(logPath)) {
+            const lines = readFileSync(logPath, 'utf8').split('\n');
+            console.log(JSON.stringify({ nextFailureDiagnostics: lines
+              .filter(line => /error|failed|timeout|ERR_|SIGKILL|out of memory|Prisma/i.test(line))
+              .slice(-40).map(safe) }));
+            console.log(JSON.stringify({ nextRequestTimings: lines
+              .filter(line => /GET \/dashboard|POST \/dashboard|[Cc]ompil|[Rr]eady in/.test(line))
+              .slice(-40).map(safe) }));
+          }
+          NODE
       - name: Preserve visual receipts and screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
