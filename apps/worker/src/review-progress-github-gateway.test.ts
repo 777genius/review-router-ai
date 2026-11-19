@@ -453,11 +453,13 @@ describe("ReviewProgressGitHubGateway", () => {
 
   it("defers null comment rows before creating a duplicate", async () => {
     const fixture = githubFixture([]);
-    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
       const response = await fixture.request(route, parameters);
       if (
-        route ===
-        "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
       ) {
         return { data: [null] };
       }
@@ -738,7 +740,35 @@ describe("ReviewProgressGitHubGateway", () => {
     );
   });
 
-  async function assertKnownCommentScanInconclusive(knownBody: string) {
+  it("recovers the persisted known comment id before relying on the bounded scan", async () => {
+    const fullPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture(
+      [...fullPage, { id: 900, body: `known\n${marker}` }],
+      { listedComments: fullPage },
+    );
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).resolves.toMatchObject({ commentId: 900, operation: "updated" });
+    expect(
+      fixture.calls.some(
+        ({ route, parameters }) =>
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}" &&
+          parameters.comment_id === 900,
+      ),
+    ).toBe(true);
+    expect(fixture.calls.some(({ route }) => route.startsWith("POST "))).toBe(
+      false,
+    );
+  });
+
+  it("keeps an unchanged known comment on a busy PR without deleting unseen duplicates", async () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
       body: "unrelated",
@@ -746,7 +776,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture(
       [
         ...fullPage,
-        { id: 900, body: knownBody },
+        { id: 900, body: formatReviewProgressComment("working", marker) },
         { id: 901, body: `hidden duplicate\n${marker}` },
       ],
       { listedComments: fullPage },
@@ -757,27 +787,31 @@ describe("ReviewProgressGitHubGateway", () => {
         ...input(),
         knownCommentId: 900,
       }),
+    ).resolves.toEqual({
+      commentId: 900,
+      operation: "unchanged",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("keeps a busy-PR scan inconclusive when the known comment is gone", async () => {
+    const fullPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture(fullPage, { listedComments: fullPage });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
     ).rejects.toMatchObject({
       kind: "pagination_inconclusive",
       metadata: { retryable: true },
     });
-    expect(
-      fixture.calls.some(
-        ({ route }) =>
-          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
-      ),
-    ).toBe(false);
     expect(mutations(fixture.calls)).toEqual([]);
-  }
-
-  it("defers incomplete scans with an unchanged known comment", async () => {
-    await assertKnownCommentScanInconclusive(
-      formatReviewProgressComment("working", marker),
-    );
-  });
-
-  it("defers incomplete scans before PATCHing a known comment", async () => {
-    await assertKnownCommentScanInconclusive(`known\n${marker}`);
   });
 
   it("prioritizes a verified known comment over an earlier match", async () => {
@@ -1695,7 +1729,7 @@ function githubFixture(
             sha:
               options.staleHeadAfterFirstRead && pullReads > 1
                 ? "b".repeat(40)
-                : options.currentHead ?? head,
+                : (options.currentHead ?? head),
           },
           base: {
             repo: { full_name: options.repositoryFullName ?? "acme/rocket" },
@@ -1707,7 +1741,7 @@ function githubFixture(
       const pageIndex = Number(parameters.page) - 1;
       const visible = options.pagedComments
         ? (options.pagedComments[pageIndex] ?? []).map(toStoredComment)
-        : options.listedComments?.map(toStoredComment) ?? comments;
+        : (options.listedComments?.map(toStoredComment) ?? comments);
       return {
         data: visible.map(toResponseComment),
         ...(options.pageLinks

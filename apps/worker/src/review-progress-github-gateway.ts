@@ -74,8 +74,13 @@ export class ReviewProgressGitHubGateway {
     validateReviewProgressInput(input);
     await this.assertCurrentPullRequest(input);
     // Only comments listed under this PR can be canonical.
-    const scanned = await this.findMarkedComments(input);
-    const existing = await this.includeVerifiedKnownComment(input, scanned);
+    let existing: ReviewProgressComment[];
+    try {
+      existing = await this.findMarkedComments(input);
+    } catch (error) {
+      existing = await this.knownCommentAfterInconclusiveScan(input, error);
+    }
+    existing = await this.includeVerifiedKnownComment(input, existing);
     const canonical =
       existing.find(({ id }) => id === input.knownCommentId) ?? existing[0];
     const duplicates = existing.filter(({ id }) => id !== canonical?.id);
@@ -90,6 +95,26 @@ export class ReviewProgressGitHubGateway {
       );
     }
     return this.createComment(input, desiredBody);
+  }
+
+  /**
+   * Busy PRs can exceed the bounded scan. A verified known comment may still be
+   * updated in place, but nothing is created or deleted without a complete scan.
+   */
+  private async knownCommentAfterInconclusiveScan(
+    input: UpsertReviewProgressCommentInput,
+    scanError: unknown,
+  ): Promise<ReviewProgressComment[]> {
+    if (
+      input.knownCommentId === undefined ||
+      !(scanError instanceof ReviewProgressGitHubError) ||
+      scanError.kind !== "pagination_inconclusive"
+    ) {
+      throw scanError;
+    }
+    const known = await this.includeVerifiedKnownComment(input, []);
+    if (known.length === 0) throw scanError;
+    return known;
   }
 
   /** Conclusive offset scans can still miss a known comment during deletions. */
