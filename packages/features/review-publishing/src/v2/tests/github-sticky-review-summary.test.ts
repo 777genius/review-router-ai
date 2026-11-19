@@ -100,7 +100,7 @@ describe("sticky review summary comment", () => {
 
   it("reports a failed lookup as a clean retry because nothing was written", async () => {
     const github = new FakeIssueComments();
-    github.failListing = true;
+    github.failListing = 502;
 
     await expect(
       publish(github, summaryPayload("1", "current")),
@@ -140,6 +140,54 @@ describe("sticky review summary comment", () => {
     expect(github.comments).toHaveLength(0);
   });
 
+  it("retracts a stale summary only while it still shows that run's own body", async () => {
+    const github = new FakeIssueComments();
+    const stale = summaryPayload("1", "stale");
+    const applied = await publish(github, stale);
+    // A rerun of the same revision rewrote the comment with a newer body.
+    await publish(github, summaryPayload("1", "rerun"));
+
+    await client(github, stale).markStaleOrDelete({
+      operation: operation(stale),
+      canonicalExternalObjectId: applied.externalObjectId,
+      duplicateExternalObjectIds: [],
+      compensateCanonical: true,
+    });
+
+    expect(github.botSummaries()).toHaveLength(1);
+    expect(github.botSummaries()[0]!.body).toBe(body("1", "rerun"));
+  });
+
+  it("removes same-revision duplicates but keeps the canonical comment", async () => {
+    const github = new FakeIssueComments();
+    const current = summaryPayload("1", "current");
+    const duplicate = github.add(bot, body("1", "older text"));
+    const canonical = github.add(bot, current.body);
+
+    await expect(
+      client(github, current).markStaleOrDelete({
+        operation: operation(current),
+        canonicalExternalObjectId: `issue-comment:${canonical}`,
+        duplicateExternalObjectIds: [`issue-comment:${duplicate}`],
+        compensateCanonical: false,
+      }),
+    ).resolves.toBe(ReviewPublicationReceiptStatus.Succeeded);
+    expect(github.comments.map((comment) => comment.id)).toEqual([canonical]);
+  });
+
+  it("does not retry a lookup GitHub refuses outright", async () => {
+    const github = new FakeIssueComments();
+    github.failListing = 404;
+
+    await expect(
+      publish(github, summaryPayload("1", "current")),
+    ).rejects.toMatchObject({
+      safeCode: "github_summary_comment_lookup_failed",
+      outcome: ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+      retryable: false,
+    });
+  });
+
   it("recognizes only the runtime summary marker family", () => {
     expect(isReviewSummaryMarker(revisionMarker("1"))).toBe(true);
     expect(isReviewSummaryMarker(`<!-- ${revisionMarker("1")} -->`)).toBe(
@@ -161,7 +209,7 @@ type StoredComment = { id: number; body: string; user: { login: string } };
 class FakeIssueComments implements GitHubInstallationClient {
   readonly comments: StoredComment[] = [];
   readonly calls: string[] = [];
-  failListing = false;
+  failListing: number | null = null;
   deleteBeforeNextPatch: number | null = null;
   private nextId = 1000;
 
@@ -193,7 +241,7 @@ class FakeIssueComments implements GitHubInstallationClient {
       case "GET /repos/{owner}/{repo}/issues/{issue_number}/comments": {
         const page = parameters.page as number;
         this.calls.push(`GET page=${page}`);
-        if (this.failListing) throw { status: 502 };
+        if (this.failListing !== null) throw { status: this.failListing };
         const start = (page - 1) * (parameters.per_page as number);
         return {
           data: structuredClone(this.comments.slice(start, start + 100)),

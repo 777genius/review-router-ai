@@ -7,7 +7,7 @@
 - Affected targets: worker only (the GitHub App publication client in
   `packages/features/review-publishing/src/v2`). Web, API, Gateway, native and
   the public Action are unchanged; no Action release is needed.
-- Implementation: [ReviewRouter AI PR "Keep one review summary comment per pull request"](https://github.com/777genius/review-router-ai/pulls?q=is%3Apr+sticky-review-summary).
+- Implementation: [ReviewRouter AI PR #933](https://github.com/777genius/review-router-ai/pull/933).
 - Implementation reference: the squash commit of that PR on `main`; this is not
   proof that it is selected for a release or installed.
 - Dependencies: none. No migration and no configuration.
@@ -33,12 +33,23 @@ Merging the PR did not deploy anything.
   (55 summaries on social-monitor#665 on 2026-11-20).
 - Now, when the summary carries that marker family, the worker scans all
   issue comment pages for summaries authored by the App bot, rewrites the
-  newest one and posts a new comment only when there is none. Older per-run
-  summaries stay as they are.
+  newest one and posts a new comment only when there is none. Older summaries
+  of other revisions stay as they are; an older duplicate of the same revision
+  is still removed, as before.
 - A stale run that has to retract its summary deletes the comment only while
-  it still shows that run's own marker, so it never removes a newer run's
-  summary.
+  it still shows exactly that run's body; a duplicate is deleted only while it
+  still carries the run's marker. A comment already rewritten by a later run
+  is left alone.
 - Inline finding comments, their markers and their deduplication are unchanged.
+
+## Known limits
+
+- Editing a comment does not notify subscribers the way a new comment did.
+- If someone minimizes the summary comment, later updates stay hidden.
+- After a retraction (head moved mid-publication) the pull request has no
+  summary until the next run publishes.
+- The worker relies on the runtime marker format; if it changes, publishing
+  falls back to one comment per run, today's behaviour.
 
 ## Ordered rollout
 

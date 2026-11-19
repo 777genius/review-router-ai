@@ -297,7 +297,23 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
           ? ReviewPublicationReceiptStatus.StaleVisible
           : ReviewPublicationReceiptStatus.Succeeded;
       case ReviewV2PublicationPayloadKind.Summary:
-        await this.deleteOwnSummaryComments(payload, staleObjectIds);
+        await Promise.all([
+          ...(input.compensateCanonical
+            ? [
+                this.deleteSummaryCommentIf(
+                  input.canonicalExternalObjectId,
+                  (body) => sha256(body) === payload.bodyHash,
+                ),
+              ]
+            : []),
+          ...input.duplicateExternalObjectIds
+            .filter((id) => id !== input.canonicalExternalObjectId)
+            .map((id) =>
+              this.deleteSummaryCommentIf(id, (body) =>
+                body.includes(payload.marker),
+              ),
+            ),
+        ]);
         return input.compensateCanonical
           ? ReviewPublicationReceiptStatus.Compensated
           : ReviewPublicationReceiptStatus.Succeeded;
@@ -498,6 +514,17 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     cursor: string | null,
   ) {
     const page = parsePage(cursor);
+    const rows = await this.listIssueCommentsPage(page);
+    const objects = rows.flatMap((row) => {
+      if (!isOwnedBody(row, payload.marker, this.options.botLogin)) return [];
+      const id = numericId(row);
+      const body = requiredString(row.body, "github_comment_body_invalid");
+      return [gatewayObject(`issue-comment:${id}`, payload, sha256(body))];
+    });
+    return pageResult(objects, page, rows.length);
+  }
+
+  private async listIssueCommentsPage(page: number) {
     const response = await this.request(
       "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
       {
@@ -506,14 +533,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         page,
       },
     );
-    const rows = requireArray(response.data, "github_issue_comments_invalid");
-    const objects = rows.flatMap((row) => {
-      if (!isOwnedBody(row, payload.marker, this.options.botLogin)) return [];
-      const id = numericId(row);
-      const body = requiredString(row.body, "github_comment_body_invalid");
-      return [gatewayObject(`issue-comment:${id}`, payload, sha256(body))];
-    });
-    return pageResult(objects, page, rows.length);
+    return requireArray(response.data, "github_issue_comments_invalid");
   }
 
   private async findCheckRuns(
@@ -851,76 +871,62 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
   }
 
   private async findStickySummaryCommentId(): Promise<number | null> {
-    try {
-      let newest: number | null = null;
-      for (let page = 1; page <= maxIssueCommentPages; page += 1) {
-        const response = await this.request(
-          "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
-          {
-            issue_number: this.options.permit.pullRequestNumber,
-            per_page: 100,
-            page,
-          },
-        );
-        const rows = requireArray(
-          response.data,
-          "github_issue_comments_invalid",
-        );
-        for (const row of rows) {
-          if (!isOwnedSummaryComment(row, this.options.botLogin)) continue;
-          const id = numericId(row);
-          if (newest === null || id > newest) newest = id;
-        }
-        if (rows.length < 100) return newest;
+    let newest: number | null = null;
+    for (let page = 1; page <= maxIssueCommentPages; page += 1) {
+      let rows: readonly Readonly<Record<string, unknown>>[];
+      try {
+        rows = await this.listIssueCommentsPage(page);
+      } catch (error) {
+        // Nothing has been written yet, so every lookup failure has no effect.
+        throw summaryLookupError(error);
       }
-      throw new Error("github_issue_comments_pagination_limit_exceeded");
-    } catch {
-      // Nothing has been written yet, so a failed lookup is a clean retry.
-      throw new ReviewV2ScmMutationError(
-        "github_summary_comment_lookup_failed",
-        ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
-        true,
-      );
+      for (const row of rows) {
+        if (!isOwnedSummaryComment(row, this.options.botLogin)) continue;
+        const id = numericId(row);
+        if (newest === null || id > newest) newest = id;
+      }
+      if (rows.length < 100) return newest;
     }
+    throw new ReviewV2ScmMutationError(
+      "github_summary_comment_lookup_page_limit_exceeded",
+      ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+      false,
+    );
   }
 
   /**
-   * The summary comment is shared by successive revisions, so a stale run may
-   * only delete it while it still carries that run's own marker.
+   * The summary comment is shared by successive revisions. Cleanup re-reads it
+   * and deletes only while it still shows what this run is allowed to remove.
    */
-  private async deleteOwnSummaryComments(
-    payload: Extract<
-      ReviewV2PublicationPayload,
-      { readonly kind: ReviewV2PublicationPayloadKind.Summary }
-    >,
-    externalObjectIds: readonly string[],
+  private async deleteSummaryCommentIf(
+    externalObjectId: string,
+    stillOwnedBody: (body: string) => boolean,
   ) {
-    await Promise.all(
-      externalObjectIds.map(async (externalObjectId) => {
-        const commentId = externalNumericId(externalObjectId, "issue-comment");
-        try {
-          const current = await this.request(
+    const commentId = externalNumericId(externalObjectId, "issue-comment");
+    try {
+      const current = requireRecord(
+        (
+          await this.request(
             "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
             { comment_id: commentId },
-          );
-          if (
-            !isOwnedBody(
-              requireRecord(current.data, "github_comment_invalid"),
-              payload.marker,
-              this.options.botLogin,
-            )
-          ) {
-            return;
-          }
-          await this.request(
-            "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
-            { comment_id: commentId },
-          );
-        } catch (error) {
-          if (!isGitHubNotFound(error)) throw error;
-        }
-      }),
-    );
+          )
+        ).data,
+        "github_comment_invalid",
+      );
+      if (
+        !isBotAuthored(current, this.options.botLogin) ||
+        typeof current.body !== "string" ||
+        !stillOwnedBody(current.body)
+      ) {
+        return;
+      }
+      await this.request(
+        "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+        { comment_id: commentId },
+      );
+    } catch (error) {
+      if (!isGitHubNotFound(error)) throw error;
+    }
   }
 
   private async createCheckRun(
@@ -1335,6 +1341,15 @@ function githubMutationError(error: unknown): ReviewV2ScmMutationError {
       ? ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect
       : ReviewV2ScmMutationFailureOutcome.EffectMayExist,
     retryable,
+  );
+}
+
+function summaryLookupError(error: unknown): ReviewV2ScmMutationError {
+  const classified = githubMutationError(error);
+  return new ReviewV2ScmMutationError(
+    "github_summary_comment_lookup_failed",
+    ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+    classified.retryable,
   );
 }
 
