@@ -82,8 +82,8 @@ export function metricLabel(
 const calls = (value: number) =>
   `${count(value)} ${value === 1 ? "call" : "calls"}`;
 /*
- * The plain words for usage gaps. Every place that names them (tooltip, table,
- * legend, coverage, notes, Details) uses these, so one concept reads one way.
+ * The plain words for usage gaps. Everything below is the one source of this
+ * wording for the tooltip, table, legend, KPI, coverage, notes and Details.
  */
 const tokensGap = {
   one: "may not have reported all its tokens",
@@ -106,7 +106,7 @@ export const TOKEN_LOWER_BOUND_NOTE =
 export const TOKEN_LOWER_BOUND_HINT = `At least this many. ${TOKEN_LOWER_BOUND_NOTE}`;
 /** A day only partly inside the period (see `partialDayLabel`). */
 export const PARTIAL_DAY_NOTE =
-  "The first and last day may cover only part of the day; the last one shows usage so far";
+  "The first and last day may cover only part of the day"; the last one shows usage so far";
 /**
  * One readable status per bucket. Source completeness flags are mutually
  * exclusive per call, so their sum is an exact count of incomplete calls.
