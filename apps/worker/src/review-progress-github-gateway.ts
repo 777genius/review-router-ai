@@ -397,7 +397,11 @@ export class ReviewProgressGitHubGateway {
     }
     return {
       comments: response.data,
-      ...commentPageLinks(response.headers, page),
+      ...commentPageLinks(
+        response.headers,
+        page,
+        `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.pullNumber}/comments`,
+      ),
     };
   }
 

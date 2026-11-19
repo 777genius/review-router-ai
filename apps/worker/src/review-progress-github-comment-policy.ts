@@ -40,8 +40,8 @@ export function commentPageScanDecision(
   if (page === maxPages && commentsOnPage === 100) return "inconclusive";
   // Without a complete Link header, a full page is not proof of completion.
   if (
-    hasNextPage === false ||
-    (hasNextPage === undefined && commentsOnPage < 100)
+    commentsOnPage < 100 &&
+    (hasNextPage === false || hasNextPage === undefined)
   ) {
     return "complete";
   }
@@ -61,6 +61,7 @@ export type CommentPageLinks = {
 export function commentPageLinks(
   headers: Readonly<Record<string, string | number | undefined>> | undefined,
   currentPage: number,
+  expectedCollectionPath?: string,
 ): CommentPageLinks {
   const invalid: CommentPageLinks = { hasNextPage: "invalid" };
   const link = Object.entries(headers ?? {}).find(
@@ -93,7 +94,10 @@ export function commentPageLinks(
       const target = new URL(href, "https://api.github.com");
       if (
         target.protocol !== "https:" ||
-        target.origin !== "https://api.github.com"
+        target.origin !== "https://api.github.com" ||
+        (expectedCollectionPath !== undefined &&
+          target.pathname.toLowerCase() !==
+            expectedCollectionPath.toLowerCase())
       ) {
         return invalid;
       }

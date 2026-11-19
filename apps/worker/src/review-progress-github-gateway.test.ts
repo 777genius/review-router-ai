@@ -287,8 +287,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, [{ id: 701, body: desired }]],
       pageLinks: [
-        '<https://api.github.com/comments?page=1>; rel="first"',
-        '<https://api.github.com/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="first"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
       ],
     });
     await expect(
@@ -310,6 +310,52 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("does not trust a foreign issue's last-page Link before POST", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1>; rel="last"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("continues after a full previous-only page to find the marker", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([], {
+      pagedComments: [full, full, [{ id: 701, body: desired }]],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 3 }).upsert(input()),
+    ).resolves.toMatchObject({ commentId: 701, operation: "unchanged" });
+    expect(
+      fixture.calls
+        .filter(({ route }) =>
+          route.includes("/issues/{issue_number}/comments"),
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2, 3]);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("defers a capped full page despite a backward Link", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
@@ -323,8 +369,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, lastPage],
       pageLinks: [
-        '<https://api.github.com/comments?page=2>; rel="next"',
-        '<https://api.github.com/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
       ],
     });
 
@@ -357,8 +403,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const fixture = githubFixture([], {
       pagedComments: [firstPage, secondPage],
       pageLinks: [
-        '<https://api.github.com/comments?page=2>; rel="next"',
-        '<https://api.github.com/comments?page=1>; rel="prev"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
       ],
     });
 
@@ -375,7 +421,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 4, body: desired };
     const duplicate = { id: 7, body: `duplicate\n${marker}` };
-    const last = '<https://api.github.com/comments?page=2>; rel="last"';
+    const last = '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="last"';
     const fixture = githubFixture([canonical, duplicate], {
       pagedComments: [[canonical], [duplicate]],
       pageLinks: [last, last],
@@ -401,8 +447,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 4, body: desired };
     const duplicate = { id: 7, body: `duplicate\n${marker}` };
-    const last = '<https://api.github.com/comments?page=3>; rel="last"';
-    const previous = '<https://api.github.com/comments?page=1>; rel="prev"';
+    const last = '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=3>; rel="last"';
+    const previous = '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"';
     const fixture = githubFixture([canonical, duplicate], {
       pagedComments: [[canonical], [], [duplicate]],
       pageLinks: [last, previous, previous],
@@ -557,7 +603,7 @@ describe("ReviewProgressGitHubGateway", () => {
     }));
     const fixture = githubFixture([], {
       pagedComments: [fullPage],
-      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next"'],
+      pageLinks: ['<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"'],
     });
 
     await expect(
@@ -576,7 +622,7 @@ describe("ReviewProgressGitHubGateway", () => {
     }));
     const fixture = githubFixture([], {
       pagedComments: [fullPage],
-      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
+      pageLinks: ['<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next'],
     });
     await expect(
       gateway(fixture.request, { maxCommentPages: 1 }).upsert(input()),
@@ -607,7 +653,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const duplicate = { id: 20, body: `duplicate\n${marker}` };
     for (const href of [
       "javascript:alert(1)",
-      "blob:https://api.github.com/comments?page=2",
+      "blob:https://api.github.com/repos/acme/rocket/issues/42/comments?page=2",
       "data:text/plain,abc",
       "ftp://api.github.com/comments?page=2",
       "http://api.github.com/comments?page=2",
@@ -632,8 +678,8 @@ describe("ReviewProgressGitHubGateway", () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 19, body: desired };
     const conflict =
-      '<https://api.github.com/comments?page=1>; rel="last", ' +
-      "<https://api.github.com/comments?page=3>; rel=last";
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="last", ' +
+      "<https://api.github.com/repos/acme/rocket/issues/42/comments?page=3>; rel=last";
     const fixture = githubFixture([canonical], {
       pagedComments: [[canonical]],
       pageLinks: [conflict],
@@ -650,8 +696,8 @@ describe("ReviewProgressGitHubGateway", () => {
   it("does not mutate when next contradicts the advertised final page", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const invalid =
-      '<https://api.github.com/comments?page=2>; rel="next", ' +
-      '<https://api.github.com/comments?page=1>; rel="last"';
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next", ' +
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="last"';
     const fixture = githubFixture([{ id: 19, body: desired }], {
       pagedComments: [[{ id: 19, body: desired }]],
       pageLinks: [invalid],
@@ -672,7 +718,7 @@ describe("ReviewProgressGitHubGateway", () => {
     };
     const fixture = githubFixture([], {
       pagedComments: [[markedComment]],
-      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
+      pageLinks: ['<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next'],
     });
 
     await expect(
@@ -688,7 +734,7 @@ describe("ReviewProgressGitHubGateway", () => {
     const marked = { id: 19, body: `old\n${marker}` };
     const fixture = githubFixture([], {
       pagedComments: [[marked], []],
-      pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
+      pageLinks: ['<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next'],
     });
 
     await expect(

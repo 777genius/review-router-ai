@@ -157,7 +157,7 @@ describe("Review progress GitHub comment policy", () => {
   it("classifies bounded page scan outcomes", () => {
     const scenarios = [
       [false, 100, 5, 5, "inconclusive"],
-      [false, 100, 1, 5, "complete"],
+      [false, 100, 1, 5, "continue"],
       [undefined, 99, 5, 5, "complete"],
       [undefined, 100, 1, 5, "continue"],
       [true, 100, 1, 5, "continue"],
@@ -210,6 +210,20 @@ describe("Review progress GitHub comment policy", () => {
         "invalid",
       );
     }
+  });
+
+  it("rejects pagination hints for another issue collection", () => {
+    const expected = "/repos/acme/rocket/issues/42/comments";
+    const foreign =
+      '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1>; rel="last"';
+    const trusted =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"';
+    expect(commentPageLinks({ link: foreign }, 1, expected)).toEqual({
+      hasNextPage: "invalid",
+    });
+    expect(commentPageLinks({ link: trusted }, 1, expected)).toEqual({
+      hasNextPage: true,
+    });
   });
 
   it("parses only comments with safe IDs, bodies and author logins", () => {
