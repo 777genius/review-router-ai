@@ -226,6 +226,16 @@ export function applyEnvList(list, updates) {
   ];
 }
 
+/**
+ * Pure: does a canonical env line hold the container value? `KEY=v`, or the dotenv form `KEY="v"` when `v` has
+ * nothing a dotenv reader would unescape or expand (no quote, backslash, `$`, backtick or line break). Anything else is a
+ * mismatch.
+ */
+export function canonicalLineMatches(line, key, value) {
+  if (line === `${key}=${value}`) return true;
+  return !/["\\$`\r\n]/.test(value) && line === `${key}="${value}"`;
+}
+
 /** Pure: replace exactly one `KEY=old` line per update; old must match the container value (CAS). */
 export function applyCanonical(
   text,
@@ -251,7 +261,7 @@ export function applyCanonical(
     }
     need(hits.length === 1, `canonical_line_count:${key}`);
     need(
-      lines[hits[0]] === `${key}=${oldEnv.get(key)}`,
+      canonicalLineMatches(lines[hits[0]], key, oldEnv.get(key)),
       `canonical_differs_from_container:${key}`,
     );
     if (value === null) lines.splice(hits[0], 1);

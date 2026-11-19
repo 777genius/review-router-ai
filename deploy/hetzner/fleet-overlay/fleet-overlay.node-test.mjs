@@ -10,6 +10,7 @@ import {
   plannedConfig,
   validateSpec,
   requireUnsetOutsideImageEnv,
+  canonicalLineMatches,
 } from "./fleet-overlay.mjs";
 
 test("appendJsonArray keeps existing bytes and is idempotent", () => {
@@ -360,4 +361,60 @@ test("unset of a key the image sets through ENV is refused before anything runs"
       imageEnv,
     ),
   );
+});
+
+test("CAS accepts a plain dotenv-quoted canonical line and nothing looser", () => {
+  assert.equal(canonicalLineMatches("K=1", "K", "1"), true);
+  assert.equal(canonicalLineMatches('K="1"', "K", "1"), true);
+  assert.equal(canonicalLineMatches('K="o/r"', "K", "o/r"), true);
+  assert.equal(canonicalLineMatches('K="2"', "K", "1"), false);
+  assert.equal(canonicalLineMatches("K='1'", "K", "1"), false);
+  assert.equal(canonicalLineMatches('K= "1"', "K", "1"), false);
+  assert.equal(canonicalLineMatches('K="1" # note', "K", "1"), false);
+  // Values a dotenv reader would expand or unescape must match byte for byte.
+  for (const v of ["a$b", "a\\b", "a`b", 'a"b'])
+    assert.equal(canonicalLineMatches(`K="${v}"`, "K", v), false);
+  // Production shape: quoted lines are unset and set like plain ones, other lines untouched.
+  const env = new Map([
+    ["REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE", "1"],
+    ["B", "x"],
+  ]);
+  const text =
+    'A="keep"\nREVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE="1"\nB="x"\n';
+  assert.equal(
+    applyCanonical(
+      text,
+      env,
+      new Map([
+        ["REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE", null],
+        ["B", "y"],
+      ]),
+    ),
+    'A="keep"\nB=y\n',
+  );
+});
+
+test("unset removes exactly its one line and leaves every other byte of the canonical file as it was", () => {
+  const env = new Map([["K", "1"]]);
+  const unset = new Map([["K", null]]);
+  // first, middle and last line, with and without a final newline, quoted and plain
+  const cases = [
+    ['K="1"\nA="x"\nB=2\n', 'A="x"\nB=2\n'],
+    ['A="x"\nK="1"\nB=2\n', 'A="x"\nB=2\n'],
+    ['A="x"\nB=2\nK=1\n', 'A="x"\nB=2\n'],
+    ['A="x"\nB=2\nK="1"', 'A="x"\nB=2'],
+    ['# comment\nA="x"\n\nK=1\n\n', '# comment\nA="x"\n\n\n'],
+  ];
+  for (const [before, after] of cases)
+    assert.equal(applyCanonical(before, env, unset), after);
+  // A second line for the key, or any looser form of it, still aborts without a result.
+  assert.throws(
+    () => applyCanonical('K="1"\nK=1\n', env, unset),
+    /canonical_line_count:K/,
+  );
+  for (const line of ["K='1'", 'K="1" ', 'K="\\1"', "export K=1"])
+    assert.throws(
+      () => applyCanonical(`A=1\n${line}\n`, env, unset),
+      /canonical_(differs_from_container|line_count):K/,
+    );
 });

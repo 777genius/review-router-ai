@@ -24,7 +24,10 @@ node fleet-overlay.mjs apply   $R/fleet-overlay-<id> $R/overlay-inputs-<id>/over
 - `updates`: `{ key, op: "add" | "set" | "unset" | "appendCsv" | "appendJsonArray", value?, roles?, containerOnly? }`. `add` requires the key to be absent from both the container and canonical env file, then appends it to both. This supports first-time backend configuration without overwriting an existing opt-out. `unset` takes no `value` and removes the key from the container env and its one canonical line, so the code default applies again. A key the image sets through `ENV` cannot be unset (Docker would merge the image value back): the tool refuses it before any change with `unset_key_in_image_env`; use `set` instead. Any later update of the same key in one spec fails with `update_after_unset`; it has the same checks as `set` (the key must exist on every targeted role, the canonical line must equal the container value), and an already absent key fails the plan instead of being skipped. Other operations require a targeted key to
   already exist on every targeted role, and in the canonical env file exactly once, unless `containerOnly` is set
   (for values that were injected at container creation and are not in the canonical file). `set`/`appendCsv` values
-  are non-empty strings without control characters; `appendJsonArray` takes an object.
+  are non-empty strings without control characters; `appendJsonArray` takes an object. The canonical line counts as
+  equal to the container value when it is `KEY=v`, or `KEY="v"` if `v` has no quote, backslash, `$`, backtick or
+  line break (the plain dotenv form some production files use). Single quotes, escapes, trailing text or a second
+  line for the key abort the run. A changed line is always written back unquoted.
 - `targetImage`, `targetImageRef`, `targetRevision` (all three or none): run the copies on a new image. `targetImage` is the
   `sha256:` image id, `targetImageRef` a local tag that resolves to exactly that id, `targetRevision` the 40-hex source
   commit that the image's `org.opencontainers.image.revision` label must carry. The image must be linux/amd64 and already on
