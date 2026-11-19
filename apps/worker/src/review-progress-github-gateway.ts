@@ -432,18 +432,17 @@ export class ReviewProgressGitHubGateway {
     if (!Array.isArray(response.data)) {
       throw failure("invalid_response", "github_issue_comments_invalid", false);
     }
+    const expectedCollectionPaths = [
+      `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.pullNumber}/comments`,
+    ];
+    if (verifiedRepositoryId !== undefined) {
+      expectedCollectionPaths.push(
+        `/repositories/${verifiedRepositoryId}/issues/${input.pullNumber}/comments`,
+      );
+    }
     return {
       comments: response.data,
-      ...commentPageLinks(
-        response.headers,
-        page,
-        [
-          `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.pullNumber}/comments`,
-          ...(verifiedRepositoryId === undefined
-            ? []
-            : [`/repositories/${verifiedRepositoryId}/issues/${input.pullNumber}/comments`]),
-        ],
-      ),
+      ...commentPageLinks(response.headers, page, expectedCollectionPaths),
     };
   }
 
