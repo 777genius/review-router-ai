@@ -317,7 +317,7 @@ describe("provider usage interactive report", () => {
       screen.getByText(/Some sources last reported Oct 30, 2026, 19:40 UTC/),
     ).toBeTruthy();
     expect(
-      screen.getByText(/may cover only part of it, for example today so far/),
+      screen.getByText(/the real total is higher, so the number is shown as at least/),
     ).toBeTruthy();
     expect(
       screen.getByText(
