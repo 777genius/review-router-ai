@@ -21,7 +21,7 @@ node fleet-overlay.mjs apply   $R/fleet-overlay-<id> $R/overlay-inputs-<id>/over
 `overlay-spec.json` is owned by root with mode 0600 and contains `machineId`, `network`, `expectedImage`,
 `expectedRevision`, container `names`, `updates` and optionally `extraHosts`:
 
-- `updates`: `{ key, op: "add" | "set" | "unset" | "appendCsv" | "appendJsonArray", value, roles?, containerOnly? }`. `add` requires the key to be absent from both the container and canonical env file, then appends it to both. This supports first-time backend configuration without overwriting an existing opt-out. `unset` takes no `value` and removes the key from the container env and its one canonical line, so the code default applies again (or an `ENV` default of the image, if the image sets that key); it has the same checks as `set` (the key must exist on every targeted role, the canonical line must equal the container value), and an already absent key fails the plan instead of being skipped. Other operations require a targeted key to
+- `updates`: `{ key, op: "add" | "set" | "unset" | "appendCsv" | "appendJsonArray", value?, roles?, containerOnly? }`. `add` requires the key to be absent from both the container and canonical env file, then appends it to both. This supports first-time backend configuration without overwriting an existing opt-out. `unset` takes no `value` and removes the key from the container env and its one canonical line, so the code default applies again. A key the image sets through `ENV` cannot be unset (Docker would merge the image value back): the tool refuses it before any change with `unset_key_in_image_env`; use `set` instead. Any later update of the same key in one spec fails with `update_after_unset`; it has the same checks as `set` (the key must exist on every targeted role, the canonical line must equal the container value), and an already absent key fails the plan instead of being skipped. Other operations require a targeted key to
   already exist on every targeted role, and in the canonical env file exactly once, unless `containerOnly` is set
   (for values that were injected at container creation and are not in the canonical file). `set`/`appendCsv` values
   are non-empty strings without control characters; `appendJsonArray` takes an object.
@@ -45,9 +45,13 @@ which needs manual `docker` recovery). Retained old containers of a successful r
 always recreates the whole fleet, even when nothing changes, so expect a short outage.
 
 Rolling back a successful run by starting the retained `*-before-ovl-<ts>` containers also brings back their old
-env (including keys an `unset` removed), because a container keeps the env it was created with. The canonical env
-files are not rolled back by that: restore them from `snapshot.json` in the custody directory, or the next overlay
-or release would recreate the containers with the new values.
+env (including keys an `unset` removed), because a container keeps the env it was created with. Stop the new
+containers, rename them away, rename each retained container back to its original name (the release tooling only
+picks names without `before`), then start them. The canonical env files are not rolled back by that: restore each
+`runtime-<role>.env` (`runtime-skill-scan-worker.env` for scan) under `/etc/platform/projects/review-router/runtime-env/`
+from `roles.<role>.canonical` in the custody `snapshot.json` (root, 0600). Otherwise the next overlay or release
+fails its CAS (`canonical_differs_from_container`) on changed keys, and an unset key would silently differ between
+the file and the container.
 
 After `apply`, register the producer through the trusted materializer and promote the workflow channel (see
 `ai-docs/operations/07-environments-and-release-management.md`).
@@ -61,4 +65,4 @@ Notes learned in production:
   (`modelDispatchProfile.defaultAgentProfileRefs`), otherwise admission fails with `agent_profile_unavailable`.
   The default must point at a profile whose managed OCR release asset (`ocr-v<packageVersion>`) is published.
 
-Tests (not part of the CI test command): `node --test deploy/hetzner/fleet-overlay/fleet-overlay.node-test.mjs`.
+Tests (run in the Static Checks CI job): `node --test deploy/hetzner/fleet-overlay/fleet-overlay.node-test.mjs`.

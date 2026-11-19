@@ -28,6 +28,7 @@ STUB
 done
 
 GOOD_SHA="0123456789abcdef0123456789abcdef01234567"
+unset RR_SWAP_EXTRA_UPDATES # the caller's environment must not leak into the cases below
 FAILS=0
 
 # run <args...>: runs release.sh with stubs first in PATH; sets RC and OUT, resets the call log.
@@ -65,6 +66,11 @@ check "swap without extra updates: same remote call and uploads as before" \
 
 RR_SWAP_EXTRA_UPDATES="$WORK/missing.json" run swap "$GOOD_SHA"
 check "swap with a missing extra updates file fails before any call" "$([ "$RC" -ne 0 ] && [ ! -s "$CALLS" ] && echo 0 || echo 1)"
+RR_SWAP_EXTRA_UPDATES="$WORK/missing.json" run all "$GOOD_SHA"
+check "all with a missing extra updates file fails before build" "$([ "$RC" -ne 0 ] && [ ! -s "$CALLS" ] && echo 0 || echo 1)"
+echo '{"key":"AB","op":"unset"}' > "$WORK/not-a-list.json"
+RR_SWAP_EXTRA_UPDATES="$WORK/not-a-list.json" run all "$GOOD_SHA"
+check "all with a malformed extra updates file fails before build" "$([ "$RC" -ne 0 ] && [ ! -s "$CALLS" ] && echo 0 || echo 1)"
 echo '[{"key":"REVIEW_ROUTER_PROGRESS_REPOSITORIES","op":"unset"}]' > "$WORK/extra.json"
 RR_SWAP_EXTRA_UPDATES="$WORK/extra.json" run swap "$GOOD_SHA"
 check "swap with extra updates uploads the file and passes EXTRA=1" \
@@ -242,7 +248,10 @@ for role in roles:
 unset_progress = [{'key': key, 'op': 'unset', 'roles': ['api', 'worker', 'scan']} for key in
                   ['REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE', 'REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES']]
 run_case('extra updates are appended after the release identity keys', extra=unset_progress)
-for label, bad in [('empty list', []), ('object', {'key': 'AB', 'op': 'unset'}), ('non-object row', ['AB'])]:
+for label, bad in [('empty list', []), ('object', {'key': 'AB', 'op': 'unset'}), ('non-object row', ['AB']),
+                   ('unknown field', [{'key': 'AB', 'op': 'unset', 'role': ['worker']}]),
+                   ('empty roles', [{'key': 'AB', 'op': 'unset', 'roles': []}]),
+                   ('roles not a list', [{'key': 'AB', 'op': 'unset', 'roles': 'api'}])]:
     run_case('rejects extra updates: ' + label, extra=bad,
              refusal='swap: RR_SWAP_EXTRA_UPDATES must be a non-empty JSON array of update objects')
 run_case('rejects extra updates that touch a release identity key',

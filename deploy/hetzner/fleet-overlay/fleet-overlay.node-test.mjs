@@ -9,6 +9,7 @@ import {
   roleExtraHosts,
   plannedConfig,
   validateSpec,
+  requireUnsetOutsideImageEnv,
 } from "./fleet-overlay.mjs";
 
 test("appendJsonArray keeps existing bytes and is idempotent", () => {
@@ -342,4 +343,21 @@ test("without unset the env list and canonical file are byte-for-byte what they 
     "C=3",
   ]);
   assert.equal(applyCanonical("A=1\nB=2\n", env, updates), "A=1\nB=9\nC=3\n");
+});
+
+test("unset of a key the image sets through ENV is refused before anything runs", () => {
+  const imageEnv = ["PATH=/usr/bin", "NODE_ENV=production"];
+  assert.doesNotThrow(() => requireUnsetOutsideImageEnv(unsetAll, imageEnv));
+  assert.throws(
+    () =>
+      requireUnsetOutsideImageEnv([{ key: "NODE_ENV", op: "unset" }], imageEnv),
+    /unset_key_in_image_env:NODE_ENV/,
+  );
+  // Only unset is affected: overriding an image ENV value with set stays allowed.
+  assert.doesNotThrow(() =>
+    requireUnsetOutsideImageEnv(
+      [{ key: "NODE_ENV", op: "set", value: "test" }],
+      imageEnv,
+    ),
+  );
 });

@@ -36,9 +36,13 @@ identity keys, which they may not touch, and go through the same overlay validat
 names and value hashes only. Without the variable, `swap` sends exactly what it sent before.
 
 ```bash
-echo '[{"key":"REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES","op":"unset","roles":["api","worker","scan"]}]' > /tmp/extra.json
-RR_SWAP_EXTRA_UPDATES=/tmp/extra.json deploy/hetzner/release.sh swap <sha>   # plan only
+umask 077   # the file is copied with its mode; keep it private if it ever carries a value
+echo '[{"key":"REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES","op":"unset","roles":["api","worker","scan"]}]' > ~/extra.json
+RR_SWAP_EXTRA_UPDATES=~/extra.json deploy/hetzner/release.sh swap <sha>   # plan only
 ```
+
+The file is checked locally before anything runs (also for `all`, before build and migrate). Allowed fields are
+`key`, `op`, `value`, `roles` and `containerOnly`; an unknown field or an empty `roles` list is refused.
 
 Test the script with `bash deploy/hetzner/release.test.sh`; it uses stub ssh, scp, curl and git.
 
@@ -53,9 +57,10 @@ Test the script with `bash deploy/hetzner/release.test.sh`; it uses stub ssh, sc
 ## Rollback
 
 `swap --apply` stops the old containers and keeps them, renamed `*-before-ovl-<ts>`. To roll back, stop the new
-containers and start the saved `*-before-ovl-*` containers on the host (`docker start <name>`). They carry their
-old env too, so env changes made with `RR_SWAP_EXTRA_UPDATES` are undone in the containers; restore the canonical
-env files from the custody `snapshot.json` as well. Database
+containers and rename them away, rename the saved `*-before-ovl-*` containers back to their original names (this
+script only picks names without `before`) and start them (`docker start <name>`). They carry their old env too, so
+env changes made with `RR_SWAP_EXTRA_UPDATES` are undone in the containers; restore the canonical env files from the
+custody `snapshot.json` as well (see [fleet-overlay](fleet-overlay/README.md)). Database
 migrations are not reverted, so only ship migrations that the previous image can run against.
 
 ## Where build state lives

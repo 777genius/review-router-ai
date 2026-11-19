@@ -190,6 +190,17 @@ export function roleUpdates(role, env, updates) {
   return result;
 }
 
+/**
+ * Pure: Docker merges the image `ENV` into a new container, so an unset key the image sets would come back
+ * with the image value and fail the candidate config check during apply. Refuse it before anything runs.
+ */
+export function requireUnsetOutsideImageEnv(updates, imageEnv) {
+  const keys = new Set(imageEnv.map((e) => e.slice(0, e.indexOf("="))));
+  for (const u of updates)
+    if (u.op === "unset")
+      need(!keys.has(u.key), `unset_key_in_image_env:${u.key}`);
+}
+
 export function roleContainerOnly(role, updates) {
   return new Set(
     updates
@@ -495,6 +506,12 @@ async function main() {
     : null;
   const toImage = target?.image ?? image;
   const targetLabels = target ? await verifyTargetImage(spec) : {};
+  if (spec.updates.some((u) => u.op === "unset")) {
+    const found = row(
+      await docker("GET", `/images/${encodeURIComponent(toImage)}/json`),
+    );
+    requireUnsetOutsideImageEnv(spec.updates, row(found.Config).Env ?? []);
+  }
 
   if (mode === "prepare") {
     const snapshots = {};
