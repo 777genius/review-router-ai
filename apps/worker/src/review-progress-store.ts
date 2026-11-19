@@ -111,20 +111,25 @@ export class PrismaReviewProgressPublicationStore {
     });
     if (result.count !== 1) {
       if (input.repairOnFenceLoss === false) {
-        // An unchanged stale version must release only its own claim.
-        await this.prisma.reviewProgressPublicationV1.updateMany({
-          where: {
-            ...input.publication.scope,
-            claimId: input.publication.claim.claimId,
-            claimOwnerIdHash: input.publication.claim.ownerIdHash,
-          },
-          data: {
-            claimId: null,
-            claimOwnerIdHash: null,
-            claimUntil: null,
-            updatedAt: input.now,
-          },
-        });
+        // A no-write stale claim must not stop the maintenance pass when
+        // cleanup fails. Its fenced lease will otherwise expire normally.
+        try {
+          await this.prisma.reviewProgressPublicationV1.updateMany({
+            where: {
+              ...input.publication.scope,
+              claimId: input.publication.claim.claimId,
+              claimOwnerIdHash: input.publication.claim.ownerIdHash,
+            },
+            data: {
+              claimId: null,
+              claimOwnerIdHash: null,
+              claimUntil: null,
+              updatedAt: input.now,
+            },
+          });
+        } catch {
+          console.warn("review_progress_stale_claim_cleanup_failed");
+        }
       } else {
         await this.requeueAfterClaimLoss({
           scope: input.publication.scope,
