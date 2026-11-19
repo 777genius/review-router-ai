@@ -143,7 +143,9 @@ test("account limits preserve observations across reset without automatic reads 
   // waiting, including the timer that renders the elapsed reset state.
   await page.clock.runFor(90_000);
   await expect(limits).toContainText("Reset pending");
-  await expect(limits).toContainText("Outdated");
+  // A passed reset is said once; the 2.5 minute old observation is still
+  // current, so no age and never an alarming badge.
+  await expect(limits).not.toContainText(/Outdated|as of /);
   await limits.screenshot({
     path: info.outputPath("account-limits-stale.png"),
   });
@@ -565,7 +567,8 @@ test("Claude account limits preserve unknown and stale observations on mobile wi
       await expect(limits).not.toContainText(/100% left|unlimited/);
     } else {
       await expect(limits).toContainText("62.5% left");
-      await expect(limits).toContainText("Outdated");
+      await expect(limits).toContainText(/as of \d+m ago/);
+      await expect(limits).not.toContainText("Outdated");
       await expect(limits).toContainText("Reset pending");
       const summary = limits.getByText("Details", { exact: true });
       await summary.focus();

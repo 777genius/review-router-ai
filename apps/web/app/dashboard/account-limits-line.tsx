@@ -9,6 +9,7 @@ import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, type QueryClient } from "@tanstack/react-query";
 import { Button } from "@reviewrouter/ui";
 import { RefreshCw } from "lucide-react";
+import { ACCOUNT_LIMITS_OBSERVATION_TTL_MS } from "@reviewrouter/features-provider-accounts/account-limits";
 import type {
   AccountLimitsView,
   AccountsResult,
@@ -17,7 +18,6 @@ import {
   accountLimitsOptions,
   accountLimitsKey,
   accountLimitsRefreshOptions,
-  ACCOUNT_LIMITS_OUTDATED_AFTER_MS,
   claimAccountLimitsAutoRefresh,
   releaseAccountLimits,
   removeAccountLimits,
@@ -93,31 +93,47 @@ function summaryWindows(windows: readonly LimitsWindow[]) {
     .slice(0, 2);
 }
 
-/** One rule for the Outdated badge and for refreshing when an account opens. */
+/** Whether a window needs a refresh when an account opens: aged or reset. */
 function outdated(window: LimitsWindow, now: number) {
   const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
   const observed = window.observedAt ? Date.parse(window.observedAt) : NaN;
   return (
     window.stale ||
     !Number.isFinite(observed) ||
-    now - observed >= ACCOUNT_LIMITS_OUTDATED_AFTER_MS ||
+    now - observed >= ACCOUNT_LIMITS_OBSERVATION_TTL_MS ||
     (Number.isFinite(reset) && now >= reset)
   );
+}
+
+function durationText(minutes: number) {
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor((minutes % 1_440) / 60);
+  const remaining = minutes % 60;
+  return days
+    ? `${days}d${hours ? ` ${hours}h` : ""}`
+    : hours
+      ? `${hours}h${remaining ? ` ${remaining}m` : ""}`
+      : `${remaining}m`;
 }
 
 function resetText(reset: number, now: number) {
   if (!Number.isFinite(reset)) return "Reset unknown";
   if (now >= reset) return "Reset pending";
-  const minutes = Math.ceil((reset - now) / 60_000);
-  const days = Math.floor(minutes / 1_440);
-  const hours = Math.floor((minutes % 1_440) / 60);
-  const remaining = minutes % 60;
-  const duration = days
-    ? `${days}d${hours ? ` ${hours}h` : ""}`
-    : hours
-      ? `${hours}h${remaining ? ` ${remaining}m` : ""}`
-      : `${remaining}m`;
-  return `Resets in ${duration}`;
+  return `Resets in ${durationText(Math.ceil((reset - now) / 60_000))}`;
+}
+
+/**
+ * The age of an observation that is no longer current, instead of an alarming
+ * badge: last known values are normal, not an error. A passed reset alone is
+ * already said by "Reset pending".
+ */
+function observationAge(window: LimitsWindow, now: number) {
+  const observed = window.observedAt ? Date.parse(window.observedAt) : NaN;
+  if (!Number.isFinite(observed)) return "as of unknown time";
+  const age = now - observed;
+  return age >= ACCOUNT_LIMITS_OBSERVATION_TTL_MS
+    ? `as of ${durationText(Math.floor(age / 60_000))} ago`
+    : null;
 }
 
 export function AccountLimitsLine({
@@ -201,7 +217,7 @@ export function AccountLimitsLine({
   const view = changed ? null : cachedView;
   const fetchedAt = view?.fetchedAt;
   // A source with quota-only refresh (today Codex, which has no background
-  // collector) refreshes once when the card opens showing missing or Outdated
+  // collector) refreshes once when the card opens showing missing or old
   // limits. Sources without it stay cached-only. Judged as the card opens.
   const outdatedWhenRead =
     view?.status === "snapshot" &&
@@ -286,7 +302,7 @@ export function AccountLimitsLine({
           <>
             {summaryWindows(view.windows).map((window, index) => {
               const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
-              const stale = outdated(window, now);
+              const age = observationAge(window, now);
               return (
                 <div
                   key={`${window.label}:${index}`}
@@ -325,16 +341,9 @@ export function AccountLimitsLine({
                   <span className="whitespace-nowrap tabular-nums">
                     {resetText(reset, now)}
                   </span>
-                  {stale ? (
-                    <span
-                      className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
-                      title={
-                        view.refreshAvailable
-                          ? "These limits may have changed. Refresh fetches current limits without running a model; Ready describes the connection, not its remaining quota."
-                          : "These saved limits may have changed. Reload checks the latest saved snapshot; Ready describes the connection, not its remaining quota."
-                      }
-                    >
-                      Outdated
+                  {age ? (
+                    <span className="whitespace-nowrap tabular-nums text-slate-500">
+                      {age}
                     </span>
                   ) : null}
                 </div>
@@ -350,6 +359,7 @@ export function AccountLimitsLine({
                   limits
                   {" · "}shared across all activity
                 </p>
+                <p>Ready describes the connection, not its remaining quota.</p>
                 {view.windows.map((window, index) => (
                   <div key={`${window.label}:${index}`} className="space-y-1">
                     <p>
@@ -398,7 +408,7 @@ export function AccountLimitsLine({
         refresh.data.fetchedAt === view.fetchedAt &&
         outdatedWhenRead ? (
           // A refresh whose newest observation is no newer than before must
-          // say so instead of leaving a silent Outdated badge.
+          // say so instead of leaving only an old "as of" age.
           <p role="status">
             Refresh returned no newer limits. Try again later, or reconnect the
             account if this keeps happening.
