@@ -29,7 +29,7 @@ import type { ProviderIdentity } from "../../src/features/provider-setup/provide
 export const metadata: Metadata = createPublicPageMetadata({
   title: "Getting started with ReviewRouter",
   description:
-    "Install the ReviewRouter GitHub App, merge the setup PR, connect Codex, Claude Code, MiMo Token Plan, OpenRouter or Kimi Code, and open a pull request. Or self-host ReviewRouter with the guided installer.",
+    "Install the ReviewRouter GitHub App, choose Codex, Claude Code, MiMo Token Plan, OpenRouter or Kimi Code, merge the setup PR and open a pull request. Or self-host ReviewRouter with the guided installer.",
   path: "/getting-started",
 });
 
@@ -64,12 +64,12 @@ const hostedSteps = [
     body: "Install ReviewRouter on the repositories you choose, or request approval from your organization owner. The dashboard then lists those repositories.",
   },
   {
-    title: "Create and merge the setup PR",
-    body: "Create the setup PR from the dashboard. It adds the ReviewRouter workflow files on the reviewrouter/setup branch for you to inspect. Merge it so your default branch owns the workflow.",
+    title: "Choose an AI provider",
+    body: "Pick Codex, Claude Code, MiMo Token Plan, OpenRouter or Kimi Code in the dashboard. The setup PR is made for the provider you choose, and its usage is billed to your own subscription or API account.",
   },
   {
-    title: "Connect an AI provider",
-    body: "Pick Codex, Claude Code, MiMo Token Plan, OpenRouter or Kimi Code in the dashboard. Provider usage is billed to your own subscription or API account.",
+    title: "Create and merge the setup PR",
+    body: "Create the setup PR for a repository from the dashboard. It adds the ReviewRouter workflow files on the reviewrouter/setup branch for you to inspect. Merge it, then follow the remaining steps in that repository's row.",
   },
   {
     title: "Open a pull request",
@@ -310,7 +310,7 @@ export default function GettingStartedPage(): React.ReactElement {
             From install to your first review in four steps.
           </h1>
           <p className="mt-5 text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
-            Install the GitHub App, merge the setup PR, connect an AI provider
+            Install the GitHub App, choose an AI provider, merge the setup PR
             and open a pull request. You approve every workflow change before
             reviews begin.
           </p>

@@ -35,6 +35,7 @@ export function RepositorySetupActionButton({
   workflowCurrent,
   workflowRefresh = false,
   mutationsEnabled,
+  unavailableReason,
   variant = "solid",
   onComplete,
 }: {
@@ -46,6 +47,8 @@ export function RepositorySetupActionButton({
   readonly workflowCurrent: boolean;
   readonly workflowRefresh?: boolean;
   readonly mutationsEnabled: boolean;
+  /** A prerequisite outside this button is missing; shown as its reason. */
+  readonly unavailableReason?: string | undefined;
   readonly variant?: "solid" | "soft" | "outline" | "ghost";
   readonly onComplete?: (params: Record<string, string>) => void;
 }): ReactElement {
@@ -57,16 +60,19 @@ export function RepositorySetupActionButton({
     !selected ||
     archived ||
     (workflowCurrent && !workflowRefresh) ||
+    Boolean(unavailableReason) ||
     isPending;
   const disabledReason = !mutationsEnabled
     ? "Dashboard changes are disabled for this workspace."
-    : !selected
-      ? "This repository is no longer selected for the GitHub App installation."
-      : archived
-        ? "Archived repositories cannot be provisioned."
-        : workflowCurrent && !workflowRefresh
-          ? "ReviewRouter workflow is already current."
-          : undefined;
+    : unavailableReason
+      ? unavailableReason
+      : !selected
+        ? "This repository is no longer selected for the GitHub App installation."
+        : archived
+          ? "Archived repositories cannot be provisioned."
+          : workflowCurrent && !workflowRefresh
+            ? "ReviewRouter workflow is already current."
+            : undefined;
 
   function completeWithoutUrl(params: Record<string, string>): void {
     setToast((current) => ({
@@ -166,6 +172,7 @@ export function RepositorySetupMergedButton({
   selected,
   archived,
   mutationsEnabled,
+  unavailableReason,
   onComplete,
   label = "I merged it",
 }: {
@@ -174,20 +181,29 @@ export function RepositorySetupMergedButton({
   readonly selected: boolean;
   readonly archived: boolean;
   readonly mutationsEnabled: boolean;
+  /** A prerequisite outside this button is missing; shown as its reason. */
+  readonly unavailableReason?: string | undefined;
   readonly onComplete?: (params: Record<string, string>) => void;
   readonly label?: "I merged it" | "Verify setup";
 }): ReactElement {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [toast, setToast] = useState<SetupActionToast | null>(null);
-  const disabled = !mutationsEnabled || !selected || archived || isPending;
+  const disabled =
+    !mutationsEnabled ||
+    !selected ||
+    archived ||
+    Boolean(unavailableReason) ||
+    isPending;
   const disabledReason = !mutationsEnabled
     ? "Dashboard changes are disabled for this workspace."
-    : !selected
-      ? "This repository is no longer selected for the GitHub App installation."
-      : archived
-        ? "Archived repositories cannot be provisioned."
-        : undefined;
+    : unavailableReason
+      ? unavailableReason
+      : !selected
+        ? "This repository is no longer selected for the GitHub App installation."
+        : archived
+          ? "Archived repositories cannot be provisioned."
+          : undefined;
 
   function completeWithoutUrl(params: Record<string, string>): void {
     setToast((current) => ({

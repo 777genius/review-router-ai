@@ -25,7 +25,7 @@ const index: RepositorySearchIndexItem[] = Array.from(
     searchText: `personal/project-${i + 1}`,
     provider: "github",
     visibility: i === 39 ? "public" : "private",
-    readiness: i === 39 ? "needs_setup" : "ready",
+    state: i === 39 ? "not_set_up" : "ready",
     setupProgressStep: i === 39 ? "setup_pr" : "ready",
     stargazersCount: i + 1,
     archived: i === 39,

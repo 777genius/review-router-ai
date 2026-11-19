@@ -10,15 +10,6 @@ export type RepositoryHealthView = {
   readonly blocksReview: boolean;
 };
 
-export type WorkspaceHealthSummary = {
-  readonly ready: number;
-  readonly needsSetup: number;
-  readonly needsAttention: number;
-  readonly unknown: number;
-  readonly label: string;
-  readonly tone: RepositoryHealthTone;
-};
-
 export function describeRepositoryHealth(
   status: RepositoryHealthStatus | undefined,
   rawSummary?: string | null,
@@ -121,56 +112,6 @@ export function describeRepositoryHealth(
         blocksReview: false,
       };
   }
-}
-
-export function summarizeWorkspaceHealth(
-  statuses: readonly (RepositoryHealthStatus | undefined)[],
-): WorkspaceHealthSummary {
-  const counts = statuses.reduce(
-    (accumulator, status) => {
-      const view = describeRepositoryHealth(status);
-      if (view.tone === "success") accumulator.ready += 1;
-      else if (view.tone === "danger") accumulator.needsAttention += 1;
-      else if (view.tone === "warning") accumulator.needsSetup += 1;
-      else accumulator.unknown += 1;
-      return accumulator;
-    },
-    { ready: 0, needsSetup: 0, needsAttention: 0, unknown: 0 },
-  );
-
-  if (statuses.length === 0) {
-    return {
-      ...counts,
-      label: "No repositories synced",
-      tone: "neutral",
-    };
-  }
-  if (counts.needsAttention > 0) {
-    return {
-      ...counts,
-      label: `${counts.needsAttention} need attention`,
-      tone: "danger",
-    };
-  }
-  if (counts.needsSetup > 0) {
-    return {
-      ...counts,
-      label: `${counts.needsSetup} need setup`,
-      tone: "warning",
-    };
-  }
-  if (counts.ready > 0 && counts.unknown === 0) {
-    return {
-      ...counts,
-      label: "All synced repos ready",
-      tone: "success",
-    };
-  }
-  return {
-    ...counts,
-    label: `${counts.ready} ready, ${counts.unknown} unknown`,
-    tone: "neutral",
-  };
 }
 
 function cleanSummary(value: string | null | undefined): string | null {

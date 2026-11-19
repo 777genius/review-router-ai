@@ -61,6 +61,93 @@ afterEach(() => {
 });
 
 describe("RepositorySetupProgressPanel", () => {
+  it("verifies a merged Gateway setup on the merge step with one button", () => {
+    render(
+      <RepositorySetupProgressPanel
+        verificationNeeded
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="acme/repo"
+        selected
+        archived={false}
+        initialSetupStatus="configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent={false}
+        runtimeCompatibility="unknown"
+        mutationsEnabled
+        initialStep="merge_setup_pr"
+        expectedProviderAuthModes={["codex_account_gateway"]}
+      />,
+    );
+    expect(screen.getByText("2 of 4 - verify setup")).toBeTruthy();
+    expect(
+      screen.getByText("Merged. Verify the workflow to start reviews."),
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("button", { name: "Verify setup" }),
+    ).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "I merged it" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Create setup PR/ }),
+    ).toBeNull();
+  });
+
+  it("explains a paused Gateway authorization on the first step", () => {
+    render(
+      <RepositorySetupProgressPanel
+        verificationNeeded
+        gatewayAuthorizationBlocked
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="acme/repo"
+        selected
+        archived={false}
+        initialSetupStatus="configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent={false}
+        runtimeCompatibility="unknown"
+        mutationsEnabled
+        initialStep="setup_pr"
+        expectedProviderAuthModes={["codex_account_gateway"]}
+        gatewayReviewV2Readiness={{
+          status: "paused",
+          authorityVersion: 1,
+          recoveryReference: "docs/operations/review-action-v2-cutover.md",
+        }}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "Review authorization is paused. Complete its recovery before reviews can run.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("waits for a provider before a setup PR can be created", () => {
+    render(
+      <RepositorySetupProgressPanel
+        verificationNeeded={false}
+        providerRequired
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="acme/repo"
+        selected
+        archived={false}
+        initialSetupStatus="not_configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent={false}
+        mutationsEnabled
+        initialStep="setup_pr"
+      />,
+    );
+    const button = screen.getByRole("button", {
+      name: "Create setup PR",
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe("Choose a provider above first.");
+    expect(screen.getByText("Choose a provider above first.")).toBeTruthy();
+  });
+
   it("keeps a committed setup PR actionable when its activity record is unavailable", async () => {
     window.history.replaceState(
       null,
@@ -76,6 +163,7 @@ describe("RepositorySetupProgressPanel", () => {
     });
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="acme/repo"
@@ -124,6 +212,7 @@ describe("RepositorySetupProgressPanel", () => {
     });
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="acme/repo"
@@ -197,6 +286,7 @@ describe("RepositorySetupProgressPanel", () => {
     });
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="acme/repo"
@@ -310,6 +400,7 @@ describe("RepositorySetupProgressPanel", () => {
           runtimeCompatibility={runtimeCompatibility}
           mutationsEnabled
           initialStep="setup_pr"
+          verificationNeeded={runtimeCompatibility === "unknown"}
           expectedProviderAuthModes={["openrouter_api_key"]}
         />,
       );
@@ -352,6 +443,7 @@ describe("RepositorySetupProgressPanel", () => {
     (authMode, step, progress) => {
       const view = () => (
         <RepositorySetupProgressPanel
+          verificationNeeded={false}
           workspaceId="workspace_1"
           repositoryId="repo_1"
           repositoryFullName="777genius/example"
@@ -413,6 +505,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("shows actual Gateway draining state despite cached complete progress", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -450,6 +543,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("exposes rotating preparation before the first setup PR", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -478,6 +572,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("keeps generic provider setup locked until after merge", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -503,6 +598,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("hides the AI suggested replies option on gateway setup actions", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -526,6 +622,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("removes the AI discussion option from legacy setup actions", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -565,6 +662,7 @@ describe("RepositorySetupProgressPanel", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <RepositorySetupProgressPanel
+          verificationNeeded={false}
           workspaceId="workspace_1"
           repositoryId="repo_1"
           repositoryFullName="777genius/example"
@@ -667,6 +765,7 @@ describe("RepositorySetupProgressPanel", () => {
 
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -709,6 +808,7 @@ describe("RepositorySetupProgressPanel", () => {
 
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -737,6 +837,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("does not advance progress for a provider setup outside the effective config", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -767,6 +868,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("does not advance multi-auth progress after a single provider confirmation", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -797,6 +899,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("advances multi-auth progress after all expected providers are confirmed", async () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -848,6 +951,7 @@ describe("RepositorySetupProgressPanel", () => {
         }}
       >
         <RepositorySetupProgressPanel
+          verificationNeeded={false}
           workspaceId="workspace_1"
           repositoryId="repo_1"
           repositoryFullName="777genius/example"
@@ -930,6 +1034,7 @@ describe("RepositorySetupProgressPanel", () => {
 
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -951,6 +1056,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("advances to provider setup when merge confirmation is detected in the background", async () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -978,6 +1084,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("shows a recovery action when the saved setup PR was closed", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -1005,6 +1112,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("explains a provisioning failure that is not a setup PR recovery issue", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -1027,6 +1135,7 @@ describe("RepositorySetupProgressPanel", () => {
   it("does not repeat a stale provisioning reason once the setup step advanced", () => {
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -1056,6 +1165,7 @@ describe("RepositorySetupProgressPanel", () => {
 
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -1096,6 +1206,7 @@ describe("RepositorySetupProgressPanel", () => {
 
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -1138,6 +1249,7 @@ describe("RepositorySetupProgressPanel", () => {
 
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -1179,6 +1291,7 @@ describe("RepositorySetupProgressPanel", () => {
 
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"
@@ -1212,6 +1325,7 @@ describe("RepositorySetupProgressPanel", () => {
 
     render(
       <RepositorySetupProgressPanel
+        verificationNeeded={false}
         workspaceId="workspace_1"
         repositoryId="repo_1"
         repositoryFullName="777genius/example"

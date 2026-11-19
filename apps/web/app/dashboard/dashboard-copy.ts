@@ -141,7 +141,9 @@ export function repositorySetupProgressSummary(
             ? "1 of 4 - connect Codex"
             : "1 of 4 - setup PR needed";
     case "merge_setup_pr":
-      return "2 of 4 - merge setup PR";
+      return options.verificationNeeded
+        ? "2 of 4 - verify setup"
+        : "2 of 4 - merge setup PR";
     case "provider":
       return options.providerSetupBeforeWorkflow
         ? "3 of 4 - check Codex setup"
@@ -165,7 +167,7 @@ export function dashboardNoticeText(
     case "runtime_migration_recovery_required":
       return "The migration outcome is not confirmed. The old workflow stays paused. Check the existing GitHub migration run and recover the setup before continuing; the dispatch or secret write will not be repeated automatically.";
     case "app_installed":
-      return "GitHub App is connected. Its repositories appear in the list as soon as the scan finishes; then pick one and follow its provider-specific setup sequence.";
+      return "GitHub App is connected. Its repositories appear below as soon as the scan finishes. Choose a provider first, then create a setup PR for a repository.";
     case "sync_requested":
       return "ReviewRouter is scanning GitHub again. The repository list updates automatically when the scan finishes.";
     case "sync_already_requested":

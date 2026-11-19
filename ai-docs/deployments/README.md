@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Repository setup states: [Needs attention, Setting up, Ready and Not set up instead of "Need setup" for every untouched repository, a first-run guide, Create setup PR waits for a provider, and a merged Gateway setup stays on its verify step](2026-11-18-repository-setup-flow.md), [PR #913](https://github.com/777genius/review-router-ai/pull/913), [plan 81](../architecture/81-repository-setup-flow.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, worker or Gateway change; the unused repository search route is removed.
+
 Native account information and selected imports: [native email, actual plan, dates, Codex imports/reconnect and qualified Anthropic/Gemini API profiles](2026-11-19-native-account-info-imports.md) — implementation and isolated qualification in progress; staging and production `pending`. No production deployment is authorized by this task. Native and Gateway producers precede the exact SDK consumer; final hydrated account metadata receives a live authorization fence.
 
 Dead account exports and one shared provider mapping: [four uncalled exports removed, Providers list and setup dialog share one saved-provider mapping](2026-11-18-remove-dead-account-exports.md), [PR #910](https://github.com/777genius/review-router-ai/pull/910) - Web-only refactor with no visible change; staging and production `pending`, ships with the next ordinary Web release. No migration or configuration.
