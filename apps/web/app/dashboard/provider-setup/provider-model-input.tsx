@@ -7,10 +7,8 @@ import {
   type FocusEvent,
   type ReactNode,
 } from "react";
-import {
-  gatewayModelSchema,
-  type ReviewModelOption,
-} from "@reviewrouter/features-review-providers";
+import { gatewayModelSchema } from "@reviewrouter/features-review-providers";
+import type { AccountModelOption } from "../../../src/features/provider-setup/provider-model-options";
 
 /**
  * A typed name on an account catalog: reviews may use only a model the account's
@@ -33,7 +31,7 @@ export function ProviderModelInput({
   className,
 }: {
   readonly value: string;
-  readonly options: readonly ReviewModelOption[];
+  readonly options: readonly AccountModelOption[];
   readonly allowCustomModel: boolean;
   readonly disabled: boolean;
   readonly onValueChange: (value: string) => void;
@@ -44,9 +42,6 @@ export function ProviderModelInput({
   const [activeValue, setActiveValue] = useState<string | null>(null);
   const listboxId = useId();
   const inputId = useId();
-  // Nothing usable: the list itself is unavailable, and its status says why.
-  const listBlocked =
-    status != null && options.every((option) => option.disabled);
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(() => {
     const query = value.trim().toLowerCase();
@@ -150,7 +145,8 @@ export function ProviderModelInput({
           <span aria-hidden="true">⌄</span>
         </button>
       </span>
-      {value && (!selected || (selected.disabled && !listBlocked)) ? (
+      {value &&
+      (!selected || (selected.disabled && !selected.awaitsAccountList)) ? (
         <span className="text-xs text-slate-400">
           {selected?.disabled
             ? `${selected.description ?? "This model is unavailable for review."} Choose an available model from the catalog.`

@@ -219,7 +219,10 @@ describe("Gateway reviewer roster", () => {
       expect(save).toHaveProperty("disabled", false);
       fireEvent.click(refresh);
       await waitFor(() => expect(save).toHaveProperty("disabled", true));
-      const retry = screen.getByRole("button", { name: "Try again" });
+      // A failed read offers Try again; an empty list keeps its small refresh.
+      const retry = screen.getByRole("button", {
+        name: outcome === "unavailable" ? "Try again" : /^Refresh models$/,
+      });
       await waitFor(() => expect(retry).toHaveProperty("disabled", false));
       expect(screen.getByText(/1\. model-one/)).toBeTruthy();
       expect(screen.getByText(/2\. model-two/)).toBeTruthy();

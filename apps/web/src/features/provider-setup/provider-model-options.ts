@@ -10,6 +10,15 @@ import {
   accountModelCatalogRequired,
 } from "./account-model-catalog-freshness";
 
+/**
+ * A model choice. `awaitsAccountList` marks a choice blocked only because the
+ * account's own list is not current yet; the list status explains that once,
+ * so the choice carries no reason of its own.
+ */
+export type AccountModelOption = ReviewModelOption & {
+  readonly awaitsAccountList?: true;
+};
+
 /** Public metadata describes choices; the exact account still owns admission. */
 export function gatewayProviderModelOptions(
   options: readonly ReviewModelOption[],
@@ -22,7 +31,7 @@ export function gatewayProviderModelOptions(
     catalog?: AccountModelCatalogView | undefined;
     requiresTools: boolean;
   }>,
-): readonly ReviewModelOption[] {
+): readonly AccountModelOption[] {
   const supported = new Set(profile?.models ?? []);
   const catalog = capability?.catalog;
   const freshNative = accountModelCatalogFresh(profile, catalog);
@@ -39,12 +48,15 @@ export function gatewayProviderModelOptions(
             profile?.connection?.provider === "nvidia" ? "nvidia" : "codex",
         }),
       ),
-  ].map((option): ReviewModelOption => {
+  ].map((option): AccountModelOption => {
     // A required list that is missing or out of date blocks every choice until
-    // it is read again. The catalogue status says so once, above the list, so
-    // no option carries a reason of its own.
+    // it is read again (see AccountModelOption).
     if (required && !freshNative) {
-      const blocked = { ...option, disabled: true };
+      const blocked = {
+        ...option,
+        disabled: true,
+        awaitsAccountList: true as const,
+      };
       delete blocked.description;
       return blocked;
     }

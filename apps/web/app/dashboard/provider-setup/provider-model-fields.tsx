@@ -7,7 +7,6 @@ import {
   codexModelSupportsReasoningEffort,
   providerKindForAuthMode,
   type ProviderAuthMode,
-  type ReviewModelOption,
 } from "@reviewrouter/features-review-providers";
 import type { AccountConnectionView } from "../../../src/features/account-gateway/connection-capabilities";
 import {
@@ -17,6 +16,7 @@ import {
 } from "../../../src/features/account-gateway/review-reasoning-capabilities";
 import type { ProviderSelectionSettings } from "../../../src/features/provider-setup/provider-setup-model";
 import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agent-profile-options";
+import type { AccountModelOption } from "../../../src/features/provider-setup/provider-model-options";
 import { ProviderModelInput } from "./provider-model-input";
 
 type ReviewReasoningEffort = NonNullable<
@@ -163,7 +163,7 @@ export type ProviderModelFieldsProps = Readonly<{
   /** Null shows the model as fixed, as for a provider that already exists. */
   onModelChange: ((model: string) => void) | null;
   /** Models the credential source offers. */
-  modelOptions: readonly ReviewModelOption[];
+  modelOptions: readonly AccountModelOption[];
   /** "list" allows only the listed models; "catalog" also a typed one. */
   modelChoice: "list" | "catalog";
   /** Gateway catalogs require an admitted option; API providers may use a typed id. */
@@ -481,7 +481,7 @@ export function ProviderModelPicker({
   model: string;
   /** Null shows the model as fixed. */
   onModelChange: ((model: string) => void) | null;
-  modelOptions: readonly ReviewModelOption[];
+  modelOptions: readonly AccountModelOption[];
   modelChoice: "list" | "catalog";
   allowCustomModel?: boolean;
   disabled: boolean;
@@ -489,8 +489,7 @@ export function ProviderModelPicker({
   emptyListPlaceholder?: string | undefined;
   /**
    * State of the list itself (e.g. it is being updated), shown under the input
-   * and above the options. While no option is usable it replaces the per-model
-   * hint.
+   * and above the options.
    */
   status?: ReactNode;
   className?: string;

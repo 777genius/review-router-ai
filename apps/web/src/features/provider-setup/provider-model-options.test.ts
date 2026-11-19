@@ -201,6 +201,7 @@ describe("Gateway model catalog presentation", () => {
         label: "Nemotron",
         provider: "nvidia",
         disabled: true,
+        awaitsAccountList: true,
       });
     }
     // A fresh list that does not include the model keeps a per-option reason.
