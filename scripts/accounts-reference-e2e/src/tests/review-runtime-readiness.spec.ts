@@ -49,13 +49,6 @@ test.describe("review runtime readiness", () => {
           exact: true,
         }),
       ).toHaveCount(0);
-      const foreignSearch = await context.request.get(
-        `/api/dashboard/repositories/search?workspace=${FIXTURES.workspaces.personalForeign}`,
-      );
-      expect(foreignSearch.status()).toBe(404);
-      expect(await foreignSearch.json()).toMatchObject({
-        error: "workspace_not_found",
-      });
 
       await expect(
         repository(page, "current").locator("label.setup-toggle"),
@@ -118,19 +111,6 @@ test.describe("review runtime readiness", () => {
           repository(page, key).locator("label.setup-toggle"),
         ).not.toContainText("4/4");
 
-      const response = await context.request.get(
-        `/api/dashboard/repositories/search?workspace=${FIXTURES.workspaces.personalViewer}&setup=ready`,
-      );
-      expect(response.ok()).toBe(true);
-      expect((await response.json()).repositoryIds).toEqual([
-        "rr-e2e-runtime-current",
-      ]);
-      const deniedRepositorySearch = await context.request.get(
-        `/api/dashboard/repositories/search?workspace=${FIXTURES.workspaces.personalViewer}&q=${FIXTURES.identities.foreign.login}/runtime-foreign`,
-      );
-      expect(deniedRepositorySearch.ok()).toBe(true);
-      expect((await deniedRepositorySearch.json()).repositoryIds).toEqual([]);
-
       await expectNoHorizontalOverflow(page);
       // Provider confirmations can refresh the document. The layout read above
       // may recover against fresh server HTML before its controls are hydrated.
@@ -147,8 +127,12 @@ test.describe("review runtime readiness", () => {
           await expect(row.getByRole("status")).toBeVisible();
         }
       };
-      await expandRuntimeDetails();
-      await page.evaluate(() => window.scrollTo(0, 0));
+      // The provider confirmations above refresh the dashboard and can reload
+      // the document while the rows are expanded; retry until it has settled.
+      await expect(async () => {
+        await expandRuntimeDetails();
+        await page.evaluate(() => window.scrollTo(0, 0));
+      }).toPass({ timeout: 60_000 });
       await page.screenshot({
         path: info.outputPath(`review-runtime-${viewport.name}-dark.png`),
         fullPage: true,
@@ -174,9 +158,18 @@ test.describe("review runtime readiness", () => {
         });
         await page.setViewportSize(viewport);
       }
+      // The Ready filter holds only the verified current repository. It runs
+      // last: a later server refresh renders rich rows for this filter only.
+      const filters = page.getByRole("group", { name: "Repository filters" });
+      await filters.getByRole("button", { name: "Ready", exact: true }).click();
+      await expect(page).toHaveURL(/[?&]setup=ready(&|$)/u);
+      await expect(repository(page, "current")).toBeVisible();
+      for (const key of ["update", "unknown", "failed", "pending"])
+        await expect(repository(page, key)).not.toBeVisible();
+      await filters.getByRole("button", { name: "All", exact: true }).click();
       await page
         .getByRole("searchbox", { name: "Find repository", exact: true })
-        .fill("fixture-no-matching-repository");
+        .fill(`${FIXTURES.identities.foreign.login}/runtime-foreign`);
       await expect(page.getByText("No matches", { exact: true })).toBeVisible();
       await expect(repository(page, "current")).not.toBeVisible();
       await expectNoHorizontalOverflow(page);

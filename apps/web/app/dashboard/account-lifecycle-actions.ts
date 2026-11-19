@@ -66,13 +66,6 @@ export async function readAccountLifecycleOperation(
       : service.read(workspaceId, request.data.operationId),
   );
 }
-export async function readAccountLifecycleByNonce(
-  context: string,
-  workspaceId: string,
-  nonce: string,
-) {
-  return readAccountLifecycleOperation(context, workspaceId, { nonce });
-}
 
 export async function continueAccountLifecycleOperation(
   context: string,

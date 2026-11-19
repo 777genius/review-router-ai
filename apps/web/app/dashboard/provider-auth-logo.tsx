@@ -5,7 +5,7 @@ import {
   providerIdentityForAuthMode,
   type ProviderIdentity,
 } from "../../src/features/provider-setup/provider-identity";
-import { ProviderLogo, ProviderMark } from "./provider-logo";
+import { ProviderLogo } from "./provider-logo";
 
 type ProviderAuthLogoProps = {
   readonly authMode: ProviderAuthMode;
@@ -19,16 +19,6 @@ export function ProviderAuthLogoFrame({
 }: ProviderAuthLogoProps): React.ReactElement {
   return (
     <ProviderLogo
-      providerId={providerId ?? providerIdentityForAuthMode(authMode)}
-    />
-  );
-}
-export function ProviderAuthLogo({
-  authMode,
-  providerId,
-}: ProviderAuthLogoProps): React.ReactElement {
-  return (
-    <ProviderMark
       providerId={providerId ?? providerIdentityForAuthMode(authMode)}
     />
   );

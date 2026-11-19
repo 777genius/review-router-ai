@@ -6,12 +6,12 @@
 
 Четыре темы, у каждой уже есть один владелец правила:
 
-| Тема | Слова | Владелец |
-| --- | --- | --- |
-| Здоровье подключения | Ready, Confirming change/connection, Removing…, Outcome not confirmed yet, Details could not be refreshed, Disabled, Retired, Needs attention, Unavailable | `accountStatusInfo` (`accounts-copy.ts:52`) + `AccountStatusLine` (`account-status-icon.tsx:54`) |
-| Свежесть данных | Outdated (лимиты), «Model list is up to date / Showing the last model list», «list may be out of date» (скан) | `account-limits-line.tsx`, `provider-model-catalog.tsx`, `repository-scan-status.tsx` |
-| Покрытие расхода | Not reported, Reported/Estimated, Free model, Included in subscription, «N calls with incomplete token data» | `provider-usage-format.ts`, `provider-usage-tables.tsx` |
-| Готовность репозитория | Ready, Needs setup, Needs attention (+ label/summary/nextAction) | `dashboard-repository-readiness.ts:83-87`, `repository-health-view.ts` |
+| Тема                   | Слова                                                                                                                                                      | Владелец                                                                                         |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Здоровье подключения   | Ready, Confirming change/connection, Removing…, Outcome not confirmed yet, Details could not be refreshed, Disabled, Retired, Needs attention, Unavailable | `accountStatusInfo` (`accounts-copy.ts:52`) + `AccountStatusLine` (`account-status-icon.tsx:54`) |
+| Свежесть данных        | Outdated (лимиты), «Model list is up to date / Showing the last model list», «list may be out of date» (скан)                                              | `account-limits-line.tsx`, `provider-model-catalog.tsx`, `repository-scan-status.tsx`            |
+| Покрытие расхода       | Not reported, Reported/Estimated, Free model, Included in subscription, «N calls with incomplete token data»                                               | `provider-usage-format.ts`, `provider-usage-tables.tsx`                                          |
+| Готовность репозитория | Ready, Needs setup, Needs attention (+ label/summary/nextAction)                                                                                           | `dashboard-repository-readiness.ts:83-87`, `repository-health-view.ts`                           |
 
 Слова разных тем различаются по делу: «Not reported» у расхода значит «источник не дал число» и не равно «Unknown». История и статистика имеют своих владельцев (`history-presentation.ts`, `statistics-presentation.ts`). «Not added here» уходит в 76 (строка `WorkspaceUseLine`).
 
@@ -64,7 +64,7 @@
 
 - Слова расхода и «Outdated» у лимитов (лимиты ведёт 76 §3).
 - Карточки hosted pool: свой домен («Cooling down», «Needs reconnect»).
-- Бейдж «Account unavailable» в Providers (`provider-setup/provider-list.tsx:281-285`) сливает revoked, disabled и quarantined в один `available: boolean` (`provider-list-view.ts:169-171`). Честное слово требует менять серверную view model. Кандидат для задачи про список провайдеров.
+- Бейдж «Account unavailable» в Providers (`provider-setup/provider-list.tsx:281-285`) сливает revoked, disabled и quarantined в один `available: boolean` (`provider-list-view.ts:141-143`). Честное слово требует менять серверную view model. Кандидат для задачи про список провайдеров.
 - Подписи и сводка здоровья репозиториев (R5, план 81), история, статистика, новые цвета и иконки.
 
 ## 9. Что поменяли ревью

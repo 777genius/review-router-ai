@@ -1,4 +1,7 @@
-import { savedProviderIdentity } from "./provider-identity";
+import {
+  savedProfileBindingIds,
+  savedProviderProfileFacts,
+} from "./saved-provider-profiles";
 import type { PrismaClient } from "@prisma/client";
 import { mapWithConcurrency } from "@reviewrouter/shared";
 import {
@@ -112,11 +115,7 @@ export async function loadProviderSetupView(input: {
     {
       workspaceId,
       actor: dashboardProviderActor(actor),
-      bindingIds: profiles.flatMap((profile) =>
-        profile.credential.kind === "gateway_binding"
-          ? [profile.credential.bindingId]
-          : [],
-      ),
+      bindingIds: savedProfileBindingIds(profiles),
     },
     { profiles: profilesStore },
   );
@@ -183,36 +182,9 @@ export async function loadProviderSetupView(input: {
     target: target.kind,
     actor: facts.actor,
     workspace: facts.workspace,
-    profiles: profiles.map((profile) => ({
-      id: profile.id,
-      label: profile.label,
-      model: profile.model,
-      providerId: savedProviderIdentity({
-        authMode: profile.credential.authMode,
-        gatewayProfileRef:
-          profile.credential.kind === "gateway_binding"
-            ? profile.credential.gatewayProfileRef
-            : undefined,
-      }),
-      authMode: profile.credential.authMode,
-      credentialKind: profile.credential.kind,
-      createdByUserId: profile.createdByUserId,
-      gatewayBindingId:
-        profile.credential.kind === "gateway_binding"
-          ? profile.credential.bindingId
-          : null,
-      gatewayProfileRef:
-        profile.credential.kind === "gateway_binding"
-          ? profile.credential.gatewayProfileRef
-          : null,
-      personalBinding:
-        profile.credential.kind === "gateway_binding" &&
-        facts.personalBindingIds.has(profile.credential.bindingId),
-      rotatingRepositoryId:
-        profile.credential.kind === "repository_rotating"
-          ? profile.credential.repositoryId
-          : null,
-    })),
+    profiles: profiles.map((profile) =>
+      savedProviderProfileFacts(profile, facts.personalBindingIds),
+    ),
     defaultSelection: workspacePolicy?.providers?.[0] ?? null,
     defaultSelections: workspacePolicy?.providers ?? [],
     providerMode: reviewProviderModeOf(workspacePolicy ?? {}),
