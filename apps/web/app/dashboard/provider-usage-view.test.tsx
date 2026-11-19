@@ -285,7 +285,7 @@ describe("provider usage interactive report", () => {
       screen.getByText("No native source checkpoint for this workspace."),
     ).toBeTruthy();
   });
-  it("separates the latest update from older sources and partial day measurements", () => {
+  it("separates the latest update from older sources and explains partial days", () => {
     render(
       <Harness
         seed={{
@@ -318,12 +318,12 @@ describe("provider usage interactive report", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /the real total is higher, so the number is shown as at least/,
+        /At least N: Some calls did not report a token total/,
       ),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "△ 1 call did not report all its tokens · 1 call did not report its cost",
+        "△ 1 call may not have reported all its tokens · 1 call did not report its cost",
       ),
     ).toBeTruthy();
   });

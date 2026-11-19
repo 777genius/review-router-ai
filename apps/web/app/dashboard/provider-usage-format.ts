@@ -81,13 +81,32 @@ export function metricLabel(
 }
 const calls = (value: number) =>
   `${count(value)} ${value === 1 ? "call" : "calls"}`;
+/*
+ * The plain words for usage gaps. Every place that names them (tooltip, table,
+ * legend, coverage, notes, Details) uses these, so one concept reads one way.
+ */
+const tokensGap = {
+  one: "may not have reported all its tokens",
+  many: "may not have reported all their tokens",
+};
+const costGap = {
+  one: "did not report its cost",
+  many: "did not report their cost",
+};
 /** "1 call did ... its ..." / "2 calls did ... their ...". */
-const callsThat = (value: number, one: string, many: string) =>
-  `${calls(value)} ${value === 1 ? one : many}`;
+const callsThat = (value: number, gap: { one: string; many: string }) =>
+  `${calls(value)} ${value === 1 ? gap.one : gap.many}`;
 /** Short notes for one bucket, e.g. a chart tooltip row. */
-export const SOME_TOKENS_NOT_REPORTED =
-  "some calls did not report all their tokens";
-export const SOME_COST_NOT_REPORTED = "some calls did not report their cost";
+export const SOME_TOKENS_NOT_REPORTED = `some calls ${tokensGap.many}`;
+export const SOME_COST_NOT_REPORTED = `some calls ${costGap.many}`;
+/** Why a token count reads "at least N". */
+export const TOKEN_LOWER_BOUND_NOTE =
+  "Some calls did not report a token total, so the real total may be higher";
+/** The same, under a token total that is a lower bound. */
+export const TOKEN_LOWER_BOUND_HINT = `At least this many. ${TOKEN_LOWER_BOUND_NOTE}`;
+/** A day only partly inside the period (see `partialDayLabel`). */
+export const PARTIAL_DAY_NOTE =
+  "The first and last day may cover only part of that day, the last one so far";
 /**
  * One readable status per bucket. Source completeness flags are mutually
  * exclusive per call, so their sum is an exact count of incomplete calls.
@@ -97,39 +116,41 @@ export function tokenCoverage(
     UsageTotals,
     "unknownCount" | "partialCount" | "unknownTotalTokenCount"
   >,
-): { label: string; detail: string | undefined; incomplete: boolean } {
+): {
+  label: string;
+  detail: string | undefined;
+  incomplete: boolean;
+  /** Under a token total that is only a lower bound. */
+  totalHint?: string;
+} {
   const incomplete = totals.unknownCount + totals.partialCount;
   if (!incomplete && !totals.unknownTotalTokenCount)
     return {
-      label: "All calls reported their tokens",
+      label: "Every recorded call reported its tokens",
       detail: undefined,
       incomplete: false,
     };
   const withoutTotal = `${calls(totals.unknownTotalTokenCount)} did not report a token total`;
   return {
-    label: incomplete
-      ? callsThat(
-          incomplete,
-          "did not report all its tokens",
-          "did not report all their tokens",
-        )
-      : withoutTotal,
+    label: incomplete ? callsThat(incomplete, tokensGap) : withoutTotal,
     detail: [
       totals.unknownCount
         ? `${calls(totals.unknownCount)} reported no tokens`
         : "",
       totals.partialCount
-        ? callsThat(
-            totals.partialCount,
-            "reported only some of its tokens",
-            "reported only some of their tokens",
-          )
+        ? callsThat(totals.partialCount, {
+            one: "may have reported only part of its tokens",
+            many: "may have reported only part of their tokens",
+          })
         : "",
       totals.unknownTotalTokenCount ? withoutTotal : "",
     ]
       .filter(Boolean)
       .join(" · "),
     incomplete: true,
+    ...(totals.unknownTotalTokenCount
+      ? { totalHint: TOKEN_LOWER_BOUND_HINT }
+      : {}),
   };
 }
 export const missingCostLabel = (unknownCostCount: number) =>
@@ -185,13 +206,7 @@ export function unreportedUsageNote(
   );
   const parts = [
     tokens.incomplete ? tokens.label : "",
-    withoutCost
-      ? callsThat(
-          withoutCost,
-          "did not report its cost",
-          "did not report their cost",
-        )
-      : "",
+    withoutCost ? callsThat(withoutCost, costGap) : "",
   ].filter(Boolean);
   return parts.length ? `△ ${parts.join(" · ")}` : null;
 }
@@ -353,18 +368,17 @@ export function humanUtcRange(first: string, last: string): string {
 }
 
 /**
- * Plain words for a UTC day only partly inside the period: today's bar counts
- * usage so far, and the first day of a rolling period starts mid-day.
+ * Plain words for a UTC day only partly inside the period: the last day counts
+ * usage so far, and the first day of a rolling period starts mid-day. Taken
+ * from the period alone, so server and browser render the same words.
  */
 export function partialDayLabel(
   day: { day: string; partial: boolean },
   period: { from: string; to: string },
-  now = new Date(),
 ): string | null {
   if (!day.partial) return null;
   const end = new Date(Date.parse(period.to) - 1).toISOString().slice(0, 10);
-  if (day.day !== end) return `from ${utcParts(period.from).time} UTC`;
-  return day.day === now.toISOString().slice(0, 10)
-    ? "today so far"
-    : `until ${utcParts(period.to).time} UTC`;
+  return day.day === end
+    ? `so far, until ${utcParts(period.to).time} UTC`
+    : `from ${utcParts(period.from).time} UTC`;
 }

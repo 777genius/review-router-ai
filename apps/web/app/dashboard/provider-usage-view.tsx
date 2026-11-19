@@ -35,6 +35,7 @@ import {
   intervalLabel,
   NOT_REPORTED,
   rollingInterval,
+  tokenCoverage,
   unreportedUsageNote,
   type UsageMetric,
 } from "./provider-usage-format";
@@ -330,7 +331,7 @@ function ProviderUsageContext({
           title={`UTC interval [${filters.from}, ${filters.to})`}
         >
           {intervalLabel(filters.from, filters.to)}
-          {period !== "custom" ? " · Today counts usage so far" : ""}
+          {period !== "custom" ? " · The last day counts usage so far" : ""}
         </p>
         <div className="w-36">
           <SelectField
@@ -471,9 +472,8 @@ function ProviderUsageContext({
               description={
                 data.totals.tokens.total === null
                   ? "No total token measurements"
-                  : data.totals.unknownTotalTokenCount > 0
-                    ? "Known part; some calls have no token counts"
-                    : "Known token subtotal"
+                  : (tokenCoverage(data.totals).totalHint ??
+                    "Known token subtotal")
               }
             />
             <Kpi
