@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@reviewrouter/ui";
 import type { ReactNode, RefObject } from "react";
+import { skillImportListLimit } from "../../src/features/review-skills/portable-skill";
 export const skillFieldClass =
   "w-full rounded-lg border border-cyan-200/25 bg-slate-950/70 px-3 py-2 text-sm text-cyan-50 outline-none focus:border-cyan-200 focus:ring-2 focus:ring-cyan-300/20 disabled:opacity-50";
 export const skillCellClass = "px-3 py-3 text-left align-top text-sm";
@@ -130,5 +131,46 @@ export function SkillSearch({
         placeholder={placeholder}
       />
     </label>
+  );
+}
+
+const listed = (values: readonly string[]) =>
+  values.length > skillImportListLimit
+    ? `${values.slice(0, skillImportListLimit).join(", ")} and ${values.length - skillImportListLimit} more`
+    : values.join(", ");
+
+/** Names what a text-only import leaves out, shared by every import path. */
+export function SkillImportOmissions({
+  id,
+  omittedFields,
+  linkedFiles,
+  otherFiles = false,
+}: {
+  readonly id?: string;
+  readonly omittedFields: readonly string[];
+  readonly linkedFiles: readonly string[];
+  readonly otherFiles?: boolean;
+}) {
+  const note = "block break-words text-xs leading-5";
+  return (
+    <span id={id} className="mt-1 block space-y-1">
+      {omittedFields.length ? (
+        <span className={note}>
+          Not used: {listed(omittedFields)}. The reviewer only gets the name,
+          description and instructions as text; tools and scripts never run.
+        </span>
+      ) : null}
+      {linkedFiles.length ? (
+        <span className={note}>
+          Linked files are not included: {listed(linkedFiles)}. The reviewer
+          will not see them.
+        </span>
+      ) : null}
+      {otherFiles ? (
+        <span className={note}>
+          Other files in the skill folder are not included.
+        </span>
+      ) : null}
+    </span>
   );
 }
