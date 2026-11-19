@@ -536,6 +536,141 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("blocks known-ID fallback on offset drift", async () => {
+    const known = { id: 101, body: `old\n${marker}` };
+    const duplicate = { id: 102, body: `duplicate\n${marker}` };
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([known, duplicate], {
+      pagedComments: [firstPage, [duplicate]],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+      ],
+    });
+    const listRoute =
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    let firstPageReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route === listRoute && parameters?.page === 1) {
+        firstPageReads += 1;
+        if (firstPageReads === 2) {
+          return {
+            ...response,
+            data: [
+              ...(response.data as unknown[]).slice(1),
+              { ...known, user: { login: "review-router[bot]" } },
+            ],
+          };
+        }
+      }
+      return response;
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert({
+        ...input(),
+        knownCommentId: 101,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+      metadata: { retryable: true },
+    });
+    expect(firstPageReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("rejects PATCH reconciliation after offset drift", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
+      throwAfterPatch: true,
+    });
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const listRoute =
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    let listReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== listRoute) return response;
+      listReads += 1;
+      if (listReads === 2 || listReads === 4) {
+        return {
+          data:
+            listReads === 2
+              ? firstPage
+              : [...firstPage.slice(1), { id: 101, body: "new" }],
+          headers: {
+            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+          },
+        };
+      }
+      if (listReads === 3) {
+        return {
+          data: [
+            {
+              id: 102,
+              body: `duplicate\n${marker}`,
+              user: { login: "review-router[bot]" },
+            },
+          ],
+          headers: {
+            link: '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+          },
+        };
+      }
+      return response;
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      message: "github_issue_comments_offset_changed",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+    });
+    expect(listReads).toBe(4);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+  });
+
+  it("rejects known-ID fallback for an untrusted Link", async () => {
+    const known = { id: 101, body: `old\n${marker}` };
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([known], {
+      pagedComments: [firstPage],
+      pageLinks: [
+        '<https://api.github.com/repos/other/repo/issues/42/comments?page=2>; rel="next"',
+      ],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 101,
+      }),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("checks the final page from a last-only Link before duplicate cleanup", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 4, body: desired };

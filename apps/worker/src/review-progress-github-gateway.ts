@@ -28,6 +28,8 @@ export {
   formatReviewProgressComment,
 } from "./review-progress-github-input-policy";
 
+const CAPACITY_LIMIT_SCAN = "github_issue_comments_page_limit";
+
 export type ReviewProgressGitHubRequester = (
   route: string,
   parameters?: Readonly<Record<string, unknown>>,
@@ -107,8 +109,7 @@ export class ReviewProgressGitHubGateway {
   ): Promise<ReviewProgressComment[]> {
     if (
       input.knownCommentId === undefined ||
-      !(scanError instanceof ReviewProgressGitHubError) ||
-      scanError.kind !== "pagination_inconclusive"
+      !isCapacityLimitedScan(scanError)
     ) {
       throw scanError;
     }
@@ -374,9 +375,17 @@ export class ReviewProgressGitHubGateway {
       );
       if (decision === "complete") break;
       if (decision === "inconclusive") {
+        // Only a trusted bounded-scan overflow permits known-ID recovery.
+        // Invalid links and offset drift cannot certify duplicate cleanup.
+        const capacityLimited =
+          page === this.maxCommentPages &&
+          effectiveNextPage !== "invalid" &&
+          (comments.length === 100 || effectiveNextPage === true);
         throw failure(
           "pagination_inconclusive",
-          "github_issue_comments_pagination_inconclusive",
+          capacityLimited
+            ? CAPACITY_LIMIT_SCAN
+            : "github_issue_comments_pagination_inconclusive",
           true,
         );
       }
@@ -467,8 +476,7 @@ export class ReviewProgressGitHubGateway {
     } catch (observationError) {
       if (
         expectedCommentId !== undefined &&
-        observationError instanceof ReviewProgressGitHubError &&
-        observationError.kind === "pagination_inconclusive"
+        isCapacityLimitedScan(observationError)
       ) {
         return this.reconcileKnownCommentPatch(
           input,
@@ -529,6 +537,16 @@ export class ReviewProgressGitHubGateway {
   ): ReviewProgressGitHubError {
     return classifyGitHubFailure(error, fallbackKind, this.now, this.random);
   }
+}
+
+function isCapacityLimitedScan(
+  error: unknown,
+): error is ReviewProgressGitHubError {
+  return (
+    error instanceof ReviewProgressGitHubError &&
+    error.kind === "pagination_inconclusive" &&
+    error.message === CAPACITY_LIMIT_SCAN
+  );
 }
 
 function repositoryParameters(
