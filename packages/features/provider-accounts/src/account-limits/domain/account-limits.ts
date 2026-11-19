@@ -24,6 +24,9 @@ type SourceWindow = {
   readonly reason?: string | undefined;
 };
 
+/** Age at which a window observation stops being current and counts as stale. */
+export const ACCOUNT_LIMITS_OBSERVATION_TTL_MS = 300_000;
+
 export type SubscriptionLimitsProvider = "kimi" | "glm" | "minimax" | "grok";
 export type SubscriptionLimitsWindow = SourceWindow & {
   readonly family: SubscriptionLimitsProvider;
@@ -291,7 +294,8 @@ export function projectAccountLimits(
       }
       const resetElapsed = resetAt !== null && Date.parse(resetAt) <= now;
       const expired =
-        observedAt !== null && now - Date.parse(observedAt) >= 300_000;
+        observedAt !== null &&
+        now - Date.parse(observedAt) >= ACCOUNT_LIMITS_OBSERVATION_TTL_MS;
       if (!reason)
         reason = resetElapsed
           ? "reset_elapsed"
