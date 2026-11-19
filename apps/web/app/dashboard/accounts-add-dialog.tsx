@@ -107,13 +107,7 @@ export function AccountsAddDialog({
               </p>
               {organizationConnect}
             </div>
-            <div hidden={path !== "personal"}>
-              <p className="mb-4 text-sm text-slate-400">
-                You own this connection. It is added to {workspaceName} as soon
-                as it connects.
-              </p>
-              {personalConnect}
-            </div>
+            <div hidden={path !== "personal"}>{personalConnect}</div>
             <Dialog.Footer>
               <Dialog.Close render={<Button ref={cancel} variant="outline" />}>
                 Close

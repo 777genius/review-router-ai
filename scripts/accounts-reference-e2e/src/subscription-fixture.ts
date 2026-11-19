@@ -206,6 +206,41 @@ export function createSubscriptionFixture(
           },
         };
       if (method === "GET" && path === "/v1/profiles") return null;
+      // The account's own model list, which a new connection is chosen from.
+      // Only the discovery sources this fixture enrolls; others stay unsupported.
+      if (method === "POST" && path === "/v1/account-models/read") {
+        const input = await read();
+        const account = accounts.find(
+          (row) =>
+            row.accountRef === input.accountRef &&
+            row.ownerRef === input.ownerRef,
+        );
+        const profile = profiles.find(
+          (row) => row.profileId === account?.profileId,
+        );
+        if (!account || profile?.provider !== "openrouter")
+          return { status: 200, body: { status: "unsupported" } };
+        const now = Date.now();
+        return {
+          status: 200,
+          body: {
+            status: "snapshot",
+            physicalGeneration: "fixture-subscription-generation",
+            principalVersion: "fixture-subscription-principal",
+            source: "openrouter",
+            fetchedAt: new Date(now).toISOString(),
+            expiresAt: new Date(now + 300_000).toISOString(),
+            models: [
+              {
+                modelId: profile.model,
+                reasoning: null,
+                fast: null,
+                tools: { allowed: ["function"], default: "function" },
+              },
+            ],
+          },
+        };
+      }
       if (method === "GET" && path === "/v2/capabilities/account-limits")
         return {
           status: 200,

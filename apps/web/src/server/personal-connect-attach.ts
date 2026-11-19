@@ -19,7 +19,11 @@ type Dependencies = {
   workspaceAccess(
     workspaceId: string,
   ): Promise<{ readonly personal: boolean; readonly canDetach: boolean }>;
-  hasActiveBinding(workspaceId: string, sourceId: string): Promise<boolean>;
+  /** The active binding of this source in the workspace, if any. */
+  activeBindingId(
+    workspaceId: string,
+    sourceId: string,
+  ): Promise<string | null>;
   /** The existing owner attach operation; it re-checks every rule under locks. */
   attach(
     request: PersonalAttachRequest,
@@ -32,13 +36,21 @@ const workspace = z
   .min(1)
   .max(160)
   .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/);
-const attached: ConnectWorkspaceAttachment = { status: "attached" };
 const notAttached = (
   reason: Extract<
     ConnectWorkspaceAttachment,
     { status: "not_attached" }
   >["reason"],
 ): ConnectWorkspaceAttachment => ({ status: "not_attached", reason });
+
+/** The binding the workspace now uses; without its id it cannot be chosen. */
+const attachedTo = (
+  available: boolean,
+  bindingId: string | null | undefined,
+): ConnectWorkspaceAttachment =>
+  available && bindingId
+    ? { status: "attached", bindingId }
+    : notAttached("unavailable");
 
 /** One attach identity per connect and workspace, so a repeated status read
  * replays the original receipt instead of granting access again. */
@@ -110,8 +122,8 @@ export function createConnectWorkspaceAttach(deps: Dependencies) {
     }
     // Connect itself binds the owner's personal workspace.
     if (access.personal)
-      return connect.available && connect.binding?.workspaceId === workspaceId
-        ? attached
+      return connect.binding?.workspaceId === workspaceId
+        ? attachedTo(connect.available, connect.binding.id)
         : notAttached("unavailable");
     // A member must not expose a key they pay for to other members silently.
     if (!access.canDetach) return notAttached("not_permitted");
@@ -125,7 +137,7 @@ export function createConnectWorkspaceAttach(deps: Dependencies) {
         previous.intent.targetWorkspaceId !== workspaceId
       )
         return notAttached("unavailable");
-      if (previous.available) return attached;
+      if (previous.available) return attachedTo(true, previous.binding?.id);
       // A paused or changing source keeps its binding; only revocation is final.
       return previous.binding?.state === "revoked"
         ? notAttached("removed")
@@ -140,16 +152,17 @@ export function createConnectWorkspaceAttach(deps: Dependencies) {
       expectedPredecessorRevision: null,
     });
     if (result.status === "ok")
-      return result.value.operation.available
-        ? attached
-        : notAttached("unavailable");
+      return attachedTo(
+        result.value.operation.available,
+        result.value.operation.bindingId,
+      );
     if (result.status === "denied") return notAttached("not_permitted");
     // An Access grant made in between already gave this workspace its binding.
-    if (
-      result.status === "conflict" &&
-      (await deps.hasActiveBinding(workspaceId, source.id))
-    )
-      return attached;
+    if (result.status === "conflict")
+      return attachedTo(
+        true,
+        await deps.activeBindingId(workspaceId, source.id),
+      );
     return notAttached("unavailable");
   };
 }

@@ -65,6 +65,8 @@ import {
 } from "./accounts-copy";
 import { bindingWorkspaceUse, WorkspaceUseLine } from "./account-workspace-use";
 import { useShowConnectionsList } from "./accounts-add-dialog";
+import { useConnectTarget } from "./account-connect-target";
+import { dashboardSectionHref } from "./dashboard-section";
 import { refreshPersonalAccountViews } from "./personal-account-controls";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
 import { AccountStatusLine } from "./account-status-icon";
@@ -432,6 +434,8 @@ function Controls({
   addToWorkspace: AddConnectionToWorkspace | undefined;
 }) {
   const setup = useContext(ApiKeySetupContext);
+  // An embedded form follows the request its host holds, not the latest one.
+  const target = useConnectTarget();
   const { context } = bootstrap;
   const contextScope = context.split(".")[0] ?? "";
   const personal = managementScope === "personal";
@@ -554,7 +558,12 @@ function Controls({
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [activeNonce, setActiveNonce] = useState<string | null>(null);
+  const [ownActiveNonce, setOwnActiveNonce] = useState<string | null>(null);
+  const activeNonce = target ? target.nonce : ownActiveNonce;
+  const setActiveNonce = target ? target.setNonce : setOwnActiveNonce;
+  const activeNonceRef = useRef({ activeNonce, setActiveNonce });
+  activeNonceRef.current = { activeNonce, setActiveNonce };
+  const embedded = target !== null;
   const [connectWorkspaces, setConnectWorkspaces] = useState<
     Record<string, string>
   >({});
@@ -595,7 +604,10 @@ function Controls({
     try {
       const saved = savedNonces(storageKey);
       setNonces(saved);
-      setActiveNonce(saved.at(-1) ?? null);
+      const active = activeNonceRef.current;
+      if (!embedded) active.setActiveNonce(saved.at(-1) ?? null);
+      else if (active.activeNonce && !saved.includes(active.activeNonce))
+        active.setActiveNonce(null);
       try {
         setConnectWorkspaces(
           savedConnectWorkspaces(connectWorkspacesKey, saved),
@@ -609,7 +621,7 @@ function Controls({
         "Connection status is unavailable in this tab. Enable session storage before starting a connection.",
       );
     }
-  }, [storageKey, connectWorkspacesKey]);
+  }, [storageKey, connectWorkspacesKey, embedded]);
   useEffect(() => {
     // The Add dialog and the list beside it are separate views of the same
     // owner. A connection saved or dismissed in one shows its status in both.
@@ -619,9 +631,9 @@ function Controls({
         const saved = savedNonces(storageKey);
         setNonces(saved);
         // A request dismissed in the other view no longer holds this one.
-        setActiveNonce((active) =>
-          active && !saved.includes(active) ? null : active,
-        );
+        const active = activeNonceRef.current;
+        if (active.activeNonce && !saved.includes(active.activeNonce))
+          active.setActiveNonce(null);
         setConnectWorkspaces(
           savedConnectWorkspaces(connectWorkspacesKey, saved),
         );
@@ -662,7 +674,9 @@ function Controls({
   function reserveNonce(connectWorkspaceId?: string): string | null {
     if (!ready || nonces.length >= 8) {
       setMessage(
-        "Check recent connections or hide old results before starting another.",
+        embedded
+          ? "Too many recent connection requests in this tab. Hide old results in Connections, then try again."
+          : "Check recent connections or hide old results before starting another.",
       );
       return null;
     }
@@ -1067,7 +1081,8 @@ function Controls({
             (p.provider !== "nvidia" ||
               (p.id === "nvidia-build-chat-apikey-v1" &&
                 p.availability === "enabled" &&
-                p.connection?.provider === "nvidia")),
+                p.connection?.provider === "nvidia")) &&
+            (!target || setupProviderForGatewayProfile(p) === target.provider),
         )
       : [];
   const enrollmentAccounts = data?.status === "ok" ? data.value.accounts : [];
@@ -1085,6 +1100,10 @@ function Controls({
           begin={beginOAuth}
           submit={submit}
         />
+      ) : embedded && !activeNonce && data?.status === "ok" ? (
+        <p role="status" className="text-sm text-slate-400">
+          This provider cannot be connected here yet.
+        </p>
       ) : null}
       {showToolbar ? (
         <div className="flex flex-wrap gap-3">
@@ -1172,7 +1191,10 @@ function Controls({
                 completionProvider={completionProviders[nonce]}
                 beginContinuation={(intent) => beginOAuth(intent, nonce)}
                 inline={connectOnly}
-                startAnother={() => setActiveNonce(null)}
+                startAnother={() =>
+                  // The host keeps no receipts; its own list shows the result.
+                  embedded ? dismiss(nonce) : setActiveNonce(null)
+                }
                 autoOpenCompletion={completionHandoff === nonce}
                 consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
                 oauthEnabled={
@@ -1185,6 +1207,14 @@ function Controls({
                   attachWorkspaceId &&
                   connectWorkspaces[nonce] === attachWorkspaceId
                     ? addToWorkspace
+                    : undefined
+                }
+                onConnected={
+                  target
+                    ? (bindingId) => {
+                        dismiss(nonce);
+                        target.onConnected(bindingId);
+                      }
                     : undefined
                 }
                 renderSetupContinuation={
@@ -1575,44 +1605,74 @@ function ConnectionForm({
   );
   const profile = profiles.find((row) => row.id === profileId);
   const formContainer = useRef<HTMLDivElement>(null);
+  const target = useConnectTarget();
+  // The host already chose the provider; a second choice would only repeat it.
+  const chooseProfile = !target || profiles.length > 1;
+  // Only when the host has none: an active one of the user's own is not in
+  // this workspace yet, and adding it beats a duplicate sign-in.
+  const existing = target?.empty
+    ? accounts.find(
+        (account) =>
+          account.state === "active" &&
+          profiles.some((row) => row.id === account.profileId),
+      )
+    : undefined;
   return (
     <div ref={formContainer} className="space-y-4">
-      <SelectField
-        name="connectionProvider"
-        label={
-          <span className="flex items-center gap-2">
-            <AccountProviderLogo
-              connection={profile?.connection}
-              provider={profile?.provider}
-            />
-            Provider
-          </span>
-        }
-        value={profileId}
-        onValueChange={(id) => {
-          const credential =
-            formContainer.current?.querySelector<HTMLInputElement>(
-              'input[name="credential"]',
-            );
-          if (credential) credential.value = "";
-          setProfileId(id);
-        }}
-        options={ordered.map((row) => ({
-          value: row.id,
-          label: setupProviderForGatewayProfile(row)
-            ? getSetupProvider(setupProviderForGatewayProfile(row)!).label
-            : row.label,
-          icon: (
-            <AccountProviderLogo
-              connection={row.connection}
-              provider={row.provider}
-            />
-          ),
-          description:
-            row.connection?.planLabel ??
-            (row.authKind === "oauth" ? "Sign in" : "API key"),
-        }))}
-      />
+      {existing ? (
+        <p className="text-sm text-slate-300">
+          You already have {existing.label}.{" "}
+          {setup.workspaceId ? (
+            <a
+              className="font-semibold text-cyan-200 underline"
+              href={`${dashboardSectionHref("setup", setup.workspaceId)}#your-accounts`}
+            >
+              Add it to this workspace in Connections
+            </a>
+          ) : (
+            "Add it to this workspace in Connections"
+          )}
+          , or connect another one below.
+        </p>
+      ) : null}
+      {!chooseProfile ? null : (
+        <SelectField
+          name="connectionProvider"
+          label={
+            <span className="flex items-center gap-2">
+              <AccountProviderLogo
+                connection={profile?.connection}
+                provider={profile?.provider}
+              />
+              Provider
+            </span>
+          }
+          value={profileId}
+          onValueChange={(id) => {
+            const credential =
+              formContainer.current?.querySelector<HTMLInputElement>(
+                'input[name="credential"]',
+              );
+            if (credential) credential.value = "";
+            setProfileId(id);
+          }}
+          options={ordered.map((row) => ({
+            value: row.id,
+            label: setupProviderForGatewayProfile(row)
+              ? getSetupProvider(setupProviderForGatewayProfile(row)!).label
+              : row.label,
+            icon: (
+              <AccountProviderLogo
+                connection={row.connection}
+                provider={row.provider}
+              />
+            ),
+            description:
+              row.connection?.planLabel ??
+              (row.authKind === "oauth" ? "Sign in" : "API key"),
+          }))}
+        />
+      )}
       {profile?.authKind === "oauth" ? (
         <OAuthForm
           key={profile.id}
@@ -1906,6 +1966,7 @@ function OperationReadback({
   api,
   managementScope,
   addToWorkspace,
+  onConnected,
   renderSetupContinuation,
 }: {
   context: string;
@@ -1925,6 +1986,8 @@ function OperationReadback({
   api: AccountGatewayManagementApi;
   managementScope: ManagementScope;
   addToWorkspace?: AddConnectionToWorkspace | undefined;
+  /** Once the new connection is added to the workspace it was made from. */
+  onConnected?: ((bindingId: string) => void) | undefined;
   renderSetupContinuation?: ((account: AccountView) => ReactNode) | undefined;
 }) {
   const client = useQueryClient();
@@ -2176,6 +2239,7 @@ function OperationReadback({
           nonce={nonce}
           addToWorkspace={attachConnected}
           refresh={refresh}
+          onConnected={onConnected}
         />
       ) : null}
       {state === "applied" && data?.status === "ok" && data.value.account
@@ -2283,17 +2347,20 @@ function ConnectWorkspaceAttach({
   nonce,
   addToWorkspace,
   refresh,
+  onConnected,
 }: {
   nonce: string;
   addToWorkspace: AddConnectionToWorkspace;
   refresh(): Promise<void>;
+  onConnected?: ((bindingId: string) => void) | undefined;
 }) {
   const attach = useMutation({
     mutationKey: ["connect-workspace-attach", nonce] as const,
     mutationFn: () => addToWorkspace(nonce),
     onSuccess: (result) => {
-      if (result.status === "ok" && result.value.status === "attached")
-        void refresh();
+      if (result.status !== "ok" || result.value.status !== "attached") return;
+      const { bindingId } = result.value;
+      void refresh().finally(() => onConnected?.(bindingId));
     },
     retry: false,
     gcTime: 0,
@@ -2678,6 +2745,8 @@ function AccountForm({
     profiles.find((p) => p.id === selectedId) ??
     (inline ? profiles[0] : undefined);
   const setup = useContext(ApiKeySetupContext);
+  // Inside another flow the storage is already chosen there.
+  const embedded = useConnectTarget() !== null;
   const apiKeyProvider = apiKeyProviderForGatewayProfile(selected);
   const [keyStorage, setKeyStorage] = useState<ApiKeyStorage>("reviewrouter");
   const githubIntent =
@@ -2796,7 +2865,7 @@ function AccountForm({
       {inline ? (
         <input type="hidden" name="profileId" value={profiles[0]?.id ?? ""} />
       ) : null}
-      {apiKeyProvider && mode === "connect" ? (
+      {apiKeyProvider && mode === "connect" && !embedded ? (
         <ApiKeyStorageChoice
           value={keyStorage}
           disabled={disabled}

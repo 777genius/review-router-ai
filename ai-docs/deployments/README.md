@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Add provider in one step: [an API-key provider is connected, added to the workspace, given its model and saved inside the Add provider dialog, without the trip to Connections and back](2026-11-19-one-step-add-provider.md), [plan 79](../architecture/79-one-step-add-provider.md) stage 1 - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
+
 Plain connection statuses: ["Status unknown" instead of "Outcome not confirmed yet" when no operation is behind a row, the fallback Connections list uses the main list's status words and workspace-use line instead of raw states and fence wording, one status order for all lists](2026-11-19-status-vocabulary.md), [PR #915](https://github.com/777genius/review-router-ai/pull/915), [plan 82](../architecture/82-status-vocabulary.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
 
 Account limits age: [a quiet "as of 12m ago" instead of the yellow Outdated badge, Ready explained in Details, one domain owner for the five minute threshold](2026-11-19-limits-observation-age.md), [PR #916](https://github.com/777genius/review-router-ai/pull/916), [plan 78](../architecture/78-automatic-freshness.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.

@@ -36,6 +36,7 @@ import { apiKeyProviders } from "@reviewrouter/features-review-providers";
 import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import { ProviderModelCatalogProvider } from "./provider-model-catalog";
 import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
+import { PersonalConnectProvider } from "./personal-connect-panel";
 import {
   loadDashboardGatewayAccounts,
   hydrateDashboardGatewayAccounts,
@@ -1045,20 +1046,31 @@ export async function DashboardSectionContent({
   // Approved engine profiles for the Account Gateway provider row; derived
   // from the producer-release approved profile authority, never user input.
   const agentProfileOptions = loadGatewayAgentProfileOptions();
+  // Provider dialogs connect the viewer's own account in place (79).
+  const connectPlace =
+    personal && wantsProviderDialog
+      ? {
+          scope: personal.scope,
+          workspaceId: selectedWorkspace.workspace.id,
+          workspaceName: selectedWorkspace.workspace.name,
+        }
+      : null;
   const content = (
-    <WorkspaceCard
-      data={data}
-      mutationsEnabled={mutationStatus.enabled}
-      selectedSection={selectedSection}
-      params={params}
-      repositoryAccess={repositoryAccess}
-      workspaceKey={workspaceKey}
-      appInstallUrl={getGitHubAppInstallUrl()}
-      modelOptions={modelOptions}
-      gatewayAccounts={gatewayAccounts}
-      agentProfileOptions={agentProfileOptions}
-      contextConnections={contextConnections}
-    />
+    <PersonalConnectProvider place={connectPlace}>
+      <WorkspaceCard
+        data={data}
+        mutationsEnabled={mutationStatus.enabled}
+        selectedSection={selectedSection}
+        params={params}
+        repositoryAccess={repositoryAccess}
+        workspaceKey={workspaceKey}
+        appInstallUrl={getGitHubAppInstallUrl()}
+        modelOptions={modelOptions}
+        gatewayAccounts={gatewayAccounts}
+        agentProfileOptions={agentProfileOptions}
+        contextConnections={contextConnections}
+      />
+    </PersonalConnectProvider>
   );
   const modelAccountScope =
     personal?.scope ??
