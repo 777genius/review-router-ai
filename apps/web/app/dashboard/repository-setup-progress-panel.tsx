@@ -377,7 +377,8 @@ export function RepositorySetupProgressPanel({
     workflowCurrent,
     runtimeCompatibility,
     // The local status keeps a just-reported recovery issue on Recreate.
-    runtimeVerificationNeeded: verificationNeeded && setupStatus === "configured",
+    runtimeVerificationNeeded:
+      verificationNeeded && setupStatus === "configured",
     providerRequired,
     mutationsEnabled,
     currentStep: displayStep,

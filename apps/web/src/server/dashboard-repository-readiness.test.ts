@@ -275,7 +275,11 @@ describe("dashboard repository states of the composed readiness", () => {
 
   it.each<readonly [string, Row, string]>([
     ["a confirmed credential is ready", { credential: true }, "ready"],
-    ["a merged workflow without its credential is setting up", {}, "setting_up"],
+    [
+      "a merged workflow without its credential is setting up",
+      {},
+      "setting_up",
+    ],
     [
       "an unhealthy provider needs attention",
       { credential: true, health: "provider_unhealthy" },
