@@ -61,6 +61,10 @@ export type CommentPageLinks = {
 export function commentPageLinks(
   headers: Readonly<Record<string, string | number | undefined>> | undefined,
   currentPage: number,
+  expectedIssue?: Pick<
+    UpsertReviewProgressCommentInput,
+    "owner" | "repo" | "pullNumber"
+  >,
 ): CommentPageLinks {
   const invalid: CommentPageLinks = { hasNextPage: "invalid" };
   const link = Object.entries(headers ?? {}).find(
@@ -101,6 +105,22 @@ export function commentPageLinks(
       return invalid;
     }
   }
+
+  // Only a Link for this exact PR's comment collection may prove that the
+  // scan has ended. Unbound hints may still require *more* reads.
+  const expectedPath = expectedIssue
+    ? `/repos/${expectedIssue.owner}/${expectedIssue.repo}/issues/${expectedIssue.pullNumber}/comments`.toLowerCase()
+    : null;
+  const completionHintBound =
+    expectedPath === null ||
+    entries.every((entry) => {
+      const href = entry.match(/^\s*<([^>]+)>/u)?.[1];
+      return (
+        href !== undefined &&
+        new URL(href, "https://api.github.com").pathname.toLowerCase() ===
+          expectedPath
+      );
+    });
 
   const hasNext = entries.some((entry) =>
     /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
@@ -161,7 +181,11 @@ export function commentPageLinks(
   const last = lastEntries[0];
   if (!last) {
     return {
-      hasNextPage: hasNext ? true : previousHref ? false : undefined,
+      hasNextPage: hasNext
+        ? true
+        : previousHref && completionHintBound
+          ? false
+          : undefined,
     };
   }
   const href = last.match(/^\s*<([^>]+)>/u)?.[1];
@@ -175,7 +199,15 @@ export function commentPageLinks(
       return invalid;
     }
     if (nextPage !== null && nextPage > lastPage) return invalid;
-    return { hasNextPage: hasNext || lastPage > currentPage, lastPage };
+    return {
+      hasNextPage:
+        hasNext || lastPage > currentPage
+          ? true
+          : completionHintBound
+            ? false
+            : undefined,
+      lastPage,
+    };
   } catch {
     return invalid;
   }
