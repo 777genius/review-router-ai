@@ -18,9 +18,6 @@ import {
   type ClaimedReviewProgress,
 } from "./review-progress-store";
 
-export const hostedProgressCommentWritesEnv =
-  "REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES";
-
 export type ReviewProgressInstallationRequesterFactory = (
   installationId: bigint,
 ) => Promise<

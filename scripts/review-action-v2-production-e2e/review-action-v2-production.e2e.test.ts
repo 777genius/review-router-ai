@@ -500,7 +500,7 @@ describeWithDatabase.sequential(
         published: 1,
       });
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Review units: 1 of 3 complete (33%)",
+        "Progress: 1 of 3 parts reviewed (33%)",
       );
       const initial =
         await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
@@ -638,7 +638,7 @@ describeWithDatabase.sequential(
       const staleBody = formatGithubProgressComment(
         parseSnapshot(stale.snapshot),
       );
-      expect(staleBody).toContain("Review units: 2 of 3 complete (66%)");
+      expect(staleBody).toContain("Progress: 2 of 3 parts reviewed (66%)");
       // Leave the expired claim fence present for real worker takeover.
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: stale.scope,
@@ -684,7 +684,7 @@ describeWithDatabase.sequential(
       });
       const comment = progressComments(fixture)[0]!;
       const latestBody = comment.body;
-      expect(latestBody).toContain("Review units: 3 of 3 complete (100%)");
+      expect(latestBody).toContain("Progress: 3 of 3 parts reviewed (100%)");
       const settled =
         await fixture.prisma.reviewProgressPublicationV1.findFirstOrThrow({
           where: { activeExecutionId: flow.executionId },
@@ -812,12 +812,12 @@ describeWithDatabase.sequential(
       const comments = progressComments(fixture);
       expect(comments).toHaveLength(1);
       expect(comments[0]?.body).toContain(
-        "Review units: 42 of 72 complete (58%)",
+        "Progress: 42 of 72 parts reviewed (58%)",
       );
       expect(comments[0]?.body).toContain(
-        "Files in completed units: 84 of 108",
+        "Files fully reviewed: 84 of 108",
       );
-      expect(comments[0]?.body).toContain("Units currently retrying: 6");
+      expect(comments[0]?.body).toContain("Parts being retried: 6");
 
       await fixture.setProgressFixture({
         executionId: flow.executionId,
@@ -830,10 +830,10 @@ describeWithDatabase.sequential(
       expect(recoveredPublication).toMatchObject({ published: 1 });
       expect(progressComments(fixture)).toHaveLength(1);
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Review units: 72 of 72 complete (100%)",
+        "Progress: 72 of 72 parts reviewed (100%)",
       );
       expect(progressComments(fixture)[0]?.body).toContain(
-        "Units recovered by retry: 6",
+        "Parts finished after a retry: 6",
       );
 
       fixture.fakeGitHub.seedProgressDuplicate(
@@ -895,9 +895,9 @@ describeWithDatabase.sequential(
       });
       const body = progressComments(fixture)[0]?.body ?? "";
       expect(body).toContain("**Phase:** Complete with gaps");
-      expect(body).toContain("Review units: 3 of 4 complete (75%)");
-      expect(body).toContain("Units not completed after retries: 1");
-      expect(body).not.toContain("complete (100%)");
+      expect(body).toContain("Progress: 3 of 4 parts reviewed (75%)");
+      expect(body).toContain("Parts that could not be finished: 1");
+      expect(body).not.toContain("reviewed (100%)");
     }, 60_000);
 
     it("finalizes exhausted work without regressing durable progress", async () => {

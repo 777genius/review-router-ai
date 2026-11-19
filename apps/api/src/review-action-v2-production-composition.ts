@@ -1,5 +1,6 @@
 import { createReviewRunGatewayTerminalRunReader } from "./review-run-gateway-terminal-run.js";
 import type { HistoryCapture } from "@reviewrouter/features-review-history/composition";
+import type { Logger } from "@reviewrouter/platform-logger";
 import { attestCompiledReviewActionV2ProducerContract } from "./review-action-v2-producer-contract-attestation.js";
 import {
   validateReviewPublicationLifecycleVerification,
@@ -166,7 +167,10 @@ import {
   PrismaReviewRequestedIntentStore,
   createReviewExecutionsUseCases,
 } from "@reviewrouter/features-review-executions/composition";
-import { createPrismaReviewProgressCapture } from "@reviewrouter/features-review-progress/composition";
+import {
+  createConfiguredReviewProgressCapture,
+  readReviewProgressSettings,
+} from "@reviewrouter/features-review-progress/composition";
 import {
   GitHubReviewPublicationLifecycleAdapter,
   HmacReviewCommandLedgerVerifier,
@@ -560,6 +564,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
         code: ReviewInvestigationOperationsDiagnosticCode,
       ) => Promise<void> | void)
     | undefined;
+  readonly logger?: Pick<Logger, "warn">;
 }): ReviewActionV2ProductionRoutes {
   if (!input.enabled) {
     return Object.freeze({
@@ -750,6 +755,9 @@ export function composeReviewActionV2ProductionRoutes(input: {
       ),
   } as const;
 
+  const progressCapture = createConfiguredReviewProgressCapture(
+    readReviewProgressSettings(input.env, input.logger),
+  );
   const executionStore = new PrismaReviewExecutionStore(input.prisma, {
     ...(historyWriter
       ? {
@@ -760,14 +768,7 @@ export function composeReviewActionV2ProductionRoutes(input: {
     ...(input.memoryInputAdmission
       ? { inputAdmission: input.memoryInputAdmission }
       : {}),
-    ...(input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
-      ? {
-          progressCapture: createPrismaReviewProgressCapture({
-            fileCoverageEnabled:
-              input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
-          }),
-        }
-      : {}),
+    ...(progressCapture ? { progressCapture } : {}),
   });
   const currentRevision = new ProductionCurrentReviewRevisionAdapter({
     prisma: input.prisma,

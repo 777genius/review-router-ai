@@ -8,6 +8,8 @@ import {
   type ReviewExecution,
 } from "@reviewrouter/features-review-executions";
 import { captureReviewProgress } from "../infrastructure/prisma/prisma-review-progress-projection";
+import { progressCommentMinEditIntervalMs } from "../domain/progress-comment-cadence";
+import { computeProgressSnapshot } from "../domain/review-progress";
 
 describe("Prisma review progress projection", () => {
   it("fails before projection writes when the scope row was not locked", async () => {
@@ -158,6 +160,63 @@ describe("Prisma review progress projection", () => {
           desiredVersion: 5n,
           failureCount: 0,
           lastErrorCode: null,
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    {
+      name: "holds a same-phase update for the minimum edit interval",
+      previousPhase: "reviewing" as const,
+      expected: (lastPublishedAt: Date) =>
+        new Date(lastPublishedAt.getTime() + progressCommentMinEditIntervalMs),
+    },
+    {
+      name: "publishes a phase change at once",
+      previousPhase: "preparing" as const,
+      expected: () => execution().updatedAt,
+    },
+  ])("$name", async ({ previousPhase, expected }) => {
+    const lastPublishedAt = new Date("2026-08-12T11:59:30.000Z");
+    const fixture = transactionFixture({
+      existingProgress: {
+        sourceExecutionVersion: 0n,
+        snapshotHash: "a".repeat(64),
+        desiredVersion: 4n,
+        snapshotJson: computeProgressSnapshot({
+          generation: 1,
+          sourceIdentity: { sourceRunId: "700001", sourceRunAttempt: "1" },
+          phase: previousPhase,
+          terminal: "none",
+          updatedAt: "2026-08-12T11:59:00.000Z",
+          slots: [{ slotId: "slot-1", required: true, state: "pending" }],
+        }),
+      },
+      publication: {
+        activeGeneration: 1n,
+        desiredVersion: 4n,
+        lastPublishedAt,
+      },
+    });
+
+    await captureReviewProgress(
+      fixture.transaction,
+      execution({
+        version: 2n,
+        workSlots: [
+          {
+            ...execution().workSlots[0]!,
+            state: ReviewWorkSlotState.Leased,
+          },
+        ],
+      }),
+    );
+
+    expect(fixture.updatePublication).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          nextPublishAt: expected(lastPublishedAt),
         }),
       }),
     );

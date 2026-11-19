@@ -3,35 +3,66 @@
 Live progress is an optional projection of canonical Review v2 state. A
 progress-publication failure must never change or delay the final review.
 
-## Flags
+## Settings
 
-- `REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE=1` materializes durable snapshots.
-- `REVIEW_ROUTER_PROGRESS_FILE_COVERAGE=1` includes coverage only when a valid
-  assignment manifest exists.
-- `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=1` enables the publisher.
-- `REVIEW_ROUTER_PROGRESS_REPOSITORIES=owner/repo,...` is the required hosted
-  write cohort. Empty is fail-closed; `*` is the explicit default-on cutover.
+Live progress is on by default for every repository. Nothing has to be set to
+turn it on; the keys below only opt out or narrow the comment. One reader,
+`readReviewProgressSettings` in
+`packages/features/review-progress/src/composition/review-progress-settings.ts`,
+owns them for the worker and the API.
+
+- `REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE` - durable snapshots. Unset or
+  `1` is on, `0` is off.
+- `REVIEW_ROUTER_PROGRESS_FILE_COVERAGE` - file lines, shown only when a valid
+  assignment manifest exists. Unset or `1` is on, `0` is off.
+- `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES` - the hosted PR comment.
+  Unset or `1` is on. `0` is the kill switch.
+- `REVIEW_ROUTER_PROGRESS_REPOSITORIES` - optional `owner/repo,...`
+  allow-list for hosted writes. Unset or empty means every repository.
+
+Any other value (for example `true`, `*`, or an allow-list with an empty or
+malformed entry) is invalid: the affected feature stays off and the runtime logs
+`Review progress settings are invalid; the affected progress features stay off`
+with the key names. It never stops the worker or API from starting.
 
 The Action-side CI-only path is independently controlled by
 `REVIEW_ROUTER_CI_PROGRESS_WRITES=1`. It uses a PR comment only when the current
 job already has a writable token; forks and read-only jobs fall back to the job
 summary without permission escalation.
 
-## Safe rollout
+## Comment and update cadence
 
-1. Apply migration `000067_review_live_progress` before compatible API and
-   worker code.
-2. Enable projection capture with hosted writes disabled. Verify snapshot
-   invariants, monotonic versions, queue depth, and terminal recovery.
-3. Add only disposable test repositories to
-   `REVIEW_ROUTER_PROGRESS_REPOSITORIES`, then enable hosted writes.
-4. Prove restart, supersession, duplicate reconciliation, permission loss,
-   rate-limit cooldown, and terminal convergence. Target ordinary updates
-   within 90 seconds and terminal updates within 30 seconds when GitHub is
-   available.
-5. Widen to a small opt-in cohort. Enable file coverage separately after
-   validating persisted manifests.
-6. Set the cohort to `*` only after the race, rate, and SLO gates pass.
+The comment shows the phase, then "Progress: N of M parts reviewed" with a bar
+only when the review has at least two required parts (almost every hosted review
+has one part, where a percentage would only jump from 0% to 100%). File lines
+appear when coverage is valid, retry lines only when their number is not zero,
+then "Started" and "Last update".
+
+- A phase change (Preparing, Reviewing, Assembling results, Publishing results)
+  and every terminal state are scheduled at once.
+- Same-phase count updates wait `progressCommentMinEditIntervalMs` (60 s) after
+  the last edit. The value lives only in
+  `packages/features/review-progress/src/domain/progress-comment-cadence.ts`.
+- `REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS` (default 1 s) still spaces
+  GitHub writes across one installation, and the claim fence and head checks
+  apply to every write.
+
+## Rollout
+
+1. Expire the backlog of old unpublished `ReviewProgressPublicationV1` rows
+   before the first worker with hosted writes on starts (runbook 15, section 4).
+   Otherwise the publisher posts stale "Assembling results" or "Failed"
+   comments on open pull requests.
+2. Deploy the worker and API. With the four keys unset the comment is on for
+   every repository. If an environment still sets
+   `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=0` or an allow-list, remove
+   them to reach the default.
+3. Run one review on a disposable PR. Expect one comment with the
+   `<!-- review-router-live-progress -->` marker, updated in place, that ends
+   in Complete or Complete with gaps.
+4. Watch `lastErrorCode` and `failureCount` on `ReviewProgressPublicationV1`
+   and the worker log line `ReviewRouter worker phases failed` for
+   `review_v2.progress_*` phases.
 
 ## Rollback
 
@@ -39,5 +70,6 @@ Set `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=0`, then restart or redeploy
 the worker. The flag is read when the worker runtime is constructed, so do not
 assume GitHub mutations have stopped until that restart completes. Durable
 snapshots and the final-review flow remain available. Keep projection capture
-enabled for diagnosis. If the projection itself is unhealthy, disable capture
-separately; the additive schema can remain.
+enabled for diagnosis. If the projection itself is unhealthy, set
+`REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE=0` on the worker and API; the
+additive schema can remain.

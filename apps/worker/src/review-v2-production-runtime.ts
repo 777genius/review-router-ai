@@ -37,7 +37,11 @@ import {
   PrismaReviewExecutionStore,
   PrismaReviewRequestedIntentStore,
 } from "@reviewrouter/features-review-executions/composition";
-import { createPrismaReviewProgressCapture } from "@reviewrouter/features-review-progress/composition";
+import {
+  createConfiguredReviewProgressCapture,
+  readReviewProgressSettings,
+  type ReviewProgressSettings,
+} from "@reviewrouter/features-review-progress/composition";
 import {
   ReviewCompletionSchedulerMode,
   PrismaReviewCompletionProcessRepository,
@@ -157,10 +161,7 @@ import {
   type ReviewV2PublicationMaintenanceRuntime,
   type ReviewV2ProgressMaintenanceRuntime,
 } from "./review-v2-worker-runtime";
-import {
-  hostedProgressCommentWritesEnv,
-  ReviewProgressPublisher,
-} from "./review-progress-publisher";
+import { ReviewProgressPublisher } from "./review-progress-publisher";
 import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
 import { ReviewV2TerminalRunRecovery } from "./review-v2-terminal-run-recovery";
@@ -219,9 +220,11 @@ export function createProductionReviewV2WorkerRuntime(input: {
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
   readonly settlementHook: ReviewCompletionSettlementHook;
-  readonly logger?: Pick<Logger, "info">;
+  readonly logger?: Pick<Logger, "info" | "warn">;
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
+  const progressSettings = readReviewProgressSettings(input.env, input.logger);
+  const progressCapture = createConfiguredReviewProgressCapture(progressSettings);
   const historyWriter =
     input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
       ? input.historyWriter
@@ -235,14 +238,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
             historyWriter.captureExecution(tx, execution),
         }
       : {}),
-    ...(input.env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE === "1"
-      ? {
-          progressCapture: createPrismaReviewProgressCapture({
-            fileCoverageEnabled:
-              input.env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE === "1",
-          }),
-        }
-      : {}),
+    ...(progressCapture ? { progressCapture } : {}),
   });
   const expiredExecutionRecovery = new RecoverExpiredReviewExecutions(
     executions,
@@ -702,6 +698,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     prisma: input.prisma,
     clock: input.clock,
     env: input.env,
+    settings: progressSettings,
     githubAppId: input.githubAppId,
     githubPrivateKey: input.githubPrivateKey,
     ownerIdHash,
@@ -755,24 +752,17 @@ function createHostedReviewProgressRuntime(input: {
   readonly prisma: PrismaClient;
   readonly clock: SystemClock;
   readonly env: Readonly<Record<string, string | undefined>>;
+  readonly settings: ReviewProgressSettings;
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
   readonly ownerIdHash: string;
 }): ReviewV2ProgressMaintenanceRuntime | undefined {
-  if (input.env[hostedProgressCommentWritesEnv] !== "1") return undefined;
-  const repositorySelectors = new Set(
-    (input.env.REVIEW_ROUTER_PROGRESS_REPOSITORIES ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  // Hosted writes are deliberately fail-closed until a canary cohort is
-  // named. "*" is the explicit default-on cutover after rollout proves safe.
-  if (repositorySelectors.size === 0) return undefined;
+  // On by default for every repository; the writes kill switch or a malformed
+  // setting leaves the publisher out of the worker loop entirely.
+  const writes = input.settings.hostedCommentWrites;
+  if (!writes) return undefined;
   const store = new PrismaReviewProgressPublicationStore(input.prisma, {
-    allowedRepositoryFullNames: repositorySelectors.has("*")
-      ? null
-      : repositorySelectors,
+    allowedRepositoryFullNames: writes.allowedRepositoryFullNames,
   });
   const app = new App({
     appId: input.githubAppId,

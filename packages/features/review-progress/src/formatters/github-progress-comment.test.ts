@@ -32,6 +32,7 @@ describe("formatGithubProgressComment", () => {
       sourceIdentity: { sourceRunId: "700001", sourceRunAttempt: "2" },
       phase: "reviewing",
       terminal: "none",
+      startedAt: "2026-08-12T16:58:00.000Z",
       updatedAt: "2026-08-12T17:04:05.000Z",
       slots,
       assignmentManifest: {
@@ -51,15 +52,58 @@ describe("formatGithubProgressComment", () => {
     );
     expect(comment).toContain("## ReviewRouter");
     expect(comment).toContain("**Phase:** Reviewing");
-    expect(comment).toContain("Review units: 42 of 72 complete (58%)");
+    expect(comment).toContain("Progress: 42 of 72 parts reviewed (58%)");
     expect(comment).toContain("[■■■■■□□□□□] 58%");
-    expect(comment).toContain("Files in completed units: 1 of 1");
-    expect(comment).toContain("Units currently retrying: 1");
-    expect(comment).toContain("Units recovered by retry: 1");
-    expect(comment).toContain("Units not completed after retries: 1");
-    expect(comment).toContain("Last update: 2026-08-12 17:04:05 UTC");
+    expect(comment).toContain("Files fully reviewed: 1 of 1");
+    expect(comment).toContain("Files not assigned to any part: 0");
+    expect(comment).toContain("Files skipped (unavailable or excluded): 0");
+    expect(comment).toContain("Parts being retried: 1");
+    expect(comment).toContain("Parts finished after a retry: 1");
+    expect(comment).toContain("Parts that could not be finished: 1");
     expect(comment).toContain(
-      "A review unit is one planned piece of review work.",
+      "Started: 2026-08-12 16:58:00 UTC\nLast update: 2026-08-12 17:04:05 UTC",
+    );
+    expect(comment).toContain(
+      "The review is split into parts, and the percentage is the share of parts that are finished, not a time estimate.\nUpdates are best effort, so this comment can lag a little behind the review.",
+    );
+  });
+
+  it("keeps the marker first and hides retry lines while nothing was retried", () => {
+    const comment = formatGithubProgressComment(
+      computeProgressSnapshot({
+        generation: 1,
+        sourceIdentity: { sourceRunId: "700001", sourceRunAttempt: "1" },
+        phase: "reviewing",
+        terminal: "none",
+        updatedAt: "2026-08-12T17:00:00.000Z",
+        slots: [
+          { slotId: "a", required: true, state: "accepted" },
+          { slotId: "b", required: true, state: "running" },
+          { slotId: "c", required: true, state: "pending" },
+        ],
+      }),
+    );
+    expect(comment).toBe(
+      [
+        githubProgressCommentMarker,
+        "<!-- review-router-live-progress-source run-id=700001 run-attempt=1 -->",
+        "## ReviewRouter",
+        "",
+        "**Phase:** Reviewing",
+        "",
+        "Progress: 1 of 3 parts reviewed (33%)",
+        "[■■■□□□□□□□] 33%",
+        "",
+        "Last update: 2026-08-12 17:00:00 UTC",
+        "",
+        "<details>",
+        "<summary>How progress is measured</summary>",
+        "",
+        "The review is split into parts, and the percentage is the share of parts that are finished, not a time estimate.",
+        "Updates are best effort, so this comment can lag a little behind the review.",
+        "",
+        "</details>",
+      ].join("\n"),
     );
   });
 
@@ -137,7 +181,8 @@ describe("formatGithubProgressComment", () => {
       }),
     );
     expect(comment).toContain("**Phase:** Complete with gaps");
-    expect(comment).not.toContain("Files in completed units");
+    expect(comment).not.toContain("Files fully reviewed");
+    expect(comment).toContain("Parts that could not be finished: 1");
     expect(comment).not.toContain("provider-model-agent");
     expect(comment).not.toContain("private/path.ts");
     expect(comment).not.toMatch(/\bETA\b|raw error/i);
@@ -151,25 +196,65 @@ describe("formatGithubProgressComment", () => {
         terminal: "none",
         updatedAt: "2026-08-12T17:00:00Z",
         slots: [
-          { slotId: "required", required: true, state: "pending" },
+          { slotId: "required-1", required: true, state: "pending" },
+          { slotId: "required-2", required: true, state: "running" },
           { slotId: "optional", required: false, state: "accepted" },
         ],
       }),
     );
-    expect(comment).toContain("Review units: 0 of 1 complete (0%)");
+    expect(comment).toContain("Progress: 0 of 2 parts reviewed (0%)");
   });
 
-  it("renders zero progress for an empty required-unit denominator", () => {
+  it("shows phase and times without a percentage for a single-part review", () => {
     const comment = formatGithubProgressComment(
       computeProgressSnapshot({
         generation: 1,
+        sourceIdentity: { sourceRunId: "700001", sourceRunAttempt: "1" },
         phase: "reviewing",
         terminal: "none",
-        updatedAt: "2026-08-12T17:00:00Z",
-        slots: [{ slotId: "optional", required: false, state: "running" }],
+        startedAt: "2026-08-12T16:58:00.000Z",
+        updatedAt: "2026-08-12T17:00:00.000Z",
+        slots: [{ slotId: "only", required: true, state: "running" }],
       }),
     );
-    expect(comment).toContain("Review units: 0 of 0 complete (0%)");
-    expect(comment).toContain("[□□□□□□□□□□] 0%");
+    expect(comment).toBe(
+      [
+        githubProgressCommentMarker,
+        "<!-- review-router-live-progress-source run-id=700001 run-attempt=1 -->",
+        "## ReviewRouter",
+        "",
+        "**Phase:** Reviewing",
+        "",
+        "Started: 2026-08-12 16:58:00 UTC",
+        "Last update: 2026-08-12 17:00:00 UTC",
+        "",
+        "<details>",
+        "<summary>How progress is measured</summary>",
+        "",
+        "This review runs as one part, so the comment shows its phase instead of a percentage.",
+        "Updates are best effort, so this comment can lag a little behind the review.",
+        "",
+        "</details>",
+      ].join("\n"),
+    );
+  });
+
+  it("never shows a percentage without at least two required parts", () => {
+    for (const slots of [
+      [{ slotId: "optional", required: false, state: "running" as const }],
+      [{ slotId: "only", required: true, state: "accepted" as const }],
+    ]) {
+      const comment = formatGithubProgressComment(
+        computeProgressSnapshot({
+          generation: 1,
+          phase: "reviewing",
+          terminal: "none",
+          updatedAt: "2026-08-12T17:00:00Z",
+          slots,
+        }),
+      );
+      expect(comment).not.toContain("Progress:");
+      expect(comment).not.toContain("%");
+    }
   });
 });

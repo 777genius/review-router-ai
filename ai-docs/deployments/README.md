@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Live progress comment on by default: [every repository gets the plain-language progress comment without setup; `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=0` is the kill switch and the four `REVIEW_ROUTER_PROGRESS_*` keys no longer need to be set](2026-11-19-progress-comments-default-on.md) - worker and API ordinary rollout, `pending` on staging and production; ships only in a bundled worker rollout, after the backlog of old progress rows is expired. No migration.
+
 Rollout of 2026-11-19, second release: [ReviewRouter `061f04bc` (#919)](2026-11-19-rollout-061f04bc.md) - production `deployed`: Web-only change, image `sha256:c196f4fb…` on all four roles, no migration (ledger 168), FILE 68 and Action refs 240 unchanged, swapped in a window with no running review, old containers retained as `*-before-ovl-20261119165922140`.
 
 Rollout of 2026-11-19: [ReviewRouter `7c176ef7` on all four roles](2026-11-19-rollout-7c176ef7.md) (#901, #904, #910 to #913, #915 to #917, #821, #918) - production `deployed`: image `sha256:a2c03f03…`, no migration (ledger 168), FILE 68 and Action refs 240 unchanged, old containers retained as `*-before-ovl-20261119155615177`. Canary review with App publication and one run per revision PASS. The #821 worker refactor is dormant (hosted progress comment writes are off); the signed-in dashboard checks of the task records are owner steps.

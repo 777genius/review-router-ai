@@ -14,6 +14,7 @@ export function parseSnapshot(value: unknown): ProgressSnapshot {
     !isTerminal(value.terminal) ||
     (value.phase === "terminal") !== (value.terminal !== "none") ||
     !isCanonicalInstant(value.updatedAt) ||
+    (value.startedAt !== undefined && !isCanonicalInstant(value.startedAt)) ||
     !isRecord(counts) ||
     !validCounts(counts) ||
     !validTerminalCounts(value.terminal, counts) ||

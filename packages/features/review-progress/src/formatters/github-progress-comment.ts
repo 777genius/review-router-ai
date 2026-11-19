@@ -46,8 +46,23 @@ export function formatGithubProgressComment(
   snapshot: ProgressSnapshot,
 ): string {
   const { counts } = snapshot;
-  const percent = percentage(counts.requiredCompleted, counts.requiredTotal);
-  const lines = [
+  const multiPart = counts.requiredTotal >= 2;
+  const details = [
+    ...(multiPart
+      ? partsProgressLines(counts.requiredCompleted, counts.requiredTotal)
+      : []),
+    ...(snapshot.fileCoverage.valid
+      ? [
+          `Files fully reviewed: ${snapshot.fileCoverage.covered} of ${snapshot.fileCoverage.total}`,
+          `Files not assigned to any part: ${snapshot.fileCoverage.uncovered}`,
+          `Files skipped (unavailable or excluded): ${snapshot.fileCoverage.excluded}`,
+        ]
+      : []),
+    ...nonZeroLine("Parts being retried", counts.retrying),
+    ...nonZeroLine("Parts finished after a retry", counts.recovered),
+    ...nonZeroLine("Parts that could not be finished", counts.exhausted),
+  ];
+  return [
     githubProgressCommentMarker,
     ...(snapshot.sourceIdentity === undefined
       ? []
@@ -61,33 +76,22 @@ export function formatGithubProgressComment(
     "",
     `**Phase:** ${phaseLabel(snapshot.phase, snapshot.terminal)}`,
     "",
-    `Review units: ${counts.requiredCompleted} of ${counts.requiredTotal} complete (${percent}%)`,
-    `${progressBar(percent)} ${percent}%`,
-  ];
-
-  if (snapshot.fileCoverage.valid) {
-    lines.push(
-      `Files in completed units: ${snapshot.fileCoverage.covered} of ${snapshot.fileCoverage.total}`,
-      `Files not assigned: ${snapshot.fileCoverage.uncovered}`,
-      `Files unavailable or excluded: ${snapshot.fileCoverage.excluded}`,
-    );
-  }
-  lines.push(
-    `Units currently retrying: ${counts.retrying}`,
-    `Units recovered by retry: ${counts.recovered}`,
-    `Units not completed after retries: ${counts.exhausted}`,
-    "",
+    ...(details.length === 0 ? [] : [...details, ""]),
+    ...(snapshot.startedAt === undefined
+      ? []
+      : [`Started: ${formatUtc(snapshot.startedAt)}`]),
     `Last update: ${formatUtc(snapshot.updatedAt)}`,
     "",
     "<details>",
     "<summary>How progress is measured</summary>",
     "",
-    "A review unit is one planned piece of review work. A unit is complete only after its result is accepted. Retried attempts do not add units. File coverage is shown only when the assignment manifest is valid, and a file counts only after every required covering unit is complete.",
-    "Progress updates are best effort; a large unit may take several minutes.",
+    multiPart
+      ? "The review is split into parts, and the percentage is the share of parts that are finished, not a time estimate."
+      : "This review runs as one part, so the comment shows its phase instead of a percentage.",
+    "Updates are best effort, so this comment can lag a little behind the review.",
     "",
     "</details>",
-  );
-  return lines.join("\n");
+  ].join("\n");
 }
 
 function phaseLabel(phase: ProgressPhase, terminal: ProgressTerminal): string {
@@ -109,8 +113,24 @@ function phaseLabel(phase: ProgressPhase, terminal: ProgressTerminal): string {
   }[terminal];
 }
 
+/**
+ * Most reviews run as one part, where a percentage would only jump from 0% to
+ * 100%, so callers show the part count and bar only for two or more parts.
+ */
+function partsProgressLines(completed: number, total: number): string[] {
+  const percent = percentage(completed, total);
+  return [
+    `Progress: ${completed} of ${total} parts reviewed (${percent}%)`,
+    `${progressBar(percent)} ${percent}%`,
+  ];
+}
+
+function nonZeroLine(label: string, value: number): string[] {
+  return value === 0 ? [] : [`${label}: ${value}`];
+}
+
 function percentage(completed: number, total: number): number {
-  return total === 0 ? 0 : Math.floor((completed / total) * 100);
+  return Math.floor((completed / total) * 100);
 }
 
 function progressBar(percent: number): string {

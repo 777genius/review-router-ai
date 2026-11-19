@@ -100,6 +100,7 @@ describe("Review progress snapshot policy", () => {
       { ...validSnapshot, terminal: "failed" },
       { ...validSnapshot, updatedAt: "not-a-date" },
       { ...validSnapshot, updatedAt: "2026-08-12T12:00:00Z" },
+      { ...validSnapshot, startedAt: "yesterday" },
       { ...validSnapshot, generation: -1 },
     ]) {
       expect(() => parseSnapshot(invalid)).toThrow(
@@ -112,6 +113,8 @@ describe("Review progress snapshot policy", () => {
       terminal: "failed",
     };
     expect(parseSnapshot(terminal)).toBe(terminal);
+    const started = { ...validSnapshot, startedAt: "2026-08-12T11:58:00.000Z" };
+    expect(parseSnapshot(started)).toBe(started);
   });
 
   it("rejects inconsistent aggregate and required progress counts", () => {
