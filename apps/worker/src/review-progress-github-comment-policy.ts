@@ -121,6 +121,35 @@ export function commentPageLinks(
     }
   }
 
+  // A declared first page must really identify page one.
+  const firstEntries = entries.filter((entry) =>
+    /;\s*rel=(?:"first"|first)\s*$/iu.test(entry),
+  );
+  if (firstEntries.length > 1) return invalid;
+  const firstHref = firstEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
+  if (firstHref) {
+    const firstTarget = new URL(firstHref, "https://api.github.com");
+    if (firstTarget.searchParams.get("page") !== "1") return invalid;
+  }
+
+  // The gateway reads numbered pages sequentially, never skipping a page.
+  const nextEntries = entries.filter((entry) =>
+    /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
+  );
+  if (nextEntries.length > 1) return invalid;
+  let nextPage: number | null = null;
+  if (hasNext) {
+    const nextHref = nextEntries[0]?.match(/^\s*<([^>]+)>/u)?.[1];
+    if (!nextHref) return invalid;
+    const nextTarget = new URL(nextHref, "https://api.github.com");
+    const pageValue = nextTarget.searchParams.get("page");
+    if (!pageValue || !/^[1-9]\d*$/u.test(pageValue)) return invalid;
+    nextPage = Number(pageValue);
+    if (!Number.isSafeInteger(nextPage) || nextPage !== currentPage + 1) {
+      return invalid;
+    }
+  }
+
   const lastEntries = entries.filter((entry) =>
     /;\s*rel=(?:"last"|last)\s*$/iu.test(entry),
   );
@@ -138,26 +167,7 @@ export function commentPageLinks(
     if (!Number.isSafeInteger(lastPage) || lastPage < currentPage) {
       return invalid;
     }
-    if (hasNext) {
-      const nextEntry = entries.find((entry) =>
-        /;\s*rel=(?:"next"|next)\s*$/iu.test(entry),
-      );
-      const nextHref = nextEntry?.match(/^\s*<([^>]+)>/u)?.[1];
-      if (!nextHref) return invalid;
-      const nextTarget = new URL(nextHref, "https://api.github.com");
-      const nextPageValue = nextTarget.searchParams.get("page");
-      if (!nextPageValue || !/^[1-9]\d*$/u.test(nextPageValue)) {
-        return invalid;
-      }
-      const nextPage = Number(nextPageValue);
-      if (
-        !Number.isSafeInteger(nextPage) ||
-        nextPage <= currentPage ||
-        nextPage > lastPage
-      ) {
-        return invalid;
-      }
-    }
+    if (nextPage !== null && nextPage > lastPage) return invalid;
     return { hasNextPage: hasNext || lastPage > currentPage, lastPage };
   } catch {
     return invalid;

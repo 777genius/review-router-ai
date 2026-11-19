@@ -116,6 +116,30 @@ describe("Review progress GitHub comment policy", () => {
     ).toBe(false);
   });
 
+  it("rejects misleading first links before accepting scan completion", () => {
+    const misleading = '</comments?page=3>; rel="first"';
+    const decision = hasNextCommentPage({ link: misleading }, 1);
+    expect(decision).toBe("invalid");
+    const scan = commentPageScanDecision(decision, 100, 1, 5);
+    expect(scan).toBe("inconclusive");
+    const first = '</comments?page=1>; rel="first"';
+    expect(hasNextCommentPage({ link: first }, 1)).toBe(false);
+    const validPrevious =
+      '</comments?page=1>; rel="first", </comments?page=1>; rel="prev"';
+    expect(hasNextCommentPage({ link: validPrevious }, 2)).toBe(false);
+  });
+
+  it("rejects skipped or duplicate next-page links without last metadata", () => {
+    const skipped = '</comments?page=3>; rel="next"';
+    const next = '</comments?page=2>; rel="next"';
+    const decision = hasNextCommentPage({ link: skipped }, 1);
+    expect(decision).toBe("invalid");
+    const scan = commentPageScanDecision(decision, 100, 1, 5);
+    expect(scan).toBe("inconclusive");
+    expect(hasNextCommentPage({ link: next }, 1)).toBe(true);
+    expect(hasNextCommentPage({ link: `${next}, ${next}` }, 1)).toBe("invalid");
+  });
+
   it("classifies bounded page scan outcomes", () => {
     const scenarios = [
       [false, 100, 5, 5, "complete"],
