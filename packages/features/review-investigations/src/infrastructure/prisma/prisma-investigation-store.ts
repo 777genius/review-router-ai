@@ -275,8 +275,10 @@ export class PrismaInvestigationStore
   async findExpiredActiveTurnIds(input: {
     readonly expiresAtOrBefore: string;
     readonly limit: number;
+    readonly excludeInvestigationIds?: readonly string[];
   }): Promise<readonly string[]> {
     assertPruneLimit(input.limit);
+    const excluded = [...(input.excludeInvestigationIds ?? [])];
     const cutoff = parseCanonicalCutoff(
       input.expiresAtOrBefore,
       "investigation_turn_expiry_cutoff_invalid",
@@ -296,6 +298,7 @@ export class PrismaInvestigationStore
           WHERE investigation."state" = 'turn_leased'::"ReviewInvestigationStateV1"
             AND turn."state" = 'leased'::"ReviewInvestigationTurnStateV1"
             AND turn."expiresAt" <= ${effectiveCutoff}
+            AND NOT (investigation."investigationId" = ANY(${excluded}::text[]))
           ORDER BY turn."expiresAt" ASC, investigation."investigationId" ASC
           LIMIT ${input.limit}
           FOR UPDATE OF investigation SKIP LOCKED

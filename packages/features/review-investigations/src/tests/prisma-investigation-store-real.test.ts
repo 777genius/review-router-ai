@@ -344,7 +344,7 @@ describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
           expiresAtOrBefore: workerClock.now().toISOString(),
           limit: 10,
         }),
-      ).resolves.toBe(0);
+      ).resolves.toMatchObject({ reconciledCount: 0, failedCount: 0 });
       await expect(
         store.reconcileExpiredPrivateMaterial({
           expiresAtOrBefore: workerClock.now().toISOString(),
@@ -1420,6 +1420,19 @@ describeDatabase("PrismaInvestigationStore PostgreSQL invariants", () => {
           limit: 10,
         }),
       ).resolves.toBe(0);
+      const expiredTurnQuery = {
+        expiresAtOrBefore: leased.activeTurn!.expiresAt,
+        limit: 1_000,
+      };
+      await expect(
+        store.findExpiredActiveTurnIds(expiredTurnQuery),
+      ).resolves.toContain(seed.investigationId);
+      await expect(
+        store.findExpiredActiveTurnIds({
+          ...expiredTurnQuery,
+          excludeInvestigationIds: [seed.investigationId],
+        }),
+      ).resolves.not.toContain(seed.investigationId);
       // Recovery's Unauthorized verdict must match the persisted authority.
       const authorizationId = `authorization-${seed.investigationId}`;
       await harness.prisma.reviewRunAuthorization.update({

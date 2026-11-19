@@ -9,6 +9,7 @@ import {
   InvestigationFindingSeverity,
   InvestigationEvidenceRequirementKind,
   InvestigationExecutionAuthorityVerdict,
+  InvestigationExpiredTurnRecoveryFailureCause,
   InvestigationPolicyCanonicalVersion,
   policyCanonicalValue,
   InvestigationLeaseAcquireStatus,
@@ -2102,6 +2103,87 @@ describe("review investigation in-memory vertical slice", () => {
       "investigation_dossier_digest_invalid",
     );
     expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("sweeps past an unrecoverable turn, reports its cause and backs it off", async () => {
+    const harness = createHarness();
+    const broken = await planDiscovery(
+      harness,
+      await harness.open.execute(openCommand("sweep-broken")),
+    );
+    const healthy = await planDiscovery(
+      harness,
+      await harness.open.execute({
+        ...openCommand("sweep-healthy"),
+        stableReviewUnitKey: "stable-unit-healthy",
+      }),
+    );
+    harness.clock.advance(60_000);
+    harness.authority.verdict =
+      InvestigationExecutionAuthorityVerdict.Superseded;
+    const findStored = harness.store.findById.bind(harness.store);
+    vi.spyOn(harness.store, "findById").mockImplementation(async (id) => {
+      const stored = await findStored(id);
+      return stored === null || id !== broken.investigationId
+        ? stored
+        : { ...stored, dossierDigest: "0".repeat(64) };
+    });
+    const findCandidates = vi.spyOn(harness.store, "findExpiredActiveTurnIds");
+    const reconcile = new ReconcileExpiredActiveTurn(
+      harness.store,
+      harness.authority,
+      harness.digest,
+      harness.clock,
+    );
+    const sweep = () =>
+      reconcile.sweep({
+        expiresAtOrBefore: harness.clock.now().toISOString(),
+        limit: 10,
+      });
+
+    await expect(sweep()).resolves.toEqual({
+      reconciledCount: 1,
+      failedCount: 1,
+      deferredCount: 0,
+      failureCause:
+        InvestigationExpiredTurnRecoveryFailureCause.DossierDigestInvalid,
+    });
+    await expect(findStored(healthy.investigationId)).resolves.toMatchObject({
+      state: ReviewInvestigationState.Superseded,
+      activeTurn: null,
+    });
+    await expect(findStored(broken.investigationId)).resolves.toMatchObject({
+      state: ReviewInvestigationState.TurnLeased,
+    });
+
+    harness.clock.advance(30 * 60_000);
+    await expect(sweep()).resolves.toEqual({
+      reconciledCount: 0,
+      failedCount: 0,
+      deferredCount: 1,
+      failureCause: null,
+    });
+    expect(findCandidates).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        excludeInvestigationIds: [broken.investigationId],
+      }),
+    );
+
+    harness.clock.advance(30 * 60_000);
+    await expect(sweep()).resolves.toMatchObject({
+      failedCount: 1,
+      deferredCount: 0,
+    });
+    harness.clock.advance(60 * 60_000);
+    await expect(sweep()).resolves.toMatchObject({
+      failedCount: 0,
+      deferredCount: 1,
+    });
+    harness.clock.advance(60 * 60_000);
+    await expect(sweep()).resolves.toMatchObject({
+      failedCount: 1,
+      deferredCount: 0,
+    });
   });
 });
 

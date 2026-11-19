@@ -15,6 +15,7 @@ import {
   InvestigationStoreTransitionKind,
   type InvestigationStorePort,
 } from "../ports/investigation-store-port";
+import { ExpiredActiveTurnRecoveryBackoff } from "../expired-active-turn-recovery-backoff";
 import { issueReplayEvidenceCheckpoint } from "../replay-evidence-checkpoint-issuer";
 import {
   commitOrThrow,
@@ -22,7 +23,23 @@ import {
   withCurrentDossierDigest,
 } from "./investigation-use-case-support";
 
+export enum InvestigationExpiredTurnRecoveryFailureCause {
+  DossierDigestInvalid = "dossier_digest_invalid",
+  InvestigationMissing = "investigation_missing",
+  IdempotencyConflict = "idempotency_conflict",
+  Unknown = "unknown",
+}
+
+export type ExpiredActiveTurnSweepResult = Readonly<{
+  reconciledCount: number;
+  failedCount: number;
+  deferredCount: number;
+  failureCause: InvestigationExpiredTurnRecoveryFailureCause | null;
+}>;
+
 export class ReconcileExpiredActiveTurn {
+  private readonly backoff = new ExpiredActiveTurnRecoveryBackoff();
+
   constructor(
     private readonly store: InvestigationStorePort,
     private readonly authority: InvestigationExecutionAuthorityPort,
@@ -102,30 +119,86 @@ export class ReconcileExpiredActiveTurn {
     });
   }
 
+  /**
+   * Recovers each expired active turn independently. A row that cannot be
+   * recovered is counted with an allowlisted cause and put on a bounded
+   * backoff; it never stops the rest of the batch.
+   */
   async sweep(input: {
     readonly expiresAtOrBefore: string;
     readonly limit: number;
-  }): Promise<number> {
-    const ids = await this.store.findExpiredActiveTurnIds(input);
-    let reconciled = 0;
+  }): Promise<ExpiredActiveTurnSweepResult> {
+    const nowMs = this.clock.now().getTime();
+    const deferred = this.backoff.deferredInvestigationIds(nowMs);
+    const ids = await this.store.findExpiredActiveTurnIds({
+      ...input,
+      excludeInvestigationIds: deferred,
+    });
+    let reconciledCount = 0;
+    let failedCount = 0;
+    let failureCause: InvestigationExpiredTurnRecoveryFailureCause | null =
+      null;
     for (const investigationId of ids) {
       try {
         const before = await this.store.findById(investigationId);
         const after = await this.execute(investigationId);
-        if (before !== null && after.version !== before.version)
-          reconciled += 1;
-      } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          ![
-            "investigation_concurrency_conflict",
-            "investigation_lease_fencing_stale",
-          ].includes(error.message)
-        ) {
-          throw error;
+        if (before !== null && after.version !== before.version) {
+          reconciledCount += 1;
         }
+        this.backoff.clear(investigationId);
+      } catch (error: unknown) {
+        if (isConcurrentRecoveryRace(error)) continue;
+        failedCount += 1;
+        failureCause ??= expiredTurnRecoveryFailureCause(error);
+        this.backoff.recordFailure(investigationId, nowMs);
       }
     }
-    return reconciled;
+    return Object.freeze({
+      reconciledCount,
+      failedCount,
+      deferredCount: deferred.length,
+      failureCause,
+    });
   }
+}
+
+const concurrentRecoveryRaceMessages: ReadonlySet<string> = new Set([
+  "investigation_concurrency_conflict",
+  "investigation_lease_fencing_stale",
+]);
+
+function isConcurrentRecoveryRace(error: unknown): boolean {
+  return (
+    error instanceof Error && concurrentRecoveryRaceMessages.has(error.message)
+  );
+}
+
+const recoveryFailureCauseByMessage: ReadonlyMap<
+  string,
+  InvestigationExpiredTurnRecoveryFailureCause
+> = new Map([
+  [
+    "investigation_dossier_digest_invalid",
+    InvestigationExpiredTurnRecoveryFailureCause.DossierDigestInvalid,
+  ],
+  [
+    "investigation_missing",
+    InvestigationExpiredTurnRecoveryFailureCause.InvestigationMissing,
+  ],
+  [
+    "investigation_idempotency_conflict",
+    InvestigationExpiredTurnRecoveryFailureCause.IdempotencyConflict,
+  ],
+]);
+
+// Only allowlisted codes leave this module: a raw error message can carry
+// persisted values, so anything unrecognised is reported as `unknown`.
+function expiredTurnRecoveryFailureCause(
+  error: unknown,
+): InvestigationExpiredTurnRecoveryFailureCause {
+  return (
+    (error instanceof Error
+      ? recoveryFailureCauseByMessage.get(error.message)
+      : undefined) ?? InvestigationExpiredTurnRecoveryFailureCause.Unknown
+  );
 }
