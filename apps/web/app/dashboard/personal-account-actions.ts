@@ -162,15 +162,6 @@ export async function completePersonalGatewayOAuth(
   );
 }
 
-export async function listPersonalModelAccounts(
-  context: string,
-  workspaceId: string,
-  request: { afterBindingId?: string; limit: number },
-) {
-  return invoke(context, async (service) =>
-    (await service.models(workspaceId)).list(request),
-  );
-}
 export async function getPersonalModelAccount(
   context: string,
   workspaceId: string,

@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Dead account exports and one shared provider mapping: [four uncalled exports removed, Providers list and setup dialog share one saved-provider mapping](2026-11-18-remove-dead-account-exports.md), [PR #910](https://github.com/777genius/review-router-ai/pull/910) - Web-only refactor with no visible change; staging and production `pending`, ships with the next ordinary Web release. No migration or configuration.
+
 One removal entry per connection row: [one confirmed "Remove from this workspace", no extra "Access" button on other owners' rows, the row offers "Add to this workspace" again after removal](2026-11-18-single-account-stack.md), [PR #912](https://github.com/777genius/review-router-ai/pull/912), [plan 77](../architecture/77-single-account-stack.md) - Web-only ordinary rollout, with or after PR #901; staging and production `pending`. No migration, configuration, Gateway or native change.
 
 Simpler repository reviewer list: [the dialog explains workspace inheritance and its copy on save, names the reviewers "Use workspace reviewers" switches to, hides multi-reviewer controls for one reviewer and lets parallel reviewers be reordered](2026-11-18-simple-repo-roster.md), [PR #911](https://github.com/777genius/review-router-ai/pull/911), [plan 80](../architecture/80-simple-repo-roster.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway, native or runtime change.
