@@ -55,22 +55,16 @@ export function connectionSetupContinuation(input: {
         )
       : false;
   };
-  const workspaceExisting = existing(input.available ?? input.workspace);
-  const personalExisting = existing(input.personal);
   const workspaceSupported = matchingProfiles(input.workspace).length > 0;
   return {
     autoOpen: Boolean(
       provider &&
-      !workspaceExisting &&
-      !personalExisting &&
+      !existing(input.available ?? input.workspace) &&
+      !existing(input.personal) &&
       (workspaceSupported || matchingProfiles(input.personal).length > 0),
     ),
     ownership: workspaceSupported
       ? ("organization" as const)
       : ("personal" as const),
-    view:
-      !workspaceExisting && personalExisting
-        ? ("own" as const)
-        : ("available" as const),
   };
 }

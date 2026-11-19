@@ -8,62 +8,11 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { useEffect } from "react";
 import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import { AccountsAddDialog } from "./accounts-add-dialog";
-import { AccountsWorkspaceTabs } from "./accounts-workspace-tabs";
 import { AccountActionsMenu, AccountMenuItem } from "./account-actions-menu";
 
 afterEach(cleanup);
-
-test("scope views explain workspace use and personal ownership without starting a connection", async () => {
-  render(
-    <AccountsWorkspaceTabs
-      available={<p>Workspace connections</p>}
-      own={<p>Personal connections</p>}
-    />,
-  );
-  expect(
-    screen.getByRole("tab", { name: "For this workspace" }),
-  ).toHaveProperty("ariaSelected", "true");
-  fireEvent.click(
-    screen.getByRole("button", { name: "Use one of my connections" }),
-  );
-  await waitFor(() =>
-    expect(
-      screen.getByRole("tab", { name: "All my connections" }),
-    ).toHaveProperty("ariaSelected", "true"),
-  );
-  expect(screen.getByText("Personal connections")).toBeTruthy();
-  expect(
-    screen.getByText(
-      /Connections you own, including those used in other workspaces/,
-    ),
-  ).toBeTruthy();
-  expect(screen.queryByRole("dialog")).toBeNull();
-});
-
-test("the personal scope names the current viewer and reuses the shared avatar", () => {
-  render(
-    <AccountsWorkspaceTabs
-      viewer={{
-        login: "current-viewer",
-        avatarUrl: "https://avatars.example/current-viewer.png",
-      }}
-      initialView="own"
-      available={<p>Workspace connections</p>}
-      own={<p>Personal connections</p>}
-    />,
-  );
-  const tab = screen.getByRole("tab", {
-    name: "All current-viewer connections",
-  });
-  expect(tab).toHaveProperty("ariaSelected", "true");
-  expect(tab.querySelector("img")?.getAttribute("src")).toBe(
-    "https://avatars.example/current-viewer.png",
-  );
-  expect(screen.queryByRole("tab", { name: "All my connections" })).toBeNull();
-});
 
 test("an explicit continuation opens the requested ownership once and does not reopen after a refresh", async () => {
   const props = {
@@ -199,40 +148,25 @@ test("clears unsubmitted credentials when hiding the retained connection form", 
   expect(callback.value).toBe("");
 });
 
-test("reusing a connection closes Add and opens one owner controller without granting workspace access", async () => {
-  const mounted = vi.fn();
+test("reusing a connection closes Add over the list without granting workspace access", async () => {
   const grant = vi.fn();
-  function OwnConnections() {
-    useEffect(() => {
-      mounted();
-    }, []);
-    return <button onClick={grant}>Grant workspace access</button>;
-  }
   render(
-    <AccountsWorkspaceTabs
-      available={
-        <AccountsAddDialog
-          workspaceName="Test workspace"
-          personalConnect={<p>New personal connection</p>}
-          organizationConnect={<p>New organization connection</p>}
-        />
-      }
-      own={<OwnConnections />}
-    />,
+    <>
+      <AccountsAddDialog
+        workspaceName="Test workspace"
+        personalConnect={<p>New personal connection</p>}
+        organizationConnect={<p>New organization connection</p>}
+      />
+      <button onClick={grant}>Grant workspace access</button>
+    </>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Add account" }));
   const dialog = await screen.findByRole("dialog", { name: "Add account" });
-  expect(mounted).not.toHaveBeenCalled();
   fireEvent.click(
     within(dialog).getByRole("button", { name: "Use an existing connection" }),
   );
-  await waitFor(() => {
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(
-      screen.getByRole("tab", { name: "All my connections" }),
-    ).toHaveProperty("ariaSelected", "true");
-  });
-  expect(mounted).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.queryByRole("tab")).toBeNull();
   expect(
     screen.getAllByRole("button", { name: "Grant workspace access" }),
   ).toHaveLength(1);
