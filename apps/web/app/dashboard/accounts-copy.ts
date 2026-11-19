@@ -72,12 +72,13 @@ export type AccountStatusInfo = {
   readonly text: string;
 };
 
-// Status texts for transitions driven outside the account row itself (local
-// lifecycle activity, pending source operations, rows without a loaded account).
+// Status texts not read from the account state itself: local lifecycle
+// activity, changes in progress, and rows whose state could not be established.
 export const pendingStatusCopy = {
   removing: "Removing…",
   confirming: "Confirming change",
-  unknown: "Outcome not confirmed yet",
+  unknown: "Status unknown",
+  refreshFailed: "Details could not be refreshed",
 } as const;
 
 export function accountStatusInfo(
@@ -107,8 +108,36 @@ export function accountStatusInfo(
     : { kind: "unavailable", text: "Unavailable" };
 }
 
-export function accountStatus(
-  account: Pick<AccountView, "state" | "readiness" | "lifecycle">,
-): string {
-  return accountStatusInfo(account).text;
+/**
+ * The one status order of a Connections row: a failed read, then removal, then
+ * a change in progress, then the account's own status.
+ */
+export function connectionRowStatus({
+  account,
+  refreshFailed = false,
+  localAction,
+  pendingChange = false,
+}: {
+  readonly account?:
+    | Pick<AccountView, "state" | "readiness" | "lifecycle">
+    | undefined;
+  readonly refreshFailed?: boolean | undefined;
+  /** A lifecycle action this page started and has not settled yet. */
+  readonly localAction?: string | undefined;
+  /** A change the server reports as in progress (an operation or a fence). */
+  readonly pendingChange?: boolean | undefined;
+}): AccountStatusInfo {
+  if (refreshFailed)
+    return { kind: "unknown", text: pendingStatusCopy.refreshFailed };
+  if (
+    localAction === "delete" ||
+    (account?.lifecycle?.status === "pending" &&
+      account.lifecycle.action === "delete")
+  )
+    return { kind: "removing", text: pendingStatusCopy.removing };
+  if (localAction !== undefined || pendingChange)
+    return { kind: "confirming", text: pendingStatusCopy.confirming };
+  return account
+    ? accountStatusInfo(account)
+    : { kind: "unknown", text: pendingStatusCopy.unknown };
 }

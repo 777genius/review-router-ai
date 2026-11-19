@@ -37,12 +37,7 @@ import { AccountIdentity } from "./account-identity";
 import { readAccountResult } from "./account-read-result";
 import { AccountActionsMenu } from "./account-actions-menu";
 import { accountsGridColumns } from "./accounts-grid";
-import {
-  accountsCopy,
-  accountStatusInfo,
-  pendingStatusCopy,
-  type AccountStatusInfo,
-} from "./accounts-copy";
+import { accountsCopy, connectionRowStatus } from "./accounts-copy";
 import { AccountStatusLine } from "./account-status-icon";
 
 import type {
@@ -790,17 +785,12 @@ function PersonalControls({
             const addHere = Boolean(
               listing?.canAddHere && use === "not_added" && canAdd,
             );
-            const status: AccountStatusInfo = sources.isError
-              ? { kind: "unknown", text: "Details could not be refreshed" }
-              : lifecycleActivities.get(id) === "delete" ||
-                  (account?.lifecycle?.status === "pending" &&
-                    account.lifecycle.action === "delete")
-                ? { kind: "removing", text: pendingStatusCopy.removing }
-                : lifecycleActivities.has(id) || source?.sourceOperationPending
-                  ? { kind: "confirming", text: pendingStatusCopy.confirming }
-                  : account
-                    ? accountStatusInfo(account)
-                    : { kind: "unknown", text: pendingStatusCopy.unknown };
+            const status = connectionRowStatus({
+              account,
+              refreshFailed: sources.isError,
+              localAction: lifecycleActivities.get(id),
+              pendingChange: source?.sourceOperationPending,
+            });
             return (
               <article
                 key={id}

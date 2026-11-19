@@ -34,12 +34,14 @@ import {
   beginGatewayOAuth,
   completeGatewayOAuth,
   bindGatewayAccount,
+  detachGatewayAccount,
   listGatewayAccounts,
   readGatewayOperation,
   submitGatewayApiKey,
   mutateGatewayAccount,
 } from "./account-gateway-account-actions";
 import { AccountsAddDialog } from "./accounts-add-dialog";
+import { accountsCopy, removeFromWorkspaceCopy } from "./accounts-copy";
 import {
   GatewayModelAccountsProvider,
   type GatewayModelAccountsApi,
@@ -59,6 +61,7 @@ vi.mock("./account-gateway-account-actions", () => ({
   completeGatewayOAuth: vi.fn(),
   pollGatewayOAuth: vi.fn(),
   bindGatewayAccount: vi.fn(),
+  detachGatewayAccount: vi.fn(),
   listGatewayAccounts: vi.fn(),
   readGatewayOperation: vi.fn(),
   submitGatewayApiKey: vi.fn(),
@@ -972,6 +975,82 @@ test("the engine's own workspace list keeps one removal for a bound row", async 
   expect(
     screen.getAllByRole("button", { name: "Remove from this workspace" }),
   ).toHaveLength(1);
+});
+
+test("the engine's own list shows plain statuses, never internal states or fence wording", async () => {
+  page.accounts = [
+    { ...row("quarantined"), connectionId: "quarantined", label: "Q" },
+    {
+      ...row("active"),
+      connectionId: "fenced-use",
+      label: "Waiting use",
+      binding: {
+        id: "use-1",
+        revision: 2,
+        state: "active",
+        fencePending: true,
+      },
+    },
+    {
+      ...row("active"),
+      connectionId: "fenced-removal",
+      label: "Waiting removal",
+      binding: {
+        id: "use-2",
+        revision: 3,
+        state: "revoked",
+        fencePending: true,
+      },
+    },
+    { ...row("tombstoned"), connectionId: "retired", label: "Retired one" },
+  ];
+  const view = await mount();
+  const fencedUse = await screen.findByText("Waiting use");
+  const fencedRemoval = screen.getByText("Waiting removal");
+  const rowOf = (element: HTMLElement) =>
+    element.closest(".py-4") as HTMLElement;
+  expect(rowOf(fencedUse).textContent).toContain("Confirming change");
+  expect(rowOf(fencedUse).textContent).toContain(accountsCopy.usedHere);
+  expect(rowOf(fencedRemoval).textContent).toContain("Confirming change");
+  expect(rowOf(fencedRemoval).textContent).toContain(accountsCopy.notAddedHere);
+  expect(view.container.textContent).toContain("Needs attention");
+  expect(view.container.textContent).toContain("Retired");
+  const titles = [...view.container.querySelectorAll("[title]")]
+    .map((element) => element.getAttribute("title"))
+    .join(" ");
+  for (const internal of [
+    /\bquarantined\b/,
+    /\btombstoned\b/,
+    /fence/i,
+    /binding/i,
+  ]) {
+    expect(view.container.textContent).not.toMatch(internal);
+    expect(titles).not.toMatch(internal);
+  }
+});
+
+test("removal from the engine's own list reports the result in plain words", async () => {
+  page.accounts = [
+    {
+      ...row("active"),
+      binding: {
+        id: "workspace-use",
+        revision: 2,
+        state: "active",
+        fencePending: false,
+      },
+    },
+  ];
+  vi.mocked(detachGatewayAccount).mockResolvedValue({
+    status: "ok",
+    value: { remoteFenceDelivery: "remote_pending" },
+  } as Awaited<ReturnType<typeof detachGatewayAccount>>);
+  await mount();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Remove from this workspace" }),
+  );
+  expect(await screen.findByText(removeFromWorkspaceCopy.pending)).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/fence/i);
 });
 
 test("personal scope reuses canonical controls through injected actions and never offers workspace use management", async () => {
