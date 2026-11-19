@@ -11,9 +11,9 @@ export async function assertInstalledConversationSdk(
     await readFile(join(sourceRoot, provenancePath), "utf8"),
   ) as { contract?: string; archive?: string; sha256?: string };
   if (
-    provenance.contract !== "nvidia-sandbox-sdk-provenance/v1" ||
+    provenance.contract !== "native-account-info-sdk-provenance/v1" ||
     !provenance.archive ||
-    !/^agent-teams-account-gateway-0[.]1[.]0-nvidia-[a-f0-9]+[.]tgz$/.test(
+    !/^agent-teams-account-gateway-0[.]1[.]0-native-imports-[a-f0-9]+[.]tgz$/.test(
       provenance.archive,
     ) ||
     !provenance.sha256 ||
