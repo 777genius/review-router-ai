@@ -20,6 +20,10 @@ import type {
   AccountsResult,
   AccountView,
 } from "../../src/server/account-gateway-accounts";
+import {
+  ACCOUNT_READ_STALE_MS,
+  accountReadSchedule,
+} from "../../src/features/provider-setup/account-model-catalog-freshness";
 
 export type GatewayModelAccountsApi = {
   list(request: {
@@ -32,6 +36,10 @@ export type GatewayModelAccountsApi = {
   ): Promise<
     AccountsResult<{ account: AccountView; profile: AccountProfileView }>
   >;
+};
+type AccountDetail = Awaited<ReturnType<GatewayModelAccountsApi["get"]>>;
+type DetailQuery = {
+  state: { data: AccountDetail | undefined; dataUpdatedAt: number };
 };
 const OptionsContext = createContext<{
   scope: string;
@@ -145,7 +153,7 @@ export function useGatewayModelAccounts(
       getNextPageParam: (page) =>
         page.status === "ok" ? page.value.nextCursor : null,
       enabled: Boolean(context),
-      staleTime: 15000,
+      staleTime: ACCOUNT_READ_STALE_MS,
       retry: false,
     },
     client,
@@ -159,9 +167,28 @@ export function useGatewayModelAccounts(
             context?.scope ?? "disabled",
             bindingId,
           ] as const,
-          queryFn: () => context!.api.get(bindingId),
+          // A failed read is a result like "unavailable", so it keeps its
+          // cooldown instead of being retried on every mount.
+          queryFn: (): Promise<AccountDetail> =>
+            context!.api
+              .get(bindingId)
+              .catch(() => ({ status: "unavailable" }) as const),
           enabled: Boolean(context),
-          staleTime: 15000,
+          // The model list an open picker shows is read again before it
+          // lapses, and an out-of-date or failed one once per open after its
+          // cooldown, so the user never has to refresh it by hand.
+          staleTime: (query: DetailQuery) =>
+            accountReadSchedule(query.state.data, query.state.dataUpdatedAt)
+              .staleTime,
+          refetchInterval: (query: DetailQuery) => {
+            const { refreshAt } = accountReadSchedule(
+              query.state.data,
+              query.state.dataUpdatedAt,
+            );
+            return refreshAt === null
+              ? false
+              : Math.max(1_000, refreshAt - Date.now());
+          },
           retry: false,
         }),
       ),
@@ -274,9 +301,7 @@ export function useGatewayModelAccounts(
       const queryKey = ["account-option", context.scope, bindingId] as const;
       await client.cancelQueries({ queryKey, exact: true });
       const unavailable = () =>
-        client.setQueryData<
-          Awaited<ReturnType<GatewayModelAccountsApi["get"]>>
-        >(queryKey, (current) => {
+        client.setQueryData<AccountDetail>(queryKey, (current) => {
           if (
             current?.status !== "ok" ||
             current.value.account.binding?.id !== bindingId

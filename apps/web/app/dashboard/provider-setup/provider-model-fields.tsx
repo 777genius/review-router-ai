@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useMemo, useState, type FocusEvent } from "react";
+import {
+  useId,
+  useMemo,
+  useState,
+  type FocusEvent,
+  type ReactNode,
+} from "react";
 import { Checkbox, SelectField } from "@reviewrouter/ui";
 import {
   codexModelSupportsFastMode,
@@ -179,6 +185,8 @@ export type ProviderModelFieldsProps = Readonly<{
   hasSavedSettings?: boolean;
   hasEditedSettings?: boolean;
   emptyListPlaceholder?: string | undefined;
+  /** State of the list itself, shown under the model input above its options. */
+  modelStatus?: ReactNode;
 }>;
 
 /**
@@ -203,6 +211,7 @@ export function ProviderModelFields({
   hasSavedSettings,
   hasEditedSettings = false,
   emptyListPlaceholder,
+  modelStatus,
 }: ProviderModelFieldsProps): React.ReactElement {
   const tuning = providerHasReviewTuning(authMode);
   const gateway = authMode === "codex_account_gateway";
@@ -315,6 +324,7 @@ export function ProviderModelFields({
         allowCustomModel={allowCustomModel}
         disabled={disabled}
         emptyListPlaceholder={emptyListPlaceholder}
+        status={modelStatus}
         className="sm:col-span-2"
       />
       {showReasoning ? (
@@ -471,6 +481,7 @@ export function ProviderModelPicker({
   allowCustomModel = true,
   disabled,
   emptyListPlaceholder = "Choose an account first",
+  status,
   className,
 }: Readonly<{
   model: string;
@@ -482,6 +493,12 @@ export function ProviderModelPicker({
   disabled: boolean;
   /** The list placeholder while the credential offers no model. */
   emptyListPlaceholder?: string | undefined;
+  /**
+   * State of the list itself (e.g. it is being updated), shown under the input
+   * and above the options. A disabled choice without a reason of its own is
+   * explained by it, so no generic per-model hint is added.
+   */
+  status?: ReactNode;
   className?: string;
 }>): React.ReactElement {
   if (!onModelChange)
@@ -491,11 +508,15 @@ export function ProviderModelPicker({
           Model
         </span>
         <span className="text-sm text-cyan-50">{model}</span>
+        {status}
       </div>
     );
   if (modelChoice === "list")
     return (
-      <SelectField
+      <div
+        className={["grid min-w-0 gap-2", className].filter(Boolean).join(" ")}
+      >
+        <SelectField
         label="Model"
         value={model}
         placeholder={
@@ -529,8 +550,9 @@ export function ProviderModelPicker({
           })),
         ]}
         onValueChange={onModelChange}
-        {...(className ? { className } : {})}
-      />
+        />
+        {status}
+      </div>
     );
   return (
     <ProviderModelInput
@@ -539,6 +561,7 @@ export function ProviderModelPicker({
       allowCustomModel={allowCustomModel}
       disabled={disabled}
       onValueChange={onModelChange}
+      status={status}
       {...(className ? { className } : {})}
     />
   );
@@ -590,6 +613,7 @@ function ProviderModelInput({
   allowCustomModel,
   disabled,
   onValueChange,
+  status,
   className,
 }: {
   readonly value: string;
@@ -597,11 +621,13 @@ function ProviderModelInput({
   readonly allowCustomModel: boolean;
   readonly disabled: boolean;
   readonly onValueChange: (value: string) => void;
+  readonly status?: ReactNode;
   readonly className?: string;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [activeValue, setActiveValue] = useState<string | null>(null);
   const listboxId = useId();
+  const inputId = useId();
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(() => {
     const query = value.trim().toLowerCase();
@@ -613,14 +639,15 @@ function ProviderModelInput({
     );
   }, [options, selected, value]);
 
-  function closeWhenFocusLeaves(event: FocusEvent<HTMLLabelElement>): void {
+  function closeWhenFocusLeaves(event: FocusEvent<HTMLDivElement>): void {
     const next = event.relatedTarget;
     if (next instanceof Node && event.currentTarget.contains(next)) return;
     setOpen(false);
   }
 
+  // A div, not a label: the status under the input may hold its own button.
   return (
-    <label
+    <div
       className={[
         "relative grid min-w-0 gap-2 text-sm text-slate-300",
         className,
@@ -636,11 +663,15 @@ function ProviderModelInput({
         }
       }}
     >
-      <span className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+      <label
+        htmlFor={inputId}
+        className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-slate-400"
+      >
         Model
-      </span>
+      </label>
       <span className="relative block">
         <input
+          id={inputId}
           value={value}
           role="combobox"
           disabled={disabled}
@@ -700,7 +731,9 @@ function ProviderModelInput({
           <span aria-hidden="true">⌄</span>
         </button>
       </span>
-      {value && (!selected || selected.disabled) ? (
+      {value &&
+      (!selected ||
+        (selected.disabled && (selected.description || !status))) ? (
         <span className="text-xs text-slate-400">
           {selected?.disabled
             ? `${selected.description ?? "This model is unavailable for review."} Choose an available model from the catalog.`
@@ -709,6 +742,7 @@ function ProviderModelInput({
               : typedAccountModelHint(value)}
         </span>
       ) : null}
+      {status}
       {open ? (
         <div
           id={listboxId}
@@ -767,6 +801,6 @@ function ProviderModelInput({
           ))}
         </div>
       ) : null}
-    </label>
+    </div>
   );
 }

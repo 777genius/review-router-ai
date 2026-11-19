@@ -681,6 +681,19 @@ export function GatewayReviewerRoster({
                       modelOptions={rowModelOptions(row, account, profile)}
                       modelChoice="catalog"
                       allowCustomModel={false}
+                      modelStatus={
+                        account ? (
+                          <GatewayModelCatalogStatus
+                            account={account}
+                            profile={profile}
+                            loading={options.loading}
+                            canRefresh={options.canRefresh}
+                            onRefresh={() =>
+                              options.refreshModels(row.bindingId)
+                            }
+                          />
+                        ) : null
+                      }
                       settings={settingsFor(row)}
                       onSettingsChange={(settings) =>
                         update(row.id, {
@@ -704,14 +717,6 @@ export function GatewayReviewerRoster({
                       hasSavedSettings={row.savedSettings === true}
                       hasEditedSettings
                     />
-                    {account ? (
-                      <GatewayModelCatalogStatus
-                        account={account}
-                        loading={options.loading}
-                        canRefresh={options.canRefresh}
-                        onRefresh={() => options.refreshModels(row.bindingId)}
-                      />
-                    ) : null}
                     {denied ? (
                       <p className="text-xs text-amber-100">
                         {providerSetupDenialText(denied)}

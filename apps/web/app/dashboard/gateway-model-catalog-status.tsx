@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { Button } from "@reviewrouter/ui";
-import type { AccountView } from "../../src/server/account-gateway-accounts";
+import type {
+  AccountProfileView,
+  AccountView,
+} from "../../src/server/account-gateway-accounts";
+import { accountModelCatalogOutOfDate } from "../../src/features/provider-setup/account-model-catalog-freshness";
+import { durationText } from "./account-limits-line";
 import {
   publicCatalogRefreshFailed,
   type ProviderModelCatalogState,
@@ -10,6 +15,11 @@ import {
 
 type CatalogStatusProps = {
   account: AccountView | undefined;
+  /** The profile whose models the picker offers for this account. */
+  profile:
+    | (Pick<AccountProfileView, "id" | "protocol"> &
+        Partial<Pick<AccountProfileView, "authKind" | "connection">>)
+    | undefined;
   loading: boolean;
   canRefresh: boolean;
   onRefresh: () => Promise<void>;
@@ -35,8 +45,19 @@ export function GatewayModelCatalogStatus(props: CatalogStatusProps) {
   );
 }
 
+const updatedAgo = (fetchedAt: string) => {
+  const minutes = Math.floor((Date.now() - Date.parse(fetchedAt)) / 60_000);
+  return minutes < 1 ? "just now" : `${durationText(minutes)} ago`;
+};
+
+/**
+ * The account's model list keeps itself current (see `accountReadSchedule`),
+ * so this line only reports it. "Try again" appears when an update failed;
+ * the small refresh next to "Updated ..." stays as a secondary control.
+ */
 function CatalogStatus({
   account,
+  profile,
   loading,
   canRefresh,
   onRefresh,
@@ -45,6 +66,7 @@ function CatalogStatus({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const catalog = account?.modelCatalog;
+  const busy = loading || refreshing;
   // A configured profile list is not account discovery. In particular, a
   // refreshable client adapter alone does not establish upstream support.
   const refreshSupported =
@@ -52,60 +74,101 @@ function CatalogStatus({
     account?.binding &&
     catalog &&
     catalog.status !== "unsupported";
-  const message =
-    loading || refreshing
-      ? "Loading model choices…"
+  const outOfDate = accountModelCatalogOutOfDate(profile, catalog);
+  const [message, action]: [string, "retry" | "refresh" | null] = outOfDate
+    ? busy
+      ? [
+          catalog?.status === "snapshot"
+            ? "The model list for this account is out of date. Updating it now…"
+            : "Updating the model list for this account…",
+          null,
+        ]
+      : [
+          !account
+            ? "Could not reach this account to update its model list."
+            : catalog?.status === "snapshot"
+              ? "The model list for this account is out of date."
+              : catalog?.status === "unavailable"
+                ? "The provider did not send a model list for this account."
+                : "Could not update the model list for this account.",
+          canRefresh ? "retry" : null,
+        ]
+    : busy && catalog?.status !== "snapshot"
+      ? ["Loading model choices…", null]
       : refreshFailed
-        ? "Could not update account models. Your saved selection is unchanged."
+        ? [
+            "Could not update account models. Your saved selection is unchanged.",
+            "retry",
+          ]
         : catalog?.status === "snapshot"
-          ? `Account model catalog${catalog.models.length === 0 ? ": no models returned" : ""}.`
+          ? [
+              `${catalog.models.length === 0 ? "This account lists no models right now. " : ""}Model list updated ${catalog.fetchedAt ? updatedAgo(catalog.fetchedAt) : "recently"}.`,
+              "refresh",
+            ]
           : catalog?.status === "unsupported"
-            ? "Account model discovery is not supported for this connection."
+            ? [
+                "Account model discovery is not supported for this connection.",
+                "refresh",
+              ]
             : catalog
-              ? `Could not load account models. ${catalog.models.length ? "Showing configured profile choices." : "Try refreshing the model list."} Your saved selection is unchanged.`
-              : "Models from the connected profile. Account-specific discovery is not offered.";
+              ? [
+                  `Could not load account models. ${catalog.models.length ? "Showing configured profile choices. " : ""}Your saved selection is unchanged.`,
+                  "retry",
+                ]
+              : [
+                  "Models from the connected profile. Account-specific discovery is not offered.",
+                  "refresh",
+                ];
+  const refreshAccount = Boolean(refreshSupported || (outOfDate && canRefresh));
+  const showAction =
+    action === "retry"
+      ? refreshAccount || Boolean(publicCatalog)
+      : action === "refresh" && (refreshSupported || Boolean(publicCatalog));
+  async function refresh() {
+    setRefreshFailed(false);
+    setRefreshing(true);
+    // The public refresh reports its own failure through its query.
+    const [accountRefresh] = await Promise.allSettled([
+      refreshAccount ? onRefresh() : undefined,
+      publicCatalog?.refresh(),
+    ]);
+    if (accountRefresh.status === "rejected") setRefreshFailed(true);
+    setRefreshing(false);
+  }
   return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-        <span role="status">
-          {message}
-          {catalog?.status === "snapshot" && catalog.fetchedAt ? (
-            <>
-              {" "}
-              Updated{" "}
-              <time dateTime={catalog.fetchedAt}>
-                {new Date(catalog.fetchedAt).toLocaleString()}
-              </time>
-              .
-            </>
-          ) : null}
-        </span>
-        {refreshSupported || publicCatalog ? (
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={loading || refreshing}
-            onClick={async () => {
-              setRefreshFailed(false);
-              setRefreshing(true);
-              // The public refresh reports its own failure through its query.
-              const [accountRefresh] = await Promise.allSettled([
-                refreshSupported ? onRefresh() : undefined,
-                publicCatalog?.refresh(),
-              ]);
-              if (accountRefresh.status === "rejected") setRefreshFailed(true);
-              setRefreshing(false);
-            }}
-          >
-            Refresh models
-          </Button>
+    <div className="grid gap-1 text-xs text-slate-400">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span role="status">{message}</span>
+        {showAction ? (
+          action === "retry" ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void refresh()}
+            >
+              Try again
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Refresh models"
+              disabled={busy}
+              onClick={() => void refresh()}
+            >
+              Refresh
+            </Button>
+          )
         ) : null}
       </div>
       {publicCatalog && publicCatalogRefreshFailed(publicCatalog) ? (
-        <p role="status" className="text-xs text-slate-400">
+        <p role="status">
           Could not update public model metadata. Showing saved model choices.
         </p>
       ) : null}
-    </>
+    </div>
   );
 }

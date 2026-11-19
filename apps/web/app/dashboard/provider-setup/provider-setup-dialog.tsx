@@ -993,6 +993,24 @@ function ProviderChoiceStep({
           requiresTools: settings?.agenticContext ?? true,
         })
       : publicModelOptions;
+  // The state of the list itself, shown right under the model input.
+  const modelStatus =
+    authMode === "codex_account_gateway" && gatewayBindingId ? (
+      <GatewayModelCatalogStatus
+        account={resolvedGatewayAccount}
+        profile={gatewayProfile}
+        loading={gatewayOptions.loading}
+        canRefresh={gatewayOptions.canRefresh}
+        onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
+        publicCatalog={
+          source?.key === "gateway_binding" && catalogProvider
+            ? catalogs.status(catalogProvider)
+            : null
+        }
+      />
+    ) : source && source.key !== "gateway_binding" && catalogProvider ? (
+      <ProviderModelCatalogStatus status={catalogs.status(catalogProvider)} />
+    ) : null;
   const gatewayReadFailed =
     gatewayOptions.accounts?.status !== "ok" ||
     ("pageError" in gatewayOptions && gatewayOptions.pageError);
@@ -2066,6 +2084,7 @@ function ProviderChoiceStep({
           )}
           {modelOnly ? (
             <ProviderModelPicker
+              status={modelStatus}
               model={model}
               onModelChange={chooseModel}
               modelOptions={sourceModelOptions}
@@ -2078,6 +2097,7 @@ function ProviderChoiceStep({
             <ProviderModelFields
               authMode={authMode}
               model={model}
+              modelStatus={modelStatus}
               settingsReady={settingsReady}
               emptyListPlaceholder="No models available for this account"
               onModelChange={source ? chooseModel : null}
@@ -2122,24 +2142,6 @@ function ProviderChoiceStep({
                 </Button>
               ) : null}
             </div>
-          ) : null}
-          {authMode === "codex_account_gateway" && gatewayBindingId ? (
-            <GatewayModelCatalogStatus
-              account={resolvedGatewayAccount}
-              loading={gatewayOptions.loading}
-              canRefresh={gatewayOptions.canRefresh}
-              onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
-              publicCatalog={
-                source?.key === "gateway_binding" && catalogProvider
-                  ? catalogs.status(catalogProvider)
-                  : null
-              }
-            />
-          ) : null}
-          {source && source.key !== "gateway_binding" && catalogProvider ? (
-            <ProviderModelCatalogStatus
-              status={catalogs.status(catalogProvider)}
-            />
           ) : null}
           {modelOnly ? (
             <p className="text-xs leading-5 text-slate-400">

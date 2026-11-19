@@ -1,4 +1,3 @@
-import { accountModelDiscoverySource } from "@agent-teams/account-gateway/contracts";
 import {
   getProviderCatalogEntry,
   type ReviewModelOption,
@@ -6,6 +5,10 @@ import {
 import { getSetupProvider, type SetupProviderId } from "./setup-provider";
 import type { AccountProfileView } from "../../server/account-gateway-accounts";
 import type { AccountModelCatalogView } from "../account-gateway/connection-capabilities";
+import {
+  accountModelCatalogFresh,
+  accountModelCatalogRequired,
+} from "./account-model-catalog-freshness";
 
 /** Public metadata describes choices; the exact account still owns admission. */
 export function gatewayProviderModelOptions(
@@ -22,22 +25,8 @@ export function gatewayProviderModelOptions(
 ): readonly ReviewModelOption[] {
   const supported = new Set(profile?.models ?? []);
   const catalog = capability?.catalog;
-  // The Gateway contract is the one authority for which profile may carry a
-  // discovered catalogue and from which source; never infer it from vendor labels.
-  const nativeSource =
-    profile?.id && profile.protocol && profile.authKind
-      ? accountModelDiscoverySource({
-          profileId: profile.id,
-          protocol: profile.protocol,
-          authKind: profile.authKind,
-        })
-      : undefined;
-  const now = Date.now();
-  const freshNative =
-    catalog?.status === "snapshot" &&
-    catalog.source === nativeSource &&
-    Date.parse(catalog.fetchedAt ?? "") <= now &&
-    Date.parse(catalog.expiresAt ?? "") > now;
+  const freshNative = accountModelCatalogFresh(profile, catalog);
+  const required = accountModelCatalogRequired(profile);
   const combined = [
     ...options,
     ...(profile?.models ?? [])
@@ -51,6 +40,14 @@ export function gatewayProviderModelOptions(
         }),
       ),
   ].map((option): ReviewModelOption => {
+    // A required list that is missing or out of date blocks every choice until
+    // it is read again. The catalogue status says so once, above the list, so
+    // no option carries a reason of its own.
+    if (required && !freshNative) {
+      const blocked: ReviewModelOption = { ...option, disabled: true };
+      delete blocked.description;
+      return blocked;
+    }
     if (!supported.has(option.value))
       return {
         ...option,
@@ -68,13 +65,13 @@ export function gatewayProviderModelOptions(
     if (!native) {
       // Trial model membership must come from this exact NVIDIA account,
       // not a public model name or a stale/cross-vendor snapshot.
-      return profile?.connection?.provider === "nvidia"
+      return required
         ? {
             ...option,
             disabled: true,
             description: [
               option.description,
-              "NVIDIA account model qualification unavailable.",
+              "This account's model list does not include it.",
             ]
               .filter(Boolean)
               .join(" "),
