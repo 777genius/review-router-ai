@@ -1286,6 +1286,8 @@ function ProviderChoiceStep({
     mutationsEnabled &&
     !readUnavailable &&
     !pending &&
+    // A sign-in in progress decides which account this provider uses.
+    !connectLocked &&
     choice !== null &&
     (!adding || choice.kind === "new") &&
     decision?.allowed === true &&
@@ -1865,19 +1867,12 @@ function ProviderChoiceStep({
           gatewayInventoryEmpty ? (
             <div className="grid gap-2 text-sm text-slate-300">
               <p>
-                {getSetupProvider(setupProvider).credentialKind === "api_key"
-                  ? `Enter the ${getSetupProvider(setupProvider).label} API key in the connection form. It opens with this provider selected.`
-                  : `Sign in to ${getSetupProvider(setupProvider).label} in the connection form.`}{" "}
-                After connecting, return here to choose its model.
+                Connect a {getSetupProvider(setupProvider).label} account in
+                Connections, then choose it here.
               </p>
               <a
                 className="w-fit font-semibold text-cyan-200 underline"
-                href={apiKeySetupHref("accounts", {
-                  provider: setupProvider,
-                  storage: "reviewrouter",
-                  workspaceId,
-                  repositoryIds: repositoryIds(target),
-                })}
+                href={dashboardSectionHref("setup", workspaceId)}
               >
                 Connect account
               </a>

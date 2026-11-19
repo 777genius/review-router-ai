@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Add provider in one step, OAuth: [Codex (device code, browser) and Grok sign in inside the Add provider dialog, and the round trip through Connections is removed](2026-11-19-one-step-add-provider-oauth.md), [PR #919](https://github.com/777genius/review-router-ai/pull/919), [plan 79](../architecture/79-one-step-add-provider.md) stage 2 - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
+
 Add provider in one step: [an API-key provider is connected, added to the workspace, given its model and saved inside the Add provider dialog, without the trip to Connections and back](2026-11-19-one-step-add-provider.md), [PR #917](https://github.com/777genius/review-router-ai/pull/917), [plan 79](../architecture/79-one-step-add-provider.md) stage 1 - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
 
 Conflict runtime bundle rebuild: [the committed `action-dist/conflict-runtime.cjs` is rebuilt from current source after PR #890 left it stale](2026-11-19-conflict-runtime-bundle-rebuild.md), [PR #918](https://github.com/777genius/review-router-ai/pull/918) - public Action runtime only; it syncs to the public Action `main` after the first green main CI and ships with the next Action release, `pending`. No migration, configuration, Web, API, worker, Gateway or native change.

@@ -1,6 +1,6 @@
 # Добавить провайдера одним шагом
 
-Статус: план v6, сверен с main `a5d3d61ae` после 76, 77, 78, 80, 81, 82 (#901, #912, #916, #911, #913, #915); этап 1 в работе. Дата: 2026-11-19. Номера строк ниже - на `ae18f9e87`, после 76 в controls они сдвинулись примерно на +46. Опирается на [66](66-connect-attaches-to-current-workspace.md) и [70](70-all-providers-in-all-workspaces.md).
+Статус: план v6, сверен с main `a5d3d61ae` после 76, 77, 78, 80, 81, 82 (#901, #912, #916, #911, #913, #915); этап 1 - #917, этап 2 - в работе (#914 ещё не в main, импорт Codex придёт с ним без доработки формы). Дата: 2026-11-19. Номера строк ниже - на `ae18f9e87`, после 76 в controls они сдвинулись примерно на +46. Опирается на [66](66-connect-attaches-to-current-workspace.md) и [70](70-all-providers-in-all-workspaces.md).
 
 ## 1. Как сейчас
 
@@ -67,7 +67,7 @@
 ## 6. Этапы (каждый - свой PR с ревью)
 
 1. Этап 1 - провайдеры с Gateway-ключом (NVIDIA, OpenRouter, MiMo, Kimi, GLM, MiniMax; Anthropic и Gemini, если #914 уже в main) и предвыбор модели и default. Встроенная форма показывает только профили `authKind: "api_key"` (`connectsInProviderDialog`). Для OAuth (Codex, Grok) пока остаётся прежняя ссылка с возвратом. Шаги: `bindingId` и `activeBindingId`; `ConnectTarget` и `PersonalConnectPanel`, Connections переходит на панель; `gateway-credential-section.tsx`; `suggestedModel`; тесты и E2E для OpenRouter.
-2. Этап 2 - OAuth в той же форме (device code, browser, импорт Codex из #914) и удаление обратного пути (п.2.9): после этапа 1 им пользуются только OAuth-провайдеры. Это шаг удаления временного сосуществования.
+2. Этап 2 - OAuth в той же форме (Codex device code и browser, Grok browser; импорт Codex из #914, когда он в main) и удаление обратного пути (п.2.9): после этапа 1 им пользуются только OAuth-провайдеры. Это шаг удаления временного сосуществования. `connectsInProviderDialog` больше не ограничивает `authKind`. Без личного сервиса в диалоге остаётся простая ссылка на Connections без намерения.
 
 ## 7. Тесты
 

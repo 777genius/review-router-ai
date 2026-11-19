@@ -4,11 +4,8 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
-import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { FIXTURES } from "../contracts.ts";
 import { withDatabase } from "../database.ts";
-import { apiKeyStorageProfiles } from "../subscription-fixture.ts";
 import {
   chooseSetupOption as choose,
   openNewProvider,
@@ -16,7 +13,6 @@ import {
 import {
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
-  sourceRow,
   useViewerSession,
 } from "./support.ts";
 
@@ -93,39 +89,6 @@ async function beginProvider(page: Page, label: string) {
   return page.getByRole("dialog");
 }
 
-async function accountsReady(
-  page: Page,
-  navigate: () => Promise<unknown>,
-): Promise<readonly string[]> {
-  // Existing Accounts reference hydration witness; keep the continuation URL.
-  const hydrated = page.waitForResponse(
-    (response) => {
-      const url = new URL(response.url());
-      return (
-        url.pathname === "/api/dashboard/accounts/access" &&
-        url.searchParams.get("view") === "summaries" &&
-        response.request().method() === "GET"
-      );
-    },
-    { timeout: 60_000 },
-  );
-  await navigate();
-  await expect(
-    page.getByRole("region", { name: "Connections", exact: true }),
-  ).toBeVisible();
-  await expect(page.locator("html")).toHaveAttribute(
-    "data-dashboard-layout-ready",
-    "true",
-  );
-  const summaries = await hydrated;
-  expect(summaries.ok()).toBe(true);
-  await summaries.body();
-  const request = JSON.parse(
-    new URL(summaries.url()).searchParams.get("request")!,
-  ) as { sourceIds: string[] };
-  return request.sourceIds;
-}
-
 async function expectStorage(dialog: Locator) {
   const choice = dialog.getByRole("radiogroup", { name: "Key storage" });
   await expect(choice.getByRole("radio")).toHaveCount(2);
@@ -136,80 +99,6 @@ async function expectStorage(dialog: Locator) {
     "Store the key encrypted and reuse it across repositories.",
   );
   return choice;
-}
-
-async function noSecrets(page: Page, secrets: readonly string[]) {
-  const retained = await page.evaluate(() =>
-    JSON.stringify({
-      local: { ...localStorage },
-      session: { ...sessionStorage },
-      location: location.href,
-      markup: document.body.innerHTML,
-      inputValues: Array.from(
-        document.querySelectorAll("input"),
-        (input) => input.value,
-      ),
-    }),
-  );
-  for (const secret of secrets) expect(retained).not.toContain(secret);
-}
-
-function captureSecretLeaks(page: Page, secrets: readonly string[]) {
-  const leakedChannels = new Set<string>();
-  const pending = new Set<Promise<void>>();
-  let inspectedResponses = 0;
-  const inspect = (channel: string, value: string) => {
-    if (secrets.some((secret) => value.includes(secret)))
-      leakedChannels.add(channel);
-  };
-  page.on("console", (message) => inspect("browser console", message.text()));
-  page.on("pageerror", (error) => inspect("browser error", error.message));
-  page.on("requestfinished", (request) => {
-    // Next may keep speculative navigation streams open. Inspect complete
-    // responses instead of waiting forever after their headers arrive.
-    const reading: Promise<void> = (async () => {
-      const response = await request.response();
-      if (
-        !response ||
-        !/json|text\/html|text\/x-component/.test(
-          response.headers()["content-type"] ?? "",
-        )
-      )
-        return;
-      try {
-        const body = await response.text();
-        inspectedResponses += 1;
-        inspect("HTTP/SSR response", body);
-      } catch {
-        leakedChannels.add("unreadable completed HTTP/SSR response");
-      }
-    })().finally(() => pending.delete(reading));
-    pending.add(reading);
-  });
-  const drain = async () => {
-    // A body read can finish while another completed response is queued.
-    // Drain all of them before navigation can evict the previous document.
-    while (pending.size) await Promise.all([...pending]);
-  };
-  return {
-    drain,
-    verify: async () => {
-      await drain();
-      expect(inspectedResponses).toBeGreaterThan(0);
-      const workDir = dirname(process.env.ACCOUNTS_REFERENCE_E2E_RESULT_JSON!);
-      for (const name of [
-        "next-app.log",
-        "gateway-requests.jsonl",
-        "runtime.json",
-        "boot-report.json",
-        "boot-viewer.html",
-      ]) {
-        inspect(name, await readFile(join(workDir, name), "utf8"));
-      }
-      // Report the channel only; never copy a secret into assertion diagnostics.
-      expect([...leakedChannels]).toEqual([]);
-    },
-  };
 }
 
 async function createWithoutDefault(page: Page, before: readonly Profile[]) {
@@ -324,8 +213,12 @@ test("API key storage creates all three GitHub profiles and preserves identity w
       name: /^ReviewRouter/,
     }),
   ).toBeChecked();
+  // ReviewRouter storage connects Kimi in the dialog itself, or offers a new
+  // connection beside one an earlier step left in this workspace.
   await expect(
-    replacement.getByRole("link", { name: "Connect account", exact: true }),
+    replacement
+      .getByRole("region", { name: "Connect Kimi Code" })
+      .or(replacement.getByRole("button", { name: "New connection" })),
   ).toBeVisible();
   expect(
     (await savedProfiles()).find((profile) => profile.id === original.id),
@@ -383,199 +276,5 @@ test("API key storage creates all three GitHub profiles and preserves identity w
       agenticContext: false,
     });
   }
-  await expectNetworkViolations(violations);
-});
-
-test("API key storage connects all three accounts and returns to the same provider setup", async ({
-  page,
-  context,
-  request,
-}, info) => {
-  test.setTimeout(480_000);
-  const violations: string[] = [];
-  const secrets: string[] = [];
-  const { drain: drainSecretResponses, verify: verifySecretChannels } =
-    captureSecretLeaks(page, [
-      "synthetic-unsent-storage-switch-key",
-      ...providers.map(
-        (provider) => `synthetic-${provider.id}-subscription-key`,
-      ),
-    ]);
-  await useViewerSession(context);
-  await installLoopbackOnlyNetworkGuard(page, violations);
-  await page.addInitScript(() =>
-    localStorage.setItem("reviewrouter-theme", "light"),
-  );
-  for (const provider of providers) {
-    const profile = apiKeyStorageProfiles.find(
-      (row) => row.provider === provider.id,
-    )!;
-    const before = await savedProfiles();
-    await drainSecretResponses();
-    const dialog = await beginProvider(page, provider.label);
-    await (await expectStorage(dialog))
-      .getByRole("radio", { name: /^ReviewRouter/ })
-      .check();
-    await expect(
-      dialog.getByRole("heading", { name: "Model and review settings" }),
-    ).toHaveCount(0);
-    const connect = dialog.getByRole("link", {
-      name: "Connect account",
-      exact: true,
-    });
-    const accountsHref = await connect.getAttribute("href");
-    expect(accountsHref).toContain(`workspace=${workspace}`);
-    expect(accountsHref).toContain(`keyProvider=${provider.id}`);
-    await drainSecretResponses();
-    let previousSourceIds = await accountsReady(page, () => connect.click());
-    await page
-      .getByRole("button", { name: "Connect account", exact: true })
-      .click();
-    await page
-      .getByRole("menuitem", { name: "Connect with API key", exact: true })
-      .click();
-    const enrollment = page.getByRole("dialog");
-    await expect(
-      enrollment.getByRole("combobox", {
-        name: "Provider profile",
-        exact: true,
-      }),
-    ).toContainText(profile.label);
-    const choice = await expectStorage(enrollment);
-    if (provider.id === "openrouter") {
-      const erased = "synthetic-unsent-storage-switch-key";
-      await enrollment.locator('input[type="password"]').fill(erased);
-      await choice.getByRole("radio", { name: /^GitHub Secrets/ }).check();
-      await expect(enrollment.locator('input[type="password"]')).toHaveCount(0);
-      await noSecrets(page, [erased]);
-      await drainSecretResponses();
-      await enrollment
-        .getByRole("link", { name: "Continue to provider setup", exact: true })
-        .click();
-      await expect(
-        page
-          .getByRole("dialog")
-          .getByRole("radio", { name: /^GitHub Secrets/ }),
-      ).toBeChecked();
-      expect(await savedProfiles()).toEqual(before);
-      await drainSecretResponses();
-      previousSourceIds = await accountsReady(page, () =>
-        page.goto(accountsHref!),
-      );
-      await page
-        .getByRole("button", { name: "Connect account", exact: true })
-        .click();
-      await page
-        .getByRole("menuitem", { name: "Connect with API key", exact: true })
-        .click();
-      await expect(
-        enrollment.getByRole("combobox", {
-          name: "Provider profile",
-          exact: true,
-        }),
-      ).toContainText(profile.label);
-    }
-    await enrollment.getByRole("radio", { name: /^ReviewRouter/ }).check();
-    const runLabel =
-      process.env.ACCOUNTS_REFERENCE_E2E_RESULT_JSON?.split("/").at(-2) ??
-      "fixture";
-    const name = `Storage E2E ${provider.label} ${runLabel}`;
-    await enrollment.getByLabel("Connection name (optional)").fill(name);
-    const secret = `synthetic-${provider.id}-subscription-key`;
-    secrets.push(secret);
-    await enrollment.locator('input[type="password"]').fill(secret);
-    // Enrollment first invalidates the old source list, then requests summaries
-    // for the new list. Wait for the newly enrolled source, not an older refresh,
-    // before navigation can evict the response the canary observer must inspect.
-    const refreshedAccess = page.waitForResponse(
-      (response) => {
-        const url = new URL(response.url());
-        if (
-          url.pathname !== "/api/dashboard/accounts/access" ||
-          url.searchParams.get("view") !== "summaries" ||
-          response.request().method() !== "GET"
-        )
-          return false;
-        const summaryRequest = JSON.parse(
-          url.searchParams.get("request") ?? "{}",
-        ) as { sourceIds?: string[] };
-        return (
-          summaryRequest.sourceIds?.some(
-            (id) => !previousSourceIds.includes(id),
-          ) === true
-        );
-      },
-      { timeout: 60_000 },
-    );
-    await enrollment.locator('input[type="password"]').press("Enter");
-    await expect(sourceRow(page, name)).toBeVisible();
-    const accessResponse = await refreshedAccess;
-    expect(accessResponse.ok()).toBe(true);
-    const accessBody = await accessResponse.text();
-    expect(secrets.some((value) => accessBody.includes(value))).toBe(false);
-    await noSecrets(page, secrets);
-    const back = page.getByRole("link", {
-      name: "Back to provider setup",
-      exact: true,
-    });
-    await expect(back).toBeVisible();
-    await expect(back).toHaveAttribute(
-      "href",
-      new RegExp(`keyProvider=${provider.id}`),
-    );
-    await drainSecretResponses();
-    await back.click();
-    const returned = page.getByRole("dialog");
-    await expect(
-      returned.getByRole("combobox", { name: "Provider", exact: true }),
-    ).toContainText(provider.label);
-    await expect(
-      returned.getByRole("radio", { name: /^ReviewRouter/ }),
-    ).toBeChecked();
-    await choose(page, "Account", name);
-    await expect(
-      returned.getByRole("combobox", { name: "Model", exact: true }),
-    ).toContainText(profile.model);
-    if (provider.id === "kimi") {
-      await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-      await page.setViewportSize({ width: 1440, height: 1000 });
-      await page.screenshot({
-        path: info.outputPath("key-storage-desktop-light.png"),
-        fullPage: true,
-      });
-      await page.setViewportSize({ width: 390, height: 844 });
-      await expect
-        .poll(() =>
-          page.evaluate(
-            () => document.documentElement.scrollWidth <= innerWidth,
-          ),
-        )
-        .toBe(true);
-      await page.screenshot({
-        path: info.outputPath("key-storage-mobile-light.png"),
-        fullPage: true,
-      });
-    }
-    const added = await createWithoutDefault(page, before);
-    expect(added).toMatchObject({
-      credentialKind: "gateway_binding",
-      authMode: "codex_account_gateway",
-      gatewayProfileRef: profile.profileId,
-      apiKeyConnectionId: null,
-      model: profile.model,
-    });
-    expect(added.gatewayBindingId).toBeTruthy();
-    for (const original of before)
-      expect(
-        (await savedProfiles()).find((row) => row.id === original.id),
-      ).toEqual(original);
-  }
-  const stats = await (
-    await request.get(
-      `${process.env.ACCOUNTS_REFERENCE_E2E_GATEWAY_URL}/__subscription-fixture`,
-    )
-  ).json();
-  expect(stats).toMatchObject({ connects: 3, inference: 0, refresh: 0 });
-  await verifySecretChannels();
   await expectNetworkViolations(violations);
 });

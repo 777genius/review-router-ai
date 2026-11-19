@@ -27,11 +27,9 @@ import {
 } from "../../src/server/gateway-agent-profile-options";
 import { AccountGatewayAccountsSection } from "./account-gateway-accounts-section";
 import {
-  apiKeySetupHref,
   readApiKeySetupIntent,
   type ApiKeySetupIntent,
 } from "../../src/features/provider-setup/api-key-storage";
-import { ApiKeySetupReturn } from "./provider-setup/api-key-setup-return";
 import { apiKeyProviders } from "@reviewrouter/features-review-providers";
 import type { UserCiSecretAuthMode } from "@reviewrouter/features-review-config/workspace-provider-profile";
 import { ProviderModelCatalogProvider } from "./provider-model-catalog";
@@ -1014,10 +1012,7 @@ export async function DashboardSectionContent({
   ] = await Promise.all([
     dataPromise,
     wantsProviderDialog ? getReviewModelOptions() : Promise.resolve([]),
-    wantsProviderDialog ||
-    selectedSection === "diagnostics" ||
-    (selectedSection === "setup" &&
-      readApiKeySetupIntent(params, selectedWorkspace.workspace.id) !== null)
+    wantsProviderDialog || selectedSection === "diagnostics"
       ? loadDashboardGatewayAccounts(selectedWorkspace.workspace.id, personal)
       : Promise.resolve(undefined),
     selectedSection === "repositories" || selectedSection === "policy"
@@ -1334,16 +1329,8 @@ export function WorkspaceCard({
     selectedSection === "setup" || selectedSection === "providers" ? (
       <ProvidersHubNav
         selectedSection={selectedSection}
-        providersHref={
-          keySetupIntent
-            ? apiKeySetupHref("providers", keySetupIntent)
-            : dashboardSectionHref("providers", workspaceKey)
-        }
-        connectionsHref={
-          keySetupIntent
-            ? apiKeySetupHref("accounts", keySetupIntent)
-            : dashboardSectionHref("setup", workspaceKey)
-        }
+        providersHref={dashboardSectionHref("providers", workspaceKey)}
+        connectionsHref={dashboardSectionHref("setup", workspaceKey)}
       />
     ) : null;
   const continuationRepositories = keySetupIntent?.repositoryIds.map((id) =>
@@ -1397,16 +1384,9 @@ export function WorkspaceCard({
         />
         <DashboardSectionHeader selectedSection="providers" />
         {providerHubNav}
-        {keySetupIntent ? (
-          <ApiKeySetupReturn
-            intent={keySetupIntent}
-            accounts={gatewayAccounts}
-          />
-        ) : null}
         <AccountGatewayAccountsSection
           workspaceId={workspace.id}
           workspaceName={workspace.name}
-          setupIntent={keySetupIntent ?? undefined}
         />
 
         {hasWorkspaceWideAccess ? (
