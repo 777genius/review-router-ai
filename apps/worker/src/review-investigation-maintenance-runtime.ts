@@ -2,12 +2,12 @@ import type { DistributedLock } from "@reviewrouter/platform-locks";
 import type { Logger } from "@reviewrouter/platform-logger";
 import type { Clock } from "@reviewrouter/shared";
 import { investigationRetentionMaintenanceEnabledEnvironmentVariable } from "@reviewrouter/features-review-investigations/composition";
-import { type InvestigationPrivateMaterialPruneFailureCause } from "@reviewrouter/features-review-investigations";
 import {
   ReviewInvestigationPruneError,
   ReviewInvestigationPruneFailureCode,
   reviewInvestigationMaxPruneBatchSize,
   type PruneReviewInvestigationsPort,
+  type ReviewInvestigationPruneFailureCause,
   type ReviewInvestigationPruneOutcome,
 } from "./review-investigation-maintenance-adapter";
 
@@ -39,7 +39,7 @@ export type ReviewInvestigationMaintenanceResult =
       status: ReviewInvestigationMaintenanceStatus;
       failureCode: ReviewInvestigationMaintenanceFailureCode | null;
       failureCodes: readonly ReviewInvestigationMaintenanceFailureCode[];
-      failureCauseCode: InvestigationPrivateMaterialPruneFailureCause | null;
+      failureCauseCode: ReviewInvestigationPruneFailureCause | null;
       failedInvestigationCount: number;
     }>;
 
@@ -196,11 +196,12 @@ function maintenanceResult(
   failureCode: ReviewInvestigationMaintenanceFailureCode | null = null,
   outcome: ReviewInvestigationPruneOutcome = {
     recoveredActiveTurnCount: 0,
+    deferredActiveTurnCount: 0,
     expiredPrivateMaterialCount: 0,
     prunedInvestigationCount: 0,
     prunedShadowEvidenceCount: 0,
   },
-  failureCauseCode: InvestigationPrivateMaterialPruneFailureCause | null = null,
+  failureCauseCode: ReviewInvestigationPruneFailureCause | null = null,
   failureCodes: readonly ReviewInvestigationMaintenanceFailureCode[] = failureCode ===
   null
     ? []
@@ -227,6 +228,7 @@ function safeLogContext(
     failureCauseCode: result.failureCauseCode,
     failedInvestigationCount: result.failedInvestigationCount,
     recoveredActiveTurnCount: result.recoveredActiveTurnCount,
+    deferredActiveTurnCount: result.deferredActiveTurnCount,
     expiredPrivateMaterialCount: result.expiredPrivateMaterialCount,
     prunedInvestigationCount: result.prunedInvestigationCount,
     prunedShadowEvidenceCount: result.prunedShadowEvidenceCount,
