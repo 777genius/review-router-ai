@@ -609,8 +609,17 @@ describe("ReviewProgressGitHubGateway", () => {
       pageLinks: ['<https://api.github.com/comments?page=2>; rel="next'],
     });
     await expect(
-      gateway(fixture.request, { maxCommentPages: 1 }).upsert(input()),
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
     ).rejects.toMatchObject({ kind: "pagination_inconclusive" });
+    expect(
+      fixture.calls
+        .filter(
+          ({ route }) =>
+            route ===
+            "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
