@@ -48,9 +48,12 @@ The behavior a user can notice stays the same, but the worker now:
    the drain because the claim columns and their meaning are unchanged.
 2. Run one review on a disposable PR and check that the progress comment is
    created once, updates while the review runs and ends in its final state.
-3. Watch worker logs for `review_progress_*` error codes, in particular
-   `review_progress_snapshot_invalid` and `review_progress_pagination_inconclusive`.
-   A new burst of either one is a rollback signal.
+3. Watch `lastErrorCode` on `ReviewProgressPublicationV1` (these codes are not
+   logged), in particular `review_progress_snapshot_invalid` and
+   `review_progress_pagination_inconclusive`, and the worker log line
+   `ReviewRouter worker phases failed` for `review_v2.progress_*` phases. A new
+   burst of either one is a rollback signal. Enabling the dormant flag follows
+   the [enablement runbook](../operations/15-progress-comments-enablement-runbook.md).
 4. Record the actual image/version, timestamp and evidence separately for each
    environment.
 
