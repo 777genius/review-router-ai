@@ -82,8 +82,10 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
       (await this.createRerunIntent(input));
     if (!intent) return { status: "not_applicable" as const };
     const restored = await this.restorePersistedDecision(input, intent);
-    if (restored)
-      return this.explainRefusal(input.repository, intent, restored);
+    if (restored) {
+      this.noticeRefusal(input.repository, intent, restored);
+      return restored;
+    }
     if (intent.state !== ReviewRequestedIntentState.AwaitingAuthorization) {
       throw new Error("review_request_intent_not_awaiting_authorization");
     }
