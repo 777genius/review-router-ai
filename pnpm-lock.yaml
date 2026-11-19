@@ -187,8 +187,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -340,8 +340,8 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz
       '@mux/mux-player-react':
         specifier: ^3.14.1
         version: 3.14.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -968,8 +968,8 @@ importers:
   packages/features/provider-usage:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz
+        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz
       '@get-modular/assembly':
         specifier: 0.7.0
         version: 0.7.0
@@ -1498,8 +1498,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz':
-    resolution: {integrity: sha512-RS6CZPNu2OLT/i29Vgr1hzMmXddLNtoj8h0H+cpfH2lG4vGAaPqPC5pjIeeJPGZBILULj/pA2JHc2rZuVishGA==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz':
+    resolution: {integrity: sha512-FS68tXKdNelyX1hIW4U56BnuIVw4lUFf6BoNHSgDTTpiCohdzlYLOB2LEMbZi7zKFBpNGnxsVSmbmFp7351+XQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6729,7 +6729,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

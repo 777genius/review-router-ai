@@ -92,8 +92,11 @@ async function fixture(
           capabilities: [
             {
               profileId,
-              provider: { id: "openai", label: "Codex" },
-              product: { id: "subscription", label: "Codex" },
+              provider: {
+                id: claude ? "anthropic" : grok ? "grok" : "openai",
+                label: claude ? "Claude" : grok ? "Grok" : "Codex",
+              },
+              product: { id: "subscription", label: "Subscription" },
               region: { id: "global", label: "Global" },
               protocol: "openai-responses",
               models: [

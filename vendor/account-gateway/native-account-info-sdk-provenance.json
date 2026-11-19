@@ -1,9 +1,9 @@
 {
   "contract": "native-account-info-sdk-provenance/v1",
-  "archive": "agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz",
-  "sha256": "959ac5db08ba97c1df8b5b7df592af1e0d33941802cd09d0daac3abd6b719b37",
+  "archive": "agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz",
+  "sha256": "de516c3f0aef8dd783a2e184f42e8a3fa7d10cc772d1af40b2654e4d7d140029",
   "sdkSourceRepository": "agent-teams-ai/account-gateway",
-  "sdkSourceCommit": "ef4508c137a328050a3a1a0ed5235c7bf675cdfc",
+  "sdkSourceCommit": "6c1350e296aef36cdeb4a73c6438fc321885732b",
   "uncommittedSource": false,
   "build": {
     "node": "26.11.1",

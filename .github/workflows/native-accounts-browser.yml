@@ -1,0 +1,125 @@
+name: Native accounts browser
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - ".github/workflows/native-accounts-browser.yml"
+      - "scripts/provider-setup-visual/**"
+      - "apps/web/app/dashboard/*account*"
+      - "apps/web/src/features/account-gateway/**"
+      - "apps/web/src/features/provider-setup/**"
+      - "apps/web/src/server/account-*"
+      - "apps/web/src/server/accounts-*"
+      - "apps/web/src/server/personal-*"
+      - "apps/web/src/server/dashboard-gateway-accounts.ts"
+      - "apps/web/src/server/gateway-model-account-options.ts"
+      - "packages/features/provider-accounts/**"
+      - "packages/platform/db/**"
+      - "vendor/account-gateway/**"
+      - "pnpm-lock.yaml"
+      - "scripts/install-private-dependencies.mjs"
+      - "scripts/prepare-pinned-subscription-runtime.ts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-accounts-browser-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  browser:
+    name: Native account details and connection forms
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: reviewrouter_provider_setup_visual
+        ports: ["127.0.0.1:5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d reviewrouter_provider_setup_visual"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_provider_setup_visual
+      PROVIDER_VISUAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewrouter_provider_setup_visual
+      EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      TZ: UTC
+    steps:
+      - name: Checkout exact qualification source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup pinned provider-accounts toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.21.0"
+      - name: Install locked dependencies and pinned runtime
+        run: |
+          npm install --global --ignore-scripts --no-audit --no-fund pnpm@11.28.7
+          node scripts/install-private-dependencies.mjs --frozen-lockfile
+          node scripts/prepare-pinned-subscription-runtime.ts
+      - name: Generate offline Prisma client
+        env:
+          REVIEW_ROUTER_REQUIRE_OFFLINE_PRISMA: "1"
+        run: node scripts/generate-prisma-offline.mjs
+      - name: Install Chromium from the locked Playwright package
+        run: pnpm exec playwright-core install --with-deps chromium
+      - name: Capture actual authenticated Next accounts and connection forms
+        run: >-
+          pnpm provider-setup:visual --no-personal-sharing
+          --only 'native-account-info|native-import'
+          --next-heap-mb 2048 --out tmp/native-accounts-browser
+      - name: Assert all 34 screenshots and exact source receipt
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, statSync } from 'node:fs';
+          import { join } from 'node:path';
+          const directory = 'tmp/native-accounts-browser';
+          const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
+          assert.equal(manifest.revision, process.env.EXPECTED_REVISION);
+          assert.deepEqual(manifest.sourceBefore, manifest.sourceAfter);
+          assert.equal(manifest.sourceBefore.sourceDeltaSha256, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+          assert.deepEqual(manifest.sourceBefore.untrackedPaths, []);
+          assert.deepEqual(manifest.summary, { captured: 34, suspect: 0, failed: 0, skipped: 0 });
+          assert.deepEqual(manifest.network.blocked, []);
+          assert.deepEqual(manifest.network.githubUnhandled, []);
+          const expected = new Set();
+          for (const scenario of ['native-account-info-owner', 'native-account-info-unsupported', 'native-import-refresh-token', 'native-import-codex-auth-json', 'native-import-anthropic-api', 'native-import-gemini-api']) {
+            for (const width of scenario === 'native-account-info-unsupported' ? [390, 1440] : [390, 900, 1440]) {
+              for (const theme of ['light', 'dark']) expected.add(`${scenario}--owner--${width}--${theme}`);
+            }
+          }
+          for (const shot of manifest.shots) {
+            const id = `${shot.scenario}--${shot.user}--${shot.width}--${shot.theme}`;
+            assert(expected.delete(id), `unexpected or repeated shot: ${id}`);
+            assert.equal(shot.status, 'captured');
+            assert.deepEqual(shot.pageErrors ?? [], []);
+            assert.deepEqual(shot.blockedRequests ?? [], []);
+            assert(statSync(join(directory, shot.file)).size > 0);
+            if (shot.probe?.horizontalOverflow !== undefined) assert.equal(shot.probe.horizontalOverflow, false, id);
+          }
+          assert.equal(expected.size, 0);
+          NODE
+      - name: Preserve visual receipts and screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-accounts-browser-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: |
+            tmp/native-accounts-browser/manifest.json
+            tmp/native-accounts-browser/screens/
+            tmp/native-accounts-browser/next-app.log
+            tmp/native-accounts-browser/migrate.log
+          if-no-files-found: warn
+          retention-days: 14

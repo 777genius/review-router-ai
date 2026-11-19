@@ -13,6 +13,7 @@ it("uses the pinned SDK transport for Codex imports and native-only direct APIs,
   const anthropic = "anthropic-messages-apikey-v1";
   const gemini = "gemini-openai-chat-apikey-v1";
   const entered: ReturnType<typeof secretSubmission.connect.parse>[] = [];
+  const modelReads: string[] = [];
   let importEnabled = true;
   let authorized = true;
   const profile = (profileId: string, provider: string) => ({
@@ -26,7 +27,13 @@ it("uses the pinned SDK transport for Codex imports and native-only direct APIs,
         modelId: "qualified-test-model",
         reasoning: null,
         fast: null,
-        tools: { allowed: ["function"], default: "function" },
+        tools:
+          profileId === codex
+            ? { allowed: ["function"], default: "function" }
+            : {
+                allowed: ["function", "function_and_custom"],
+                default: "function_and_custom",
+              },
       },
     ],
     methods:
@@ -103,6 +110,37 @@ it("uses the pinned SDK transport for Codex imports and native-only direct APIs,
       );
       return;
     }
+    if (
+      request.method === "POST" &&
+      request.url === "/v1/account-models/read"
+    ) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const { profileId } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      modelReads.push(profileId);
+      response.end(
+        JSON.stringify({
+          status: "snapshot",
+          source: "native_catalog",
+          physicalGeneration: "test-generation",
+          principalVersion: "test-principal",
+          fetchedAt: new Date(Date.now() - 1000).toISOString(),
+          expiresAt: new Date(Date.now() + 300000).toISOString(),
+          models: [
+            {
+              modelId: "qualified-test-model",
+              reasoning: null,
+              fast: null,
+              tools: {
+                allowed: ["function", "function_and_custom"],
+                default: "function_and_custom",
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
     response.statusCode = 404;
     response.end(
       JSON.stringify({
@@ -126,13 +164,14 @@ it("uses the pinned SDK transport for Codex imports and native-only direct APIs,
       },
     },
   );
+  const gateway = createManagementClient({
+    role: "management",
+    origin: `http://127.0.0.1:${address.port}`,
+    token: "TEST-only",
+    timeoutMs: 2000,
+  });
   const adapter = createAccountsAdapter({
-    gateway: createManagementClient({
-      role: "management",
-      origin: `http://127.0.0.1:${address.port}`,
-      token: "TEST-only",
-      timeoutMs: 2000,
-    }),
+    gateway,
     authorize: async () => {
       if (!authorized) throw new Error("denied");
       return { workspaceId: "test-workspace", actor: { userId: "test-admin" } };
@@ -187,7 +226,45 @@ it("uses the pinned SDK transport for Codex imports and native-only direct APIs,
         profileId,
         credential: { kind: "api_key", value: "opaque-key" },
       });
+      // Both v2 admission and the installed SDK account-model reader must retain
+      // custom tools; accepting an API key alone does not qualify review models.
+      expect(
+        (await adapter.reviewCatalog()).find((row) => row.id === profileId),
+      ).toMatchObject({
+        connection: {
+          modelSettings: [
+            {
+              modelId: "qualified-test-model",
+              tools: {
+                allowed: ["function", "function_and_custom"],
+                default: "function_and_custom",
+              },
+            },
+          ],
+        },
+      });
+      expect(
+        await gateway.readAccountModels({
+          ownerRef: "test-owner",
+          accountRef: "test-account",
+          profileId,
+          expectedAuthorizationEpoch: 1,
+        }),
+      ).toMatchObject({
+        status: "snapshot",
+        source: "native_catalog",
+        models: [
+          {
+            modelId: "qualified-test-model",
+            tools: {
+              allowed: ["function", "function_and_custom"],
+              default: "function_and_custom",
+            },
+          },
+        ],
+      });
     }
+    expect(modelReads).toEqual([anthropic, gemini]);
     const before = entered.length;
     const intent = {
       kind: "connect" as const,

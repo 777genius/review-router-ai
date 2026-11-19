@@ -3,11 +3,12 @@
 ## Native account metadata SDK
 
 The web, API and provider-usage consumers now pin
-`agent-teams-account-gateway-0.1.0-native-imports-ef4508c137a3.tgz`, built from committed Gateway source
-`ef4508c137a328050a3a1a0ed5235c7bf675cdfc`. Exact bytes and build tools are recorded
+`agent-teams-account-gateway-0.1.0-native-imports-6c1350e296ae.tgz`, built from committed Gateway source
+`6c1350e296aef36cdeb4a73c6438fc321885732b`. Exact bytes and build tools are recorded
 in `native-account-info-sdk-provenance.json`. The archive adds account info v1
 provider connection capabilities v2 and bounded credential imports through existing
 connect/reconnect while retaining the legacy browser/device operation contract.
+The native account-model contract also retains qualified function and custom tools.
 This is a source and consumer change; it has not been deployed to production.
 Historical qualifications below retain their original scope.
 
