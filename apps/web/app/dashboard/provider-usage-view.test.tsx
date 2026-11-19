@@ -279,7 +279,7 @@ describe("provider usage interactive report", () => {
       "Runtime delivery: partial (spool_overflow, 3 dropped events)",
       "No delivery loss reported by 2 runtime sessions",
     ]);
-    expect(screen.getByText(/1 call without token counts/)).toBeTruthy();
+    expect(screen.getByText(/1 call reported no tokens/)).toBeTruthy();
     expect(screen.queryByText(/\d+ unknown · \d+ partial/)).toBeNull();
     expect(
       screen.getByText("No native source checkpoint for this workspace."),
@@ -317,11 +317,11 @@ describe("provider usage interactive report", () => {
       screen.getByText(/Some sources last reported Oct 30, 2026, 19:40 UTC/),
     ).toBeTruthy();
     expect(
-      screen.getByText(/A partial day covers only part of a UTC day/),
+      screen.getByText(/may cover only part of it, for example today so far/),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "△ 1 call with incomplete token data · 1 call without reported cost",
+        "△ 1 call did not report all its tokens · 1 call did not report its cost",
       ),
     ).toBeTruthy();
   });
@@ -1147,8 +1147,8 @@ describe("provider usage interactive report", () => {
     expect(fetchProviderUsage).not.toHaveBeenCalled();
   });
   it.each([
-    ["unknownCostCount", "△ 1 call without reported cost"],
-    ["unknownTotalTokenCount", "△ 1 call without total tokens"],
+    ["unknownCostCount", "△ 1 call did not report its cost"],
+    ["unknownTotalTokenCount", "△ 1 call did not report a token total"],
   ] as const)(
     "does not poll when only %s is missing and names that measurement",
     async (field, note) => {

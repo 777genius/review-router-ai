@@ -330,7 +330,7 @@ function ProviderUsageContext({
           title={`UTC interval [${filters.from}, ${filters.to})`}
         >
           {intervalLabel(filters.from, filters.to)}
-          {period !== "custom" ? " · Current UTC day is partial" : ""}
+          {period !== "custom" ? " · Today counts usage so far" : ""}
         </p>
         <div className="w-36">
           <SelectField

@@ -69,10 +69,11 @@ export function UsageDetails({
         ) : null}
       </p>
       <p>
-        A partial day covers only part of a UTC day. Unknown or partial
-        observations mean usage measurements are missing or incomplete. Not
-        reported means the source does not send that value: Gateway calls do not
-        report the upstream model, latency or cost.
+        A day at the edge of the period may cover only part of it, for example
+        today so far. When some calls did not report all their tokens, the real
+        total is higher, so the number is shown as at least that much.
+        Not reported means the source does not send that value: Gateway calls do
+        not report the upstream model, latency or cost.
       </p>
       <p>
         {report.sources.length

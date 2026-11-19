@@ -71,15 +71,23 @@ export function metricLabel(
   if (metric === "cost" && bucket)
     return costsLabel(totals, bucket.currency, bucket.basis);
   if (value === null) return NOT_REPORTED;
+  // Calls without a token total only add to the real total, so the sum of the
+  // reported ones is a lower bound.
   return (
-    count(Number(value)) +
     (metric === "tokens" && totals.unknownTotalTokenCount > 0
-      ? " (known part)"
-      : "")
+      ? "at least "
+      : "") + count(Number(value))
   );
 }
 const calls = (value: number) =>
   `${count(value)} ${value === 1 ? "call" : "calls"}`;
+/** "1 call did ... its ..." / "2 calls did ... their ...". */
+const callsThat = (value: number, one: string, many: string) =>
+  `${calls(value)} ${value === 1 ? one : many}`;
+/** Short notes for one bucket, e.g. a chart tooltip row. */
+export const SOME_TOKENS_NOT_REPORTED =
+  "some calls did not report all their tokens";
+export const SOME_COST_NOT_REPORTED = "some calls did not report their cost";
 /**
  * One readable status per bucket. Source completeness flags are mutually
  * exclusive per call, so their sum is an exact count of incomplete calls.
@@ -93,24 +101,31 @@ export function tokenCoverage(
   const incomplete = totals.unknownCount + totals.partialCount;
   if (!incomplete && !totals.unknownTotalTokenCount)
     return {
-      label: "Reported observations",
+      label: "All calls reported their tokens",
       detail: undefined,
       incomplete: false,
     };
+  const withoutTotal = `${calls(totals.unknownTotalTokenCount)} did not report a token total`;
   return {
     label: incomplete
-      ? `${calls(incomplete)} with incomplete token data`
-      : `${calls(totals.unknownTotalTokenCount)} without total tokens`,
+      ? callsThat(
+          incomplete,
+          "did not report all its tokens",
+          "did not report all their tokens",
+        )
+      : withoutTotal,
     detail: [
       totals.unknownCount
-        ? `${calls(totals.unknownCount)} without token counts`
+        ? `${calls(totals.unknownCount)} reported no tokens`
         : "",
       totals.partialCount
-        ? `${calls(totals.partialCount)} marked partial by the source`
+        ? callsThat(
+            totals.partialCount,
+            "reported only some of its tokens",
+            "reported only some of their tokens",
+          )
         : "",
-      totals.unknownTotalTokenCount
-        ? `${calls(totals.unknownTotalTokenCount)} without total tokens`
-        : "",
+      totals.unknownTotalTokenCount ? withoutTotal : "",
     ]
       .filter(Boolean)
       .join(" · "),
@@ -170,7 +185,13 @@ export function unreportedUsageNote(
   );
   const parts = [
     tokens.incomplete ? tokens.label : "",
-    withoutCost ? `${calls(withoutCost)} without reported cost` : "",
+    withoutCost
+      ? callsThat(
+          withoutCost,
+          "did not report its cost",
+          "did not report their cost",
+        )
+      : "",
   ].filter(Boolean);
   return parts.length ? `△ ${parts.join(" · ")}` : null;
 }
@@ -329,4 +350,21 @@ export function humanUtcRange(first: string, last: string): string {
   return start.day === end.day
     ? `${start.day}, ${start.time} - ${end.time} UTC`
     : `${start.day}, ${start.time} - ${end.day}, ${end.time} UTC`;
+}
+
+/**
+ * Plain words for a UTC day only partly inside the period: today's bar counts
+ * usage so far, and the first day of a rolling period starts mid-day.
+ */
+export function partialDayLabel(
+  day: { day: string; partial: boolean },
+  period: { from: string; to: string },
+  now = new Date(),
+): string | null {
+  if (!day.partial) return null;
+  const end = new Date(Date.parse(period.to) - 1).toISOString().slice(0, 10);
+  if (day.day !== end) return `from ${utcParts(period.from).time} UTC`;
+  return day.day === now.toISOString().slice(0, 10)
+    ? "today so far"
+    : `until ${utcParts(period.to).time} UTC`;
 }
