@@ -226,9 +226,9 @@ export function UsageCharts({ report, metric, bucket }: Props) {
           ))}
         </ul>
         <p className="mt-2 text-xs text-slate-500">
-          UTC days · ○ No usage recorded, or the value was not reported · A
-          day at the edge of the period may cover only part of it, for example
-          today so far
+          UTC days · ○ No usage recorded, or the value was not reported · A day
+          at the edge of the period may cover only part of it, for example today
+          so far
         </p>
       </section>
       <section
