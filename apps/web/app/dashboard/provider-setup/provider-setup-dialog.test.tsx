@@ -1898,9 +1898,10 @@ describe("ProviderSetupDialog", () => {
     expect(
       screen.getByRole("button", { name: "Save reviewers" }),
     ).toHaveProperty("disabled", true);
+    // The pending read finishes by itself; nothing asks for a refresh.
     expect(
-      screen.getByRole("button", { name: "Refresh accounts" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Refresh accounts" }),
+    ).toBeNull();
     await act(async () =>
       resolveDetail({
         status: "ok",

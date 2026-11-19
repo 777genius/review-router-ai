@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@reviewrouter/ui";
 import type {
   AccountProfileView,
   AccountView,
 } from "../../src/server/account-gateway-accounts";
 import { accountModelCatalogOutOfDate } from "../../src/features/provider-setup/account-model-catalog-freshness";
-import { durationText } from "./account-limits-line";
+import { StatusLine, updatedAgo } from "./status-line";
 import type { GatewayModelAccountsRefresh } from "./gateway-model-account-options";
 import {
   publicCatalogRefreshFailed,
@@ -45,11 +44,6 @@ export function GatewayModelCatalogStatus(props: CatalogStatusProps) {
     />
   );
 }
-
-const updatedAgo = (fetchedAt: string) => {
-  const minutes = Math.floor((Date.now() - Date.parse(fetchedAt)) / 60_000);
-  return minutes < 1 ? "just now" : `${durationText(minutes)} ago`;
-};
 
 /**
  * The account's model list keeps itself current (see `accountReadSchedule`),
@@ -131,42 +125,23 @@ function CatalogStatus({
   }
   return (
     <div className="grid gap-1 text-xs text-slate-400">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span
-          role="status"
-          title={
-            catalog?.status === "snapshot" && catalog.fetchedAt
-              ? new Date(catalog.fetchedAt).toLocaleString()
-              : undefined
-          }
-        >
-          {message}
-        </span>
-        {showAction ? (
-          action === "retry" ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => void refresh()}
-            >
-              Try again
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label="Refresh models"
-              disabled={busy}
-              onClick={() => void refresh()}
-            >
-              Refresh
-            </Button>
-          )
-        ) : null}
-      </div>
+      <StatusLine
+        message={message}
+        title={
+          catalog?.status === "snapshot" && catalog.fetchedAt
+            ? new Date(catalog.fetchedAt).toLocaleString()
+            : undefined
+        }
+        action={
+          showAction && action
+            ? {
+                kind: action === "retry" ? "retry" : "refresh-models",
+                busy,
+                onClick: () => void refresh(),
+              }
+            : undefined
+        }
+      />
       {publicCatalog && publicCatalogRefreshFailed(publicCatalog) ? (
         <p role="status">
           Could not update public model metadata. Showing saved model choices.

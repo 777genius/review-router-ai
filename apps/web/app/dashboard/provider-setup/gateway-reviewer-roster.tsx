@@ -26,6 +26,7 @@ import {
 } from "../../../src/features/provider-setup/provider-setup-model";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
+import { StatusLine } from "../status-line";
 import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import { dashboardErrorText } from "../dashboard-copy";
 import { isFreeModel } from "../provider-usage-format";
@@ -506,8 +507,8 @@ export function GatewayReviewerRoster({
                     </p>
                     {row.bindingId && !account && !options.loading ? (
                       <p className="text-xs leading-5 text-amber-100">
-                        This account is unavailable. Edit this reviewer or
-                        refresh accounts.
+                        This account is unavailable. Edit this reviewer to
+                        choose another account.
                       </p>
                     ) : profile &&
                       row.model &&
@@ -718,10 +719,18 @@ export function GatewayReviewerRoster({
                       </p>
                     ) : null}
                     {row.bindingId && !account ? (
-                      <p role="status" className="text-xs text-amber-100">
-                        This account is unavailable. Refresh accounts or choose
-                        another account.
-                      </p>
+                      <StatusLine
+                        message={
+                          options.bindingLoading(row.bindingId)
+                            ? "Checking this account…"
+                            : "This account is unavailable. Choose another account."
+                        }
+                        action={{
+                          kind: "retry",
+                          busy: blocked || options.bindingLoading(row.bindingId),
+                          onClick: () => options.recheck(row.bindingId),
+                        }}
+                      />
                     ) : null}
                   </div>
                 ) : null}
@@ -736,16 +745,15 @@ export function GatewayReviewerRoster({
           loading={options.loading}
           onLoadMore={options.loadMore}
         />
-        {options.canRefresh ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={blocked || options.loading}
-            onClick={options.refresh}
-          >
-            Refresh accounts
-          </Button>
+        {"pageError" in options && options.pageError ? (
+          <StatusLine
+            message="Could not load the account list."
+            action={{
+              kind: "retry",
+              busy: blocked || options.loading,
+              onClick: options.refresh,
+            }}
+          />
         ) : null}
       </div>
       {fallback || !several ? null : (
