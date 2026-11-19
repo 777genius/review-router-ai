@@ -8,6 +8,8 @@ import {
   type ReviewExecution,
 } from "@reviewrouter/features-review-executions";
 import { captureReviewProgress } from "../infrastructure/prisma/prisma-review-progress-projection";
+import { progressCommentMinEditIntervalMs } from "../domain/progress-comment-cadence";
+import { computeProgressSnapshot } from "../domain/review-progress";
 
 describe("Prisma review progress projection", () => {
   it("fails before projection writes when the scope row was not locked", async () => {
@@ -115,7 +117,7 @@ describe("Prisma review progress projection", () => {
       expect.objectContaining({
         create: expect.objectContaining({
           snapshotHash:
-            "c5b0fe3c4bd7d7741af0076f42cddaa9c13a2598c872482fd8e2623d95baa981",
+            "aa6d4b61ca115effd4f9167cc06f780aca1e1da505c6a988952f034612498ce0",
           eligibleFileCount: 1,
           coveredFileCount: 0,
           uncoveredFileCount: 0,
@@ -158,6 +160,87 @@ describe("Prisma review progress projection", () => {
           desiredVersion: 5n,
           failureCount: 0,
           lastErrorCode: null,
+        }),
+      }),
+    );
+  });
+
+  const lastPublishedAt = new Date("2026-08-12T11:59:30.000Z");
+  const pendingPhaseChangeAt = new Date("2026-08-12T11:59:50.000Z");
+  it.each([
+    {
+      name: "holds a same-phase update for the minimum edit interval",
+      previousPhase: "reviewing" as const,
+      publishedVersion: 4n,
+      expected: new Date(
+        lastPublishedAt.getTime() + progressCommentMinEditIntervalMs,
+      ),
+    },
+    {
+      name: "publishes a phase change at once",
+      previousPhase: "preparing" as const,
+      publishedVersion: 4n,
+      expected: execution().updatedAt,
+    },
+    {
+      name: "publishes a new review taking over the pull request at once",
+      previousPhase: null,
+      publishedVersion: 4n,
+      expected: execution().updatedAt,
+    },
+    {
+      name: "keeps an unpublished phase change due when counts move after it",
+      previousPhase: "reviewing" as const,
+      publishedVersion: 3n,
+      expected: pendingPhaseChangeAt,
+    },
+  ])("$name", async ({ previousPhase, publishedVersion, expected }) => {
+    const fixture = transactionFixture({
+      existingProgress:
+        previousPhase === null
+          ? null
+          : {
+              sourceExecutionVersion: 0n,
+              snapshotHash: "a".repeat(64),
+              desiredVersion: 4n,
+              snapshotJson: computeProgressSnapshot({
+                generation: 1,
+                sourceIdentity: {
+                  sourceRunId: "700001",
+                  sourceRunAttempt: "1",
+                },
+                phase: previousPhase,
+                terminal: "none",
+                updatedAt: "2026-08-12T11:59:00.000Z",
+                slots: [{ slotId: "slot-1", required: true, state: "pending" }],
+              }),
+            },
+      publication: {
+        activeGeneration: 1n,
+        desiredVersion: 4n,
+        publishedVersion,
+        nextPublishAt: pendingPhaseChangeAt,
+        lastPublishedAt,
+      },
+    });
+
+    await captureReviewProgress(
+      fixture.transaction,
+      execution({
+        version: 2n,
+        workSlots: [
+          {
+            ...execution().workSlots[0]!,
+            state: ReviewWorkSlotState.Leased,
+          },
+        ],
+      }),
+    );
+
+    expect(fixture.updatePublication).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          nextPublishAt: expected,
         }),
       }),
     );

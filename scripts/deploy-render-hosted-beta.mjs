@@ -584,6 +584,13 @@ const apiOnlyGitLabEnvKeys = [
   "REVIEW_ROUTER_GITLAB_RUNTIME_IMAGE",
 ];
 
+const liveProgressEnvKeys = [
+  "REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE",
+  "REVIEW_ROUTER_PROGRESS_FILE_COVERAGE",
+  "REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES",
+  "REVIEW_ROUTER_PROGRESS_REPOSITORIES",
+];
+
 function readOptionalEnvVars(env, keys) {
   const values = {};
   for (const key of keys) {
@@ -788,6 +795,9 @@ export const reviewV2SharedRuntimeEnvNames = Object.freeze([
   ...reviewV2RequiredRuntimeEnvNames,
   reviewV2ProjectionPolicyVersionEnvKey,
   "REVIEW_ROUTER_AGENT_PROFILE",
+  // Capture runs in both roles' execution transactions; a mismatch throws.
+  "REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE",
+  "REVIEW_ROUTER_PROGRESS_FILE_COVERAGE",
 ]);
 
 /** Skills support reads and admission must share the raw selection authority.
@@ -1151,14 +1161,6 @@ export function buildServiceEnv({
     REVIEW_ROUTER_MAX_REPOSITORIES_PER_SYNC: "250",
     REVIEW_ROUTER_OUTBOX_BATCH_SIZE: "25",
     REVIEW_ROUTER_OUTBOX_PROCESSING_STALE_MS: "900000",
-    REVIEW_ROUTER_PROGRESS_FILE_COVERAGE:
-      env.REVIEW_ROUTER_PROGRESS_FILE_COVERAGE ?? "0",
-    REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE:
-      env.REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE ?? "0",
-    REVIEW_ROUTER_PROGRESS_REPOSITORIES:
-      env.REVIEW_ROUTER_PROGRESS_REPOSITORIES ?? "",
-    REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES:
-      env.REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES ?? "0",
     REVIEW_ROUTER_PUBLIC_API_URL: apiUrl,
     REVIEW_ROUTER_RUNTIME_ROLE: role,
     REVIEW_ROUTER_TOKEN_ENCRYPTION_KEY:
@@ -1193,6 +1195,9 @@ export function buildServiceEnv({
   if (role === "api") {
     Object.assign(values, readOptionalEnvVars(env, apiOnlyGitLabEnvKeys));
   }
+  // Live progress is on by default; forward only explicit opt-outs or an
+  // allow-list so an unset key keeps the runtime default.
+  Object.assign(values, readOptionalEnvVars(env, liveProgressEnvKeys));
   Object.assign(values, reviewV2RuntimeEnvForRole(env, role));
   Object.assign(values, sdkGrowthRuntimeEnvForRole(env, role));
   Object.assign(values, reviewV2ContextEnvForRole(env, role));

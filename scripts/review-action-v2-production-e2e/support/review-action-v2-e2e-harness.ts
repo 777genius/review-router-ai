@@ -1616,12 +1616,14 @@ export class ReviewActionV2E2EHarness {
     const runtime = createProductionReviewV2WorkerRuntime({
       prisma: this.prisma,
       clock: new SystemClock(),
+      // Unset progress keys exercise the production default: on for every
+      // repository, without an allow-list.
       env: {
         ...this.env,
-        REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE: "1",
-        REVIEW_ROUTER_PROGRESS_FILE_COVERAGE: "1",
-        REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: "1",
-        REVIEW_ROUTER_PROGRESS_REPOSITORIES: `${owner}/${repo}`,
+        REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE: undefined,
+        REVIEW_ROUTER_PROGRESS_FILE_COVERAGE: undefined,
+        REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: undefined,
+        REVIEW_ROUTER_PROGRESS_REPOSITORIES: undefined,
         REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS: "1",
       },
       githubAppId: requiredString(this.env.GITHUB_APP_ID),
@@ -2764,6 +2766,9 @@ function productionEnv(input: {
     [reviewV2WorkerEnabledEnv]: "1",
     REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE: "1",
     REVIEW_ROUTER_PROGRESS_FILE_COVERAGE: "1",
+    // Comment writes are on by default. Scenarios publish progress only
+    // through publishProgress() so their GitHub request counts stay exact.
+    REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES: "0",
     REVIEW_ROUTER_REVIEW_V2_COMPLETION_CLAIM_MS: "1000",
     REVIEW_ROUTER_REVIEW_V2_PUBLICATION_CLAIM_MS: "1000",
     REVIEW_ROUTER_REVIEW_V2_MIN_MUTATION_LEASE_MS: "500",
