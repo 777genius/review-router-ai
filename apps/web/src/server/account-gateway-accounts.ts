@@ -49,6 +49,11 @@ import {
   type GatewayAPIKeyProfileName,
 } from "../features/provider-setup/provider-identity";
 import type { AccountUsageView } from "./account-usage";
+import {
+  createAccountMetadataService,
+  type AccountMetadataService,
+} from "./account-metadata-service";
+import { accountMetadataReader } from "./account-metadata-sdk-reader";
 import type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
 export type { AccountLimitsView } from "@reviewrouter/features-provider-accounts";
 import {
@@ -150,6 +155,7 @@ export type AccountView = {
   // Optional display projection; older safe bootstrap consumers may omit it.
   usage?: AccountUsageView;
   limits?: AccountLimitsView;
+  metadata?: import("@reviewrouter/features-provider-accounts").AccountMetadataView;
 };
 export type AccountsPage = {
   canGrantOperatorUse?: boolean;
@@ -401,6 +407,7 @@ function safeFailure(error: unknown): AccountsResult<never> {
  */
 export function createAccountsAdapter(input: {
   limits?(context: string): Promise<AccountLimitsService>;
+  metadata?(context: string): Promise<AccountMetadataService>;
   authorize(context: string): Promise<Authority>;
   gateway: ManagementClient;
   accounts: ProviderAccountAccountsQueryPort;
@@ -983,11 +990,14 @@ export function createAccountsAdapter(input: {
         currentRows.push(row);
       }
       await client.reauthorize();
+      const displayed = input.metadata
+        ? await (await input.metadata(context)).page(currentRows)
+        : currentRows;
       return {
         status: "ok",
         value: {
           canGrantOperatorUse,
-          accounts: currentRows,
+          accounts: displayed,
           profiles: catalogue,
           nextCursor,
         },
@@ -1630,6 +1640,22 @@ export function createAccountsAdapter(input: {
       return safeFailure(error);
     }
   }
+  async function withMetadata(
+    context: string,
+    work: Promise<AccountsResult<AccountOperationView>>,
+  ) {
+    const result = await work;
+    if (result.status !== "ok" || !result.value.account || !input.metadata)
+      return result;
+    try {
+      const [account] = await (
+        await input.metadata(context)
+      ).page([result.value.account]);
+      return { ...result, value: { ...result.value, account: account! } };
+    } catch {
+      return result;
+    }
+  }
   return {
     async limits(
       context: string,
@@ -1671,11 +1697,15 @@ export function createAccountsAdapter(input: {
             }
           : {}),
       }),
-    mutate,
+    mutate: (...args: Parameters<typeof mutate>) =>
+      withMetadata(args[0], mutate(...args)),
     beginOAuth,
-    completeOAuth,
-    pollOAuth,
-    operation,
+    completeOAuth: (...args: Parameters<typeof completeOAuth>) =>
+      withMetadata(args[0], completeOAuth(...args)),
+    pollOAuth: (...args: Parameters<typeof pollOAuth>) =>
+      withMetadata(args[0], pollOAuth(...args)),
+    operation: (...args: Parameters<typeof operation>) =>
+      withMetadata(args[0], operation(...args)),
     bind,
     changeGrant,
     detach,
@@ -2241,6 +2271,33 @@ async function production() {
         .filter(Boolean),
     },
     authorize: authorizeContext,
+    async metadata(context) {
+      return createAccountMetadataService({
+        prisma,
+        secret: settings.contextKey,
+        reader: accountMetadataReader({
+          role: "management",
+          origin:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+          token:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+        }),
+        ...(settings.operatorWorkspaceId
+          ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+          : {}),
+        ownerRef: (owner) =>
+          owner.kind === "user"
+            ? accountGatewayUserOwnerRef(owner.userId)
+            : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
+        authorize: async () => {
+          const current = await authorizeContext(context);
+          return {
+            userId: current.actor.userId,
+            workspaceId: current.workspaceId,
+          };
+        },
+      });
+    },
     async limits(context) {
       const limitsSettings = {
         role: "management" as const,

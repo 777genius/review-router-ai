@@ -214,6 +214,52 @@ async function openBulkDialog({ page, user }: ScenarioContext) {
 }
 
 export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
+  {
+    id: "native-account-info-owner",
+    title:
+      "Native details in the real accounts list: long identity, calendar date and stale privacy",
+    users: ["owner"],
+    route: workspaceRoute("main", "setup"),
+    widths: [390, 900, 1440],
+    requires: { personalSharing: false },
+    prepare: async ({ page }) => {
+      await page
+        .getByText(
+          "review-team-with-a-deliberately-long-account-name@example.invalid",
+        )
+        .first()
+        .waitFor();
+      await page
+        .getByText("Some account details may be out of date")
+        .first()
+        .waitFor();
+      await page.getByText("Subscription ends 2026-12-31").first().waitFor();
+    },
+    probe: async ({ page }) => ({
+      emailVisible: await page
+        .getByText(
+          "review-team-with-a-deliberately-long-account-name@example.invalid",
+        )
+        .count(),
+      horizontalOverflow: await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      ),
+    }),
+  },
+  {
+    id: "native-account-info-unsupported",
+    title:
+      "Native details unavailable for this connection do not hide its inventory",
+    users: ["owner"],
+    route: workspaceRoute("locked", "setup"),
+    requires: { personalSharing: false },
+    prepare: async ({ page }) => {
+      await page
+        .getByText("Account details are not provided for this connection")
+        .first()
+        .waitFor();
+    },
+  },
   // Repository table and the setup steps of every state.
   {
     id: "workspace-repositories",

@@ -51,7 +51,11 @@ export type GatewayCatalogFixture = Readonly<{
 }>;
 
 export async function startGatewayCatalogFixture(
-  options: { reviewerAccounts?: boolean; nvidiaEvaluation?: boolean } = {},
+  options: {
+    reviewerAccounts?: boolean;
+    nvidiaEvaluation?: boolean;
+    accountMetadata?: boolean;
+  } = {},
 ): Promise<GatewayCatalogFixture> {
   const token = randomBytes(24).toString("base64url");
   let failedModelRefresh = false;
@@ -63,6 +67,89 @@ export async function startGatewayCatalogFixture(
     if (request.headers.authorization !== `Bearer ${token}`)
       return send(401, { error: "unauthorized" });
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    const accountRows = Object.values(VISUAL_CONNECTIONS)
+      .filter((row) => row.owner.kind === "workspace")
+      .map((connection) => ({
+        accountRef: connection.gatewayAccountRef,
+        ownerRef: `rrw_${createHash("sha256")
+          .update(
+            [
+              "rr-workspace-owner-v1",
+              VISUAL_WORKSPACES[connection.workspace].id,
+            ].join(String.fromCharCode(0)),
+          )
+          .digest("hex")}`,
+        profileId: connection.profileRef,
+        displayName: connection.displayName,
+        state: "active",
+        metadataRevision: 1,
+        authorizationEpoch: 1,
+      }));
+    if (
+      options.accountMetadata &&
+      request.method === "POST" &&
+      path === "/v1/account-info/read"
+    ) {
+      try {
+        let body = "";
+        for await (const chunk of request) body += String(chunk);
+        const input = JSON.parse(body) as {
+          ownerRef: string;
+          accountRefs: string[];
+        };
+        if (
+          !Array.isArray(input.accountRefs) ||
+          input.accountRefs.length > 50 ||
+          input.accountRefs.some(
+            (ref) =>
+              !accountRows.some(
+                (row) =>
+                  row.accountRef === ref && row.ownerRef === input.ownerRef,
+              ),
+          )
+        )
+          return send(403, { error: "account_unavailable" });
+        const known = <T>(value: T, freshness = "current") => ({
+          status: "known",
+          value,
+          source: "provider_api",
+          observedAt: "2026-11-19T09:00:00Z",
+          freshness,
+        });
+        return send(200, {
+          contract: "account-info/v1",
+          accounts: input.accountRefs.map((accountRef) => ({
+            accountRef,
+            metadataRevision: 1,
+            authorizationEpoch: 1,
+            info:
+              accountRef === VISUAL_CONNECTIONS.lockedOrg.gatewayAccountRef
+                ? { status: "unsupported" }
+                : {
+                    status: "available",
+                    infoRevision: "visual-native-info-1",
+                    fields: {
+                      email: known(
+                        "review-team-with-a-deliberately-long-account-name@example.invalid",
+                      ),
+                      accountLabel: { status: "unknown" },
+                      subscription: known({
+                        code: "team",
+                        label:
+                          "Team annual subscription with extended native account details",
+                        scope: "organization",
+                        endsAt: { kind: "date", value: "2026-12-31" },
+                      }),
+                      credentialExpiresAt: known("2026-11-30T23:00:00Z"),
+                      privacyMode: known("private", "stale"),
+                    },
+                  },
+          })),
+        });
+      } catch {
+        return send(400, { error: "invalid_metadata_request" });
+      }
+    }
     const models = options.reviewerAccounts
       ? ["gpt-5.5", "gpt-5.4"]
       : [...VISUAL_GATEWAY_PROFILE.modelIds];
@@ -124,14 +211,16 @@ export async function startGatewayCatalogFixture(
         ],
       });
     if (
-      (options.reviewerAccounts || options.nvidiaEvaluation) &&
+      (options.reviewerAccounts ||
+        options.nvidiaEvaluation ||
+        options.accountMetadata) &&
       request.method === "GET" &&
       path === "/v1/provider-connection-capabilities"
     ) {
       return send(200, {
         contract: "provider-connections/v1",
         capabilities: [
-          ...(options.reviewerAccounts
+          ...(options.reviewerAccounts || options.accountMetadata
             ? [
                 {
                   contract: "provider-connections/v1",
@@ -155,7 +244,10 @@ export async function startGatewayCatalogFixture(
         ],
       });
     }
-    if (options.reviewerAccounts && request.method === "GET") {
+    if (
+      (options.reviewerAccounts || options.accountMetadata) &&
+      request.method === "GET"
+    ) {
       const connection = Object.values(VISUAL_CONNECTIONS).find(
         (row) =>
           row.owner.kind === "workspace" &&
@@ -179,8 +271,17 @@ export async function startGatewayCatalogFixture(
           authorizationEpoch: 1,
         });
     }
-    if (request.method === "GET" && path === "/v1/accounts")
-      return send(200, { accounts: [] });
+    if (request.method === "GET" && path === "/v1/accounts") {
+      const ownerRef = new URL(
+        request.url ?? "/",
+        "http://127.0.0.1",
+      ).searchParams.get("ownerRef");
+      return send(200, {
+        accounts: options.accountMetadata
+          ? accountRows.filter((row) => row.ownerRef === ownerRef)
+          : [],
+      });
+    }
     return send(404, { error: "not_found" });
   });
   await new Promise<void>((resolve, reject) => {

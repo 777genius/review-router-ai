@@ -17,10 +17,15 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   get: vi.fn(),
   models: vi.fn(),
+  enrichMetadata: vi.fn(),
 }));
 vi.mock("./gateway-model-account-composition", () => ({
   productionGatewayModelAccounts: async () => ({
-    reader: { list: mocks.list, get: mocks.get },
+    reader: {
+      list: mocks.list,
+      get: mocks.get,
+      enrichMetadata: mocks.enrichMetadata,
+    },
   }),
 }));
 vi.mock("./personal-account-composition", () => ({
@@ -88,6 +93,7 @@ function listed(accounts = [account()]): AccountsResult<AccountsPage> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.enrichMetadata.mockImplementation(async (rows: AccountView[]) => rows);
   mocks.list.mockResolvedValue(listed());
   mocks.get.mockImplementation(async (id: string) => ({
     status: "ok",
@@ -96,6 +102,51 @@ beforeEach(() => {
 });
 
 describe("dashboard selected Gateway model readiness", () => {
+  it("enriches the final hydrated array once, after the last selected detail settles", async () => {
+    const events: string[] = [];
+    mocks.list.mockResolvedValue(
+      listed([account("binding_1"), account("unselected")]),
+    );
+    mocks.get.mockImplementation(async (id: string) => {
+      await Promise.resolve();
+      events.push(`detail:${id}`);
+      return {
+        status: "ok",
+        value: {
+          account: { ...snapshot(id), label: `hydrated:${id}` },
+          profile,
+        },
+      };
+    });
+    mocks.enrichMetadata.mockImplementation(async (rows: AccountView[]) => {
+      events.push("final-authority");
+      expect(rows.map((row) => row.label)).toEqual([
+        "hydrated:binding_1",
+        "unselected",
+        "hydrated:binding_26",
+      ]);
+      // A change observed by the final authority check removes earlier facts.
+      return rows.map((row) => ({
+        ...row,
+        metadata: { status: "restricted", displayToken: "restricted" },
+      }));
+    });
+    const result = await loadDashboardGatewayAccounts("workspace_1", null, [
+      config(),
+      config("binding_26"),
+    ]);
+    expect(mocks.enrichMetadata).toHaveBeenCalledOnce();
+    expect(events.at(-1)).toBe("final-authority");
+    expect(events).toHaveLength(3);
+    expect(
+      result.status === "ok" &&
+        result.value.accounts.every(
+          (row) => row.metadata?.status === "restricted",
+        ),
+    ).toBe(true);
+    expect(isGatewayProviderSetupReady(config(), result)).toBe(true);
+  });
+
   it("loads one account-scoped catalog for 419 effective repository selections", async () => {
     const selected = config();
     const result = await loadDashboardGatewayAccounts(
@@ -103,8 +154,13 @@ describe("dashboard selected Gateway model readiness", () => {
       null,
       Array.from({ length: 419 }, () => selected),
     );
-    expect(mocks.list).toHaveBeenCalledExactlyOnceWith({ limit: 25 });
-    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("binding_1");
+    expect(mocks.list).toHaveBeenCalledExactlyOnceWith({
+      limit: 25,
+      includeMetadata: false,
+    });
+    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("binding_1", {
+      includeMetadata: false,
+    });
     expect(isGatewayProviderSetupReady(selected, result)).toBe(true);
     expect(result.status === "ok" && result.value.profiles[0]?.models).toEqual([
       "openai/gpt-5.4-nano",
@@ -125,8 +181,13 @@ describe("dashboard selected Gateway model readiness", () => {
       null,
       Array.from({ length: 419 }, () => selected),
     );
-    expect(mocks.list).toHaveBeenCalledExactlyOnceWith({ limit: 25 });
-    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("binding_26");
+    expect(mocks.list).toHaveBeenCalledExactlyOnceWith({
+      limit: 25,
+      includeMetadata: false,
+    });
+    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("binding_26", {
+      includeMetadata: false,
+    });
     expect(isGatewayProviderSetupReady(selected, result)).toBe(true);
     expect(result.status === "ok" && result.value.accounts).toHaveLength(26);
     expect(result.status === "ok" && result.value.nextCursor).toBe(
@@ -188,7 +249,9 @@ describe("dashboard selected Gateway model readiness", () => {
     const result = await loadDashboardGatewayAccounts("workspace_1", null, [
       selected,
     ]);
-    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("binding_26");
+    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("binding_26", {
+      includeMetadata: false,
+    });
     expect(isGatewayProviderSetupReady(selected, result)).toBe(true);
   });
 
@@ -207,7 +270,9 @@ describe("dashboard selected Gateway model readiness", () => {
         selected,
       ]);
       expect(mocks.get).toHaveBeenCalledTimes(2);
-      expect(mocks.get).toHaveBeenCalledWith("binding_26");
+      expect(mocks.get).toHaveBeenCalledWith("binding_26", {
+        includeMetadata: false,
+      });
       expect(isGatewayProviderSetupReady(config(), result)).toBe(true);
       expect(isGatewayProviderSetupReady(selected, result)).toBe(false);
       expect(result.status === "ok" && result.value.accounts).toHaveLength(1);
@@ -251,7 +316,9 @@ describe("dashboard selected Gateway model readiness", () => {
     await loadDashboardGatewayAccounts("workspace_1", null);
     expect(mocks.get).not.toHaveBeenCalled();
     await loadDashboardGatewayAccounts("workspace_1", null, [config()]);
-    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("binding_1");
+    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("binding_1", {
+      includeMetadata: false,
+    });
   });
 
   it("never unions catalogs for visible and off-page bindings of the same profile", async () => {

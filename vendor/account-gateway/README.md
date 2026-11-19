@@ -1,8 +1,18 @@
 # Account Gateway SDK artifacts
 
+## Native account metadata SDK
+
+The web, API and provider-usage consumers now pin
+`agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz`, built from committed Gateway source
+`3b15422b102d3c3d2054dad204231630add75635`. Exact bytes and build tools are recorded
+in `native-account-info-sdk-provenance.json`. The archive adds account info v1
+and provider connection capabilities v2 while retaining the existing SDK APIs.
+This is a source and consumer change; it has not been deployed to production.
+Historical qualifications below retain their original scope.
+
 ## Native catalogue SDK (not production)
 
-The three Review Router consumers pin the source-built
+The previous three-consumer pin was the source-built
 `agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz` archive. It carries the
 `native_catalog` account model source of the GLM, MiniMax and Kimi coding plans
 and lets the `nvidia` and `native_catalog` snapshots hold up to 512 models, so

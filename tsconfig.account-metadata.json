@@ -1,0 +1,18 @@
+{
+  "extends": "./apps/web/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": false
+  },
+  "include": [
+    "packages/features/provider-accounts/src/account-metadata/**/*.ts",
+    "apps/web/src/server/account-metadata/**/*.ts",
+    "apps/web/app/dashboard/account-metadata-line*.tsx",
+    "apps/web/app/dashboard/account-identity.tsx",
+    "apps/web/src/server/account-metadata-service.ts",
+    "apps/web/src/server/account-metadata-sdk-reader.ts",
+    "apps/web/src/server/account-metadata*.test.ts",
+    "apps/web/src/server/dashboard-gateway-accounts.test.ts"
+  ],
+  "exclude": ["node_modules", "dist", "**/.next"]
+}

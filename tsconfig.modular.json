@@ -16,7 +16,9 @@
     "packages/features/review-statistics/src/**/*.ts",
     "apps/worker/src/review-statistics*.ts",
     "apps/worker/src/worker.ts",
-    "apps/worker/src/review-v2-production-runtime.ts"
+    "apps/worker/src/review-v2-production-runtime.ts",
+    "packages/features/provider-accounts/src/account-metadata/**/*.ts",
+    "scripts/account-metadata-tooling/**/*.ts"
   ],
   "exclude": ["node_modules", "dist", "**/.next"]
 }

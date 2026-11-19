@@ -1261,6 +1261,7 @@ function Controls({
                   provider={account.provider}
                   authKind={account.authKind}
                   connection={account.connection}
+                  metadata={account.metadata}
                 />
                 <AccountLimitsLine
                   scope={limitsScope}
@@ -2122,6 +2123,7 @@ function OperationReadback({
             provider={data.value.account.provider}
             authKind={data.value.account.authKind}
             connection={data.value.account.connection}
+            metadata={data.value.account.metadata}
           />
         ) : data?.status === "ok" && data.value.oauthMethod ? (
           <div className="flex items-center gap-3 font-medium text-cyan-50">

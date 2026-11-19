@@ -187,8 +187,8 @@ importers:
   apps/api:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
@@ -340,14 +340,17 @@ importers:
   apps/web:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz
+        specifier: file:../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz
       '@mux/mux-player-react':
         specifier: ^3.14.1
         version: 3.14.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@octokit/app':
         specifier: ^16.1.2
         version: 16.1.2
+      '@prisma/client':
+        specifier: 7.8.0
+        version: 7.8.0(prisma@7.8.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.3))(typescript@6.0.3)
       '@radix-ui/react-dropdown-menu':
         specifier: 2.1.16
         version: 2.1.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -922,6 +925,9 @@ importers:
         specifier: workspace:*
         version: link:../auth
     devDependencies:
+      '@get-modular/conformance':
+        specifier: 0.5.0
+        version: 0.5.0(@get-modular/assembly@0.7.0)(@get-modular/core@0.7.0)(@get-modular/resources@0.2.1)
       '@prisma/adapter-pg':
         specifier: 7.8.0
         version: 7.8.0
@@ -962,8 +968,8 @@ importers:
   packages/features/provider-usage:
     dependencies:
       '@agent-teams/account-gateway':
-        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz
-        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz
+        specifier: file:../../../vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz
+        version: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz
       '@get-modular/assembly':
         specifier: 0.7.0
         version: 0.7.0
@@ -1492,8 +1498,8 @@ packages:
   '@actions/io@3.0.2':
     resolution: {integrity: sha512-nRBchcMM+QK1pdjO7/idu86rbJI5YHUKCvKs0KxnSYbVe3F51UfGxuZX4Qy/fWlp6l7gWFwIkrOzN+oUK03kfw==}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz':
-    resolution: {integrity: sha512-e8eM2zesEg08ZALzbGyKOiaUYA5x+xnoOLUbHhkKVRMoBI9Dq+doON8EuTK0h4fOWlWPlIroPOatVmquiZ1atQ==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz}
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz':
+    resolution: {integrity: sha512-DavNXoBcQir4vZIDZ+a0AkZmoFgJq/o8t946XvtlHtI7f38WVCly6f4UI+thYzR3qVP2kQ6mghRVyRtk0iF5dg==, tarball: file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz}
     version: 0.1.0
     engines: {node: '>=24.21.0 <25 || >=26.10.0 <27'}
 
@@ -6723,7 +6729,7 @@ snapshots:
 
   '@actions/io@3.0.2': {}
 
-  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-nvidia-0c68a5d544ff.tgz':
+  '@agent-teams/account-gateway@file:vendor/account-gateway/agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz':
     dependencies:
       '@get-modular/assembly': 0.2.0
       '@get-modular/core': 0.2.0

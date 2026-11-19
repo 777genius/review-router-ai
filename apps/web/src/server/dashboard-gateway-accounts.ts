@@ -15,7 +15,13 @@ export type DashboardPersonalAccounts = NonNullable<
 type GatewayAccountsReader = Pick<
   Awaited<ReturnType<typeof productionGatewayModelAccounts>>["reader"],
   "get"
->;
+> &
+  Partial<
+    Pick<
+      Awaited<ReturnType<typeof productionGatewayModelAccounts>>["reader"],
+      "enrichMetadata"
+    >
+  >;
 
 /** Personal model accounts the signed-in user may use in this workspace. */
 export async function loadDashboardPersonalAccounts(
@@ -37,7 +43,7 @@ export async function loadDashboardGatewayAccounts(
     const reader = personal
       ? await personal.models(workspaceId)
       : (await productionGatewayModelAccounts(workspaceId)).reader;
-    const listed = await reader.list({ limit: 25 });
+    const listed = await reader.list({ limit: 25, includeMetadata: false });
     if (listed.status !== "ok") return listed;
     const selected = new Map<string, Set<string>>();
     for (const config of configurations) {
@@ -72,7 +78,8 @@ export async function hydrateDashboardGatewayAccounts(
       : (await productionGatewayModelAccounts(workspaceId)).reader;
     // The configured profile catalog is independent of account pagination.
     // Never promote a detail's account-scoped models to a shared profile seed.
-    const listed = initial ?? (await reader.list({ limit: 25 }));
+    const listed =
+      initial ?? (await reader.list({ limit: 25, includeMetadata: false }));
     if (listed.status !== "ok") return listed;
     return await hydrateGatewayAccounts(
       reader,
@@ -89,7 +96,16 @@ async function hydrateGatewayAccounts(
   initial: Extract<AccountsResult<AccountsPage>, { status: "ok" }>,
   selected: ReadonlyMap<string, ReadonlySet<string> | undefined>,
 ): Promise<AccountsResult<AccountsPage>> {
-  if (!selected.size) return initial;
+  if (!selected.size)
+    return {
+      ...initial,
+      value: {
+        ...initial.value,
+        accounts: reader.enrichMetadata
+          ? await reader.enrichMetadata(initial.value.accounts)
+          : initial.value.accounts,
+      },
+    };
   const profiles = new Map(
     initial.value.profiles.map((profile) => [profile.id, profile]),
   );
@@ -109,7 +125,7 @@ async function hydrateGatewayAccounts(
       )
         return [id, null] as const;
       try {
-        const result = await reader.get(id);
+        const result = await reader.get(id, { includeMetadata: false });
         const previous = visible.get(id);
         if (
           result.status !== "ok" ||
@@ -138,5 +154,12 @@ async function hydrateGatewayAccounts(
     const account = details.get(id);
     if (account && !visible.has(id)) accounts.push(account);
   }
-  return { status: "ok", value: { ...initial.value, accounts } };
+  const displayed = reader.enrichMetadata
+    ? await reader.enrichMetadata(accounts)
+    : accounts.map((account) => {
+        // A legacy/test reader cannot prove private fields after hydration.
+        const { metadata: _metadata, ...safe } = account;
+        return safe;
+      });
+  return { status: "ok", value: { ...initial.value, accounts: displayed } };
 }

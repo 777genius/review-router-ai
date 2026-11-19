@@ -1,4 +1,5 @@
 import type { AccountLimitsService } from "./account-limits-service";
+import type { AccountMetadataService } from "./account-metadata-service";
 import { operationCompletion } from "./account-connection-catalog";
 import { secretSubmission } from "@agent-teams/account-gateway/http";
 import { lifecycleProjection } from "./account-lifecycle";
@@ -53,6 +54,7 @@ export type PersonalCanonicalOperationView = AccountOperationView & {
 };
 type Dependencies = {
   limits?: AccountLimitsService;
+  metadata?: AccountMetadataService;
   authorizeUser(): Promise<string>;
   lifecycleReader?: {
     get(accountRef: string): Promise<AccountLifecycleRead>;
@@ -734,7 +736,10 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       if (source.id !== sourceId) throw new Denied();
       const account = await scope.project(source);
       await scope.authorize();
-      return { ...receipt, account };
+      const displayed = input.metadata
+        ? (await input.metadata.page([account]))[0]!
+        : account;
+      return { ...receipt, account: displayed };
     } catch (error) {
       // Optional identity metadata cannot undo an already applied operation.
       // A current owner/session denial must still escape without reflecting it.
@@ -828,10 +833,13 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
             }
           }),
         );
+        const limited = input.limits
+          ? await input.limits.page(rows.filter((row) => row !== null))
+          : rows.filter((row) => row !== null);
         return {
-          accounts: input.limits
-            ? await input.limits.page(rows.filter((row) => row !== null))
-            : rows.filter((row) => row !== null),
+          accounts: input.metadata
+            ? await input.metadata.page(limited)
+            : limited,
           profiles: profiles.filter(
             (profile) =>
               profile.availability !== "deployment_configuration_required",

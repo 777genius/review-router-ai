@@ -418,6 +418,7 @@ function WorkspacePersonalRows({
               provider={row.provider}
               authKind={row.authKind}
               connection={row.connection}
+              metadata={row.metadata}
             />
             <AccountUsageLine usage={row.usage} />
             <AccountLimitsLine

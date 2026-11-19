@@ -1,0 +1,14 @@
+{
+  "contract": "native-account-info-sdk-provenance/v1",
+  "archive": "agent-teams-account-gateway-0.1.0-native-info-3b15422b102d.tgz",
+  "sha256": "30405b239dc8a1ffb76d1c3e3e7ee999329f90dbd4e7479ec7fa2672f499864f",
+  "sdkSourceRepository": "agent-teams-ai/account-gateway",
+  "sdkSourceCommit": "3b15422b102d3c3d2054dad204231630add75635",
+  "uncommittedSource": false,
+  "build": {
+    "node": "26.11.1",
+    "pnpm": "11.28.2"
+  },
+  "scope": "Account info v1 and provider connection capabilities v2 SDK. Consumer qualification is recorded separately; no production deployment.",
+  "previousProvenance": "nvidia-sandbox-sdk-provenance.json"
+}

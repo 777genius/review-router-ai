@@ -839,6 +839,7 @@ function PersonalControls({
                             provider: account.provider,
                             authKind: account.authKind,
                             connection: account.connection,
+                            metadata: account.metadata,
                           }
                         : {})}
                     />

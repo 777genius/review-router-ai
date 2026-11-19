@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import * as c from "@agent-teams/account-gateway/contracts";
 import type { ManagementClient } from "@agent-teams/account-gateway/http";
+import type { AccountMetadataService } from "./account-metadata-service";
 import {
   assertOpaqueReference,
   assertMetadata,
@@ -34,6 +35,7 @@ class RowDenied extends Error {}
  * Gateway discovery, mirror writes, provisioning or implicit binding creation.
  */
 export function createGatewayModelAccountOptions(input: {
+  readonly metadata?: AccountMetadataService;
   readonly prisma: PrismaClient;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly operatorWorkspaceId?: string;
@@ -368,10 +370,17 @@ export function createGatewayModelAccountOptions(input: {
     }
   }
   return {
+    enrichMetadata: <T extends AccountView>(
+      accounts: readonly T[],
+    ): Promise<T[]> =>
+      input.metadata
+        ? input.metadata.page(accounts)
+        : Promise.resolve([...accounts]),
     list(
       request: {
         readonly afterBindingId?: string;
         readonly limit?: number;
+        readonly includeMetadata?: boolean;
       } = {},
     ): Promise<AccountsResult<ModelPage>> {
       const afterBindingId = request.afterBindingId,
@@ -418,7 +427,10 @@ export function createGatewayModelAccountOptions(input: {
         }
         await checked(authority, async () => undefined);
         return {
-          accounts: projected,
+          accounts:
+            input.metadata && request.includeMetadata !== false
+              ? await input.metadata.page(projected)
+              : projected,
           profiles,
           nextCursor:
             candidates.length > limit ? rows[rows.length - 1]!.id : null,
@@ -427,7 +439,10 @@ export function createGatewayModelAccountOptions(input: {
     },
     get(
       bindingId: string,
-      options: { readonly forceRefresh?: boolean } = {},
+      options: {
+        readonly forceRefresh?: boolean;
+        readonly includeMetadata?: boolean;
+      } = {},
     ): Promise<
       AccountsResult<{ account: ModelAccount; profile: AccountProfileView }>
     > {
@@ -442,7 +457,11 @@ export function createGatewayModelAccountOptions(input: {
           options.forceRefresh === true,
         );
         await checked(authority, async () => undefined);
-        return { account, profile };
+        const displayed =
+          input.metadata && options.includeMetadata !== false
+            ? (await input.metadata.page([account]))[0]!
+            : account;
+        return { account: displayed, profile };
       });
     },
     // Private server-only selection for a diagnostic inference. Never returned

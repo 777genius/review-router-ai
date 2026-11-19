@@ -1,6 +1,8 @@
 import { connectionProfiles } from "./account-connection-catalog";
 import { gatewayAPIKeyProviderKinds } from "../features/provider-setup/provider-identity";
 import { createAccountLimitsService } from "./account-limits-service";
+import { createAccountMetadataService } from "./account-metadata-service";
+import { accountMetadataReader } from "./account-metadata-sdk-reader";
 import {
   accountLimitsReader,
   accountLimitsRefresher,
@@ -320,8 +322,37 @@ export async function productionPersonalAccounts() {
           : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
     });
   }
+  function metadata(workspaceId?: string, management = false) {
+    const metadataSettings = management
+      ? {
+          role: "management" as const,
+          origin:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
+          token:
+            process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
+        }
+      : controlSettings;
+    return createAccountMetadataService({
+      prisma,
+      reader: accountMetadataReader(metadataSettings),
+      secret: settings.contextKey,
+      ...(settings.operatorWorkspaceId
+        ? { operatorWorkspaceId: settings.operatorWorkspaceId }
+        : {}),
+      authorize: async () => {
+        await authorizeUser();
+        if (workspaceId) await workspaceAccess(workspaceId);
+        return { userId, ...(workspaceId ? { workspaceId } : {}) };
+      },
+      ownerRef: (owner) =>
+        owner.kind === "user"
+          ? accountGatewayUserOwnerRef(owner.userId)
+          : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
+    });
+  }
   const canonical = createPersonalCanonicalAccounts({
     limits: limits(),
+    metadata: metadata(),
     authorizeUser,
     store,
     canonical: canonicalStore,
@@ -445,6 +476,7 @@ export async function productionPersonalAccounts() {
   async function models(workspaceId: string) {
     const available = await reviewProfiles(workspaceId);
     return createGatewayModelAccountOptions({
+      metadata: metadata(workspaceId),
       prisma,
       env: process.env,
       profiles: available,
@@ -519,6 +551,7 @@ export async function productionPersonalAccounts() {
     });
     return createAccountsOverview({
       limits: limits(workspaceId, true),
+      metadata: metadata(workspaceId, true),
       prisma,
       cursorSecret: controlSettings.token,
       gateway: overviewReader,

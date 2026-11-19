@@ -19,6 +19,39 @@ afterEach(() => {
   }
 });
 
+describe("account metadata host seams", () => {
+  it("allows the public feature composition and SDK ports without interpreting comments as imports", () => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(
+      root,
+      "apps/web/src/server/account-metadata-service.ts",
+      'import { createAccountMetadata } from "@reviewrouter/features-provider-accounts/account-metadata/composition";\n// import "provider-private";\n',
+    );
+    writeFile(
+      root,
+      "apps/web/src/server/account-metadata-sdk-reader.ts",
+      'import { createManagementClient } from "@agent-teams/account-gateway/http";\n',
+    );
+    expect(runChecker(root)).toContain("Architecture boundary check passed");
+  });
+  it.each([
+    ["service", 'import { client } from "@agent-teams/account-gateway/http";'],
+    ["sdk-reader", 'export { refresh } from "../../sub2api/private";'],
+    ["sdk-reader", 'type Native = import("provider-private").Native;'],
+    [
+      "service",
+      'const request = () => fetch("https://provider.example.invalid");',
+    ],
+    ["sdk-reader", "const request = (path: string) => import(path);"],
+  ])("rejects a crossed %s boundary through real syntax", (kind, source) => {
+    const root = createFixture("export type Investigation = string;\n");
+    writeFile(root, `apps/web/src/server/account-metadata-${kind}.ts`, source);
+    expect(() => runChecker(root)).toThrow(
+      /account metadata host must use only/,
+    );
+  });
+});
+
 describe("nested feature layer coverage", () => {
   it("counts pure domain and application files below v2 and account-limits prefixes", () => {
     const root = createFixture("export type Investigation = string;\n");
