@@ -88,6 +88,30 @@ describe("Review progress GitHub comment policy", () => {
     ).toEqual({ hasNextPage: true, lastPage: 3 });
   });
 
+  it("cannot certify completion using another issue's Link", () => {
+    const expected = { owner: "acme", repo: "rocket", pullNumber: 42 };
+    const foreign =
+      '<https://api.github.com/repos/acme/rocket/issues/91/comments?page=1>; rel="last"';
+    const own =
+      '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="last"';
+    expect(commentPageLinks({ link: foreign }, 1, expected)).toEqual({
+      hasNextPage: undefined,
+      lastPage: 1,
+    });
+    expect(commentPageLinks({ link: own }, 1, expected)).toEqual({
+      hasNextPage: false,
+      lastPage: 1,
+    });
+    expect(
+      commentPageScanDecision(
+        commentPageLinks({ link: foreign }, 1, expected).hasNextPage,
+        100,
+        1,
+        2,
+      ),
+    ).toBe("continue");
+  });
+
   it("rejects a next link beyond its advertised last page", () => {
     const next = '<https://api.github.com/comments?page=2>; rel="next"';
     const last = '<https://api.github.com/comments?page=1>; rel="last"';
