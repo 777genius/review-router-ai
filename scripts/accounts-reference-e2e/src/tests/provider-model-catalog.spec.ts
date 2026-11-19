@@ -112,6 +112,14 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
         .getByRole("status")
         .filter({ hasText: "Please wait before refreshing again." }),
     ).toBeVisible();
+    // A failed update is the only state that asks for an action.
+    await expect(
+      dialog.getByRole("button", { name: "Try again", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: info.outputPath(`public-catalog-${kind}-try-again.png`),
+      fullPage: true,
+    });
     await model.fill("");
     await model.focus();
     await page
