@@ -26,6 +26,7 @@ type SandboxFailureReason =
   | "policy_refused"
   | "child_usage_exit"
   | "child_panic_exit"
+  | "child_namespace_refused"
   | "child_nonzero_exit"
   | "proof"
   | "postconditions"
@@ -199,14 +200,20 @@ export async function qualifyReadonlySandbox(input: {
             const policyRefused = diagnostic.includes(
               "permission profiles requiring direct runtime enforcement are incompatible with --use-legacy-landlock",
             );
+            const namespaceRefused =
+              /^bwrap: (?:Creating new namespace failed(?::|$)|No permissions to create a new namespace(?:,|$))/m.test(
+                diagnostic,
+              );
             fail(
               policyRefused
                 ? "policy_refused"
-                : code === 2
-                  ? "child_usage_exit"
-                  : code === 101
-                    ? "child_panic_exit"
-                    : "child_nonzero_exit",
+                : namespaceRefused
+                  ? "child_namespace_refused"
+                  : code === 2
+                    ? "child_usage_exit"
+                    : code === 101
+                      ? "child_panic_exit"
+                      : "child_nonzero_exit",
             );
             return;
           }

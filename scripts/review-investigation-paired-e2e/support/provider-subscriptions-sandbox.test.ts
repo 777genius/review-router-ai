@@ -77,6 +77,26 @@ describe("joined read-only sandbox proof", () => {
       reason: "policy_refused",
     },
     {
+      name: "bubblewrap namespace creation refused",
+      body: "printf '%s' 'bwrap: Creating new namespace failed: private system diagnostic' >&2; exit 1",
+      reason: "child_namespace_refused",
+    },
+    {
+      name: "bubblewrap namespace permission refused",
+      body: "printf '%s' 'bwrap: No permissions to create a new namespace, private system diagnostic' >&2; exit 1",
+      reason: "child_namespace_refused",
+    },
+    {
+      name: "unknown namespace diagnostic",
+      body: "printf '%s' 'private child: Creating new namespace failed: private path' >&2; exit 1",
+      reason: "child_nonzero_exit",
+    },
+    {
+      name: "namespace diagnostic with an unknown suffix",
+      body: "printf '%s' 'bwrap: Creating new namespace failed-looking custom diagnostic' >&2; exit 1",
+      reason: "child_nonzero_exit",
+    },
+    {
       name: "bounded child diagnostics",
       body: "head -c 8193 /dev/zero >&2; exit 101",
       reason: "child_output_limit",
