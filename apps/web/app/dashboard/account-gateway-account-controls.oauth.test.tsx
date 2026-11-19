@@ -1054,6 +1054,23 @@ test("removal from the engine's own list reports the result in plain words", asy
   expect(document.body.textContent).not.toMatch(/fence/i);
 });
 
+test("a failed reread marks kept rows as not refreshed until a reread succeeds", async () => {
+  page.accounts = [{ ...row("active"), label: "Kept row" }];
+  await mount();
+  const rowOf = () =>
+    screen.getByText("Kept row").closest(".py-4") as HTMLElement;
+  expect(rowOf().textContent).toContain("Ready");
+  vi.mocked(listGatewayAccounts).mockResolvedValueOnce({
+    status: "unavailable",
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));
+  await waitFor(() =>
+    expect(rowOf().textContent).toContain("Details could not be refreshed"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Refresh connections" }));
+  await waitFor(() => expect(rowOf().textContent).toContain("Ready"));
+});
+
 test("a lost response on Add asks to refresh instead of naming bindings", async () => {
   page.accounts = [row("active")];
   vi.mocked(bindGatewayAccount).mockRejectedValue(new Error("lost response"));

@@ -1292,6 +1292,8 @@ function Controls({
                   <AccountStatusLine
                     {...connectionRowStatus({
                       account,
+                      // A failed reread keeps the previous rows on screen.
+                      refreshFailed: page.isError,
                       localAction: lifecycleActivities.get(
                         account.connectionId,
                       ),
