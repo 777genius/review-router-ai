@@ -150,8 +150,11 @@ describe("public model catalog query", () => {
       // reporting the list and its small refresh.
       await waitFor(() =>
         expect(
-          (screen.getByRole("button", { name: "Refresh models" }) as HTMLButtonElement)
-            .disabled,
+          (
+            screen.getByRole("button", {
+              name: "Refresh models",
+            }) as HTMLButtonElement
+          ).disabled,
         ).toBe(false),
       );
       expect(screen.getByRole("status").textContent).toContain(

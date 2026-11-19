@@ -108,9 +108,7 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
       dialog.getByText("Access to these models has not been checked."),
     ).toBeVisible();
     await expect(
-      dialog
-        .getByRole("status")
-        .filter({ hasText: "Trying again shortly." }),
+      dialog.getByRole("status").filter({ hasText: "Trying again shortly." }),
     ).toBeVisible();
     // The server holds back after the failure and the list is read again
     // by itself each minute: no button to press.
