@@ -21,6 +21,7 @@ import type { GatewayAgentProfileOption } from "../../../src/server/gateway-agen
 import { gatewayProviderModelOptions } from "../../../src/features/provider-setup/provider-model-options";
 import {
   providerSetupDenialText,
+  reviewerNames,
   type ProviderSetupView,
 } from "../../../src/features/provider-setup/provider-setup-model";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
@@ -82,12 +83,21 @@ function storedMode(
     target.kind === "repository"
       ? view.repositories.find((row) => row.id === target.repository.id)
       : null;
-  const ownRoster = Boolean(
+  const ownSelections = Boolean(
     repository?.selections?.length || repository?.selection,
   );
   return (
-    (ownRoster ? repository?.providerMode : view.providerMode) ??
+    (ownSelections ? repository?.providerMode : view.providerMode) ??
     defaultReviewProviderMode
+  );
+}
+
+function workspaceDefaultSelections(
+  view: ProviderSetupView,
+): readonly ReviewProviderSelection[] {
+  return (
+    view.defaultSelections ??
+    (view.defaultSelection ? [view.defaultSelection] : [])
   );
 }
 
@@ -104,9 +114,7 @@ function storedRows(
   const own =
     repository?.selections ??
     (repository?.selection ? [repository.selection] : []);
-  const defaults =
-    view.defaultSelections ??
-    (view.defaultSelection ? [view.defaultSelection] : []);
+  const defaults = workspaceDefaultSelections(view);
   const selections =
     target.kind === "workspace"
       ? defaults
@@ -304,6 +312,12 @@ export function GatewayReviewerRoster({
       return next;
     });
   const fallback = mode === "fallback";
+  // How several reviewers work together means nothing for one reviewer: its
+  // mode stays as saved and the server fits the limits to the count.
+  const several = rows.length > 1;
+  const inherited = repository?.source === "workspace";
+  const ownRoster = repository?.source === "repository";
+  const workspaceDefaults = workspaceDefaultSelections(observed);
   const executionValue = (
     field: "providerMaxParallel" | "inlineMinAgreement",
   ): string => {
@@ -390,9 +404,9 @@ export function GatewayReviewerRoster({
         <div>
           <h3 className="text-sm font-semibold text-cyan-50">Reviewers</h3>
           <p className="text-xs leading-5 text-slate-400">
-            Each reviewer keeps its own model and settings. The first is the
-            primary: it also handles pull request description updates when
-            enabled.
+            Each reviewer keeps its own model and settings. The first reviewer
+            is the primary: it also updates the pull request description (when
+            enabled) and re-checks whether earlier findings were fixed.
           </p>
         </div>
         <Button
@@ -423,21 +437,26 @@ export function GatewayReviewerRoster({
           Add reviewer
         </Button>
       </div>
-      <SelectField
-        label="How reviewers work together"
-        value={mode}
-        disabled={blocked}
-        options={providerModeOptions.map(({ value, label }) => ({
-          value,
-          label,
-        }))}
-        hint={providerModeOptions.find((option) => option.value === mode)!.hint}
-        onValueChange={(value) => setMode(value as ReviewProviderMode)}
-      />
-      {repository?.source === "workspace" ? (
-        <p className="text-sm text-slate-300">
-          Using all workspace reviewers. Saving creates a complete repository
-          roster.
+      {several ? (
+        <SelectField
+          label="How reviewers work together"
+          value={mode}
+          disabled={blocked}
+          options={providerModeOptions.map(({ value, label }) => ({
+            value,
+            label,
+          }))}
+          hint={
+            providerModeOptions.find((option) => option.value === mode)!.hint
+          }
+          onValueChange={(value) => setMode(value as ReviewProviderMode)}
+        />
+      ) : null}
+      {inherited ? (
+        <p className="text-sm leading-6 text-slate-300">
+          This repository uses the workspace default reviewers below. Saving
+          gives it its own copy; later changes to the workspace default
+          won&apos;t apply here until you choose Use workspace reviewers.
         </p>
       ) : null}
       {rows.length === 0 ? (
@@ -524,7 +543,7 @@ export function GatewayReviewerRoster({
                     ) : null}
                   </div>
                   <div className="flex items-center gap-2">
-                    {fallback ? (
+                    {several ? (
                       <>
                         <Button
                           type="button"
@@ -729,7 +748,7 @@ export function GatewayReviewerRoster({
           </Button>
         ) : null}
       </div>
-      {fallback ? null : (
+      {fallback || !several ? null : (
         <div className="grid gap-4 sm:grid-cols-2">
           {(["providerMaxParallel", "inlineMinAgreement"] as const).map(
             (field) => (
@@ -818,7 +837,8 @@ export function GatewayReviewerRoster({
         </p>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-cyan-200/10 pt-4">
-        <div className="flex flex-wrap gap-2">
+        {/* Grows beside Save, so its full-width caption keeps Save on the right. */}
+        <div className="flex flex-wrap gap-2 sm:min-w-0 sm:flex-1">
           <Button
             type="button"
             variant="ghost"
@@ -829,19 +849,38 @@ export function GatewayReviewerRoster({
           >
             Choose another provider
           </Button>
-          {target.kind === "repository" &&
-          repository?.source === "repository" ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={
-                blocked || stale || repository.useDefault.allowed === false
-              }
-              onClick={() => void save(true)}
-            >
-              Use workspace reviewers
-            </Button>
+          {ownRoster ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={
+                  blocked || stale || repository?.useDefault.allowed === false
+                }
+                aria-describedby={`${prefix}-workspace-default`}
+                onClick={() => void save(true)}
+              >
+                Use workspace reviewers
+              </Button>
+              <p
+                id={`${prefix}-workspace-default`}
+                className="w-full break-words text-xs leading-5 text-slate-400"
+              >
+                {workspaceDefaults.length
+                  ? `Workspace default: ${reviewerNames(
+                      workspaceDefaults.map((selection) => {
+                        const profile = observed.profiles.find(
+                          (candidate) => candidate.id === selection.profileId,
+                        );
+                        return profile
+                          ? { label: profile.label, model: profile.model }
+                          : null;
+                      }),
+                    )}.`
+                  : "Choosing Use workspace reviewers stops reviews here: the workspace has no default reviewers."}
+              </p>
+            </>
           ) : null}
         </div>
         <Button
@@ -851,7 +890,11 @@ export function GatewayReviewerRoster({
           aria-busy={pending}
           onClick={() => void save()}
         >
-          {pending ? "Saving…" : "Save reviewers"}
+          {pending
+            ? "Saving…"
+            : inherited
+              ? "Save for this repository"
+              : "Save reviewers"}
         </Button>
       </div>
     </div>
