@@ -1277,7 +1277,7 @@ function Controls({
                   connection={account.connection}
                   metadata={
                     lifecycleActivities.has(account.connectionId)
-                      ? { status: "unknown" }
+                      ? { status: "unknown", displayToken: "restricted" }
                       : account.metadata
                   }
                 />

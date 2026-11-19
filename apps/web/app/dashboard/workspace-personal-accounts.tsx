@@ -420,7 +420,7 @@ function WorkspacePersonalRows({
               connection={row.connection}
               metadata={
                 lifecycleActivities.has(row.connectionId)
-                  ? { status: "unknown" }
+                  ? { status: "unknown", displayToken: "restricted" }
                   : row.metadata
               }
             />
