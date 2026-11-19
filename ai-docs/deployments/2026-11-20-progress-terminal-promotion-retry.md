@@ -78,7 +78,8 @@ Merging the PR did not deploy anything.
    through the existing worker path in the
    [release procedure](../operations/07-environments-and-release-management.md),
    together with the default-on rollout and its backlog expiry. Ordinary code
-   rollout is sufficient; old and new workers can overlap.
+   rollout is sufficient; old and new workers can overlap while writes are
+   off, as they are during the default-on rollout step.
 2. On the canary review check that the progress comment ends in its final state
    about 30 s after the App summary.
 3. Watch the worker log for `ReviewRouter worker phases failed` with
