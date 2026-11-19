@@ -5,7 +5,10 @@
  * comment a pull request keeps across revisions.
  */
 const reviewSummaryMarkerBody = "reviewrouter:summary:v2:[a-f0-9]{64}";
-const exactReviewSummaryMarker = new RegExp(`^${reviewSummaryMarkerBody}$`, "u");
+const exactReviewSummaryMarker = new RegExp(
+  `^${reviewSummaryMarkerBody}$`,
+  "u",
+);
 const embeddedReviewSummaryMarker = new RegExp(
   `(?<!\\S)${reviewSummaryMarkerBody}(?=$|[ \\t\\r\\n])`,
   "u",

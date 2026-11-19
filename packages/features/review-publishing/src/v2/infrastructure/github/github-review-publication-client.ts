@@ -1397,7 +1397,9 @@ function isBotAuthored(
   botLogin: string,
 ): boolean {
   const user = isRecord(row.user) ? row.user : null;
-  return typeof user?.login === "string" && user.login.toLowerCase() === botLogin;
+  return (
+    typeof user?.login === "string" && user.login.toLowerCase() === botLogin
+  );
 }
 
 function externalNumericId(value: string, prefix: string): number {

@@ -864,12 +864,8 @@ describeWithDatabase.sequential(
         "Parts finished after a retry: 6",
       );
 
-      fixture.fakeGitHub.seedAppComment(
-        progressComments(fixture)[0]!.body,
-      );
-      fixture.fakeGitHub.seedAppComment(
-        progressComments(fixture)[0]!.body,
-      );
+      fixture.fakeGitHub.seedAppComment(progressComments(fixture)[0]!.body);
+      fixture.fakeGitHub.seedAppComment(progressComments(fixture)[0]!.body);
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: { activeExecutionId: flow.executionId },
         data: { publishedVersion: { decrement: 1n } },
