@@ -136,6 +136,29 @@ describe("Skills catalog application boundaries", () => {
       validateCatalogSelection({ repository: "https://github.com/owner/repo" }),
     ).toThrow();
   });
+  it("explains unsupported content instead of failing and never stages it", async () => {
+    const s = setup();
+    const source = {
+      repository: "owner/repo",
+      commit: "a".repeat(40),
+      path: "x",
+    };
+    s.catalog.resolve.mockResolvedValue({
+      status: "resolved",
+      source,
+      rawContent: "raw",
+      rawDigest: "b".repeat(64),
+      hasResources: false,
+    });
+    s.normalizer.normalize.mockResolvedValue({
+      status: "unsupported",
+      reason: "too_large",
+    });
+    expect(
+      await s.service.resolve({ ...actor, repository: "owner/repo" }),
+    ).toEqual({ status: "unsupported", reason: "too_large", source });
+    expect(s.store.stage).not.toHaveBeenCalled();
+  });
   it("canonicalizes GitHub repository case before resolving a catalog selection", async () => {
     const s = setup();
     s.catalog.resolve.mockResolvedValue({ status: "not_found" });

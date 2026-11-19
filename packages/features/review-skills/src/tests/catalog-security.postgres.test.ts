@@ -29,6 +29,11 @@ describe.skipIf(!url)(
       fixture: Client,
       store: PrismaReviewSkillsCatalogStore;
     const normalizer = new PortableSkillImportNormalizer();
+    const normalize = async (raw: string) => {
+      const result = await normalizer.normalize(raw);
+      if (result.status !== "supported") throw new Error(result.reason);
+      return result.value;
+    };
     const actors: ReviewSkillsCatalogActor[] = [];
     const hash = (s: string) =>
       `sha256:${createHash("sha256").update(s).digest("hex")}`;
@@ -100,7 +105,7 @@ describe.skipIf(!url)(
           rawDigest: hash(raw),
           hasResources,
         },
-        normalized: await normalizer.normalize(raw),
+        normalized: await normalize(raw),
       });
     }
     async function request(
@@ -532,7 +537,7 @@ describe.skipIf(!url)(
             rawDigest: hash(raw),
             hasResources: false,
           },
-          normalized: await normalizer.normalize(raw),
+          normalized: await normalize(raw),
         });
         expect(
           new Date(c.expiresAt).getTime() - startedAt,
@@ -649,6 +654,32 @@ describe.skipIf(!url)(
           })
         ).instructions,
       ).toBe(c.content.instructions);
+      // A link to a file that is not imported needs the same acknowledgement,
+      // even when the source reports no other resources.
+      const linked = await candidate(who, "Read [rules](references/rules.md).");
+      expect(linked).toMatchObject({
+        linkedFiles: ["references/rules.md"],
+        hasResources: false,
+        acknowledgementRequired: true,
+      });
+      const linkedJob = await request(who, linked.id);
+      await complete(linkedJob.id, scanProfile(), "clear");
+      const linkedInput = {
+        ...input,
+        candidateId: linked.id,
+        scanId: linkedJob.id,
+      };
+      await expect(store.importCandidate(linkedInput)).rejects.toMatchObject({
+        code: "invalid_input",
+      });
+      expect(
+        (
+          await store.importCandidate({
+            ...linkedInput,
+            acknowledgeOmissions: true,
+          })
+        ).instructions,
+      ).toBe(linked.content.instructions);
       const blocked = await candidate(who, "Never use this unsafe content."),
         blockJob = await request(who, blocked.id);
       await complete(blockJob.id, scanProfile(), "blocked");

@@ -296,7 +296,7 @@ jobs:
           assert.equal(scanner.scannerAlive, true);
           assert.equal(scanner.workerAlive, true);
           const executed = scanner.requests.filter(request => request.path === '/v1/scans' && request.native);
-          assert.equal(executed.filter(request => request.mode === 'static').length, 8);
+          assert.equal(executed.filter(request => request.mode === 'static').length, 9);
           assert.equal(executed.filter(request => request.mode === 'ai').length, 1);
           assert.deepEqual([...new Set(scanner.profiles.profiles.map(profile => profile.mode))].sort(), ['ai', 'static']);
           NODE

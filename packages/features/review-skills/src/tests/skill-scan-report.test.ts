@@ -30,6 +30,61 @@ describe("SkillSpector import policy", () => {
       reportedUsage: null,
     });
   });
+  it("accepts a missing linked file as the only gap, and nothing wider", () => {
+    const linked = capturedNativeSkillSpectorReports.linkedFile;
+    expect(normalizeSkillScanReport(linked, scanProfile()).verdict).toBe(
+      "clear",
+    );
+    const completeness = linked.analysis_completeness;
+    const exception = completeness.ledger_exceptions[0]!;
+    for (const changed of [
+      { ...completeness, ledger_exceptions: [{ ...exception, fatal: true }] },
+      {
+        ...completeness,
+        ledger_exceptions: [
+          exception,
+          { ...exception, reason_code: "reference_unreadable" },
+        ],
+      },
+      { ...completeness, ledger_exceptions: [] },
+      { ...completeness, scope_exclusions: [{ path: "scripts" }] },
+      { ...completeness, limitations: ["timeout"] },
+      { ...completeness, partially_inspected_files: 1 },
+      { ...completeness, entirely_uninspected_files: 1 },
+      { ...completeness, execution_successful: false },
+    ])
+      expect(
+        normalizeSkillScanReport(
+          { ...linked, analysis_completeness: changed },
+          scanProfile(),
+        ).verdict,
+      ).toBe("incomplete");
+    // A CAUTION with a risk score is not explained by the linked file alone.
+    expect(
+      normalizeSkillScanReport(
+        {
+          ...linked,
+          risk_assessment: { ...linked.risk_assessment, score: 45 },
+        },
+        scanProfile(),
+      ).verdict,
+    ).toBe("warnings");
+    // A real finding still warns even when the gap is only a linked file.
+    expect(
+      normalizeSkillScanReport(
+        {
+          ...linked,
+          risk_assessment: {
+            ...linked.risk_assessment,
+            max_issue_severity: "MEDIUM",
+          },
+          issues: capturedNativeSkillSpectorReports.warnings.issues,
+        },
+        scanProfile(),
+      ).verdict,
+    ).toBe("warnings");
+  });
+
   it("retains bounded native AI counters separately from reserved quota", () => {
     expect(
       normalizeSkillScanReport(
