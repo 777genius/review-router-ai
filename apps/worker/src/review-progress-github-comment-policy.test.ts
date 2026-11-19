@@ -50,7 +50,10 @@ describe("Review progress GitHub comment policy", () => {
     const previous = `<https://api.github.com/comments?page=1>; rel="prev"`;
     expect(hasNextCommentPage({ Link: next }, 1)).toBe(true);
     expect(hasNextCommentPage({ link: previous }, 2)).toBe(false);
-    expect(hasNextCommentPage({ LINK: `${previous}, ${next}` }, 1)).toBe(true);
+    const nextAfterPrevious = `<https://api.github.com/comments?page=3>; rel="next"`;
+    expect(
+      hasNextCommentPage({ LINK: `${previous}, ${nextAfterPrevious}` }, 2),
+    ).toBe(true);
     expect(hasNextCommentPage({}, 1)).toBeUndefined();
   });
 
