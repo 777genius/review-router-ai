@@ -110,9 +110,10 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
     await expect(
       dialog
         .getByRole("status")
-        .filter({ hasText: "Try again in a few minutes." }),
+        .filter({ hasText: "Trying again shortly." }),
     ).toBeVisible();
-    // The server refuses another forced read for now: no button to press.
+    // The server holds back after the failure and the list is read again
+    // by itself each minute: no button to press.
     await expect(
       dialog.getByRole("button", { name: "Try again", exact: true }),
     ).toHaveCount(0);

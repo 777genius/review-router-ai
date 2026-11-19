@@ -75,21 +75,25 @@ export function GatewayReviewSettingsStatus({
   profile: AccountProfileView | undefined;
   bindingId: string | null;
 }) {
-  const outOfDate = accountModelCatalogOutOfDate(
-    profile,
-    account?.modelCatalog,
-  );
+  // Another model helps only when this account's current list was read.
+  const listCurrent =
+    account !== undefined &&
+    !accounts.listFailed &&
+    !accountModelCatalogOutOfDate(profile, account.modelCatalog);
   return (
     <StatusLine
       message={
         accounts.loading
           ? "Loading review settings for this model…"
-          : `Review settings are unavailable for this model.${outOfDate ? "" : " Choose another model or provider."}`
+          : `Review settings are unavailable for this model.${listCurrent ? " Choose another model or provider." : ""}`
       }
+      busy={accounts.loading}
       onRetry={
-        !account && bindingId && accounts.canRefresh
-          ? () => accounts.recheck(bindingId)
-          : undefined
+        account || !bindingId || !accounts.canRefresh
+          ? undefined
+          : accounts.listFailed
+            ? accounts.refresh
+            : () => accounts.recheck(bindingId)
       }
     />
   );

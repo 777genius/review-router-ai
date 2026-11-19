@@ -146,10 +146,16 @@ describe("public model catalog query", () => {
         "providerKind",
         "signal",
       ]);
+      // A cooldown answer for a healthy source is no failure: the line keeps
+      // reporting the list and its small refresh.
       await waitFor(() =>
-        expect(screen.getByRole("status").textContent).toContain(
-          "Try again in a few minutes",
-        ),
+        expect(
+          (screen.getByRole("button", { name: "Refresh models" }) as HTMLButtonElement)
+            .disabled,
+        ).toBe(false),
+      );
+      expect(screen.getByRole("status").textContent).toContain(
+        "Model list updated",
       );
     },
   );

@@ -29,6 +29,11 @@ const Context = createContext<{
   api: CatalogApi;
 } | null>(null);
 
+/** A failed source read the server will not retry for a few minutes. */
+const sourceCoolingDown = (
+  snapshot: ProviderModelCatalogSnapshot | undefined,
+) => snapshot?.refresh === "cooldown" && (snapshot.error ?? null) !== null;
+
 export function ProviderModelCatalogProvider({
   snapshots,
   children,
@@ -74,6 +79,11 @@ export function useProviderModelCatalogs(
           enabled: Boolean(context),
           retry: false,
           refetchOnWindowFocus: false,
+          // While the server holds back after a failed source read, read the
+          // cached answer again each minute so the line clears by itself.
+          refetchInterval: (query: {
+            state: { data: ProviderModelCatalogSnapshot | undefined };
+          }) => (sourceCoolingDown(query.state.data) ? 60_000 : false),
         };
       }),
     },
@@ -176,13 +186,13 @@ export function ProviderModelCatalogStatus({
           ? "Showing built-in model choices."
           : "Model list is unavailable.";
   const retry = failed || !snapshot || snapshot.state === "unavailable";
-  // The server refuses another forced read for a while after a failure.
-  const cooldown = snapshot?.refresh === "cooldown";
+  // The server holds back after a failure; the list is read again each minute.
+  const cooldown = sourceCoolingDown(snapshot);
   const refresh = () => void status.refresh();
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
       <StatusLine
-        message={`${message}${cooldown ? " Try again in a few minutes." : ""}`}
+        message={`${message}${cooldown ? " Trying again shortly." : ""}`}
         busy={status.loading}
         {...(cooldown
           ? {}
