@@ -173,6 +173,52 @@ test.describe("Accounts UX reference browser contract", () => {
     await expectNetworkViolations(violations);
   });
 
+  test("an organization connection is removed from the workspace once, with confirmation, and can be added back", async ({
+    page,
+    context,
+  }) => {
+    const violations: string[] = [];
+    await installLoopbackOnlyNetworkGuard(page, violations);
+    await useViewerSession(context);
+    await openAccounts(page, "rr-e2e-org-alpha");
+    const region = connectionsListRegion(page);
+    const label = FIXTURES.sourceLabels.orgAlpha;
+    const row = sourceRow(page, label, region);
+    await expect(row).toHaveCount(1);
+    // One entry for removal: no row Access button, one menu item.
+    await expect(row.getByRole("button", { name: "Access" })).toHaveCount(0);
+    const fixtureDatabase =
+      process.env.ACCOUNTS_REFERENCE_E2E_TEST_DATABASE_URL!;
+    try {
+      await row.getByRole("button", { name: `Actions for ${label}` }).click();
+      await expect(
+        page.getByRole("menuitem", { name: "Remove from this workspace" }),
+      ).toHaveCount(1);
+      await page
+        .getByRole("menuitem", { name: "Remove from this workspace" })
+        .click();
+      const dialog = dialogFor(page);
+      await expect(dialog.getByText(/stays in this list/)).toBeVisible();
+      await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+      await expect(row.getByText("Not added to this workspace")).toBeVisible();
+      // The row's own menu offers adding it back once the gateway confirms.
+      await row.getByRole("button", { name: `Actions for ${label}` }).click();
+      const add = page.getByRole("menuitem", { name: "Add to this workspace" });
+      await expect(add).toBeEnabled();
+      await add.click();
+      await expect(row.getByText("Used in this workspace")).toBeVisible();
+    } finally {
+      // Later specs use this binding; restore it if the UI path stopped early.
+      await withDatabase(fixtureDatabase, (db) =>
+        db.query(
+          `UPDATE "WorkspaceAccountBinding" SET state='active', "pendingFenceOperationId"=NULL, "pendingFencePolicySubject"=NULL, "pendingFencePolicyRevision"=NULL WHERE id=$1 AND state<>'active'`,
+          [FIXTURES.bindings.orgAlpha],
+        ),
+      );
+    }
+    await expectNetworkViolations(violations);
+  });
+
   test("access is a modal dialog with no POST on open, Cancel, or Escape", async ({
     page,
     context,

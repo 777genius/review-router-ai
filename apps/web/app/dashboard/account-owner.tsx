@@ -1,6 +1,18 @@
 import type { AccountView } from "../../src/server/account-gateway-accounts";
 import { GitHubAccountAvatar } from "../github-account-avatar";
-import { accountsCopy } from "./accounts-copy";
+import { accountsCopy, type ConnectionOwnerKind } from "./accounts-copy";
+
+/** Who owns a Connections row, from the safe owner fact or, without it, its origin. */
+export function connectionOwnerKind(
+  account: Pick<AccountView, "owner" | "origin">,
+): ConnectionOwnerKind {
+  const owner = account.owner;
+  if (owner?.kind === "personal") return owner.isViewer ? "viewer" : "member";
+  if (owner) return owner.kind;
+  return account.origin === "personal"
+    ? "member"
+    : (account.origin ?? "unknown");
+}
 
 /** Owner cell of a Connections row: "You", a member handle, or the workspace. */
 export function AccountOwner({
@@ -19,20 +31,17 @@ export function AccountOwner({
       : owner?.kind === "organization"
         ? owner.label
         : "Owner";
+  const kind = connectionOwnerKind(account);
   const text =
-    owner?.kind === "personal"
-      ? owner.isViewer
-        ? "You"
-        : owner.handle
-          ? `@${owner.handle}`
-          : accountsCopy.ownerUnavailable
-      : owner?.kind === "organization"
-        ? owner.label
-        : owner?.kind === "operator"
+    kind === "viewer"
+      ? "You"
+      : owner?.kind === "personal" && owner.handle
+        ? `@${owner.handle}`
+        : owner?.kind === "organization" || owner?.kind === "operator"
           ? owner.label
-          : account.origin === "organization"
+          : kind === "organization"
             ? "This workspace"
-            : account.origin === "operator"
+            : kind === "operator"
               ? "ReviewRouter"
               : accountsCopy.ownerUnavailable;
   return (
