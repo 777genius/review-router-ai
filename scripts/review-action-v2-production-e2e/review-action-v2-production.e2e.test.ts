@@ -873,24 +873,52 @@ describeWithDatabase.sequential(
       await fixture.terminalizeProgressSlot(flow.executionId, 3);
       // An individual settlement is insufficient without a durable terminal
       // attempt. Exercise the actual finalized-outbox and publication path.
-      await expect(
-        fixture.promoteProgress(flow.executionId, "succeeded"),
-      ).resolves.toBe(0);
+      const terminalProgress = () =>
+        fixture.prisma.reviewExecutionProgressV1.findUniqueOrThrow({
+          where: { executionId: flow.executionId },
+          select: { terminalOutcome: true, desiredVersion: true },
+        });
+      await expect(fixture.promoteProgress(flow.executionId)).resolves.toBe(0);
+      await fixture.sweepProgressPromotion();
+      await expect(terminalProgress()).resolves.toMatchObject({
+        terminalOutcome: null,
+      });
       const finalized = await fixture.finalize(flow, { allowPartial: true });
       expect(finalized.result.status).toBe(
         ReviewExecutionMutationResultStatus.Applied,
       );
       await fixture.processFinalizedOutbox();
       await fixture.runWorkerUntilSettled();
-      // The normal worker harness does not enable progress publication.
-      // Promote only after the real terminal attempt has durably settled.
-      await expect(
-        fixture.promoteProgress(flow.executionId, "succeeded"),
-      ).resolves.toBe(1);
+      // The normal worker harness does not enable progress publication, so
+      // the settlement hint is lost like a worker restart loses it. Without a
+      // posted comment nothing is stuck on GitHub, and the sweep must not post
+      // one for a finished review (the operator's backlog expiry relies on it).
+      await fixture.sweepProgressPromotion();
+      await expect(terminalProgress()).resolves.toMatchObject({
+        terminalOutcome: null,
+      });
       await fixture.makeProgressDue();
       await expect(fixture.publishProgress()).resolves.toMatchObject({
         published: 1,
       });
+      expect(progressComments(fixture)[0]?.body).toContain(
+        "Assembling results",
+      );
+      // The comment now waits at "Assembling results". The sweep alone must
+      // promote the durably settled attempt, exactly once.
+      await expect(fixture.sweepProgressPromotion()).resolves.toBeGreaterThan(
+        0,
+      );
+      const promoted = await terminalProgress();
+      expect(promoted.terminalOutcome).toBe("complete_with_gaps");
+      await expect(fixture.sweepProgressPromotion()).resolves.toBe(0);
+      await expect(fixture.promoteProgress(flow.executionId)).resolves.toBe(0);
+      await expect(terminalProgress()).resolves.toEqual(promoted);
+      await fixture.makeProgressDue();
+      await expect(fixture.publishProgress()).resolves.toMatchObject({
+        published: 1,
+      });
+      expect(progressComments(fixture)).toHaveLength(1);
       const body = progressComments(fixture)[0]?.body ?? "";
       expect(body).toContain("**Phase:** Complete with gaps");
       expect(body).toContain("Progress: 3 of 4 parts reviewed (75%)");

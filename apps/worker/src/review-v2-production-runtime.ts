@@ -163,6 +163,7 @@ import {
 } from "./review-v2-worker-runtime";
 import { ReviewProgressPublisher } from "./review-progress-publisher";
 import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
+import { ReviewProgressTerminalPromotion } from "./review-progress-terminal-promotion";
 import { GitHubActionsReviewRequestedDispatchGateway } from "./review-v2-intent-dispatcher";
 import { ReviewV2TerminalRunRecovery } from "./review-v2-terminal-run-recovery";
 import { GitHubReviewRequestEligibilityGateway } from "./review-v2-request-eligibility-gateway";
@@ -841,12 +842,10 @@ function createHostedReviewProgressRuntime(input: {
       ),
     },
   );
+  const promotion = new ReviewProgressTerminalPromotion(store, input.clock);
   return {
     promoteSettledExecutions: ({ settlements }) =>
-      store.promoteSettledExecutions({
-        settlements,
-        now: input.clock.now(),
-      }),
+      promotion.promote(settlements),
     runMaintenance: () => publisher.runMaintenance(),
   };
 }

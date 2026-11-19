@@ -433,7 +433,7 @@ describe("ReviewProgressPublisher", () => {
         publication,
         safeCode: "review_progress_duplicate_cleanup_pending",
         retryAt: new Date(now.getTime() + 1_000),
-        countFailure: false,
+        resetFailureCount: true,
         maxFailures: 3,
       }),
     );
@@ -475,7 +475,7 @@ describe("ReviewProgressPublisher", () => {
       expect.objectContaining({
         publication,
         safeCode: "review_progress_duplicate_cleanup_pending",
-        countFailure: false,
+        resetFailureCount: true,
       }),
     );
     expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
@@ -532,7 +532,7 @@ describe("ReviewProgressPublisher", () => {
       expect.objectContaining({
         publication,
         safeCode: "review_progress_duplicate_cleanup_pending",
-        countFailure: false,
+        resetFailureCount: true,
       }),
     );
     expect(store.complete).not.toHaveBeenCalled();
@@ -598,6 +598,7 @@ describe("ReviewProgressPublisher", () => {
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
         scope: publication.scope,
         now,
+        retryAt: expect.any(Date),
       });
     },
   );
@@ -661,6 +662,7 @@ describe("ReviewProgressPublisher", () => {
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
         scope: publication.scope,
         now,
+        retryAt: expect.any(Date),
       });
     },
   );
@@ -948,9 +950,11 @@ describe("ReviewProgressPublisher", () => {
       );
       expect(store.complete).not.toHaveBeenCalled();
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledOnce();
+      // The repair keeps the retry deadline that the stale retry dropped.
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
         scope: publication.scope,
         now,
+        retryAt: store.retry.mock.calls[0]![0].retryAt,
       });
     },
   );
@@ -1020,6 +1024,7 @@ describe("ReviewProgressPublisher", () => {
       expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
         scope: publication.scope,
         now,
+        retryAt: expect.any(Date),
       });
     },
   );
@@ -1058,6 +1063,7 @@ describe("ReviewProgressPublisher", () => {
     expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
       scope: publication.scope,
       now,
+      retryAt: expect.any(Date),
     });
   });
 

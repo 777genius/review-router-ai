@@ -127,6 +127,7 @@ import { createProductionReviewV2WorkerRuntime } from "../../../apps/worker/src/
 import { createReviewStatisticsSettlementCapture } from "../../../apps/worker/src/review-statistics-settlement-capture.js";
 import { createReviewStatisticsSettledHandler } from "../../../apps/worker/src/review-statistics-worker-runtime.js";
 import { PrismaReviewProgressPublicationStore } from "../../../apps/worker/src/review-progress-store.js";
+import { ReviewProgressTerminalPromotion } from "../../../apps/worker/src/review-progress-terminal-promotion.js";
 import {
   createReviewV2WorkerFeature,
   reviewExecutionFinalizedEventType,
@@ -1829,16 +1830,23 @@ export class ReviewActionV2E2EHarness {
     });
   }
 
-  async promoteProgress(
-    executionId: string,
-    outcome: "succeeded" | "failed" | "superseded",
-  ): Promise<number> {
+  async promoteProgress(executionId: string): Promise<number> {
     return new PrismaReviewProgressPublicationStore(
       this.prisma,
     ).promoteSettledExecutions({
-      settlements: [{ executionId, outcome }],
+      executionIds: [executionId],
       now: new Date(),
     });
+  }
+
+  /** Run the worker's promotion sweep without any settlement hint. */
+  async sweepProgressPromotion(): Promise<number> {
+    // One page covers every scope this suite creates.
+    return new ReviewProgressTerminalPromotion(
+      new PrismaReviewProgressPublicationStore(this.prisma),
+      { now: () => new Date() },
+      10_000,
+    ).promote([]);
   }
 
   async deadLetterAndRecoverFinalizedEvent(): Promise<void> {
