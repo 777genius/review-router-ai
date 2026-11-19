@@ -62,7 +62,7 @@ describe("ReviewProgressGitHubGateway", () => {
     });
     expect(
       fixture.calls.filter(({ route }) => route.startsWith("GET ")),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
   });
 
   it("reconciles a timed-out PATCH when the marked comment was updated", async () => {
