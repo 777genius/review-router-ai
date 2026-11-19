@@ -155,6 +155,10 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     });
     const providerSource = path.join(source, "src/providers/codex.ts");
     assert.equal(digest(await readFile(providerSource)), codexSourceDigest);
+    const reviewOutput = (await import(
+      pathToFileURL(path.join(source, "src/providers/review-output.ts")).href
+    )) as { buildReviewFindingsSchema(): unknown };
+    const expectedReviewSchema = reviewOutput.buildReviewFindingsSchema();
     assert.equal(digest(await readFile(binary)), codexBinaryDigest);
     const oauthSource = await readFile(
       path.join(source, "src/codex-oauth/codex-cli.ts"),
@@ -277,9 +281,22 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         assert.equal(raw.model, input.model);
         relayPhase = "cli-stream";
         assert.equal(raw.stream, true);
-        const textFormat = (raw.text as { format?: { type?: string; schema?: unknown } } | undefined)?.format;
-        assert.equal(textFormat?.type, "json_schema", "actual review must request its findings schema");
-        assert.ok(textFormat.schema && typeof textFormat.schema === "object");
+        relayPhase = "cli-review-schema";
+        const textFormat = (
+          raw.text as
+            | { format?: { type?: string; schema?: unknown } }
+            | undefined
+        )?.format;
+        assert.equal(
+          textFormat?.type,
+          "json_schema",
+          "actual review must request its findings schema",
+        );
+        assert.deepEqual(
+          textFormat?.schema,
+          expectedReviewSchema,
+          "actual CLI must preserve the pinned Action findings/revalidations schema",
+        );
         structuredOutputRequests++;
         relayPhase = "cli-reasoning";
         assert.ok(
@@ -351,7 +368,11 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         ) as Record<string, unknown>;
         assert.ok(!("reasoning" in forwarded));
         assert.equal(forwarded.service_tier, "default");
-        assert.deepEqual(forwarded.text, raw.text, "production relay must preserve the review schema");
+        assert.deepEqual(
+          forwarded.text,
+          raw.text,
+          "production relay must preserve the review schema",
+        );
         relayPhase = "sdk-execution-request";
         const upstream = await selectedExecution.request(
           selectedRef,

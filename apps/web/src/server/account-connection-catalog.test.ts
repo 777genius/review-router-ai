@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { GatewayError } from "@agent-teams/account-gateway/http";
+import type { ProviderConnectionCapabilityV2 } from "@agent-teams/account-gateway/contracts";
+import {
+  canCreateConnection,
+  connectionMethodAllowed,
+} from "../features/account-gateway/connection-capabilities";
 import {
   configuredSubscriptionProfiles,
   connectionProfiles,
@@ -278,8 +283,6 @@ const v2Capability = {
 
 describe("native v2 catalog and method admission", () => {
   it("reads one v2 catalog and preserves independent create/reconnect methods", async () => {
-    const { connectionMethodAllowed } =
-      await import("../features/account-gateway/connection-capabilities");
     const [profile] = await connectionProfiles({
       legacy: [
         {
@@ -342,7 +345,7 @@ describe("native v2 catalog and method admission", () => {
   ] as const)(
     "qualifies %s only with its native identity and API-key method",
     async (profileId, provider) => {
-      const wire = {
+      const wire: ProviderConnectionCapabilityV2 = {
         ...v2Capability,
         profileId,
         provider: { id: provider, label: provider },
@@ -380,6 +383,85 @@ describe("native v2 catalog and method admission", () => {
       ]);
     },
   );
+  it.each([
+    [undefined, true],
+    [["browser"], false],
+    [[], false],
+  ] as const)(
+    "intersects native OAuth methods with the explicit product bound %j",
+    async (oauthMethods, deviceAllowed) => {
+      const [profile] = await connectionProfiles({
+        legacy: [
+          {
+            id: codexId,
+            label: "Codex",
+            provider: "codex",
+            authKind: "oauth",
+            protocol: "openai-responses",
+            models: capability.modelIds,
+            ...(oauthMethods ? { oauthMethods } : {}),
+          },
+        ],
+        capabilitiesV2: async () => ({
+          contract: "provider-connections/v2",
+          capabilities: [
+            {
+              ...v2Capability,
+              methods: [
+                {
+                  kind: "browser",
+                  completionInputKind: "callback_url",
+                  callbackMode: "manual_callback_url",
+                  create: true,
+                  reconnect: true,
+                },
+                { kind: "device_code", create: true, reconnect: true },
+              ],
+            },
+          ],
+        }),
+      });
+      expect(profile).toBeDefined();
+      for (const action of ["create", "reconnect"] as const) {
+        expect(connectionMethodAllowed(profile!, action, "device_code")).toBe(
+          deviceAllowed,
+        );
+        expect(connectionMethodAllowed(profile!, action, "browser")).toBe(
+          oauthMethods === undefined || oauthMethods.length > 0,
+        );
+      }
+      expect(profile!.oauthMethods).toEqual(
+        oauthMethods ?? ["browser", "device_code"],
+      );
+      expect(profile!.canReconnect).toBe(
+        oauthMethods === undefined || oauthMethods.length > 0,
+      );
+      expect(canCreateConnection(profile!)).toBe(
+        oauthMethods === undefined || oauthMethods.length > 0,
+      );
+      expect(profile!.models).toEqual(capability.modelIds);
+    },
+  );
+  it("honors an explicit product reconnect denial despite native method support", () => {
+    const profile = {
+      id: codexId,
+      authKind: "oauth" as const,
+      canReconnect: false,
+      connection: {
+        provider: "openai" as const,
+        planLabel: "Codex",
+        regionLabel: "Global",
+        completionInputKind: "callback_url" as const,
+        limitsContract: "account-limits/v2" as const,
+        modelSettings: capability.models,
+        methods: [{ kind: "browser" as const, create: true, reconnect: true }],
+      },
+    };
+    expect(connectionMethodAllowed(profile, "create", "browser")).toBe(true);
+    expect(connectionMethodAllowed(profile, "reconnect", "browser")).toBe(
+      false,
+    );
+  });
   it.each([400, 404, 403, 503])(
     "does not probe v1 after a v2 discovery error %s",
     async (httpStatus) => {

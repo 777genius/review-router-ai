@@ -44,8 +44,10 @@ export async function productionGatewayModelAccounts(workspaceId: string) {
       owner.kind === "user"
         ? accountGatewayUserOwnerRef(owner.userId)
         : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
-    authorize: async () => {
-      const current = await getDashboardSignedInActor();
+    authorize: async (authorizationDb) => {
+      const current = await getDashboardSignedInActor({
+        prisma: authorizationDb,
+      });
       if (current?.userId !== userId)
         throw new ProviderAccountError("workspace_forbidden");
       return { userId, workspaceId };

@@ -132,6 +132,81 @@ export async function startGatewayFixture(input: {
   const limits = process.argv.includes("--limits-fixture")
     ? createLimitsFixture(accounts)
     : null;
+  // One synthetic descriptor snapshot serves both discovery contracts. Only
+  // the subscription fixture implements fresh enrollment/reconnect handlers.
+  const catalog = [
+    ...(accountModels
+      ? [
+          {
+            profileId: CODEX_MODEL_PROFILE,
+            provider: "openai",
+            label: "Codex",
+            planId: "subscription",
+            plan: "ChatGPT subscription",
+            model: "gpt-5.6-sol",
+            methods: [
+              {
+                kind: "browser",
+                create: false,
+                reconnect: false,
+                completionInputKind: "callback_url",
+                callbackMode: "automatic",
+              },
+            ],
+            limitsContract: "none",
+          },
+        ]
+      : []),
+    ...(subscriptions
+      ? connectionProfiles.map((profile) => ({
+          ...profile,
+          methods: [
+            profile.provider === "grok"
+              ? {
+                  kind: "browser",
+                  create: true,
+                  reconnect: true,
+                  completionInputKind: "authorization_code",
+                  callbackMode: "manual_callback_url",
+                }
+              : { kind: "api_key", create: true, reconnect: true },
+          ],
+          limitsContract: "account-limits/v2",
+        }))
+      : []),
+    {
+      profileId: FIXTURES.gateway.profileId,
+      provider: "mimo",
+      label: "MiMo",
+      planId: "unknown",
+      plan: "MiMo",
+      model: "rr-e2e-model",
+      methods: [{ kind: "api_key", create: false, reconnect: false }],
+      limitsContract: limits ? "account-limits/v1" : "none",
+    },
+    ...(limits
+      ? [
+          {
+            profileId: FIXTURES.gateway.claudeProfileId,
+            provider: "anthropic",
+            label: "Claude",
+            planId: "subscription",
+            plan: "Claude subscription",
+            model: "claude-sonnet-4-6",
+            methods: [
+              {
+                kind: "browser",
+                create: false,
+                reconnect: false,
+                completionInputKind: "authorization_code",
+                callbackMode: "manual_callback_url",
+              },
+            ],
+            limitsContract: "account-limits/v1",
+          },
+        ]
+      : []),
+  ];
   const probes = new Map<
     string,
     { admission: Record<string, unknown>; bearer: string }
@@ -387,6 +462,34 @@ export async function startGatewayFixture(input: {
       return;
     }
     if (
+      requestUrl.pathname === "/v2/provider-connection-capabilities" &&
+      request.method === "GET"
+    ) {
+      send(response, 200, {
+        contract: "provider-connections/v2",
+        capabilities: catalog.map((profile) => ({
+          profileId: profile.profileId,
+          provider: { id: profile.provider, label: profile.label },
+          product: { id: profile.planId, label: profile.plan },
+          region: { id: "global", label: "Global" },
+          protocol: "openai-responses",
+          models: [
+            {
+              modelId: profile.model,
+              reasoning: null,
+              fast: null,
+              tools: { allowed: ["function"], default: "function" },
+            },
+          ],
+          methods: profile.methods,
+          accountInfo: false,
+          limitsContract: profile.limitsContract,
+          availability: "enabled",
+        })),
+      });
+      return;
+    }
+    if (
       accountModels &&
       requestUrl.pathname === "/v1/account-models/read" &&
       request.method === "POST"
@@ -458,42 +561,16 @@ export async function startGatewayFixture(input: {
     }
     if (requestUrl.pathname === "/v1/profiles" && request.method === "GET") {
       send(response, 200, {
-        profiles: [
-          ...(accountModels
-            ? [
-                {
-                  profileId: CODEX_MODEL_PROFILE,
-                  protocol: "openai-responses",
-                  modelIds: ["gpt-5.6-sol"],
-                  authKinds: ["oauth"],
-                },
-              ]
-            : []),
-          ...(subscriptions
-            ? connectionProfiles.map((profile) => ({
-                profileId: profile.profileId,
-                protocol: "openai-responses",
-                modelIds: [profile.model],
-                authKinds: [profile.provider === "grok" ? "oauth" : "api_key"],
-              }))
-            : []),
-          {
-            profileId: FIXTURES.gateway.profileId,
-            protocol: "openai-responses",
-            modelIds: ["rr-e2e-model"],
-            authKinds: ["api_key"],
-          },
-          ...(limits
-            ? [
-                {
-                  profileId: FIXTURES.gateway.claudeProfileId,
-                  protocol: "openai-responses",
-                  modelIds: ["claude-sonnet-4-6"],
-                  authKinds: ["oauth"],
-                },
-              ]
-            : []),
-        ],
+        profiles: catalog.map((profile) => ({
+          profileId: profile.profileId,
+          protocol: "openai-responses",
+          modelIds: [profile.model],
+          authKinds: [
+            profile.methods.some((method) => method.kind === "api_key")
+              ? "api_key"
+              : "oauth",
+          ],
+        })),
       });
       return;
     }

@@ -8,6 +8,7 @@ import { createPrismaClient } from "@reviewrouter/platform-db";
 import type {
   AccountMetadataFields,
   AccountMetadataObservation,
+  AccountMetadataReader,
 } from "@reviewrouter/features-provider-accounts/account-metadata";
 import { createAccountMetadataService } from "./account-metadata-service";
 
@@ -47,10 +48,10 @@ const observations = (refs: readonly string[]): AccountMetadataObservation[] =>
     info: { status: "available", fields },
   }));
 
-async function fixture() {
+async function fixture(poolMax = 4, readMembership = false) {
   const db = createPrismaClient({
     databaseUrl: disposableDatabase(),
-    poolMax: 4,
+    poolMax,
   });
   const prefix = `metadata-${randomUUID()}`;
   const owner = `${prefix}-owner`,
@@ -132,16 +133,25 @@ async function fixture() {
     ),
   );
   let scope: { userId: string; workspaceId?: string } = { userId: owner };
-  const read = vi.fn(
-    async (_ownerRef: string, refs: readonly string[], _signal: AbortSignal) =>
-      observations(refs),
+  const read = vi.fn<AccountMetadataReader["read"]>(async (_ownerRef, refs) =>
+    observations(refs),
   );
+  const authorize = vi.fn<
+    Parameters<typeof createAccountMetadataService>[0]["authorize"]
+  >(async (authorizationDb) => {
+    if (readMembership && scope.workspaceId)
+      await authorizationDb.workspaceMember.findFirst({
+        where: { workspaceId: scope.workspaceId, userId: scope.userId },
+        select: { role: true },
+      });
+    return scope;
+  });
   const service = createAccountMetadataService({
     prisma: db,
     reader: { read },
     secret: "TEST-only-metadata-secret",
     operatorWorkspaceId: operator,
-    authorize: async () => scope,
+    authorize,
     ownerRef: (owner) =>
       owner.kind === "user" ? `u-${owner.userId}` : `w-${owner.workspaceId}`,
   });
@@ -163,6 +173,7 @@ async function fixture() {
     operated,
     bindings,
     read,
+    authorize,
     page,
     setScope: (value: typeof scope) => {
       scope = value;
@@ -173,6 +184,130 @@ async function fixture() {
 describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
   "native account metadata database authorization",
   () => {
+    it.each(["source", "membership"] as const)(
+      "cancels a locked %s query and releases the sole pool connection before the lock is released",
+      async (lockedTable) => {
+        const f = await fixture(1, true);
+        const blocker = createPrismaClient({
+          databaseUrl: disposableDatabase(),
+          poolMax: 2,
+        });
+        let release = () => {};
+        let acquired = () => {};
+        const unlock = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const ready = new Promise<void>((resolve) => {
+          acquired = resolve;
+        });
+        const [baseline] = await f.db.$queryRaw<
+          Array<{
+            pid: number;
+            statement_timeout: string;
+            lock_timeout: string;
+          }>
+        >`SELECT pg_backend_pid() AS pid, current_setting('statement_timeout') AS statement_timeout,
+          current_setting('lock_timeout') AS lock_timeout`;
+        const held = blocker.$transaction(
+          async (tx) => {
+            if (lockedTable === "source")
+              await tx.$executeRaw`LOCK TABLE "ProviderAccountConnection" IN ACCESS EXCLUSIVE MODE`;
+            else
+              await tx.$executeRaw`LOCK TABLE "WorkspaceMember" IN ACCESS EXCLUSIVE MODE`;
+            acquired();
+            await unlock;
+          },
+          { timeout: 15000, maxWait: 1000 },
+        );
+        try {
+          await Promise.race([ready, held]);
+          f.setScope({ userId: f.owner, workspaceId: f.org });
+          const pending = f.page(f.personal.id);
+          await vi.waitFor(
+            async () => {
+              const [waiting] = await blocker.$queryRaw<
+                Array<{ wait: string | null; query: string }>
+              >`
+              SELECT wait_event_type AS wait, query FROM pg_stat_activity WHERE pid = ${baseline!.pid}`;
+              expect(waiting?.wait).toBe("Lock");
+              expect(waiting?.query).toContain(
+                lockedTable === "source"
+                  ? "ProviderAccountConnection"
+                  : "WorkspaceMember",
+              );
+            },
+            { timeout: 1500, interval: 10 },
+          );
+          const rows = await pending;
+          expect(rows[0]?.metadata?.status).toBe("restricted");
+          expect(rows[0]?.label).toBe("Inventory survives");
+          expect(JSON.stringify(rows)).not.toContain("private-owner");
+          expect(f.read).not.toHaveBeenCalled();
+          // The peer still holds its lock. Success on this one-connection pool
+          // proves actual cancellation/release, not just a raced page response.
+          await vi.waitFor(
+            async () => {
+              const [probe] = await f.db.$queryRaw<
+                Array<{
+                  ready: number;
+                  statement_timeout: string;
+                  lock_timeout: string;
+                }>
+              >`SELECT 1 AS ready, current_setting('statement_timeout') AS statement_timeout,
+              current_setting('lock_timeout') AS lock_timeout`;
+              expect(probe).toEqual({
+                ready: 1,
+                statement_timeout: baseline!.statement_timeout,
+                lock_timeout: baseline!.lock_timeout,
+              });
+            },
+            { timeout: 1000 },
+          );
+        } finally {
+          release();
+          await held;
+          await blocker.$disconnect();
+          await f.db.$disconnect();
+        }
+      },
+    );
+
+    it("bounds pool admission and never starts expired authorization after a connection becomes free", async () => {
+      const f = await fixture(1, true);
+      let release = () => {};
+      let acquired = () => {};
+      const unlock = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const ready = new Promise<void>((resolve) => {
+        acquired = resolve;
+      });
+      const held = f.db.$transaction(
+        async () => {
+          acquired();
+          await unlock;
+        },
+        { timeout: 10000, maxWait: 1000 },
+      );
+      try {
+        await Promise.race([ready, held]);
+        const rows = await f.page(f.personal.id);
+        expect(rows[0]?.metadata?.status).toBe("restricted");
+        expect(f.authorize).not.toHaveBeenCalled();
+        expect(f.read).not.toHaveBeenCalled();
+        release();
+        await held;
+        await expect(f.db.$queryRaw`SELECT 1 AS ready`).resolves.toEqual([
+          { ready: 1 },
+        ]);
+        expect(f.authorize).not.toHaveBeenCalled();
+      } finally {
+        release();
+        await held;
+        await f.db.$disconnect();
+      }
+    });
+
     it("records verified workspace epochs and rejects rollback/CAS races before exposing metadata", async () => {
       const f = await fixture();
       try {

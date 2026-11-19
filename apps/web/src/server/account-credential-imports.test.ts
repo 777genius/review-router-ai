@@ -174,7 +174,14 @@ it("uses the pinned SDK transport for Codex imports and native-only direct APIs,
     gateway,
     authorize: async () => {
       if (!authorized) throw new Error("denied");
-      return { workspaceId: "test-workspace", actor: { userId: "test-admin" } };
+      return {
+        workspaceId: "test-workspace",
+        actor: {
+          userId: "test-admin",
+          githubUserId: "123",
+          githubLogin: "test-admin",
+        },
+      };
     },
     accounts: unused as Input["accounts"],
     synchronization: unused as Input["synchronization"],

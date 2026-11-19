@@ -16,17 +16,31 @@ it("allows cached suspended owner facts and hides a pending source operation", a
     bindingId: null,
     bindingRevision: null,
   };
-  const read = vi.fn(async () => [
-    {
-      accountRef: "native",
-      authorizationEpoch: 1,
-      metadataRevision: 1,
-      info: { status: "unsupported" as const },
-    },
-  ]);
+  let transactionOpen = false;
+  const read = vi.fn(async () => {
+    expect(transactionOpen).toBe(false);
+    return [
+      {
+        accountRef: "native",
+        authorizationEpoch: 1,
+        metadataRevision: 1,
+        info: { status: "unsupported" as const },
+      },
+    ];
+  });
   const service = createAccountMetadataService({
     prisma: {
-      $queryRaw: async () => [{ ...source }],
+      $transaction: async (work: (tx: object) => Promise<unknown>) => {
+        transactionOpen = true;
+        try {
+          return await work({
+            $executeRaw: async () => 1,
+            $queryRaw: async () => [{ ...source }],
+          });
+        } finally {
+          transactionOpen = false;
+        }
+      },
     } as unknown as PrismaClient,
     reader: { read },
     secret: "TEST-only-secret",

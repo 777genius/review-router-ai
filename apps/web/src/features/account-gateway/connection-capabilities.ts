@@ -76,6 +76,13 @@ export function connectionMethodAllowed(
 ): boolean {
   if (profile.availability === "deployment_configuration_required")
     return false;
+  if (action === "reconnect" && profile.canReconnect === false) return false;
+  if (
+    (kind === "browser" || kind === "device_code") &&
+    profile.oauthMethods &&
+    !profile.oauthMethods.includes(kind)
+  )
+    return false;
   if (
     kind === "credential_import" &&
     profile.id !== "openai-codex-oauth-responses-v1"

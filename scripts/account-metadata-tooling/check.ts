@@ -47,11 +47,10 @@ for (const [name, version] of Object.entries({
     version,
   );
 }
-assert(
-  manifest.scripts["architecture:check"]
-    .split(" && ")
-    .includes("pnpm metadata:architecture"),
-);
+for (const command of ["pnpm metadata:architecture", "pnpm metadata:typecheck"])
+  assert(
+    manifest.scripts["architecture:check"].split(" && ").includes(command),
+  );
 assert(
   manifest.scripts["modular:qualify"].includes(
     `${source}/composition/account-metadata.root.test.ts`,

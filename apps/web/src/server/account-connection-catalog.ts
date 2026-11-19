@@ -1,7 +1,8 @@
 import { directNativeAPIProfiles } from "../features/account-gateway/native-api-profiles";
-import type {
-  AccountConnectionMethod,
-  AccountUpstreamProvider,
+import {
+  connectionMethodAllowed,
+  type AccountConnectionMethod,
+  type AccountUpstreamProvider,
 } from "../features/account-gateway/connection-capabilities";
 import { accountProviderIdentity } from "../features/provider-setup/provider-identity";
 import * as c from "@agent-teams/account-gateway/contracts";
@@ -193,7 +194,8 @@ export async function connectionProfiles(input: {
       wire.models.some((entry) => entry.modelId === model),
     );
     const connection = connectionViewFor(wire);
-    return {
+    const productOAuthMethods = legacy.oauthMethods;
+    const projected: AccountProfileView = {
       ...legacy,
       availability:
         legacy.availability === "deployment_configuration_required"
@@ -201,7 +203,14 @@ export async function connectionProfiles(input: {
           : wire.availability,
       models,
       ...(wire.methods
-        ? { canReconnect: wire.canReconnect, oauthMethods: wire.oauthMethods }
+        ? {
+            canReconnect: wire.canReconnect,
+            oauthMethods: productOAuthMethods
+              ? wire.oauthMethods.filter((method) =>
+                  productOAuthMethods.includes(method),
+                )
+              : wire.oauthMethods,
+          }
         : {}),
       connection: {
         ...connection,
@@ -210,6 +219,16 @@ export async function connectionProfiles(input: {
         ),
       },
     };
+    if (wire.methods)
+      projected.canReconnect = wire.methods.some((method) =>
+        connectionMethodAllowed(
+          projected,
+          "reconnect",
+          method.kind,
+          method.kind === "credential_import" ? method.method : undefined,
+        ),
+      );
+    return projected;
   });
   const nvidia = capabilities.find(qualifiedNvidia);
   if (nvidia && !result.some((profile) => profile.id === nvidia.profileId))

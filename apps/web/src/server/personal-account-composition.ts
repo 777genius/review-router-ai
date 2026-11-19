@@ -1,4 +1,12 @@
-import { connectionProfiles } from "./account-connection-catalog";
+import {
+  connectionProfiles,
+  nvidiaProfileId,
+} from "./account-connection-catalog";
+import { directNativeAPIProfiles } from "../features/account-gateway/native-api-profiles";
+import {
+  subscriptionProfileDefinition,
+  subscriptionProfileProviders,
+} from "../features/account-gateway/subscription-profiles";
 import { gatewayAPIKeyProviderKinds } from "../features/provider-setup/provider-identity";
 import { createAccountLimitsService } from "./account-limits-service";
 import { createAccountMetadataService } from "./account-metadata-service";
@@ -57,6 +65,11 @@ import {
 } from "@reviewrouter/features-rate-limits";
 import { z } from "zod";
 
+type AccountAuthorizationDatabase = Pick<
+  ReturnType<typeof getPrisma>,
+  "userExternalIdentity" | "workspace"
+>;
+
 // A dedicated server-only consumer-control credential is required. Management
 // and API run-control credentials are not substituted for this role.
 export async function productionPersonalAccounts() {
@@ -64,18 +77,23 @@ export async function productionPersonalAccounts() {
   const actor = await getDashboardSignedInActor();
   if (!actor?.userId) throw new ProviderAccountError("workspace_forbidden");
   const userId = actor.userId;
-  async function authorizeUser() {
+  async function authorizeUser(authorizationDb?: AccountAuthorizationDatabase) {
     if (!readPersonalAccountSharingEnabled(process.env))
       throw new ProviderAccountError("workspace_forbidden");
-    const current = await getDashboardSignedInActor();
+    const current = authorizationDb
+      ? await getDashboardSignedInActor({ prisma: authorizationDb })
+      : await getDashboardSignedInActor();
     if (!current || current.userId !== userId)
       throw new ProviderAccountError("workspace_forbidden");
     return userId;
   }
-  async function checked<T>(call: () => Promise<T>): Promise<T> {
-    await authorizeUser();
+  async function checked<T>(
+    call: () => Promise<T>,
+    authorizationDb?: AccountAuthorizationDatabase,
+  ): Promise<T> {
+    await authorizeUser(authorizationDb);
     const value = await call();
-    await authorizeUser();
+    await authorizeUser(authorizationDb);
     return value;
   }
   const settings = accountGatewayProfilesConfiguration();
@@ -139,9 +157,26 @@ export async function productionPersonalAccounts() {
       oauthMethods: ["browser"],
     });
   const profiles = [...legacyProfiles];
-  let connectionCapabilities:
-    | (() => Promise<c.ProviderConnectionCapabilities>)
-    | undefined;
+  // Recovery needs only the product's existing identity allowlist. Native
+  // presentation, models and methods are obtained lazily for fresh admission.
+  for (const profile of [
+    { id: nvidiaProfileId, authKind: "api_key" as const },
+    ...Object.keys(directNativeAPIProfiles).map((id) => ({
+      id,
+      authKind: "api_key" as const,
+    })),
+    ...Object.keys(subscriptionProfileProviders).map((id) => ({
+      id,
+      authKind: subscriptionProfileDefinition(id)!.authKind,
+    })),
+  ]) {
+    if (!profiles.some((existing) => existing.id === profile.id))
+      profiles.push({
+        ...profile,
+        label: profile.id,
+        availability: "deployment_configuration_required",
+      });
+  }
   let connectionCapabilitiesV2:
     | (() => Promise<c.ProviderConnectionCapabilitiesV2>)
     | undefined;
@@ -150,47 +185,53 @@ export async function productionPersonalAccounts() {
     (process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN &&
       process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN)
   ) {
-    const management = createManagementClient({
-      role: "management",
+    const managementSettings = {
+      role: "management" as const,
       origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
       token: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN ?? "",
       timeoutMs: 10000,
       responseBytes: 65536,
-    });
-    let v1: Promise<c.ProviderConnectionCapabilities> | undefined;
+    };
     let v2: Promise<c.ProviderConnectionCapabilitiesV2> | undefined;
-    connectionCapabilities = () =>
-      (v1 ??= checked(() => management.getProviderConnectionCapabilities()));
     connectionCapabilitiesV2 = () =>
-      (v2 ??= checked(() => management.getProviderConnectionCapabilitiesV2()));
-    const catalogue = await checked(() => control.profiles());
+      (v2 ??= checked(() =>
+        createManagementClient(
+          managementSettings,
+        ).getProviderConnectionCapabilitiesV2(),
+      ));
+  }
+  async function catalogue(): Promise<AccountProfileView[]> {
+    const live = await checked(() => control.profiles());
     const configured = legacyProfiles.flatMap((profile) => {
-      const wire = catalogue.profiles.find(
+      const wire = live.profiles.find(
         (entry) =>
           entry.profileId === profile.id &&
           entry.authKinds.includes(profile.authKind),
       );
       return wire
-        ? [{ ...profile, protocol: wire.protocol, models: [...wire.modelIds] }]
+        ? [
+            {
+              ...profile,
+              // This placeholder denies NVIDIA without native qualification;
+              // the catalog's exact-ID/provider guard owns its live status.
+              ...(profile.provider === "nvidia"
+                ? { availability: undefined }
+                : {}),
+              protocol: wire.protocol,
+              models: [...wire.modelIds],
+            },
+          ]
         : [];
     });
-    const subscriptions = await checked(() =>
+    return checked(() =>
       connectionProfiles({
         legacy: configured,
         subscriptionProfileIds: settings.subscriptionProfileIds ?? [],
-        capabilities: connectionCapabilities!,
-        capabilitiesV2: connectionCapabilitiesV2!,
+        ...(connectionCapabilitiesV2
+          ? { capabilitiesV2: connectionCapabilitiesV2 }
+          : {}),
       }),
     );
-    for (const profile of subscriptions) {
-      if (!profile.authKind) continue;
-      const captured = { ...profile, authKind: profile.authKind };
-      const index = profiles.findIndex(
-        (existing) => existing.id === profile.id,
-      );
-      if (index === -1) profiles.push(captured);
-      else profiles[index] = captured;
-    }
   }
   const ingress = new Map(
     profiles.map((profile) => [
@@ -357,9 +398,9 @@ export async function productionPersonalAccounts() {
       ...(settings.operatorWorkspaceId
         ? { operatorWorkspaceId: settings.operatorWorkspaceId }
         : {}),
-      authorize: async () => {
-        await authorizeUser();
-        if (workspaceId) await workspaceAccess(workspaceId);
+      authorize: async (authorizationDb) => {
+        await authorizeUser(authorizationDb);
+        if (workspaceId) await workspaceAccess(workspaceId, authorizationDb);
         return { userId, ...(workspaceId ? { workspaceId } : {}) };
       },
       ownerRef: (owner) =>
@@ -393,6 +434,7 @@ export async function productionPersonalAccounts() {
         : null;
     },
     profiles,
+    catalogue,
     personalAdapterFactory: ({
       authorizeUser: authorize,
       profiles: allowed,
@@ -420,17 +462,22 @@ export async function productionPersonalAccounts() {
         );
     },
   });
-  async function workspaceAccess(workspaceId: string) {
+  async function workspaceAccess(
+    workspaceId: string,
+    authorizationDb?: AccountAuthorizationDatabase,
+  ) {
     c.reference.parse(workspaceId);
-    const workspace = await checked(() =>
-      prisma.workspace.findUnique({
-        where: { id: workspaceId },
-        select: {
-          deletionState: true,
-          personalOwnerUserId: true,
-          members: { where: { userId }, select: { role: true } },
-        },
-      }),
+    const workspace = await checked(
+      () =>
+        (authorizationDb ?? prisma).workspace.findUnique({
+          where: { id: workspaceId },
+          select: {
+            deletionState: true,
+            personalOwnerUserId: true,
+            members: { where: { userId }, select: { role: true } },
+          },
+        }),
+      authorizationDb,
     );
     if (
       !workspace ||
@@ -450,47 +497,7 @@ export async function productionPersonalAccounts() {
   }
   async function reviewProfiles(workspaceId: string) {
     await workspaceAccess(workspaceId);
-    const live = await checked(() => control.profiles());
-    const available: AccountProfileView[] = live.profiles.flatMap((wire) => {
-      const configured = profiles.find(
-        (profile) =>
-          profile.id === wire.profileId &&
-          profile.availability !== "deployment_configuration_required" &&
-          wire.authKinds.includes(profile.authKind),
-      );
-      return configured
-        ? [
-            {
-              id: configured.id,
-              label: configured.label,
-              ...(configured.provider ? { provider: configured.provider } : {}),
-              authKind: configured.authKind,
-              connection: configured.connection,
-              availability: configured.availability,
-              canReconnect: false,
-              protocol: wire.protocol,
-              models: configured.connection
-                ? wire.modelIds.filter((model) =>
-                    configured.connection!.modelSettings.some(
-                      (setting) => setting.modelId === model,
-                    ),
-                  )
-                : [...wire.modelIds],
-            },
-          ]
-        : [];
-    });
-    // Apply the same qualified capabilities to existing API-key and OAuth
-    // profiles as to coding plans. Public model metadata is never admission.
-    const qualified = await connectionProfiles({
-      legacy: available,
-      ...(connectionCapabilitiesV2
-        ? { capabilitiesV2: connectionCapabilitiesV2 }
-        : {}),
-      ...(connectionCapabilities
-        ? { capabilities: connectionCapabilities }
-        : {}),
-    });
+    const qualified = await catalogue();
     await workspaceAccess(workspaceId);
     return qualified;
   }
@@ -555,6 +562,7 @@ export async function productionPersonalAccounts() {
   }
   async function overview(workspaceId: string) {
     await workspaceAccess(workspaceId);
+    const qualified = await catalogue();
     const managementSettings = {
       role: "management" as const,
       origin: process.env.REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_ORIGIN ?? "",
@@ -578,7 +586,7 @@ export async function productionPersonalAccounts() {
       gateway: overviewReader,
       visibleRepositoryIds: () => usageRepositoryVisibility(workspaceId),
       lifecycleCompatible: overviewReader.writable,
-      profiles,
+      profiles: qualified,
       ...(settings.operatorWorkspaceId
         ? { operatorWorkspaceId: settings.operatorWorkspaceId }
         : {}),

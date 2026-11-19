@@ -17,7 +17,7 @@ export type Source = {
 
 /** Shared live source resolution; each caller keeps its own display semantics. */
 export function createAccountDisplayAuthorization(input: {
-  prisma: PrismaClient;
+  prisma: Pick<PrismaClient, "$queryRaw">;
   operatorWorkspaceId?: string;
 }) {
   async function resolve(

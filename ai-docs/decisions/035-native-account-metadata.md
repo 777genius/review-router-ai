@@ -42,8 +42,14 @@ adoption. Foundation and conformance remain development tools.
 `metadata:architecture` checks real file layout and frozen profile identities.
 `modular:qualify` includes real composition, independent wiring expectations and
 wrong-root/binding rejection. `metadata:typecheck` uses TypeScript 7.0.2 with
-`skipLibCheck: false`. Behavioral tests cover owner isolation, epochs, stalled
-batches and final authorization; PostgreSQL/browser tests qualify the host path.
+`skipLibCheck: false` and runs in the blocking `architecture:check` command.
+Its project includes the feature, fixed adapters, shared metadata UI and their
+own tests. The wider `dashboard-gateway-accounts.test.ts` stays in the existing
+whole-Web typecheck and runtime test suite: its production composition imports
+the authentication platform, which is outside this scoped adoption. No metadata
+production source is removed from strict checking and no declaration substitute
+is used. Behavioral tests cover owner isolation, epochs, stalled batches and
+final authorization; PostgreSQL/browser tests qualify the host path.
 
 Provider additions extend native facts and qualified capabilities. They do not
 add provider branches to this feature or duplicate the account management model.

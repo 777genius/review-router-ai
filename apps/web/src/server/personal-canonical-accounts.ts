@@ -48,6 +48,7 @@ type PersonalAdapter = Pick<
   ReturnType<typeof createDisabledPersonalAccountsAdapter>,
   "list" | "connect" | "operation" | "completeOAuth" | "pollOAuth"
 >;
+type QualifiedProfile = AccountProfileView & { authKind: "api_key" | "oauth" };
 export type PersonalCanonicalOperationView = AccountOperationView & {
   resume?: {
     kind: "reconnect";
@@ -91,6 +92,8 @@ type Dependencies = {
     connection?: AccountProfileView["connection"];
     availability?: AccountProfileView["availability"];
   }[];
+  /** Current connection admission/display only; original recovery needs no discovery. */
+  catalogue?: () => Promise<AccountProfileView[]>;
   personalAdapterFactory(input: {
     authorizeUser(): Promise<string>;
     profiles: ReadonlyMap<string, "api-key-create" | "oauth-begin">;
@@ -192,7 +195,17 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     const ownerRef = accountGatewayUserOwnerRef(actor);
     // Original operation recovery must survive catalog outages. Protocol/model
     // discovery is needed only by display/fresh enrollment, never nonce lookup.
-    async function catalogue(): Promise<AccountProfileView[]> {
+    async function catalogue(): Promise<QualifiedProfile[]> {
+      if (input.catalogue) {
+        const current = await checked(input.catalogue);
+        return current.flatMap((profile) => {
+          const allowed = approved.find(
+            (entry) =>
+              entry.id === profile.id && entry.authKind === profile.authKind,
+          );
+          return allowed ? [{ ...profile, authKind: allowed.authKind }] : [];
+        });
+      }
       const available = (
         await checked(() => input.control.profiles())
       ).profiles.map((profile) => c.profile.parse(profile));
@@ -221,19 +234,29 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     }
     const profileFor = (id: string | null) =>
       approved.find((profile) => profile.id === id);
-    const personal = input.personalAdapterFactory({
-      connectionProfiles: approved,
-      authorizeUser: async () => {
-        await authorize();
-        return actor;
-      },
-      profiles: new Map(
-        approved.map((profile) => [
-          profile.id,
-          profile.authKind === "api_key" ? "api-key-create" : "oauth-begin",
-        ]),
-      ),
-    });
+    function personalFor(profile?: QualifiedProfile) {
+      const allowed = profile && profileFor(profile.id);
+      if (profile && (!allowed || allowed.authKind !== profile.authKind))
+        throw new Denied();
+      const selected =
+        profile && allowed
+          ? [{ ...profile, authKind: allowed.authKind }]
+          : approved;
+      return input.personalAdapterFactory({
+        connectionProfiles: selected,
+        authorizeUser: async () => {
+          await authorize();
+          return actor;
+        },
+        profiles: new Map(
+          selected.map((entry) => [
+            entry.id,
+            entry.authKind === "api_key" ? "api-key-create" : "oauth-begin",
+          ]),
+        ),
+      });
+    }
+    const personal = personalFor();
     async function get(
       source: ProviderAccountConnection,
     ): Promise<AccountLifecycleRead> {
@@ -291,8 +314,13 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         },
       },
     };
-    async function project(source: ProviderAccountConnection) {
+    async function project(
+      source: ProviderAccountConnection,
+      currentProfile?: QualifiedProfile | Dependencies["profiles"][number],
+    ) {
       const account = await get(source);
+      const profile = currentProfile ?? profileFor(account.profileId);
+      if (!profile || profile.id !== account.profileId) throw new Denied();
       const current = await checked(() =>
         input.store.findOwnedSource(actor, source.id),
       );
@@ -328,10 +356,10 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         connectionId: source.id,
         label: account.displayName,
         profileId: account.profileId,
-        profileLabel: profileFor(account.profileId)!.label,
-        provider: profileFor(account.profileId)!.provider,
-        authKind: profileFor(account.profileId)!.authKind,
-        connection: profileFor(account.profileId)!.connection,
+        profileLabel: profile.label,
+        provider: profile.provider,
+        authKind: profile.authKind,
+        connection: profile.connection,
         state: account.state,
         readiness: current.pendingSourceOperationId
           ? ("pending" as const)
@@ -355,9 +383,10 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     }
     async function view(
       receipt: PersonalCanonicalReceipt,
+      currentProfile?: QualifiedProfile | Dependencies["profiles"][number],
     ): Promise<PersonalCanonicalOperationView> {
       const original = receipt.intent;
-      const profile = profileFor(receipt.source.profileRef);
+      const profile = currentProfile ?? profileFor(receipt.source.profileRef);
       const fencesClear =
         receipt.phase !== "ready" ||
         (
@@ -377,10 +406,11 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
             }
           : {}),
         cleanup: "unresolved",
+        // The saved intent remains resumable; submission rechecks current admission.
         ...(receipt.phase === "ready" &&
         fencesClear &&
         original.action === "reconnect" &&
-        profile?.canReconnect
+        profile !== undefined
           ? {
               resume: {
                 kind: "reconnect" as const,
@@ -415,6 +445,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       authorize,
       checked,
       personal,
+      personalFor,
       catalogue,
       profileFor,
       project,
@@ -463,6 +494,13 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     oauthHandoff?: (value: c.OAuthBeginResponse) => void,
   ) {
     const action = request.kind === "disable" ? "retire" : request.kind;
+    let currentCatalogue: Promise<QualifiedProfile[]> | undefined;
+    const profileForMutation = async (id: string | null) =>
+      action === "reconnect" && input.catalogue
+        ? (await (currentCatalogue ??= scope.catalogue())).find(
+            (profile) => profile.id === id,
+          )
+        : scope.profileFor(id);
     if (
       (request.credentialImportMethod !== undefined &&
         (action !== "reconnect" || oauthHandoff)) ||
@@ -498,13 +536,21 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       )
         throw new ProviderAccountError("operation_conflict");
     } else {
+      if (
+        oauthHandoff &&
+        !input.catalogue &&
+        !approved.some(
+          (profile) => profile.authKind === "oauth" && profile.canReconnect,
+        )
+      )
+        throw new ProviderAccountError("invalid_input");
       const source = await scope.checked(() =>
         input.store.findOwnedSource(scope.actor, request.connectionId),
       );
       if (source.metadataRevision !== request.mirrorRevision)
         throw new ProviderAccountError("revision_conflict");
       const account = await scope.get(source);
-      const profile = scope.profileFor(source.profileRef);
+      const profile = await profileForMutation(source.profileRef);
       if (
         action === "reconnect" &&
         profile?.availability === "deployment_configuration_required"
@@ -563,7 +609,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       ["submitted", "unknown", "applied", "rejected"].includes(original.phase)
     )
       return scope.view(await scope.readCanonical(request.nonce));
-    const currentProfile = scope.profileFor(original.source.profileRef);
+    const currentProfile = await profileForMutation(original.source.profileRef);
     if (
       action === "reconnect" &&
       currentProfile?.availability === "deployment_configuration_required"
@@ -591,14 +637,17 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         );
       } catch {
         await scope.authorize();
-        return scope.view(original);
+        return scope.view(original, currentProfile);
       }
       await scope.checked(() =>
         input.canonical.ready(scope.actor, request.nonce),
       );
     }
     if (action === "reconnect" && credential === undefined && !oauthHandoff)
-      return scope.view(await scope.readCanonical(request.nonce));
+      return scope.view(
+        await scope.readCanonical(request.nonce),
+        currentProfile,
+      );
     const result = await submitPersonalCanonicalOperation(
       scope.actor,
       request.nonce,
@@ -633,7 +682,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         } else await input.control.disable(command.accountRef, revision);
       },
     );
-    return scope.view(result);
+    return scope.view(result, currentProfile);
   }
   async function completeCanonicalOAuth(
     scope: Session,
@@ -648,11 +697,14 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       original.intent.action !== "reconnect" ||
       original.intent.credentialImportMethod !== undefined ||
       profile?.authKind !== "oauth" ||
-      !profile.canReconnect ||
       !input.control.completeOAuth
     )
       throw new Denied();
-    if (!oauthCompletionMatchesProfile(profile, request)) throw new Denied();
+    if (
+      operationCompletion(profile).inputKind !== "none" &&
+      !oauthCompletionMatchesProfile(profile, request)
+    )
+      throw new Denied();
     if (["submitted", "unknown"].includes(original.phase)) {
       const operation = await scope.checked(() =>
         input.control.operation(original.id),
@@ -663,6 +715,8 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
       )
         throw new Denied();
       if (operation.state === "pending") {
+        // This continues the original, owner-bound browser operation. Native
+        // validates its saved flow; current discovery is not a recovery gate.
         retain();
         await scope.checked(() =>
           input.control.completeOAuth!(
@@ -677,7 +731,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
         );
       }
     }
-    return scope.view(await scope.readCanonical(request.nonce));
+    return scope.view(await scope.readCanonical(request.nonce), profile);
   }
   async function connect(
     scope: Session,
@@ -774,7 +828,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     }
     const method = request.method ?? profile.oauthMethods?.[0];
     retain();
-    return scope.personal.connect(
+    return scope.personalFor(profile).connect(
       {
         nonce: request.nonce,
         profileId: profile.id,
@@ -850,6 +904,7 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
                 await scope.checked(() =>
                   input.store.findOwnedSource(scope.actor, row.sourceId),
                 ),
+                profiles.find((profile) => profile.id === row.profileId),
               );
             } catch (error) {
               if (error instanceof Denied) return null;
@@ -869,7 +924,9 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
                 if (fallbackError instanceof Denied) throw fallbackError;
                 return null;
               }
-              const profile = scope.profileFor(source.profileRef);
+              const profile =
+                profiles.find((entry) => entry.id === source.profileRef) ??
+                scope.profileFor(source.profileRef);
               if (!profile) return null;
               const projection = lifecycleProjection({
                 pendingAction: pendingAction ?? undefined,
@@ -999,13 +1056,6 @@ export function createPersonalCanonicalAccounts(input: Dependencies) {
     ) {
       let request: z.infer<typeof fresh> | z.infer<typeof existing>;
       try {
-        if (
-          "connectionId" in raw &&
-          !approved.some(
-            (profile) => profile.authKind === "oauth" && profile.canReconnect,
-          )
-        )
-          return { status: "invalid" as const };
         if ("connectionId" in raw) {
           if (raw.method !== undefined && raw.method !== "browser")
             return { status: "invalid" as const };

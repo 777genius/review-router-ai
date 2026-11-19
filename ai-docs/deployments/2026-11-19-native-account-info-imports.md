@@ -17,10 +17,10 @@
 
 ## Environment status
 
-| Environment / target | Status | Actual deployed version | Last verified | Evidence / next step |
-| --- | --- | --- | --- | --- |
-| staging | `pending` | Not verified | Not verified | This task authorizes local/isolated qualification, not a staging rollout. |
-| production | `pending` | Not verified | Not verified | Production deployment is explicitly outside this implementation task. |
+| Environment / target | Status    | Actual deployed version | Last verified | Evidence / next step                                                      |
+| -------------------- | --------- | ----------------------- | ------------- | ------------------------------------------------------------------------- |
+| staging              | `pending` | Not verified            | Not verified  | This task authorizes local/isolated qualification, not a staging rollout. |
+| production           | `pending` | Not verified            | Not verified  | Production deployment is explicitly outside this implementation task.     |
 
 ## Scope and prerequisites
 
@@ -45,10 +45,19 @@ imports, a new operations engine and production activation are outside scope.
    contracts and pass cross-repository qualification.
 2. Verify the exact packed SDK artifact consumed by this revision. Preserve
    existing runtime/profile registration and the producer-first release order.
-3. Before enabling a new personal intent writer, install a reader compatible with
-   the new method fields and the legacy intent digest. Record the actual schema
-   requirement and minimum rollback revision from the implemented migration.
-4. Install Web through the [release process](../operations/07-environments-and-release-management.md).
+3. Apply the normal complete migration chain through
+   [000160_personal_credential_import_method](../../packages/platform/db/prisma/migrations/000160_personal_credential_import_method/migration.sql)
+   before deploying readers or writers that select `credentialImportMethod`.
+   The additive nullable column and its immutable-method constraint preserve
+   legacy rows; they do not convert existing OAuth methods or intent digests.
+4. Install the compatible reader through the
+   [release process](../operations/07-environments-and-release-management.md)
+   while new import submissions remain disabled. The reader compatibility floor
+   is code containing `19ef44c0ef5cb5fcdae44af6c89f0ab666c143f1` or a descendant
+   that retains both the new method discriminator and legacy digest handling.
+   This identifies a code boundary, not an approved deployment revision.
+   Enable the selected writer only after all readers satisfy that boundary and
+   the authoritative release gates pass.
 5. Verify the owner/borrower visibility matrix, selected-account hydration,
    existing connections and selected new connection methods. Record actual
    versions and evidence for each environment before marking it deployed.
@@ -74,12 +83,16 @@ No rollout, activation or live-provider call has been performed by this task.
 Optional metadata failures preserve authorized inventory and existing review
 behavior. Re-read current operation state after uncertain submission; do not
 replay a credential exchange automatically. Keep legacy intent hashes readable.
-The final implementation receipt must identify the minimum reader revision for
-rollback after new journal methods have been written. Provider facts remain in
-Sub2API throughout; rollback must not create a second facts store.
+Once a journal row contains `credentialImportMethod`, stop new import submissions
+before rollback and keep a compatible reader containing the boundary above.
+A pre-M2 reader is not a valid rollback target for those rows. Retain the additive
+column, method constraint and trigger; do not drop or rewrite journal identity or
+legacy digests as a rollback shortcut. The release record must name the exact
+qualified rollback revision. Provider facts remain in Sub2API throughout;
+rollback must not create a second facts store.
 
 ## Execution log
 
-| Time | Target | Step and observed result | Next action |
-| --- | --- | --- | --- |
+| Time       | Target       | Step and observed result                                                                                                             | Next action                                         |
+| ---------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
 | 2026-11-19 | local source | Additional plan review identified the final post-hydration privacy fence; canonical contract updated. No runtime checks claimed yet. | Implement M1 and qualify the exact SDK integration. |

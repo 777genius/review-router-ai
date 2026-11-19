@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type {
   AccountMetadataAuthorization,
   AccountMetadataReader,
@@ -28,7 +28,12 @@ export function createAccountMetadataService(input: {
   prisma: PrismaClient;
   reader: AccountMetadataReader;
   secret: string;
-  authorize(): Promise<Scope>;
+  authorize(
+    prisma: Pick<
+      PrismaClient,
+      "workspace" | "workspaceMember" | "userExternalIdentity"
+    >,
+  ): Promise<Scope>;
   ownerRef(
     owner:
       | { kind: "user"; userId: string }
@@ -36,7 +41,6 @@ export function createAccountMetadataService(input: {
   ): string;
   operatorWorkspaceId?: string;
 }) {
-  const { resolve } = createAccountDisplayAuthorization(input);
   const feature = createAccountMetadata({ reader: input.reader });
   const fingerprint = (scope: Scope, source: Source) =>
     createHmac("sha256", input.secret)
@@ -48,10 +52,37 @@ export function createAccountMetadataService(input: {
       .digest("base64url");
   async function authorize(
     connectionIds: readonly string[],
+    deadlineAt: number,
   ): Promise<ReadonlyMap<string, AccountMetadataAuthorization>> {
-    const scope = await input.authorize();
-    const sources = await resolve(scope, connectionIds);
-    if (!equalScope(scope, await input.authorize())) return new Map();
+    const remaining = Math.floor(deadlineAt - Date.now());
+    if (remaining < 4) return new Map();
+    const maxWait = Math.min(250, Math.floor(remaining / 4));
+    const statementBudget = Math.min(500, Math.floor(remaining / 4));
+    // Reserve a statement budget for server-side cancellation and rollback;
+    // the pool wait and transaction cannot consume the entire page budget.
+    const authorized = await input.prisma.$transaction(
+      async (tx) => {
+        const queryBudget = Math.min(
+          statementBudget,
+          Math.floor(deadlineAt - Date.now()),
+        );
+        if (queryBudget <= 0) throw new Error("account_metadata_deadline");
+        await tx.$executeRaw(Prisma.sql`SELECT
+        set_config('statement_timeout', ${String(queryBudget)}, true),
+        set_config('lock_timeout', ${String(queryBudget)}, true)`);
+        const scope = await input.authorize(tx);
+        const { resolve } = createAccountDisplayAuthorization({
+          ...input,
+          prisma: tx,
+        });
+        const sources = await resolve(scope, connectionIds);
+        if (!equalScope(scope, await input.authorize(tx))) return null;
+        return { scope, sources };
+      },
+      { maxWait, timeout: remaining - maxWait - statementBudget },
+    );
+    if (!authorized) return new Map();
+    const { scope, sources } = authorized;
     const result = new Map<string, AccountMetadataAuthorization>();
     for (const source of sources) {
       const epoch = Number(source.authorizationEpochMirror);

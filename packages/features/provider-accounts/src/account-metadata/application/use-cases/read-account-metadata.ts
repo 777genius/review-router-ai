@@ -57,7 +57,10 @@ export async function readAccountMetadata(
     ]);
   };
   try {
-    const before = await within(() => input.authorize(ids), 2500);
+    const before = await within(
+      () => input.authorize(ids, started + 2500),
+      2500,
+    );
     if (readTimer) clearTimeout(readTimer);
     if (before === unavailable) return output;
     const groups = new Map<string, Map<string, Allowed>>();
@@ -115,7 +118,7 @@ export async function readAccountMetadata(
     controller.abort();
     if (readTimer) clearTimeout(readTimer);
     const after = await within(
-      () => input.authorize(ids),
+      () => input.authorize(ids, started + 3000),
       3000 - (Date.now() - started),
       true,
     );

@@ -2356,7 +2356,13 @@ async function production() {
     readPersonalAccountSharingEnabled(process.env),
   );
   const access = new PrismaWorkspaceAccessRepository(prisma);
-  async function authorizeContext(context: string) {
+  async function authorizeContext(
+    context: string,
+    authorizationDb?: Pick<
+      typeof prisma,
+      "workspace" | "workspaceMember" | "userExternalIdentity"
+    >,
+  ) {
     const [body, signature, extra] = context.split(".");
     if (!body || !signature || extra || !/^[A-Za-z0-9_-]+$/.test(body))
       throw new Denied();
@@ -2367,16 +2373,21 @@ async function production() {
     const saved = z
       .strictObject({ workspaceId: c.reference, userId: c.reference })
       .parse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
-    const currentActor = await getDashboardSignedInActor();
+    const currentActor = await getDashboardSignedInActor(
+      authorizationDb ? { prisma: authorizationDb } : undefined,
+    );
     if (!currentActor || currentActor.userId !== saved.userId)
       throw new Denied();
-    const workspace = await prisma.workspace.findUnique({
+    const workspace = await (authorizationDb ?? prisma).workspace.findUnique({
       where: { id: saved.workspaceId },
       select: { id: true, personalOwnerUserId: true },
     });
     if (!workspace || workspace.personalOwnerUserId !== null)
       throw new Denied();
-    const actor = await assertDashboardWorkspaceAdminAllowed(workspace.id);
+    const actor = await assertDashboardWorkspaceAdminAllowed(
+      workspace.id,
+      authorizationDb,
+    );
     if (actor.userId !== saved.userId) throw new Denied();
     return {
       workspaceId: workspace.id,
@@ -2425,8 +2436,8 @@ async function production() {
           owner.kind === "user"
             ? accountGatewayUserOwnerRef(owner.userId)
             : accountGatewayWorkspaceOwnerRef(owner.workspaceId),
-        authorize: async () => {
-          const current = await authorizeContext(context);
+        authorize: async (authorizationDb) => {
+          const current = await authorizeContext(context, authorizationDb);
           return {
             userId: current.actor.userId,
             workspaceId: current.workspaceId,

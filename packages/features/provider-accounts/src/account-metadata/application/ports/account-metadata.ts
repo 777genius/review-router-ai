@@ -65,9 +65,10 @@ export type AccountMetadataAuthorization =
 
 export type AccountMetadataRequest = {
   readonly connectionIds: readonly string[];
-  /** Live host policy: ownership, membership, exact binding, state and epoch. */
+  /** Live host policy; the absolute deadline bounds its own I/O and pool wait. */
   readonly authorize: (
     connectionIds: readonly string[],
+    deadlineAt: number,
   ) => Promise<ReadonlyMap<string, AccountMetadataAuthorization>>;
 };
 
