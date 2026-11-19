@@ -9,7 +9,7 @@
  *   node fleet-overlay.mjs <prepare|plan|apply> <custody-dir> <spec.json>
  *
  * spec.json: { machineId, network, expectedImage, expectedRevision, names:{web,api,worker,scan},
- *              updates:[{key, op:"set"|"appendCsv"|"appendJsonArray", value, roles?:[...]}],
+ *              updates:[{key, op:"add"|"set"|"unset"|"appendCsv"|"appendJsonArray", value?, roles?:[...]}],
  *              targetImage?, targetImageRef?, targetRevision? }
  *
  * With targetImage (sha256 id), targetImageRef (a local tag that resolves to it) and targetRevision (40 hex)
@@ -145,6 +145,8 @@ export function nextValue(current, update) {
     case "add":
     case "set":
       return update.value;
+    case "unset":
+      return null;
     case "appendCsv": {
       const items = current.split(",");
       return items.includes(update.value)
@@ -178,6 +180,8 @@ export function roleUpdates(role, env, updates) {
         `update_key_exists:${update.key}`,
       );
     else need(env.has(update.key), `update_key_missing:${update.key}`);
+    // An unset key has no value left to build on.
+    need(result.get(update.key) !== null, `update_after_unset:${update.key}`);
     result.set(
       update.key,
       nextValue(result.get(update.key) ?? env.get(update.key), update),
@@ -199,12 +203,14 @@ export function applyEnvList(list, updates) {
     list.map((entry) => entry.slice(0, entry.indexOf("="))),
   );
   return [
-    ...list.map((entry) => {
+    ...list.flatMap((entry) => {
       const k = entry.slice(0, entry.indexOf("="));
-      return updates.has(k) ? `${k}=${updates.get(k)}` : entry;
+      if (!updates.has(k)) return [entry];
+      // `null` is an unset: the key leaves the container environment.
+      return updates.get(k) === null ? [] : [`${k}=${updates.get(k)}`];
     }),
     ...[...updates]
-      .filter(([key]) => !present.has(key))
+      .filter(([key, value]) => !present.has(key) && value !== null)
       .map(([key, value]) => `${key}=${value}`),
   ];
 }
@@ -227,6 +233,7 @@ export function applyCanonical(
       .map((l, i) => (l.startsWith(`${key}=`) ? i : -1))
       .filter((i) => i >= 0);
     if (!oldEnv.has(key)) {
+      need(value !== null, `update_key_missing:${key}`);
       need(hits.length === 0, `canonical_key_exists:${key}`);
       out = `${out}${out.endsWith("\n") || !out ? "" : "\n"}${key}=${value}\n`;
       continue;
@@ -236,7 +243,8 @@ export function applyCanonical(
       lines[hits[0]] === `${key}=${oldEnv.get(key)}`,
       `canonical_differs_from_container:${key}`,
     );
-    lines[hits[0]] = `${key}=${value}`;
+    if (value === null) lines.splice(hits[0], 1);
+    else lines[hits[0]] = `${key}=${value}`;
     out = lines.join("\n");
   }
   return out;
@@ -339,7 +347,11 @@ async function verifyScopedInventory(knownIds, image, targetImage = image) {
 }
 
 async function loadSpec(path) {
-  const spec = JSON.parse(await privateFile(path));
+  return validateSpec(JSON.parse(await privateFile(path)));
+}
+
+/** Pure: the full spec shape check, applied to every spec before prepare, plan and apply. */
+export function validateSpec(spec) {
   need(/^[a-f0-9]{32}$/.test(spec.machineId ?? ""), "spec_machine");
   need(/^sha256:[a-f0-9]{64}$/.test(spec.expectedImage ?? ""), "spec_image");
   need(/^[a-f0-9]{40}$/.test(spec.expectedRevision ?? ""), "spec_revision");
@@ -374,13 +386,15 @@ async function loadSpec(path) {
   for (const u of spec.updates) {
     need(
       /^[A-Z][A-Z0-9_]+$/.test(u.key) &&
-        ["add", "set", "appendCsv", "appendJsonArray"].includes(u.op),
+        ["add", "set", "unset", "appendCsv", "appendJsonArray"].includes(u.op),
       "spec_update_shape",
     );
     need(
-      u.op === "appendJsonArray"
-        ? typeof u.value === "object" && u.value !== null
-        : typeof u.value === "string" &&
+      u.op === "unset"
+        ? u.value === undefined
+        : u.op === "appendJsonArray"
+          ? typeof u.value === "object" && u.value !== null
+          : typeof u.value === "string" &&
             u.value.length > 0 &&
             ![...u.value].some((ch) => ch.charCodeAt(0) < 32),
       "spec_update_value",
@@ -580,8 +594,10 @@ async function main() {
     const summary = {};
     for (const role of roles)
       summary[role] = [
-        ...[...plans[role].updates].map(
-          ([k, v]) => `${k} sha256:${hash(v).slice(0, 12)} len=${v.length}`,
+        ...[...plans[role].updates].map(([k, v]) =>
+          v === null
+            ? `${k} unset`
+            : `${k} sha256:${hash(v).slice(0, 12)} len=${v.length}`,
         ),
         ...row(plans[role].hostConfig).ExtraHosts.map((h) => `ExtraHosts ${h}`),
       ];
