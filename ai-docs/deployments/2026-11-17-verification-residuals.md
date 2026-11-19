@@ -23,11 +23,11 @@
 
 ## Environment status
 
-| Environment / target | Status     | Actual deployed version / image        | Last verified (UTC) | Evidence / next step / blocker                                                                                                                               |
-| -------------------- | ---------- | -------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| staging              | `pending`  | Not verified                           | Not verified        | Second small release.                                                                                                                                        |
-| production           | `deployed` | API/Web `afa74c8f`, Gateway `1dce5c32` | 2026-11-17 21:49    | Relay subset check passed before the swap; API started clean; polling stops for old pending calls ([second rollout](2026-11-17-second-rollout-afa74c8f.md)). |
-| public Action        | `blocked`  | PR #400 open                           | 2026-11-17 22:05    | Release 241 waits for the GitHub Actions queue; 240 stays live.                                                                                              |
+| Environment / target | Status     | Actual deployed version / image                 | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                    |
+| -------------------- | ---------- | ----------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`  | Not verified                                    | Not verified        | Second small release.                                                                                                                                             |
+| production           | `deployed` | API/Web `afa74c8f`, Gateway `1dce5c32`          | 2026-11-17 21:49    | Relay subset check passed before the swap; API started clean; polling stops for old pending calls ([second rollout](2026-11-17-second-rollout-afa74c8f.md)).      |
+| public Action        | `deployed` | `v1.0.241` = `cce9dd98`, `workflow-v1` promoted | 2026-11-19 20:51    | Released with #399 and promoted after a passing canary ([Action 241](2026-11-19-action-241-cce9dd98.md)); the #399 summary cause was not triggered by the canary. |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).

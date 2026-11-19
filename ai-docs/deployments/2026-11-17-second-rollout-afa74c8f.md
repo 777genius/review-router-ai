@@ -19,13 +19,13 @@
 
 ## Environment status
 
-| Target                         | Status     | Actual version                                                      | Verified (UTC)   | Evidence / next step                                                     |
-| ------------------------------ | ---------- | ------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------ |
-| production API/Web/worker/scan | `deployed` | review-router-ai `afa74c8f`, image `sha256:178a7be6…`               | 2026-11-17 21:49 | Step 1 below; (a), (b), (e), (g) pass.                                   |
-| production database            | `deployed` | ledger 168, unchanged                                               | 2026-11-17 21:20 | No migration in the range.                                               |
-| production Gateway             | `deployed` | account-gateway `1dce5c32` (#113 to #115), manifest `f4e6b398…`     | 2026-11-17 21:23 | Step 2 below; forward-only from here.                                    |
-| public Action 241              | `blocked`  | PR [#400](https://github.com/777genius/review-router/pull/400) open | 2026-11-17 22:05 | Required `build` queued 45 minutes in the account queue; 240 stays live. |
-| producer 241 / `workflow-v1`   | `pending`  | `workflow-v1` = 240 `3a256b15`                                      | 2026-11-17 22:05 | After the release; see below.                                            |
+| Target                         | Status     | Actual version                                                  | Verified (UTC)   | Evidence / next step                                                         |
+| ------------------------------ | ---------- | --------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------- |
+| production API/Web/worker/scan | `deployed` | review-router-ai `afa74c8f`, image `sha256:178a7be6…`           | 2026-11-17 21:49 | Step 1 below; (a), (b), (e), (g) pass.                                       |
+| production database            | `deployed` | ledger 168, unchanged                                           | 2026-11-17 21:20 | No migration in the range.                                                   |
+| production Gateway             | `deployed` | account-gateway `1dce5c32` (#113 to #115), manifest `f4e6b398…` | 2026-11-17 21:23 | Step 2 below; forward-only from here.                                        |
+| public Action 241              | `deployed` | `v1.0.241` = `cce9dd98` (#400)                                  | 2026-11-19 18:49 | Finished on 2026-11-19, see [Action 241](2026-11-19-action-241-cce9dd98.md). |
+| producer 241 / `workflow-v1`   | `deployed` | producer 241 registered, `workflow-v1` = `cce9dd98`             | 2026-11-19 20:51 | [Action 241](2026-11-19-action-241-cce9dd98.md); rollback pins there.        |
 
 `pending`, `blocked` and `deployed` follow the
 [status contract](README.md#status-contract).

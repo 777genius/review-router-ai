@@ -14,14 +14,14 @@
   transitively; #890 did not rebuild it. The rebuilt bundle differs only in
   the roster mode logic from #890 and #892.
 - Dependencies: none. No migration, configuration or feature flag.
-- Last updated: 2026-11-19.
+- Last updated: 2026-11-19 (shipped with Action 241).
 
 ## Environment status
 
-| Target                    | Status    | Actual version | Evidence                                                    |
-| ------------------------- | --------- | -------------- | ----------------------------------------------------------- |
-| Public Action `main`      | `pending` | Not verified   | Synced automatically after the first green main CI run      |
-| Public Action release/tag | `pending` | Not verified   | Ships with the next ordinary Action release, `v1` unchanged |
+| Target                    | Status     | Actual version                                 | Evidence                                                                                               |
+| ------------------------- | ---------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Public Action `main`      | `deployed` | `cce9dd98` (#400)                              | Brought in by the 241 release PR, not by the sync; see [Action 241](2026-11-19-action-241-cce9dd98.md) |
+| Public Action release/tag | `deployed` | `v1.0.241` = `v1` = `workflow-v1` = `cce9dd98` | Released and promoted on 2026-11-19 ([Action 241](2026-11-19-action-241-cce9dd98.md))                  |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
@@ -58,6 +58,8 @@ needs a separate commit in the public Action repository.
 
 ## Execution log
 
-| Time (UTC)   | Environment        | Operator   | Actual version / image | Step and observed result | Evidence | Next action                                  |
-| ------------ | ------------------ | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------------- |
-| Not executed | public Action main | Unassigned | Not verified           | Merged, not synced       | PR #918  | Check the sync run after the first green CI. |
+| Time (UTC)       | Environment           | Operator         | Actual version / image | Step and observed result                                                                    | Evidence                                        | Next action                                  |
+| ---------------- | --------------------- | ---------------- | ---------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| Not executed     | public Action main    | Unassigned       | Not verified           | Merged, not synced                                                                          | PR #918                                         | Check the sync run after the first green CI. |
+| 2026-11-19 18:38 | public Action main    | release operator | `cce9dd98`             | #400 merged with this bundle (SHA256 `820d48c5…`, two identical clean builds of `061f04bc`) | [Action 241](2026-11-19-action-241-cce9dd98.md) | None; the next sync has nothing to push.     |
+| 2026-11-19 20:51 | public Action release | release operator | `v1.0.241`             | Released 18:49, `workflow-v1` promoted 20:51 after a passing canary                         | [Action 241](2026-11-19-action-241-cce9dd98.md) | None.                                        |
