@@ -19,10 +19,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                   |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------------ |
-| staging              | `pending` | Not verified                    | Not verified        | Web and skills-scan worker rollout.              |
-| production           | `pending` | Not verified                    | Not verified        | Web and skills-scan worker, then the live check. |
+| Environment / target | Status      | Actual deployed version / image      | Last verified (UTC) | Evidence / next step / blocker                                                                  |
+| -------------------- | ----------- | ------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                         | Not verified        | Web and skills-scan worker rollout.                                                             |
+| production           | `installed` | `7c176ef7`, image `sha256:a2c03f03…` | 2026-11-19 15:56    | [rollout 7c176ef7](2026-11-19-rollout-7c176ef7.md). Live catalog check (steps 2-3) not run yet. |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
