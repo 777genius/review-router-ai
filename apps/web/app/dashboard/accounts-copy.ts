@@ -31,6 +31,32 @@ export const accountsCopy = {
   privacy: "Has access with limited visibility",
 } as const;
 
+export type ConnectionOwnerKind =
+  | "viewer"
+  | "member"
+  | "organization"
+  | "operator"
+  | "unknown";
+
+// Confirmation of "Remove from this workspace": what changes and who can undo it.
+export const removeFromWorkspaceCopy = {
+  confirm: "Remove",
+  done: "Removed from this workspace.",
+  pending: "Removed from this workspace. Waiting for the gateway to confirm.",
+  unconfirmed: "Removal could not be confirmed. Check the original request.",
+  description: {
+    organization:
+      "Reviews in this workspace stop using this connection. It stays in this list, and you can add it back once the gateway confirms the change.",
+    member:
+      "Reviews in this workspace stop using this connection. Only its owner can add it back.",
+    viewer:
+      "Reviews in this workspace stop using this connection. You can add it back from your connections.",
+    operator:
+      "Reviews in this workspace stop using this ReviewRouter connection. Only ReviewRouter can add it back.",
+    unknown: "Reviews in this workspace stop using this connection.",
+  } satisfies Record<ConnectionOwnerKind, string>,
+} as const;
+
 export type AccountStatusKind =
   | "ready"
   | "confirming"

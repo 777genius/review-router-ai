@@ -36,6 +36,17 @@ export function repositoryCountLabel(count: number): string {
   return `${count} ${count === 1 ? "repository" : "repositories"}`;
 }
 
+/** "Account · model; Other · model", in roster order; null is a missing profile. */
+export function reviewerNames(
+  profiles: readonly (Readonly<{ label: string; model: string }> | null)[],
+): string {
+  return profiles
+    .map((profile) =>
+      profile ? `${profile.label} · ${profile.model}` : "Reviewer unavailable",
+    )
+    .join("; ");
+}
+
 /** Who the dialog configures. Repository targets are fixed by the caller. */
 export type ProviderSetupTarget =
   | Readonly<{ kind: "workspace" }>

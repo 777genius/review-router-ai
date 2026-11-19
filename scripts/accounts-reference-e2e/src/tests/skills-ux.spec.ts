@@ -1331,7 +1331,7 @@ test.describe("Skills real Next UX resilience", () => {
     ).toHaveValue("");
   });
 
-  test("Skills rejects unsupported imports without losing text and labels companion exports as drafts", async ({
+  test("Skills lists what an import leaves out, refuses unreadable files without losing text, and labels companion exports as drafts", async ({
     page,
   }) => {
     await openLibrary(page);
@@ -1357,17 +1357,35 @@ test.describe("Skills real Next UX resilience", () => {
     });
     await editor
       .getByLabel("Import SKILL.md", { exact: false })
-      .setInputFiles(file("allowed-tools: Bash\n", "Review."));
-    await expect(editor.getByRole("alert")).toContainText(
-      "Unsupported frontmatter",
-    );
+      .setInputFiles(
+        file(
+          "allowed-tools: Bash\n",
+          "Review.\n[Reference\nguide](references/guide.md)",
+        ),
+      );
+    await expect(editor.getByText(/^Not used: allowed-tools\./u)).toBeVisible();
+    await expect(
+      editor.getByText(
+        /Linked files are not included: references\/guide\.md\./u,
+      ),
+    ).toBeVisible();
+    await editor.screenshot({
+      path: test.info().outputPath("skills-import-linked-files-desktop.png"),
+    });
+    await editor
+      .getByRole("button", { name: "Cancel import", exact: true })
+      .click();
     await expect(editor.getByLabel("Name", { exact: false })).toHaveValue(
       "Preserved original",
     );
-    await editor
-      .getByLabel("Import SKILL.md", { exact: false })
-      .setInputFiles(file("", "[Reference\nguide](references/guide.md)"));
-    await expect(editor.getByRole("alert")).toContainText("companion files");
+    await editor.getByLabel("Import SKILL.md", { exact: false }).setInputFiles({
+      name: "SKILL.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Notes without a header\nReview."),
+    });
+    await expect(editor.getByRole("alert")).toContainText(
+      "Use SKILL.md with YAML name and description",
+    );
     await expect(editor.getByRole("alert")).toContainText(
       "Import not applied. Your current draft is unchanged.",
     );

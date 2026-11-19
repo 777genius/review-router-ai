@@ -1,6 +1,6 @@
 # Простой список ревьюеров репозитория
 
-Статус: план v5 (учтены раунды ревью 1-4). Меняется web: компонент roster и один чистый хелпер имён в `provider-setup-model.ts`; модель хранения, use case'ы, server action, БД и runtime не меняются. Дата: 2026-11-18.
+Статус: реализован в [#911](https://github.com/777genius/review-router-ai/pull/911) (план v5, раунды ревью 1-4 и ревью реализации); скриншоты до/после не снимались, проверка - тесты компонента и visual-flow не затронут. Меняется web: компонент roster и один чистый хелпер имён в `provider-setup-model.ts`; модель хранения, use case'ы, server action, БД и runtime не меняются. Дата: 2026-11-18.
 База: main `ae18f9e87`. С планом 76 (страница Connections, PR в работе) файлов не делит.
 Меняет одно решение [плана нескольких ревьюеров](../plans/2026-10-28-gateway-multi-reviewers.md) (`:104-106`, «no new primary selector»): порядок, а значит и Primary, можно менять стрелками и в parallel.
 
@@ -16,14 +16,14 @@
 ## 2. Решение
 
 1. Наследующий репозиторий (`repository.source === "workspace"`): вместо нынешней строки - «This repository uses the workspace default reviewers below. Saving gives it its own copy; later changes to the workspace default won't apply here until you choose Use workspace reviewers.» Кнопка сохранения для него - «Save for this repository»; для остальных целей «Save reviewers». Сохранение без правок по-прежнему разрешено: оно закрепляет текущий список и перезаписывает документ в устаревшем формате (`provider-line.tsx:222-228` просит «saved again»).
-2. Свой список: под «Use workspace reviewers» подпись, на что переключит: «Workspace default: A · model; B · model», или при пустом default «The workspace has no default reviewers, so this repository will stop reviewing.» Кнопка остаётся: это единственный путь в web остановить ревью репозитория со своим списком. Имена строит один чистый хелпер `reviewerNames` в `apps/web/src/features/provider-setup/provider-setup-model.ts` (рядом с `sourceTitle`, `repositoryCountLabel`), перенесённый из `provider-line.tsx:146-152` с запасным «Reviewer unavailable»; его используют и `ProviderLine`, и roster. Не в `provider-line.tsx`: оттуда roster получил бы цикл импортов через `provider-setup-dialog.tsx`.
+2. Свой список: под «Use workspace reviewers» подпись, на что переключит: «Workspace default: A · model; B · model», или при пустом default «Choosing Use workspace reviewers stops reviews here: the workspace has no default reviewers.» Кнопка остаётся: это единственный путь в web остановить ревью репозитория со своим списком. Имена строит один чистый хелпер `reviewerNames` в `apps/web/src/features/provider-setup/provider-setup-model.ts` (рядом с `sourceTitle`, `repositoryCountLabel`), перенесённый из `provider-line.tsx:146-152` с запасным «Reviewer unavailable»; его используют и `ProviderLine`, и roster. Не в `provider-line.tsx`: оттуда roster получил бы цикл импортов через `provider-setup-dialog.tsx`.
 3. Выбор режима, лимиты выполнения и стрелки показываются только при 2+ ревьюерах (лимиты, как и сейчас, только в parallel; то же правило уже у формы настроек, `repository-policy-editor.tsx:467` - общий предикат не вводим, логика тривиальна). Скрытый режим живёт в состоянии и сохраняется как был; скрытые лимиты сервер подгоняет к числу ревьюеров.
-4. Стрелки в обоих режимах. Подпись над списком: «The first reviewer is the primary: it also writes the pull request summary (when enabled) and re-checks whether earlier findings were fixed.» (lifecycle - перепроверка прежних findings, [60](60-provider-neutral-finding-revalidation-plan.md); при сбое primary эти задачи не выполняются, 67 §4).
+4. Стрелки в обоих режимах. Подпись над списком: «The first reviewer is the primary: it also updates the pull request description (when enabled) and re-checks whether earlier findings were fixed.» (lifecycle - перепроверка прежних findings, [60](60-provider-neutral-finding-revalidation-plan.md); при сбое primary эти задачи не выполняются, 67 §4).
 
 Не делаем (DROP/DEFER, с причинами):
 
 - Сводка только для чтения + «Customize» + Cancel (v1): новое состояние и лишний клик; строка из п.1 и подпись кнопки называют отвязку заранее.
-- Save неактивна без правок (v2): ломает перезапись устаревшего формата (клиент не видит `unreadable`, `provider-setup-view.ts:226-232`), ложные срабатывания по `executionPatch`, риск мёртвой «Make default».
+- Save неактивна без правок (v2): ломает перезапись устаревшего формата (клиент не видит `unreadable`, `provider-setup-view.ts:198-204`), ложные срабатывания по `executionPatch`, риск мёртвой «Make default».
 - Убрать лимиты из диалога (v1): противоречит одобренному решению (план нескольких ревьюеров `:113-116`), ломает массовое назначение (лимит workspace не выше числа его ревьюеров), форма репозитория скрыта до конца настройки (`dashboard-workspace-page.tsx:2664-2707`). Оба UI пишут через один доменный инвариант (`fitExecutionLimits`). DEFER.
 - «Advanced» для Review engine / Read related files / Fast mode: уже за «Edit» строки, `ProviderModelFields` общий для трёх диалогов, подсказки исправления в свёрнутом блоке скрыли бы причину неактивного Save.
 - Новые подписи режима: на «Together, in parallel» / «Fallback in order» ссылаются невыполненные шаги владельца (`deployments/2026-11-17-second-rollout-afa74c8f.md:150-151`).
@@ -61,7 +61,7 @@
 ## 7. Деплой и вне объёма
 
 - Деплой: только web, без миграций, откат - предыдущий образ.
-- Известное ограничение: документ репозитория в устаревшем формате view отдаёт как `source: "workspace"` (`provider-setup-view.ts:226-232`), и строка п.1 тогда неточна (ревью остановлены). Пользователей нет; `ProviderLine` такой случай уже называет.
+- Известное ограничение: документ репозитория в устаревшем формате view отдаёт как `source: "workspace"` (`provider-setup-view.ts:198-204`), и строка п.1 тогда неточна (ревью остановлены). Пользователей нет; `ProviderLine` такой случай уже называет.
 - Вне объёма: модель хранения и частичное наследование, значения лимитов по умолчанию, остальное в `ProviderLine`, не-Gateway путь `ProviderChoiceStep`, форма настроек, кнопка «Review settings» в списке провайдеров (путаница названий), `openedRoster` при «Make default» для не-Gateway профиля, runtime.
 
 ## 8. Ревью

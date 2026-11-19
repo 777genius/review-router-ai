@@ -1064,22 +1064,6 @@ function Controls({
             </Button>
           </AccountMenuItem>
         ) : null}
-        {!personal && account.binding?.state === "active" ? (
-          <AccountMenuItem>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={accountMenuItemClass}
-              disabled={disabled}
-              title={
-                disabled ? "Wait for the current refresh to finish." : undefined
-              }
-              onClick={() => detachMutation.mutate(account)}
-            >
-              {accountsCopy.detach}
-            </Button>
-          </AccountMenuItem>
-        ) : null}
       </>
     );
   }
@@ -1355,6 +1339,24 @@ function Controls({
                   <ChooseForReviewsLink workspaceId={workspaceId} />
                 ) : null}
                 {renderActions(account)}
+                {/* A host list (renderAccounts) owns removal from the
+                    workspace for its rows; only this own list offers it. */}
+                {!personal && account.binding?.state === "active" ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={accountMenuItemClass}
+                    disabled={disabled}
+                    title={
+                      disabled
+                        ? "Wait for the current refresh to finish."
+                        : undefined
+                    }
+                    onClick={() => detachMutation.mutate(account)}
+                  >
+                    {accountsCopy.detach}
+                  </Button>
+                ) : null}
               </div>
             </div>
           ))}

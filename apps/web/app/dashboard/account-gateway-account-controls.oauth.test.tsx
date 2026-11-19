@@ -956,6 +956,24 @@ function personalApi() {
   };
 }
 
+test("the engine's own workspace list keeps one removal for a bound row", async () => {
+  page.accounts = [
+    {
+      ...row("active"),
+      binding: {
+        id: "workspace-use",
+        revision: 2,
+        state: "active",
+        fencePending: false,
+      },
+    },
+  ];
+  await mount();
+  expect(
+    screen.getAllByRole("button", { name: "Remove from this workspace" }),
+  ).toHaveLength(1);
+});
+
 test("personal scope reuses canonical controls through injected actions and never offers workspace use management", async () => {
   page.accounts = [
     {
