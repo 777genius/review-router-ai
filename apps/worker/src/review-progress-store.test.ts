@@ -1683,11 +1683,7 @@ describe("PrismaReviewProgressPublicationStore recovery", () => {
     for (const sql of [immediate!, deferred!]) {
       expect(sql.strings.join(" ")).toContain('"failureCount" = 0');
     }
-    expect(immediate!.strings.join(" ")).not.toContain("GREATEST");
     expect(immediate!.values.slice(1, 3)).toEqual([now, now]);
-    expect(deferred!.strings.join(" ")).toContain(
-      '"nextPublishAt" = GREATEST("nextPublishAt", ',
-    );
     expect(deferred!.values.slice(1, 3)).toEqual([retryAt, now]);
   });
 
@@ -1727,8 +1723,8 @@ describe("PrismaReviewProgressPublicationStore recovery", () => {
         minimumIntervalMs: 1_000,
       }),
     ).resolves.toEqual({ allowed: true });
-    expect(statements[0]).toContain(
-      "VALUES (?, clock_timestamp(), clock_timestamp())",
+    expect(statements[0]).toMatch(
+      /VALUES \(\s*\?,\s*clock_timestamp\(\) AT TIME ZONE 'UTC',\s*clock_timestamp\(\) AT TIME ZONE 'UTC'\s*\)/u,
     );
   });
 

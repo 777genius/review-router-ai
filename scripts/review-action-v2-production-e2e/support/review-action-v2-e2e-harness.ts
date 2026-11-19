@@ -1841,12 +1841,20 @@ export class ReviewActionV2E2EHarness {
 
   /** Run the worker's promotion sweep without any settlement hint. */
   async sweepProgressPromotion(): Promise<number> {
-    // One page covers every scope this suite creates.
-    return new ReviewProgressTerminalPromotion(
+    // Walk one whole pass with two scopes per page, so the keyset cursor
+    // crosses page boundaries on PostgreSQL like the worker's 100-scope pages.
+    const pageSize = 2;
+    const scopes = await this.prisma.reviewProgressPublicationV1.count();
+    const promotion = new ReviewProgressTerminalPromotion(
       new PrismaReviewProgressPublicationStore(this.prisma),
       { now: () => new Date() },
-      10_000,
-    ).promote([]);
+      { pageSize },
+    );
+    let promoted = 0;
+    for (let page = 0; page <= Math.floor(scopes / pageSize); page += 1) {
+      promoted += await promotion.promote([]);
+    }
+    return promoted;
   }
 
   async deadLetterAndRecoverFinalizedEvent(): Promise<void> {

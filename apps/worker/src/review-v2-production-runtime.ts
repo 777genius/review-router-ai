@@ -704,6 +704,7 @@ export function createProductionReviewV2WorkerRuntime(input: {
     githubAppId: input.githubAppId,
     githubPrivateKey: input.githubPrivateKey,
     ownerIdHash,
+    ...(input.logger ? { logger: input.logger } : {}),
   });
   const runtime: ReviewV2CompletionRuntime = {
     wake: completion.wake,
@@ -758,6 +759,7 @@ function createHostedReviewProgressRuntime(input: {
   readonly githubAppId: string;
   readonly githubPrivateKey: string;
   readonly ownerIdHash: string;
+  readonly logger?: Pick<Logger, "warn">;
 }): ReviewV2ProgressMaintenanceRuntime | undefined {
   // On by default for every repository; the writes kill switch or a malformed
   // setting leaves the publisher out of the worker loop entirely.
@@ -842,7 +844,9 @@ function createHostedReviewProgressRuntime(input: {
       ),
     },
   );
-  const promotion = new ReviewProgressTerminalPromotion(store, input.clock);
+  const promotion = new ReviewProgressTerminalPromotion(store, input.clock, {
+    ...(input.logger ? { logger: input.logger } : {}),
+  });
   return {
     promoteSettledExecutions: ({ settlements }) =>
       promotion.promote(settlements),

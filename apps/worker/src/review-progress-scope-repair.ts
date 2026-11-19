@@ -16,11 +16,6 @@ export async function requeuePublishedScopeAfterClaimLoss(
   // Give each repair a new marker so an in-flight successor cannot settle
   // over a stale GitHub write without losing its own live claim.
   const repairMarker = `review_progress_repair_${randomUUID().replaceAll("-", "")}`;
-  // Without a GitHub deadline the repair is due at once; with one, it keeps
-  // that deadline and any later one already on the row.
-  const nextPublishAt = retryAt
-    ? Prisma.sql`GREATEST("nextPublishAt", ${retryAt})`
-    : Prisma.sql`${now}`;
   const repairSql = Prisma.sql`
         UPDATE "ReviewProgressPublicationV1"
         SET "publishedVersion" = CASE
@@ -45,7 +40,9 @@ export async function requeuePublishedScopeAfterClaimLoss(
             -- of earlier attempts must not suppress it on its first failure.
             "failureCount" = 0,
             "lastErrorCode" = ${repairMarker},
-            "nextPublishAt" = ${nextPublishAt},
+            -- Due at once, or at GitHub's deadline. The installation cooldown
+            -- is kept separately in its budget row.
+            "nextPublishAt" = ${retryAt ?? now},
             "updatedAt" = ${now}
         WHERE "workspaceId" = ${scope.workspaceId}
           AND "repositoryConnectionId" = ${scope.repositoryConnectionId}

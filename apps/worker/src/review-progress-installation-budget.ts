@@ -74,7 +74,11 @@ async function lockInstallationBudget(
   await transaction.$executeRaw(Prisma.sql`
   INSERT INTO "ReviewProgressInstallationBudgetV1"
     ("githubInstallationId", "nextMutationAt", "updatedAt")
-  VALUES (${installationId}, clock_timestamp(), clock_timestamp())
+  VALUES (
+    ${installationId},
+    clock_timestamp() AT TIME ZONE 'UTC',
+    clock_timestamp() AT TIME ZONE 'UTC'
+  )
   ON CONFLICT DO NOTHING
 `);
   await transaction.$queryRaw(Prisma.sql`
