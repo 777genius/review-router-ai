@@ -764,7 +764,8 @@ describeWithDatabase.sequential(
 
       // Release only this test's still-live successor to let another worker
       // claim the repair. A stale repair must never release it implicitly.
-      const released = await fixture.prisma.reviewProgressPublicationV1.updateMany({
+      const released =
+        await fixture.prisma.reviewProgressPublicationV1.updateMany({
         where: {
           ...stale.scope,
           claimId: successorClaimId,
