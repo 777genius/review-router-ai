@@ -240,6 +240,39 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(repair).not.toHaveBeenCalled();
   });
 
+  it("preserves deferred publication when stale no-write claim cleanup fails", async () => {
+    let updateCalls = 0;
+    const updateMany = vi.fn(async () => {
+      if (updateCalls++ === 0) return { count: 0 };
+      throw new Error("database_unavailable");
+    });
+    const repair = vi.fn(async () => 1);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
+    } as never);
+
+    try {
+      await expect(
+        store.complete({
+          publication: claimed(),
+          commentId: 42n,
+          bodyHash: "c".repeat(64),
+          now,
+          repairOnFenceLoss: false,
+        }),
+      ).resolves.toBe(false);
+      expect(updateMany).toHaveBeenCalledTimes(2);
+      expect(repair).not.toHaveBeenCalled();
+      expect(warning).toHaveBeenCalledWith(
+        "review_progress_stale_claim_cleanup_failed",
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it.each([
     { mode: "ongoing", terminal: false, delayMs: 60_000 },
     { mode: "terminal", terminal: true, delayMs: 0 },
