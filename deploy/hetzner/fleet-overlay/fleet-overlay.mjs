@@ -250,8 +250,11 @@ export function applyCanonical(
       continue;
     }
     const lines = out.split("\n");
+    // Count every line a dotenv reader would take as this key (indented, `export`, spaces around `=`), so a
+    // second spelling of the key cannot survive a set or unset. Keys are ^[A-Z][A-Z0-9_]+$ (validateSpec).
+    const keyLine = new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=`);
     const hits = lines
-      .map((l, i) => (l.startsWith(`${key}=`) ? i : -1))
+      .map((l, i) => (keyLine.test(l) ? i : -1))
       .filter((i) => i >= 0);
     if (!oldEnv.has(key)) {
       need(value !== null, `update_key_missing:${key}`);

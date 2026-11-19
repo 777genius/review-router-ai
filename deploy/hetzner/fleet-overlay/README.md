@@ -27,7 +27,8 @@ node fleet-overlay.mjs apply   $R/fleet-overlay-<id> $R/overlay-inputs-<id>/over
   are non-empty strings without control characters; `appendJsonArray` takes an object. The canonical line counts as
   equal to the container value when it is `KEY=v`, or `KEY="v"` if `v` has no quote, backslash, `$`, backtick or
   line break (the plain dotenv form some production files use). Single quotes, escapes, trailing text or a second
-  line for the key abort the run. A changed line is always written back unquoted.
+  line for the key (also as `export KEY=`, indented or `KEY =`) abort the run. Values written back are not
+  re-checked for dotenv-special characters (existing behaviour of `set`): keep them plain. A changed line is always written back unquoted.
 - `targetImage`, `targetImageRef`, `targetRevision` (all three or none): run the copies on a new image. `targetImage` is the
   `sha256:` image id, `targetImageRef` a local tag that resolves to exactly that id, `targetRevision` the 40-hex source
   commit that the image's `org.opencontainers.image.revision` label must carry. The image must be linux/amd64 and already on

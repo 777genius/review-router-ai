@@ -418,3 +418,36 @@ test("unset removes exactly its one line and leaves every other byte of the cano
       /canonical_(differs_from_container|line_count):K/,
     );
 });
+
+test("a second spelling of the key (export, indent, spaces around =) counts as a second line and aborts", () => {
+  const env = new Map([["K", "1"]]);
+  for (const text of [
+    'K="1"\nexport K=2\n',
+    'K="1"\n  K=2\n',
+    'K="1"\n\tK=2\n',
+    'K="1"\nK =2\n',
+  ]) {
+    assert.throws(
+      () => applyCanonical(text, env, new Map([["K", null]])),
+      /canonical_line_count:K/,
+    );
+    assert.throws(
+      () => applyCanonical(text, env, new Map([["K", "3"]])),
+      /canonical_line_count:K/,
+    );
+  }
+  // A lone other spelling is not the plain line, so it is a CAS mismatch; `add` sees it as an existing key.
+  assert.throws(
+    () => applyCanonical("export K=1\n", env, new Map([["K", null]])),
+    /canonical_differs_from_container:K/,
+  );
+  assert.throws(
+    () => applyCanonical("export K=1\n", new Map(), new Map([["K", "1"]])),
+    /canonical_key_exists:K/,
+  );
+  // Similar names are other keys.
+  assert.equal(
+    applyCanonical("KX=1\nXK=1\nK=1\n", env, new Map([["K", null]])),
+    "KX=1\nXK=1\n",
+  );
+});
