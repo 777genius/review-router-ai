@@ -5,6 +5,7 @@ import {
   expectNoHorizontalOverflow,
 } from "./provider-setup-support.ts";
 import {
+  connectionsListRegion,
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
   noSecrets,
@@ -20,7 +21,7 @@ test.skip(
 const gateway = process.env.ACCOUNTS_REFERENCE_E2E_GATEWAY_URL!;
 /** Connections' own entry: "Connect account" opens the provider picker. */
 async function connectProvider(page: Page, provider: string) {
-  await page
+  await connectionsListRegion(page)
     .getByRole("button", { name: "Connect account", exact: true })
     .click();
   const dialog = page.getByRole("dialog", { name: "Connect a provider" });
@@ -266,18 +267,22 @@ test("subscription connections use real server actions for all four providers an
   }
   await openAccounts(page, "rr-e2e-org-alpha");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
-  // Plan 70: every plan, GLM included, can be connected from an organization
-  // workspace. It is the user's own connection, added here once it connects.
+  // An organization workspace offers GLM through the user's own connection.
+  // Only the offer is checked here; adding it to the organization is covered
+  // by personal-connect-attach.test.ts.
   await choose(page, "Owner", "You · personal account");
-  // The dialog first resumes this tab's latest request, the Grok sign-in.
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Add another account" })
-    .click();
-  await page
-    .getByRole("dialog")
-    .getByRole("combobox", { name: "Provider", exact: true })
-    .click();
+  const addDialog = page.getByRole("dialog");
+  const provider = addDialog.getByRole("combobox", {
+    name: "Provider",
+    exact: true,
+  });
+  // The dialog may first resume this tab's latest request.
+  const another = addDialog.getByRole("button", {
+    name: "Add another account",
+  });
+  await expect(provider.or(another)).toBeVisible();
+  if (await another.isVisible()) await another.click();
+  await provider.click();
   await expect(page.getByRole("option", { name: /^GLM(?:\s|$)/ })).toHaveCount(
     1,
   );
