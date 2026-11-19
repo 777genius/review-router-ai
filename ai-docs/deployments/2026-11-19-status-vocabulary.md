@@ -10,7 +10,7 @@
   waits for the gateway shows "Confirming change" instead of "Ready". Both lists
   share one status order (`connectionRowStatus`).
 - Affected target: Web only.
-- Implementation: ReviewRouter AI PR (see the index). Plan:
+- Implementation: [ReviewRouter AI PR #915](https://github.com/777genius/review-router-ai/pull/915). Plan:
   [82](../architecture/82-status-vocabulary.md).
 - Dependencies: PRs #901 and #912, already merged. No migration,
   configuration, feature flag, Gateway or native change.

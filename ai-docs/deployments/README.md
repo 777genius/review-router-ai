@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Plain connection statuses: ["Status unknown" instead of "Outcome not confirmed yet" when no operation is behind a row, the fallback Connections list shows the same statuses and workspace use as the main list instead of raw states and fence wording, one status order for all lists](2026-11-19-status-vocabulary.md), PR pending, [plan 82](../architecture/82-status-vocabulary.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
+Plain connection statuses: ["Status unknown" instead of "Outcome not confirmed yet" when no operation is behind a row, the fallback Connections list shows the same statuses and workspace use as the main list instead of raw states and fence wording, one status order for all lists](2026-11-19-status-vocabulary.md), [PR #915](https://github.com/777genius/review-router-ai/pull/915), [plan 82](../architecture/82-status-vocabulary.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
 
 Repository setup states: [Needs attention, Setting up, Ready and Not set up instead of "Need setup" for every untouched repository, a first-run guide, Create setup PR waits for a provider, and a merged Gateway setup stays on its verify step](2026-11-18-repository-setup-flow.md), [PR #913](https://github.com/777genius/review-router-ai/pull/913), [plan 81](../architecture/81-repository-setup-flow.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, worker or Gateway change; the unused repository search route is removed.
 
