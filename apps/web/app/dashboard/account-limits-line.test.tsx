@@ -135,7 +135,7 @@ test("opening outdated refreshable limits fetches them once without running a mo
       "62.5",
     ),
   );
-  expect(screen.queryByText("Outdated")).toBeNull();
+  expect(screen.queryByText(/^as of /)).toBeNull();
   expect(refreshAccountLimitsAction).toHaveBeenCalledExactlyOnceWith({
     context: props.context,
     connectionId: opened.connectionId,
@@ -147,7 +147,7 @@ test("opening outdated refreshable limits fetches them once without running a mo
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(screen.queryByText("Outdated")).toBeNull();
+  expect(screen.queryByText(/^as of /)).toBeNull();
   expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
 });
 
@@ -164,18 +164,18 @@ test("a failed refresh on open keeps the saved limits and is not retried on reop
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
     "0",
   );
-  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(screen.getByText("as of 20m ago")).toBeTruthy();
   expect(screen.queryByText(/private provider details/)).toBeNull();
   unmount();
   render(<AccountLimitsLine {...opened} />);
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(screen.getByText("as of 20m ago")).toBeTruthy();
   expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
 });
 
-test("a refresh that returns no newer limits says so instead of a silent Outdated", async () => {
+test("a refresh that returns no newer limits says so beside the old observation age", async () => {
   // The source answered, but with the same past-reset observation.
   vi.mocked(refreshAccountLimitsAction).mockResolvedValue({
     status: "ok",
@@ -186,7 +186,7 @@ test("a refresh that returns no newer limits says so instead of a silent Outdate
   expect(
     await screen.findByText(/Refresh returned no newer limits/),
   ).toBeTruthy();
-  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(screen.getByText("as of 20m ago")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Refresh limits" })).toBeTruthy();
   expect(refreshAccountLimitsAction).toHaveBeenCalledTimes(1);
 });
@@ -227,7 +227,7 @@ test("outdated limits without refresh capability stay cached-only on open", asyn
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(screen.getByText("Reset pending")).toBeTruthy();
-  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(screen.getByText("as of 20m ago")).toBeTruthy();
   expect(
     screen.getByRole("button", { name: "Reload saved limits" }),
   ).toBeTruthy();
@@ -309,6 +309,12 @@ test("SSR includes observed usage and UTC timestamps without reading the network
   expect(html).toContain('aria-label="5h remaining"');
   expect(html).toContain('aria-valuenow="62.5"');
   expect(fetch).not.toHaveBeenCalled();
+  // The age is computed from the read time, so SSR and hydration agree.
+  const old = renderToString(
+    <AccountLimitsLine {...fixture(outdatedSnapshot(false)).props} />,
+  );
+  expect(old).toContain("as of 20m ago");
+  expect(old).not.toContain("Outdated");
 });
 
 test("summarizes at most two known plan windows and keeps monthly/rate observations in Details", () => {
@@ -406,6 +412,11 @@ test("remaining and reset stay in the compact summary, with saved observations i
   expect(screen.getByText(/37.5% used/)).toBeTruthy();
   expect(screen.getByText(/^As of:/)).toBeTruthy();
   expect(screen.getByText(/shared across all activity/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      "Ready describes the connection, not its remaining quota.",
+    ),
+  ).toBeTruthy();
 });
 
 test("over-limit observations keep reported usage while showing no remaining quota", () => {
@@ -434,7 +445,7 @@ test("over-limit observations keep reported usage while showing no remaining quo
 });
 
 test.each([false, true])(
-  "reset and age become stale locally, without zeroing usage or fetching on mount/focus (refresh available: %s)",
+  "a passed reset says Reset pending without an age, zeroing usage or fetching on mount/focus (refresh available: %s)",
   async (refreshAvailable) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2040-01-01T00:00:00Z"));
@@ -442,13 +453,14 @@ test.each([false, true])(
     vi.stubGlobal("fetch", fetch);
     const { props } = fixture({ ...snapshot(), refreshAvailable });
     render(<AccountLimitsLine {...props} />);
-    expect(screen.queryByText("Outdated")).toBeNull();
+    expect(screen.queryByText(/^as of /)).toBeNull();
     await act(async () => {
       vi.advanceTimersByTime(60_000);
     });
     fireEvent.focus(window);
     expect(screen.getByText("Reset pending")).toBeTruthy();
-    expect(screen.getByText("Outdated")).toBeTruthy();
+    // A passed reset alone is said by "Reset pending", not by an age.
+    expect(screen.queryByText(/^as of /)).toBeNull();
     expect(screen.getByText("62.5% left")).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe(
       "62.5% remaining; 37.5% used",
@@ -459,7 +471,7 @@ test.each([false, true])(
   },
 );
 
-test("observation age becomes stale at five minutes without a reset", async () => {
+test("observation age shows from five minutes, as quiet text rather than a badge", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(now));
   const value = snapshot();
@@ -470,9 +482,14 @@ test("observation age becomes stale at five minutes without a reset", async () =
   });
   render(<AccountLimitsLine {...props} />);
   await act(async () => {
-    vi.advanceTimersByTime(300_000);
+    vi.advanceTimersByTime(299_000);
   });
-  expect(screen.getByText("Outdated")).toBeTruthy();
+  expect(screen.queryByText(/^as of /)).toBeNull();
+  await act(async () => {
+    vi.advanceTimersByTime(1_000);
+  });
+  expect(screen.getByText("as of 5m ago")).toBeTruthy();
+  expect(screen.queryByText("Outdated")).toBeNull();
 });
 
 test("unknown, unsupported, restricted and partial windows never imply free quota", () => {
@@ -556,6 +573,7 @@ test("unknown, unsupported, restricted and partial windows never imply free quot
   expect(screen.getByText("Remaining unknown")).toBeTruthy();
   expect(screen.getByText(/Used unknown/)).toBeTruthy();
   expect(screen.getByText("As of: unknown")).toBeTruthy();
+  expect(screen.getByText("as of unknown time")).toBeTruthy();
   expect(screen.queryByRole("progressbar")).toBeNull();
 });
 
