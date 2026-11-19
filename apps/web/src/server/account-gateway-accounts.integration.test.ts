@@ -49,14 +49,31 @@ test("Accounts connect binds dedicated URL to the configured profile and freezes
   let receipt: c.Operation | undefined;
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
-    if (request.url === "/v1/provider-connection-capabilities") {
-      response.statusCode = 404;
+    if (request.url === "/v2/provider-connection-capabilities") {
       response.end(
         JSON.stringify({
-          code: "not_found",
-          traceRef: "fixture-missing-capabilities",
-          effect: "not_dispatched",
-          retry: { kind: "never" },
+          contract: "provider-connections/v2",
+          capabilities: [
+            {
+              profileId,
+              provider: { id: "mimo", label: "MiMo" },
+              product: { id: "pay_as_you_go", label: "API" },
+              region: { id: "global", label: "Global" },
+              protocol: "openai-responses",
+              models: [
+                {
+                  modelId: "fixture-mimo",
+                  reasoning: null,
+                  fast: null,
+                  tools: { allowed: ["function"], default: "function" },
+                },
+              ],
+              methods: [{ kind: "api_key", create: true, reconnect: true }],
+              accountInfo: false,
+              limitsContract: "none",
+              availability: "enabled",
+            },
+          ],
         }),
       );
       return;
@@ -295,6 +312,57 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         const url = new URL(request.url ?? "/", "http://127.0.0.1");
         if (request.method === "GET") {
           httpReads++;
+          if (url.pathname === "/v2/provider-connection-capabilities")
+            return json(response, 200, {
+              contract: "provider-connections/v2",
+              capabilities: [
+                [profileId, "mimo", "MiMo", "openai-responses", "fixture-mimo"],
+                [
+                  foreignProfileId,
+                  "openrouter",
+                  "OpenRouter",
+                  "openai-chat",
+                  "fixture-openrouter",
+                ],
+                [
+                  oauthProfileId,
+                  "openai",
+                  "Codex",
+                  "openai-responses",
+                  "fixture-codex",
+                ],
+              ].map(([id, provider, title, protocol, model]) => ({
+                profileId: id,
+                provider: { id: provider, label: title },
+                product: { id: "unknown", label: "TEST" },
+                region: { id: "global", label: "Global" },
+                protocol,
+                models: [
+                  {
+                    modelId: model,
+                    reasoning: null,
+                    fast: null,
+                    tools: { allowed: ["function"], default: "function" },
+                  },
+                ],
+                methods:
+                  id === oauthProfileId
+                    ? [
+                        {
+                          kind: "browser",
+                          completionInputKind: "callback_url",
+                          callbackMode: "manual_callback_url",
+                          create: true,
+                          reconnect: true,
+                        },
+                        { kind: "device_code", create: true, reconnect: true },
+                      ]
+                    : [{ kind: "api_key", create: true, reconnect: true }],
+                accountInfo: false,
+                limitsContract: "none",
+                availability: "enabled",
+              })),
+            });
           if (url.pathname === "/v1/profiles")
             return json(response, 200, {
               profiles: [
@@ -1117,6 +1185,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         expectedRevision: prior.metadataRevision,
         profileRef: profileId,
         displayName: "Newer CAS wins",
+        authorizationEpoch: account.authorizationEpoch,
         state: "active",
         gatewayOperationRef: prior.gatewayOperationRef,
       });

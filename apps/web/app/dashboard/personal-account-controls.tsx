@@ -839,7 +839,9 @@ function PersonalControls({
                             provider: account.provider,
                             authKind: account.authKind,
                             connection: account.connection,
-                            metadata: account.metadata,
+                            metadata: lifecycleActivities.has(id)
+                              ? { status: "unknown" as const }
+                              : account.metadata,
                           }
                         : {})}
                     />

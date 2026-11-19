@@ -85,16 +85,40 @@ async function fixture(
   const completions: secretSubmission.OAuthComplete[] = [];
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
-    // This fixture qualifies legacy OAuth operations. Its optional capabilities
-    // endpoint is absent, rather than returning an unrelated account as a 200.
-    if (request.url === "/v1/provider-connection-capabilities") {
-      response.statusCode = 404;
+    if (request.url === "/v2/provider-connection-capabilities") {
       response.end(
         JSON.stringify({
-          code: "not_found",
-          traceRef: "fixture-missing-capabilities",
-          effect: "not_dispatched",
-          retry: { kind: "never" },
+          contract: "provider-connections/v2",
+          capabilities: [
+            {
+              profileId,
+              provider: { id: "openai", label: "Codex" },
+              product: { id: "subscription", label: "Codex" },
+              region: { id: "global", label: "Global" },
+              protocol: "openai-responses",
+              models: [
+                {
+                  modelId: "codex-fixture",
+                  reasoning: null,
+                  fast: null,
+                  tools: { allowed: ["function"], default: "function" },
+                },
+              ],
+              methods: [
+                {
+                  kind: "browser",
+                  completionInputKind: "callback_url",
+                  callbackMode: "manual_callback_url",
+                  create: true,
+                  reconnect: true,
+                },
+                { kind: "device_code", create: true, reconnect: true },
+              ],
+              accountInfo: true,
+              limitsContract: "account-limits/v1",
+              availability: "enabled",
+            },
+          ],
         }),
       );
       return;

@@ -140,7 +140,10 @@ export async function productionPersonalAccounts() {
     });
   const profiles = [...legacyProfiles];
   let connectionCapabilities:
-    | Promise<c.ProviderConnectionCapabilities>
+    | (() => Promise<c.ProviderConnectionCapabilities>)
+    | undefined;
+  let connectionCapabilitiesV2:
+    | (() => Promise<c.ProviderConnectionCapabilitiesV2>)
     | undefined;
   if (
     (settings.subscriptionProfileIds?.length ?? 0) > 0 ||
@@ -154,14 +157,29 @@ export async function productionPersonalAccounts() {
       timeoutMs: 10000,
       responseBytes: 65536,
     });
-    connectionCapabilities = checked(() =>
-      management.getProviderConnectionCapabilities(),
-    );
+    let v1: Promise<c.ProviderConnectionCapabilities> | undefined;
+    let v2: Promise<c.ProviderConnectionCapabilitiesV2> | undefined;
+    connectionCapabilities = () =>
+      (v1 ??= checked(() => management.getProviderConnectionCapabilities()));
+    connectionCapabilitiesV2 = () =>
+      (v2 ??= checked(() => management.getProviderConnectionCapabilitiesV2()));
+    const catalogue = await checked(() => control.profiles());
+    const configured = legacyProfiles.flatMap((profile) => {
+      const wire = catalogue.profiles.find(
+        (entry) =>
+          entry.profileId === profile.id &&
+          entry.authKinds.includes(profile.authKind),
+      );
+      return wire
+        ? [{ ...profile, protocol: wire.protocol, models: [...wire.modelIds] }]
+        : [];
+    });
     const subscriptions = await checked(() =>
       connectionProfiles({
-        legacy: [],
+        legacy: configured,
         subscriptionProfileIds: settings.subscriptionProfileIds ?? [],
-        capabilities: () => connectionCapabilities!,
+        capabilities: connectionCapabilities!,
+        capabilitiesV2: connectionCapabilitiesV2!,
       }),
     );
     for (const profile of subscriptions) {
@@ -466,8 +484,11 @@ export async function productionPersonalAccounts() {
     // profiles as to coding plans. Public model metadata is never admission.
     const qualified = await connectionProfiles({
       legacy: available,
+      ...(connectionCapabilitiesV2
+        ? { capabilitiesV2: connectionCapabilitiesV2 }
+        : {}),
       ...(connectionCapabilities
-        ? { capabilities: () => connectionCapabilities! }
+        ? { capabilities: connectionCapabilities }
         : {}),
     });
     await workspaceAccess(workspaceId);

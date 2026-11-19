@@ -3097,3 +3097,97 @@ test("remount reauthorizes cached inventory before enabling pagination or exposi
     ),
   );
 });
+
+test.each(["refresh_token", "oauth_auth_json"] as const)(
+  "Codex %s uses a one-off import without entering query caches or OAuth completion",
+  async (method) => {
+    const secret =
+      method === "refresh_token"
+        ? "synthetic-import-refresh-token"
+        : '{"tokens":{"refresh_token":"synthetic-import-auth-json"}}';
+    page = {
+      ...page,
+      accounts: [],
+      profiles: [
+        {
+          id: oauthProfileId,
+          label: "Codex",
+          authKind: "oauth",
+          canReconnect: true,
+          protocol: "openai-responses",
+          models: ["codex"],
+          oauthMethods: ["browser"],
+          connection: {
+            provider: "openai",
+            planLabel: "Codex subscription",
+            regionLabel: "Global",
+            completionInputKind: "callback_url",
+            limitsContract: "account-limits/v2",
+            modelSettings: [],
+            methods: [
+              { kind: "browser", create: true, reconnect: false },
+              {
+                kind: "credential_import",
+                method,
+                maxBytes: 65536,
+                create: true,
+                reconnect: true,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    vi.mocked(submitGatewayApiKey).mockImplementation(
+      async (_context, intent) => safeOperation(intent.nonce),
+    );
+    await mount();
+    const dialog = await openConnectionDialog();
+    fireEvent.click(
+      within(dialog).getByRole("combobox", { name: "Sign-in method" }),
+    );
+    const option = await screen.findByRole("option", {
+      name:
+        method === "refresh_token"
+          ? "Import Refresh token"
+          : "Import Codex auth.json",
+    });
+    fireEvent.mouseMove(option);
+    fireEvent.click(option);
+    const field = within(dialog).getByLabelText(
+      method === "refresh_token" ? "Refresh token" : "Codex auth.json",
+    );
+    fireEvent.change(field, { target: { value: secret } });
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name:
+          method === "refresh_token"
+            ? "Import Refresh token"
+            : "Import Codex auth.json",
+      }),
+    );
+    await waitFor(() => expect(submitGatewayApiKey).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(submitGatewayApiKey).mock.calls[0]).toEqual([
+      context,
+      expect.objectContaining({
+        kind: "connect",
+        profileId: oauthProfileId,
+        credentialImportMethod: method,
+      }),
+      secret,
+    ]);
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+    expect(completeGatewayOAuth).not.toHaveBeenCalled();
+    expect(
+      screen.queryByLabelText(/Authorization result|Callback URL/),
+    ).toBeNull();
+    expect(document.body.innerHTML).not.toContain(secret);
+    expect(
+      [
+        ...cacheSnapshots,
+        ...[...clients].map(caches),
+        JSON.stringify(storageWrites.mock.calls),
+      ].join("\n"),
+    ).not.toContain(secret);
+  },
+);

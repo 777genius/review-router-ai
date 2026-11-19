@@ -1,3 +1,7 @@
+import {
+  PrismaProviderAccountSynchronization,
+  PrismaPersonalAccountOperations,
+} from "@reviewrouter/features-provider-accounts/synchronization";
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createPrismaClient } from "@reviewrouter/platform-db";
@@ -169,6 +173,126 @@ async function fixture() {
 describe.skipIf(process.env.RR_H_PERSONAL_SHARING_QUERIES_PG_TEST !== "1")(
   "native account metadata database authorization",
   () => {
+    it("records verified workspace epochs and rejects rollback/CAS races before exposing metadata", async () => {
+      const f = await fixture();
+      try {
+        const sync = new PrismaProviderAccountSynchronization(f.db);
+        const input = {
+          id: `${f.owned.id}-new`,
+          workspaceId: f.org,
+          gatewayAccountRef: `${f.owned.gatewayAccountRef}-new`,
+          gatewayOperationRef: null,
+          profileRef: "codex",
+          displayName: "TEST newly connected",
+          state: "active" as const,
+          authorizationEpoch: 1,
+        };
+        const source = await sync.recordWorkspaceConnection(input);
+        expect(source.authorizationEpochMirror).toBe(1);
+        f.setScope({ userId: f.owner, workspaceId: f.org });
+        expect((await f.page(source.id))[0]?.metadata?.status).toBe(
+          "available",
+        );
+        const command = {
+          workspaceId: f.org,
+          connectionId: source.id,
+          expectedRevision: 1,
+          gatewayOperationRef: null,
+          profileRef: "codex",
+          displayName: input.displayName,
+          state: "active" as const,
+          authorizationEpoch: 2,
+        };
+        const advanced = await sync.synchronizeMetadata(command);
+        expect(advanced.authorizationEpochMirror).toBe(2);
+        expect((await f.page(source.id))[0]?.metadata?.status).toBe(
+          "unavailable",
+        );
+        await expect(
+          sync.synchronizeMetadata({ ...command, authorizationEpoch: 3 }),
+        ).rejects.toMatchObject({ code: "revision_conflict" });
+        await expect(
+          sync.synchronizeMetadata({
+            ...command,
+            expectedRevision: 2,
+            authorizationEpoch: 1,
+          }),
+        ).rejects.toMatchObject({ code: "revision_conflict" });
+        f.read.mockImplementation(async (_owner, refs) =>
+          observations(refs).map((item) => ({
+            ...item,
+            authorizationEpoch: 2,
+          })),
+        );
+        expect((await f.page(source.id))[0]?.metadata?.status).toBe(
+          "available",
+        );
+        const final = await f.db.providerAccountConnection.findUniqueOrThrow({
+          where: { id: source.id },
+        });
+        expect(final.metadataRevision).toBe(2);
+        expect(final.authorizationEpochMirror).toBe(2n);
+      } finally {
+        await f.db.$disconnect();
+      }
+    });
+    it("retains an import method across restart and forbids nonce/method substitution in SQL", async () => {
+      const f = await fixture();
+      try {
+        const store = new PrismaPersonalAccountOperations(f.db);
+        const personalWorkspaceId = await store.resolvePersonalWorkspace(
+          f.owner,
+        );
+        const intent = {
+          actorUserId: f.owner,
+          clientOperationId: randomUUID(),
+          personalWorkspaceId,
+          action: "connect" as const,
+          proposedSourceId: `${f.personal.id}-import`,
+          profileId: "openai-codex-oauth-responses-v1",
+          displayName: "TEST import",
+          ingress: "credential-import" as const,
+          credentialImportMethod: "refresh_token" as const,
+        };
+        const receipt = await store.reserveConnect(intent);
+        expect(
+          await store.claimConnect(f.owner, intent.clientOperationId),
+        ).toBe(true);
+        await store.noteConnectPhase(
+          f.owner,
+          intent.clientOperationId,
+          "unknown",
+        );
+        const restarted = new PrismaPersonalAccountOperations(f.db);
+        expect(
+          (await restarted.readOperation(f.owner, intent.clientOperationId))
+            .intent,
+        ).toEqual(intent);
+        expect(
+          await restarted.claimConnect(f.owner, intent.clientOperationId),
+        ).toBe(false);
+        await expect(
+          restarted.reserveConnect({
+            ...intent,
+            credentialImportMethod: "oauth_auth_json",
+          }),
+        ).rejects.toMatchObject({ code: "operation_conflict" });
+        await expect(
+          f.db.personalAccountOperation.update({
+            where: { id: receipt.id },
+            data: { credentialImportMethod: "oauth_auth_json" },
+          }),
+        ).rejects.toThrow();
+        const stored = await f.db.personalAccountOperation.findUniqueOrThrow({
+          where: { id: receipt.id },
+        });
+        expect(stored.oauthMethod).toBeNull();
+        expect(stored.credentialImportMethod).toBe("refresh_token");
+      } finally {
+        await f.db.$disconnect();
+      }
+    });
+
     it("shows facts only to personal owners and owning workspace admins while retaining borrower inventory", async () => {
       const f = await fixture();
       try {

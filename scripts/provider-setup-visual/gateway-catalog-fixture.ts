@@ -44,6 +44,27 @@ const NVIDIA_EVAL_CAPABILITY = {
   })),
 } as const;
 
+const NATIVE_IMPORT_PROFILES = [
+  {
+    profileId: "openai-codex-oauth-responses-v1",
+    provider: "openai",
+    label: "Codex",
+    authKind: "oauth",
+  },
+  {
+    profileId: "anthropic-messages-apikey-v1",
+    provider: "anthropic",
+    label: "Anthropic",
+    authKind: "api_key",
+  },
+  {
+    profileId: "gemini-openai-chat-apikey-v1",
+    provider: "gemini",
+    label: "Gemini",
+    authKind: "api_key",
+  },
+] as const;
+
 export type GatewayCatalogFixture = Readonly<{
   /** Environment that points the dashboard at this server. */
   environment: Readonly<Record<string, string>>;
@@ -55,6 +76,7 @@ export async function startGatewayCatalogFixture(
     reviewerAccounts?: boolean;
     nvidiaEvaluation?: boolean;
     accountMetadata?: boolean;
+    credentialImports?: boolean;
   } = {},
 ): Promise<GatewayCatalogFixture> {
   const token = randomBytes(24).toString("base64url");
@@ -207,9 +229,96 @@ export async function startGatewayCatalogFixture(
       return send(200, {
         profiles: [
           { ...VISUAL_GATEWAY_PROFILE, modelIds: models },
+          ...(options.credentialImports
+            ? NATIVE_IMPORT_PROFILES.map((profile) => ({
+                profileId: profile.profileId,
+                protocol: "openai-responses",
+                modelIds: models,
+                authKinds: [profile.authKind],
+              }))
+            : []),
           ...(options.nvidiaEvaluation ? [NVIDIA_EVAL_PROFILE] : []),
         ],
       });
+    if (
+      request.method === "GET" &&
+      path === "/v2/provider-connection-capabilities"
+    ) {
+      const identity = {
+        region: { id: "global", label: "Global" },
+        protocol: "openai-responses",
+        models: qualified,
+        accountInfo: true,
+        limitsContract: "none",
+        availability: "enabled",
+      };
+      return send(200, {
+        contract: "provider-connections/v2",
+        capabilities: [
+          {
+            ...identity,
+            profileId: VISUAL_GATEWAY_PROFILE.profileId,
+            provider: { id: "openrouter", label: "OpenRouter" },
+            product: { id: "pay_as_you_go", label: "API" },
+            methods: [{ kind: "api_key", create: true, reconnect: true }],
+          },
+          ...(options.credentialImports ? NATIVE_IMPORT_PROFILES : []).map(
+            (profile) => ({
+              ...identity,
+              profileId: profile.profileId,
+              provider: { id: profile.provider, label: profile.label },
+              product: {
+                id:
+                  profile.authKind === "oauth"
+                    ? "subscription"
+                    : "pay_as_you_go",
+                label:
+                  profile.authKind === "oauth" ? "Codex subscription" : "API",
+              },
+              methods:
+                profile.authKind === "api_key"
+                  ? [{ kind: "api_key", create: true, reconnect: true }]
+                  : [
+                      {
+                        kind: "browser",
+                        completionInputKind: "callback_url",
+                        callbackMode: "manual_callback_url",
+                        create: true,
+                        reconnect: false,
+                      },
+                      { kind: "device_code", create: true, reconnect: false },
+                      {
+                        kind: "credential_import",
+                        method: "refresh_token",
+                        maxBytes: 65536,
+                        create: true,
+                        reconnect: true,
+                      },
+                      {
+                        kind: "credential_import",
+                        method: "oauth_auth_json",
+                        maxBytes: 65536,
+                        create: true,
+                        reconnect: true,
+                      },
+                    ],
+            }),
+          ),
+          ...(options.nvidiaEvaluation
+            ? [
+                {
+                  ...identity,
+                  profileId: NVIDIA_EVAL_PROFILE.profileId,
+                  provider: { id: "nvidia", label: "NVIDIA Build" },
+                  product: { id: "unknown", label: "API key" },
+                  models: NVIDIA_EVAL_CAPABILITY.models,
+                  methods: [{ kind: "api_key", create: true, reconnect: true }],
+                },
+              ]
+            : []),
+        ],
+      });
+    }
     if (
       (options.reviewerAccounts ||
         options.nvidiaEvaluation ||
@@ -300,6 +409,12 @@ export async function startGatewayCatalogFixture(
       // The fixture profile is an approved key profile of this deployment.
       REVIEW_ROUTER_ACCOUNT_GATEWAY_OPENROUTER_PROFILE_ID:
         VISUAL_GATEWAY_PROFILE.profileId,
+      ...(options.credentialImports
+        ? {
+            REVIEW_ROUTER_ACCOUNT_GATEWAY_CODEX_OAUTH_PROFILE_ID:
+              "openai-codex-oauth-responses-v1",
+          }
+        : {}),
       ...(options.nvidiaEvaluation
         ? {
             REVIEW_ROUTER_ACCOUNT_GATEWAY_NVIDIA_PROFILE_ID:

@@ -239,3 +239,168 @@ describe("qualified connection catalog", () => {
     });
   });
 });
+
+const codexId = "openai-codex-oauth-responses-v1";
+const v2Capability = {
+  profileId: codexId,
+  provider: { id: "openai", label: "Codex" },
+  product: { id: "subscription" as const, label: "Codex subscription" },
+  region: { id: "global" as const, label: "Global" },
+  protocol: "openai-responses" as const,
+  models: capability.models,
+  methods: [
+    {
+      kind: "browser" as const,
+      completionInputKind: "callback_url" as const,
+      callbackMode: "manual_callback_url" as const,
+      create: true,
+      reconnect: false,
+    },
+    {
+      kind: "credential_import" as const,
+      method: "refresh_token" as const,
+      maxBytes: 65536 as const,
+      create: true,
+      reconnect: true,
+    },
+    {
+      kind: "credential_import" as const,
+      method: "oauth_auth_json" as const,
+      maxBytes: 65536 as const,
+      create: true,
+      reconnect: false,
+    },
+  ],
+  accountInfo: true,
+  limitsContract: "account-limits/v2" as const,
+  availability: "enabled" as const,
+};
+
+describe("native v2 catalog and method admission", () => {
+  it("reads one v2 catalog and preserves independent create/reconnect methods", async () => {
+    const { connectionMethodAllowed } =
+      await import("../features/account-gateway/connection-capabilities");
+    const [profile] = await connectionProfiles({
+      legacy: [
+        {
+          id: codexId,
+          label: "Codex",
+          provider: "codex",
+          authKind: "oauth",
+          protocol: "openai-responses",
+          models: capability.modelIds,
+        },
+      ],
+      capabilitiesV2: async () => ({
+        contract: "provider-connections/v2",
+        capabilities: [v2Capability],
+      }),
+      capabilities: async () => {
+        throw new Error("v1 must not be read after qualified v2");
+      },
+    });
+    expect(profile?.canReconnect).toBe(true);
+    expect(
+      connectionMethodAllowed(
+        profile!,
+        "create",
+        "credential_import",
+        "oauth_auth_json",
+      ),
+    ).toBe(true);
+    expect(
+      connectionMethodAllowed(
+        profile!,
+        "reconnect",
+        "credential_import",
+        "oauth_auth_json",
+      ),
+    ).toBe(false);
+    expect(
+      connectionMethodAllowed(
+        profile!,
+        "reconnect",
+        "credential_import",
+        "refresh_token",
+      ),
+    ).toBe(true);
+    expect(connectionMethodAllowed(profile!, "reconnect", "browser")).toBe(
+      false,
+    );
+    expect(
+      connectionMethodAllowed(
+        { ...profile!, id: "unqualified-oauth" },
+        "create",
+        "credential_import",
+        "refresh_token",
+      ),
+    ).toBe(false);
+  });
+  it.each([
+    ["anthropic-messages-apikey-v1", "anthropic"],
+    ["gemini-openai-chat-apikey-v1", "gemini"],
+  ] as const)(
+    "qualifies %s only with its native identity and API-key method",
+    async (profileId, provider) => {
+      const wire = {
+        ...v2Capability,
+        profileId,
+        provider: { id: provider, label: provider },
+        methods: [{ kind: "api_key" as const, create: true, reconnect: true }],
+      };
+      const read = (row = wire) =>
+        connectionProfiles({
+          legacy: [],
+          capabilitiesV2: async () => ({
+            contract: "provider-connections/v2",
+            capabilities: [row],
+          }),
+        });
+      expect(await read()).toMatchObject([
+        {
+          id: profileId,
+          authKind: "api_key",
+          provider: "codex",
+          connection: { provider },
+        },
+      ]);
+      expect(
+        await read({ ...wire, provider: { id: "foreign", label: "Foreign" } }),
+      ).toEqual([]);
+      expect(
+        await read({
+          ...wire,
+          methods: [{ kind: "api_key", create: false, reconnect: true }],
+        }),
+      ).toMatchObject([
+        {
+          id: profileId,
+          connection: { methods: [{ create: false, reconnect: true }] },
+        },
+      ]);
+    },
+  );
+  it.each([400, 404, 403, 503])(
+    "does not probe v1 after a v2 discovery error %s",
+    async (httpStatus) => {
+      const failure = Object.assign(
+        new GatewayError("safe_error", "not_dispatched"),
+        { httpStatus },
+      );
+      let reads = 0;
+      await expect(
+        connectionProfiles({
+          legacy: [],
+          capabilitiesV2: async () => {
+            throw failure;
+          },
+          capabilities: async () => {
+            reads++;
+            return response();
+          },
+        }),
+      ).rejects.toMatchObject({ httpStatus });
+      expect(reads).toBe(0);
+    },
+  );
+});

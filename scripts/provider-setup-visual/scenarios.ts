@@ -260,6 +260,52 @@ export const VISUAL_SCENARIOS: readonly VisualScenario[] = [
         .waitFor();
     },
   },
+  ...(
+    ["Refresh token", "Codex auth.json", "Anthropic API", "Gemini API"] as const
+  ).map(
+    (label): VisualScenario => ({
+      id: `native-import-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`,
+      title: `Qualified native account connection: ${label}`,
+      users: ["owner"],
+      route: workspaceRoute("main", "setup"),
+      widths: [390, 900, 1440],
+      fullPage: false,
+      requires: { personalSharing: false },
+      prepare: async ({ page }) => {
+        await page
+          .getByRole("button", {
+            name: /Add account|Connect account/,
+            exact: false,
+          })
+          .first()
+          .click();
+        const dialog = page.getByRole("dialog", { name: "Connect a provider" });
+        await dialog.waitFor();
+        await dialog
+          .getByRole("combobox", { name: "Provider", exact: true })
+          .click();
+        await page
+          .getByRole("option", {
+            name: label.endsWith("API") ? label : /Codex/,
+          })
+          .click();
+        if (!label.endsWith("API")) {
+          await dialog
+            .getByRole("combobox", { name: "Sign-in method" })
+            .click();
+          await page
+            .getByRole("option", { name: `Import ${label}`, exact: true })
+            .click();
+          await dialog.getByLabel(label, { exact: true }).waitFor();
+        } else await dialog.getByLabel("API key", { exact: true }).waitFor();
+      },
+      probe: async ({ page }) => ({
+        horizontalOverflow: await page.evaluate(
+          () => document.documentElement.scrollWidth > innerWidth,
+        ),
+      }),
+    }),
+  ),
   // Repository table and the setup steps of every state.
   {
     id: "workspace-repositories",

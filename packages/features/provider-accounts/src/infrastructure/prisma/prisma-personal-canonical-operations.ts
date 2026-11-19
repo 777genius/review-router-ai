@@ -45,6 +45,7 @@ const key = (actorUserId: string, clientOperationId: string) => ({
 function intentOf(row: PersonalAccountOperation): PersonalCanonicalIntent {
   return snapshotCanonicalIntent({
     ...row,
+    credentialImportMethod: row.credentialImportMethod ?? undefined,
     expectedGatewayRevision: Number(row.expectedGatewayRevision),
     expectedAuthorizationEpoch: Number(row.expectedAuthorizationEpoch),
   } as PersonalCanonicalIntent);

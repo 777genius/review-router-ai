@@ -1,3 +1,7 @@
+import {
+  connectionMethodAllowed,
+  type CredentialImportMethod,
+} from "../features/account-gateway/connection-capabilities";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import * as c from "@agent-teams/account-gateway/contracts";
 import {
@@ -183,6 +187,7 @@ export type AccountOperationView = {
     profileId: string;
     gatewayRevision: number;
     mirrorRevision: number;
+    credentialImportMethod?: CredentialImportMethod;
   };
   // Management disable is logical denial. This SDK supplies no erasure/transport cleanup proof.
   cleanup: "unresolved";
@@ -212,6 +217,7 @@ export type AccountIntent = {
   profileId?: string;
   label?: string;
   baseURL?: string;
+  credentialImportMethod?: CredentialImportMethod;
   gatewayRevision?: number;
   mirrorRevision?: number;
 };
@@ -246,19 +252,47 @@ const existing = {
 const codexOAuthProfileId = "openai-codex-oauth-responses-v1";
 const claudeOAuthProfileId = "anthropic-claude-oauth-messages-v1";
 function oauthMethodFor(
-  profile: Pick<AccountProfileView, "oauthMethods">,
+  profile: Pick<
+    AccountProfileView,
+    | "id"
+    | "oauthMethods"
+    | "authKind"
+    | "canReconnect"
+    | "connection"
+    | "availability"
+  >,
   requested?: "device_code" | "browser",
+  action: "create" | "reconnect" = "create",
 ) {
   const allowed = profile.oauthMethods ?? ["device_code", "browser"];
   const method = requested ?? allowed[0];
-  if (!method || !allowed.includes(method)) throw new Denied();
+  if (
+    !method ||
+    !allowed.includes(method) ||
+    !connectionMethodAllowed(profile, action, method)
+  )
+    throw new Denied();
   return method;
+}
+const credentialImportMethod = z.enum(["refresh_token", "oauth_auth_json"]);
+export function snapshotAccountCredential(
+  method: CredentialImportMethod | undefined,
+  value: string,
+) {
+  return secretSubmission.credential.parse(
+    method
+      ? { kind: "credential_import", method, value }
+      : { kind: "api_key", value },
+  );
 }
 const oauthIntentSchema = z.strictObject({
   nonce: uuid,
   profileId: c.reference,
   label,
   method: z.enum(["device_code", "browser"]).optional(),
+});
+const personalConnectIntentSchema = oauthIntentSchema.extend({
+  credentialImportMethod: credentialImportMethod.optional(),
 });
 const oauthBeginIntentSchema = z.union([
   oauthIntentSchema.extend({
@@ -361,6 +395,7 @@ const intentSchema = z.discriminatedUnion("kind", [
     profileId: c.reference,
     label: label.or(z.string().trim().length(0)).optional(),
     baseURL: z.string().max(2048).optional(),
+    credentialImportMethod: credentialImportMethod.optional(),
   }),
   z.strictObject({
     kind: z.literal("rename"),
@@ -368,7 +403,12 @@ const intentSchema = z.discriminatedUnion("kind", [
     ...existing,
     label,
   }),
-  z.strictObject({ kind: z.literal("reconnect"), nonce: uuid, ...existing }),
+  z.strictObject({
+    kind: z.literal("reconnect"),
+    nonce: uuid,
+    ...existing,
+    credentialImportMethod: credentialImportMethod.optional(),
+  }),
   z.strictObject({ kind: z.literal("disable"), nonce: uuid, ...existing }),
 ]);
 const hash = (v: string) => createHash("sha256").update(v).digest("hex");
@@ -572,6 +612,12 @@ export function createAccountsAdapter(input: {
     }
     return {
       profiles: () => checked(() => gateway.profiles()),
+      ...(gateway.getProviderConnectionCapabilitiesV2
+        ? {
+            getProviderConnectionCapabilitiesV2: () =>
+              checked(() => gateway.getProviderConnectionCapabilitiesV2()),
+          }
+        : {}),
       ...(gateway.getProviderConnectionCapabilities
         ? {
             getProviderConnectionCapabilities: () =>
@@ -612,7 +658,12 @@ export function createAccountsAdapter(input: {
   async function profiles(
     client: Pick<ScopedClient, "profiles"> &
       Partial<
-        Pick<ScopedClient, "getProviderConnectionCapabilities" | "reauthorize">
+        Pick<
+          ScopedClient,
+          | "getProviderConnectionCapabilities"
+          | "getProviderConnectionCapabilitiesV2"
+          | "reauthorize"
+        >
       >,
   ): Promise<AccountProfileView[]> {
     const catalogue = await client.profiles();
@@ -634,6 +685,9 @@ export function createAccountsAdapter(input: {
       }));
     const result = await connectionProfiles({
       legacy,
+      ...(client.getProviderConnectionCapabilitiesV2
+        ? { capabilitiesV2: client.getProviderConnectionCapabilitiesV2 }
+        : {}),
       ...(client.getProviderConnectionCapabilities
         ? { capabilities: client.getProviderConnectionCapabilities }
         : {}),
@@ -662,6 +716,7 @@ export function createAccountsAdapter(input: {
     op: string | null,
   ) {
     const metadata = {
+      authorizationEpoch: account.authorizationEpoch,
       gatewayOperationRef: op ?? prior?.gatewayOperationRef ?? null,
       profileRef: account.profileId,
       displayName: account.displayName,
@@ -691,7 +746,8 @@ export function createAccountsAdapter(input: {
       prior.displayName === metadata.displayName &&
       prior.profileRef === metadata.profileRef &&
       prior.state === metadata.state &&
-      prior.gatewayOperationRef === metadata.gatewayOperationRef
+      prior.gatewayOperationRef === metadata.gatewayOperationRef &&
+      prior.authorizationEpochMirror === metadata.authorizationEpoch
     )
       return prior;
     // Capture prior BEFORE gateway GET. A delayed response cannot overwrite a newer mirror CAS.
@@ -778,7 +834,11 @@ export function createAccountsAdapter(input: {
     operation: c.Operation,
     catalogue: AccountProfileView[],
     client: ScopedClient,
-    expected?: { accountRef?: string; profileId: string },
+    expected?: {
+      accountRef?: string;
+      profileId: string;
+      credentialImportMethod?: CredentialImportMethod;
+    },
   ) {
     if (operation.operationRef !== operationRef(authority.owner, nonce))
       throw new Denied();
@@ -793,6 +853,7 @@ export function createAccountsAdapter(input: {
       : undefined;
     if (
       profile?.authKind === "oauth" &&
+      expected?.credentialImportMethod === undefined &&
       operation.oauthMethod !== "device_code"
     )
       result.completion = operationCompletion(profile);
@@ -1015,11 +1076,15 @@ export function createAccountsAdapter(input: {
     let savedNonce: string | undefined;
     try {
       const intent = intentSchema.parse(raw); // primitive snapshot before ANY await
-      const key =
+      const submitted =
         intent.kind === "connect" || intent.kind === "reconnect"
-          ? z.string().min(1).max(16384).parse(credential)
+          ? snapshotAccountCredential(
+              intent.credentialImportMethod,
+              credential!,
+            )
           : undefined;
-      if (key === undefined && credential !== undefined) throw new Denied();
+      if (submitted === undefined && credential !== undefined)
+        throw new Denied();
       const authority = await authorize(context);
       const id = operationRef(authority.owner, intent.nonce);
       let effectConnection: ProviderAccountConnection | undefined;
@@ -1031,13 +1096,23 @@ export function createAccountsAdapter(input: {
       });
       const catalogue = await profiles(client);
       let operation: c.Operation;
-      let expected: { accountRef?: string; profileId: string } | undefined;
+      let expected:
+        | {
+            accountRef?: string;
+            profileId: string;
+            credentialImportMethod?: CredentialImportMethod;
+          }
+        | undefined;
       if (intent.kind === "connect") {
-        const profile = catalogue.find(
-          (p) => p.id === intent.profileId && p.authKind === "api_key",
-        );
+        const profile = catalogue.find((p) => p.id === intent.profileId);
         if (
           !profile ||
+          !connectionMethodAllowed(
+            profile,
+            "create",
+            intent.credentialImportMethod ? "credential_import" : "api_key",
+            intent.credentialImportMethod,
+          ) ||
           // Fresh NVIDIA enrollment requires qualified upstream capabilities.
           // Reconnect remains on the separate existing-account path.
           (profile.id === "nvidia-build-chat-apikey-v1" &&
@@ -1052,13 +1127,18 @@ export function createAccountsAdapter(input: {
             canonicalMimoBaseURL(intent.baseURL) !== profile.dedicatedBaseURL)
         )
           throw new Denied();
-        expected = { profileId: intent.profileId };
+        expected = {
+          profileId: intent.profileId,
+          ...(intent.credentialImportMethod
+            ? { credentialImportMethod: intent.credentialImportMethod }
+            : {}),
+        };
         operation = await client.connect({
           operationId: id,
           ownerRef: authority.owner,
           profileId: intent.profileId,
           displayName: intent.label || suggestedAccountLabel(profile.label),
-          credential: { kind: "api_key", value: key! },
+          credential: submitted!,
         });
       } else {
         const { prior, account } = await current(
@@ -1077,13 +1157,19 @@ export function createAccountsAdapter(input: {
         expected = {
           accountRef: account.accountRef,
           profileId: account.profileId,
+          ...(intent.kind === "reconnect" && intent.credentialImportMethod
+            ? { credentialImportMethod: intent.credentialImportMethod }
+            : {}),
         };
         if (account.state === "tombstoned") throw new Denied();
         if (
           intent.kind === "reconnect" &&
-          (!catalogue.find((p) => p.id === account.profileId)?.canReconnect ||
-            catalogue.find((p) => p.id === account.profileId)?.authKind !==
-              "api_key")
+          !connectionMethodAllowed(
+            catalogue.find((p) => p.id === account.profileId)!,
+            "reconnect",
+            intent.credentialImportMethod ? "credential_import" : "api_key",
+            intent.credentialImportMethod,
+          )
         )
           throw new Denied();
         if (intent.kind === "disable") {
@@ -1106,7 +1192,7 @@ export function createAccountsAdapter(input: {
             : intent.kind === "reconnect"
               ? await client.reconnect(account.accountRef, {
                   ...revision,
-                  credential: { kind: "api_key", value: key! },
+                  credential: submitted!,
                 })
               : await client.disable(account.accountRef, revision);
       }
@@ -1189,7 +1275,7 @@ export function createAccountsAdapter(input: {
         fresh = await client.beginOAuthReconnect(account.accountRef, {
           operationId: operationRef(authority.owner, intent.nonce),
           expectedMetadataRevision: account.metadataRevision,
-          method: oauthMethodFor(profile, intent.method),
+          method: oauthMethodFor(profile, intent.method, "reconnect"),
         });
       } else {
         // Subscription reviews use the customer's GitHub Secret and official
@@ -1690,6 +1776,12 @@ export function createAccountsAdapter(input: {
     reviewCatalog: () =>
       profiles({
         profiles: () => gateway.profiles(),
+        ...(gateway.getProviderConnectionCapabilitiesV2
+          ? {
+              getProviderConnectionCapabilitiesV2: () =>
+                gateway.getProviderConnectionCapabilitiesV2(),
+            }
+          : {}),
         ...(gateway.getProviderConnectionCapabilities
           ? {
               getProviderConnectionCapabilities: () =>
@@ -1721,7 +1813,13 @@ export function createDisabledPersonalAccountsAdapter(input: {
   profiles: ReadonlyMap<string, "api-key-create" | "oauth-begin">;
   connectionProfiles?: readonly Pick<
     AccountProfileView,
-    "id" | "label" | "connection" | "oauthMethods"
+    | "id"
+    | "label"
+    | "connection"
+    | "oauthMethods"
+    | "authKind"
+    | "availability"
+    | "canReconnect"
   >[];
 }) {
   const client = createConsumerControlClient(input.control);
@@ -1772,7 +1870,11 @@ export function createDisabledPersonalAccountsAdapter(input: {
     },
   });
   const completionFor = (result: PersonalOperationResult) => {
-    if (result.intent.action !== "connect" || !input.connectionProfiles)
+    if (
+      result.intent.action !== "connect" ||
+      result.intent.ingress !== "oauth-begin" ||
+      !input.connectionProfiles
+    )
       return {};
     const profileId = result.intent.profileId;
     const profile = input.connectionProfiles.find(
@@ -1972,24 +2074,55 @@ export function createDisabledPersonalAccountsAdapter(input: {
         profileId: string;
         label: string;
         method?: "device_code" | "browser";
+        credentialImportMethod?: CredentialImportMethod;
       },
       credential?: string,
     ) {
-      const safe = oauthIntentSchema.parse(raw);
+      const safe = personalConnectIntentSchema.parse(raw);
+      if (safe.credentialImportMethod && safe.method)
+        throw new ProviderAccountError("invalid_input");
+      const submitted =
+        credential !== undefined
+          ? snapshotAccountCredential(safe.credentialImportMethod, credential)
+          : undefined;
       // Personal enrollment is a separate entry point from workspace OAuth.
       if (safe.profileId === claudeOAuthProfileId)
         throw new ProviderAccountError("invalid_input");
-      const key = credential;
       const actorUserId = await input.authorizeUser();
-      const ingress = profiles.get(safe.profileId);
-      if (!ingress) throw new ProviderAccountError("invalid_input");
-      // Capture the one-off key before awaits; never retain it in SQL or safe intent.
-      if (
-        ingress === "api-key-create" &&
-        (typeof key !== "string" || key.length < 1 || key.length > 16384)
-      )
+      const configuredIngress = profiles.get(safe.profileId);
+      const ingress = safe.credentialImportMethod
+        ? "credential-import"
+        : configuredIngress;
+      if (!ingress || !configuredIngress)
         throw new ProviderAccountError("invalid_input");
-      if (ingress === "oauth-begin" && key !== undefined)
+      const selectedProfile: Pick<
+        AccountProfileView,
+        | "id"
+        | "authKind"
+        | "connection"
+        | "oauthMethods"
+        | "availability"
+        | "canReconnect"
+      > = {
+        id: safe.profileId,
+        authKind: configuredIngress === "api-key-create" ? "api_key" : "oauth",
+        ...input.connectionProfiles?.find(
+          (profile) => profile.id === safe.profileId,
+        ),
+      };
+      if (
+        (ingress === "oauth-begin") !== (submitted === undefined) ||
+        !connectionMethodAllowed(
+          selectedProfile,
+          "create",
+          safe.credentialImportMethod
+            ? "credential_import"
+            : ingress === "api-key-create"
+              ? "api_key"
+              : (safe.method ?? selectedProfile.oauthMethods?.[0] ?? "browser"),
+          safe.credentialImportMethod,
+        )
+      )
         throw new ProviderAccountError("invalid_input");
       const completionKind = operationCompletion(
         input.connectionProfiles?.find((p) => p.id === safe.profileId) ?? {
@@ -2023,6 +2156,9 @@ export function createDisabledPersonalAccountsAdapter(input: {
         profileId: safe.profileId,
         displayName: safe.label,
         ingress,
+        ...(safe.credentialImportMethod
+          ? { credentialImportMethod: safe.credentialImportMethod }
+          : {}),
         ...(ingress === "oauth-begin" && safe.profileId === claudeOAuthProfileId
           ? { method: "browser" as const }
           : safe.method
@@ -2042,10 +2178,10 @@ export function createDisabledPersonalAccountsAdapter(input: {
             profileId: intent.profileId,
             displayName: intent.displayName,
           };
-          if (intent.ingress === "api-key-create")
+          if (intent.ingress !== "oauth-begin")
             await client.connect({
               ...original,
-              credential: { kind: "api_key", value: key! },
+              credential: submitted!,
             });
           else {
             const fresh = await client.beginOAuth({

@@ -1,3 +1,8 @@
+import { directNativeAPIProfiles } from "../features/account-gateway/native-api-profiles";
+import type {
+  AccountConnectionMethod,
+  AccountUpstreamProvider,
+} from "../features/account-gateway/connection-capabilities";
 import { accountProviderIdentity } from "../features/provider-setup/provider-identity";
 import * as c from "@agent-teams/account-gateway/contracts";
 import { GatewayError } from "@agent-teams/account-gateway/http";
@@ -21,42 +26,143 @@ export function configuredSubscriptionProfiles(
   return profiles;
 }
 
-/** The only qualified NVIDIA profile; deployments cannot rename it. */
+/** Exact native profiles qualified for this product; no provider implementation lives here. */
 export const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
-function qualifiedNvidia(wire: c.ProviderConnectionCapability): boolean {
+
+type Capability = {
+  profileId: string;
+  provider: { identity: string; label: string };
+  planLabel: string;
+  region: { identity: string; label: string };
+  protocol: c.Profile["protocol"];
+  models: c.ProviderConnectionCapability["models"];
+  authKind: "api_key" | "oauth";
+  methods?: readonly AccountConnectionMethod[];
+  oauthMethods: readonly ("browser" | "device_code")[];
+  canReconnect: boolean;
+  completionInputKind: "none" | "callback_url" | "authorization_code";
+  limitsContract: c.ProviderConnectionCapability["limitsContract"];
+  availability: "enabled" | "deployment_configuration_required";
+};
+function legacyCapability(wire: c.ProviderConnectionCapability): Capability {
+  return {
+    profileId: wire.profileId,
+    provider: wire.provider,
+    planLabel: wire.plan.label,
+    region: wire.region,
+    protocol: wire.protocol,
+    models: wire.models,
+    authKind: wire.authMethods.includes("api_key") ? "api_key" : "oauth",
+    oauthMethods: [
+      ...(wire.authMethods.includes("oauth_authorization_code")
+        ? ["browser" as const]
+        : []),
+      ...(wire.authMethods.includes("oauth_device_code")
+        ? ["device_code" as const]
+        : []),
+    ],
+    canReconnect: wire.reconnect !== "none",
+    completionInputKind: wire.completionInputKind,
+    limitsContract: wire.limitsContract,
+    availability: wire.availability,
+  };
+}
+function nativeCapability(wire: c.ProviderConnectionCapabilityV2): Capability {
+  const browser = wire.methods.find((method) => method.kind === "browser");
+  return {
+    profileId: wire.profileId,
+    provider: { identity: wire.provider.id, label: wire.provider.label },
+    planLabel: wire.product.label,
+    region: { identity: wire.region.id, label: wire.region.label },
+    protocol: wire.protocol,
+    models: wire.models,
+    authKind: wire.methods.some((method) => method.kind === "api_key")
+      ? "api_key"
+      : "oauth",
+    // Explicit allowlist strips native callback configuration from UI projections.
+    methods: wire.methods.map((method) =>
+      method.kind === "credential_import"
+        ? {
+            kind: method.kind,
+            method: method.method,
+            maxBytes: method.maxBytes,
+            create: method.create,
+            reconnect: method.reconnect,
+          }
+        : {
+            kind: method.kind,
+            create: method.create,
+            reconnect: method.reconnect,
+          },
+    ),
+    oauthMethods: wire.methods.flatMap((method) =>
+      method.kind === "browser" || method.kind === "device_code"
+        ? [method.kind]
+        : [],
+    ),
+    canReconnect: wire.methods.some((method) => method.reconnect),
+    completionInputKind: browser?.completionInputKind ?? "none",
+    limitsContract: wire.limitsContract,
+    availability: wire.availability,
+  };
+}
+function absent(error: unknown): boolean {
+  return (
+    error instanceof GatewayError &&
+    (error as GatewayError & { httpStatus?: number }).httpStatus === 404
+  );
+}
+function qualifiedNvidia(wire: Capability): boolean {
   return (
     wire.profileId === nvidiaProfileId &&
     wire.provider.identity === "nvidia" &&
     wire.protocol === "openai-responses" &&
-    wire.authMethods.includes("api_key") &&
+    wire.authKind === "api_key" &&
     wire.completionInputKind === "none" &&
     wire.availability === "enabled"
   );
 }
+function connectionViewFor(
+  wire: Capability,
+): NonNullable<AccountProfileView["connection"]> {
+  // Every caller has already matched a qualified profile or an approved legacy identity.
+  return {
+    provider: wire.provider.identity as AccountUpstreamProvider,
+    planLabel: qualifiedNvidia(wire) ? "API key" : wire.planLabel,
+    regionLabel: wire.region.label,
+    completionInputKind: wire.completionInputKind,
+    limitsContract: wire.limitsContract,
+    modelSettings: wire.models,
+    ...(wire.methods ? { methods: wire.methods } : {}),
+  };
+}
 
-/** Project the qualified deployment catalog; this read has no provider effects. */
+/** Project the selected discovery contract. An attempted v2 read never probes v1. */
 export async function connectionProfiles(input: {
   legacy: readonly AccountProfileView[];
   /** Omit when enriching an already authorized review catalog. */
   subscriptionProfileIds?: readonly string[];
   capabilities?: () => Promise<c.ProviderConnectionCapabilities>;
+  capabilitiesV2?: () => Promise<c.ProviderConnectionCapabilitiesV2>;
 }): Promise<AccountProfileView[]> {
-  let capabilities: c.ProviderConnectionCapabilities["capabilities"] = [];
-  try {
-    if (input.capabilities)
-      capabilities = c.providerConnectionCapabilities.parse(
-        await input.capabilities(),
-      ).capabilities;
-  } catch (error) {
-    // Only an absent endpoint permits the legacy catalog. Authorization and malformed
-    // responses must fail closed. New profiles are never synthesized on fallback.
-    if (
-      !(
-        error instanceof GatewayError &&
-        (error as GatewayError & { httpStatus?: number }).httpStatus === 404
-      )
-    )
-      throw error;
+  let capabilities: Capability[];
+  if (input.capabilitiesV2) {
+    capabilities = c.providerConnectionCapabilitiesV2
+      .parse(await input.capabilitiesV2())
+      .capabilities.map(nativeCapability);
+  } else {
+    // Separately composed v1-only consumers retain their existing compatibility contract.
+    // New composition always supplies v2; any error remains a discovery failure.
+    try {
+      capabilities = input.capabilities
+        ? c.providerConnectionCapabilities
+            .parse(await input.capabilities())
+            .capabilities.map(legacyCapability)
+        : [];
+    } catch (error) {
+      if (!absent(error)) throw error;
+      capabilities = [];
+    }
   }
   const byId = new Map(capabilities.map((row) => [row.profileId, row]));
   if (byId.size !== capabilities.length)
@@ -69,20 +175,24 @@ export async function connectionProfiles(input: {
       (!wire || !qualifiedNvidia(wire))
     )
       return { ...legacy, availability: "deployment_configuration_required" };
-    if (!wire) return legacy;
+    if (!wire)
+      return input.capabilitiesV2
+        ? {
+            ...legacy,
+            availability: "deployment_configuration_required",
+            canReconnect: false,
+          }
+        : legacy;
     if (
       wire.protocol !== legacy.protocol ||
       (provider !== undefined && wire.provider.identity !== provider) ||
-      (legacy.authKind === "api_key" &&
-        !wire.authMethods.includes("api_key")) ||
-      (legacy.authKind === "oauth" &&
-        !wire.authMethods.some((method) => method.startsWith("oauth_")))
+      (legacy.authKind !== undefined && legacy.authKind !== wire.authKind)
     )
       throw new Error("accounts_unavailable");
     const models = legacy.models.filter((model) =>
-      wire.modelIds.includes(model),
+      wire.models.some((entry) => entry.modelId === model),
     );
-    const connection = connectionView(wire);
+    const connection = connectionViewFor(wire);
     return {
       ...legacy,
       availability:
@@ -90,6 +200,9 @@ export async function connectionProfiles(input: {
           ? legacy.availability
           : wire.availability,
       models,
+      ...(wire.methods
+        ? { canReconnect: wire.canReconnect, oauthMethods: wire.oauthMethods }
+        : {}),
       connection: {
         ...connection,
         modelSettings: connection.modelSettings.filter((model) =>
@@ -105,27 +218,48 @@ export async function connectionProfiles(input: {
       label: nvidia.provider.label,
       provider: "nvidia",
       protocol: nvidia.protocol,
-      models: [...nvidia.modelIds],
+      models: nvidia.models.map((model) => model.modelId),
       authKind: "api_key",
-      canReconnect: nvidia.reconnect === "replace_api_key",
+      canReconnect: nvidia.canReconnect,
       availability: nvidia.availability,
-      connection: connectionView(nvidia),
+      connection: connectionViewFor(nvidia),
     });
-  if (input.subscriptionProfileIds === undefined) return result;
-  for (const id of Object.keys(subscriptionProfileProviders)) {
+  for (const [id, provider] of Object.entries(directNativeAPIProfiles)) {
     const wire = byId.get(id);
-    const definition = subscriptionProfileDefinition(id)!;
-    const provider = definition.provider;
+    // A v1 projection cannot qualify these newly admitted API contracts.
     if (
-      !wire ||
+      !wire?.methods ||
       wire.provider.identity !== provider ||
+      wire.protocol !== "openai-responses" ||
       wire.region.identity !== "global" ||
-      wire.protocol !== "openai-responses"
+      wire.authKind !== "api_key" ||
+      !wire.methods.some((method) => method.kind === "api_key")
     )
       continue;
-    const oauth = definition.authKind === "oauth";
+    if (result.some((profile) => profile.id === id)) continue;
+    result.push({
+      id,
+      label: wire.provider.label,
+      provider: "codex",
+      protocol: wire.protocol,
+      models: wire.models.map((model) => model.modelId),
+      authKind: "api_key",
+      canReconnect: wire.canReconnect,
+      availability: wire.availability,
+      connection: connectionViewFor(wire),
+    });
+  }
+  if (input.subscriptionProfileIds === undefined) return result;
+  for (const id of Object.keys(subscriptionProfileProviders)) {
+    if (result.some((profile) => profile.id === id)) continue;
+    const wire = byId.get(id);
+    const definition = subscriptionProfileDefinition(id)!;
     if (
-      !wire.authMethods.includes(oauth ? "oauth_authorization_code" : "api_key")
+      !wire ||
+      wire.provider.identity !== definition.provider ||
+      wire.region.identity !== "global" ||
+      wire.protocol !== "openai-responses" ||
+      wire.authKind !== definition.authKind
     )
       continue;
     result.push({
@@ -136,26 +270,22 @@ export async function connectionProfiles(input: {
       availability: input.subscriptionProfileIds.includes(id)
         ? wire.availability
         : "deployment_configuration_required",
-      models: [...wire.modelIds],
-      authKind: oauth ? "oauth" : "api_key",
-      canReconnect: wire.reconnect !== "none",
-      ...(oauth ? { oauthMethods: ["browser"] as const } : {}),
-      connection: connectionView(wire),
+      models: wire.models.map((model) => model.modelId),
+      authKind: definition.authKind,
+      canReconnect: wire.canReconnect,
+      ...(definition.authKind === "oauth"
+        ? { oauthMethods: wire.oauthMethods }
+        : {}),
+      connection: connectionViewFor(wire),
     });
   }
   return result;
 }
+/** v1 compatibility for existing consumers; all version mapping stays in this adapter. */
 export function connectionView(
   wire: c.ProviderConnectionCapability,
 ): NonNullable<AccountProfileView["connection"]> {
-  return {
-    provider: wire.provider.identity,
-    planLabel: qualifiedNvidia(wire) ? "API key" : wire.plan.label,
-    regionLabel: wire.region.label,
-    completionInputKind: wire.completionInputKind,
-    limitsContract: wire.limitsContract,
-    modelSettings: wire.models,
-  };
+  return connectionViewFor(legacyCapability(wire));
 }
 export function operationCompletion(
   profile: Pick<AccountProfileView, "id" | "label" | "connection" | "provider">,

@@ -24,11 +24,15 @@ function fixture(
   options: {
     lifecycleWritable?: boolean;
     grok?: boolean;
+    codexImports?: boolean;
     disabled?: boolean;
     nvidia?: "qualified" | "unqualified";
   } = {},
 ) {
-  const grokProfileId = "grok-subscription-responses-oauth-v1";
+  const grokProfileId = options.codexImports
+    ? "openai-codex-oauth-responses-v1"
+    : "grok-subscription-responses-oauth-v1";
+  const oauth = options.grok || options.codexImports;
   const nvidiaProfileId = "nvidia-build-chat-apikey-v1";
   let oauthBegun = false;
   let actor = "user-u",
@@ -41,7 +45,7 @@ function fixture(
     gatewayOperationRef: null,
     profileRef: options.nvidia
       ? nvidiaProfileId
-      : options.grok
+      : oauth
         ? grokProfileId
         : "profile-mimo",
     displayName: "Personal",
@@ -55,7 +59,7 @@ function fixture(
     ownerRef: `rru_${createHash("sha256").update(`rr-user-owner-v1\0${actor}`).digest("hex")}`,
     profileId: options.nvidia
       ? nvidiaProfileId
-      : options.grok
+      : oauth
         ? grokProfileId
         : "profile-mimo",
     displayName: "Personal",
@@ -152,7 +156,7 @@ function fixture(
   const control = {
     profiles: vi.fn(async () => ({
       profiles: [
-        ...(options.grok
+        ...(oauth
           ? [
               {
                 profileId: grokProfileId,
@@ -376,7 +380,7 @@ function fixture(
             },
           ]
         : []),
-      ...(options.grok
+      ...(oauth
         ? [
             {
               id: grokProfileId,
@@ -388,7 +392,34 @@ function fixture(
               canReconnect: true,
               oauthMethods: ["browser"] as const,
               connection: {
-                provider: "grok" as const,
+                provider: options.codexImports
+                  ? ("openai" as const)
+                  : ("grok" as const),
+                ...(options.codexImports
+                  ? {
+                      methods: [
+                        {
+                          kind: "browser" as const,
+                          create: true,
+                          reconnect: false,
+                        },
+                        {
+                          kind: "credential_import" as const,
+                          method: "refresh_token" as const,
+                          maxBytes: 65536 as const,
+                          create: true,
+                          reconnect: true,
+                        },
+                        {
+                          kind: "credential_import" as const,
+                          method: "oauth_auth_json" as const,
+                          maxBytes: 65536 as const,
+                          create: true,
+                          reconnect: false,
+                        },
+                      ],
+                    }
+                  : {}),
                 planLabel: "Subscription",
                 regionLabel: "Global",
                 completionInputKind: "authorization_code" as const,
@@ -1131,4 +1162,73 @@ it("routes a saved Grok connect through the shared journal after reload without 
     nonce,
     callbackURL,
   });
+});
+
+it("reconnect imports retain their selected method through fencing and lost acknowledgement", async () => {
+  const f = fixture({ codexImports: true });
+  const request = {
+    ...f.request,
+    credentialImportMethod: "refresh_token" as const,
+  };
+  const first = await f.api.submitGatewayApiKey(
+    "",
+    request,
+    "synthetic-import-first",
+  );
+  expect(first.status).toBe("ok");
+  expect(f.control.reconnect).not.toHaveBeenCalled();
+  expect(f.intents).toHaveLength(1);
+  expect(f.intents[0]).toMatchObject({
+    action: "reconnect",
+    credentialImportMethod: "refresh_token",
+  });
+  expect(JSON.stringify(f.intents)).not.toContain("synthetic-import");
+  expect(
+    await f.api.submitGatewayApiKey(
+      "",
+      { ...request, credentialImportMethod: "oauth_auth_json" },
+      "synthetic-other",
+    ),
+  ).toEqual({ status: "conflict" });
+  f.ack();
+  const ready = await f.api.readGatewayOperation("", nonce);
+  expect(ready).toMatchObject({
+    status: "ok",
+    value: {
+      state: "pending",
+      resume: { credentialImportMethod: "refresh_token" },
+    },
+  });
+  if (ready.status === "ok") expect(ready.value.completion).toBeUndefined();
+  const submitted = await f.api.submitGatewayApiKey(
+    "",
+    request,
+    "synthetic-import-reentered",
+  );
+  expect(submitted.status).toBe("ok");
+  expect(f.control.reconnect).toHaveBeenCalledExactlyOnceWith(
+    "private-account",
+    expect.objectContaining({
+      credential: {
+        kind: "credential_import",
+        method: "refresh_token",
+        value: "synthetic-import-reentered",
+      },
+    }),
+  );
+  await f.api.submitGatewayApiKey("", request, "synthetic-never-replay");
+  expect(f.control.reconnect).toHaveBeenCalledTimes(1);
+  expect(f.control.beginOAuthReconnect).not.toHaveBeenCalled();
+});
+it("a create-only import method cannot start reconnect fencing", async () => {
+  const f = fixture({ codexImports: true });
+  expect(
+    await f.api.submitGatewayApiKey(
+      "",
+      { ...f.request, credentialImportMethod: "oauth_auth_json" },
+      "synthetic-import",
+    ),
+  ).toEqual({ status: "denied" });
+  expect(f.intents).toEqual([]);
+  expect(f.control.reconnect).not.toHaveBeenCalled();
 });

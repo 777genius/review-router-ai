@@ -42,6 +42,8 @@ describe("provider setup registry", () => {
       ["openrouter", "OpenRouter"],
       ["mimo", "MiMo Token Plan"],
       ["kimi", "Kimi Code"],
+      ["anthropic", "Anthropic API"],
+      ["gemini", "Gemini API"],
       ["nvidia", "NVIDIA Build"],
       ["glm", "GLM Coding Plan"],
       ["minimax", "MiniMax M Plan"],

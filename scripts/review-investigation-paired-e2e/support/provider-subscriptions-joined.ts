@@ -63,8 +63,10 @@ type RelayAdapter = {
 };
 const execFileAsync = promisify(execFile);
 export const joinedActionRef = "0454fc0a3af15f94522c7c31cce59c0c62af6567";
+// Reproducible complete source: git 2.52.0 archive --format=tar <joinedActionRef>.
+// The archive's embedded commit ID and codex.ts digest were independently checked.
 const actionArchiveDigest =
-  "f76f0ab503b7b3d2ea000639e8ca47e5377a3b66d5140c669c39e8a9df00db7c";
+  "42e8d844bd451655ff171dc4093a872fc471675c90b3997697261ba4153807b4";
 const codexSourceDigest =
   "22967b9f1e4bb463926df901af002e8d97bc272bd6396f28f67cd4463626bcef";
 const codexBinaryDigest =
@@ -123,6 +125,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
   let declaredFunctionTools = 0;
   let returnedCustomTools = 0;
   let returnedFunctionTools = 0;
+  let structuredOutputRequests = 0;
   const active = new Set<() => Promise<void>>();
   const inFlight = new Set<Promise<void>>();
   const savedEnv = { ...process.env };
@@ -274,6 +277,10 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         assert.equal(raw.model, input.model);
         relayPhase = "cli-stream";
         assert.equal(raw.stream, true);
+        const textFormat = (raw.text as { format?: { type?: string; schema?: unknown } } | undefined)?.format;
+        assert.equal(textFormat?.type, "json_schema", "actual review must request its findings schema");
+        assert.ok(textFormat.schema && typeof textFormat.schema === "object");
+        structuredOutputRequests++;
         relayPhase = "cli-reasoning";
         assert.ok(
           raw.reasoning === undefined || raw.reasoning === null,
@@ -344,6 +351,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         ) as Record<string, unknown>;
         assert.ok(!("reasoning" in forwarded));
         assert.equal(forwarded.service_tier, "default");
+        assert.deepEqual(forwarded.text, raw.text, "production relay must preserve the review schema");
         relayPhase = "sdk-execution-request";
         const upstream = await selectedExecution.request(
           selectedRef,
@@ -530,6 +538,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               declaredCustomTools,
               returnedFunctionTools,
               returnedCustomTools,
+              structuredOutputRequests,
               reasoningOmitted: true,
               fastOmitted: true,
               executionClosureAcknowledged: true,

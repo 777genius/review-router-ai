@@ -37,9 +37,9 @@ export function AccountsAddDialog({
   const popup = useRef<HTMLDivElement>(null);
   function clearUnsubmittedCredentials() {
     popup.current
-      ?.querySelectorAll<HTMLInputElement>(
-        'input[type="password"], input[name="callbackURL"], input[name="authorizationCode"]',
-      )
+      ?.querySelectorAll<
+        HTMLInputElement | HTMLTextAreaElement
+      >('input[type="password"], input[name="callbackURL"], input[name="authorizationCode"], textarea[name="credential"], input[name="credentialFile"]')
       .forEach((field) => {
         field.value = "";
       });
