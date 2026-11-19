@@ -161,5 +161,7 @@ test("an NVIDIA account's model list updates itself when it lapses, with Try aga
   expect((await fixture()).nvidiaModelReads.slice(beforeRetry)).toEqual([
     { forceRefresh: true },
   ]);
+  // Later specs in this lane get native's one-minute list again.
+  await fixture({ ttlMs: 60_000, delayMs: 0, status: "snapshot" });
   await expectNetworkViolations(violations);
 });

@@ -183,7 +183,10 @@ export function createSubscriptionFixture(
       nvidiaModels = {
         ttlMs: Number(input.ttlMs ?? nvidiaModels.ttlMs),
         delayMs: Number(input.delayMs ?? nvidiaModels.delayMs),
-        status: input.status === "unavailable" ? "unavailable" : "snapshot",
+        status:
+          input.status === "unavailable" || input.status === "snapshot"
+            ? input.status
+            : nvidiaModels.status,
       };
     },
     observe(method: string, path: string) {

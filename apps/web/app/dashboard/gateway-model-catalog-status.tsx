@@ -59,14 +59,13 @@ const updatedAgo = (fetchedAt: string) => {
 function CatalogStatus({
   account,
   profile,
-  accounts: { loading, canRefresh, refreshModels },
+  accounts: { bindingLoading, canRefresh, refreshModels },
   bindingId,
   publicCatalog,
 }: CatalogStatusProps) {
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshFailed, setRefreshFailed] = useState(false);
   const catalog = account?.modelCatalog;
-  const busy = loading || refreshing;
+  const busy = bindingLoading(bindingId) || refreshing;
   // A configured profile list is not account discovery. In particular, a
   // refreshable client adapter alone does not establish upstream support.
   const refreshSupported =
@@ -97,12 +96,7 @@ function CatalogStatus({
         ]
     : busy && catalog?.status !== "snapshot"
       ? ["Loading model choices…", null]
-      : refreshFailed
-        ? [
-            "Could not update account models. Your saved selection is unchanged.",
-            "retry",
-          ]
-        : catalog?.status === "snapshot"
+      : catalog?.status === "snapshot"
           ? [
               `${catalog.models.length === 0 ? "This account lists no models right now. " : ""}Model list updated ${catalog.fetchedAt ? updatedAgo(catalog.fetchedAt) : "recently"}.`,
               "refresh",
@@ -127,20 +121,27 @@ function CatalogStatus({
       ? refreshAccount || Boolean(publicCatalog)
       : action === "refresh" && (refreshSupported || Boolean(publicCatalog));
   async function refresh() {
-    setRefreshFailed(false);
     setRefreshing(true);
-    // The public refresh reports its own failure through its query.
-    const [accountRefresh] = await Promise.allSettled([
+    // Each refresh reports its own failure through its query data.
+    await Promise.allSettled([
       refreshAccount ? refreshModels(bindingId) : undefined,
       publicCatalog?.refresh(),
     ]);
-    if (accountRefresh.status === "rejected") setRefreshFailed(true);
     setRefreshing(false);
   }
   return (
     <div className="grid gap-1 text-xs text-slate-400">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span role="status">{message}</span>
+        <span
+          role="status"
+          title={
+            catalog?.status === "snapshot" && catalog.fetchedAt
+              ? new Date(catalog.fetchedAt).toLocaleString()
+              : undefined
+          }
+        >
+          {message}
+        </span>
         {showAction ? (
           action === "retry" ? (
             <Button

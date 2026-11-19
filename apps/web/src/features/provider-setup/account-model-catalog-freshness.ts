@@ -22,6 +22,8 @@ export function accountModelCatalogRequired(
 /**
  * A browser clock a little behind the server must not make a list that was
  * just read look like it comes from the future. Expiry is never stretched.
+ * The server checks (Gateway read, setup readiness) keep no tolerance: they
+ * use the server clock and stay the authority.
  */
 const FETCHED_AT_CLOCK_TOLERANCE_MS = 30_000;
 

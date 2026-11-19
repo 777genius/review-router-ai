@@ -97,7 +97,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   // Account and public provider catalogs expose independent status regions.
   const accountCatalogStatus = dialog
     .getByRole("status")
-    .filter({ hasText: /^Account model catalog\./u });
+    .filter({ hasText: /^Model list updated/u });
   await expect(model).toHaveValue(savedModel);
   await expect(accountCatalogStatus).toBeVisible();
   await expect(model).toHaveValue(savedModel);

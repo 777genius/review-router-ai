@@ -243,3 +243,23 @@ test("a failed update says so with Try again, never loops, and is read again onl
   expect(get).toHaveBeenLastCalledWith(BINDING, { forceRefresh: true });
   expect(screen.getByText(`Selectable:${MODEL}`)).toBeTruthy();
 });
+
+test("a thrown automatic read keeps the account, says so with Try again and does not retry", async () => {
+  const get = vi
+    .fn<GatewayModelAccountsApi["get"]>()
+    .mockImplementationOnce(async () => fresh())
+    .mockRejectedValue(new Error("transport failure"));
+  render(<Dialog api={apiWith(get)} open />);
+  await wait();
+  expect(screen.getByText(`Selectable:${MODEL}`)).toBeTruthy();
+  await wait(46_000);
+  expect(get).toHaveBeenCalledTimes(2);
+  // The account stays selected; only its list is no longer proven.
+  expect(screen.getByRole("status").textContent).toBe(
+    "Could not update the model list for this account.",
+  );
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  expect(screen.getByText("Selectable:")).toBeTruthy();
+  await wait(5 * 60_000);
+  expect(get).toHaveBeenCalledTimes(2);
+});

@@ -7,7 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AccountView } from "../../src/server/account-gateway-accounts";
 import { GatewayModelCatalogStatus } from "./gateway-model-catalog-status";
 
@@ -34,7 +34,7 @@ it("distinguishes configured profile choices from account discovery and offers n
     <GatewayModelCatalogStatus
       profile={undefined}
       account={account}
-      accounts={{ loading: false, canRefresh: true, refreshModels: refresh }}
+      accounts={{ bindingLoading: () => false, canRefresh: true, refreshModels: refresh }}
       bindingId="binding-1"
     />,
   );
@@ -58,7 +58,7 @@ it("does not offer refresh after an explicit unsupported discovery response", ()
           models: [],
         },
       }}
-      accounts={{ loading: false, canRefresh: true, refreshModels: vi.fn() }}
+      accounts={{ bindingLoading: () => false, canRefresh: true, refreshModels: vi.fn() }}
       bindingId="binding-1"
     />,
   );
@@ -81,7 +81,7 @@ it("keeps an unavailable discovery retryable without calling a saved choice unsu
           models: ["saved-model"],
         },
       }}
-      accounts={{ loading: false, canRefresh: true, refreshModels: refresh }}
+      accounts={{ bindingLoading: () => false, canRefresh: true, refreshModels: refresh }}
       bindingId="binding-1"
     />,
   );
@@ -116,7 +116,7 @@ it("a pending refresh on another binding does not disable or fail the new accoun
     <GatewayModelCatalogStatus
       profile={undefined}
       account={selected}
-      accounts={{ loading: false, canRefresh: true, refreshModels: refresh }}
+      accounts={{ bindingLoading: () => false, canRefresh: true, refreshModels: refresh }}
       bindingId="binding-1"
     />,
   );
@@ -131,7 +131,7 @@ it("a pending refresh on another binding does not disable or fail the new accoun
         binding: { ...selected.binding!, id: "binding-2" },
       }}
       accounts={{
-        loading: false,
+        bindingLoading: () => false,
         canRefresh: true,
         refreshModels: vi.fn(async () => {}),
       }}
@@ -176,7 +176,7 @@ it("refreshes public metadata from the same button and reports its failure on it
       },
     },
     accounts: {
-      loading: false,
+      bindingLoading: () => false,
       canRefresh: true,
       refreshModels: refreshAccount,
     },
@@ -248,7 +248,7 @@ it("keeps public metadata refreshable when the account cannot list models", asyn
         },
       }}
       accounts={{
-        loading: false,
+        bindingLoading: () => false,
         canRefresh: true,
         refreshModels: refreshAccount,
       }}
@@ -273,4 +273,77 @@ it("keeps public metadata refreshable when the account cannot list models", asyn
   fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
   await waitFor(() => expect(refreshPublic).toHaveBeenCalledTimes(1));
   expect(refreshAccount).not.toHaveBeenCalled();
+});
+
+describe("an NVIDIA account whose own list is required", () => {
+  const nvidia = {
+    id: "nvidia-build-chat-apikey-v1",
+    protocol: "openai-responses" as const,
+    authKind: "api_key" as const,
+    connection: {
+      provider: "nvidia" as const,
+      planLabel: "Trial",
+      regionLabel: "Global",
+      completionInputKind: "none" as const,
+      limitsContract: "none" as const,
+      modelSettings: [],
+    },
+  };
+  const accounts = (loading = false) => ({
+    bindingLoading: () => loading,
+    canRefresh: true,
+    refreshModels: vi.fn(async () => {}),
+  });
+  const statusText = () => screen.getByRole("status").textContent;
+
+  it("says it is updating while its own read is in flight, with no button", () => {
+    render(
+      <GatewayModelCatalogStatus
+        account={account}
+        profile={nvidia}
+        accounts={accounts(true)}
+        bindingId="binding-1"
+      />,
+    );
+    expect(statusText()).toBe("Updating the model list for this account…");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("names a lapsed list and an unreachable account plainly, each with Try again", () => {
+    const lapsed = accounts();
+    const { rerender } = render(
+      <GatewayModelCatalogStatus
+        account={{
+          ...account,
+          modelCatalog: {
+            status: "snapshot",
+            source: "nvidia",
+            fetchedAt: new Date(Date.now() - 120_000).toISOString(),
+            expiresAt: new Date(Date.now() - 60_000).toISOString(),
+            models: ["nvidia/model"],
+          },
+        }}
+        profile={nvidia}
+        accounts={lapsed}
+        bindingId="binding-1"
+      />,
+    );
+    expect(statusText()).toBe(
+      "The model list for this account is out of date.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(lapsed.refreshModels).toHaveBeenCalledWith("binding-1");
+    rerender(
+      <GatewayModelCatalogStatus
+        account={undefined}
+        profile={nvidia}
+        accounts={accounts()}
+        bindingId="binding-1"
+      />,
+    );
+    expect(statusText()).toBe(
+      "Could not reach this account to update its model list.",
+    );
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
 });

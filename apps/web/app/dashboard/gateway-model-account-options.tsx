@@ -134,8 +134,44 @@ export function GatewayModelAccountsProvider({
 /** What a model list status needs from the accounts read. */
 export type GatewayModelAccountsRefresh = Pick<
   ReturnType<typeof useGatewayModelAccounts>,
-  "loading" | "canRefresh" | "refreshModels"
+  "bindingLoading" | "canRefresh" | "refreshModels"
 >;
+
+/**
+ * A failed read of a binding that was read before keeps its display metadata,
+ * so the failure stays visible and retryable, but drops catalog admission,
+ * freshness and capabilities. Without an earlier read it is unavailable.
+ */
+function failedAccountRead(
+  current: AccountDetail | undefined,
+  bindingId: string,
+): AccountDetail {
+  if (
+    current?.status !== "ok" ||
+    current.value.account.binding?.id !== bindingId
+  )
+    return { status: "unavailable" };
+  const { account, profile } = current.value;
+  return {
+    status: "ok",
+    value: {
+      account: {
+        ...account,
+        modelCatalog: { status: "unknown", source: "legacy_profile", models: [] },
+        ...(account.connection
+          ? { connection: { ...account.connection, modelSettings: [] } }
+          : {}),
+      },
+      profile: {
+        ...profile,
+        models: [],
+        ...(profile.connection
+          ? { connection: { ...profile.connection, modelSettings: [] } }
+          : {}),
+      },
+    },
+  };
+}
 
 export function useGatewayModelAccounts(
   initial: AccountsResult<AccountsPage> | undefined,
@@ -173,12 +209,18 @@ export function useGatewayModelAccounts(
             context?.scope ?? "disabled",
             bindingId,
           ] as const,
-          // A failed read is a result like "unavailable", so it keeps its
-          // cooldown instead of being retried on every mount.
-          queryFn: (): Promise<AccountDetail> =>
-            context!.api
-              .get(bindingId)
-              .catch(() => ({ status: "unavailable" }) as const),
+          // A failed read is a result, so it keeps its cooldown instead of
+          // being retried on every mount, and the account stays visible.
+          queryFn: async ({ queryKey }): Promise<AccountDetail> => {
+            const failed = () =>
+              failedAccountRead(client.getQueryData(queryKey), bindingId);
+            try {
+              const value = await context!.api.get(bindingId);
+              return value.status === "unavailable" ? failed() : value;
+            } catch {
+              return failed();
+            }
+          },
           enabled: Boolean(context),
           // The model list an open picker shows is read again before it
           // lapses, and an out-of-date or failed one once per open after its
@@ -207,6 +249,10 @@ export function useGatewayModelAccounts(
       canLoadMore: false,
       canRefresh: false,
       loading: false,
+      bindingLoading: (bindingId: string) => {
+        void bindingId;
+        return false;
+      },
       loadMore: () => {},
       refresh: () => {},
       refreshModels: async (bindingId: string) => {
@@ -241,7 +287,6 @@ export function useGatewayModelAccounts(
       if (detail?.isPending) return;
       accounts.delete(bindingId);
       if (
-        !detail?.isError &&
         detail?.data?.status === "ok" &&
         detail.data.value.account.binding?.id === bindingId
       ) {
@@ -307,39 +352,9 @@ export function useGatewayModelAccounts(
       const queryKey = ["account-option", context.scope, bindingId] as const;
       await client.cancelQueries({ queryKey, exact: true });
       const unavailable = () =>
-        client.setQueryData<AccountDetail>(queryKey, (current) => {
-          if (
-            current?.status !== "ok" ||
-            current.value.account.binding?.id !== bindingId
-          )
-            return { status: "unavailable" };
-          const { account, profile } = current.value;
-          // Retain known display metadata so a transient refresh failure remains
-          // retryable, but discard catalog admission and freshness/capabilities.
-          return {
-            status: "ok",
-            value: {
-              account: {
-                ...account,
-                modelCatalog: {
-                  status: "unknown",
-                  source: "legacy_profile",
-                  models: [],
-                },
-                ...(account.connection
-                  ? { connection: { ...account.connection, modelSettings: [] } }
-                  : {}),
-              },
-              profile: {
-                ...profile,
-                models: [],
-                ...(profile.connection
-                  ? { connection: { ...profile.connection, modelSettings: [] } }
-                  : {}),
-              },
-            },
-          };
-        });
+        client.setQueryData<AccountDetail>(queryKey, (current) =>
+          failedAccountRead(current, bindingId),
+        );
       try {
         const value = await context.api.get(bindingId, { forceRefresh: true });
         if (value.status === "unavailable") unavailable();
@@ -358,6 +373,11 @@ export function useGatewayModelAccounts(
     canLoadMore: Boolean(pages.hasNextPage),
     canRefresh: true,
     loading: pages.isFetching || details.some((detail) => detail.isFetching),
+    /** Whether this one binding's own read is in flight. */
+    bindingLoading: (bindingId: string) =>
+      details[
+        [...new Set(selectedBindingIds.filter(Boolean))].indexOf(bindingId)
+      ]?.isFetching === true,
     pageError: pages.isError || Boolean(failedPage),
     loadMore: () => {
       void pages.fetchNextPage();
