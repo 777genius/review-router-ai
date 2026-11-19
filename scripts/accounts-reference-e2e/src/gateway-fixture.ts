@@ -240,6 +240,8 @@ export async function startGatewayFixture(input: {
       return;
     }
     if (subscriptions && requestUrl.pathname === "/__subscription-fixture") {
+      if (request.method === "POST")
+        subscriptions.configure(await readJson(request));
       send(response, 200, subscriptions.stats());
       return;
     }
