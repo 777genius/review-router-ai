@@ -321,6 +321,24 @@ export function partitionRenderSchemaHandoffCheckout(catalog) {
     )
   )
     fail("checkout_catalog");
+  // The account credential-import method only changes the later personal journal.
+  // Require its exact SQL and complete checkout165 before reducing to the frozen
+  // reviewer-plan checkout164. The managed92 validator remains unchanged.
+  const credentialImportMigration = catalog.find(
+    (row) => row.migrationName === "000160_personal_credential_import_method",
+  );
+  if (credentialImportMigration) {
+    if (
+      catalog.length !== 165 ||
+      catalog.at(-1) !== credentialImportMigration ||
+      credentialImportMigration.checksum !==
+        "81317004692eb7e6b2691e1c06b151b8a920bfb02e0caeb1a9e724356f1b5cbe"
+    )
+      fail("checkout_extension");
+    return partitionRenderSchemaHandoffCheckout(
+      catalog.filter((row) => row !== credentialImportMigration),
+    );
+  }
   // Reviewer plan version 2 (plan 67) only widens the producer profile CHECK
   // to admit planVersion 2. Require its exact SQL and the full 164-row
   // inventory before reducing to the provider-quota checkout163; managed92 is
