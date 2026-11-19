@@ -74,7 +74,7 @@
 - Unit: `suggestedModel` (default есть, выключен, отсутствует, один вариант, поздний каталог); `attachConnected` возвращает `bindingId` в P, X, при повторе по квитанции и при `conflict`.
 - Диалог: нет подключений → форма этого провайдера без второго «Provider»; `loading` во время подключения форму не убирает; после `onConnected` выбрано подключение и видна модель; участник видит только причину; без личного сервиса - ссылка; подсказка о дубле.
 - Controls: `onConnected` один раз после `attached`, ни разу при `not_attached`; nonce из контекста; без `ConnectTarget` (Connections) квитанция не скрывается; `rejected` → «Add another account» → форма снова, Provider разблокирован.
-- E2E `scripts/accounts-reference-e2e`: этап 1 - `one-step-add-provider.spec.ts`, OpenRouter-ключ в одном диалоге до сохранения (`--api-key-storage-fixture`; фикстура отдаёт список моделей аккаунта OpenRouter). Нужен настоящий PostgreSQL 17: на PGlite чтение аккаунтов workspace падает на prepared statement. Этап 2 - Grok browser (`subscription-connections.spec.ts:51`); Codex device code - компонентными тестами. Скриншоты desktop и mobile, прогон на Hetzner.
+- E2E `scripts/accounts-reference-e2e`: этап 1 - `one-step-add-provider.spec.ts`, OpenRouter-ключ в одном диалоге до сохранения (`--api-key-storage-fixture`; фикстура отдаёт список моделей аккаунта OpenRouter). Нужен настоящий PostgreSQL 17: на PGlite чтение аккаунтов workspace падает на prepared statement. Этап 2 - Grok browser (`one-step-add-provider.spec.ts`, «Add provider signs in to Grok in place and selects the new account»); Codex device code - компонентными тестами. Скриншоты desktop и mobile, прогон на Hetzner.
 
 ## 8. Деплой и откат
 
