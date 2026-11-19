@@ -91,9 +91,25 @@ function splitCookie(cookie: string): [string, string] {
   return [cookie.slice(0, separator), cookie.slice(separator + 1)];
 }
 
-export async function openAccounts(
+export function openAccounts(page: Page, workspace: string): Promise<void> {
+  return navigateAccounts(page, workspace, () =>
+    page.goto(`/dashboard/setup?workspace=${encodeURIComponent(workspace)}`, {
+      waitUntil: "domcontentloaded",
+    }),
+  );
+}
+
+export function reloadAccounts(page: Page): Promise<void> {
+  const workspace = new URL(page.url()).searchParams.get("workspace") ?? "";
+  return navigateAccounts(page, workspace, () =>
+    page.reload({ waitUntil: "domcontentloaded" }),
+  );
+}
+
+async function navigateAccounts(
   page: Page,
   workspace: string,
+  navigate: () => Promise<unknown>,
 ): Promise<void> {
   // This inventory GET starts after its streamed client subtree hydrates.
   const personalHydrated = workspace.startsWith("rr-e2e-personal-")
@@ -106,12 +122,7 @@ export async function openAccounts(
         );
       })
     : null;
-  await page.goto(
-    `/dashboard/setup?workspace=${encodeURIComponent(workspace)}`,
-    {
-      waitUntil: "domcontentloaded",
-    },
-  );
+  await navigate();
   // The Connections section region is the page's top anchor and marks the
   // current account-management content as rendered.
   await expect(
