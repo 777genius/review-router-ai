@@ -106,7 +106,7 @@ export const TOKEN_LOWER_BOUND_NOTE =
 export const TOKEN_LOWER_BOUND_HINT = `At least this many. ${TOKEN_LOWER_BOUND_NOTE}`;
 /** A day only partly inside the period (see `partialDayLabel`). */
 export const PARTIAL_DAY_NOTE =
-  "The first and last day may cover only part of that day, the last one so far";
+  "The first and last day may cover only part of the day; the last one shows usage so far";
 /**
  * One readable status per bucket. Source completeness flags are mutually
  * exclusive per call, so their sum is an exact count of incomplete calls.

@@ -1,11 +1,12 @@
 # Usage chart wording in plain language: deployment
 
 - Task ID: `2026-11-19-usage-plain-wording`
-- Goal: the Usage tooltip, daily table, legend, coverage column, footer note
-  and Details text say "today so far", "at least 12,587,499" and "some calls
-  did not report all their tokens" instead of "partial day", "(known part)"
-  and "some token data incomplete". One formatter owns the wording; no number
-  or calculation changes.
+- Goal: the Usage tooltip, daily table, legend, KPI, run summary, coverage
+  column, footer note and Details text say "so far, until 21:58 UTC",
+  "at least 12,587,499" and "some calls may not have reported all their
+  tokens" instead of "partial day", "(known part)"/"Known part" and "some
+  token data incomplete". One formatter owns the wording; no number or
+  calculation changes.
 - Affected services/targets: Web only (`apps/web`). No API, worker, database,
   configuration, Gateway or native change.
 - Implementation PR/issue:
@@ -36,10 +37,11 @@
 
 ## Verification and completion
 
-- Dashboard > Usage, last 7 days: hovering today's bar shows
-  "YYYY-MM-DD UTC · today so far"; a provider whose calls lack a token total
-  reads "at least N"; the coverage column reads "N calls did not report all
-  their tokens".
+- Dashboard > Usage, last 7 days: hovering the last bar shows
+  "YYYY-MM-DD UTC · so far, until HH:MM UTC"; a provider whose calls lack a
+  token total reads "at least N" and the Known tokens KPI explains it; the
+  coverage column reads "N calls may not have reported all their tokens" or
+  "N calls did not report a token total".
 
 ## Retry, partial completion, and rollback
 
