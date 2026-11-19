@@ -629,7 +629,9 @@ describe("Gateway reviewer roster", () => {
         "This account is unavailable. Choose another account.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Refresh accounts" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Refresh accounts" }),
+    ).toBeNull();
     const reads = get.mock.calls.length;
     fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!);
     await waitFor(() => expect(get.mock.calls.length).toBe(reads + 1));
