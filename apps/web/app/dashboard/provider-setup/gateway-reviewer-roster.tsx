@@ -26,7 +26,10 @@ import {
 } from "../../../src/features/provider-setup/provider-setup-model";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
-import { StatusLine } from "../status-line";
+import {
+  GatewayAccountListStatus,
+  GatewayBindingStatus,
+} from "./gateway-account-status";
 import { getGatewaySetupAccounts } from "../../../src/server/dashboard-provider-setup-readiness";
 import { dashboardErrorText } from "../dashboard-copy";
 import { isFreeModel } from "../provider-usage-format";
@@ -213,10 +216,6 @@ export function GatewayReviewerRoster({
     rows.map((row) => row.bindingId),
   );
   const accounts = getGatewaySetupAccounts(options.accounts);
-  // A failed account list is said once; rows then do not call accounts missing.
-  const listFailed =
-    options.accounts?.status !== "ok" ||
-    ("pageError" in options && options.pageError === true);
   const repository =
     target.kind === "repository"
       ? observed.repositories.find((row) => row.id === target.repository.id)
@@ -512,7 +511,7 @@ export function GatewayReviewerRoster({
                     {row.bindingId &&
                     !account &&
                     !options.loading &&
-                    !listFailed ? (
+                    !options.listFailed ? (
                       <p className="text-xs leading-5 text-amber-100">
                         This account is unavailable. Edit this reviewer to
                         choose another account.
@@ -725,15 +724,11 @@ export function GatewayReviewerRoster({
                         {providerSetupDenialText(denied)}
                       </p>
                     ) : null}
-                    {row.bindingId && !account && !listFailed ? (
-                      <StatusLine
-                        message="This account is unavailable. Choose another account."
-                        busy={blocked || options.bindingLoading(row.bindingId)}
-                        onRetry={
-                          options.canRefresh
-                            ? () => options.recheck(row.bindingId)
-                            : undefined
-                        }
+                    {row.bindingId && !account ? (
+                      <GatewayBindingStatus
+                        accounts={options}
+                        bindingId={row.bindingId}
+                        busy={blocked}
                       />
                     ) : null}
                   </div>
@@ -749,13 +744,7 @@ export function GatewayReviewerRoster({
           loading={options.loading}
           onLoadMore={options.loadMore}
         />
-        {listFailed ? (
-          <StatusLine
-            message="Could not load the account list."
-            busy={blocked || options.loading}
-            onRetry={options.canRefresh ? options.refresh : undefined}
-          />
-        ) : null}
+        <GatewayAccountListStatus accounts={options} busy={blocked} />
       </div>
       {fallback || !several ? null : (
         <div className="grid gap-4 sm:grid-cols-2">

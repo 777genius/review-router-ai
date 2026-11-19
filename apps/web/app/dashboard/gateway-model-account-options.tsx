@@ -253,6 +253,7 @@ export function useGatewayModelAccounts(
       canLoadMore: false,
       canRefresh: false,
       loading: false,
+      listFailed: initial !== undefined && initial.status !== "ok",
       bindingLoading: (bindingId: string) => {
         void bindingId;
         return false;
@@ -383,6 +384,10 @@ export function useGatewayModelAccounts(
         [...new Set(selectedBindingIds.filter(Boolean))].indexOf(bindingId)
       ]?.isFetching === true,
     pageError: pages.isError || Boolean(failedPage),
+    /** The account list itself could not be read (not just one binding). */
+    listFailed:
+      !pages.isPending &&
+      (pages.isError || Boolean(failedPage) || result.status !== "ok"),
     loadMore: () => {
       void pages.fetchNextPage();
     },

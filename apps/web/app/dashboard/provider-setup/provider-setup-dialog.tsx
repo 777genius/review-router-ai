@@ -91,8 +91,7 @@ import { dashboardPath, dashboardSectionHref } from "../dashboard-section";
 import { GatewayConnectionTest } from "../gateway-connection-test";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
-import { StatusLine } from "../status-line";
-import { accountModelCatalogOutOfDate } from "../../../src/features/provider-setup/account-model-catalog-freshness";
+import { GatewayReviewSettingsStatus } from "./gateway-account-status";
 import { AccountProviderLogo } from "../account-identity";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import { ProviderLogo } from "../provider-logo";
@@ -995,10 +994,6 @@ function ProviderChoiceStep({
           requiresTools: settings?.agenticContext ?? true,
         })
       : publicModelOptions;
-  const listOutOfDate = accountModelCatalogOutOfDate(
-    gatewayProfile,
-    resolvedGatewayAccount?.modelCatalog,
-  );
   const modelStatus =
     authMode === "codex_account_gateway" && gatewayBindingId ? (
       <GatewayModelCatalogStatus
@@ -2127,19 +2122,11 @@ function ProviderChoiceStep({
           authMode === "codex_account_gateway" &&
           model.trim() &&
           !settingsReady ? (
-            // The account and its model list update themselves; the list status
-            // above offers Try again once the account is read.
-            <StatusLine
-              message={
-                gatewayOptions.loading
-                  ? "Loading review settings for this model…"
-                  : `Review settings are unavailable for this model.${listOutOfDate ? "" : " Choose another model or provider."}`
-              }
-              onRetry={
-                !resolvedGatewayAccount && gatewayOptions.canRefresh
-                  ? () => gatewayOptions.recheck(gatewayBindingId ?? "")
-                  : undefined
-              }
+            <GatewayReviewSettingsStatus
+              accounts={gatewayOptions}
+              account={resolvedGatewayAccount}
+              profile={gatewayProfile}
+              bindingId={gatewayBindingId}
             />
           ) : null}
           {modelOnly ? (
