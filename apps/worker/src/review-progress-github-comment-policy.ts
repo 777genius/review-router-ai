@@ -61,7 +61,7 @@ export type CommentPageLinks = {
 export function commentPageLinks(
   headers: Readonly<Record<string, string | number | undefined>> | undefined,
   currentPage: number,
-  expectedCollectionPath?: string,
+  expectedCollectionPaths?: readonly string[],
 ): CommentPageLinks {
   const invalid: CommentPageLinks = { hasNextPage: "invalid" };
   const link = Object.entries(headers ?? {}).find(
@@ -95,9 +95,10 @@ export function commentPageLinks(
       if (
         target.protocol !== "https:" ||
         target.origin !== "https://api.github.com" ||
-        (expectedCollectionPath !== undefined &&
-          target.pathname.toLowerCase() !==
-            expectedCollectionPath.toLowerCase())
+        (expectedCollectionPaths !== undefined &&
+          !expectedCollectionPaths.some(
+            (path) => path.toLowerCase() === target.pathname.toLowerCase(),
+          ))
       ) {
         return invalid;
       }

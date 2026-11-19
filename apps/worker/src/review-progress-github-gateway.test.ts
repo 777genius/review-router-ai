@@ -330,6 +330,44 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("accepts GitHub's verified numeric repository pagination Link", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([], {
+      pagedComments: [full, [{ id: 701, body: desired }]],
+      pageLinks: [
+        '<https://api.github.com/repositories/1300192/issues/42/comments?page=2>; rel="next"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toMatchObject({ commentId: 701, operation: "unchanged" });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("rejects another numeric repository's pagination Link", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [full],
+      pageLinks: [
+        '<https://api.github.com/repositories/1300193/issues/42/comments?page=1>; rel="last"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("continues after a full previous-only page to find the marker", async () => {
     const full = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
@@ -1884,7 +1922,10 @@ function githubFixture(
                 : (options.currentHead ?? head),
           },
           base: {
-            repo: { full_name: options.repositoryFullName ?? "acme/rocket" },
+            repo: {
+              id: 1300192,
+              full_name: options.repositoryFullName ?? "acme/rocket",
+            },
           },
         },
       };

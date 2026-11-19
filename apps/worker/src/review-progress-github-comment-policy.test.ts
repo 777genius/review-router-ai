@@ -213,7 +213,7 @@ describe("Review progress GitHub comment policy", () => {
   });
 
   it("rejects pagination hints for another issue collection", () => {
-    const expected = "/repos/acme/rocket/issues/42/comments";
+    const expected = ["/repos/acme/rocket/issues/42/comments"];
     const foreign =
       '<https://api.github.com/repos/acme/rocket/issues/43/comments?page=1>; rel="last"';
     const trusted =
@@ -223,6 +223,23 @@ describe("Review progress GitHub comment policy", () => {
     });
     expect(commentPageLinks({ link: trusted }, 1, expected)).toEqual({
       hasNextPage: true,
+    });
+  });
+
+  it("allows canonical repository-ID Links only for the verified repository", () => {
+    const verified = [
+      "/repos/acme/rocket/issues/42/comments",
+      "/repositories/1300192/issues/42/comments",
+    ];
+    const valid =
+      '<https://api.github.com/repositories/1300192/issues/42/comments?page=2>; rel="next"';
+    const foreign =
+      '<https://api.github.com/repositories/1300193/issues/42/comments?page=1>; rel="last"';
+    expect(commentPageLinks({ link: valid }, 1, verified)).toEqual({
+      hasNextPage: true,
+    });
+    expect(commentPageLinks({ link: foreign }, 1, verified)).toEqual({
+      hasNextPage: "invalid",
     });
   });
 

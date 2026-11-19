@@ -72,11 +72,11 @@ export class ReviewProgressGitHubGateway {
     input: UpsertReviewProgressCommentInput,
   ): Promise<UpsertReviewProgressCommentResult> {
     validateReviewProgressInput(input);
-    await this.assertCurrentPullRequest(input);
+    const repositoryId = await this.assertCurrentPullRequest(input);
     // Only comments listed under this PR can be canonical.
     let existing: ReviewProgressComment[];
     try {
-      existing = await this.findMarkedComments(input);
+      existing = await this.findMarkedComments(input, repositoryId);
     } catch (error) {
       existing = await this.knownCommentAfterInconclusiveScan(input, error);
     }
@@ -299,7 +299,7 @@ export class ReviewProgressGitHubGateway {
 
   private async assertCurrentPullRequest(
     input: UpsertReviewProgressCommentInput,
-  ): Promise<void> {
+  ): Promise<number | undefined> {
     let response: Awaited<ReturnType<ReviewProgressGitHubRequester>>;
     try {
       response = await this.request(
@@ -311,10 +311,20 @@ export class ReviewProgressGitHubGateway {
     }
     const violation = pullRequestIdentityViolation(response.data, input);
     if (violation) throw failure(violation.kind, violation.message, false);
+    // GitHub may use /repositories/{id} rather than /repos/{owner}/{repo}
+    // in pagination Links. Trust its numeric ID only after target validation.
+    const repository = response.data as {
+      base?: { repo?: { id?: unknown } };
+    };
+    const id = repository?.base?.repo?.id;
+    return typeof id === "number" && Number.isSafeInteger(id) && id > 0
+      ? id
+      : undefined;
   }
 
   private async findMarkedComments(
     input: UpsertReviewProgressCommentInput,
+    verifiedRepositoryId?: number,
   ): Promise<ReviewProgressComment[]> {
     const matches: ReviewProgressComment[] = [];
     let advertisedLastPage: number | undefined;
@@ -322,6 +332,7 @@ export class ReviewProgressGitHubGateway {
       const { comments, hasNextPage, lastPage } = await this.fetchCommentPage(
         input,
         page,
+        verifiedRepositoryId,
       );
       for (const value of comments) {
         const comment = parseCommentOrNull(value);
@@ -374,6 +385,7 @@ export class ReviewProgressGitHubGateway {
   private async fetchCommentPage(
     input: UpsertReviewProgressCommentInput,
     page: number,
+    verifiedRepositoryId?: number,
   ): Promise<{
     comments: unknown[];
     hasNextPage: boolean | "invalid" | undefined;
@@ -400,7 +412,12 @@ export class ReviewProgressGitHubGateway {
       ...commentPageLinks(
         response.headers,
         page,
-        `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.pullNumber}/comments`,
+        [
+          `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/issues/${input.pullNumber}/comments`,
+          ...(verifiedRepositoryId === undefined
+            ? []
+            : [`/repositories/${verifiedRepositoryId}/issues/${input.pullNumber}/comments`]),
+        ],
       ),
     };
   }
@@ -417,7 +434,10 @@ export class ReviewProgressGitHubGateway {
     if (classified.kind === "revoked_app") throw classified;
     let observed: ReviewProgressComment[];
     try {
-      observed = await this.findMarkedComments(input);
+      observed = await this.findMarkedComments(
+        input,
+        await this.assertCurrentPullRequest(input),
+      );
     } catch (observationError) {
       if (
         expectedCommentId !== undefined &&
