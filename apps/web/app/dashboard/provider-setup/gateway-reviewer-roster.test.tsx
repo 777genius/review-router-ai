@@ -638,4 +638,17 @@ describe("Gateway reviewer roster", () => {
     // An ordinary read of that one binding, not a forced model refresh.
     expect(get).toHaveBeenLastCalledWith("binding");
   });
+
+  it("says once that the account list failed instead of calling every account unavailable", () => {
+    render(
+      <GatewayReviewerRoster
+        {...base()}
+        gatewayAccounts={{ status: "unavailable" }}
+      />,
+    );
+    expect(screen.getByText("Could not load the account list.")).toBeTruthy();
+    expect(screen.queryByText(/This account is unavailable/)).toBeNull();
+    // Without an accounts adapter there is nothing to retry.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
 });
