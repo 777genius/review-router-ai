@@ -63,4 +63,4 @@ Stateless; roll back by deploying the previous Web image.
 
 | Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result                      | Evidence | Next action                              |
 | ------------ | -------------------- | ---------- | ---------------------- | --------------------------------------------- | -------- | ---------------------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Merged only; ships with the next Web release. | None     | Ordinary Web rollout, then verification. |
+| Not executed | staging / production | Unassigned | Not verified           | Not deployed; ships with the next Web release. | None     | Ordinary Web rollout, then verification. |
