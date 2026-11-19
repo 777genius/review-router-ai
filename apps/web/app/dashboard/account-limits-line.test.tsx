@@ -309,6 +309,12 @@ test("SSR includes observed usage and UTC timestamps without reading the network
   expect(html).toContain('aria-label="5h remaining"');
   expect(html).toContain('aria-valuenow="62.5"');
   expect(fetch).not.toHaveBeenCalled();
+  // The age is computed from the read time, so SSR and hydration agree.
+  const old = renderToString(
+    <AccountLimitsLine {...fixture(outdatedSnapshot(false)).props} />,
+  );
+  expect(old).toContain("as of 20m ago");
+  expect(old).not.toContain("Outdated");
 });
 
 test("summarizes at most two known plan windows and keeps monthly/rate observations in Details", () => {
@@ -406,6 +412,11 @@ test("remaining and reset stay in the compact summary, with saved observations i
   expect(screen.getByText(/37.5% used/)).toBeTruthy();
   expect(screen.getByText(/^As of:/)).toBeTruthy();
   expect(screen.getByText(/shared across all activity/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      "Ready describes the connection, not its remaining quota.",
+    ),
+  ).toBeTruthy();
 });
 
 test("over-limit observations keep reported usage while showing no remaining quota", () => {
@@ -434,7 +445,7 @@ test("over-limit observations keep reported usage while showing no remaining quo
 });
 
 test.each([false, true])(
-  "reset and age become stale locally, without zeroing usage or fetching on mount/focus (refresh available: %s)",
+  "a passed reset says Reset pending without an age, zeroing usage or fetching on mount/focus (refresh available: %s)",
   async (refreshAvailable) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2040-01-01T00:00:00Z"));

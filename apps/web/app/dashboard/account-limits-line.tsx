@@ -93,18 +93,6 @@ function summaryWindows(windows: readonly LimitsWindow[]) {
     .slice(0, 2);
 }
 
-/** Whether a window needs a refresh when an account opens: aged or reset. */
-function outdated(window: LimitsWindow, now: number) {
-  const reset = window.resetAt ? Date.parse(window.resetAt) : NaN;
-  const observed = window.observedAt ? Date.parse(window.observedAt) : NaN;
-  return (
-    window.stale ||
-    !Number.isFinite(observed) ||
-    now - observed >= ACCOUNT_LIMITS_OBSERVATION_TTL_MS ||
-    (Number.isFinite(reset) && now >= reset)
-  );
-}
-
 function durationText(minutes: number) {
   const days = Math.floor(minutes / 1_440);
   const hours = Math.floor((minutes % 1_440) / 60);
@@ -218,12 +206,11 @@ export function AccountLimitsLine({
   const fetchedAt = view?.fetchedAt;
   // A source with quota-only refresh (today Codex, which has no background
   // collector) refreshes once when the card opens showing missing or old
-  // limits. Sources without it stay cached-only. Judged as the card opens.
+  // limits. Sources without it stay cached-only. Judged as the card opens,
+  // by the domain's stale flag computed at that read (one owner of the rule).
   const outdatedWhenRead =
     view?.status === "snapshot" &&
-    summaryWindows(view.windows).some((window) =>
-      outdated(window, Date.parse(view.fetchedAt)),
-    );
+    summaryWindows(view.windows).some((window) => window.stale);
   const refreshOnOpen =
     view?.refreshAvailable === true &&
     ((view.status === "unknown" && view.reason === "missing_snapshot") ||
@@ -342,7 +329,7 @@ export function AccountLimitsLine({
                     {resetText(reset, now)}
                   </span>
                   {age ? (
-                    <span className="whitespace-nowrap tabular-nums text-slate-500">
+                    <span className="whitespace-nowrap tabular-nums">
                       {age}
                     </span>
                   ) : null}

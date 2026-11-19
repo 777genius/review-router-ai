@@ -144,7 +144,8 @@ test("account limits preserve observations across reset without automatic reads 
   await page.clock.runFor(90_000);
   await expect(limits).toContainText("Reset pending");
   // A passed reset is said once; the 2.5 minute old observation is still
-  // current, so no age and never an alarming badge.
+  // current, so no age and never an alarming badge. This relies on the read
+  // happening within 150 s of configure (the harness warms Next first).
   await expect(limits).not.toContainText(/Outdated|as of /);
   await limits.screenshot({
     path: info.outputPath("account-limits-stale.png"),

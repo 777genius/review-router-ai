@@ -302,11 +302,12 @@ upstream response body, auth headers, email, account IDs или других ten
    лимиты»); unavailable («источник недоступен»); restricted. Refresh failure
    сохраняет разрешённый snapshot/as-of и безопасную ошибку. Ничто не показывает
    100% remaining, unlimited или дату «сейчас» на основании отсутствия данных.
-   Snapshot stale (2026-11-18, [78](78-automatic-freshness.md)): без бейджа
+   Snapshot stale (2026-11-19, [78](78-automatic-freshness.md)): без бейджа
    «Outdated»; окно старше 5 минут или с неизвестным as-of показывает в своей
    строке приглушённое «as of 12m ago» / «as of unknown time». Прошедший reset
-   говорит «Reset pending» без возраста. Порог 5 минут - одна константа домена
-   `ACCOUNT_LIMITS_OBSERVATION_TTL_MS`, web её импортирует.
+   сам по себе возраст не добавляет, он показан как «Reset pending». Порог
+   5 минут - одна константа домена `ACCOUNT_LIMITS_OBSERVATION_TTL_MS`, web её
+   импортирует; refresh при открытии смотрит на доменный флаг `stale`.
 4. Интерактивное чтение через React Query: маленький typed key
    `['account-limits', authenticatedScope, connectionId]`, adapter functions отдельно
    от UI, `initialData` из SSR, `staleTime: 30_000`, `retry: false`. Per-account query

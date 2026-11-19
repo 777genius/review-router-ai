@@ -10,7 +10,8 @@
 - Affected services/targets: Web only (`apps/web`, plus a client-safe
   `@reviewrouter/features-provider-accounts/account-limits` export). No API,
   worker, database, configuration, Gateway or native change.
-- Implementation PR/issue: see the PR that adds this file; plan
+- Implementation PR/issue:
+  [PR #916](https://github.com/777genius/review-router-ai/pull/916); plan
   [78](../architecture/78-automatic-freshness.md).
 - Implementation reference: the branch head of that PR.
 - Dependencies: none (built on PR #901).
