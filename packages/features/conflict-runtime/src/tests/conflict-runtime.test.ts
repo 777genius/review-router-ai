@@ -190,12 +190,16 @@ describe("conflict runtime", () => {
             "cr_123e4567-e89b-12d3-a456-426614174000",
           REVIEW_ROUTER_CONFLICT_DISPATCH_NONCE: "n".repeat(40),
           REVIEW_ROUTER_POSTING_TOKEN: "posting",
+          REVIEW_OUTPUT_LANGUAGE: "Russian",
         },
       }),
     ).toEqual({
       CODEX_MODEL: "gpt-5.5",
       OPENAI_API_KEY: "sk-provider",
       MIMO_TOKEN_PLAN_API_KEY: "synthetic-mimo-key",
+      // The control plane sends the review language with the runtime config;
+      // the provider prompt reads it from this environment.
+      REVIEW_OUTPUT_LANGUAGE: "Russian",
     });
 
     expect(() =>
