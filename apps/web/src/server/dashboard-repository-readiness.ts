@@ -1,7 +1,6 @@
 import {
   resolveEffectiveProviderReadiness,
   type EffectiveProviderReadiness,
-  type GatewayAuthorizationState,
 } from "@reviewrouter/features-provider-setup";
 import type { RepositoryHealthStatus } from "@reviewrouter/features-repo-health";
 import type {
@@ -23,7 +22,7 @@ import {
   type HostedPoolRepositoryView,
 } from "./hosted-pool-dashboard";
 import {
-  isGatewayReviewV2RepositoryReady,
+  gatewayReviewV2AuthorizationState,
   type GatewayReviewV2RepositoryReadiness,
 } from "./prisma-gateway-review-v2-provisioning";
 import { describeRepositoryHealth } from "./repository-health-view";
@@ -146,9 +145,10 @@ export function resolveDashboardRepositoryReadiness<
       required && comparableWorkflowRequirement(required, transition);
     const installedComparable =
       installed && comparableWorkflowRequirement(installed, transition);
-    const gatewayReadiness = input.gatewayReadiness.get(repository.id);
-    const gatewayAuthorizationReady =
-      isGatewayReviewV2RepositoryReady(gatewayReadiness);
+    const gatewayAuthorization = gatewayReviewV2AuthorizationState(
+      input.gatewayReadiness.get(repository.id),
+    );
+    const gatewayAuthorizationReady = gatewayAuthorization === "ready";
     const readiness = resolveEffectiveProviderReadiness({
       providers: config?.providers ?? null,
       requiredWorkflowRequirement: requiredComparable,
@@ -172,7 +172,7 @@ export function resolveDashboardRepositoryReadiness<
       gatewayAccountReady: config
         ? isGatewayProviderSetupReady(config, input.gatewayAccounts)
         : false,
-      gatewayAuthorization: gatewayAuthorizationState(gatewayReadiness),
+      gatewayAuthorization,
       providerSecretCheckFailed:
         repository.fullName ===
         input.providerSecretCheckFailedRepositoryFullName,
@@ -209,23 +209,6 @@ export function gatewayReviewRepositoryIds(
         (provider) => provider.authMode === "codex_account_gateway",
       ),
   );
-}
-
-/**
- * A missing authority or repository identity is what a merged setup has before
- * its verification; every other refusal is an operator state (pause, drain,
- * legacy enrollment, safety block) that verification does not clear.
- */
-function gatewayAuthorizationState(
-  readiness: GatewayReviewV2RepositoryReadiness | undefined,
-): GatewayAuthorizationState {
-  if (!readiness) return "not_established";
-  if (readiness.status === "ready") return "ready";
-  return "issue" in readiness &&
-    (readiness.issue === "mutation_authority_unavailable" ||
-      readiness.issue === "gateway_repository_identity_missing")
-    ? "not_established"
-    : "blocked";
 }
 
 function knownWorkflowRequirement(

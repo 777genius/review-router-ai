@@ -177,7 +177,9 @@ export function summarizeRepositorySetup(
     label:
       counts.notSetUp > 0
         ? "No repositories set up yet"
-        : "No repositories synced",
+        : states.length > 0
+          ? "No repositories can be set up"
+          : "No repositories synced",
     tone: "neutral",
   };
 }

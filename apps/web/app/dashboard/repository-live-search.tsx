@@ -258,7 +258,7 @@ export function RepositoryLiveSearch({
         </div>
 
         <div
-          className="grid items-stretch gap-1 rounded-xl border border-slate-700/70 bg-slate-950/55 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] sm:grid-cols-4 2xl:h-11 2xl:grid-cols-7"
+          className="grid items-stretch gap-1 rounded-xl border border-slate-700/70 bg-slate-950/55 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)] grid-cols-2 sm:grid-cols-4 2xl:h-11 2xl:grid-cols-7"
           role="group"
           aria-label="Repository filters"
         >

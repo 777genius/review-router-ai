@@ -2076,7 +2076,7 @@ function DashboardSectionHeader(
               <ReadinessInlineStat
                 label="Ready"
                 value={props.workspaceHealth.ready}
-                tone="success"
+                tone={props.workspaceHealth.ready > 0 ? "success" : "neutral"}
               />
               <ReadinessInlineStat
                 label="Not set up"
@@ -2291,6 +2291,7 @@ function RepositoryTable({
       workflowCurrent,
       runtimeCompatibility,
       verificationNeeded,
+      gatewayAuthorization,
       step,
       state,
     }) => {
@@ -2324,6 +2325,7 @@ function RepositoryTable({
         workflowCurrent,
         runtimeCompatibility,
         verificationNeeded,
+        gatewayAuthorizationBlocked: gatewayAuthorization === "blocked",
         setupProgressStep: step,
         state,
         searchableText,
@@ -2470,6 +2472,7 @@ function RepositoryTable({
                   workflowCurrent,
                   runtimeCompatibility,
                   verificationNeeded,
+                  gatewayAuthorizationBlocked,
                   setupProgressStep,
                 }) => {
                   const repositoryPolicy = repositoryConfigById.get(
@@ -2618,7 +2621,8 @@ function RepositoryTable({
                             >
                               {repositoryWorkflowUpdateCopy.status}
                             </p>
-                          ) : verificationNeeded ? (
+                          ) : verificationNeeded &&
+                            !gatewayAuthorizationBlocked ? (
                             <p
                               className="mb-3 text-sm leading-6 text-slate-400"
                               role="status"
@@ -2643,6 +2647,9 @@ function RepositoryTable({
                             }
                             currentStep={setupProgressStep}
                             verificationNeeded={verificationNeeded}
+                            gatewayAuthorizationBlocked={
+                              gatewayAuthorizationBlocked
+                            }
                             providerRequired={
                               repositoryPolicy?.status ===
                               "provider_selection_required"
@@ -2735,6 +2742,7 @@ function RepositorySetupProgressPanel({
   effectiveConfig,
   currentStep,
   verificationNeeded,
+  gatewayAuthorizationBlocked,
   providerRequired,
   gatewayReviewV2Readiness,
 }: {
@@ -2752,6 +2760,7 @@ function RepositorySetupProgressPanel({
   readonly effectiveConfig: ReviewConfiguration | null;
   readonly currentStep: RepositorySetupStepId;
   readonly verificationNeeded: boolean;
+  readonly gatewayAuthorizationBlocked: boolean;
   /** Neither the repository nor the workspace selects a provider yet. */
   readonly providerRequired: boolean;
   readonly gatewayReviewV2Readiness?:
@@ -2810,6 +2819,7 @@ function RepositorySetupProgressPanel({
       mutationsEnabled={mutationsEnabled}
       initialStep={currentStep}
       verificationNeeded={verificationNeeded}
+      gatewayAuthorizationBlocked={gatewayAuthorizationBlocked}
       providerRequired={providerRequired}
       gatewayReviewV2Readiness={gatewayReviewV2Readiness}
       expectedProviderAuthModes={providers.map((provider) => provider.authMode)}

@@ -65,6 +65,7 @@ export function RepositorySetupProgressPanel({
   mutationsEnabled,
   initialStep,
   verificationNeeded,
+  gatewayAuthorizationBlocked = false,
   providerRequired = false,
   expectedProviderAuthModes = [],
   providerLine,
@@ -86,6 +87,8 @@ export function RepositorySetupProgressPanel({
   readonly initialStep: SetupStep;
   /** The installed workflow is configured but not verified (readiness owns it). */
   readonly verificationNeeded: boolean;
+  /** A pause, drain or safety block holds the hosted review authorization. */
+  readonly gatewayAuthorizationBlocked?: boolean;
   /** No provider applies yet, so setup actions wait for one. */
   readonly providerRequired?: boolean;
   readonly expectedProviderAuthModes?: readonly ProviderAuthMode[];
@@ -373,7 +376,8 @@ export function RepositorySetupProgressPanel({
     setupIssueGuidance,
     workflowCurrent,
     runtimeCompatibility,
-    runtimeVerificationNeeded: verificationNeeded,
+    // The local status keeps a just-reported recovery issue on Recreate.
+    runtimeVerificationNeeded: verificationNeeded && setupStatus === "configured",
     providerRequired,
     mutationsEnabled,
     currentStep: displayStep,
@@ -401,7 +405,8 @@ export function RepositorySetupProgressPanel({
         </p>
       ) : null}
       {gatewayBlocked &&
-      setupStepNumber[displayStep] >= setupStepNumber.provider ? (
+      (gatewayAuthorizationBlocked ||
+        setupStepNumber[displayStep] >= setupStepNumber.provider) ? (
         <p className="mb-3 text-sm text-slate-300" role="status">
           {gatewayReviewV2Readiness?.status === "draining"
             ? `Review migration is draining until ${gatewayReviewV2Readiness.drainNotBefore}. Reviews remain unavailable.`
@@ -541,7 +546,7 @@ function buildSetupSteps({
   const providerUnavailableReason = providerRequired
     ? "Choose a provider above first."
     : undefined;
-  // Unverified after a merge (Gateway): verification is step 2, not step 1.
+  // Unverified workflows verify on step 1; a merged Gateway setup on step 2.
   const verifyAtFirstStep =
     runtimeVerificationNeeded && currentStep === "setup_pr";
   const workflowRefresh =

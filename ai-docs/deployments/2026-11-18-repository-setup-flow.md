@@ -10,7 +10,7 @@
   Gateway setup PR is merged the row stays on step 2 with one "Verify setup"
   button instead of jumping back to "1 of 4".
 - Affected target: Web only.
-- Implementation: ReviewRouter AI PR (see the task index). Plan:
+- Implementation: [ReviewRouter AI PR #913](https://github.com/777genius/review-router-ai/pull/913). Plan:
   [81](../architecture/81-repository-setup-flow.md).
 - Dependencies: none. No migration, configuration, feature flag, worker,
   Gateway or native change. The unused `/api/dashboard/repositories/search`
@@ -35,8 +35,8 @@ observed to be absent. Use the [status contract](README.md#status-contract).
    Ordinary code rollout is sufficient.
 2. Open Repositories in the 777genius workspace: the header shows Ready and
    Not set up (plus Setting up and Need attention only when not zero), the
-   repositories in progress are listed first, and old `?setup=needed` links
-   fall back to All.
+   repositories that need attention and then those in progress are listed
+   first, and old `?setup=needed` links fall back to All.
 3. Open Repositories in a workspace with no setup yet (for example one of the
    workspaces that installed the App but never chose a provider): "Get your
    first review" is shown above the list.

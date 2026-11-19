@@ -5,8 +5,13 @@ import {
 } from "@reviewrouter/features-review-config";
 import type { GatewayReviewV2RepositoryReadiness } from "./prisma-gateway-review-v2-provisioning";
 import { describe, expect, it } from "vitest";
+import { requiredWorkflowRequirement } from "@reviewrouter/features-workflow-provisioning";
 import { workspacePolicyFixture } from "../../../../packages/features/review-config/src/tests/current-policy-fixture";
 import { resolveDashboardRepositoryReadiness } from "./dashboard-repository-readiness";
+import {
+  runtimeReadySha,
+  runtimeReleases,
+} from "./test-support/review-runtime-readiness-fixture";
 
 function codexConfig(
   authMode:
@@ -204,5 +209,94 @@ describe("dashboard repository readiness of a merged Gateway setup", () => {
       step: "setup_pr",
       state: "attention",
     });
+  });
+});
+
+describe("dashboard repository states of the composed readiness", () => {
+  const installed = requiredWorkflowRequirement(workspacePolicyFixture);
+  const reportedAt = new Date("2026-01-02T00:00:00Z");
+
+  type Row = Readonly<{
+    selected?: boolean;
+    started?: boolean;
+    setupNeedsAttention?: boolean;
+    health?: "healthy" | "provider_unhealthy" | "missing_workflow";
+    credential?: boolean;
+  }>;
+
+  function stateOf(row: Row): string {
+    const started = row.started ?? true;
+    const [result] = resolveDashboardRepositoryReadiness({
+      effectiveConfigs: new Map([["repo_1", workspacePolicyFixture]]),
+      repositories: [
+        {
+          id: "repo_1",
+          fullName: "acme/widget",
+          provider: "github",
+          selected: row.selected ?? true,
+          archived: false,
+          setupStatus: started ? "configured" : "not_configured",
+          setupNeedsAttention: row.setupNeedsAttention ?? false,
+          installedWorkflowRequirement: started ? installed : null,
+          workflowProvisioning: started
+            ? {
+                status: "configured",
+                actionVersion: `777genius/review-router@${runtimeReadySha}`,
+              }
+            : null,
+        },
+      ],
+      health: [
+        {
+          repositoryId: "repo_1",
+          status: row.health ?? "healthy",
+          latestActionHealthReceivedAt: reportedAt,
+        },
+      ],
+      providerSetup: row.credential
+        ? [
+            {
+              repositoryId: "repo_1",
+              providerKind: "codex",
+              authMode: "codex_subscription_oauth_rotating",
+              state: "configured",
+              updatedAt: reportedAt,
+            },
+          ]
+        : [],
+      hostedRepositories: [],
+      gatewayAccounts: undefined,
+      gatewayReadiness: new Map(),
+      runtimeReleases,
+      providerSecretCheckFailedRepositoryFullName: null,
+    });
+    return result!.state;
+  }
+
+  it.each<readonly [string, Row, string]>([
+    ["a confirmed credential is ready", { credential: true }, "ready"],
+    ["a merged workflow without its credential is setting up", {}, "setting_up"],
+    [
+      "an unhealthy provider needs attention",
+      { credential: true, health: "provider_unhealthy" },
+      "attention",
+    ],
+    [
+      "a closed setup PR needs attention",
+      { credential: true, setupNeedsAttention: true },
+      "attention",
+    ],
+    [
+      "an untouched repository is not set up",
+      { started: false, health: "missing_workflow" },
+      "not_set_up",
+    ],
+    [
+      "an unselected repository leaves the counts",
+      { selected: false, credential: true },
+      "unavailable",
+    ],
+  ])("%s", (_name, row, expected) => {
+    expect(stateOf(row)).toBe(expected);
   });
 });

@@ -62,10 +62,10 @@ export function RepositorySetupActionButton({
     (workflowCurrent && !workflowRefresh) ||
     Boolean(unavailableReason) ||
     isPending;
-  const disabledReason = unavailableReason
-    ? unavailableReason
-    : !mutationsEnabled
-      ? "Dashboard changes are disabled for this workspace."
+  const disabledReason = !mutationsEnabled
+    ? "Dashboard changes are disabled for this workspace."
+    : unavailableReason
+      ? unavailableReason
       : !selected
         ? "This repository is no longer selected for the GitHub App installation."
         : archived
@@ -195,10 +195,10 @@ export function RepositorySetupMergedButton({
     archived ||
     Boolean(unavailableReason) ||
     isPending;
-  const disabledReason = unavailableReason
-    ? unavailableReason
-    : !mutationsEnabled
-      ? "Dashboard changes are disabled for this workspace."
+  const disabledReason = !mutationsEnabled
+    ? "Dashboard changes are disabled for this workspace."
+    : unavailableReason
+      ? unavailableReason
       : !selected
         ? "This repository is no longer selected for the GitHub App installation."
         : archived
