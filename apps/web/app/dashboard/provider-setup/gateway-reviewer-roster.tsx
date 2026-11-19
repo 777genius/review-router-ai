@@ -727,7 +727,8 @@ export function GatewayReviewerRoster({
                         }
                         action={{
                           kind: "retry",
-                          busy: blocked || options.bindingLoading(row.bindingId),
+                          busy:
+                            blocked || options.bindingLoading(row.bindingId),
                           onClick: () => options.recheck(row.bindingId),
                         }}
                       />
