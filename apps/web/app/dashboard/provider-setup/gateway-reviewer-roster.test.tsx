@@ -608,4 +608,30 @@ describe("Gateway reviewer roster", () => {
     fireEvent.click(save);
     expect(saveProviderRoster).not.toHaveBeenCalled();
   });
+
+  it("names an unavailable account with Try again and has no Refresh accounts button", async () => {
+    if (accounts.status !== "ok") throw new Error("fixture_unavailable");
+    const get = vi
+      .fn<GatewayModelAccountsApi["get"]>()
+      .mockResolvedValue({ status: "denied" });
+    const list = vi.fn<GatewayModelAccountsApi["list"]>();
+    render(
+      <GatewayModelAccountsProvider
+        scope="viewer:workspace:w"
+        api={{ get, list }}
+      >
+        <GatewayReviewerRoster {...base()} />
+      </GatewayModelAccountsProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    expect(
+      await screen.findByText(
+        "This account is unavailable. Choose another account.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Refresh accounts" })).toBeNull();
+    const reads = get.mock.calls.length;
+    fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!);
+    await waitFor(() => expect(get.mock.calls.length).toBe(reads + 1));
+  });
 });

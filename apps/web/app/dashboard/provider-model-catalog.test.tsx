@@ -132,7 +132,9 @@ describe("public model catalog query", () => {
       expect(
         screen.getByText("Access to these models has not been checked."),
       ).toBeTruthy();
-      expect(screen.getByRole("status").textContent).toContain("up to date");
+      expect(screen.getByRole("status").textContent).toContain(
+        "Model list updated",
+      );
       fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
       await waitFor(() => expect(api).toHaveBeenCalledTimes(1));
       expect(api.mock.calls[0]?.[0]).toMatchObject({
@@ -151,7 +153,7 @@ describe("public model catalog query", () => {
       );
     },
   );
-  it("shows upstream failure even when the last successful snapshot is still fresh", () => {
+  it("shows upstream failure even when the last successful snapshot is still fresh", async () => {
     const api = vi.fn();
     render(
       <ProviderModelCatalogProvider
@@ -169,9 +171,16 @@ describe("public model catalog query", () => {
       "Could not update the model list",
     );
     expect(screen.getByRole("status").textContent).toContain(
-      "Showing the last available model list",
+      "Showing the last available one",
     );
+    // A fresh list is not read again by itself; the failure offers Try again.
     expect(api).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        expect.objectContaining({ providerKind: "codex", forceRefresh: true }),
+      ),
+    );
   });
   it("revalidates stale initial data using its successful fetch time", async () => {
     const api = vi.fn(
