@@ -1,4 +1,5 @@
 import type {
+  InvestigationExpiredTurnRecoveryFailureCause,
   InvestigationPrunerPort,
   ReconcileExpiredActiveTurn,
 } from "@reviewrouter/features-review-investigations";
@@ -17,8 +18,13 @@ export enum ReviewInvestigationPruneFailureCode {
   ShadowEvidence = "review_investigation_shadow_evidence_prune_failed",
 }
 
+export type ReviewInvestigationPruneFailureCause =
+  | InvestigationPrivateMaterialPruneFailureCause
+  | InvestigationExpiredTurnRecoveryFailureCause;
+
 export type ReviewInvestigationPruneOutcome = Readonly<{
   recoveredActiveTurnCount: number;
+  deferredActiveTurnCount: number;
   expiredPrivateMaterialCount: number;
   prunedInvestigationCount: number;
   prunedShadowEvidenceCount: number;
@@ -39,7 +45,7 @@ export class ReviewInvestigationPruneError extends Error {
   constructor(
     readonly code: ReviewInvestigationPruneFailureCode,
     readonly outcome: ReviewInvestigationPruneOutcome,
-    readonly causeCode: InvestigationPrivateMaterialPruneFailureCause | null,
+    readonly causeCode: ReviewInvestigationPruneFailureCause | null,
     readonly failureCodes: readonly ReviewInvestigationPruneFailureCode[] = [
       code,
     ],
@@ -78,22 +84,32 @@ export class InvestigationPrunerMaintenanceAdapter implements PruneReviewInvesti
     const cutoff = input.asOf.toISOString();
 
     let recoveredActiveTurnCount = 0;
+    let deferredActiveTurnCount = 0;
     let expiredPrivateMaterialCount = 0;
     let prunedInvestigationCount = 0;
     let prunedShadowEvidenceCount = 0;
-    let failedPrivateMaterialInvestigationCount = 0;
+    let failedInvestigationCount = 0;
     const failures: Array<
       Readonly<{
         code: ReviewInvestigationPruneFailureCode;
-        causeCode: InvestigationPrivateMaterialPruneFailureCause | null;
+        causeCode: ReviewInvestigationPruneFailureCause | null;
       }>
     > = [];
 
     try {
-      recoveredActiveTurnCount = await this.dependencies.expiredTurns.sweep({
+      const sweep = await this.dependencies.expiredTurns.sweep({
         expiresAtOrBefore: cutoff,
         limit: input.investigationLimit,
       });
+      recoveredActiveTurnCount = sweep.reconciledCount;
+      deferredActiveTurnCount = sweep.deferredCount;
+      if (sweep.failedCount > 0) {
+        failedInvestigationCount += sweep.failedCount;
+        failures.push({
+          code: ReviewInvestigationPruneFailureCode.ActiveTurns,
+          causeCode: sweep.failureCause,
+        });
+      }
     } catch {
       failures.push({
         code: ReviewInvestigationPruneFailureCode.ActiveTurns,
@@ -112,8 +128,7 @@ export class InvestigationPrunerMaintenanceAdapter implements PruneReviewInvesti
     } catch (error: unknown) {
       if (error instanceof InvestigationPrivateMaterialPruneBatchError) {
         expiredPrivateMaterialCount = error.removedCount;
-        failedPrivateMaterialInvestigationCount =
-          error.failedInvestigationCount;
+        failedInvestigationCount += error.failedInvestigationCount;
       }
       failures.push({
         code: ReviewInvestigationPruneFailureCode.PrivateMaterial,
@@ -151,6 +166,7 @@ export class InvestigationPrunerMaintenanceAdapter implements PruneReviewInvesti
 
     const outcome = {
       recoveredActiveTurnCount,
+      deferredActiveTurnCount,
       expiredPrivateMaterialCount,
       prunedInvestigationCount,
       prunedShadowEvidenceCount,
@@ -162,7 +178,7 @@ export class InvestigationPrunerMaintenanceAdapter implements PruneReviewInvesti
         outcome,
         firstFailure.causeCode,
         Object.freeze(failures.map((failure) => failure.code)),
-        failedPrivateMaterialInvestigationCount,
+        failedInvestigationCount,
       );
     }
     return outcome;

@@ -1463,7 +1463,8 @@ export class ReviewActionV2E2EHarness {
             : allowPartial
               ? "Partial review"
               : "Review complete",
-          marker: `<!-- ${flow.executionId}:summary -->`,
+          // Same family as the runtime marker, so the sticky summary applies.
+          marker: `reviewrouter:summary:v2:${flow.reviewRevisionHash}`,
           occurrenceCounts: {
             new: findings.length,
             reconfirmed: 0,

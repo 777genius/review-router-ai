@@ -100,6 +100,7 @@ class ConstantPrune implements PruneReviewInvestigationsPort {
 
   async execute(): Promise<{
     readonly recoveredActiveTurnCount: number;
+    readonly deferredActiveTurnCount: number;
     readonly expiredPrivateMaterialCount: number;
     readonly prunedInvestigationCount: number;
     readonly prunedShadowEvidenceCount: number;
@@ -107,6 +108,7 @@ class ConstantPrune implements PruneReviewInvestigationsPort {
     this.calls += 1;
     return {
       recoveredActiveTurnCount: 4,
+      deferredActiveTurnCount: 0,
       expiredPrivateMaterialCount: 2,
       prunedInvestigationCount: 1,
       prunedShadowEvidenceCount: 3,
@@ -189,6 +191,7 @@ describe("review investigation maintenance runtime", () => {
         await release.promise;
         return {
           recoveredActiveTurnCount: 1,
+          deferredActiveTurnCount: 0,
           expiredPrivateMaterialCount: 1,
           prunedInvestigationCount: 1,
           prunedShadowEvidenceCount: 1,
@@ -250,7 +253,14 @@ describe("review investigation maintenance runtime", () => {
       clock: new MutableClock(now),
       lock: new ImmediateLock(),
       prune: new InvestigationPrunerMaintenanceAdapter({
-        expiredTurns: { sweep: async () => 2 },
+        expiredTurns: {
+          sweep: async () => ({
+            reconciledCount: 2,
+            failedCount: 0,
+            deferredCount: 0,
+            failureCause: null,
+          }),
+        },
         privateMaterial: pruner,
         investigations: pruner,
         shadowEvidence,
@@ -269,6 +279,7 @@ describe("review investigation maintenance runtime", () => {
         InvestigationPrivateMaterialPruneFailureCause.AggregateIncompatible,
       failedInvestigationCount: 2,
       recoveredActiveTurnCount: 2,
+      deferredActiveTurnCount: 0,
       expiredPrivateMaterialCount: 4,
       prunedInvestigationCount: 0,
       prunedShadowEvidenceCount: 0,
@@ -286,6 +297,7 @@ describe("review investigation maintenance runtime", () => {
         InvestigationPrivateMaterialPruneFailureCause.AggregateIncompatible,
       failedInvestigationCount: 2,
       recoveredActiveTurnCount: 2,
+      deferredActiveTurnCount: 0,
       expiredPrivateMaterialCount: 4,
       prunedInvestigationCount: 0,
       prunedShadowEvidenceCount: 0,
