@@ -52,6 +52,7 @@ import {
   getSetupProvider,
   setupProviderForSource,
   setupProviderForGatewayProfile,
+  connectsInProviderDialog,
   type SetupProviderId,
 } from "../../../src/features/provider-setup/setup-provider";
 import {
@@ -1257,18 +1258,14 @@ function ProviderChoiceStep({
     keyStorage === "github_secrets"
       ? storageAvailability?.githubUnavailable
       : storageAvailability?.reviewRouterUnavailable;
-  // Stage 1 of 79: API-key sign-in connects here; OAuth keeps its link.
   const inline = useInlineGatewayConnect({
     available:
       setupProvider !== null &&
       keyStorage === "reviewrouter" &&
       source?.key === "gateway_binding" &&
       !storageAvailability?.reviewRouterUnavailable &&
-      gatewayPage?.profiles.some(
-        (candidate) =>
-          candidate.authKind === "api_key" &&
-          candidate.availability !== "deployment_configuration_required" &&
-          setupProviderForGatewayProfile(candidate) === setupProvider,
+      gatewayPage?.profiles.some((candidate) =>
+        connectsInProviderDialog(candidate, setupProvider),
       ) === true,
     empty: gatewayInventoryEmpty,
     onConnected: (bindingId) => {

@@ -147,10 +147,12 @@ const operation = (
 
 let view: ProviderSetupView;
 let workspaceAccounts: AccountView[];
+let listFails: boolean;
 
 beforeEach(() => {
   sessionStorage.clear();
   workspaceAccounts = [];
+  listFails = false;
   view = {
     workspaceId: "workspace_1",
     target: "workspace",
@@ -196,9 +198,11 @@ afterEach(() => {
   cleanup();
 });
 
-function renderAddProvider() {
+function renderAddProvider(personalConnect = true) {
   const api: GatewayModelAccountsApi = {
-    list: vi.fn(async () => page(workspaceAccounts)),
+    list: vi.fn(async () =>
+      listFails ? { status: "unavailable" as const } : page(workspaceAccounts),
+    ),
     get: vi.fn(async (bindingId: string) => {
       const account = workspaceAccounts.find(
         (row) => row.binding?.id === bindingId,
@@ -215,7 +219,11 @@ function renderAddProvider() {
         api={api}
       >
         <PersonalConnectProvider
-          place={{ scope, workspaceId: "workspace_1", workspaceName: "Acme" }}
+          place={
+            personalConnect
+              ? { scope, workspaceId: "workspace_1", workspaceName: "Acme" }
+              : null
+          }
         >
           <ProviderSetupDialog
             workspaceId="workspace_1"
@@ -224,7 +232,7 @@ function renderAddProvider() {
             triggerLabel="Add provider"
             mutationsEnabled
             modelOptions={[]}
-            gatewayAccounts={page([])}
+            gatewayAccounts={page(workspaceAccounts)}
             agentProfileOptions={[]}
           />
         </PersonalConnectProvider>
@@ -383,5 +391,69 @@ describe("adding a provider and connecting its account in one dialog", () => {
       screen.queryByRole("region", { name: "Connect NVIDIA Build" }),
     ).toBeNull();
     expect(listPersonalGatewayAccounts).not.toHaveBeenCalled();
+  });
+
+  it("keeps the form and its request while the dialog's lists cannot be reread", async () => {
+    vi.mocked(submitPersonalGatewayKey).mockImplementation(
+      async (_context, intent) => {
+        // The connection is still confirming, and every reread now fails.
+        listFails = true;
+        return operation(intent.nonce, "pending");
+      },
+    );
+    vi.mocked(readPersonalGatewayOperation).mockImplementation(
+      async (_context, nonce) => operation(nonce, "pending"),
+    );
+    renderAddProvider();
+    await chooseNvidia();
+    const form = await screen.findByRole("region", {
+      name: "Connect NVIDIA Build",
+    });
+    await waitFor(() =>
+      expect(form.querySelector('input[name="credential"]')).not.toBeNull(),
+    );
+    enterKey(form);
+
+    await within(form).findByText("Waiting for completion");
+    await screen.findByText(/Accounts could not be loaded/);
+    expect(
+      screen.getByRole("region", { name: "Connect NVIDIA Build" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: /^Provider\b/ }),
+    ).toHaveProperty("disabled", true);
+  });
+
+  it("offers a new connection beside the existing ones and closes it again", async () => {
+    workspaceAccounts = [{ ...connected, label: "Team NVIDIA" }];
+    renderAddProvider();
+    await chooseNvidia();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: /^Account\b/ }).textContent,
+      ).toContain("Team NVIDIA"),
+    );
+    expect(
+      screen.queryByRole("region", { name: "Connect NVIDIA Build" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "New connection" }));
+    const form = await screen.findByRole("region", {
+      name: "Connect NVIDIA Build",
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.queryByRole("region", { name: "Connect NVIDIA Build" }),
+    ).toBeNull();
+  });
+
+  it("keeps the link to Connections where personal connections are off", async () => {
+    renderAddProvider(false);
+    await chooseNvidia();
+
+    await screen.findByRole("link", { name: "Connect account" });
+    expect(
+      screen.queryByRole("region", { name: "Connect NVIDIA Build" }),
+    ).toBeNull();
   });
 });

@@ -32,7 +32,8 @@ export function useInlineGatewayConnect({
   const [open, setOpen] = useState(false);
   const [nonce, setNonce] = useState<string | null>(null);
   const [connectedBinding, setConnectedBinding] = useState<string | null>(null);
-  const supported = place !== null && available;
+  // An open request keeps the form even if the dialog's lists fail to reread.
+  const supported = place !== null && (available || nonce !== null);
   const show = supported && (open || (empty && connectedBinding === null));
   useEffect(() => {
     // Opened because nothing was there: stay open while the list rereads.
@@ -43,6 +44,7 @@ export function useInlineGatewayConnect({
     latest.current = onConnected;
   }, [onConnected]);
   const connected = useCallback((bindingId: string) => {
+    setNonce(null);
     setOpen(false);
     setConnectedBinding(bindingId);
     latest.current(bindingId);

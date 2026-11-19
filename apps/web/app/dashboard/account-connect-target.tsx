@@ -1,6 +1,11 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import {
+  createContext,
+  useContext,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import type { SetupProviderId } from "../../src/features/provider-setup/setup-provider";
 
 /**
@@ -15,7 +20,7 @@ export type ConnectTarget = Readonly<{
   empty: boolean;
   /** The request this form follows; null shows a fresh form. */
   nonce: string | null;
-  setNonce(nonce: string | null): void;
+  setNonce: Dispatch<SetStateAction<string | null>>;
   /** Called once the new connection can be used in this workspace. */
   onConnected(bindingId: string): void;
 }>;

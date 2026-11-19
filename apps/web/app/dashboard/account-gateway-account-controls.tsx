@@ -41,6 +41,7 @@ import {
   type ApiKeyStorage,
 } from "../../src/features/provider-setup/api-key-storage";
 import {
+  connectsInProviderDialog,
   getSetupProvider,
   setupProviderForGatewayProfile,
 } from "../../src/features/provider-setup/setup-provider";
@@ -561,8 +562,6 @@ function Controls({
   const [ownActiveNonce, setOwnActiveNonce] = useState<string | null>(null);
   const activeNonce = target ? target.nonce : ownActiveNonce;
   const setActiveNonce = target ? target.setNonce : setOwnActiveNonce;
-  const activeNonceRef = useRef({ activeNonce, setActiveNonce });
-  activeNonceRef.current = { activeNonce, setActiveNonce };
   const embedded = target !== null;
   const [connectWorkspaces, setConnectWorkspaces] = useState<
     Record<string, string>
@@ -604,10 +603,15 @@ function Controls({
     try {
       const saved = savedNonces(storageKey);
       setNonces(saved);
-      const active = activeNonceRef.current;
-      if (!embedded) active.setActiveNonce(saved.at(-1) ?? null);
-      else if (active.activeNonce && !saved.includes(active.activeNonce))
-        active.setActiveNonce(null);
+      // A standalone view resumes the latest request; an embedded one keeps
+      // its host's request while it is still saved.
+      setActiveNonce((active) =>
+        embedded
+          ? active && saved.includes(active)
+            ? active
+            : null
+          : (saved.at(-1) ?? null),
+      );
       try {
         setConnectWorkspaces(
           savedConnectWorkspaces(connectWorkspacesKey, saved),
@@ -621,7 +625,7 @@ function Controls({
         "Connection status is unavailable in this tab. Enable session storage before starting a connection.",
       );
     }
-  }, [storageKey, connectWorkspacesKey, embedded]);
+  }, [storageKey, connectWorkspacesKey, embedded, setActiveNonce]);
   useEffect(() => {
     // The Add dialog and the list beside it are separate views of the same
     // owner. A connection saved or dismissed in one shows its status in both.
@@ -631,9 +635,9 @@ function Controls({
         const saved = savedNonces(storageKey);
         setNonces(saved);
         // A request dismissed in the other view no longer holds this one.
-        const active = activeNonceRef.current;
-        if (active.activeNonce && !saved.includes(active.activeNonce))
-          active.setActiveNonce(null);
+        setActiveNonce((active) =>
+          active && !saved.includes(active) ? null : active,
+        );
         setConnectWorkspaces(
           savedConnectWorkspaces(connectWorkspacesKey, saved),
         );
@@ -643,7 +647,7 @@ function Controls({
     };
     window.addEventListener(operationsChangedEvent, sync);
     return () => window.removeEventListener(operationsChangedEvent, sync);
-  }, [storageKey, connectWorkspacesKey]);
+  }, [storageKey, connectWorkspacesKey, setActiveNonce]);
   const refresh = useCallback(async () => {
     // A personal connection, including one made in the Add dialog, also changes
     // the owner's sources, access summaries, the workspace overview and the
@@ -674,7 +678,7 @@ function Controls({
   function reserveNonce(connectWorkspaceId?: string): string | null {
     if (!ready || nonces.length >= 8) {
       setMessage(
-        embedded
+        ready && embedded
           ? "Too many recent connection requests in this tab. Hide old results in Connections, then try again."
           : "Check recent connections or hide old results before starting another.",
       );
@@ -1082,7 +1086,7 @@ function Controls({
               (p.id === "nvidia-build-chat-apikey-v1" &&
                 p.availability === "enabled" &&
                 p.connection?.provider === "nvidia")) &&
-            (!target || setupProviderForGatewayProfile(p) === target.provider),
+            (!target || connectsInProviderDialog(p, target.provider)),
         )
       : [];
   const enrollmentAccounts = data?.status === "ok" ? data.value.accounts : [];
@@ -1191,10 +1195,20 @@ function Controls({
                 completionProvider={completionProviders[nonce]}
                 beginContinuation={(intent) => beginOAuth(intent, nonce)}
                 inline={connectOnly}
-                startAnother={() =>
-                  // The host keeps no receipts; its own list shows the result.
-                  embedded ? dismiss(nonce) : setActiveNonce(null)
-                }
+                startAnother={() => {
+                  // Embedded: a declined request leaves nothing to keep. Any
+                  // other result stays a receipt in Connections, with its retry.
+                  const result = client.getQueryData<
+                    AccountsResult<AccountOperationView>
+                  >(operationKey(scope, nonce));
+                  if (
+                    embedded &&
+                    result?.status === "ok" &&
+                    result.value.state === "rejected"
+                  )
+                    dismiss(nonce);
+                  else setActiveNonce(null);
+                }}
                 autoOpenCompletion={completionHandoff === nonce}
                 consumeCompletionHandoff={() => consumeCompletionHandoff(nonce)}
                 oauthEnabled={
@@ -2380,7 +2394,9 @@ function ConnectWorkspaceAttach({
       : result.status !== "ok"
         ? statusText(result.status, "personal")
         : result.value.status === "attached"
-          ? "Added to this workspace. Choose it in Review providers to use it for reviews."
+          ? onConnected
+            ? "Added to this workspace."
+            : "Added to this workspace. Choose it in Review providers to use it for reviews."
           : connectAttachText[result.value.reason];
   const retryable =
     !attach.isPending &&
