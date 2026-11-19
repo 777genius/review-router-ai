@@ -310,6 +310,38 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("ignores another issue's last-page hint instead of duplicating", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage, [{ id: 701, body: desired }]],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/91/comments?page=1>; rel="last"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 701,
+      operation: "unchanged",
+      duplicateCommentIds: [],
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+    expect(
+      fixture.calls
+        .filter(
+          ({ route }) =>
+            route ===
+            "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2]);
+  });
+
   it("defers a capped full page despite a backward Link", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
