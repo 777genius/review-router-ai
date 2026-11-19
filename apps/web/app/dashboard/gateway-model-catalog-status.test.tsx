@@ -130,7 +130,11 @@ it("a pending refresh on another binding does not disable or fail the new accoun
         connectionId: "connection-2",
         binding: { ...selected.binding!, id: "binding-2" },
       }}
-      accounts={{ loading: false, canRefresh: true, refreshModels: vi.fn(async () => {}) }}
+      accounts={{
+        loading: false,
+        canRefresh: true,
+        refreshModels: vi.fn(async () => {}),
+      }}
       bindingId="binding-1"
     />,
   );
@@ -243,7 +247,11 @@ it("keeps public metadata refreshable when the account cannot list models", asyn
           models: [],
         },
       }}
-      accounts={{ loading: false, canRefresh: true, refreshModels: refreshAccount }}
+      accounts={{
+        loading: false,
+        canRefresh: true,
+        refreshModels: refreshAccount,
+      }}
       bindingId="binding-1"
       publicCatalog={{
         snapshot: {

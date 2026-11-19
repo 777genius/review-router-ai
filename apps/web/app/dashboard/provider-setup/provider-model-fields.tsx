@@ -511,39 +511,41 @@ export function ProviderModelPicker({
         className={["grid min-w-0 gap-2", className].filter(Boolean).join(" ")}
       >
         <SelectField
-        label="Model"
-        value={model}
-        placeholder={
-          modelOptions.length === 0 ? emptyListPlaceholder : "Choose a model"
-        }
-        disabled={disabled || modelOptions.length === 0}
-        options={[
-          ...(model && !modelOptions.some((option) => option.value === model)
-            ? [
-                {
-                  value: model,
-                  label: `${model} (saved, unavailable)`,
-                  disabled: true,
-                },
-              ]
-            : []),
-          ...modelOptions.map((option) => ({
-            value: option.value,
-            label: option.label,
-            ...(option.disabled ? { disabled: true } : {}),
-            ...(option.description ? { description: option.description } : {}),
-            ...(option.badge
-              ? {
-                  icon: (
-                    <span className="rounded-md border border-cyan-300/30 px-1.5 py-0.5 text-[0.62rem] font-bold uppercase leading-none text-cyan-100">
-                      {option.badge}
-                    </span>
-                  ),
-                }
-              : {}),
-          })),
-        ]}
-        onValueChange={onModelChange}
+          label="Model"
+          value={model}
+          placeholder={
+            modelOptions.length === 0 ? emptyListPlaceholder : "Choose a model"
+          }
+          disabled={disabled || modelOptions.length === 0}
+          options={[
+            ...(model && !modelOptions.some((option) => option.value === model)
+              ? [
+                  {
+                    value: model,
+                    label: `${model} (saved, unavailable)`,
+                    disabled: true,
+                  },
+                ]
+              : []),
+            ...modelOptions.map((option) => ({
+              value: option.value,
+              label: option.label,
+              ...(option.disabled ? { disabled: true } : {}),
+              ...(option.description
+                ? { description: option.description }
+                : {}),
+              ...(option.badge
+                ? {
+                    icon: (
+                      <span className="rounded-md border border-cyan-300/30 px-1.5 py-0.5 text-[0.62rem] font-bold uppercase leading-none text-cyan-100">
+                        {option.badge}
+                      </span>
+                    ),
+                  }
+                : {}),
+            })),
+          ]}
+          onValueChange={onModelChange}
         />
         {status}
       </div>

@@ -185,7 +185,11 @@ describe("Gateway model catalog presentation", () => {
     for (const stale of [
       { ...catalog, source: "openrouter" as const },
       { ...catalog, expiresAt: new Date(Date.now() - 60_000).toISOString() },
-      { status: "unknown" as const, source: "legacy_profile" as const, models: [] },
+      {
+        status: "unknown" as const,
+        source: "legacy_profile" as const,
+        models: [],
+      },
       undefined,
     ]) {
       const [blocked] = gatewayProviderModelOptions([publicNemotron], profile, {
