@@ -8,6 +8,7 @@ import type {
 } from "../../src/server/account-gateway-accounts";
 import { accountModelCatalogOutOfDate } from "../../src/features/provider-setup/account-model-catalog-freshness";
 import { durationText } from "./account-limits-line";
+import type { GatewayModelAccountsRefresh } from "./gateway-model-account-options";
 import {
   publicCatalogRefreshFailed,
   type ProviderModelCatalogState,
@@ -20,9 +21,9 @@ type CatalogStatusProps = {
     | (Pick<AccountProfileView, "id" | "protocol"> &
         Partial<Pick<AccountProfileView, "authKind" | "connection">>)
     | undefined;
-  loading: boolean;
-  canRefresh: boolean;
-  onRefresh: () => Promise<void>;
+  /** The accounts read that owns this binding's model list. */
+  accounts: GatewayModelAccountsRefresh;
+  bindingId: string;
   /**
    * Public metadata for the same provider. It shares this status and button,
    * so a Gateway selection never shows a second, contradicting catalog line.
@@ -58,9 +59,8 @@ const updatedAgo = (fetchedAt: string) => {
 function CatalogStatus({
   account,
   profile,
-  loading,
-  canRefresh,
-  onRefresh,
+  accounts: { loading, canRefresh, refreshModels },
+  bindingId,
   publicCatalog,
 }: CatalogStatusProps) {
   const [refreshing, setRefreshing] = useState(false);
@@ -74,6 +74,8 @@ function CatalogStatus({
     account?.binding &&
     catalog &&
     catalog.status !== "unsupported";
+  // Without an account or its profile there is no model list to report.
+  if (!account && !profile) return null;
   const outOfDate = accountModelCatalogOutOfDate(profile, catalog);
   const [message, action]: [string, "retry" | "refresh" | null] = outOfDate
     ? busy
@@ -129,7 +131,7 @@ function CatalogStatus({
     setRefreshing(true);
     // The public refresh reports its own failure through its query.
     const [accountRefresh] = await Promise.allSettled([
-      refreshAccount ? onRefresh() : undefined,
+      refreshAccount ? refreshModels(bindingId) : undefined,
       publicCatalog?.refresh(),
     ]);
     if (accountRefresh.status === "rejected") setRefreshFailed(true);

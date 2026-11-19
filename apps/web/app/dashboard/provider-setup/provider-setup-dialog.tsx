@@ -993,15 +993,13 @@ function ProviderChoiceStep({
           requiresTools: settings?.agenticContext ?? true,
         })
       : publicModelOptions;
-  // The state of the list itself, shown right under the model input.
   const modelStatus =
     authMode === "codex_account_gateway" && gatewayBindingId ? (
       <GatewayModelCatalogStatus
         account={resolvedGatewayAccount}
         profile={gatewayProfile}
-        loading={gatewayOptions.loading}
-        canRefresh={gatewayOptions.canRefresh}
-        onRefresh={() => gatewayOptions.refreshModels(gatewayBindingId)}
+        accounts={gatewayOptions}
+        bindingId={gatewayBindingId}
         publicCatalog={
           source?.key === "gateway_binding" && catalogProvider
             ? catalogs.status(catalogProvider)

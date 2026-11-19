@@ -238,9 +238,8 @@ function RefreshCatalogHarness() {
       <GatewayModelCatalogStatus
         account={selected}
         profile={options.profileFor(selected)}
-        loading={options.loading}
-        canRefresh={options.canRefresh}
-        onRefresh={() => options.refreshModels("saved-binding")}
+        accounts={options}
+        bindingId="saved-binding"
       />
     </>
   );

@@ -527,6 +527,7 @@ function ProviderProfileEditForm({
   const catalogProvider = replacementProvider
     ? getSetupProvider(replacementProvider).publicCatalogProvider
     : providerKindForAuthMode(row.authMode);
+  const listStatus = catalogProvider ? catalogs.status(catalogProvider) : null;
   const publicModelOptions = catalogProvider
     ? catalogs.optionsFor(catalogProvider, true, {
         allowRoutingModels: gateway,
@@ -614,20 +615,13 @@ function ProviderProfileEditForm({
             <GatewayModelCatalogStatus
               account={gatewayAccount}
               profile={gatewayProfile}
-              loading={gatewayOptions.loading}
-              canRefresh={gatewayOptions.canRefresh}
-              onRefresh={() =>
-                gatewayOptions.refreshModels(row.gatewayBindingId ?? "")
-              }
-              publicCatalog={
-                catalogProvider ? catalogs.status(catalogProvider) : null
-              }
+              accounts={gatewayOptions}
+              bindingId={row.gatewayBindingId ?? ""}
+              publicCatalog={listStatus}
             />
-          ) : catalogProvider ? (
-            <ProviderModelCatalogStatus
-              status={catalogs.status(catalogProvider)}
-            />
-          ) : null
+          ) : (
+            <ProviderModelCatalogStatus status={listStatus} />
+          )
         }
       />
       {gateway && row.gatewayBindingId ? (

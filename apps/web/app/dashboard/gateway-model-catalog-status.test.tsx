@@ -34,9 +34,8 @@ it("distinguishes configured profile choices from account discovery and offers n
     <GatewayModelCatalogStatus
       profile={undefined}
       account={account}
-      loading={false}
-      canRefresh
-      onRefresh={refresh}
+      accounts={{ loading: false, canRefresh: true, refreshModels: refresh }}
+      bindingId="binding-1"
     />,
   );
   expect(screen.getByRole("status").textContent).toContain(
@@ -59,9 +58,8 @@ it("does not offer refresh after an explicit unsupported discovery response", ()
           models: [],
         },
       }}
-      loading={false}
-      canRefresh
-      onRefresh={vi.fn()}
+      accounts={{ loading: false, canRefresh: true, refreshModels: vi.fn() }}
+      bindingId="binding-1"
     />,
   );
   expect(screen.getByRole("status").textContent).toContain(
@@ -83,9 +81,8 @@ it("keeps an unavailable discovery retryable without calling a saved choice unsu
           models: ["saved-model"],
         },
       }}
-      loading={false}
-      canRefresh
-      onRefresh={refresh}
+      accounts={{ loading: false, canRefresh: true, refreshModels: refresh }}
+      bindingId="binding-1"
     />,
   );
   expect(screen.getByRole("status").textContent).toContain(
@@ -119,9 +116,8 @@ it("a pending refresh on another binding does not disable or fail the new accoun
     <GatewayModelCatalogStatus
       profile={undefined}
       account={selected}
-      loading={false}
-      canRefresh
-      onRefresh={refresh}
+      accounts={{ loading: false, canRefresh: true, refreshModels: refresh }}
+      bindingId="binding-1"
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
@@ -134,9 +130,8 @@ it("a pending refresh on another binding does not disable or fail the new accoun
         connectionId: "connection-2",
         binding: { ...selected.binding!, id: "binding-2" },
       }}
-      loading={false}
-      canRefresh
-      onRefresh={vi.fn(async () => {})}
+      accounts={{ loading: false, canRefresh: true, refreshModels: vi.fn(async () => {}) }}
+      bindingId="binding-1"
     />,
   );
   expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(
@@ -176,9 +171,12 @@ it("refreshes public metadata from the same button and reports its failure on it
         fetchedAt: "2026-10-26T12:00:00.000Z",
       },
     },
-    loading: false,
-    canRefresh: true,
-    onRefresh: refreshAccount,
+    accounts: {
+      loading: false,
+      canRefresh: true,
+      refreshModels: refreshAccount,
+    },
+    bindingId: "binding-1",
   };
   const { rerender } = render(
     <GatewayModelCatalogStatus
@@ -245,9 +243,8 @@ it("keeps public metadata refreshable when the account cannot list models", asyn
           models: [],
         },
       }}
-      loading={false}
-      canRefresh
-      onRefresh={refreshAccount}
+      accounts={{ loading: false, canRefresh: true, refreshModels: refreshAccount }}
+      bindingId="binding-1"
       publicCatalog={{
         snapshot: {
           providerKind: "codex",

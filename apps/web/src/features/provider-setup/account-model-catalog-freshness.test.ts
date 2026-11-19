@@ -54,6 +54,12 @@ const read = (
       state: "active" as const,
       gatewayRevision: 1,
       mirrorRevision: 1,
+      binding: {
+        id: "binding",
+        revision: 1,
+        state: "active" as const,
+        fencePending: false,
+      },
       ...(modelCatalog ? { modelCatalog } : {}),
     },
     profile,

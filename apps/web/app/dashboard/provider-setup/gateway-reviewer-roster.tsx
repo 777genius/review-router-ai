@@ -682,17 +682,12 @@ export function GatewayReviewerRoster({
                       modelChoice="catalog"
                       allowCustomModel={false}
                       modelStatus={
-                        account ? (
-                          <GatewayModelCatalogStatus
-                            account={account}
-                            profile={profile}
-                            loading={options.loading}
-                            canRefresh={options.canRefresh}
-                            onRefresh={() =>
-                              options.refreshModels(row.bindingId)
-                            }
-                          />
-                        ) : null
+                        <GatewayModelCatalogStatus
+                          account={account}
+                          profile={profile}
+                          accounts={options}
+                          bindingId={row.bindingId}
+                        />
                       }
                       settings={settingsFor(row)}
                       onSettingsChange={(settings) =>

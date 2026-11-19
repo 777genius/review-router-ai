@@ -131,6 +131,12 @@ export function GatewayModelAccountsProvider({
   );
 }
 
+/** What a model list status needs from the accounts read. */
+export type GatewayModelAccountsRefresh = Pick<
+  ReturnType<typeof useGatewayModelAccounts>,
+  "loading" | "canRefresh" | "refreshModels"
+>;
+
 export function useGatewayModelAccounts(
   initial: AccountsResult<AccountsPage> | undefined,
   selectedBindingIds: readonly string[],

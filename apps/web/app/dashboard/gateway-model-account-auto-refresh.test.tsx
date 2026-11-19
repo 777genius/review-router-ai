@@ -116,9 +116,8 @@ function Picker() {
       <GatewayModelCatalogStatus
         account={selected}
         profile={selectedProfile}
-        loading={options.loading}
-        canRefresh={options.canRefresh}
-        onRefresh={() => options.refreshModels(BINDING)}
+        accounts={options}
+        bindingId={BINDING}
       />
     </>
   );
@@ -138,7 +137,10 @@ function Dialog({
 }
 const wait = (ms = 0) => act(() => vi.advanceTimersByTimeAsync(ms));
 const apiWith = (get: GatewayModelAccountsApi["get"]) => ({
-  list: vi.fn<GatewayModelAccountsApi["list"]>(),
+  list: vi.fn<GatewayModelAccountsApi["list"]>(async () => ({
+    status: "ok",
+    value: { accounts: [account], profiles: [profile], nextCursor: null },
+  })),
   get,
 });
 const automaticReads = (get: { mock: { calls: unknown[][] } }) =>
@@ -191,7 +193,8 @@ test("reopening after the list lapsed updates it once, then offers the model", a
   expect(screen.getByRole("status").textContent).toBe(
     "The model list for this account is out of date. Updating it now…",
   );
-  await act(async () => release(fresh()));
+  release(fresh());
+  await wait();
   expect(screen.getByText(`Selectable:${MODEL}`)).toBeTruthy();
   expect(get).toHaveBeenCalledTimes(2);
 });
