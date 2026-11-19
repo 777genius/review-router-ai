@@ -38,6 +38,7 @@ export type ReviewProgressPublicationStore = Pick<
   | "requeueAfterClaimLoss"
   | "retry"
   | "suppress"
+  | "releaseOwnStaleNoWriteClaim"
 >;
 
 export type ReviewProgressPublisherResult = Readonly<{
