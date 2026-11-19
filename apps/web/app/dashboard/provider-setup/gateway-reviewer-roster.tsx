@@ -83,11 +83,11 @@ function storedMode(
     target.kind === "repository"
       ? view.repositories.find((row) => row.id === target.repository.id)
       : null;
-  const ownRoster = Boolean(
+  const ownSelections = Boolean(
     repository?.selections?.length || repository?.selection,
   );
   return (
-    (ownRoster ? repository?.providerMode : view.providerMode) ??
+    (ownSelections ? repository?.providerMode : view.providerMode) ??
     defaultReviewProviderMode
   );
 }
@@ -837,7 +837,8 @@ export function GatewayReviewerRoster({
         </p>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-cyan-200/10 pt-4">
-        <div className="flex flex-wrap gap-2">
+        {/* Grows beside Save, so its full-width caption keeps Save on the right. */}
+        <div className="flex flex-wrap gap-2 sm:min-w-0 sm:flex-1">
           <Button
             type="button"
             variant="ghost"
