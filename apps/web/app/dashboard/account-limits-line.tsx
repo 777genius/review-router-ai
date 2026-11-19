@@ -93,7 +93,7 @@ function summaryWindows(windows: readonly LimitsWindow[]) {
     .slice(0, 2);
 }
 
-function durationText(minutes: number) {
+export function durationText(minutes: number) {
   const days = Math.floor(minutes / 1_440);
   const hours = Math.floor((minutes % 1_440) / 60);
   const remaining = minutes % 60;

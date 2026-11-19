@@ -54,6 +54,15 @@ export const apiKeyStorageProfiles = [
     model: "mimo-v2.6-pro",
   },
   subscriptionProfiles[0],
+  // NVIDIA admits a model only from the account's own fresh list.
+  {
+    provider: "nvidia",
+    label: "NVIDIA Build",
+    plan: "API key",
+    planId: "pay_as_you_go",
+    profileId: "nvidia-build-chat-apikey-v1",
+    model: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  },
 ] as const;
 type Profile =
   | (typeof subscriptionProfiles)[number]
@@ -101,6 +110,15 @@ export function createSubscriptionFixture(
     inference: 0,
     refresh: 0,
     operationIds: [] as string[],
+    /** NVIDIA model list reads, in order. */
+    nvidiaModelReads: [] as { forceRefresh: boolean }[],
+  };
+  // Native keeps an NVIDIA list valid for one minute; tests shorten it, slow
+  // the answer down or make it fail.
+  let nvidiaModels = {
+    ttlMs: 60_000,
+    delayMs: 0,
+    status: "snapshot" as "snapshot" | "unavailable",
   };
   const state = "a".repeat(64);
   const observed = new Date(Date.now() - 60_000).toISOString();
@@ -156,7 +174,21 @@ export function createSubscriptionFixture(
     return operation;
   }
   return {
-    stats: () => ({ ...stats, operationIds: [...stats.operationIds] }),
+    stats: () => ({
+      ...stats,
+      operationIds: [...stats.operationIds],
+      nvidiaModelReads: [...stats.nvidiaModelReads],
+    }),
+    configure(input: Record<string, unknown>) {
+      nvidiaModels = {
+        ttlMs: Number(input.ttlMs ?? nvidiaModels.ttlMs),
+        delayMs: Number(input.delayMs ?? nvidiaModels.delayMs),
+        status:
+          input.status === "unavailable" || input.status === "snapshot"
+            ? input.status
+            : nvidiaModels.status,
+      };
+    },
     observe(method: string, path: string) {
       if (method === "POST" && /\/requests$/.test(path)) stats.inference++;
       if (method === "POST" && /\/refresh$/.test(path)) stats.refresh++;
@@ -193,7 +225,8 @@ export function createSubscriptionFixture(
                 profile.provider === "grok"
                   ? "oauth_reauthorize"
                   : "replace_api_key",
-              limitsContract: "account-limits/v2",
+              limitsContract:
+                profile.provider === "nvidia" ? "none" : "account-limits/v2",
               models: [
                 {
                   modelId: profile.model,
@@ -218,6 +251,36 @@ export function createSubscriptionFixture(
         const profile = profiles.find(
           (row) => row.profileId === account?.profileId,
         );
+        if (account && profile?.provider === "nvidia") {
+          stats.nvidiaModelReads.push({
+            forceRefresh: input.forceRefresh === true,
+          });
+          await new Promise((resolve) =>
+            setTimeout(resolve, nvidiaModels.delayMs),
+          );
+          if (nvidiaModels.status === "unavailable")
+            return { status: 200, body: { status: "unavailable" } };
+          const now = Date.now();
+          return {
+            status: 200,
+            body: {
+              status: "snapshot",
+              physicalGeneration: "fixture-subscription-generation",
+              principalVersion: "fixture-subscription-principal",
+              source: "nvidia",
+              fetchedAt: new Date(now).toISOString(),
+              expiresAt: new Date(now + nvidiaModels.ttlMs).toISOString(),
+              models: [
+                {
+                  modelId: profile.model,
+                  reasoning: null,
+                  fast: null,
+                  tools: { allowed: ["function"], default: "function" },
+                },
+              ],
+            },
+          };
+        }
         if (!account || profile?.provider !== "openrouter")
           return { status: 200, body: { status: "unsupported" } };
         const now = Date.now();

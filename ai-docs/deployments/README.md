@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Account model list keeps itself current: [an NVIDIA account's model list is read again before it lapses and on open, with one status line and Try again only after a failure, instead of every model greyed out until "Refresh models"](2026-11-20-account-model-list-auto-refresh.md), [PR #932](https://github.com/777genius/review-router-ai/pull/932) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
+
 Conflict runtime language and decomposed file names: [a conflict review gets the repository's review language, and a decomposed Unicode file name gets its real patch](2026-11-19-conflict-runtime-language-and-nfc.md), the two pre-existing CodeRabbit findings on [review-router#400](https://github.com/777genius/review-router/pull/400) - public Action runtime only; merged, rides in the next bundled rollout and the next Action release, `pending`. No migration, configuration, Web, API, worker, Gateway or native change.
 
 Usage wording in plain language: [the Usage tooltip, table, legend, KPI and notes say "so far, until HH:MM UTC", "at least N" and "some calls may not have reported all their tokens" instead of "partial day", "(known part)" and "some token data incomplete"](2026-11-19-usage-plain-wording.md), [PR #930](https://github.com/777genius/review-router-ai/pull/930) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
