@@ -8,7 +8,7 @@
 - Affected targets: API only (`apps/api`, hosted review admission gate and a
   new GitHub App comment adapter). Web, worker, Gateway, native and the public
   Action are unchanged; no Action release is needed.
-- Implementation: [ReviewRouter AI PR "Explain an oversized pull request refusal on the pull request"](https://github.com/777genius/review-router-ai/pulls?q=is%3Apr+oversize-review-notice).
+- Implementation: [ReviewRouter AI PR #938](https://github.com/777genius/review-router-ai/pull/938).
 - Implementation reference: the squash commit of that PR on `main`; this is not
   proof that it is selected for a release or installed.
 - Dependencies: none. No migration and no configuration.

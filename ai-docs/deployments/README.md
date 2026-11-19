@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-Oversized pull request explained on the PR: [when hosted admission refuses a review over the changed-line ceiling, the pull request gets one ReviewRouter comment with the real numbers and where the limit lives; the refusal itself is unchanged](2026-11-20-oversize-review-notice.md) - API-only ordinary rollout; merged, rides in the next bundled rollout, NOT deployed, `pending`. No migration, configuration, Web, worker, Gateway, native or public Action change.
+Oversized pull request explained on the PR: [when hosted admission refuses a review over the changed-line ceiling, the pull request gets one ReviewRouter comment with the real numbers and where the limit lives; the refusal itself is unchanged](2026-11-20-oversize-review-notice.md), [PR #938](https://github.com/777genius/review-router-ai/pull/938) - API-only ordinary rollout; merged, rides in the next bundled rollout, NOT deployed, `pending`. No migration, configuration, Web, worker, Gateway, native or public Action change.
 
 One review summary comment per pull request: [every new run rewrites the pull request's existing ReviewRouter summary comment instead of posting another one; summaries of other revisions stay untouched](2026-11-20-sticky-review-summary.md), [PR #933](https://github.com/777genius/review-router-ai/pull/933) - worker-only ordinary rollout; merged, rides in the next bundled rollout, NOT deployed, `pending`. No migration, configuration, Web, API, Gateway, native or public Action change.
 
