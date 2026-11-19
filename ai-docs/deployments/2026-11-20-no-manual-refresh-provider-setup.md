@@ -18,8 +18,8 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker              |
-| -------------------- | --------- | ------------------------------- | ------------------- | ------------------------------------------- |
+| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker                  |
+| -------------------- | --------- | ------------------------------- | ------------------- | ----------------------------------------------- |
 | staging              | `pending` | Not verified                    | Not verified        | Rides in the next bundled ordinary Web rollout. |
 | production           | `pending` | Not verified                    | Not verified        | Rides in the next bundled ordinary Web rollout. |
 
