@@ -180,15 +180,11 @@ export function ProviderModelCatalogStatus({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
       <StatusLine
         message={`${message}${snapshot?.refresh === "cooldown" ? " Please wait before refreshing again." : ""}`}
-        action={
-          status.loading
-            ? undefined
-            : {
-                kind: retry ? "retry" : "refresh-models",
-                busy: status.loading,
-                onClick: () => void status.refresh(),
-              }
-        }
+        {...(status.loading
+          ? {}
+          : retry
+            ? { onRetry: () => void status.refresh() }
+            : { onRefreshModels: () => void status.refresh() })}
       />
       <span>Access to these models has not been checked.</span>
     </div>

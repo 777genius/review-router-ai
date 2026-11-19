@@ -132,15 +132,12 @@ function CatalogStatus({
             ? new Date(catalog.fetchedAt).toLocaleString()
             : undefined
         }
-        action={
-          showAction && action
-            ? {
-                kind: action === "retry" ? "retry" : "refresh-models",
-                busy,
-                onClick: () => void refresh(),
-              }
-            : undefined
-        }
+        busy={busy}
+        {...(!showAction
+          ? {}
+          : action === "retry"
+            ? { onRetry: () => void refresh() }
+            : { onRefreshModels: () => void refresh() })}
       />
       {publicCatalog && publicCatalogRefreshFailed(publicCatalog) ? (
         <p role="status">

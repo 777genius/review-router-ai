@@ -11,41 +11,38 @@ export function updatedAgo(at: string | number): string {
 
 /**
  * One line that reports data which keeps itself current. A failure offers
- * "Try again"; a working list may keep a small secondary refresh. Nothing in
- * the normal path asks the user to refresh.
+ * "Try again" (`onRetry`); a working model list may keep a small secondary
+ * refresh (`onRefreshModels`). Nothing in the normal path asks to refresh.
  */
 export function StatusLine({
   message,
   title,
-  action,
+  busy = false,
+  onRetry,
+  onRefreshModels,
 }: {
   message: string;
   title?: string | undefined;
-  action?:
-    | {
-        kind: "retry" | "refresh-models";
-        busy: boolean;
-        onClick: () => void;
-      }
-    | undefined;
+  busy?: boolean;
+  onRetry?: (() => void) | undefined;
+  onRefreshModels?: (() => void) | undefined;
 }) {
+  const onClick = onRetry ?? onRefreshModels;
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
       <span role="status" title={title}>
         {message}
       </span>
-      {action ? (
+      {onClick ? (
         <Button
           type="button"
-          variant={action.kind === "retry" ? "outline" : "ghost"}
+          variant={onRetry ? "outline" : "ghost"}
           size="sm"
-          {...(action.kind === "refresh-models"
-            ? { "aria-label": "Refresh models" }
-            : {})}
-          disabled={action.busy}
-          onClick={action.onClick}
+          {...(onRetry ? {} : { "aria-label": "Refresh models" })}
+          disabled={busy}
+          onClick={onClick}
         >
-          {action.kind === "retry" ? "Try again" : "Refresh"}
+          {onRetry ? "Try again" : "Refresh"}
         </Button>
       ) : null}
     </div>

@@ -720,17 +720,9 @@ export function GatewayReviewerRoster({
                     ) : null}
                     {row.bindingId && !account ? (
                       <StatusLine
-                        message={
-                          options.bindingLoading(row.bindingId)
-                            ? "Checking this account…"
-                            : "This account is unavailable. Choose another account."
-                        }
-                        action={{
-                          kind: "retry",
-                          busy:
-                            blocked || options.bindingLoading(row.bindingId),
-                          onClick: () => options.recheck(row.bindingId),
-                        }}
+                        message="This account is unavailable. Choose another account."
+                        busy={blocked}
+                        onRetry={() => options.recheck(row.bindingId)}
                       />
                     ) : null}
                   </div>
@@ -749,11 +741,8 @@ export function GatewayReviewerRoster({
         {"pageError" in options && options.pageError ? (
           <StatusLine
             message="Could not load the account list."
-            action={{
-              kind: "retry",
-              busy: blocked || options.loading,
-              onClick: options.refresh,
-            }}
+            busy={blocked || options.loading}
+            onRetry={options.refresh}
           />
         ) : null}
       </div>
