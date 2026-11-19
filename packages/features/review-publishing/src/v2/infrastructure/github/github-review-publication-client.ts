@@ -30,6 +30,13 @@ import {
 } from "../../application/ports/review-publication-provider-ports";
 import { canonicalReviewPublicationJson } from "../../domain/canonical-review-publication-json";
 import { extractUniqueReviewFindingFingerprint } from "../../domain/review-finding-marker";
+import {
+  containsReviewSummaryMarker,
+  isReviewSummaryMarker,
+} from "../../domain/review-summary-marker";
+
+/** 100 pages of 100 comments; the same bound the review comment reader uses. */
+const maxIssueCommentPages = 100;
 
 export type ReviewV2GitHubRepository = {
   readonly githubInstallationId: string;
@@ -246,7 +253,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
         case ReviewV2PublicationPayloadKind.PrDescription:
           return await this.updatePrDescription(payload, input.operation);
         case ReviewV2PublicationPayloadKind.Summary:
-          return await this.createIssueComment(payload, input.operation);
+          return await this.publishSummaryComment(payload, input.operation);
         case ReviewV2PublicationPayloadKind.ManagedCheck:
           return await this.createCheckRun(payload, input.operation);
         case ReviewV2PublicationPayloadKind.PendingReviewCreate:
@@ -290,16 +297,7 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
           ? ReviewPublicationReceiptStatus.StaleVisible
           : ReviewPublicationReceiptStatus.Succeeded;
       case ReviewV2PublicationPayloadKind.Summary:
-        await Promise.all(
-          staleObjectIds.map((id) =>
-            this.request(
-              "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
-              {
-                comment_id: externalNumericId(id, "issue-comment"),
-              },
-            ),
-          ),
-        );
+        await this.deleteOwnSummaryComments(payload, staleObjectIds);
         return input.compensateCanonical
           ? ReviewPublicationReceiptStatus.Compensated
           : ReviewPublicationReceiptStatus.Succeeded;
@@ -807,13 +805,37 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
     return parent.databaseId as number;
   }
 
-  private async createIssueComment(
+  /**
+   * A pull request keeps one summary comment. A new revision rewrites the
+   * newest summary this App already posted instead of adding another one.
+   * Older summaries from before this rule stay untouched.
+   */
+  private async publishSummaryComment(
     payload: Extract<
       ReviewV2PublicationPayload,
       { readonly kind: ReviewV2PublicationPayloadKind.Summary }
     >,
     operation: ReviewPublicationOperation,
   ) {
+    const stickyCommentId = isReviewSummaryMarker(payload.marker)
+      ? await this.findStickySummaryCommentId()
+      : null;
+    if (stickyCommentId !== null) {
+      try {
+        const response = await this.request(
+          "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+          { comment_id: stickyCommentId, body: payload.body },
+        );
+        return gatewayObject(
+          `issue-comment:${numericId(requireRecord(response.data, "github_comment_invalid"))}`,
+          payload,
+          operation.bodyHash,
+        );
+      } catch (error) {
+        // Deleted between lookup and update: nothing was written, post anew.
+        if (!isGitHubNotFound(error)) throw error;
+      }
+    }
     const response = await this.request(
       "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
       {
@@ -825,6 +847,79 @@ export class GitHubReviewV2PublicationClient implements ReviewV2ProviderPublicat
       `issue-comment:${numericId(requireRecord(response.data, "github_comment_invalid"))}`,
       payload,
       operation.bodyHash,
+    );
+  }
+
+  private async findStickySummaryCommentId(): Promise<number | null> {
+    try {
+      let newest: number | null = null;
+      for (let page = 1; page <= maxIssueCommentPages; page += 1) {
+        const response = await this.request(
+          "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+          {
+            issue_number: this.options.permit.pullRequestNumber,
+            per_page: 100,
+            page,
+          },
+        );
+        const rows = requireArray(
+          response.data,
+          "github_issue_comments_invalid",
+        );
+        for (const row of rows) {
+          if (!isOwnedSummaryComment(row, this.options.botLogin)) continue;
+          const id = numericId(row);
+          if (newest === null || id > newest) newest = id;
+        }
+        if (rows.length < 100) return newest;
+      }
+      throw new Error("github_issue_comments_pagination_limit_exceeded");
+    } catch {
+      // Nothing has been written yet, so a failed lookup is a clean retry.
+      throw new ReviewV2ScmMutationError(
+        "github_summary_comment_lookup_failed",
+        ReviewV2ScmMutationFailureOutcome.DefinitelyNoEffect,
+        true,
+      );
+    }
+  }
+
+  /**
+   * The summary comment is shared by successive revisions, so a stale run may
+   * only delete it while it still carries that run's own marker.
+   */
+  private async deleteOwnSummaryComments(
+    payload: Extract<
+      ReviewV2PublicationPayload,
+      { readonly kind: ReviewV2PublicationPayloadKind.Summary }
+    >,
+    externalObjectIds: readonly string[],
+  ) {
+    await Promise.all(
+      externalObjectIds.map(async (externalObjectId) => {
+        const commentId = externalNumericId(externalObjectId, "issue-comment");
+        try {
+          const current = await this.request(
+            "GET /repos/{owner}/{repo}/issues/comments/{comment_id}",
+            { comment_id: commentId },
+          );
+          if (
+            !isOwnedBody(
+              requireRecord(current.data, "github_comment_invalid"),
+              payload.marker,
+              this.options.botLogin,
+            )
+          ) {
+            return;
+          }
+          await this.request(
+            "DELETE /repos/{owner}/{repo}/issues/comments/{comment_id}",
+            { comment_id: commentId },
+          );
+        } catch (error) {
+          if (!isGitHubNotFound(error)) throw error;
+        }
+      }),
     );
   }
 
@@ -1279,13 +1374,30 @@ function isOwnedBody(
   marker: string,
   botLogin: string,
 ): boolean {
-  const user = isRecord(row.user) ? row.user : null;
   return (
-    typeof user?.login === "string" &&
-    user.login.toLowerCase() === botLogin &&
+    isBotAuthored(row, botLogin) &&
     typeof row.body === "string" &&
     row.body.includes(marker)
   );
+}
+
+function isOwnedSummaryComment(
+  row: Readonly<Record<string, unknown>>,
+  botLogin: string,
+): boolean {
+  return (
+    isBotAuthored(row, botLogin) &&
+    typeof row.body === "string" &&
+    containsReviewSummaryMarker(row.body)
+  );
+}
+
+function isBotAuthored(
+  row: Readonly<Record<string, unknown>>,
+  botLogin: string,
+): boolean {
+  const user = isRecord(row.user) ? row.user : null;
+  return typeof user?.login === "string" && user.login.toLowerCase() === botLogin;
 }
 
 function externalNumericId(value: string, prefix: string): number {

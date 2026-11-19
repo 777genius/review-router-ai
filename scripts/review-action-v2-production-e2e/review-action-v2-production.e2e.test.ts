@@ -473,14 +473,44 @@ describeWithDatabase.sequential(
       await fixture.processFinalizedOutbox();
       await fixture.runWorkerUntilSettled();
 
+      // Two pages each for the marker inventory before and after the write,
+      // plus two for the sticky-summary lookup.
       expect(fixture.fakeGitHub.countCalls("GET", `/issues/42/comments`)).toBe(
-        4,
+        6,
       );
       expect(
         fixture.fakeGitHub.comments.filter(
           (comment) => comment.user.login === "reviewrouter-e2e[bot]",
         ),
       ).toHaveLength(1);
+      await expectTerminalSuccess(fixture, flow.executionId);
+    }, 60_000);
+
+    it("rewrites the existing summary comment for a new revision instead of adding one", async () => {
+      const fixture = requiredHarness(harness);
+      const olderRun = fixture.fakeGitHub.seedAppComment(
+        `Older run\n\n<!-- reviewrouter:summary:v2:${hash("older-revision")} -->`,
+      );
+      const newerRun = fixture.fakeGitHub.seedAppComment(
+        `Newer run\n\n<!-- reviewrouter:summary:v2:${hash("newer-revision")} -->`,
+      );
+      const flow = await fixture.createCommittedFlow();
+      await fixture.finalize(flow);
+      await fixture.processFinalizedOutbox();
+      await fixture.runWorkerUntilSettled();
+
+      const appComments = fixture.fakeGitHub.comments.filter(
+        (comment) => comment.user.login === "reviewrouter-e2e[bot]",
+      );
+      expect(appComments.map((comment) => comment.id)).toEqual([
+        olderRun,
+        newerRun,
+      ]);
+      expect(appComments[0]?.body).toContain("Older run");
+      expect(appComments[1]?.body).toContain(
+        `reviewrouter:summary:v2:${flow.reviewRevisionHash}`,
+      );
+      expect(appComments[1]?.body).not.toContain("Newer run");
       await expectTerminalSuccess(fixture, flow.executionId);
     }, 60_000);
 
@@ -834,10 +864,10 @@ describeWithDatabase.sequential(
         "Parts finished after a retry: 6",
       );
 
-      fixture.fakeGitHub.seedProgressDuplicate(
+      fixture.fakeGitHub.seedAppComment(
         progressComments(fixture)[0]!.body,
       );
-      fixture.fakeGitHub.seedProgressDuplicate(
+      fixture.fakeGitHub.seedAppComment(
         progressComments(fixture)[0]!.body,
       );
       await fixture.prisma.reviewProgressPublicationV1.updateMany({
