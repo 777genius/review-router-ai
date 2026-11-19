@@ -984,7 +984,8 @@ describe("ReviewProgressPublisher", () => {
       },
     }));
 
-    const error = await publisher.runMaintenance().catch((caught: unknown) => caught);
+    const run = publisher.runMaintenance();
+    const error = await run.catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(AggregateError);
     expect((error as AggregateError).errors).toEqual([retryError, repairError]);
     expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
