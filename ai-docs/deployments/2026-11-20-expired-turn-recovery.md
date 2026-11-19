@@ -5,11 +5,13 @@
   turn it can, logs the real cause for the ones it cannot, and stops retrying
   those every cycle. Today one bad row aborts the whole pass, so 48 rows have
   sat in `turn_leased` since 2026-10-06 and every rollout logs
-  `review_investigation_active_turn_recovery_failed` with `causeCode: null`.
+  `review_investigation_active_turn_recovery_failed` with
+  `failureCauseCode: null`.
 - Affected targets: worker only (retention maintenance). API, Web, Gateway,
   native and the public Action are unchanged. No migration, no configuration.
-- Implementation: ReviewRouter AI PR (this branch); the squash commit on `main`
-  is the source reference, not proof that it is selected or installed.
+- Implementation: [ReviewRouter AI PR #935](https://github.com/777genius/review-router-ai/pull/935);
+  the squash commit on `main` is the source reference, not proof that it is
+  selected or installed.
 - Dependencies: none. Rides in the next bundled worker rollout, not on its own.
 - Last updated: 2026-11-20.
 
@@ -48,13 +50,11 @@ Merging the PR did not deploy anything.
   the two budget columns with an immutability trigger, the trigger
   `review_investigation_v4_request_fence` that refuses any state change of a
   relay-bound turn whose upstream request is unresolved (18 of the 42 have
-  relay rows: 9 `open`, 9 `terminal_unknown`), and eight migrations that are
-  not in `main` (`000003_distributed_locks`,
-  `000085_comment_token_gate_lock_result`,
-  `000109_sdk_growth_verifier_assignment_lock`,
-  `000116_hosted_v4_fenced_dispatch`, `000117_hosted_v4_one_shot_dispatch`,
-  `000118_exclusive_test_publication`, `000128_account_admission_row_lock`,
-  `000135_review_run_checkout_repository_lock`).
+  relay rows in `HostedCodexV4RelayTurn`: 9 `open`, 9 `terminal_unknown`),
+  and three applied migrations whose names `main` does not have
+  (`000116_hosted_v4_fenced_dispatch`, `000117_hosted_v4_one_shot_dispatch`,
+  `000118_exclusive_test_publication`; `main` uses those numbers for other
+  migrations).
 - Reproduced on Hetzner with a read-only copy of the 48 rows and their parents
   loaded into a scratch PostgreSQL 17 (with `relay_turn` added to match
   production): the old sweep throws `investigation_dossier_digest_invalid`;
@@ -64,17 +64,25 @@ Merging the PR did not deploy anything.
 
 - `ReconcileExpiredActiveTurn.sweep` handles each row on its own. A failing row
   is counted, its cause is mapped to an allowlisted code
-  (`dossier_digest_invalid`, `investigation_missing`, `idempotency_conflict`,
-  otherwise `unknown`; raw messages are never logged), and the batch goes on.
+  (`dossier_digest_invalid`, `aggregate_incompatible`, `investigation_missing`,
+  `idempotency_conflict`, otherwise `unknown`; raw messages are never logged),
+  and the batch goes on.
 - A row that fails is skipped for 1 h, then 2 h, 4 h and so on, capped at one
   retry a day. Rows on backoff are excluded in the candidate query, so they do
   not take slots from healthy rows. The schedule is in worker memory (at most
-  1,000 rows); a worker restart retries each row once.
-- The maintenance log now carries the cause: the existing warning
-  `ReviewRouter review investigation retention maintenance failed` gets
-  `failureCauseCode`, `failedInvestigationCount` and the new
-  `deferredActiveTurnCount`; the "completed" info line also shows
-  `deferredActiveTurnCount`, so parked rows stay visible.
+  1,000 rows) and per worker process; a worker restart retries each row once,
+  and with several worker processes each keeps its own schedule, so a parked
+  row can be retried up to once per process per step (the maintenance lock
+  still lets only one pass run at a time).
+- The existing warning `ReviewRouter review investigation retention
+maintenance failed` already had `failureCauseCode` and
+  `failedInvestigationCount`; they are now filled for active turns too, and the
+  new `deferredActiveTurnCount` is on both the warning and the "completed"
+  line, so parked rows stay visible.
+- Unchanged: a row whose commit loses a race (`investigation_concurrency_conflict`
+  or `investigation_lease_fencing_stale`) is skipped silently and tried again
+  next pass, as before. If such a race were ever permanent it would not show in
+  the log; none of the 48 rows is in that case.
 - No row field records the cause: `ReviewInvestigation` has no such column and
   writing `abortReason` on a still-leased turn would misstate its state.
 - Rows whose parent execution is gone or finished already reach `superseded`
@@ -88,10 +96,11 @@ Merging the PR did not deploy anything.
 1. Ordinary worker rollout through the
    [release process](../operations/07-environments-and-release-management.md).
    Nothing to do before or after.
-2. On the first maintenance pass (within one hour of start) expect:
-   `recoveredActiveTurnCount: 6`, `failedInvestigationCount: 42`,
-   `failureCauseCode: "dossier_digest_invalid"`, then `deferredActiveTurnCount:
-42` on later passes and one warning per backoff step instead of one per hour.
+2. On the first maintenance pass (within one hour of start) expect
+   `recoveredActiveTurnCount: 6`, `failedInvestigationCount: 42` and
+   `failureCauseCode: "dossier_digest_invalid"`. Later passes show
+   `deferredActiveTurnCount: 42` and one warning per backoff step instead of
+   one per hour (per worker process, see above).
 
 ## The 48 stuck rows
 
@@ -105,12 +114,17 @@ Count check (read-only, the existing `default_transaction_read_only` psql
 pattern on the production host):
 
 ```sql
-SELECT state, count(*) FROM "ReviewInvestigation"
-WHERE state IN ('turn_leased', 'superseded') GROUP BY 1;
+SELECT "producerReleaseId" = 'reviewrouter-action.89ae44621cab' AS relay_build,
+       state, count(*)
+FROM "ReviewInvestigation"
+WHERE "createdAt" >= '2026-10-06' AND "createdAt" < '2026-10-20'
+  AND state IN ('turn_leased', 'superseded')
+GROUP BY 1, 2 ORDER BY 1, 2;
 ```
 
-Before: `turn_leased 48`. After the first pass: `turn_leased 42` and
-`superseded` up by 6. Rollback: none needed. The 6 rows end in the state the
+Before: `relay_build f turn_leased 6` and `relay_build t turn_leased 42`.
+After the first pass: `f superseded 6` and `t turn_leased 42` (the 6 get a
+new 30-day `retainUntil`, so the prune leaves them alone for now). Rollback: none needed. The 6 rows end in the state the
 domain gives an expired turn of a finished execution; going back to the old
 worker leaves them there.
 
@@ -123,48 +137,88 @@ the owner's decision on the production-only hosted v4 relay schema listed
 above (merge the relay work, or remove its schema and data together). Doing
 it here in isolation would bypass both the dossier rule and the relay fence.
 
-Optional, only with explicit owner approval and outside this rollout: mark
-the 42 as `superseded` and let the existing retention prune delete them on
-its next pass (their `retainUntil` and their children's have already passed).
-This does not touch turn rows, so neither production trigger fires. It is a
-direct data change around the domain rules: their stored digest stays stale
-and the relay ledger rows of the 18 stay as they are.
+### Not a rollout step: optional cleanup of the 42
 
-```sql
--- 1. Backup (read-only session). \copy writes to the psql working directory;
---    run it from a root-only directory on the host and keep the file.
-\copy (SELECT row_to_json(i) FROM "ReviewInvestigation" i JOIN "ReviewInvestigationTurn" t ON t."turnId" = i."activeTurnId" WHERE i.state = 'turn_leased' AND i."producerReleaseId" = 'reviewrouter-action.89ae44621cab' AND t.state = 'leased' AND t."turnBudgetHash" IS NOT NULL AND t."expiresAt" < '2026-10-21') TO 'stuck-42-investigations.jsonl'
+Only with explicit owner approval, outside the bundled rollout, and not
+something a rollout agent should run from this registry. It marks the 42 as
+`superseded` and lets the existing retention prune delete their graphs on its
+next pass (their `retainUntil` and their children's have already passed). It
+is a direct data change around the domain rules: the stored digest stays
+stale, the 18 `HostedCodexV4RelayTurn` rows stay and point at deleted turns
+(that table has no foreign key to them), and after the prune the turn budgets
+and relay leases are gone, so "merge the relay work" could no longer verify
+these dossiers. The SQL was dry-run on the production-shaped copy with the
+budget columns restored: 42 rows changed, then the prune removed exactly 42.
 
--- 2. Apply (writable session, operator only).
-BEGIN;
-SET LOCAL lock_timeout = '5s';
-DO $$
-DECLARE changed integer;
-BEGIN
-  UPDATE "ReviewInvestigation" i
-  SET state = 'superseded', "activeTurnId" = NULL, "nextEligibleAt" = NULL,
-      version = i.version + 1, "updatedAt" = now() AT TIME ZONE 'UTC'
-  FROM "ReviewInvestigationTurn" t
-  WHERE t."turnId" = i."activeTurnId"
-    AND i.state = 'turn_leased'
-    AND i."producerReleaseId" = 'reviewrouter-action.89ae44621cab'
-    AND t.state = 'leased' AND t."turnBudgetHash" IS NOT NULL
-    AND t."expiresAt" < '2026-10-21'
-    AND NOT EXISTS (SELECT 1 FROM "ReviewExecutionV2" e
-                    WHERE e."executionId" = i."executionId" AND e.state = 'running');
-  GET DIAGNOSTICS changed = ROW_COUNT;
-  IF changed <> 42 THEN
-    RAISE EXCEPTION 'expected 42 rows, changed %', changed;
-  END IF;
-END $$;
-COMMIT;
-```
+1. Read-only pre-check that nothing on production blocks the prune's deletes.
+   On 2026-11-19 the only triggers on `ReviewInvestigation*` tables were the
+   two `BEFORE UPDATE` triggers on turns, and no table outside
+   `ReviewInvestigation*` had a foreign key to them. Repeat before applying;
+   any new row here stops the procedure:
 
-Check: `turn_leased 0` right after, and on the next maintenance pass
-`prunedInvestigationCount` includes the 42 and none of their ids remain.
-Rollback is only possible before that pass: restore `state`,
-`activeTurnId`, `nextEligibleAt`, `version` and `updatedAt` from the backup
-file. After the prune the rows are gone; the backup is the only record.
+   ```sql
+   SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid)
+   FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+   WHERE NOT t.tgisinternal AND c.relname LIKE 'ReviewInvestigation%'
+     AND pg_get_triggerdef(t.oid) NOT LIKE '%BEFORE UPDATE%';
+   SELECT con.conname, c.relname FROM pg_constraint con
+   JOIN pg_class c ON c.oid = con.conrelid
+   WHERE con.contype = 'f' AND c.relname NOT LIKE 'ReviewInvestigation%'
+     AND con.confrelid::regclass::text LIKE '"ReviewInvestigation%';
+   ```
+
+2. Backup (read-only session, CSV so text and JSON columns round-trip). It
+   holds review findings, so write it to a root-only directory on the host and
+   delete it once the owner closes the relay schema decision:
+
+   ```sql
+   \copy (SELECT i.* FROM "ReviewInvestigation" i JOIN "ReviewInvestigationTurn" t ON t."turnId" = i."activeTurnId" WHERE i.state = 'turn_leased' AND i."producerReleaseId" = 'reviewrouter-action.89ae44621cab' AND t.state = 'leased' AND t."turnBudgetHash" IS NOT NULL AND t."expiresAt" < '2026-10-21') TO 'stuck42-investigation.csv' WITH (FORMAT csv, HEADER)
+   \copy (SELECT x.* FROM "ReviewInvestigationTurn" x WHERE x."investigationId" IN (SELECT i."investigationId" FROM "ReviewInvestigation" i JOIN "ReviewInvestigationTurn" t ON t."turnId" = i."activeTurnId" WHERE i.state = 'turn_leased' AND i."producerReleaseId" = 'reviewrouter-action.89ae44621cab' AND t.state = 'leased' AND t."turnBudgetHash" IS NOT NULL AND t."expiresAt" < '2026-10-21')) TO 'stuck42-turn.csv' WITH (FORMAT csv, HEADER)
+   \copy (SELECT x.* FROM "ReviewInvestigationLease" x WHERE x."investigationId" IN (SELECT i."investigationId" FROM "ReviewInvestigation" i JOIN "ReviewInvestigationTurn" t ON t."turnId" = i."activeTurnId" WHERE i.state = 'turn_leased' AND i."producerReleaseId" = 'reviewrouter-action.89ae44621cab' AND t.state = 'leased' AND t."turnBudgetHash" IS NOT NULL AND t."expiresAt" < '2026-10-21')) TO 'stuck42-lease.csv' WITH (FORMAT csv, HEADER)
+   \copy (SELECT x.* FROM "ReviewInvestigationObligation" x WHERE x."investigationId" IN (SELECT i."investigationId" FROM "ReviewInvestigation" i JOIN "ReviewInvestigationTurn" t ON t."turnId" = i."activeTurnId" WHERE i.state = 'turn_leased' AND i."producerReleaseId" = 'reviewrouter-action.89ae44621cab' AND t.state = 'leased' AND t."turnBudgetHash" IS NOT NULL AND t."expiresAt" < '2026-10-21')) TO 'stuck42-obligation.csv' WITH (FORMAT csv, HEADER)
+   \copy (SELECT x.* FROM "ReviewInvestigationCommandReceipt" x WHERE x."investigationId" IN (SELECT i."investigationId" FROM "ReviewInvestigation" i JOIN "ReviewInvestigationTurn" t ON t."turnId" = i."activeTurnId" WHERE i.state = 'turn_leased' AND i."producerReleaseId" = 'reviewrouter-action.89ae44621cab' AND t.state = 'leased' AND t."turnBudgetHash" IS NOT NULL AND t."expiresAt" < '2026-10-21')) TO 'stuck42-command-receipt.csv' WITH (FORMAT csv, HEADER)
+   ```
+
+   Expected rows: 42 investigations, at least 42 turns, at least 41 leases;
+   obligations and command receipts as found.
+
+3. Apply (writable session, operator only):
+
+   ```sql
+   BEGIN;
+   SET LOCAL lock_timeout = '5s';
+   DO $$
+   DECLARE changed integer;
+   BEGIN
+     UPDATE "ReviewInvestigation" i
+     SET state = 'superseded', "activeTurnId" = NULL, "nextEligibleAt" = NULL,
+         version = i.version + 1, "updatedAt" = now() AT TIME ZONE 'UTC'
+     FROM "ReviewInvestigationTurn" t
+     WHERE t."turnId" = i."activeTurnId"
+       AND i.state = 'turn_leased'
+       AND i."producerReleaseId" = 'reviewrouter-action.89ae44621cab'
+       AND t.state = 'leased' AND t."turnBudgetHash" IS NOT NULL
+       AND t."expiresAt" < '2026-10-21'
+       AND NOT EXISTS (SELECT 1 FROM "ReviewExecutionV2" e
+                       WHERE e."executionId" = i."executionId" AND e.state = 'running');
+     GET DIAGNOSTICS changed = ROW_COUNT;
+     IF changed <> 42 THEN
+       RAISE EXCEPTION 'expected 42 rows, changed %', changed;
+     END IF;
+   END $$;
+   COMMIT;
+   ```
+
+4. Check: the count check above shows `t superseded 42` right after, and after
+   the next maintenance pass no row with that `producerReleaseId` remains and
+   `prunedInvestigationCount` is at least 42. If that pass logs
+   `review_investigation_dossier_prune_failed` instead, restore the five
+   columns listed under rollback at once, because a stuck prune batch blocks retention for
+   every investigation behind it.
+
+Rollback before the prune pass: set `state`, `activeTurnId`, `nextEligibleAt`,
+`version` and `updatedAt` back from `stuck42-investigation.csv`. After the
+prune, only the CSV backups remain; reloading them is a manual restore.
 
 ## Verification and completion
 

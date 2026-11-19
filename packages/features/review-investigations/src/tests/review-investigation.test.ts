@@ -2185,6 +2185,37 @@ describe("review investigation in-memory vertical slice", () => {
       deferredCount: 0,
     });
   });
+
+  it("reports an unrecognised recovery error as unknown and never echoes it", async () => {
+    const harness = createHarness();
+    const planned = await planDiscovery(
+      harness,
+      await harness.open.execute(openCommand("sweep-unknown")),
+    );
+    harness.clock.advance(60_000);
+    const secret = "ghp_" + "neverLogThisPersistedValue";
+    vi.spyOn(harness.store, "findById").mockRejectedValue(new Error(secret));
+    const reconcile = new ReconcileExpiredActiveTurn(
+      harness.store,
+      harness.authority,
+      harness.digest,
+      harness.clock,
+    );
+
+    const result = await reconcile.sweep({
+      expiresAtOrBefore: harness.clock.now().toISOString(),
+      limit: 10,
+    });
+
+    expect(result).toEqual({
+      reconciledCount: 0,
+      failedCount: 1,
+      deferredCount: 0,
+      failureCause: InvestigationExpiredTurnRecoveryFailureCause.Unknown,
+    });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(planned.turn).not.toBeNull();
+  });
 });
 
 function createHarness(customPolicy: ReviewInvestigationPolicy = policy) {

@@ -25,6 +25,7 @@ import {
 
 export enum InvestigationExpiredTurnRecoveryFailureCause {
   DossierDigestInvalid = "dossier_digest_invalid",
+  AggregateIncompatible = "aggregate_incompatible",
   InvestigationMissing = "investigation_missing",
   IdempotencyConflict = "idempotency_conflict",
   Unknown = "unknown",
@@ -180,6 +181,10 @@ const recoveryFailureCauseByMessage: ReadonlyMap<
   [
     "investigation_dossier_digest_invalid",
     InvestigationExpiredTurnRecoveryFailureCause.DossierDigestInvalid,
+  ],
+  [
+    "investigation_aggregate_hydration_failed",
+    InvestigationExpiredTurnRecoveryFailureCause.AggregateIncompatible,
   ],
   [
     "investigation_missing",
