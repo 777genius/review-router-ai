@@ -274,7 +274,7 @@ describe("ReviewProgressGitHubGateway", () => {
             "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2]);
+    ).toEqual([1, 2, 1]);
     expect(mutations(calls)).toEqual([]);
   });
 
@@ -306,7 +306,7 @@ describe("ReviewProgressGitHubGateway", () => {
             "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2]);
+    ).toEqual([1, 2, 1]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
@@ -390,7 +390,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 3]);
+    ).toEqual([1, 2, 3, 1, 2]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
@@ -455,6 +455,56 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("defers a short final page when an earlier deletion shifts the offset", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const secondPage = Array.from({ length: 99 }, (_, index) => ({
+      id: index + 102,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage, secondPage],
+      pageLinks: [
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=2>; rel="next"',
+        '<https://api.github.com/repos/acme/rocket/issues/42/comments?page=1>; rel="prev"',
+      ],
+    });
+    let firstPageReads = 0;
+    const route =
+      "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
+    const request: ReviewProgressGitHubRequester = async (path, parameters) => {
+      const response = await fixture.request(path, parameters);
+      if (path === route && parameters?.page === 1) {
+        firstPageReads += 1;
+        if (firstPageReads === 2) {
+          return {
+            ...response,
+            data: [
+              ...(response.data as unknown[]).slice(1),
+              {
+                id: 101,
+                body: `hidden\n${marker}`,
+                user: { login: "review-router[bot]" },
+              },
+            ],
+          };
+        }
+      }
+      return response;
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(firstPageReads).toBe(2);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("checks the final page from a last-only Link before duplicate cleanup", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const canonical = { id: 4, body: desired };
@@ -477,7 +527,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2]);
+    ).toEqual([1, 2, 1]);
     expect(mutations(fixture.calls)).toHaveLength(1);
   });
 
@@ -504,7 +554,7 @@ describe("ReviewProgressGitHubGateway", () => {
           route.includes("/issues/{issue_number}/comments"),
         )
         .map(({ parameters }) => parameters.page),
-    ).toEqual([1, 2, 3]);
+    ).toEqual([1, 2, 3, 1, 2]);
     expect(mutations(fixture.calls)).toHaveLength(1);
   });
 

@@ -327,6 +327,7 @@ export class ReviewProgressGitHubGateway {
     verifiedRepositoryId?: number,
   ): Promise<ReviewProgressComment[]> {
     const matches: ReviewProgressComment[] = [];
+    const observedPages: string[] = [];
     let advertisedLastPage: number | undefined;
     for (let page = 1; page <= this.maxCommentPages; page += 1) {
       const { comments, hasNextPage, lastPage } = await this.fetchCommentPage(
@@ -334,6 +335,7 @@ export class ReviewProgressGitHubGateway {
         page,
         verifiedRepositoryId,
       );
+      observedPages.push(JSON.stringify([comments, hasNextPage, lastPage]));
       for (const value of comments) {
         const comment = parseCommentOrNull(value);
         if (comment && ownsMarker(comment, input)) matches.push(comment);
@@ -375,6 +377,29 @@ export class ReviewProgressGitHubGateway {
         throw failure(
           "pagination_inconclusive",
           "github_issue_comments_pagination_inconclusive",
+          true,
+        );
+      }
+    }
+    // GitHub offset pages are not snapshots: deleting an earlier comment can
+    // shift a marker into the gap even when the final page is short.
+    // Recheck earlier pages before authorizing any POST, PATCH or DELETE.
+    for (let page = 1; page < observedPages.length; page += 1) {
+      const current = await this.fetchCommentPage(
+        input,
+        page,
+        verifiedRepositoryId,
+      );
+      if (
+        JSON.stringify([
+          current.comments,
+          current.hasNextPage,
+          current.lastPage,
+        ]) !== observedPages[page - 1]
+      ) {
+        throw failure(
+          "pagination_inconclusive",
+          "github_issue_comments_offset_changed",
           true,
         );
       }
