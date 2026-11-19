@@ -221,6 +221,7 @@ describe("ReviewProgressPublisher", () => {
     );
     expect(store.complete).not.toHaveBeenCalled();
     expect(store.suppress).not.toHaveBeenCalled();
+    expect(store.releaseOwnStaleNoWriteClaim).not.toHaveBeenCalled();
   });
 
   it("releases only its own stale claim after a no-write budget deferral", async () => {
