@@ -32,8 +32,6 @@ const messages: Record<string, string> = {
     "This selection could not be used. Choose a skill and try again.",
   not_found:
     "This skill or check is no longer available. Choose the skill again.",
-  unsupported:
-    "This skill cannot be added as text instructions. It may need extra files or features that are not supported here.",
   conflict:
     "This selection changed. Go back and check the current skill before adding it.",
   rate_limited: "Too many requests. Please wait before trying again.",

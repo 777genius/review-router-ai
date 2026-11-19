@@ -2,6 +2,43 @@
 // Only policy-consumed native fields are retained; values are not synthesized.
 // AI execution used the scanner service with a local, non-billable provider fixture.
 export const capturedNativeSkillSpectorReports = {
+  // Captured 2026-11-18 from a SKILL.md that links to references/policy.md,
+  // which a text import deliberately leaves out.
+  linkedFile: {
+    execution_successful: true,
+    analysis_completeness: {
+      execution_successful: true,
+      is_complete: false,
+      status: "partial",
+      partially_inspected_files: 0,
+      entirely_uninspected_files: 0,
+      scope_exclusions: [],
+      limitations: [],
+      ledger_exceptions: [
+        {
+          outcome: "partial",
+          phase: "reference_resolution",
+          reason_code: "reference_missing",
+          path: "SKILL.md",
+          start_line: 7,
+          fatal: false,
+        },
+      ],
+    },
+    metadata: {
+      skillspector_version: "2.13.1",
+      llm_requested: false,
+      llm_available: false,
+      inference_usage: [],
+    },
+    risk_assessment: {
+      max_issue_severity: "NONE",
+      recommendation: "CAUTION",
+      score: 0,
+      severity: "LOW",
+    },
+    issues: [],
+  },
   clear: {
     execution_successful: true,
     analysis_completeness: {

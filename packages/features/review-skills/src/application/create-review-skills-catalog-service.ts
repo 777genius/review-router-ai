@@ -134,11 +134,17 @@ export function createReviewSkillsCatalogService(dependencies: {
       const resolved = await catalog.resolve(validateCatalogSelection(input));
       if (resolved.status !== "resolved") return resolved;
       const normalized = await normalizer.normalize(resolved.rawContent);
+      if (normalized.status === "unsupported")
+        return {
+          status: "unsupported",
+          reason: normalized.reason,
+          source: resolved.source,
+        };
       const candidate = await store.stage({
         actor: input.actor,
         workspaceId: input.workspaceId,
         resolved,
-        normalized,
+        normalized: normalized.value,
       });
       return { status: "resolved", candidate: { ...candidate, aiAvailable } };
     },
