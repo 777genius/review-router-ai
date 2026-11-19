@@ -67,7 +67,7 @@ import {
 import { bindingWorkspaceUse, WorkspaceUseLine } from "./account-workspace-use";
 import { useShowConnectionsList } from "./accounts-add-dialog";
 import { useConnectTarget } from "./account-connect-target";
-import { dashboardSectionHref } from "./dashboard-section";
+import { dashboardPath } from "./dashboard-section";
 import { refreshPersonalAccountViews } from "./personal-account-controls";
 import { AccountIdentity, AccountProviderLogo } from "./account-identity";
 import { AccountStatusLine } from "./account-status-icon";
@@ -563,6 +563,12 @@ function Controls({
   const activeNonce = target ? target.nonce : ownActiveNonce;
   const setActiveNonce = target ? target.setNonce : setOwnActiveNonce;
   const embedded = target !== null;
+  // A completion arrives asynchronously; it may only act for the request
+  // the form still follows, never for one the user has moved on from.
+  const followedNonce = useRef(activeNonce);
+  useEffect(() => {
+    followedNonce.current = activeNonce;
+  }, [activeNonce]);
   const [connectWorkspaces, setConnectWorkspaces] = useState<
     Record<string, string>
   >({});
@@ -1226,6 +1232,8 @@ function Controls({
                 onConnected={
                   target
                     ? (bindingId) => {
+                        // An older request stays a receipt in Connections.
+                        if (followedNonce.current !== nonce) return;
                         dismiss(nonce);
                         target.onConnected(bindingId);
                       }
@@ -1639,7 +1647,7 @@ function ConnectionForm({
           {setup.workspaceId ? (
             <a
               className="font-semibold text-cyan-200 underline"
-              href={`${dashboardSectionHref("setup", setup.workspaceId)}#your-accounts`}
+              href={`${dashboardPath({ section: "setup", workspace: setup.workspaceId })}#your-accounts`}
             >
               Add it to this workspace in Connections
             </a>

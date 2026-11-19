@@ -61,6 +61,11 @@ test("Add provider connects an API-key account in place and saves it with its mo
     dialog.getByRole("radio", { name: /^ReviewRouter/ }),
   ).toBeChecked();
   const form = dialog.getByRole("region", { name: "Connect OpenRouter" });
+  // Another spec in the same run may have left an OpenRouter connection here:
+  // then the form waits behind "New connection" instead of opening itself.
+  const newConnection = dialog.getByRole("button", { name: "New connection" });
+  await expect(form.or(newConnection)).toBeVisible();
+  if (await newConnection.isVisible()) await newConnection.click();
   await expect(form).toBeVisible();
   // The dialog chose the provider and storage: the form repeats neither.
   await expect(form.getByRole("combobox", { name: /Provider/ })).toHaveCount(0);
