@@ -1746,7 +1746,9 @@ describe("ProviderSetupDialog", () => {
       name: "Refresh models",
     });
     expect(refresh).toHaveLength(1);
-    expect(screen.queryByText("Model list is up to date.")).toBeNull();
+    expect(
+      screen.queryByText("Access to these models has not been checked."),
+    ).toBeNull();
     fireEvent.click(refresh[0]!);
     await waitFor(() =>
       expect(publicApi).toHaveBeenCalledWith(
@@ -1898,9 +1900,10 @@ describe("ProviderSetupDialog", () => {
     expect(
       screen.getByRole("button", { name: "Save reviewers" }),
     ).toHaveProperty("disabled", true);
+    // The pending read finishes by itself; nothing asks for a refresh.
     expect(
-      screen.getByRole("button", { name: "Refresh accounts" }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Refresh accounts" }),
+    ).toBeNull();
     await act(async () =>
       resolveDetail({
         status: "ok",

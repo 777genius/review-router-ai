@@ -108,10 +108,17 @@ test("public catalogs refresh direct providers, preserve the selected ID, and ne
       dialog.getByText("Access to these models has not been checked."),
     ).toBeVisible();
     await expect(
-      dialog
-        .getByRole("status")
-        .filter({ hasText: "Please wait before refreshing again." }),
+      dialog.getByRole("status").filter({ hasText: "Trying again shortly." }),
     ).toBeVisible();
+    // The server holds back after the failure and the list is read again
+    // by itself each minute: no button to press.
+    await expect(
+      dialog.getByRole("button", { name: "Try again", exact: true }),
+    ).toHaveCount(0);
+    await page.screenshot({
+      path: info.outputPath(`public-catalog-${kind}-cooldown.png`),
+      fullPage: true,
+    });
     await model.fill("");
     await model.focus();
     await page

@@ -91,6 +91,7 @@ import { dashboardPath, dashboardSectionHref } from "../dashboard-section";
 import { GatewayConnectionTest } from "../gateway-connection-test";
 import { useGatewayModelAccounts } from "../gateway-model-account-options";
 import { GatewayModelCatalogStatus } from "../gateway-model-catalog-status";
+import { GatewayReviewSettingsStatus } from "./gateway-account-status";
 import { AccountProviderLogo } from "../account-identity";
 import { ProviderAuthLogoFrame } from "../provider-auth-logo";
 import { ProviderLogo } from "../provider-logo";
@@ -2121,25 +2122,12 @@ function ProviderChoiceStep({
           authMode === "codex_account_gateway" &&
           model.trim() &&
           !settingsReady ? (
-            <div className="grid gap-2 text-sm text-slate-400">
-              <p role="status">
-                {gatewayOptions.loading
-                  ? "Loading review settings for this model…"
-                  : "Review settings are unavailable for this model. Refresh accounts or choose a different provider."}
-              </p>
-              {gatewayOptions.canRefresh ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="w-fit"
-                  disabled={gatewayOptions.loading}
-                  onClick={() => gatewayOptions.refresh()}
-                >
-                  Refresh accounts
-                </Button>
-              ) : null}
-            </div>
+            <GatewayReviewSettingsStatus
+              accounts={gatewayOptions}
+              account={resolvedGatewayAccount}
+              profile={gatewayProfile}
+              bindingId={gatewayBindingId}
+            />
           ) : null}
           {modelOnly ? (
             <p className="text-xs leading-5 text-slate-400">

@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { QueryClient, useQueries } from "@tanstack/react-query";
-import { Button } from "@reviewrouter/ui";
 import {
   catalogSnapshotOptions,
   type ProviderModelCatalogSnapshot,
@@ -11,6 +10,7 @@ import {
   type ReviewModelOption,
 } from "@reviewrouter/features-review-providers";
 import { readProviderModelCatalog } from "./provider-model-catalog-api";
+import { StatusLine, updatedAgo } from "./status-line";
 
 const providers = ["codex", "claude", "openrouter"] as const;
 export const providerModelCatalogKey = (kind: PublicCatalogProvider) =>
@@ -28,6 +28,11 @@ const Context = createContext<{
   client: QueryClient;
   api: CatalogApi;
 } | null>(null);
+
+/** A failed source read the server will not retry for a few minutes. */
+const sourceCoolingDown = (
+  snapshot: ProviderModelCatalogSnapshot | undefined,
+) => snapshot?.refresh === "cooldown" && (snapshot.error ?? null) !== null;
 
 export function ProviderModelCatalogProvider({
   snapshots,
@@ -74,6 +79,11 @@ export function useProviderModelCatalogs(
           enabled: Boolean(context),
           retry: false,
           refetchOnWindowFocus: false,
+          // While the server holds back after a failed source read, read the
+          // cached answer again each minute so the line clears by itself.
+          refetchInterval: (query: {
+            state: { data: ProviderModelCatalogSnapshot | undefined };
+          }) => (sourceCoolingDown(query.state.data) ? 60_000 : false),
         };
       }),
     },
@@ -151,8 +161,10 @@ export const publicCatalogRefreshFailed = (status: ProviderModelCatalogState) =>
   (status.snapshot?.error ?? null) !== null;
 
 /**
- * Status of a public catalog chosen without an account. A Gateway account has
- * its own catalog status, which also refreshes this public metadata.
+ * Status of a public catalog chosen without an account. The list is read again
+ * whenever it is opened and not fresh, so the line only reports it: "Try
+ * again" after a failure, a small refresh otherwise. A Gateway account has its
+ * own catalog status, which also refreshes this public metadata.
  */
 export function ProviderModelCatalogStatus({
   status,
@@ -161,37 +173,33 @@ export function ProviderModelCatalogStatus({
 }) {
   if (!status) return null;
   const snapshot = status.snapshot;
+  const failed = publicCatalogRefreshFailed(status);
+  const message = status.loading
+    ? "Updating the model list…"
+    : failed
+      ? snapshot?.models.length
+        ? "Could not update the model list. Showing the last available one."
+        : "Could not load the model list."
+      : snapshot?.state === "fresh" || snapshot?.state === "stale"
+        ? `Model list updated ${snapshot.fetchedAt === null ? "earlier" : updatedAgo(snapshot.fetchedAt)}.`
+        : snapshot?.state === "fallback"
+          ? "Showing built-in model choices."
+          : "Model list is unavailable.";
+  const retry = failed || !snapshot || snapshot.state === "unavailable";
+  // The server holds back after a failure; the list is read again each minute.
+  const cooldown = sourceCoolingDown(snapshot);
+  const refresh = () => void status.refresh();
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-      <span role="status">
-        {status.loading
-          ? "Updating model list…"
-          : publicCatalogRefreshFailed(status)
-            ? snapshot?.models.length
-              ? "Could not update the model list. Showing the last available model list."
-              : "Could not load the model list. Try refreshing."
-            : snapshot?.state === "fresh"
-              ? "Model list is up to date."
-              : snapshot?.state === "stale"
-                ? "Showing the last model list. Refresh to check for updates."
-                : snapshot?.state === "fallback"
-                  ? "Showing built-in model choices."
-                  : "Model list is unavailable. Try refreshing."}
-        {snapshot?.refresh === "cooldown"
-          ? " Please wait before refreshing again."
-          : ""}
-      </span>
-      <Button
-        variant="ghost"
-        size="sm"
-        type="button"
-        disabled={status.loading}
-        onClick={() => {
-          void status.refresh();
-        }}
-      >
-        {status.loading ? "Refreshing models…" : "Refresh models"}
-      </Button>
+      <StatusLine
+        message={`${message}${cooldown ? " Trying again shortly." : ""}`}
+        busy={status.loading}
+        {...(cooldown
+          ? {}
+          : retry
+            ? { onRetry: refresh }
+            : { onRefreshModels: refresh })}
+      />
       <span>Access to these models has not been checked.</span>
     </div>
   );

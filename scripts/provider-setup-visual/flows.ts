@@ -409,7 +409,7 @@ const VISUAL_FLOWS: readonly VisualFlow[] = [
           await visible(
             dialog
               .getByText(
-                "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged.",
+                "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged.",
                 { exact: true },
               )
               .first(),
