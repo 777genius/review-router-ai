@@ -121,8 +121,10 @@ describe("when an account read happens again", () => {
     // A far-off expiry is still read again within the hour, so browser timers
     // stay in range.
     expect(
-      accountReadSchedule(read(nvidia, snapshot(now, 10 * 365 * 86_400_000)), now)
-        .refreshAt,
+      accountReadSchedule(
+        read(nvidia, snapshot(now, 10 * 365 * 86_400_000)),
+        now,
+      ).refreshAt,
     ).toBe(now + 60 * 60_000);
   });
 
