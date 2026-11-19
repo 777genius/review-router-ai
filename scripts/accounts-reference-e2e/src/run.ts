@@ -333,6 +333,22 @@ async function verifyBoot(
   )
     throw new Error("accounts_reference_e2e_generated_session_not_authorized");
   checks.push("generated-session-ok");
+  if (process.argv.includes("--subscription-fixture")) {
+    // Compile the read-only route during bounded setup. Missing query fields
+    // return before account access; browser tests still require their actual
+    // authenticated summaries response within the existing interaction budget.
+    const access = await fetch(`${appUrl}/api/dashboard/accounts/access`, {
+      redirect: "error",
+      signal: AbortSignal.timeout(120_000),
+    });
+    const result: unknown = await access.json();
+    if (
+      access.status !== 200 ||
+      JSON.stringify(result) !== '{"status":"invalid"}'
+    )
+      throw new Error("accounts_reference_e2e_access_route_warmup_failed");
+    checks.push("accounts-access-route-warmed");
+  }
   if (process.argv.includes("--review-runtime-fixture")) {
     const repositories = await fetch(
       `${appUrl}/dashboard?section=repositories&workspace=${FIXTURES.workspaces.personalViewer}`,

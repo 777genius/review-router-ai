@@ -223,6 +223,28 @@ describe("qualified connection catalog", () => {
       configuredSubscriptionProfiles("arbitrary-upstream"),
     ).toThrow();
   });
+  it("recovers only the exact Grok completion grammar without live capability metadata", () => {
+    expect(
+      operationCompletion({
+        id: "grok-subscription-responses-oauth-v1",
+        label: "Renamed account",
+      }),
+    ).toEqual({
+      providerLabel: "Renamed account",
+      providerId: "grok",
+      inputKind: "authorization_code",
+    });
+    expect(
+      operationCompletion({
+        id: "grok-subscription-responses-oauth-v2",
+        label: "Grok",
+      }),
+    ).toEqual({
+      providerLabel: "Grok",
+      providerId: undefined,
+      inputKind: "none",
+    });
+  });
   it("projects completion grammar from the saved profile metadata", () => {
     expect(
       operationCompletion({

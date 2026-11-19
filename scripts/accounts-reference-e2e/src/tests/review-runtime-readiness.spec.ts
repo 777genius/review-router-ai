@@ -89,6 +89,11 @@ test.describe("review runtime readiness", () => {
       ).toHaveCount(0);
 
       // Existing optimistic events must not turn an unverified caller into Ready.
+      // This fixture's refresh reloads the main document. Subscribe before the
+      // events so a readiness marker on the old document cannot satisfy the wait.
+      const refreshedDocument = page.waitForEvent("domcontentloaded", {
+        timeout: 60_000,
+      });
       await page.evaluate(() => {
         for (const key of ["update", "unknown", "pending"])
           for (const type of [
@@ -111,15 +116,18 @@ test.describe("review runtime readiness", () => {
           repository(page, key).locator("label.setup-toggle"),
         ).not.toContainText("4/4");
 
-      await expectNoHorizontalOverflow(page);
-      // Provider confirmations can refresh the document. The layout read above
-      // may recover against fresh server HTML before its controls are hydrated.
-      // Await the real dashboard readiness signal before the single theme click.
+      await refreshedDocument;
+      // Now await hydration in that refreshed document before using its controls.
       await expect(page.locator("html")).toHaveAttribute(
         "data-dashboard-layout-ready",
         "true",
         { timeout: 60_000 },
       );
+      for (const key of ["update", "unknown", "pending"])
+        await expect(
+          repository(page, key).locator("label.setup-toggle"),
+        ).not.toContainText("4/4");
+      await expectNoHorizontalOverflow(page);
       const expandRuntimeDetails = async () => {
         for (const row of [update, unknown]) {
           if (!(await row.getByRole("status").isVisible()))
@@ -127,12 +135,8 @@ test.describe("review runtime readiness", () => {
           await expect(row.getByRole("status")).toBeVisible();
         }
       };
-      // The provider confirmations above refresh the dashboard and can reload
-      // the document while the rows are expanded; retry until it has settled.
-      await expect(async () => {
-        await expandRuntimeDetails();
-        await page.evaluate(() => window.scrollTo(0, 0));
-      }).toPass({ timeout: 60_000 });
+      await expandRuntimeDetails();
+      await page.evaluate(() => window.scrollTo(0, 0));
       await page.screenshot({
         path: info.outputPath(`review-runtime-${viewport.name}-dark.png`),
         fullPage: true,

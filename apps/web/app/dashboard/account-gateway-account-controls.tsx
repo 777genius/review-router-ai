@@ -1618,9 +1618,9 @@ function OAuthForm({
   const formRef = useRef<HTMLFormElement>(null);
   function chooseMethod(value: Method) {
     formRef.current
-      ?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
-        '[name="credential"], [name="credentialFile"]',
-      )
+      ?.querySelectorAll<
+        HTMLInputElement | HTMLTextAreaElement
+      >('[name="credential"], [name="credentialFile"]')
       .forEach((field) => {
         field.value = "";
         field.dispatchEvent(new Event("input", { bubbles: true }));

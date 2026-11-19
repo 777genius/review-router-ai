@@ -309,16 +309,17 @@ export function connectionView(
 export function operationCompletion(
   profile: Pick<AccountProfileView, "id" | "label" | "connection" | "provider">,
 ) {
+  const grok = profile.id === "grok-subscription-responses-oauth-v1";
   const inputKind =
     profile.connection?.completionInputKind ??
-    (profile.id === "anthropic-claude-oauth-messages-v1"
+    (grok || profile.id === "anthropic-claude-oauth-messages-v1"
       ? "authorization_code"
       : profile.id === "openai-codex-oauth-responses-v1"
         ? "callback_url"
         : "none");
   return {
     providerLabel: profile.label,
-    providerId: accountProviderIdentity(profile),
+    providerId: accountProviderIdentity(profile) ?? (grok ? "grok" : undefined),
     inputKind,
   };
 }

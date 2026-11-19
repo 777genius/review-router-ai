@@ -349,9 +349,9 @@ export function oauthCompletionMatchesProfile(
   profile: Pick<AccountProfileView, "id" | "label" | "connection">,
   completion: NormalizedOAuthCompletion | { nonce: string },
 ): boolean {
-  const kind = operationCompletion(profile).inputKind;
+  const { inputKind: kind, providerId } = operationCompletion(profile);
   if (kind === "none") return false;
-  if (profile.connection?.provider === "grok") {
+  if (providerId === "grok") {
     return "authorizationCode" in completion
       ? secretSubmission.grokOAuthAuthorizationCode.safeParse(
           completion.authorizationCode,
