@@ -243,6 +243,22 @@ describe("Review progress GitHub comment policy", () => {
     });
   });
 
+  it("rejects Link hints with ambiguous duplicate page parameters", () => {
+    const cases = [
+      ["next", 1, 2],
+      ["prev", 2, 1],
+      ["first", 2, 1],
+      ["last", 1, 1],
+    ] as const;
+    for (const [relation, currentPage, expectedPage] of cases) {
+      const link =
+        `<https://api.github.com/comments?page=${expectedPage}&page=99>; rel="${relation}"`;
+      expect(commentPageLinks({ link }, currentPage)).toEqual({
+        hasNextPage: "invalid",
+      });
+    }
+  });
+
   it("parses only comments with safe IDs, bodies and author logins", () => {
     const raw = { id: 7, body: desired, user: { login: "review-router[bot]" } };
     expect(parseCommentOrNull(raw)).toEqual(marked(7, desired));

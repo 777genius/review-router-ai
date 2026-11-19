@@ -92,6 +92,8 @@ export function commentPageLinks(
     }
     try {
       const target = new URL(href, "https://api.github.com");
+      // Duplicate page values cannot certify a pagination boundary.
+      if (target.searchParams.getAll("page").length !== 1) return invalid;
       if (
         target.protocol !== "https:" ||
         target.origin !== "https://api.github.com" ||
