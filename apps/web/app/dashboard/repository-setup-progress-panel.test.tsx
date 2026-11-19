@@ -92,6 +92,37 @@ describe("RepositorySetupProgressPanel", () => {
     ).toBeNull();
   });
 
+  it("explains a paused Gateway authorization on the first step", () => {
+    render(
+      <RepositorySetupProgressPanel
+        verificationNeeded
+        gatewayAuthorizationBlocked
+        workspaceId="workspace_1"
+        repositoryId="repo_1"
+        repositoryFullName="acme/repo"
+        selected
+        archived={false}
+        initialSetupStatus="configured"
+        initialSetupPullRequestUrl={null}
+        workflowCurrent={false}
+        runtimeCompatibility="unknown"
+        mutationsEnabled
+        initialStep="setup_pr"
+        expectedProviderAuthModes={["codex_account_gateway"]}
+        gatewayReviewV2Readiness={{
+          status: "paused",
+          authorityVersion: 1,
+          recoveryReference: "docs/operations/review-action-v2-cutover.md",
+        }}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "Review authorization is paused. Complete its recovery before reviews can run.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("waits for a provider before a setup PR can be created", () => {
     render(
       <RepositorySetupProgressPanel

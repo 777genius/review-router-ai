@@ -352,6 +352,9 @@ export function RepositorySetupProgressPanel({
     }
   };
 
+  // The local status keeps a just-reported recovery issue on Recreate.
+  const unverified = verificationNeeded && setupStatus === "configured";
+
   // Provisioning can fail for reasons outside the setup-PR family (an untrusted
   // legacy workflow, a rejected provider enrollment). They reach the card as
   // `errorMessage` but are not recovery issues, so without this the card shows a
@@ -376,9 +379,7 @@ export function RepositorySetupProgressPanel({
     setupIssueGuidance,
     workflowCurrent,
     runtimeCompatibility,
-    // The local status keeps a just-reported recovery issue on Recreate.
-    runtimeVerificationNeeded:
-      verificationNeeded && setupStatus === "configured",
+    runtimeVerificationNeeded: unverified,
     providerRequired,
     mutationsEnabled,
     currentStep: displayStep,
@@ -444,7 +445,7 @@ export function RepositorySetupProgressPanel({
           {repositorySetupProgressSummary(displayStep, {
             providerSetupBeforeWorkflow:
               providerSetupBeforeWorkflow && !runtimeMigrationUpdate,
-            verificationNeeded,
+            verificationNeeded: unverified,
             workflowUpdateRequired: runtimeCompatibility === "update_required",
           })}
         </span>
