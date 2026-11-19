@@ -12,7 +12,6 @@ import type {
   AccountsPage,
   AccountsResult,
 } from "../../src/server/account-gateway-accounts";
-import type { ApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
 import { AccountGatewayControls } from "./account-gateway-account-controls";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
 import { attachConnectedPersonalAccount } from "./personal-account-actions";
@@ -56,11 +55,9 @@ export function usePersonalConnectPlace(): PersonalConnectPlace | null {
 export function PersonalConnectPanel({
   place,
   initialPage,
-  setupIntent,
 }: {
   place: PersonalConnectPlace;
   initialPage?: AccountsResult<AccountsPage> | undefined;
-  setupIntent?: ApiKeySetupIntent | undefined;
 }) {
   const cache = useCurrentGatewayModelAccountsCache();
   const [fallback] = useState(() => new QueryClient());
@@ -94,7 +91,6 @@ export function PersonalConnectPanel({
           bootstrap={{ context: scope, page }}
           managementScope="personal"
           workspaceId={workspaceId}
-          setupIntent={setupIntent}
           connectOnly
           addToWorkspace={addToWorkspace}
           api={personalManagementApi}

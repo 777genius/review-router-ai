@@ -426,16 +426,15 @@ describe("ProviderSetupDialog", () => {
       expect(screen.queryByLabelText("API key")).toBeNull();
       expect(screen.getAllByText(copy).length).toBeGreaterThan(0);
       if (id === "codex") {
-        const continuation = new URL(
+        // Without personal connections the dialog links to Connections.
+        const connections = new URL(
           screen
             .getByRole("link", { name: "Connect account" })
             .getAttribute("href")!,
           "https://example.test",
         );
-        expect(continuation.searchParams.get("keyProvider")).toBe(id);
-        expect(continuation.searchParams.getAll("keyRepository")).toEqual([
-          "repo_1",
-        ]);
+        expect(connections.pathname).toBe("/dashboard/setup");
+        expect(connections.searchParams.has("keyProvider")).toBe(false);
         fireEvent.click(storage[1]!);
       } else {
         expect(
@@ -2162,7 +2161,7 @@ describe("ProviderSetupDialog", () => {
     });
   });
   it.each(apiKeyProviders)(
-    "offers exactly two storage choices for $label and preserves the repository on account continuation",
+    "offers exactly two storage choices for $label and links to Connections without personal connections",
     async (provider) => {
       view = {
         ...view,
@@ -2210,8 +2209,8 @@ describe("ProviderSetupDialog", () => {
       });
       const url = new URL(link.getAttribute("href")!, "https://example.test");
       expect(url.pathname).toBe("/dashboard/setup");
-      expect(url.searchParams.get("keyProvider")).toBe(provider.id);
-      expect(url.searchParams.getAll("keyRepository")).toEqual(["repo_1"]);
+      expect(url.searchParams.get("workspace")).toBe("workspace_1");
+      expect(url.searchParams.has("keyProvider")).toBe(false);
       expect(
         screen.getAllByRole("radio", {
           name: /^(GitHub Secrets|ReviewRouter)$/,

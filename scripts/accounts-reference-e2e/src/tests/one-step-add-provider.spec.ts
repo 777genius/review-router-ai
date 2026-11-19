@@ -1,7 +1,10 @@
 import { expect as baseExpect, test } from "@playwright/test";
 import { FIXTURES } from "../contracts.ts";
 import { withDatabase } from "../database.ts";
-import { apiKeyStorageProfiles } from "../subscription-fixture.ts";
+import {
+  apiKeyStorageProfiles,
+  subscriptionProfiles,
+} from "../subscription-fixture.ts";
 import {
   chooseSetupOption as choose,
   expectNoHorizontalOverflow,
@@ -13,16 +16,15 @@ import {
   useViewerSession,
 } from "./support.ts";
 
-test.skip(
-  process.env.ACCOUNTS_REFERENCE_E2E_API_KEY_STORAGE !== "1",
-  "Requires --api-key-storage-fixture; uses controlled Gateway HTTP, no live keys.",
-);
 const expect = baseExpect.configure({ timeout: 60_000 });
 test.use({ actionTimeout: 60_000, navigationTimeout: 90_000 });
 
 const workspace = FIXTURES.workspaces.personalViewer;
 const openRouter = apiKeyStorageProfiles.find(
   (profile) => profile.provider === "openrouter",
+)!;
+const grok = subscriptionProfiles.find(
+  (profile) => profile.provider === "grok",
 )!;
 
 async function gatewayProfiles() {
@@ -48,6 +50,10 @@ test("Add provider connects an API-key account in place and saves it with its mo
   page,
   context,
 }, info) => {
+  test.skip(
+    process.env.ACCOUNTS_REFERENCE_E2E_API_KEY_STORAGE !== "1",
+    "Requires --api-key-storage-fixture; uses controlled Gateway HTTP, no live keys.",
+  );
   test.setTimeout(240_000);
   const violations: string[] = [];
   await useViewerSession(context);
@@ -130,5 +136,68 @@ test("Add provider connects an API-key account in place and saves it with its mo
     model: openRouter.model,
   });
   expect(added[0]!.gatewayBindingId).toBeTruthy();
+  await expectNetworkViolations(violations);
+});
+
+// Plan 79, stage 2: an OAuth provider signs in from the same dialog. Grok's
+// browser sign-in opens its tab and the authorization code is entered here.
+test("Add provider signs in to Grok in place and selects the new account", async ({
+  page,
+  context,
+}, info) => {
+  test.skip(
+    process.env.ACCOUNTS_REFERENCE_E2E_SUBSCRIPTIONS !== "1",
+    "Requires --subscription-fixture; controlled Gateway HTTP, no live OAuth.",
+  );
+  test.setTimeout(240_000);
+  const violations: string[] = [];
+  await useViewerSession(context);
+  await installLoopbackOnlyNetworkGuard(page, violations);
+  // The SDK validates the fixed provider origin; serve one synthetic page
+  // in the browser instead of reaching xAI.
+  await context.route("https://auth.x.ai/oauth2/authorize?*", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<!doctype html><title>Synthetic authorization</title><code>synthetic-browser-grok-code</code>",
+    }),
+  );
+
+  const dialog = await openNewProvider(page, workspace);
+  const startUrl = page.url();
+  await choose(page, "Provider", "Grok");
+  const form = dialog.getByRole("region", { name: "Connect Grok" });
+  const newConnection = dialog.getByRole("button", { name: "New connection" });
+  await expect(form.or(newConnection)).toBeVisible();
+  if (await newConnection.isVisible()) await newConnection.click();
+  await expect(form).toBeVisible();
+  await form.getByLabel("Connection name").fill(`One step Grok ${Date.now()}`);
+  const popup = page.waitForEvent("popup");
+  await form.getByRole("button", { name: "Sign in to Grok" }).click();
+  const authorization = await popup;
+  const code = await authorization.locator("code").innerText();
+  await authorization.close();
+  // The request holds the provider choice while it waits for the code.
+  await expect(
+    dialog.getByRole("combobox", { name: "Provider", exact: true }),
+  ).toBeDisabled();
+  await page.screenshot({
+    path: info.outputPath("one-step-grok-code-desktop.png"),
+    fullPage: true,
+  });
+  await form.getByLabel("Authorization code", { exact: true }).fill(code);
+  await form.getByRole("button", { name: "Complete authorization" }).click();
+
+  await expect(
+    dialog.getByText("Connected and added to this workspace."),
+  ).toBeVisible();
+  await expect(form).toHaveCount(0);
+  await expect(
+    dialog.getByRole("combobox", { name: "Model", exact: true }),
+  ).toHaveValue(grok.model);
+  expect(page.url()).toBe(startUrl);
+  await page.screenshot({
+    path: info.outputPath("one-step-grok-connected-desktop.png"),
+    fullPage: true,
+  });
   await expectNetworkViolations(violations);
 });

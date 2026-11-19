@@ -22,17 +22,13 @@ export function AccountsAddDialog({
   personalConnect,
   organizationConnect,
   workspaceName,
-  initiallyOpen = false,
-  initialOwnership = "personal",
 }: {
   personalConnect: ReactNode;
   organizationConnect: ReactNode;
   workspaceName: string;
-  initiallyOpen?: boolean;
-  initialOwnership?: "personal" | "organization";
 }) {
-  const [open, setOpen] = useState(initiallyOpen);
-  const [path, setPath] = useState(initialOwnership);
+  const [open, setOpen] = useState(false);
+  const [path, setPath] = useState<"personal" | "organization">("personal");
   const cancel = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
   function clearUnsubmittedCredentials() {

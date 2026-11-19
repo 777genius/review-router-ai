@@ -182,16 +182,12 @@ export function setupProviderForGatewayProfile(
   return undefined;
 }
 
-/**
- * A profile the provider dialog may connect in place (79). Stage 1: API-key
- * sign-in only; OAuth providers keep their link to Connections for now.
- */
+/** A profile the provider dialog may connect in place (79). */
 export function connectsInProviderDialog(
   profile: GatewayProfileIdentity & Pick<AccountProfileView, "availability">,
   provider: SetupProviderId,
 ): boolean {
   return (
-    profile.authKind === "api_key" &&
     profile.availability !== "deployment_configuration_required" &&
     setupProviderForGatewayProfile(profile) === provider
   );
