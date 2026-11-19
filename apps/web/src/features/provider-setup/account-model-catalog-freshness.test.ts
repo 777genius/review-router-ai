@@ -118,6 +118,12 @@ describe("when an account read happens again", () => {
     expect(
       accountReadSchedule(read(nvidia, snapshot(now, 10_000)), now).refreshAt,
     ).toBe(now + 20_000);
+    // A far-off expiry is still read again within the hour, so browser timers
+    // stay in range.
+    expect(
+      accountReadSchedule(read(nvidia, snapshot(now, 10 * 365 * 86_400_000)), now)
+        .refreshAt,
+    ).toBe(now + 60 * 60_000);
   });
 
   it("waits a cooldown after a failed or already lapsed list instead of looping", () => {

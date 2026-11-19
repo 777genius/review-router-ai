@@ -82,6 +82,8 @@ export const ACCOUNT_READ_FAILURE_COOLDOWN_MS = 60_000;
 const REFRESH_LEAD_MAX_MS = 5 * 60_000;
 /** ... and never sooner than this after the previous read. */
 const REFRESH_GAP_MIN_MS = 20_000;
+/** ... and at least hourly, which also keeps browser timers in range. */
+const REFRESH_DELAY_MAX_MS = 60 * 60_000;
 
 type AccountRead =
   | AccountsResult<{ account: AccountView; profile: AccountProfileView }>
@@ -110,9 +112,12 @@ export function accountReadSchedule(
     return { staleTime: ACCOUNT_READ_FAILURE_COOLDOWN_MS, refreshAt: null };
   const expiresAt = Date.parse(catalog.expiresAt);
   const lifetime = expiresAt - Date.parse(catalog.fetchedAt);
-  const refreshAt = Math.max(
-    receivedAt + REFRESH_GAP_MIN_MS,
-    expiresAt - Math.min(REFRESH_LEAD_MAX_MS, lifetime / 4),
+  const refreshAt = Math.min(
+    receivedAt + REFRESH_DELAY_MAX_MS,
+    Math.max(
+      receivedAt + REFRESH_GAP_MIN_MS,
+      expiresAt - Math.min(REFRESH_LEAD_MAX_MS, lifetime / 4),
+    ),
   );
   return { staleTime: refreshAt - receivedAt, refreshAt };
 }
