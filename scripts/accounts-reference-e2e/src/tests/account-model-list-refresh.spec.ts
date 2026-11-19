@@ -88,7 +88,7 @@ test("an NVIDIA account's model list updates itself when it lapses, with Try aga
   await form.getByLabel("Connection name (optional)").fill(name);
   await form
     .locator('input[name="credential"]')
-    .fill("synthetic-nvidia-build-key");
+    .fill(`synthetic-${nvidia.provider}-subscription-key`);
   await form.getByRole("button", { name: "Connect account" }).click();
   const model = dialog.getByRole("combobox", { name: "Model", exact: true });
   await expect(model).toHaveValue(nvidia.model);
