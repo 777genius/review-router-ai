@@ -159,7 +159,12 @@ export function computeProgressSnapshot(
     updatedAt,
     ...(input.startedAt === undefined
       ? {}
-      : { startedAt: normalizeInstant(input.startedAt) }),
+      : {
+          startedAt: normalizeInstant(
+            input.startedAt,
+            "progress_started_at_invalid",
+          ),
+        }),
     counts,
     fileCoverage: computeFileCoverage(input.assignmentManifest, slots),
     ...(input.sourceIdentity === undefined
@@ -379,10 +384,12 @@ function phaseRank(phase: ProgressPhase): number {
   }[phase];
 }
 
-function normalizeInstant(value: Date | string): string {
+function normalizeInstant(
+  value: Date | string,
+  code = "progress_updated_at_invalid",
+): string {
   const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime()))
-    throw new Error("progress_updated_at_invalid");
+  if (!Number.isFinite(date.getTime())) throw new Error(code);
   return date.toISOString();
 }
 

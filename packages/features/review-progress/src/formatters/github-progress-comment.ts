@@ -87,7 +87,7 @@ export function formatGithubProgressComment(
     "",
     multiPart
       ? "The review is split into parts, and the percentage is the share of parts that are finished, not a time estimate."
-      : "This review runs as one part, so the comment shows its phase instead of a percentage.",
+      : "The comment shows the review phase; a percentage appears only when the review is split into two or more parts.",
     "Updates are best effort, so this comment can lag a little behind the review.",
     "",
     "</details>",

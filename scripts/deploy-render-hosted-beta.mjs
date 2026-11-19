@@ -795,6 +795,9 @@ export const reviewV2SharedRuntimeEnvNames = Object.freeze([
   ...reviewV2RequiredRuntimeEnvNames,
   reviewV2ProjectionPolicyVersionEnvKey,
   "REVIEW_ROUTER_AGENT_PROFILE",
+  // Capture runs in both roles' execution transactions; a mismatch throws.
+  "REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE",
+  "REVIEW_ROUTER_PROGRESS_FILE_COVERAGE",
 ]);
 
 /** Skills support reads and admission must share the raw selection authority.

@@ -25,6 +25,12 @@ malformed entry) is invalid: the affected feature stays off and the runtime logs
 `Review progress settings are invalid; the affected progress features stay off`
 with the key names. It never stops the worker or API from starting.
 
+Capture runs inside the review execution transaction on both the API and the
+worker, so `REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE` and
+`REVIEW_ROUTER_PROGRESS_FILE_COVERAGE` must resolve the same on both roles.
+Change them on both roles together; a one-sided change can fail the next
+progress capture of a running review.
+
 The Action-side CI-only path is independently controlled by
 `REVIEW_ROUTER_CI_PROGRESS_WRITES=1`. It uses a PR comment only when the current
 job already has a writable token; forks and read-only jobs fall back to the job
@@ -38,8 +44,9 @@ has one part, where a percentage would only jump from 0% to 100%). File lines
 appear when coverage is valid, retry lines only when their number is not zero,
 then "Started" and "Last update".
 
-- A phase change (Preparing, Reviewing, Assembling results, Publishing results)
-  and every terminal state are scheduled at once.
+- A phase change (Preparing, Reviewing, Assembling results) and every terminal
+  state are scheduled at once, and so is a new review taking over the PR
+  comment.
 - Same-phase count updates wait `progressCommentMinEditIntervalMs` (60 s) after
   the last edit. The value lives only in
   `packages/features/review-progress/src/domain/progress-comment-cadence.ts`.
@@ -49,14 +56,16 @@ then "Started" and "Last update".
 
 ## Rollout
 
-1. Expire the backlog of old unpublished `ReviewProgressPublicationV1` rows
-   before the first worker with hosted writes on starts (runbook 15, section 4).
-   Otherwise the publisher posts stale "Assembling results" or "Failed"
-   comments on open pull requests.
-2. Deploy the worker and API. With the four keys unset the comment is on for
-   every repository. If an environment still sets
-   `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=0` or an allow-list, remove
-   them to reach the default.
+1. Deploy the worker and API. With the four keys unset the comment is on for
+   every repository. An environment that has been running with writes off
+   keeps its explicit `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=0` for now.
+2. Finished reviews are promoted to a terminal state only by a worker with
+   writes on, so an environment that captured with writes off has a backlog of
+   rows stuck in "Assembling results" or "Failed". In one window, stop the
+   worker, expire that backlog, then start the worker without the opt-out keys
+   (exact SQL in `ai-docs/deployments/2026-11-19-progress-comments-default-on.md`).
+   Otherwise the publisher posts stale comments on open pull requests. The
+   same applies when writes come back after the kill switch.
 3. Run one review on a disposable PR. Expect one comment with the
    `<!-- review-router-live-progress -->` marker, updated in place, that ends
    in Complete or Complete with gaps.

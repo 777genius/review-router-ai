@@ -165,37 +165,63 @@ describe("Prisma review progress projection", () => {
     );
   });
 
+  const lastPublishedAt = new Date("2026-08-12T11:59:30.000Z");
+  const pendingPhaseChangeAt = new Date("2026-08-12T11:59:50.000Z");
   it.each([
     {
       name: "holds a same-phase update for the minimum edit interval",
       previousPhase: "reviewing" as const,
-      expected: (lastPublishedAt: Date) =>
-        new Date(lastPublishedAt.getTime() + progressCommentMinEditIntervalMs),
+      publishedVersion: 4n,
+      expected: new Date(
+        lastPublishedAt.getTime() + progressCommentMinEditIntervalMs,
+      ),
     },
     {
       name: "publishes a phase change at once",
       previousPhase: "preparing" as const,
-      expected: () => execution().updatedAt,
+      publishedVersion: 4n,
+      expected: execution().updatedAt,
     },
-  ])("$name", async ({ previousPhase, expected }) => {
-    const lastPublishedAt = new Date("2026-08-12T11:59:30.000Z");
+    {
+      name: "publishes a new review taking over the pull request at once",
+      previousPhase: null,
+      publishedVersion: 4n,
+      expected: execution().updatedAt,
+    },
+    {
+      name: "keeps an unpublished phase change due when counts move after it",
+      previousPhase: "reviewing" as const,
+      publishedVersion: 3n,
+      expected: pendingPhaseChangeAt,
+    },
+  ])("$name", async ({ previousPhase, publishedVersion, expected }) => {
     const fixture = transactionFixture({
-      existingProgress: {
-        sourceExecutionVersion: 0n,
-        snapshotHash: "a".repeat(64),
-        desiredVersion: 4n,
-        snapshotJson: computeProgressSnapshot({
-          generation: 1,
-          sourceIdentity: { sourceRunId: "700001", sourceRunAttempt: "1" },
-          phase: previousPhase,
-          terminal: "none",
-          updatedAt: "2026-08-12T11:59:00.000Z",
-          slots: [{ slotId: "slot-1", required: true, state: "pending" }],
-        }),
-      },
+      existingProgress:
+        previousPhase === null
+          ? null
+          : {
+              sourceExecutionVersion: 0n,
+              snapshotHash: "a".repeat(64),
+              desiredVersion: 4n,
+              snapshotJson: computeProgressSnapshot({
+                generation: 1,
+                sourceIdentity: {
+                  sourceRunId: "700001",
+                  sourceRunAttempt: "1",
+                },
+                phase: previousPhase,
+                terminal: "none",
+                updatedAt: "2026-08-12T11:59:00.000Z",
+                slots: [
+                  { slotId: "slot-1", required: true, state: "pending" },
+                ],
+              }),
+            },
       publication: {
         activeGeneration: 1n,
         desiredVersion: 4n,
+        publishedVersion,
+        nextPublishAt: pendingPhaseChangeAt,
         lastPublishedAt,
       },
     });
@@ -216,7 +242,7 @@ describe("Prisma review progress projection", () => {
     expect(fixture.updatePublication).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          nextPublishAt: expected(lastPublishedAt),
+          nextPublishAt: expected,
         }),
       }),
     );
