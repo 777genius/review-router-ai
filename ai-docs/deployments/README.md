@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+One review summary comment per pull request: [every new run rewrites the pull request's existing ReviewRouter summary comment instead of posting another one; summaries of other revisions stay untouched](2026-11-20-sticky-review-summary.md), [PR #933](https://github.com/777genius/review-router-ai/pull/933) - worker-only ordinary rollout; merged, rides in the next bundled rollout, NOT deployed, `pending`. No migration, configuration, Web, API, Gateway, native or public Action change.
+
 Expired investigation turn recovery: [the worker's retention maintenance recovers each expired investigation turn on its own, logs an allowlisted cause (`dossier_digest_invalid` for the 42 rows written by the unmerged hosted v4 relay build) and backs failing rows off up to once a day](2026-11-20-expired-turn-recovery.md) - worker-only ordinary rollout, `pending`; rides in the next bundled rollout, not deployed. No migration or configuration. The new worker recovers 6 of the 48 rows stuck in `turn_leased` by itself; the other 42 stay parked until the owner decides on the production-only hosted v4 relay schema (an optional, owner-approved SQL step is in the record).
 
 Account model list keeps itself current: [an NVIDIA account's model list is read again before it lapses and on open, with one status line and Try again only after a failure, instead of every model greyed out until "Refresh models"](2026-11-20-account-model-list-auto-refresh.md), [PR #932](https://github.com/777genius/review-router-ai/pull/932) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
