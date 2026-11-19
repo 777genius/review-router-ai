@@ -43,8 +43,8 @@ import {
 } from "./account-workspace-use";
 import {
   accountsCopy,
-  accountStatusInfo,
-  pendingStatusCopy,
+  connectionRowStatus,
+  removedFromWorkspaceText,
   removeFromWorkspaceCopy,
   type ConnectionOwnerKind,
 } from "./accounts-copy";
@@ -409,9 +409,7 @@ function WorkspacePersonalRows({
   const result = last?.result;
   const message =
     result?.status === "ok"
-      ? result.value.remoteFenceDelivery === "remote_pending"
-        ? removeFromWorkspaceCopy.pending
-        : removeFromWorkspaceCopy.done
+      ? removedFromWorkspaceText(result.value.remoteFenceDelivery)
       : result?.status === "conflict"
         ? "This connection changed. Refresh connections and try again."
         : result?.status === "denied"
@@ -506,13 +504,11 @@ function WorkspacePersonalRows({
           <AccountOwner account={row} />
           <div className="text-sm text-slate-300">
             <AccountStatusLine
-              {...(failed
-                ? { kind: "unknown", text: "Details could not be refreshed" }
-                : lifecycleActivities.get(row.connectionId) === "delete"
-                  ? { kind: "removing", text: pendingStatusCopy.removing }
-                  : lifecycleActivities.has(row.connectionId)
-                    ? { kind: "confirming", text: pendingStatusCopy.confirming }
-                    : accountStatusInfo(row))}
+              {...connectionRowStatus({
+                account: row,
+                refreshFailed: failed,
+                localAction: lifecycleActivities.get(row.connectionId),
+              })}
             />
             {failed ? null : (
               <WorkspaceUseLine use={bindingWorkspaceUse(row.binding)} />
