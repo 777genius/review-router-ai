@@ -31,7 +31,7 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
-One removal entry per connection row: [one confirmed "Remove from this workspace", no extra "Access" button on other owners' rows, the row offers "Add to this workspace" again after removal](2026-11-18-single-account-stack.md), [plan 77](../architecture/77-single-account-stack.md) - Web-only ordinary rollout, with or after PR #901; staging and production `pending`. No migration, configuration, Gateway or native change.
+One removal entry per connection row: [one confirmed "Remove from this workspace", no extra "Access" button on other owners' rows, the row offers "Add to this workspace" again after removal](2026-11-18-single-account-stack.md), [PR #912](https://github.com/777genius/review-router-ai/pull/912), [plan 77](../architecture/77-single-account-stack.md) - Web-only ordinary rollout, with or after PR #901; staging and production `pending`. No migration, configuration, Gateway or native change.
 
 One Connections list: [no "For this workspace" / "All <login> connections" tabs, each row says whether it is used here, and Codex limits never stay silently Outdated](2026-11-18-single-connections-list.md), [PR #901](https://github.com/777genius/review-router-ai/pull/901), [plan 76](../architecture/76-single-connections-list.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change. After rollout, open the Seventeen Codex card and record whether it refreshed or which reason it shows.
 

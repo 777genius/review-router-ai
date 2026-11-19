@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -14,7 +15,10 @@ import type {
   AccountView,
 } from "../../src/server/account-gateway-accounts";
 import { listGatewayAccounts } from "./account-gateway-account-actions";
-import { GatewayModelAccountsProvider } from "./gateway-model-account-options";
+import {
+  GatewayModelAccountsProvider,
+  type GatewayModelAccountsApi,
+} from "./gateway-model-account-options";
 import { WorkspaceAccountsPanel } from "./workspace-accounts-panel";
 
 // Only the server-action boundaries are mocked; the shared page QueryClient,
@@ -83,13 +87,16 @@ const page = (row: AccountView): AccountsResult<AccountsPage> => ({
 
 test("an organization connection offers one confirmed removal and can be added back right after it", async () => {
   vi.mocked(listGatewayAccounts).mockResolvedValue(page(orgRow(null)));
-  const overview = {
-    list: vi
-      .fn()
-      .mockResolvedValue(page(orgRow(null))) as unknown as Parameters<
-      typeof GatewayModelAccountsProvider
-    >[0]["api"]["list"],
-    get: vi.fn(),
+  // The overview reread is slow: the row must stay in place meanwhile.
+  let finishReread!: (result: AccountsResult<AccountsPage>) => void;
+  const overview: GatewayModelAccountsApi = {
+    list: vi.fn<GatewayModelAccountsApi["list"]>(
+      () =>
+        new Promise((resolve) => {
+          finishReread = resolve;
+        }),
+    ),
+    get: vi.fn<GatewayModelAccountsApi["get"]>(),
   };
   const detach = vi.fn().mockResolvedValue({
     status: "ok",
@@ -140,15 +147,27 @@ test("an organization connection offers one confirmed removal and can be added b
     bindingId: bound.id,
     expectedBindingRevision: bound.revision,
   });
+  // While the overview rereads, the row stays, says it is not added here, and
+  // focus is back on its menu.
+  await waitFor(() => expect(overview.list).toHaveBeenCalled());
+  const row = screen.getByRole("article", { name: "Org MiMo" });
+  expect(within(row).getByText("Not added to this workspace")).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByLabelText("Actions for Org MiMo"),
+    ),
+  );
+  await act(async () => finishReread(page(orgRow(null))));
   // The removal rereads the engine's management page in the shared client, so
   // the row's own menu offers adding it back without a page reload.
   await waitFor(() => expect(listGatewayAccounts).toHaveBeenCalled());
   fireEvent.keyDown(screen.getByLabelText("Actions for Org MiMo"), {
     key: "ArrowDown",
   });
-  expect(
-    await screen.findByRole("menuitem", { name: "Add to this workspace" }),
-  ).toBeTruthy();
+  const add = await screen.findByRole("menuitem", {
+    name: "Add to this workspace",
+  });
+  await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
   expect(
     screen.queryByRole("menuitem", { name: "Remove from this workspace" }),
   ).toBeNull();

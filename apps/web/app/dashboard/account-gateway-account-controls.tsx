@@ -1325,6 +1325,7 @@ function Controls({
                   <Button
                     variant="ghost"
                     size="sm"
+                    className={accountMenuItemClass}
                     disabled={disabled}
                     title={
                       disabled

@@ -241,10 +241,10 @@ function WorkspacePersonalRows({
     };
   }, [client, limitsScope, initialPage, scope]);
   const pageKey = accountsOverviewKey(scope);
-  const [selection, setSelection] = useState<DetachSelection | null>(null);
-  // The last opened confirmation keeps its text while closing and returns
+  // The last chosen removal keeps its text while the dialog closes and returns
   // focus to its row menu afterwards.
-  const [shown, setShown] = useState<DetachSelection | null>(null);
+  const [selection, setSelection] = useState<DetachSelection | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [last, setLast] = useState<{
     request: DetachRequest;
     result: DetachResult;
@@ -346,7 +346,7 @@ function WorkspacePersonalRows({
           ? prior
           : { request: original, result: next },
       );
-      setSelection(null);
+      setConfirming(false);
       const detailKey = ["account-option", scope, original.bindingId] as const;
       const modelPageKey = ["account-options", scope] as const;
       // A delayed pre-detach fetch must not restore the retired binding to Models.
@@ -373,8 +373,17 @@ function WorkspacePersonalRows({
                           ...page,
                           value: {
                             ...page.value,
-                            accounts: page.value.accounts.filter(
-                              (row) => row.binding?.id !== original.bindingId,
+                            accounts: page.value.accounts.flatMap((row) =>
+                              row.binding?.id !== original.bindingId
+                                ? [row]
+                                : // Like the server list: the workspace's own
+                                  // connection stays for its admins, now not
+                                  // added; other rows leave the list. Models
+                                  // never keeps the retired binding.
+                                  listKey === pageKey &&
+                                    row.origin === "organization"
+                                  ? [{ ...row, binding: null }]
+                                  : [],
                             ),
                           },
                         }
@@ -531,8 +540,8 @@ function WorkspacePersonalRows({
                 managementActions={managementActions}
                 canDetach={canDetach}
                 selectDetach={(next) => {
-                  setShown(next);
                   setSelection(next);
+                  setConfirming(true);
                 }}
               />
             ) : null}
@@ -585,25 +594,25 @@ function WorkspacePersonalRows({
         </Button>
       ) : null}
       <Dialog.Root
-        open={Boolean(selection)}
+        open={confirming}
         onOpenChange={(open) => {
-          if (!open && !submitting) setSelection(null);
+          if (!open && !submitting) setConfirming(false);
         }}
       >
         <Dialog.Portal>
           <Dialog.Backdrop />
           <Dialog.Popup
             finalFocus={() =>
-              shown?.returnFocus?.isConnected ? shown.returnFocus : true
+              selection?.returnFocus?.isConnected ? selection.returnFocus : true
             }
           >
             <Dialog.Title>
-              {accountsCopy.detach} · {shown?.label}
+              {accountsCopy.detach} · {selection?.label}
             </Dialog.Title>
             <Dialog.Description>
               {
                 removeFromWorkspaceCopy.description[
-                  shown?.ownerKind ?? "unknown"
+                  selection?.ownerKind ?? "unknown"
                 ]
               }
             </Dialog.Description>
@@ -611,12 +620,12 @@ function WorkspacePersonalRows({
               <Button
                 variant="outline"
                 disabled={submitting}
-                onClick={() => setSelection(null)}
+                onClick={() => setConfirming(false)}
               >
                 Cancel
               </Button>
               <Button
-                disabled={!canDetach || submitting || !selection}
+                disabled={!canDetach || submitting || !confirming || !selection}
                 onClick={() => {
                   if (selection) void submit(selection.request);
                 }}

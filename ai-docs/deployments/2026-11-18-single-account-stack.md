@@ -1,14 +1,14 @@
 # One removal entry per connection row: deployment
 
 - Task ID: `2026-11-18-single-account-stack`
-- Goal: in Providers > Connections of a shared workspace, a connection row
-  offers "Remove from this workspace" once, always with a confirmation that says
+- Goal: in the combined Providers > Connections list of a shared workspace, a
+  connection row offers "Remove from this workspace" once, with a confirmation that says
   who can add it back. The rows of the workspace and of other members lose the
   extra "Access" button that opened the same confirmation with personal-account
   copy. Removing an organization connection from the list rereads its row, so
   "Add to this workspace" is offered right after the gateway confirms.
 - Affected target: Web only.
-- Implementation: ReviewRouter AI PR (see the plan for the link). Plan:
+- Implementation: [ReviewRouter AI PR #912](https://github.com/777genius/review-router-ai/pull/912). Plan:
   [77](../architecture/77-single-account-stack.md).
 - Dependencies: PR #901 (one Connections list), already merged. Ship in the same
   Web release or after it. No migration, configuration, feature flag, Gateway or
@@ -43,4 +43,11 @@ observed to be absent. Use the [status contract](README.md#status-contract).
 ## Rollback
 
 Roll back the web image. No data is written differently: removal uses the same
-server actions as before.
+server actions as before. The fallback list shown without the personal service
+keeps its own immediate removal; this change does not touch it.
+
+## Execution log
+
+| Time         | Target             | Actual version | Result                                   |
+| ------------ | ------------------ | -------------- | ---------------------------------------- |
+| Not executed | Staging/Production | Not verified   | Pending; no environment mutation claimed |
