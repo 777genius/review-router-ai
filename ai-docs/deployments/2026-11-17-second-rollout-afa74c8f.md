@@ -15,7 +15,7 @@
   [repository scan progress](2026-11-17-repository-scan-progress.md),
   [first-run flow fixes](2026-11-17-first-run-flow-fixes.md) and
   [usage statistics audit](2026-11-17-usage-statistics-audit.md).
-- Last updated: `2026-11-17`.
+- Last updated: `2026-11-19` (Action 241 finished).
 
 ## Environment status
 
@@ -157,19 +157,10 @@ usage facts that Gateway 112 and a ReviewRouter on the old SDK cannot read, so
 fix forward instead of rolling the Gateway or ReviewRouter back once Gateway 115
 has written such facts.
 
-1. Action part (only if 241 was registered or `workflow-v1` moved): move
-   `workflow-v1` back to `3a256b15ceccbb0a8069c6b6bdacfecf1a36ffc6` (240) with
-   `promote-workflow-channel.yml` (`version=v1.0.240`,
-   `expected_current_sha=<241 commit>`), then `v1` to the same commit by the
-   emergency rule of the
-   [release process](../operations/07-environments-and-release-management.md#rollback),
-   recording both SHAs; read both back. Let runs authorized on 241 finish or
-   revoke their authorizations. Then stop the FILE 69 containers and start the
-   retained `*-before-file69-retained` containers (FILE 68, Action refs 240),
-   repin any repository that got a `241` pin outside the channels, and only then
-   revoke producer 241 through the normal producer revocation
-   (`revoke_producer_release`, the trusted path used for registration, no
-   direct SQL). Producer 240 stays registered; the
+1. Action part: 241 was released, registered and promoted on 2026-11-19; use
+   the [Action 241 rollback pins](2026-11-19-action-241-cce9dd98.md#rollback-pins),
+   which replace the draft steps that stood here. Producer 240 stays
+   registered; the
    [first rollout](2026-11-17-coordinated-rollout-974295ea.md#rollback-pins)
    describes the same steps for 240 and must not be applied while `afa74c8f`
    or later runs, because the image would then go below the SDK that reads the

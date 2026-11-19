@@ -19,15 +19,15 @@
   [Usage names the Gateway vendor](2026-11-17-usage-gateway-vendor.md)
   (ReviewRouter first, then the Gateway). The Action part waits for the next
   public Action release.
-- Last updated: `2026-11-17`.
+- Last updated: `2026-11-19` (Action 241 released).
 
 ## Environment status
 
-| Environment / target | Status     | Actual deployed version / image                 | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                    |
-| -------------------- | ---------- | ----------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| staging              | `pending`  | Not verified                                    | Not verified        | Second small release.                                                                                                                                             |
-| production           | `deployed` | API/Web `afa74c8f`, Gateway `1dce5c32`          | 2026-11-17 21:49    | Relay subset check passed before the swap; API started clean; polling stops for old pending calls ([second rollout](2026-11-17-second-rollout-afa74c8f.md)).      |
-| public Action        | `deployed` | `v1.0.241` = `cce9dd98`, `workflow-v1` promoted | 2026-11-19 20:51    | Released with #399 and promoted after a passing canary ([Action 241](2026-11-19-action-241-cce9dd98.md)); the #399 summary cause was not triggered by the canary. |
+| Environment / target | Status      | Actual deployed version / image                 | Last verified (UTC) | Evidence / next step / blocker                                                                                                                                                                                                                                                                      |
+| -------------------- | ----------- | ----------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                                    | Not verified        | Second small release.                                                                                                                                                                                                                                                                               |
+| production           | `deployed`  | API/Web `afa74c8f`, Gateway `1dce5c32`          | 2026-11-17 21:49    | Relay subset check passed before the swap; API started clean; polling stops for old pending calls ([second rollout](2026-11-17-second-rollout-afa74c8f.md)).                                                                                                                                        |
+| public Action        | `installed` | `v1.0.241` = `cce9dd98`, `workflow-v1` promoted | 2026-11-19 20:51    | Released with #399 and promoted after a passing canary ([Action 241](2026-11-19-action-241-cce9dd98.md)); the #399 summary cause is not observed yet: it needs the owner-set two-reviewer policy (c) or (d) of the [second rollout](2026-11-17-second-rollout-afa74c8f.md#acceptance-evidence-utc). |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).
