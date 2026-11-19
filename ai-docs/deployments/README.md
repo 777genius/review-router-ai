@@ -31,6 +31,8 @@ The final NVIDIA profile/API configuration window ungated at `2026-11-15T01:50:1
 
 ## Task index
 
+Conflict runtime bundle rebuild: [the committed `action-dist/conflict-runtime.cjs` is rebuilt from current source after PR #890 and later `review-config` edits left it stale](2026-11-19-conflict-runtime-bundle-rebuild.md) - public Action runtime only; it syncs to the public Action `main` after the first green main CI and ships with the next Action release, `pending`. No migration, configuration, Web, API, worker, Gateway or native change.
+
 Worker progress comment refactor: [the worker's progress comment flow is split into small policies with claim-fenced writes, stale-claim repair and settled-only terminal promotion; users see the same comment](2026-11-19-worker-progress-comment-refactor.md), [PR #821](https://github.com/777genius/review-router-ai/pull/821) - worker-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway, native or runtime change.
 
 Plain connection statuses: ["Status unknown" instead of "Outcome not confirmed yet" when no operation is behind a row, the fallback Connections list uses the main list's status words and workspace-use line instead of raw states and fence wording, one status order for all lists](2026-11-19-status-vocabulary.md), [PR #915](https://github.com/777genius/review-router-ai/pull/915), [plan 82](../architecture/82-status-vocabulary.md) - Web-only ordinary rollout; staging and production `pending`. No migration, configuration, Gateway or native change.
