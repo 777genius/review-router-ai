@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { CredentialImportMethod } from "../../src/features/account-gateway/connection-capabilities";
 
 export const credentialImportLabels: Record<CredentialImportMethod, string> = {
@@ -26,6 +26,7 @@ export function CredentialImportFields({
   const text = useRef<HTMLTextAreaElement>(null);
   const generation = useRef(0);
   const [error, setError] = useState("");
+  const errorId = useId();
   return (
     <div className="grid min-w-0 gap-3">
       <label className="grid min-w-0 gap-2 text-sm">
@@ -39,6 +40,13 @@ export function CredentialImportFields({
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          onInput={() => {
+            generation.current += 1;
+            setError("");
+            loading(false);
+          }}
           className="min-w-0 resize-y rounded-lg border border-white/15 bg-slate-950/40 px-3 py-2 font-mono text-xs text-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-300"
         />
       </label>
@@ -49,6 +57,8 @@ export function CredentialImportFields({
             type="file"
             name="credentialFile"
             accept=".json,application/json"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
             className="min-w-0 text-xs"
             onChange={(event) => {
               const input = event.currentTarget;
@@ -112,7 +122,7 @@ export function CredentialImportFields({
         Maximum 64 KiB.
       </p>
       {error ? (
-        <p role="alert" className="text-sm text-amber-200">
+        <p id={errorId} role="alert" className="text-sm text-amber-200">
           {error}
         </p>
       ) : null}

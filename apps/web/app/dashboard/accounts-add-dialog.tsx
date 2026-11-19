@@ -42,6 +42,7 @@ export function AccountsAddDialog({
       >('input[type="password"], input[name="callbackURL"], input[name="authorizationCode"], textarea[name="credential"], input[name="credentialFile"]')
       .forEach((field) => {
         field.value = "";
+        field.dispatchEvent(new Event("input", { bubbles: true }));
       });
   }
   function showConnectionsList() {

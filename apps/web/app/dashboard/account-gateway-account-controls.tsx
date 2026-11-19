@@ -1715,6 +1715,7 @@ function OAuthForm({
       >('[name="credential"], [name="credentialFile"]')
       .forEach((field) => {
         field.value = "";
+        field.dispatchEvent(new Event("input", { bubbles: true }));
       });
     setImportLoading(false);
     setImportError("");
@@ -1730,11 +1731,13 @@ function OAuthForm({
     <form
       ref={formRef}
       className="mt-4 grid gap-4"
+      onInput={() => setImportError("")}
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
         const values = new FormData(form);
         if (!method || importLoading) return;
+        setImportError("");
         if (importMethod) {
           const credential = String(values.get("credential") ?? "");
           if (!validCredentialImportText(credential)) {
@@ -1902,6 +1905,7 @@ function OAuthForm({
         if (!next) {
           formRef.current?.reset();
           setImportLoading(false);
+          setImportError("");
         }
         setOpen(next);
       }}
@@ -2569,10 +2573,21 @@ function KeyUpdateContinuation({
 }) {
   const [open, setOpen] = useState(false);
   const entered = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          formRef.current?.reset();
+          setLoading(false);
+          setError("");
+        }
+        setOpen(next);
+      }}
+    >
       <AccountMenuItem>
         <Dialog.Trigger
           render={
@@ -2597,10 +2612,13 @@ function KeyUpdateContinuation({
             this original account update.
           </Dialog.Description>
           <form
+            ref={formRef}
             className="mt-4 grid gap-4"
+            onInput={() => setError("")}
             onSubmit={(event) => {
               event.preventDefault();
               if (entered.current || loading) return;
+              setError("");
               const form = event.currentTarget;
               const values = new FormData(form);
               const credential = String(values.get("credential") ?? "");
