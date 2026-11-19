@@ -146,6 +146,8 @@ export class GitCliConflictDiffSource implements ConflictRuntimeDiffSourcePort {
 
     const files: ConflictRuntimeFileDiff[] = [];
     for (const entry of entries) {
+      // NFC is the packet identity; git still needs the bytes it reported,
+      // or a decomposed file name matches nothing and yields an empty patch.
       const path = normalizeConflictRuntimeRepositoryPath(entry.path);
       const previousPath =
         entry.previousPath === undefined
@@ -162,7 +164,7 @@ export class GitCliConflictDiffSource implements ConflictRuntimeDiffSourcePort {
           baseSha,
           headSha,
           "--",
-          path,
+          entry.path,
         ],
         { maxStdoutBytes: maxPatchBytes },
       );

@@ -185,6 +185,38 @@ describe("git cli conflict runtime", () => {
     );
   });
 
+  it("asks git for the file name it reported while the packet keeps NFC", async () => {
+    const decomposed = "docs/cafe\u0301.md";
+    const calls: ConflictRuntimeCommandInput[] = [];
+    const runner = async (
+      input: ConflictRuntimeCommandInput,
+    ): Promise<ConflictRuntimeCommandOutput> => {
+      calls.push(input);
+      if (input.args[0] === "cat-file") {
+        return output("");
+      }
+      if (input.args.includes("--name-status")) {
+        return output(["M", decomposed, ""].join("\0"));
+      }
+      // A literal pathspec matches only the exact bytes of the tracked name.
+      return output(
+        input.args.at(-1) === decomposed ? "diff --git a/x b/x\n+change\n" : "",
+      );
+    };
+
+    const files = await new GitCliConflictDiffSource({
+      workspace: "/repo",
+      runCommand: runner,
+    }).collectDiff({ config });
+
+    expect(files).toEqual([
+      expect.objectContaining({
+        path: decomposed.normalize("NFC"),
+        patch: "diff --git a/x b/x\n+change\n",
+      }),
+    ]);
+  });
+
   it("rejects unsafe repository paths before per-file diff commands", async () => {
     const calls: ConflictRuntimeCommandInput[] = [];
     const runner = async (
