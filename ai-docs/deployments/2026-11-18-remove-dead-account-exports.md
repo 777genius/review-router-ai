@@ -9,7 +9,7 @@
   configuration, Gateway or native change.
 - Implementation PR/issue:
   [PR #910](https://github.com/777genius/review-router-ai/pull/910); plan
-  [83 §7](https://github.com/777genius/review-router-ai/blob/4e9f89330c7b827c3b73a407c4744d10c68a7ad9/ai-docs/architecture/83-file-size-governance.md).
+  [83 §7](https://github.com/777genius/review-router-ai/blob/f4bff978b6f72cf94635f29cc6532e3059884f9b/ai-docs/architecture/83-file-size-governance.md).
 - Implementation reference: the branch head of that PR.
 - Dependencies: none.
 - Last updated: `2026-11-18`.
@@ -48,7 +48,7 @@ Stateless; roll back by deploying the previous Web image.
 
 ## Related links
 
-- [Plan 83](https://github.com/777genius/review-router-ai/blob/4e9f89330c7b827c3b73a407c4744d10c68a7ad9/ai-docs/architecture/83-file-size-governance.md) ([PR #908](https://github.com/777genius/review-router-ai/pull/908)).
+- [Plan 83](https://github.com/777genius/review-router-ai/blob/f4bff978b6f72cf94635f29cc6532e3059884f9b/ai-docs/architecture/83-file-size-governance.md) ([PR #908](https://github.com/777genius/review-router-ai/pull/908)).
 - [Release process](../operations/07-environments-and-release-management.md).
 
 ## Execution log

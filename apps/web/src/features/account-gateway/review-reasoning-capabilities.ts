@@ -66,6 +66,8 @@ export function gatewayModelDefaultReasoningEffort(
           | "ultra")
       : undefined;
   }
+  // MiMo matches the qualified Action's admitted effort; Codex and OpenRouter
+  // keep their own policies.
   return isGatewayMiMoModel(model) ? "high" : "xhigh";
 }
 

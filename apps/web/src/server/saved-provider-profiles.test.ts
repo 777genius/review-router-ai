@@ -89,6 +89,27 @@ describe("saved provider rows", () => {
     ]);
   });
 
+  it("copies the saved provider's own fields unchanged", () => {
+    expect(
+      savedProviderProfileFacts(
+        { ...managed, label: "Router", model: "openai/gpt-5" },
+        new Set(),
+      ),
+    ).toEqual({
+      id: "managed",
+      label: "Router",
+      model: "openai/gpt-5",
+      providerId: "openrouter",
+      authMode: "openrouter_api_key",
+      credentialKind: "managed_api_key",
+      createdByUserId: "u1",
+      gatewayBindingId: null,
+      gatewayProfileRef: null,
+      personalBinding: false,
+      rotatingRepositoryId: null,
+    });
+  });
+
   it("reads binding facts only for Gateway providers", () => {
     expect(
       savedProfileBindingIds([personal, rotating, shared, managed]),
