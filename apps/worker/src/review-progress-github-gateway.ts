@@ -431,7 +431,7 @@ function hasUnclassifiedMarker(
   marker: string,
   expectedBotLogin: string,
 ): boolean {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) return true;
   const body = (value as { body?: unknown }).body;
   if (typeof body === "string") return body.includes(marker);
   const user = (value as { user?: unknown }).user;

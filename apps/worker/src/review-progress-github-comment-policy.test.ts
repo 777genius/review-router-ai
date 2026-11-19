@@ -123,7 +123,10 @@ describe("Review progress GitHub comment policy", () => {
     const scan = commentPageScanDecision(decision, 100, 1, 5);
     expect(scan).toBe("inconclusive");
     const first = '</comments?page=1>; rel="first"';
-    expect(hasNextCommentPage({ link: first }, 1)).toBe(false);
+    expect(hasNextCommentPage({ link: first }, 1)).toBeUndefined();
+    expect(
+      commentPageScanDecision(hasNextCommentPage({ link: first }, 1), 100, 1, 5),
+    ).toBe("continue");
     const validPrevious =
       '</comments?page=1>; rel="first", </comments?page=1>; rel="prev"';
     expect(hasNextCommentPage({ link: validPrevious }, 2)).toBe(false);

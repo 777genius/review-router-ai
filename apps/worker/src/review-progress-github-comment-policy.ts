@@ -159,7 +159,11 @@ export function commentPageLinks(
   // Multiple last-page declarations cannot establish a safe scan boundary.
   if (lastEntries.length > 1) return invalid;
   const last = lastEntries[0];
-  if (!last) return { hasNextPage: hasNext };
+  if (!last) {
+    return {
+      hasNextPage: hasNext ? true : previousHref ? false : undefined,
+    };
+  }
   const href = last.match(/^\s*<([^>]+)>/u)?.[1];
   if (!href) return invalid;
   try {

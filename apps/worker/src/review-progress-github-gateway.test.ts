@@ -278,6 +278,38 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(calls)).toEqual([]);
   });
 
+  it("continues past a first-only Link to find a marked second page", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage, [{ id: 701, body: desired }]],
+      pageLinks: [
+        '<https://api.github.com/comments?page=1>; rel="first"',
+        '<https://api.github.com/comments?page=1>; rel="prev"',
+      ],
+    });
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 701,
+      operation: "unchanged",
+      duplicateCommentIds: [],
+    });
+    expect(
+      fixture.calls
+        .filter(
+          ({ route }) =>
+            route ===
+            "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
+        )
+        .map(({ parameters }) => parameters.page),
+    ).toEqual([1, 2]);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("defers a capped full page despite a backward Link", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
@@ -412,6 +444,25 @@ describe("ReviewProgressGitHubGateway", () => {
       return response;
     };
 
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("defers null comment rows before creating a duplicate", async () => {
+    const fixture = githubFixture([]);
+    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+      const response = await fixture.request(route, parameters);
+      if (
+        route ===
+        "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        return { data: [null] };
+      }
+      return response;
+    };
     await expect(gateway(request).upsert(input())).rejects.toMatchObject({
       kind: "pagination_inconclusive",
       metadata: { retryable: true },
