@@ -278,7 +278,7 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(calls)).toEqual([]);
   });
 
-  it("accepts exactly full final page only when GitHub confirms no next page", async () => {
+  it("defers a capped full page despite a backward Link", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
@@ -298,10 +298,9 @@ describe("ReviewProgressGitHubGateway", () => {
 
     await expect(
       gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
-    ).resolves.toEqual({
-      commentId: 101,
-      operation: "unchanged",
-      duplicateCommentIds: [],
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
     });
     const commentListRoute =
       "GET /repos/{owner}/{repo}/issues/{issue_number}/comments";
@@ -309,6 +308,34 @@ describe("ReviewProgressGitHubGateway", () => {
       .filter(({ route }) => route === commentListRoute)
       .map(({ parameters }) => parameters.page);
     expect(pageNumbers).toEqual([1, 2]);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
+  it("defers deletion-shifted full final pages before POST", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    // Comment 101 was the only marked comment, but deleting an earlier row
+    // before the second GET moves it into the skipped offset.
+    const secondPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 102,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture([], {
+      pagedComments: [firstPage, secondPage],
+      pageLinks: [
+        '<https://api.github.com/comments?page=2>; rel="next"',
+        '<https://api.github.com/comments?page=1>; rel="prev"',
+      ],
+    });
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 2 }).upsert(input()),
+    ).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
     expect(mutations(fixture.calls)).toEqual([]);
   });
 

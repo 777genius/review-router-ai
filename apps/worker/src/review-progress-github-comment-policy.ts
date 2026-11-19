@@ -35,6 +35,9 @@ export function commentPageScanDecision(
   page: number,
   maxPages: number,
 ): "complete" | "continue" | "inconclusive" {
+  // Offset pagination can shift after deletion between requests. A full
+  // page at the configured cap is never proof that all comments were seen.
+  if (page === maxPages && commentsOnPage === 100) return "inconclusive";
   // Without a complete Link header, a full page is not proof of completion.
   if (
     hasNextPage === false ||
