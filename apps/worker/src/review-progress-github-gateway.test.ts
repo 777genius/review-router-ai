@@ -418,6 +418,32 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("defers when an unknown comment has no readable body or author", async () => {
+    const desired = formatReviewProgressComment("working", marker);
+    const fixture = githubFixture([{ id: 8, body: desired }]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      const response = await fixture.request(route, parameters);
+      if (route.includes("/issues/{issue_number}/comments")) {
+        return {
+          data: [
+            { id: 8, body: desired, user: { login: "review-router[bot]" } },
+            { id: 9 },
+          ],
+        };
+      }
+      return response;
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "pagination_inconclusive",
+      metadata: { retryable: true },
+    });
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("ignores unreadable bodies from verified foreign authors", async () => {
     const desired = formatReviewProgressComment("working", marker);
     const fixture = githubFixture([{ id: 8, body: desired }]);
@@ -1440,11 +1466,15 @@ describe("ReviewProgressGitHubGateway", () => {
   it("skips GET after definitive PATCH 403", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     let commentReads = 0;
+    const patchAttempts: unknown[] = [];
     const request: ReviewProgressGitHubRequester = async (
       route,
       parameters,
     ) => {
-      if (route.startsWith("PATCH ")) throw { status: 403 };
+      if (route.startsWith("PATCH ")) {
+        patchAttempts.push(parameters?.comment_id);
+        throw { status: 403 };
+      }
       if (
         route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
       ) {
@@ -1459,6 +1489,7 @@ describe("ReviewProgressGitHubGateway", () => {
       metadata: { status: 403, retryable: false },
     });
     expect(commentReads).toBe(1);
+    expect(patchAttempts).toEqual([8]);
     expect(mutations(fixture.calls)).toEqual([]);
   });
 

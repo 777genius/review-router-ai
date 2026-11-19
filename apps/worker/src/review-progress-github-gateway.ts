@@ -435,12 +435,11 @@ function hasUnclassifiedMarker(
   const body = (value as { body?: unknown }).body;
   if (typeof body === "string") return body.includes(marker);
   const user = (value as { user?: unknown }).user;
-  if (typeof user !== "object" || user === null) return false;
+  // Neither an unknown author nor an unreadable body can rule out a match.
+  if (typeof user !== "object" || user === null) return true;
   const login = (user as { login?: unknown }).login;
-  return (
-    typeof login === "string" &&
-    login.toLowerCase() === expectedBotLogin.toLowerCase()
-  );
+  if (typeof login !== "string" || !login.trim()) return true;
+  return login.toLowerCase() === expectedBotLogin.toLowerCase();
 }
 
 function parseComment(value: unknown): ReviewProgressComment {
