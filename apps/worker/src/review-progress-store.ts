@@ -176,7 +176,7 @@ export class PrismaReviewProgressPublicationStore {
   }
 
   /** Do not leave an obsolete claim delaying a newer publishable version. */
-  private async releaseOwnStaleNoWriteClaim(
+  async releaseOwnStaleNoWriteClaim(
     publication: ClaimedReviewProgress,
     now: Date,
   ): Promise<void> {

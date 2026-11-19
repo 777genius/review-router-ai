@@ -223,6 +223,36 @@ describe("ReviewProgressPublisher", () => {
     expect(store.suppress).not.toHaveBeenCalled();
   });
 
+  it("releases only its own stale claim after a no-write budget deferral", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const retryAt = new Date(now.getTime() + 2_000);
+    store.retry.mockResolvedValue("stale");
+    store.reserveInstallationMutation = vi.fn(async () => ({
+      allowed: false as const,
+      retryAt,
+    })) as typeof store.reserveInstallationMutation;
+    const factory = vi.fn();
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toEqual({
+      claimed: 1,
+      published: 0,
+      deferred: 1,
+      suppressed: 0,
+      failed: 0,
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(store.retry).toHaveBeenCalledOnce();
+    expect(store.releaseOwnStaleNoWriteClaim).toHaveBeenCalledOnce();
+    expect(store.releaseOwnStaleNoWriteClaim).toHaveBeenCalledWith(
+      publication,
+      now,
+    );
+    expect(store.requeueAfterClaimLoss).not.toHaveBeenCalled();
+  });
+
   it("suppresses a corrupt durable snapshot without affecting the review", async () => {
     const publication = { ...claimed(), snapshot: { schemaVersion: 9 } };
     const store = fakeStore(publication);
@@ -1296,6 +1326,7 @@ function fakeStore(publication: ClaimedReviewProgress) {
     ),
     complete: vi.fn(async () => true),
     requeueAfterClaimLoss: vi.fn(async () => undefined),
+    releaseOwnStaleNoWriteClaim: vi.fn(async () => undefined),
     retry,
     suppress: vi.fn(async () => true),
   };

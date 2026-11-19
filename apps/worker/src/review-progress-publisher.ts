@@ -197,7 +197,7 @@ export class ReviewProgressPublisher {
       ),
     });
     if (reservation.allowed) return false;
-    await this.store.retry({
+    const retryOutcome = await this.store.retry({
       publication,
       safeCode: "review_progress_installation_budget_wait",
       retryAt: reservation.retryAt,
@@ -205,6 +205,10 @@ export class ReviewProgressPublisher {
       maxFailures: this.options.maxFailures,
       countFailure: false,
     });
+    if (retryOutcome === "stale") {
+      // No GitHub write was attempted; release only this worker's old claim.
+      await this.store.releaseOwnStaleNoWriteClaim(publication, now);
+    }
     result.deferred += 1;
     return true;
   }
