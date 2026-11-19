@@ -16,10 +16,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                       |
-| ---------- | --------- | ------------ | ---------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary web rollout and the checks below      |
-| Production | `pending` | Not verified | Ordinary web rollout with the next Web release |
+| Target     | Status      | Actual image                         | Evidence                                                                                                                              |
+| ---------- | ----------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified                         | Ordinary web rollout and the checks below                                                                                             |
+| Production | `installed` | `7c176ef7`, image `sha256:a2c03f03…` | [rollout 7c176ef7](2026-11-19-rollout-7c176ef7.md) 2026-11-19 15:56 UTC. Sharing flag is `1`; dialog checks need the owner's session. |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
