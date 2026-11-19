@@ -1404,7 +1404,24 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
             findUnique: async () => settledAttempt("failed_no_effect"),
           },
           reviewPublicationOperationV2: {
-            count: async () => pendingRequired,
+            count: async (query: unknown) => {
+              expect(query).toEqual({
+                where: {
+                  publicationAttemptId: "attempt-1",
+                  required: true,
+                  state: {
+                    notIn: [
+                      "completed",
+                      "superseded_no_effect",
+                      "failed_no_effect",
+                      "stale_compensated",
+                      "stale_visible",
+                    ],
+                  },
+                },
+              });
+              return pendingRequired;
+            },
           },
           reviewExecutionProgressV1: {
             findUnique: async () => ({
