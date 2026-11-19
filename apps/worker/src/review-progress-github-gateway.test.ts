@@ -1385,6 +1385,31 @@ describe("ReviewProgressGitHubGateway", () => {
     },
   );
 
+  it("does not reclassify definitive PATCH 403 after a failed observation", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\\n${marker}` }]);
+    let commentReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route.startsWith("PATCH ")) throw { status: 403 };
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        commentReads += 1;
+        if (commentReads > 1) throw { status: 502 };
+      }
+      return fixture.request(route, parameters);
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "revoked_app",
+      metadata: { status: 403, retryable: false },
+    });
+    expect(commentReads).toBe(1);
+    expect(mutations(fixture.calls)).toEqual([]);
+  });
+
   it("keeps ambiguous PATCH failures retryable", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     const request: ReviewProgressGitHubRequester = async (
