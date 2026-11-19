@@ -15,6 +15,10 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type * as GatewayHTTP from "@agent-teams/account-gateway/http";
 import { protectedResponsesToolPolicyConfigLines } from "../../../packages/features/codex-oauth-rotating/src/action/github-action";
+import {
+  qualifyReadonlySandbox,
+  type SandboxQualification,
+} from "./provider-subscriptions-sandbox";
 
 type JoinedInput = Readonly<{
   origin: string;
@@ -126,6 +130,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
   let returnedCustomTools = 0;
   let returnedFunctionTools = 0;
   let structuredOutputRequests = 0;
+  let sandboxQualification: SandboxQualification | undefined;
   const active = new Set<() => Promise<void>>();
   const inFlight = new Set<Promise<void>>();
   const savedEnv = { ...process.env };
@@ -159,6 +164,14 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       pathToFileURL(path.join(source, "src/providers/review-output.ts")).href
     )) as { buildReviewFindingsSchema(): unknown };
     const expectedReviewSchema = reviewOutput.buildReviewFindingsSchema();
+    const actionEnvironment = (await import(
+      pathToFileURL(path.join(source, "src/providers/cli-env.ts")).href
+    )) as {
+      buildCliSafeEnv(options: {
+        includeWorkspaceEnv: boolean;
+        extraAllowedKeys: string[];
+      }): NodeJS.ProcessEnv;
+    };
     assert.equal(digest(await readFile(binary)), codexBinaryDigest);
     const oauthSource = await readFile(
       path.join(source, "src/codex-oauth/codex-cli.ts"),
@@ -493,6 +506,25 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     process.env.CODEX_AGENTIC_AUDIT = "strict";
     delete process.env.CODEX_REASONING_EFFORT;
     process.chdir(checkout);
+    phase = "cli-sandbox-preflight";
+    sandboxQualification = await qualifyReadonlySandbox({
+      binary,
+      workspace: checkout,
+      outsideRoot: root,
+      environment: actionEnvironment.buildCliSafeEnv({
+        includeWorkspaceEnv: false,
+        extraAllowedKeys: ["CODEX_HOME", "OPENAI_API_KEY"],
+      }),
+    });
+    // Official rust-v0.133.0 Linux fallback; enable it only after the same
+    // effective read-only policy passed actual filesystem/network denials.
+    const configPath = path.join(codexHome, "config.toml");
+    await writeFile(
+      configPath,
+      "features.use_legacy_landlock = true\n" +
+        (await readFile(configPath, "utf8")),
+      { mode: 0o600 },
+    );
     phase = "installed-action-real-cli-review";
     const provider = new installed.CodexProvider(input.model, {
       agenticContext: true,
@@ -560,6 +592,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
               returnedFunctionTools,
               returnedCustomTools,
               structuredOutputRequests,
+              sandboxQualification,
               reasoningOmitted: true,
               fastOmitted: true,
               executionClosureAcknowledged: true,
