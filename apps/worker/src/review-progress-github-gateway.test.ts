@@ -1385,8 +1385,8 @@ describe("ReviewProgressGitHubGateway", () => {
     },
   );
 
-  it("does not reclassify definitive PATCH 403 after a failed observation", async () => {
-    const fixture = githubFixture([{ id: 8, body: `old\\n${marker}` }]);
+  it("skips reconciliation when a PATCH receives a definitive 403", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
     let commentReads = 0;
     const request: ReviewProgressGitHubRequester = async (
       route,
