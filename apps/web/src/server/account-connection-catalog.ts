@@ -204,7 +204,7 @@ export async function connectionProfiles(input: {
       models,
       ...(wire.methods
         ? {
-            canReconnect: wire.canReconnect,
+            canReconnect: legacy.canReconnect !== false && wire.canReconnect,
             oauthMethods: productOAuthMethods
               ? wire.oauthMethods.filter((method) =>
                   productOAuthMethods.includes(method),

@@ -29,26 +29,23 @@ import { DashboardMutationRefusedError } from "./dashboard-mutation-errors";
 // request. React's request-scoped cache avoids repeating the session and
 // identity database reads without sharing authorization state across users.
 const getDashboardServerSession = cache(() => getServerSession(authOptions));
-const findDashboardUserBySource = cache(
-  async (
-    sourceProvider: "github" | "gitlab",
-    externalUserId: string,
-    prisma?: Pick<PrismaClient, "userExternalIdentity">,
-  ) => {
-    const identity = await (
-      prisma ?? getPrisma()
-    ).userExternalIdentity.findUnique({
-      where: {
-        provider_externalUserId: {
-          provider: sourceProvider,
-          externalUserId,
-        },
+async function readDashboardUserBySource(
+  sourceProvider: "github" | "gitlab",
+  externalUserId: string,
+  prisma: Pick<PrismaClient, "userExternalIdentity"> = getPrisma(),
+) {
+  const identity = await prisma.userExternalIdentity.findUnique({
+    where: {
+      provider_externalUserId: {
+        provider: sourceProvider,
+        externalUserId,
       },
-      select: { userId: true },
-    });
-    return identity ? { id: identity.userId } : null;
-  },
-);
+    },
+    select: { userId: true },
+  });
+  return identity ? { id: identity.userId } : null;
+}
+const findDashboardUserBySource = cache(readDashboardUserBySource);
 
 export type DashboardMutationActor = {
   readonly userId: string;
@@ -1072,11 +1069,13 @@ async function findUserForSourceIdentity(
   },
   prisma?: Pick<PrismaClient, "userExternalIdentity">,
 ): Promise<{ readonly id: string } | null> {
-  return findDashboardUserBySource(
-    input.sourceProvider,
-    input.externalUserId,
-    prisma,
-  );
+  return prisma
+    ? readDashboardUserBySource(
+        input.sourceProvider,
+        input.externalUserId,
+        prisma,
+      )
+    : findDashboardUserBySource(input.sourceProvider, input.externalUserId);
 }
 
 function dashboardMutationsEnabled(): boolean {

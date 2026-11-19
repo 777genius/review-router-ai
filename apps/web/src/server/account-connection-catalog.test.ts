@@ -442,26 +442,46 @@ describe("native v2 catalog and method admission", () => {
       expect(profile!.models).toEqual(capability.modelIds);
     },
   );
-  it("honors an explicit product reconnect denial despite native method support", () => {
-    const profile = {
-      id: codexId,
-      authKind: "oauth" as const,
-      canReconnect: false,
-      connection: {
-        provider: "openai" as const,
-        planLabel: "Codex",
-        regionLabel: "Global",
-        completionInputKind: "callback_url" as const,
-        limitsContract: "account-limits/v2" as const,
-        modelSettings: capability.models,
-        methods: [{ kind: "browser" as const, create: true, reconnect: true }],
-      },
-    };
-    expect(connectionMethodAllowed(profile, "create", "browser")).toBe(true);
-    expect(connectionMethodAllowed(profile, "reconnect", "browser")).toBe(
-      false,
-    );
-  });
+  it.each([undefined, false, true])(
+    "preserves the product reconnect bound %s through native projection",
+    async (canReconnect) => {
+      const [profile] = await connectionProfiles({
+        legacy: [
+          {
+            id: codexId,
+            label: "Codex",
+            authKind: "oauth",
+            protocol: "openai-responses",
+            models: capability.modelIds,
+            ...(canReconnect === undefined ? {} : { canReconnect }),
+          },
+        ],
+        capabilitiesV2: async () => ({
+          contract: "provider-connections/v2",
+          capabilities: [
+            {
+              ...v2Capability,
+              methods: [
+                {
+                  kind: "browser",
+                  completionInputKind: "callback_url",
+                  callbackMode: "manual_callback_url",
+                  create: true,
+                  reconnect: true,
+                },
+              ],
+            },
+          ],
+        }),
+      });
+      expect(profile).toBeDefined();
+      expect(profile!.canReconnect).toBe(canReconnect !== false);
+      expect(connectionMethodAllowed(profile!, "create", "browser")).toBe(true);
+      expect(connectionMethodAllowed(profile!, "reconnect", "browser")).toBe(
+        canReconnect !== false,
+      );
+    },
+  );
   it.each([400, 404, 403, 503])(
     "does not probe v1 after a v2 discovery error %s",
     async (httpStatus) => {

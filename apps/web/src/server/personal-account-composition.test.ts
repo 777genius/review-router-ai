@@ -16,6 +16,8 @@ import {
 import { createPersonalCanonicalAccounts } from "./personal-canonical-accounts";
 import * as composition from "./personal-account-composition";
 import * as metadataService from "./account-metadata-service";
+import * as lifecycleReader from "./account-lifecycle-reader";
+import * as overviewService from "./accounts-overview";
 import { detachRecipientPersonalAccount } from "../../app/dashboard/personal-account-actions";
 
 const h = vi.hoisted(() => ({
@@ -28,6 +30,7 @@ const h = vi.hoisted(() => ({
   capabilities: vi.fn(),
   subscriptionProfileIds: undefined as string[] | undefined,
   nvidiaProfile: false,
+  codexProfile: false,
   control: {
     profiles: vi.fn(),
     get: vi.fn(),
@@ -84,6 +87,9 @@ vi.mock("./account-gateway-accounts", () => ({
         : []),
     ]),
     apiKeyProfileBaseURLs: new Map(),
+    ...(h.codexProfile
+      ? { codexOAuthProfileId: "openai-codex-oauth-responses-v1" }
+      : {}),
     ...(h.subscriptionProfileIds
       ? { subscriptionProfileIds: h.subscriptionProfileIds }
       : {}),
@@ -118,6 +124,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.subscriptionProfileIds = undefined;
   h.nvidiaProfile = false;
+  h.codexProfile = false;
   h.capabilities
     .mockReset()
     .mockResolvedValue(nativeCapabilities(mimoCapability));
@@ -514,6 +521,182 @@ it("retains known product identities for recovery when control discovery is unav
     });
   await expect(input.catalogue!()).rejects.toThrow("catalogue unavailable");
   expect(h.control.operation).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  "declares personal Codex reconnect support subject to the native method (%s)",
+  async (reconnect) => {
+    h.codexProfile = true;
+    const profileId = "openai-codex-oauth-responses-v1";
+    h.control.profiles.mockResolvedValue({
+      profiles: [
+        {
+          profileId,
+          protocol: "openai-responses",
+          authKinds: ["oauth"],
+          modelIds: ["qualified-model"],
+        },
+      ],
+    });
+    h.capabilities.mockResolvedValue(
+      nativeCapabilities({
+        ...mimoCapability,
+        profileId,
+        provider: { id: "openai", label: "Codex" },
+        methods: [
+          {
+            kind: "browser",
+            completionInputKind: "callback_url",
+            callbackMode: "automatic",
+            create: true,
+            reconnect,
+          },
+          { kind: "device_code", create: true, reconnect: true },
+          {
+            kind: "credential_import",
+            method: "refresh_token",
+            maxBytes: 65536,
+            create: true,
+            reconnect,
+          },
+          {
+            kind: "credential_import",
+            method: "oauth_auth_json",
+            maxBytes: 65536,
+            create: true,
+            reconnect,
+          },
+        ],
+      }),
+    );
+    await composition.productionPersonalAccounts();
+    const input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
+    expect(
+      input.profiles.find((profile) => profile.id === profileId)?.canReconnect,
+    ).toBe(true);
+    const profile = (await input.catalogue!()).find(
+      (profile) => profile.id === profileId,
+    )!;
+    expect(profile.canReconnect).toBe(reconnect);
+    expect(connectionMethodAllowed(profile, "create", "browser")).toBe(true);
+    expect(connectionMethodAllowed(profile, "reconnect", "browser")).toBe(
+      reconnect,
+    );
+    expect(connectionMethodAllowed(profile, "create", "device_code")).toBe(
+      true,
+    );
+    expect(connectionMethodAllowed(profile, "reconnect", "device_code")).toBe(
+      false,
+    );
+    for (const method of ["refresh_token", "oauth_auth_json"] as const) {
+      expect(
+        connectionMethodAllowed(profile, "create", "credential_import", method),
+      ).toBe(true);
+      expect(
+        connectionMethodAllowed(
+          profile,
+          "reconnect",
+          "credential_import",
+          method,
+        ),
+      ).toBe(reconnect);
+    }
+  },
+);
+
+it("does not advertise new personal Codex reconnect without native method qualification", async () => {
+  h.codexProfile = true;
+  vi.stubEnv("REVIEW_ROUTER_ACCOUNT_GATEWAY_MANAGEMENT_TOKEN", "");
+  const profileId = "openai-codex-oauth-responses-v1";
+  h.control.profiles.mockResolvedValue({
+    profiles: [
+      {
+        profileId,
+        protocol: "openai-responses",
+        authKinds: ["oauth"],
+        modelIds: ["qualified-model"],
+      },
+    ],
+  });
+  await composition.productionPersonalAccounts();
+  const input = vi.mocked(createPersonalCanonicalAccounts).mock.calls[0]![0];
+  const profile = (await input.catalogue!()).find(
+    (profile) => profile.id === profileId,
+  )!;
+  expect(h.capabilities).not.toHaveBeenCalled();
+  expect(profile.canReconnect).toBe(false);
+  expect(connectionMethodAllowed(profile, "create", "device_code")).toBe(true);
+  expect(connectionMethodAllowed(profile, "reconnect", "device_code")).toBe(
+    false,
+  );
+  expect(connectionMethodAllowed(profile, "reconnect", "browser")).toBe(false);
+});
+
+it("retains existing native API accounts in the real overview when discovery omits their profiles", async () => {
+  const ids = ["anthropic-messages-apikey-v1", "gemini-openai-chat-apikey-v1"];
+  const rows = [...ids, "unknown-native-profile"].map((profileRef, index) => ({
+    id: `source-${index}`,
+    ownerUserId: null,
+    ownerWorkspaceId: "org",
+    gatewayAccountRef: `account-${index}`,
+    profileRef,
+    displayName: `Existing native account ${index}`,
+    state: "active",
+    metadataRevision: 1,
+    authorizationEpochMirror: null,
+    pendingSourceOperationId: null,
+    bindingId: `binding-${index}`,
+    bindingRevision: 1,
+    bindingState: "active",
+    fencePending: false,
+    role: "admin",
+    workspaceName: "Organization",
+  }));
+  h.db.mockReturnValue({
+    workspace: { findUnique: h.workspace },
+    $queryRaw: async () => rows,
+  });
+  vi.spyOn(lifecycleReader, "createAccountLifecycleReader").mockReturnValue({
+    compatible: async () => false,
+    writable: async () => false,
+    get: async () => {
+      throw new Error("native account read unavailable");
+    },
+  });
+  vi.spyOn(metadataService, "createAccountMetadataService").mockReturnValue({
+    page: async (accounts) =>
+      accounts.map((account) => ({
+        ...account,
+        metadata: { status: "restricted" as const, displayToken: "restricted" },
+      })),
+  });
+  const capture = vi.spyOn(overviewService, "createAccountsOverview");
+  const service = (await composition.productionPersonalAccounts())!;
+  const qualified = await service.reviewProfiles("org");
+  expect(qualified.some((profile) => ids.includes(profile.id))).toBe(false);
+  const page = await (await service.overview("org")).list();
+  if (page.status !== "ok") throw new Error(`overview ${page.status}`);
+  expect(page.value.accounts.map((account) => account.profileId)).toEqual(ids);
+  expect(page.value.accounts.map((account) => account.label)).toEqual([
+    "Existing native account 0",
+    "Existing native account 1",
+  ]);
+  expect(
+    page.value.accounts.every((account) => account.readiness === "unknown"),
+  ).toBe(true);
+  for (const id of ids) {
+    const identity = capture.mock.lastCall![0].profiles.find(
+      (profile) => profile.id === id,
+    )!;
+    expect(identity).toMatchObject({
+      availability: "deployment_configuration_required",
+      canReconnect: false,
+    });
+    expect(connectionMethodAllowed(identity, "create", "api_key")).toBe(false);
+    expect(connectionMethodAllowed(identity, "reconnect", "api_key")).toBe(
+      false,
+    );
+  }
 });
 
 it("keeps management discovery configuration out of original-operation recovery construction", async () => {

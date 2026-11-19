@@ -3,6 +3,7 @@ import {
   nvidiaProfileId,
 } from "./account-connection-catalog";
 import { directNativeAPIProfiles } from "../features/account-gateway/native-api-profiles";
+import { connectionMethodAllowed } from "../features/account-gateway/connection-capabilities";
 import {
   subscriptionProfileDefinition,
   subscriptionProfileProviders,
@@ -144,7 +145,7 @@ export async function productionPersonalAccounts() {
       label: "Codex",
       provider: "codex",
       authKind: "oauth",
-      canReconnect: false,
+      canReconnect: true,
       oauthMethods: ["device_code", "browser"],
     });
   if (settings.claudeOAuthProfileId)
@@ -223,15 +224,44 @@ export async function productionPersonalAccounts() {
           ]
         : [];
     });
-    return checked(() =>
-      connectionProfiles({
+    return checked(async () => {
+      const qualified = await connectionProfiles({
         legacy: configured,
         subscriptionProfileIds: settings.subscriptionProfileIds ?? [],
         ...(connectionCapabilitiesV2
           ? { capabilitiesV2: connectionCapabilitiesV2 }
           : {}),
-      }),
-    );
+      });
+      return qualified.map((profile) => {
+        if (profile.id !== settings.codexOAuthProfileId) return profile;
+        if (!profile.connection?.methods)
+          return { ...profile, canReconnect: false };
+        // The personal journal supports browser and credential-import reconnect;
+        // device authorization is supported only when creating an account.
+        const bounded = {
+          ...profile,
+          connection: {
+            ...profile.connection,
+            methods: profile.connection.methods.map((method) =>
+              method.kind === "device_code"
+                ? { ...method, reconnect: false }
+                : method,
+            ),
+          },
+        };
+        return {
+          ...bounded,
+          canReconnect: bounded.connection.methods.some((method) =>
+            connectionMethodAllowed(
+              bounded,
+              "reconnect",
+              method.kind,
+              method.kind === "credential_import" ? method.method : undefined,
+            ),
+          ),
+        };
+      });
+    });
   }
   const ingress = new Map(
     profiles.map((profile) => [
@@ -586,7 +616,14 @@ export async function productionPersonalAccounts() {
       gateway: overviewReader,
       visibleRepositoryIds: () => usageRepositoryVisibility(workspaceId),
       lifecycleCompatible: overviewReader.writable,
-      profiles: qualified,
+      profiles: profiles.map(
+        (identity) =>
+          qualified.find((profile) => profile.id === identity.id) ?? {
+            ...identity,
+            availability: "deployment_configuration_required",
+            canReconnect: false,
+          },
+      ),
       ...(settings.operatorWorkspaceId
         ? { operatorWorkspaceId: settings.operatorWorkspaceId }
         : {}),

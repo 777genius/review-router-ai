@@ -1024,9 +1024,7 @@ describe("ProviderSetupDialog", () => {
           .getAttribute("aria-checked"),
       ).toBe("true");
       await screen.findByRole("combobox", { name: "Model" });
-      fireEvent.click(
-        screen.getByRole("button", { name: "Add provider", exact: true }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
       await waitFor(() =>
         expect(createProviderProfileAction).toHaveBeenCalledWith(
           expect.objectContaining({
