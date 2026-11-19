@@ -50,16 +50,14 @@ sign-in. The old API-key/OAuth entry menu is unnecessary. The credential and
 OAuth forms, reconnect paths, operation readback, and recovery behavior remain
 owned by their existing components.
 
-The **Connect OpenRouter** continuation opens the existing API-key form with
-OpenRouter selected, rather than requiring another Add connection action.
-Restored pending operations take priority over opening a new form. For an
-authorized workspace owner, the current workspace is preselected when that
-provider is available there; otherwise the form keeps the personal ownership
-path and its explicit access controls. A connection that needs a workspace
-binding offers **Make available and continue**, using the existing binding
-mutation before returning to the original provider setup. An already available
-connection offers **Continue provider setup**. Opening a page never shares a
-personal account or submits a credential.
+Adding a provider connects its account in the same dialog
+([plan 79](../architecture/79-one-step-add-provider.md)): with ReviewRouter
+storage and no connection of that provider yet, the dialog shows this
+connection form narrowed to the provider, for keys and for browser or device
+sign-in alike. The new personal connection is added to the current workspace,
+selected, and given a suggested model. There is no round trip through
+Connections. Opening a page never shares a personal account or submits a
+credential.
 
 For GitHub Secrets, the existing managed-key capability is visible as
 **Install for me**, alongside **Add on GitHub myself**. Automatic delivery

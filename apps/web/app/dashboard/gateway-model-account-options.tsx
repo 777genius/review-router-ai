@@ -179,6 +179,9 @@ export function useGatewayModelAccounts(
       refreshModels: async (bindingId: string) => {
         void bindingId;
       },
+      recheck: (bindingId: string) => {
+        void bindingId;
+      },
       profileFor: (account: AccountView | undefined) =>
         initial?.status === "ok"
           ? initial.value.profiles.find(
@@ -313,6 +316,13 @@ export function useGatewayModelAccounts(
       } catch {
         unavailable();
       }
+    },
+    /** Reread one chosen binding only, e.g. while it finishes connecting. */
+    recheck(bindingId: string) {
+      void client.refetchQueries({
+        queryKey: ["account-option", context.scope, bindingId],
+        exact: true,
+      });
     },
     canLoadMore: Boolean(pages.hasNextPage),
     canRefresh: true,

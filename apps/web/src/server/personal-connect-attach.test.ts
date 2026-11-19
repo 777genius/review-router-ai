@@ -99,7 +99,7 @@ function setup(
     attach?: Awaited<
       ReturnType<Parameters<typeof createConnectWorkspaceAttach>[0]["attach"]>
     >;
-    activeBinding?: boolean;
+    activeBinding?: string;
   } = {},
 ) {
   const deps = {
@@ -114,7 +114,7 @@ function setup(
       if (access instanceof Error) throw access;
       return access;
     }),
-    hasActiveBinding: vi.fn(async () => input.activeBinding ?? false),
+    activeBindingId: vi.fn(async () => input.activeBinding ?? null),
     attach: vi.fn(async () => input.attach ?? receipt(true)),
   };
   return { deps, attachConnected: createConnectWorkspaceAttach(deps) };
@@ -126,6 +126,7 @@ describe("adding a new personal connection to the current workspace", () => {
 
     await expect(attachConnected("org", connectNonce)).resolves.toEqual({
       status: "attached",
+      bindingId: "org-binding",
     });
     expect(deps.readOperation).toHaveBeenCalledWith(connectNonce);
     expect(deps.workspaceAccess).toHaveBeenCalledWith("org");
@@ -180,6 +181,7 @@ describe("adding a new personal connection to the current workspace", () => {
     const admin = setup({ operation });
     await expect(admin.attachConnected("org", connectNonce)).resolves.toEqual({
       status: "attached",
+      bindingId: "org-binding",
     });
     expect(admin.deps.attach).toHaveBeenCalledOnce();
 
@@ -207,6 +209,7 @@ describe("adding a new personal connection to the current workspace", () => {
 
     await expect(attachConnected("personal", connectNonce)).resolves.toEqual({
       status: "attached",
+      bindingId: "personal-binding",
     });
     expect(deps.attach).not.toHaveBeenCalled();
   });
@@ -243,6 +246,7 @@ describe("adding a new personal connection to the current workspace", () => {
     const kept = setup({ stored: storedAttach(true) });
     await expect(kept.attachConnected("org", connectNonce)).resolves.toEqual({
       status: "attached",
+      bindingId: "personal-binding",
     });
     expect(kept.deps.attach).not.toHaveBeenCalled();
 
@@ -271,6 +275,21 @@ describe("adding a new personal connection to the current workspace", () => {
     });
   });
 
+  it("does not report an attach without its binding as added", async () => {
+    const ok = receipt(true);
+    const { attachConnected } = setup({
+      attach: {
+        ...ok,
+        value: { operation: { ...ok.value.operation, bindingId: null } },
+      },
+    });
+
+    await expect(attachConnected("org", connectNonce)).resolves.toEqual({
+      status: "not_attached",
+      reason: "unavailable",
+    });
+  });
+
   it("maps refusals from the attach operation", async () => {
     await expect(
       setup({ attach: { status: "denied" } }).attachConnected(
@@ -287,9 +306,9 @@ describe("adding a new personal connection to the current workspace", () => {
     await expect(
       setup({
         attach: { status: "conflict" },
-        activeBinding: true,
+        activeBinding: "existing-binding",
       }).attachConnected("org", connectNonce),
-    ).resolves.toEqual({ status: "attached" });
+    ).resolves.toEqual({ status: "attached", bindingId: "existing-binding" });
   });
 
   it("rejects malformed input before reading anything", async () => {

@@ -322,10 +322,10 @@ jobs:
           node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
             tmp/accounts-reference-e2e/runs/catalog-ci
 
-      - name: Run account and public model browser scenarios
+      - name: Run provider connection and model browser scenarios
         id: account_models
         env:
-          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models|public catalogs refresh
+          ACCOUNTS_REFERENCE_E2E_GREP: dynamic Codex account models|public catalogs refresh|Add provider|subscription connections
           DATABASE_URL: postgresql://fixture_owner@127.0.0.1:5433/review_router_accounts_reference_e2e_test?schema=public
           TMPDIR: ${{ github.workspace }}/tmp/accounts-reference-e2e/tmp
         run: |
@@ -338,9 +338,10 @@ jobs:
             --database-url "$DATABASE_URL" \
             --work-dir "$GITHUB_WORKSPACE/tmp/accounts-reference-e2e/runs/account-models-ci" \
             --expected-revision "$EXPECTED_REVISION" \
-            --account-models-fixture --catalog-fixture
+            --account-models-fixture --catalog-fixture \
+            --api-key-storage-fixture --subscription-fixture
 
-      - name: Verify account and public model acceptance receipt
+      - name: Verify provider connection and model acceptance receipt
         if: ${{ always() && steps.account_models.outcome != 'skipped' }}
         run: |
           node tmp/accounts-reference-e2e/verify-generated-next-env.mjs \
@@ -349,7 +350,7 @@ jobs:
           import assert from 'node:assert/strict';
           import { createHash } from 'node:crypto';
           import { readFileSync } from 'node:fs';
-          import { ACCOUNT_MODELS_FIXTURE_BOUNDARY } from './scripts/accounts-reference-e2e/src/contracts.ts';
+          import { API_KEY_STORAGE_FIXTURE_BOUNDARY } from './scripts/accounts-reference-e2e/src/contracts.ts';
           const directory = 'tmp/accounts-reference-e2e/runs/account-models-ci';
           const result = JSON.parse(readFileSync(`${directory}/result.json`, 'utf8'));
           const runtime = JSON.parse(readFileSync(`${directory}/runtime.json`, 'utf8'));
@@ -364,9 +365,9 @@ jobs:
           assert.equal(runtime.databaseName, 'review_router_accounts_reference_e2e_test');
           assert.equal(result.externalNetworkAllowed, false);
           assert.equal(runtime.externalNetworkAllowed, false);
-          assert.equal(result.fixtureBoundary, ACCOUNT_MODELS_FIXTURE_BOUNDARY);
-          assert.equal(runtime.fixtureBoundary, ACCOUNT_MODELS_FIXTURE_BOUNDARY);
-          assert.equal(result.tests.passed, 2);
+          assert.equal(result.fixtureBoundary, API_KEY_STORAGE_FIXTURE_BOUNDARY);
+          assert.equal(runtime.fixtureBoundary, API_KEY_STORAGE_FIXTURE_BOUNDARY);
+          assert.equal(result.tests.passed, 6);
           assert.equal(result.tests.failed, 0);
           assert.equal(result.tests.skipped, 0);
           assert.deepEqual(result.tests.failures, []);
@@ -380,8 +381,12 @@ jobs:
           };
           collect(report.suites);
           assert.deepEqual(specs.map(spec => spec.title).sort(), [
+            'Add provider connects an API-key account in place and saves it with its model',
+            'Add provider signs in to Grok in place and selects the new account',
+            'Add provider resets unsubmitted credentials when switching providers and preserves existing Codex without enrollment',
             'dynamic Codex account models work in provider edit and add with exact binding refresh and save validation',
             'public catalogs refresh direct providers, preserve the selected ID, and never test a connection automatically',
+            'subscription connections use real server actions for all four providers and remain compact on mobile',
           ].sort());
           for (const spec of specs) {
             assert.equal(spec.tests.length, 1);

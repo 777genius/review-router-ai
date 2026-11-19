@@ -771,12 +771,15 @@ export async function productionPersonalAccounts() {
     actorUserId: userId,
     readOperation: (nonce) => checked(() => store.readOperation(userId, nonce)),
     workspaceAccess,
-    hasActiveBinding: async (workspaceId, connectionId) =>
-      (await checked(() =>
-        prisma.workspaceAccountBinding.count({
-          where: { workspaceId, connectionId, state: "active" },
-        }),
-      )) > 0,
+    activeBindingId: async (workspaceId, connectionId) =>
+      (
+        await checked(() =>
+          prisma.workspaceAccountBinding.findFirst({
+            where: { workspaceId, connectionId, state: "active" },
+            select: { id: true },
+          }),
+        )
+      )?.id ?? null,
     attach: (request) => sharing.attach(request),
   });
   const scope = `personal-${createHash("sha256").update(`rr-personal-ui-v1\0${userId}`).digest("hex")}`;

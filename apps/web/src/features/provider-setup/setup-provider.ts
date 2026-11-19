@@ -55,28 +55,24 @@ export const setupProviders: readonly SetupProvider[] = Object.freeze([
     githubSource: "user_ci_secret:claude_code_oauth",
     publicCatalogProvider: "claude",
   },
-  ...apiKeyProviders.map(
-    (provider): SetupProvider => ({
-      id: provider.id,
-      label: provider.label,
-      identity: provider.gatewayUpstreamProvider,
-      credentialLabel: "API key",
-      credentialKind: "api_key",
-      githubSource: `user_ci_secret:${provider.directAuthMode}`,
-      publicCatalogProvider: provider.directProviderKind,
-    }),
-  ),
-  ...(["anthropic", "gemini"] as const).map(
-    (id): SetupProvider => ({
-      id,
-      label: id === "anthropic" ? "Anthropic API" : "Gemini API",
-      identity: id,
-      credentialLabel: "API key",
-      credentialKind: "api_key",
-      githubSource: null,
-      publicCatalogProvider: null,
-    }),
-  ),
+  ...apiKeyProviders.map((provider): SetupProvider => ({
+    id: provider.id,
+    label: provider.label,
+    identity: provider.gatewayUpstreamProvider,
+    credentialLabel: "API key",
+    credentialKind: "api_key",
+    githubSource: `user_ci_secret:${provider.directAuthMode}`,
+    publicCatalogProvider: provider.directProviderKind,
+  })),
+  ...(["anthropic", "gemini"] as const).map((id): SetupProvider => ({
+    id,
+    label: id === "anthropic" ? "Anthropic API" : "Gemini API",
+    identity: id,
+    credentialLabel: "API key",
+    credentialKind: "api_key",
+    githubSource: null,
+    publicCatalogProvider: null,
+  })),
   {
     id: "nvidia",
     label: "NVIDIA Build",
@@ -204,16 +200,34 @@ export function setupProviderForGatewayProfile(
   return undefined;
 }
 
+type EnrollableProfile = GatewayProfileIdentity &
+  Pick<AccountProfileView, "availability">;
+
+/** The provider a new connection of this profile sets up, if it may be made. */
+function enrollableSetupProvider(
+  profile: EnrollableProfile,
+): SetupProviderId | undefined {
+  return canCreateConnection(profile)
+    ? setupProviderForGatewayProfile(profile)
+    : undefined;
+}
+
+/** A profile the provider dialog may connect in place (79). */
+export function connectsInProviderDialog(
+  profile: EnrollableProfile,
+  provider: SetupProviderId,
+): boolean {
+  return enrollableSetupProvider(profile) === provider;
+}
+
 /** Enrollment is advertised independently of an existing account inventory. */
 export function gatewaySetupProvidersForProfiles(
-  profiles: readonly (GatewayProfileIdentity &
-    Pick<AccountProfileView, "availability">)[],
+  profiles: readonly EnrollableProfile[],
 ): SetupProviderId[] {
   return [
     ...new Set(
       profiles.flatMap((profile) => {
-        if (!canCreateConnection(profile)) return [];
-        const provider = setupProviderForGatewayProfile(profile);
+        const provider = enrollableSetupProvider(profile);
         return provider ? [provider] : [];
       }),
     ),

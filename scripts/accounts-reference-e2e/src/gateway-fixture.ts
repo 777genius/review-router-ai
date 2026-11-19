@@ -121,9 +121,18 @@ export async function startGatewayFixture(input: {
   const accountModels = process.argv.includes("--account-models-fixture")
     ? createAccountModelsFixture(accounts)
     : null;
-  const connectionProfiles = process.argv.includes("--api-key-storage-fixture")
-    ? apiKeyStorageProfiles
-    : subscriptionProfiles;
+  const connectionProfiles = [
+    ...new Map(
+      [
+        ...(process.argv.includes("--api-key-storage-fixture")
+          ? apiKeyStorageProfiles
+          : []),
+        ...(process.argv.includes("--subscription-fixture")
+          ? subscriptionProfiles
+          : []),
+      ].map((profile) => [profile.profileId, profile] as const),
+    ).values(),
+  ];
   const subscriptions =
     process.argv.includes("--subscription-fixture") ||
     process.argv.includes("--api-key-storage-fixture")
@@ -494,7 +503,29 @@ export async function startGatewayFixture(input: {
       requestUrl.pathname === "/v1/account-models/read" &&
       request.method === "POST"
     ) {
-      const result = accountModels.read(await readJson(request));
+      const body = await readJson(request);
+      const account = accounts.find(
+        (row) => row.accountRef === body.accountRef,
+      );
+      // Each known account keeps the model reader belonging to its profile.
+      // Unknown accounts still reach the existing Codex authorization guard.
+      if (
+        subscriptions &&
+        connectionProfiles.some(
+          (profile) => profile.profileId === account?.profileId,
+        )
+      ) {
+        const result = await subscriptions.handle(
+          request.method,
+          requestUrl.pathname,
+          async () => body,
+        );
+        if (!result)
+          throw new Error("subscription_fixture_models_handler_missing");
+        send(response, result.status, result.body);
+        return;
+      }
+      const result = accountModels.read(body);
       send(response, result.status, result.body);
       return;
     }

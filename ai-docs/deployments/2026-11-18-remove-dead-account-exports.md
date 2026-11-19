@@ -16,10 +16,10 @@
 
 ## Environment status
 
-| Environment / target | Status    | Actual deployed version / image | Last verified (UTC) | Evidence / next step / blocker           |
-| -------------------- | --------- | ------------------------------- | ------------------- | ---------------------------------------- |
-| staging              | `pending` | Not verified                    | Not verified        | Ship with the next ordinary Web release. |
-| production           | `pending` | Not verified                    | Not verified        | Ship with the next ordinary Web release. |
+| Environment / target | Status      | Actual deployed version / image      | Last verified (UTC) | Evidence / next step / blocker                                                                     |
+| -------------------- | ----------- | ------------------------------------ | ------------------- | -------------------------------------------------------------------------------------------------- |
+| staging              | `pending`   | Not verified                         | Not verified        | Ship with the next ordinary Web release.                                                           |
+| production           | `installed` | `7c176ef7`, image `sha256:a2c03f03…` | 2026-11-19 15:56    | [rollout 7c176ef7](2026-11-19-rollout-7c176ef7.md). Providers tab check needs the owner's session. |
 
 `pending` means no verified completion is recorded. See the
 [status contract](README.md#status-contract).

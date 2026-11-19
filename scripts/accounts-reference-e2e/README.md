@@ -406,18 +406,33 @@ model. This is an HTTP dependency fixture, not a live Codex/native proof.
 Use the existing explicit `--database-url` and `--browser-executable` options
 where PostgreSQL or a preinstalled Chromium is required.
 
-The Linux `catalog-browser` CI job runs the account-scoped Codex scenario and the
-direct public-catalog refresh scenario after its unchanged 12-case Skills catalog
-acceptance and eight-static/one-AI receipt checks. These two model scenarios share
+The Linux `catalog-browser` CI job runs the account-scoped Codex scenario, the
+direct public-catalog refresh scenario, three inline Add provider scenarios and
+the subscription connections scenario
+after its unchanged 12-case Skills catalog acceptance and native scanner receipt
+checks. These six scenarios share
 a second fresh service with the same pinned PostgreSQL 17 image on loopback port
 5433 and their own work directory. They run serially with separate browser contexts;
 the direct scenario closes without saving a provider. CI preserves and validates
 only Next's generated `next-env.d.ts` import change between runs, rejects other
 tracked changes, and requires an exact-head, empty-source-delta receipt with fresh
-migrations, successful boot, both named scenarios passing once, zero failures/skips,
+migrations, successful boot, all six named scenarios passing once, zero failures/skips,
 and no external network.
 Its separate `account-models-browser-<run-id>-<attempt>` artifact is retained even
 on failure; the fixture remains UI/read evidence, not live provider qualification.
+
+The same run combines the existing `--api-key-storage-fixture`,
+`--subscription-fixture`, `--account-models-fixture` and `--catalog-fixture` modes.
+Their enrollment profiles are deduplicated by the same profile ID used by the
+Gateway catalog and operation handlers. The two existing one-step cases connect
+OpenRouter by key and Grok by a synthetic browser authorization code, attach the
+account, select its model and save the provider without leaving the dialog.
+The third case switches an unsubmitted key between Kimi and MiMo in the actual
+embedded form, verifies that the field is present and empty after each switch,
+and keeps an existing Codex account selectable while its `create: false`
+capability prevents a new sign-in. It checks that no enrollment operation was
+started and that the discarded key is absent from the page and browser storage.
+The selected cases must execute; skipped cases fail the CI receipt.
 
 ## Provider settings UX integration
 

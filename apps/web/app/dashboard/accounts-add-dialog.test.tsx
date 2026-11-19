@@ -50,28 +50,6 @@ test("clears credential import errors when a retained dialog is closed and reope
   ).toBe("");
 });
 
-test("an explicit continuation opens the requested ownership once and does not reopen after a refresh", async () => {
-  const props = {
-    workspaceName: "Acme",
-    personalConnect: <p>Personal key form</p>,
-    organizationConnect: <p>Workspace key form</p>,
-    initiallyOpen: true,
-    initialOwnership: "organization" as const,
-  };
-  const rendered = render(<AccountsAddDialog {...props} />);
-  const dialog = await screen.findByRole("dialog", { name: "Add account" });
-  expect(
-    within(dialog).getByRole("combobox", { name: "Owner" }).textContent,
-  ).toContain("Acme");
-  expect(
-    within(dialog).getByText("Workspace key form").closest("div[hidden]"),
-  ).toBeNull();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  rendered.rerender(<AccountsAddDialog {...props} />);
-  expect(screen.queryByRole("dialog")).toBeNull();
-});
-
 function Connect() {
   return (
     <AccountActionsMenu
