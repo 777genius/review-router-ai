@@ -156,13 +156,14 @@ export class ReviewProgressPublisher {
     } catch (error) {
       // The requester factory can fail before the GitHub gateway is created.
       // Retain Octokit's HTTP retry boundary instead of using the generic delay.
+      // Other token failures keep main's counted generic retry, not suppression.
       const classified = classifyGitHubFailure(
         error,
         "github_request_failed",
         () => this.clock.now(),
         Math.random,
       );
-      if ((classified.metadata.status ?? 0) >= 400) throw classified;
+      if (classified.metadata.retryable) throw classified;
       throw error;
     }
     const gateway = new ReviewProgressGitHubGateway(installation.request, {
@@ -232,25 +233,18 @@ export class ReviewProgressPublisher {
         maxFailures: this.options.maxFailures,
         countFailure: false,
       });
-      if (retryOutcome === "stale") {
-        if (
-          published.operation === "updated" ||
-          published.operation === "reconciled"
-        ) {
-          // A stale PATCH may have overwritten the current body.
-          await this.store.complete({
-            publication,
-            commentId: BigInt(published.commentId),
-            bodyHash,
-            now: this.clock.now(),
-          });
-        } else if (published.operation === "duplicate_deleted") {
-          // A stale DELETE may have removed another worker's canonical comment.
-          await this.store.requeueAfterClaimLoss({
-            scope: publication.scope,
-            now: this.clock.now(),
-          });
-        }
+      if (
+        retryOutcome === "stale" &&
+        (published.operation === "updated" ||
+          published.operation === "reconciled" ||
+          published.operation === "duplicate_deleted")
+      ) {
+        // A stale PATCH may have overwritten the current body, and a stale
+        // DELETE may have removed another worker's canonical comment.
+        await this.store.requeueAfterClaimLoss({
+          scope: publication.scope,
+          now: this.clock.now(),
+        });
       }
       result.deferred += 1;
       return;

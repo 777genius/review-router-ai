@@ -814,6 +814,71 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(mutations(fixture.calls)).toEqual([]);
   });
 
+  it("confirms a landed busy-PR PATCH through the known comment", async () => {
+    const fullPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture(
+      [...fullPage, { id: 900, body: `known\n${marker}` }],
+      { listedComments: fullPage, throwAfterPatch: true },
+    );
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).resolves.toEqual({
+      commentId: 900,
+      operation: "reconciled",
+      duplicateCommentIds: [],
+    });
+  });
+
+  it("keeps a short ambiguous retry for an unconfirmed busy-PR PATCH", async () => {
+    const fullPage = Array.from({ length: 100 }, (_, index) => ({
+      id: index + 1,
+      body: "unrelated",
+    }));
+    const fixture = githubFixture(
+      [...fullPage, { id: 900, body: `known\n${marker}` }],
+      { listedComments: fullPage, throwBeforePatch: true },
+    );
+
+    await expect(
+      gateway(fixture.request, { maxCommentPages: 1 }).upsert({
+        ...input(),
+        knownCommentId: 900,
+      }),
+    ).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { retryable: true, mutationMayHaveLanded: true },
+    });
+  });
+
+  it("does not treat a definite PATCH 422 as a possibly landed write", async () => {
+    const fixture = githubFixture([{ id: 9, body: `old\n${marker}` }]);
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route.startsWith("PATCH ")) throw { status: 422 };
+      return fixture.request(route, parameters);
+    };
+
+    const error = await gateway(request)
+      .upsert(input())
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { status: 422, retryable: true },
+    });
+    expect(
+      (error as ReviewProgressGitHubError).metadata.mutationMayHaveLanded,
+    ).toBeUndefined();
+  });
+
   it("prioritizes a verified known comment over an earlier match", async () => {
     const fixture = githubFixture([
       { id: 4, body: `older\n${marker}` },
@@ -1263,76 +1328,89 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
-  it.each(["pagination_inconclusive", "rate_limited"] as const)(
-    "preserves %s after an ambiguous PATCH and an inconclusive rescan",
-    async (kind) => {
-      const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
-        throwAfterPatch: true,
-      });
-      let commentReads = 0;
-      const request: ReviewProgressGitHubRequester = async (
-        route,
-        parameters,
-      ) => {
-        if (
-          route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
-        ) {
-          commentReads += 1;
-          if (commentReads === 2) {
-            if (kind === "rate_limited") {
-              throw {
-                status: 403,
-                response: { headers: { "retry-after": "60" } },
-              };
-            }
-            return {
-              data: Array.from({ length: 100 }, (_, index) => ({
-                id: index + 1,
-                body: "unrelated",
-              })),
-              headers: {
-                link: '<https://api.github.com/comments?page=2>; rel="next"',
-              },
-            };
-          }
+  it("preserves rate_limited after an ambiguous PATCH and a throttled rescan", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
+      throwAfterPatch: true,
+    });
+    let commentReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        commentReads += 1;
+        if (commentReads === 2) {
+          throw {
+            status: 403,
+            response: { headers: { "retry-after": "60" } },
+          };
         }
-        return fixture.request(route, parameters);
-      };
-      const caught = await gateway(request, {
-        maxCommentPages: 1,
-        now: () => new Date("2026-08-12T12:00:00.000Z"),
-        random: () => 0,
-      })
-        .upsert(input())
-        .catch((error: unknown) => error);
-
-      expect(caught).toBeInstanceOf(ReviewProgressGitHubError);
-      expect(caught).toMatchObject({
-        kind,
-        metadata: { retryable: true },
-        cause: {
-          mutationError: expect.any(Error),
-          observationError: expect.objectContaining({ kind }),
-        },
-      });
-      const metadata = (caught as ReviewProgressGitHubError).metadata;
-      if (kind === "rate_limited") {
-        expect(metadata).toMatchObject({
-          status: 403,
-          retryNotBefore: new Date("2026-08-12T12:01:00.000Z"),
-        });
-        expect(metadata.retryAt!.getTime()).toBeGreaterThanOrEqual(
-          Date.parse("2026-08-12T12:01:00.000Z"),
-        );
-      } else {
-        expect(metadata.retryAt).toBeUndefined();
       }
-      expect(commentReads).toBe(2);
-      expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
-        "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
-      ]);
-    },
-  );
+      return fixture.request(route, parameters);
+    };
+    const caught = await gateway(request, {
+      maxCommentPages: 1,
+      now: () => new Date("2026-08-12T12:00:00.000Z"),
+      random: () => 0,
+    })
+      .upsert(input())
+      .catch((error: unknown) => error);
+
+    expect(caught).toBeInstanceOf(ReviewProgressGitHubError);
+    expect(caught).toMatchObject({
+      kind: "rate_limited",
+      metadata: { retryable: true },
+      cause: {
+        mutationError: expect.any(Error),
+        observationError: expect.objectContaining({ kind: "rate_limited" }),
+      },
+    });
+    const metadata = (caught as ReviewProgressGitHubError).metadata;
+    expect(metadata).toMatchObject({
+      status: 403,
+      retryNotBefore: new Date("2026-08-12T12:01:00.000Z"),
+    });
+    expect(metadata.retryAt!.getTime()).toBeGreaterThanOrEqual(
+      Date.parse("2026-08-12T12:01:00.000Z"),
+    );
+    expect(commentReads).toBe(2);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+  });
+
+  it("confirms an ambiguous PATCH through its comment when the rescan is capped", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
+      throwAfterPatch: true,
+    });
+    let commentReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        commentReads += 1;
+        if (commentReads === 2) return { data: fullUnrelatedPage() };
+      }
+      return fixture.request(route, parameters);
+    };
+
+    await expect(
+      gateway(request, { maxCommentPages: 1 }).upsert(input()),
+    ).resolves.toEqual({
+      commentId: 8,
+      operation: "reconciled",
+      duplicateCommentIds: [],
+    });
+    expect(commentReads).toBe(2);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "PATCH /repos/{owner}/{repo}/issues/comments/{comment_id}",
+    ]);
+  });
 
   it("keeps PATCH 429 cooldown after reconciliation GET 502", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
@@ -1501,7 +1579,7 @@ describe("ReviewProgressGitHubGateway", () => {
     expect(commentReads).toBe(2);
   });
 
-  it.each(["rate_limited", "pagination_inconclusive"] as const)(
+  it.each(["rate_limited"] as const)(
     "preserves PATCH 429 cooldown after a %s reconciliation failure",
     async (kind) => {
       const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
@@ -1523,20 +1601,9 @@ describe("ReviewProgressGitHubGateway", () => {
         ) {
           commentReads += 1;
           if (commentReads === 2) {
-            if (kind === "rate_limited") {
-              throw {
-                status: 403,
-                response: { headers: { "retry-after": "60" } },
-              };
-            }
-            return {
-              data: Array.from({ length: 100 }, (_, index) => ({
-                id: index + 1,
-                body: "unrelated",
-              })),
-              headers: {
-                link: '<https://api.github.com/comments?page=2>; rel="next"',
-              },
+            throw {
+              status: 403,
+              response: { headers: { "retry-after": "60" } },
             };
           }
         }
@@ -1568,12 +1635,51 @@ describe("ReviewProgressGitHubGateway", () => {
         safeCode: `review_progress_${kind}`,
         retryAt: cooldown,
         installationCooldownUntil: cooldown,
-        ...(kind === "pagination_inconclusive" ? { countFailure: false } : {}),
       });
       expect(commentReads).toBe(2);
       expect(patchAttempts).toBe(1);
     },
   );
+
+  it("preserves PATCH 429 cooldown when a capped rescan cannot confirm it", async () => {
+    const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
+    let commentReads = 0;
+    const request: ReviewProgressGitHubRequester = async (
+      route,
+      parameters,
+    ) => {
+      if (route.startsWith("PATCH ")) {
+        throw { status: 429, response: { headers: { "retry-after": "7200" } } };
+      }
+      if (
+        route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+      ) {
+        commentReads += 1;
+        if (commentReads === 2) return { data: fullUnrelatedPage() };
+      }
+      return fixture.request(route, parameters);
+    };
+    const now = new Date("2026-08-12T12:00:00.000Z");
+    const caught = await gateway(request, {
+      maxCommentPages: 1,
+      now: () => now,
+      random: () => 0,
+    })
+      .upsert(input())
+      .catch((error: unknown) => error);
+    const cooldown = new Date("2026-08-12T14:00:00.250Z");
+
+    expect(caught).toMatchObject({
+      kind: "rate_limited",
+      metadata: { retryable: true, status: 429 },
+    });
+    expect(publicationRetryPlan(caught, () => now, 1_000)).toMatchObject({
+      safeCode: "review_progress_rate_limited",
+      retryAt: cooldown,
+      installationCooldownUntil: cooldown,
+    });
+    expect(commentReads).toBe(2);
+  });
 
   it("skips GET after definitive PATCH 403", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }]);
@@ -1790,6 +1896,14 @@ function githubFixture(
     throw new Error(`unexpected_route:${route}`);
   };
   return { request, calls };
+}
+
+function fullUnrelatedPage() {
+  return Array.from({ length: 100 }, (_, index) => ({
+    id: index + 1,
+    body: "unrelated",
+    user: { login: "other" },
+  }));
 }
 
 function toStoredComment(comment: {

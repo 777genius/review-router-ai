@@ -181,14 +181,6 @@ export function commentPageLinks(
   }
 }
 
-/** Compatibility helper for callers that only need the immediate decision. */
-export function hasNextCommentPage(
-  headers: Readonly<Record<string, string | number | undefined>> | undefined,
-  currentPage: number,
-): boolean | "invalid" | undefined {
-  return commentPageLinks(headers, currentPage).hasNextPage;
-}
-
 export function parseCommentOrNull(
   value: unknown,
 ): ReviewProgressComment | null {

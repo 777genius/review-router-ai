@@ -3,10 +3,16 @@ import {
   commentPageLinks,
   commentPageScanDecision,
   confirmedReconciliation,
-  hasNextCommentPage,
   ownsMarker,
   parseCommentOrNull,
 } from "./review-progress-github-comment-policy";
+
+function hasNextCommentPage(
+  headers: Parameters<typeof commentPageLinks>[0],
+  currentPage: number,
+) {
+  return commentPageLinks(headers, currentPage).hasNextPage;
+}
 
 const desired = "published progress";
 

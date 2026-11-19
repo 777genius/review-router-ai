@@ -443,7 +443,6 @@ describe("ReviewProgressPublisher", () => {
     const publication = { ...claimed(), commentId: 77n };
     const store = fakeStore(publication);
     store.retry.mockResolvedValue("stale");
-    store.complete.mockResolvedValue(false);
     const comment = {
       body: "<!-- review-router-live-progress -->",
       user: { login: "review-router[bot]" },
@@ -479,14 +478,11 @@ describe("ReviewProgressPublisher", () => {
         countFailure: false,
       }),
     );
-    expect(store.complete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        publication,
-        commentId: 77n,
-        bodyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-        now,
-      }),
-    );
+    expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
+      scope: publication.scope,
+      now,
+    });
+    expect(store.complete).not.toHaveBeenCalled();
     expect(store.suppress).not.toHaveBeenCalled();
   });
 
@@ -768,7 +764,7 @@ describe("ReviewProgressPublisher", () => {
     expect(store.suppress).not.toHaveBeenCalled();
   });
 
-  it.each(["pagination_inconclusive", "rate_limited"] as const)(
+  it.each(["rate_limited"] as const)(
     "retains %s retry policy after an ambiguous PATCH reconciliation",
     async (kind) => {
       const publication = { ...claimed(), commentId: 77n, failureCount: 2 };
@@ -800,18 +796,9 @@ describe("ReviewProgressPublisher", () => {
                 ],
               };
             }
-            if (kind === "rate_limited") {
-              throw {
-                status: 403,
-                response: { headers: { "retry-after": "60" } },
-              };
-            }
-            return {
-              data: Array.from({ length: 100 }, (_, index) => ({
-                id: index + 1,
-                body: "unrelated",
-                user: { login: "other" },
-              })),
+            throw {
+              status: 403,
+              response: { headers: { "retry-after": "60" } },
             };
           }
           if (route.startsWith("PATCH")) {
@@ -828,18 +815,14 @@ describe("ReviewProgressPublisher", () => {
         suppressed: 0,
         failed: 0,
       });
-      expect(commentReads).toBe(kind === "rate_limited" ? 2 : 3);
+      expect(commentReads).toBe(2);
       expect(store.retry).toHaveBeenCalledWith(
         expect.objectContaining({
           publication,
           safeCode: `review_progress_${kind}`,
           countFailure: false,
-          ...(kind === "pagination_inconclusive"
-            ? { retryAt: new Date(now.getTime() + 60 * 60_000) }
-            : {
-                installationCooldownUntil: expect.any(Date),
-                retryAt: expect.any(Date),
-              }),
+          installationCooldownUntil: expect.any(Date),
+          retryAt: expect.any(Date),
           maxFailures: 3,
         }),
       );
@@ -847,6 +830,58 @@ describe("ReviewProgressPublisher", () => {
       expect(store.suppress).not.toHaveBeenCalled();
     },
   );
+
+  it("keeps a short uncounted retry for an unconfirmed PATCH on a busy PR", async () => {
+    const publication = { ...claimed(), commentId: 77n, failureCount: 2 };
+    const store = fakeStore(publication);
+    const oldComment = {
+      id: 77,
+      body: "<!-- review-router-live-progress -->",
+      user: { login: "review-router[bot]" },
+      issue_url: "https://api.github.com/repos/acme/rocket/issues/42",
+    };
+    let commentReads = 0;
+    const publisher = createPublisher(store, async () => ({
+      botLogin: "review-router[bot]",
+      request: async (route) => {
+        if (route.includes("/pulls/")) return pull();
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/{issue_number}/comments"
+        ) {
+          commentReads += 1;
+          if (commentReads === 1) return { data: [oldComment] };
+          return {
+            data: Array.from({ length: 100 }, (_, index) => ({
+              id: index + 1,
+              body: "unrelated",
+              user: { login: "other" },
+            })),
+          };
+        }
+        if (
+          route === "GET /repos/{owner}/{repo}/issues/comments/{comment_id}"
+        ) {
+          return { data: oldComment };
+        }
+        if (route.startsWith("PATCH")) {
+          throw new Error("transport_outcome_unknown");
+        }
+        throw new Error(`unexpected:${route}`);
+      },
+    }));
+
+    await expect(publisher.runMaintenance()).resolves.toMatchObject({
+      claimed: 1,
+      deferred: 1,
+      failed: 0,
+    });
+    const retry = store.retry.mock.calls[0]?.[0];
+    expect(retry).toMatchObject({
+      safeCode: "review_progress_ambiguous_mutation",
+      countFailure: false,
+    });
+    expect(retry!.retryAt.getTime()).toBeLessThan(now.getTime() + 10_000);
+  });
 
   it.each([
     { commentId: 77n, retryRejects: false },
@@ -1120,6 +1155,28 @@ describe("ReviewProgressPublisher", () => {
       expect(store.suppress).not.toHaveBeenCalled();
     },
   );
+
+  it("keeps a counted retry for a factory 401 instead of suppressing", async () => {
+    const publication = claimed();
+    const store = fakeStore(publication);
+    const factory = vi.fn(async () => {
+      throw Object.assign(new Error("installation_token_unauthorized"), {
+        status: 401,
+      });
+    });
+
+    await expect(
+      createPublisher(store, factory).runMaintenance(),
+    ).resolves.toMatchObject({ claimed: 1, failed: 1, suppressed: 0 });
+    expect(store.retry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publication,
+        safeCode: "review_progress_publish_failed",
+      }),
+    );
+    expect(store.retry.mock.calls[0]?.[0]).not.toHaveProperty("countFailure");
+    expect(store.suppress).not.toHaveBeenCalled();
+  });
 
   it("retries unknown failures using the fallback delay", async () => {
     const publication = claimed();

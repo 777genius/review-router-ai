@@ -415,6 +415,19 @@ export class ReviewProgressGitHubGateway {
     try {
       observed = await this.findMarkedComments(input);
     } catch (observationError) {
+      if (
+        expectedCommentId !== undefined &&
+        observationError instanceof ReviewProgressGitHubError &&
+        observationError.kind === "pagination_inconclusive"
+      ) {
+        return this.reconcileKnownCommentPatch(
+          input,
+          desiredBody,
+          mutationError,
+          expectedCommentId,
+          classified,
+        );
+      }
       throw reconciliationFailure(
         mutationError,
         observationError,
@@ -428,12 +441,36 @@ export class ReviewProgressGitHubGateway {
       expectedCommentId,
     );
     if (confirmed) return confirmed;
-    throw new ReviewProgressGitHubError(
-      classified.kind,
-      classified.message,
-      { ...classified.metadata, mutationMayHaveLanded: true },
-      { cause: classified },
-    );
+    throw unconfirmedMutation(classified);
+  }
+
+  /**
+   * A busy PR cannot be rescanned completely, so confirm a failed PATCH through
+   * its known comment and keep main's short ambiguous retry when unconfirmed.
+   */
+  private async reconcileKnownCommentPatch(
+    input: UpsertReviewProgressCommentInput,
+    desiredBody: string,
+    mutationError: unknown,
+    commentId: number,
+    classified: ReviewProgressGitHubError,
+  ): Promise<ReviewProgressComment[]> {
+    let known: ReviewProgressComment[];
+    try {
+      known = await this.includeVerifiedKnownComment(
+        { ...input, knownCommentId: commentId },
+        [],
+      );
+    } catch (lookupError) {
+      throw reconciliationFailure(
+        mutationError,
+        lookupError,
+        this.now,
+        this.random,
+      );
+    }
+    if (known.some(({ body }) => body === desiredBody)) return known;
+    throw unconfirmedMutation(classified);
   }
 
   private classify(
@@ -449,6 +486,30 @@ function repositoryParameters(
   extra: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
   return { owner: input.owner, repo: input.repo, ...extra };
+}
+
+/**
+ * A definite 4xx response proves GitHub rejected the write, so it is retried
+ * and counted like on main. Anything else may have landed.
+ */
+function unconfirmedMutation(
+  classified: ReviewProgressGitHubError,
+): ReviewProgressGitHubError {
+  const status = classified.metadata.status;
+  if (
+    classified.kind === "ambiguous_mutation" &&
+    status !== undefined &&
+    status >= 400 &&
+    status < 500
+  ) {
+    return classified;
+  }
+  return new ReviewProgressGitHubError(
+    classified.kind,
+    classified.message,
+    { ...classified.metadata, mutationMayHaveLanded: true },
+    { cause: classified },
+  );
 }
 
 function hasUnclassifiedMarker(
