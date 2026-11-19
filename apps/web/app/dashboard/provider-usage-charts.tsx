@@ -20,8 +20,12 @@ import {
   isFreeModel,
   metricLabel,
   metricValue,
+  PARTIAL_DAY_NOTE,
+  partialDayLabel,
   providerColor,
   requestedModelLabel,
+  SOME_COST_NOT_REPORTED,
+  SOME_TOKENS_NOT_REPORTED,
   utcDays,
   shortIdentity,
   type CostBucket,
@@ -48,7 +52,8 @@ export function UsageCharts({ report, metric, bucket }: Props) {
   const providers = [
     ...new Set(report.overview.daily.map((row) => row.provider)),
   ].sort();
-  const calendar = utcDays(report.from, report.to).map(({ day, partial }) => {
+  const calendar = utcDays(report.from, report.to).map((calendarDay) => {
+    const { day } = calendarDay;
     const rows = report.overview.daily.filter((row) => row.day === day);
     const values = Object.fromEntries(
       providers.map((provider, i) => {
@@ -59,7 +64,12 @@ export function UsageCharts({ report, metric, bucket }: Props) {
         ];
       }),
     );
-    return { day, partial, rows, ...values };
+    return {
+      day,
+      note: partialDayLabel(calendarDay, report),
+      rows,
+      ...values,
+    };
   });
   const top =
     metric === "cost"
@@ -147,7 +157,8 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                       aria-live="polite"
                     >
                       <p className="mb-2 font-medium">
-                        {day.day} UTC{day.partial ? " · partial day" : ""}
+                        {day.day} UTC
+                        {day.note ? ` · ${day.note}` : ""}
                       </p>
                       {day.rows.length ? (
                         day.rows.map((row) => (
@@ -155,10 +166,10 @@ export function UsageCharts({ report, metric, bucket }: Props) {
                             {row.provider}:{" "}
                             {metricLabel(row.totals, metric, bucket)}
                             {row.totals.unknownCount || row.totals.partialCount
-                              ? " · some token data incomplete"
+                              ? ` · ${SOME_TOKENS_NOT_REPORTED}`
                               : ""}
                             {metric === "cost" && row.totals.unknownCostCount
-                              ? " · some cost not reported"
+                              ? ` · ${SOME_COST_NOT_REPORTED}`
                               : ""}
                           </p>
                         ))
@@ -216,9 +227,8 @@ export function UsageCharts({ report, metric, bucket }: Props) {
           ))}
         </ul>
         <p className="mt-2 text-xs text-slate-500">
-          UTC days · ○ No usage recorded or value not reported · Partial days at
-          period boundaries describe the time window, not measurement
-          completeness
+          UTC days · ○ No usage recorded, or the value was not reported ·{" "}
+          {PARTIAL_DAY_NOTE}
         </p>
       </section>
       <section
@@ -361,7 +371,7 @@ export function DailyUsageTable({
             {[
               "UTC day",
               "Requested provider",
-              "Known tokens",
+              "Tokens",
               "Requests",
               "Known cost",
               "Status",
@@ -381,6 +391,7 @@ export function DailyUsageTable({
             const rows = report.overview.daily.filter(
               (row) => row.day === day.day,
             );
+            const note = partialDayLabel(day, report);
             return rows.length
               ? rows.map((row) => (
                   <tr
@@ -389,7 +400,7 @@ export function DailyUsageTable({
                   >
                     <th scope="row" className="px-2 py-2 font-normal">
                       {day.day}
-                      {day.partial ? " (partial day)" : ""}
+                      {note ? ` (${note})` : ""}
                     </th>
                     <td>{row.provider}</td>
                     <td>{metricLabel(row.totals, "tokens", undefined)}</td>
@@ -411,7 +422,7 @@ export function DailyUsageTable({
                   <tr key={day.day} className="border-b border-slate-800/70">
                     <th scope="row" className="px-2 py-2 font-normal">
                       {day.day}
-                      {day.partial ? " (partial day)" : ""}
+                      {note ? ` (${note})` : ""}
                     </th>
                     <td colSpan={5}>No usage recorded</td>
                   </tr>,
