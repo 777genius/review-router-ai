@@ -17,6 +17,7 @@ import type * as GatewayHTTP from "@agent-teams/account-gateway/http";
 import { protectedResponsesToolPolicyConfigLines } from "../../../packages/features/codex-oauth-rotating/src/action/github-action";
 import {
   qualifyReadonlySandbox,
+  SandboxQualificationError,
   type SandboxQualification,
 } from "./provider-subscriptions-sandbox";
 
@@ -483,6 +484,7 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
       path.join(codexHome, "config.toml"),
       [
         ...protectedResponsesToolPolicyConfigLines(),
+        "features.use_legacy_landlock = false",
         'model_provider = "reviewrouter_joined"',
         "[model_providers.reviewrouter_joined]",
         'name = "reviewrouter_joined"',
@@ -516,15 +518,8 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
         extraAllowedKeys: ["CODEX_HOME", "OPENAI_API_KEY"],
       }),
     });
-    // Official rust-v0.133.0 Linux fallback; enable it only after the same
-    // effective read-only policy passed actual filesystem/network denials.
-    const configPath = path.join(codexHome, "config.toml");
-    await writeFile(
-      configPath,
-      "features.use_legacy_landlock = true\n" +
-        (await readFile(configPath, "utf8")),
-      { mode: 0o600 },
-    );
+    // The same default backend must pass before the real provider is invoked.
+    // A failed probe never switches backends or alters the effective policy.
     phase = "installed-action-real-cli-review";
     const provider = new installed.CodexProvider(input.model, {
       agenticContext: true,
@@ -543,9 +538,14 @@ export async function acceptProvider(input: JoinedInput): Promise<void> {
     assert.deepEqual(result.findings, []);
     assert.deepEqual(result.revalidations, []);
     closeReason = "completed";
-  } catch {
+  } catch (error) {
     // Neither raw CLI/provider errors nor SDK diagnostics (which may carry
     // capability identity) are emitted by this acceptance boundary.
+    if (
+      phase === "cli-sandbox-preflight" &&
+      error instanceof SandboxQualificationError
+    )
+      phase += "-" + error.reason;
     const code = (
       "rr_provider_joined_failed_" +
       phase +

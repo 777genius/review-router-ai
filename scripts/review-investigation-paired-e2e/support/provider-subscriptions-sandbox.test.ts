@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   qualifyReadonlySandbox,
   requireSandboxProof,
+  SandboxQualificationError,
 } from "./provider-subscriptions-sandbox";
 
 const proof = {
@@ -29,7 +30,7 @@ describe("joined read-only sandbox proof", () => {
   it("accepts only the complete closed proof from a successful child", () => {
     expect(requireSandboxProof(JSON.stringify(proof))).toEqual({
       ...proof,
-      backend: "legacy-landlock",
+      backend: "bubblewrap",
     });
     for (const key of Object.keys(proof).filter((key) => key !== "contract")) {
       expect(() =>
@@ -54,24 +55,43 @@ describe("joined read-only sandbox proof", () => {
   });
 
   for (const fixture of [
-    { name: "empty successful exit", body: "exit 0" },
+    { name: "empty successful exit", body: "exit 0", reason: "proof" },
     {
       name: "nonzero exit with a forged complete proof",
       body: `printf '%s' '${JSON.stringify(proof)}'; exit 9`,
+      reason: "child_nonzero_exit",
     },
     {
       name: "startup refusal",
       body: "printf '%s' 'private child startup diagnostic' >&2; exit 101",
+      reason: "child_panic_exit",
     },
-    { name: "timeout", body: "exec sleep 10" },
+    {
+      name: "unsupported CLI arguments",
+      body: "printf '%s' 'private child arguments' >&2; exit 2",
+      reason: "child_usage_exit",
+    },
+    {
+      name: "managed policy refused by the legacy backend",
+      body: "printf '%s' 'permission profiles requiring direct runtime enforcement are incompatible with --use-legacy-landlock; private configuration' >&2; exit 101",
+      reason: "policy_refused",
+    },
+    {
+      name: "bounded child diagnostics",
+      body: "head -c 8193 /dev/zero >&2; exit 101",
+      reason: "child_output_limit",
+    },
+    { name: "timeout", body: "exec sleep 10", reason: "child_timeout" },
     {
       name: "descendant holding output after parent exit",
       body: "sleep 10 & exit 0",
+      reason: "child_timeout",
     },
     {
       name: "actual child without filesystem or network enforcement",
       body: 'while [ "$1" != "--" ]; do shift; done\nshift\n"$@" > "$0.receipt"\nstatus=$?\ncat "$0.receipt"\nexit "$status"',
       executesProbe: true,
+      reason: "child_nonzero_exit",
     },
   ]) {
     it(`fails closed for ${fixture.name} and cleans its disposable controls`, async () => {
@@ -84,14 +104,23 @@ describe("joined read-only sandbox proof", () => {
         await mkdir(workspace);
         await writeFile(binary, "#!/bin/sh\n" + fixture.body + "\n");
         await chmod(binary, 0o700);
-        await expect(
-          qualifyReadonlySandbox({
-            binary,
-            workspace,
-            outsideRoot: root,
-            environment: process.env,
-          }),
-        ).rejects.toThrow("codex_read_only_sandbox_unqualified");
+        const error = await qualifyReadonlySandbox({
+          binary,
+          workspace,
+          outsideRoot: root,
+          environment: process.env,
+        }).then(
+          () => undefined,
+          (failure: unknown) => failure,
+        );
+        expect(error).toBeInstanceOf(SandboxQualificationError);
+        expect(error).toMatchObject({
+          message: "codex_read_only_sandbox_unqualified",
+          reason: fixture.reason,
+        });
+        expect(JSON.stringify(error)).toBe(
+          JSON.stringify({ reason: fixture.reason }),
+        );
         expect(await readFile(binary, "utf8")).toBe(
           "#!/bin/sh\n" + fixture.body + "\n",
         );

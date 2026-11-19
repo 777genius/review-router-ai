@@ -158,7 +158,8 @@ async function hydrateGatewayAccounts(
     ? await reader.enrichMetadata(accounts)
     : accounts.map((account) => {
         // A legacy/test reader cannot prove private fields after hydration.
-        const { metadata: _metadata, ...safe } = account;
+        const safe = { ...account };
+        delete safe.metadata;
         return safe;
       });
   return { status: "ok", value: { ...initial.value, accounts: displayed } };

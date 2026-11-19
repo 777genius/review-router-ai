@@ -16,14 +16,34 @@ const childProof = Object.freeze({
   noNewPrivileges: true as const,
 });
 export type SandboxQualification = Readonly<
-  typeof childProof & { backend: "legacy-landlock" }
+  typeof childProof & { backend: "bubblewrap" }
 >;
+type SandboxFailureReason =
+  | "positive_controls"
+  | "child_spawn"
+  | "child_timeout"
+  | "child_output_limit"
+  | "policy_refused"
+  | "child_usage_exit"
+  | "child_panic_exit"
+  | "child_nonzero_exit"
+  | "proof"
+  | "postconditions"
+  | "cleanup";
+
+// A closed synthetic reason is safe to include in CI evidence. Never attach
+// child output, paths, environment, configuration or the original exception.
+export class SandboxQualificationError extends Error {
+  constructor(readonly reason: SandboxFailureReason) {
+    super("codex_read_only_sandbox_unqualified");
+  }
+}
 
 export function requireSandboxProof(stdout: string): SandboxQualification {
   try {
     assert.ok(Buffer.byteLength(stdout) <= 4096);
     assert.deepEqual(JSON.parse(stdout) as unknown, childProof);
-    return Object.freeze({ ...childProof, backend: "legacy-landlock" });
+    return Object.freeze({ ...childProof, backend: "bubblewrap" });
   } catch {
     throw new Error("codex_read_only_sandbox_unqualified");
   }
@@ -73,6 +93,7 @@ export async function qualifyReadonlySandbox(input: {
     socket.once("close", () => sockets.delete(socket));
     socket.end();
   });
+  let phase: SandboxFailureReason = "positive_controls";
   try {
     try {
       assert.ok(path.isAbsolute(input.binary));
@@ -107,15 +128,16 @@ export async function qualifyReadonlySandbox(input: {
           resolve();
         });
       });
-      // Legacy mode without a named profile includes managed requirements.
-      // This matches the pinned Action's --sandbox read-only policy and cwd.
+      // An invocation without a named profile includes managed requirements.
+      // Match the Action's default backend, read-only policy and cwd exactly.
+      phase = "child_spawn";
       const child = spawn(
         input.binary,
         [
           "sandbox",
           "linux",
           "-c",
-          "features.use_legacy_landlock=true",
+          "features.use_legacy_landlock=false",
           "-c",
           'sandbox_mode="read-only"',
           "--",
@@ -139,9 +161,10 @@ export async function qualifyReadonlySandbox(input: {
       );
       const stdout = await new Promise<string>((resolve, reject) => {
         let output = "";
+        let diagnostic = "";
         let size = 0;
         let settled = false;
-        const fail = () => {
+        const fail = (reason: SandboxFailureReason) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
@@ -156,23 +179,35 @@ export async function qualifyReadonlySandbox(input: {
           }
           child.stdout.destroy();
           child.stderr.destroy();
-          reject(new Error("sandbox_child_unqualified"));
+          reject(new SandboxQualificationError(reason));
         };
-        const timer = setTimeout(fail, 5000);
+        const timer = setTimeout(() => fail("child_timeout"), 5000);
         child.stdout.on("data", (bytes: Buffer) => {
           size += bytes.byteLength;
-          if (size > 8192) fail();
+          if (size > 8192) fail("child_output_limit");
           else output += bytes.toString("utf8");
         });
         child.stderr.on("data", (bytes: Buffer) => {
           size += bytes.byteLength;
-          if (size > 8192) fail();
+          if (size > 8192) fail("child_output_limit");
+          else diagnostic += bytes.toString("utf8");
         });
-        child.once("error", fail);
+        child.once("error", () => fail("child_spawn"));
         child.once("close", (code) => {
           if (settled) return;
           if (code !== 0) {
-            fail();
+            const policyRefused = diagnostic.includes(
+              "permission profiles requiring direct runtime enforcement are incompatible with --use-legacy-landlock",
+            );
+            fail(
+              policyRefused
+                ? "policy_refused"
+                : code === 2
+                  ? "child_usage_exit"
+                  : code === 101
+                    ? "child_panic_exit"
+                    : "child_nonzero_exit",
+            );
             return;
           }
           settled = true;
@@ -180,12 +215,18 @@ export async function qualifyReadonlySandbox(input: {
           resolve(output);
         });
       });
+      phase = "proof";
       const proof = requireSandboxProof(stdout);
+      phase = "postconditions";
       for (const file of [workspaceWrite, outsideWrite]) {
         await assert.rejects(readFile(file), { code: "ENOENT" });
       }
       assert.equal(await readFile(canary, "utf8"), "sandbox-read-control");
       return proof;
+    } catch (error) {
+      throw error instanceof SandboxQualificationError
+        ? error
+        : new SandboxQualificationError(phase);
     } finally {
       for (const socket of sockets) socket.destroy();
       if (server.listening)
@@ -198,7 +239,9 @@ export async function qualifyReadonlySandbox(input: {
         ),
       );
     }
-  } catch {
-    throw new Error("codex_read_only_sandbox_unqualified");
+  } catch (error) {
+    throw error instanceof SandboxQualificationError
+      ? error
+      : new SandboxQualificationError("cleanup");
   }
 }
