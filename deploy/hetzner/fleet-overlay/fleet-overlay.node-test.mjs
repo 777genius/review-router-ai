@@ -8,6 +8,8 @@ import {
   applyCanonical,
   roleExtraHosts,
   plannedConfig,
+  validateSpec,
+  requireUnsetOutsideImageEnv,
 } from "./fleet-overlay.mjs";
 
 test("appendJsonArray keeps existing bytes and is idempotent", () => {
@@ -194,5 +196,168 @@ test("container-only updates cannot bypass canonical additions or another role",
         roleContainerOnly("api", updates),
       ),
     /canonical_key_exists/,
+  );
+});
+
+const progressKeys = [
+  "REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE",
+  "REVIEW_ROUTER_PROGRESS_FILE_COVERAGE",
+  "REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES",
+  "REVIEW_ROUTER_PROGRESS_REPOSITORIES",
+];
+const progressEnv = () =>
+  new Map([
+    ["A", "1"],
+    ["REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE", "1"],
+    ["REVIEW_ROUTER_PROGRESS_FILE_COVERAGE", "1"],
+    ["REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES", "0"],
+    ["REVIEW_ROUTER_PROGRESS_REPOSITORIES", "owner/repo"],
+  ]);
+const asList = (env) => [...env].map(([k, v]) => `${k}=${v}`);
+const asFile = (env) => `${asList(env).join("\n")}\n`;
+const unsetAll = progressKeys.map((key) => ({
+  key,
+  op: "unset",
+  roles: ["api", "worker", "scan"],
+}));
+
+test("unset removes the key from the container env and its one canonical line, on api, worker and scan only", () => {
+  for (const role of ["api", "worker", "scan"]) {
+    const env = progressEnv();
+    const updates = roleUpdates(role, env, unsetAll);
+    assert.deepEqual([...updates.keys()], progressKeys);
+    assert.deepEqual(applyEnvList(asList(env), updates), ["A=1"]);
+    assert.equal(applyCanonical(asFile(env), env, updates), "A=1\n");
+  }
+  // web has none of these keys; the role filter skips it instead of failing.
+  assert.equal(roleUpdates("web", new Map([["A", "1"]]), unsetAll).size, 0);
+});
+
+test("unset keeps the set CAS: a canonical line that differs from the container aborts", () => {
+  const env = progressEnv();
+  const updates = roleUpdates("worker", env, unsetAll);
+  const drifted = asFile(env).replace(
+    "REVIEW_ROUTER_PROGRESS_REPOSITORIES=owner/repo",
+    "REVIEW_ROUTER_PROGRESS_REPOSITORIES=other/repo",
+  );
+  assert.throws(
+    () => applyCanonical(drifted, env, updates),
+    /canonical_differs_from_container:REVIEW_ROUTER_PROGRESS_REPOSITORIES/,
+  );
+  assert.throws(
+    () =>
+      applyCanonical(
+        `${asFile(env)}REVIEW_ROUTER_PROGRESS_FILE_COVERAGE=1\n`,
+        env,
+        updates,
+      ),
+    /canonical_line_count:REVIEW_ROUTER_PROGRESS_FILE_COVERAGE/,
+  );
+  assert.throws(
+    () => applyCanonical("A=1\n", env, updates),
+    /canonical_line_count:REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE/,
+  );
+});
+
+test("unset of an absent key is an error, not a silent no-op, so a second run fails before touching anything", () => {
+  assert.throws(
+    () => roleUpdates("worker", new Map([["A", "1"]]), unsetAll),
+    /update_key_missing:REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE/,
+  );
+  assert.throws(
+    () =>
+      roleUpdates("worker", progressEnv(), [
+        { key: "A", op: "unset" },
+        { key: "A", op: "set", value: "2" },
+      ]),
+    /update_after_unset:A/,
+  );
+  assert.throws(
+    () => applyCanonical("A=1\n", new Map(), new Map([["B", null]])),
+    /update_key_missing:B/,
+  );
+});
+
+test("container-only unset leaves the canonical file alone", () => {
+  const env = new Map([["G", "x"]]);
+  const updates = roleUpdates("api", env, [
+    { key: "G", op: "unset", containerOnly: true },
+  ]);
+  assert.deepEqual(applyEnvList(["G=x", "A=1"], updates), ["A=1"]);
+  assert.equal(applyCanonical("A=1\n", env, updates, new Set(["G"])), "A=1\n");
+});
+
+test("spec validation: unset takes no value, every other op keeps its old value rules", () => {
+  const base = {
+    machineId: "a".repeat(32),
+    expectedImage: `sha256:${"b".repeat(64)}`,
+    expectedRevision: "c".repeat(40),
+    network: "net",
+    names: { api: "a", worker: "w", scan: "s", web: "x" },
+  };
+  const spec = (updates) => ({ ...base, updates });
+  assert.equal(validateSpec(spec(unsetAll)).updates.length, 4);
+  assert.throws(
+    () => validateSpec(spec([{ key: "AB", op: "unset", value: "1" }])),
+    /spec_update_value/,
+  );
+  assert.throws(
+    () => validateSpec(spec([{ key: "AB", op: "unset", value: "" }])),
+    /spec_update_value/,
+  );
+  assert.throws(
+    () => validateSpec(spec([{ key: "AB", op: "set", value: "" }])),
+    /spec_update_value/,
+  );
+  assert.throws(
+    () => validateSpec(spec([{ key: "AB", op: "set" }])),
+    /spec_update_value/,
+  );
+  assert.throws(
+    () => validateSpec(spec([{ key: "AB", op: "delete" }])),
+    /spec_update_shape/,
+  );
+  assert.throws(
+    () => validateSpec(spec([{ key: "a", op: "unset" }])),
+    /spec_update_shape/,
+  );
+  assert.throws(
+    () => validateSpec(spec([{ key: "AB", op: "unset", roles: ["db"] }])),
+    /spec_update_roles/,
+  );
+  assert.throws(() => validateSpec(spec([])), /spec_updates/);
+});
+
+test("without unset the env list and canonical file are byte-for-byte what they were", () => {
+  const env = new Map([
+    ["A", "1"],
+    ["B", "2"],
+  ]);
+  const updates = roleUpdates("api", env, [
+    { key: "B", op: "set", value: "9" },
+    { key: "C", op: "add", value: "3" },
+  ]);
+  assert.deepEqual(applyEnvList(["A=1", "B=2"], updates), [
+    "A=1",
+    "B=9",
+    "C=3",
+  ]);
+  assert.equal(applyCanonical("A=1\nB=2\n", env, updates), "A=1\nB=9\nC=3\n");
+});
+
+test("unset of a key the image sets through ENV is refused before anything runs", () => {
+  const imageEnv = ["PATH=/usr/bin", "NODE_ENV=production"];
+  assert.doesNotThrow(() => requireUnsetOutsideImageEnv(unsetAll, imageEnv));
+  assert.throws(
+    () =>
+      requireUnsetOutsideImageEnv([{ key: "NODE_ENV", op: "unset" }], imageEnv),
+    /unset_key_in_image_env:NODE_ENV/,
+  );
+  // Only unset is affected: overriding an image ENV value with set stays allowed.
+  assert.doesNotThrow(() =>
+    requireUnsetOutsideImageEnv(
+      [{ key: "NODE_ENV", op: "set", value: "test" }],
+      imageEnv,
+    ),
   );
 });
