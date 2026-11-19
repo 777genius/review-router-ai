@@ -363,7 +363,9 @@ test("provider usage overview keeps complete period totals, charts, models and r
     for (let index = 0; index < 30; index++)
       await dailyChart.press("ArrowRight");
     await expect(usage.getByRole("status")).toContainText(`${lastDay} UTC`);
-    await expect(usage.getByRole("status")).toContainText("gemini: at least 300");
+    await expect(usage.getByRole("status")).toContainText(
+      "gemini: at least 300",
+    );
     await page.getByRole("heading", { name: "Usage", exact: true }).click();
     for (const [width, height] of [
       [1440, 1000],

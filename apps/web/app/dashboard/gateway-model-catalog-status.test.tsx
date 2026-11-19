@@ -34,7 +34,11 @@ it("distinguishes configured profile choices from account discovery and offers n
     <GatewayModelCatalogStatus
       profile={undefined}
       account={account}
-      accounts={{ bindingLoading: () => false, canRefresh: true, refreshModels: refresh }}
+      accounts={{
+        bindingLoading: () => false,
+        canRefresh: true,
+        refreshModels: refresh,
+      }}
       bindingId="binding-1"
     />,
   );
@@ -58,7 +62,11 @@ it("does not offer refresh after an explicit unsupported discovery response", ()
           models: [],
         },
       }}
-      accounts={{ bindingLoading: () => false, canRefresh: true, refreshModels: vi.fn() }}
+      accounts={{
+        bindingLoading: () => false,
+        canRefresh: true,
+        refreshModels: vi.fn(),
+      }}
       bindingId="binding-1"
     />,
   );
@@ -81,7 +89,11 @@ it("keeps an unavailable discovery retryable without calling a saved choice unsu
           models: ["saved-model"],
         },
       }}
-      accounts={{ bindingLoading: () => false, canRefresh: true, refreshModels: refresh }}
+      accounts={{
+        bindingLoading: () => false,
+        canRefresh: true,
+        refreshModels: refresh,
+      }}
       bindingId="binding-1"
     />,
   );
@@ -116,7 +128,11 @@ it("a pending refresh on another binding does not disable or fail the new accoun
     <GatewayModelCatalogStatus
       profile={undefined}
       account={selected}
-      accounts={{ bindingLoading: () => false, canRefresh: true, refreshModels: refresh }}
+      accounts={{
+        bindingLoading: () => false,
+        canRefresh: true,
+        refreshModels: refresh,
+      }}
       bindingId="binding-1"
     />,
   );

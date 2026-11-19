@@ -157,7 +157,11 @@ function failedAccountRead(
     value: {
       account: {
         ...account,
-        modelCatalog: { status: "unknown", source: "legacy_profile", models: [] },
+        modelCatalog: {
+          status: "unknown",
+          source: "legacy_profile",
+          models: [],
+        },
         ...(account.connection
           ? { connection: { ...account.connection, modelSettings: [] } }
           : {}),

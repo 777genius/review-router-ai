@@ -97,24 +97,24 @@ function CatalogStatus({
     : busy && catalog?.status !== "snapshot"
       ? ["Loading model choices…", null]
       : catalog?.status === "snapshot"
+        ? [
+            `${catalog.models.length === 0 ? "This account lists no models right now. " : ""}Model list updated ${catalog.fetchedAt ? updatedAgo(catalog.fetchedAt) : "recently"}.`,
+            "refresh",
+          ]
+        : catalog?.status === "unsupported"
           ? [
-              `${catalog.models.length === 0 ? "This account lists no models right now. " : ""}Model list updated ${catalog.fetchedAt ? updatedAgo(catalog.fetchedAt) : "recently"}.`,
+              "Account model discovery is not supported for this connection.",
               "refresh",
             ]
-          : catalog?.status === "unsupported"
+          : catalog
             ? [
-                "Account model discovery is not supported for this connection.",
-                "refresh",
+                `Could not load account models. ${catalog.models.length ? "Showing configured profile choices. " : ""}Your saved selection is unchanged.`,
+                "retry",
               ]
-            : catalog
-              ? [
-                  `Could not load account models. ${catalog.models.length ? "Showing configured profile choices. " : ""}Your saved selection is unchanged.`,
-                  "retry",
-                ]
-              : [
-                  "Models from the connected profile. Account-specific discovery is not offered.",
-                  "refresh",
-                ];
+            : [
+                "Models from the connected profile. Account-specific discovery is not offered.",
+                "refresh",
+              ];
   const refreshAccount = Boolean(refreshSupported || (outOfDate && canRefresh));
   const showAction =
     action === "retry"
