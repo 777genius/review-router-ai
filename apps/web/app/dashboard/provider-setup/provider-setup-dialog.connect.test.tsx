@@ -516,11 +516,24 @@ describe("adding a provider and connecting its account in one dialog", () => {
         cleanup: "unresolved" as const,
       },
     });
+    const pending = (nonce: string) => ({
+      status: "ok" as const,
+      value: {
+        nonce,
+        state: "pending" as const,
+        oauthMethod: "device_code" as const,
+        cleanup: "unresolved" as const,
+      },
+    });
+    // The first check still waits for the user, so the code must survive the
+    // reread of the lists that follows the start of the sign-in.
+    let polls = 0;
     vi.mocked(pollPersonalGatewayOAuth).mockImplementation(
-      async (_context, nonce) => applied(nonce),
+      async (_context, nonce) =>
+        ++polls === 1 ? pending(nonce) : applied(nonce),
     );
     vi.mocked(readPersonalGatewayOperation).mockImplementation(
-      async (_context, nonce) => applied(nonce),
+      async (_context, nonce) => (polls < 2 ? pending(nonce) : applied(nonce)),
     );
     vi.mocked(attachConnectedPersonalAccount).mockImplementation(async () => {
       workspaceAccounts = [codexAccount];
@@ -548,6 +561,13 @@ describe("adding a provider and connecting its account in one dialog", () => {
     expect(
       screen.getByRole("combobox", { name: /^Provider\b/ }),
     ).toHaveProperty("disabled", true);
+    await waitFor(() =>
+      expect(
+        vi.mocked(listPersonalGatewayAccounts).mock.calls.length,
+      ).toBeGreaterThan(1),
+    );
+    await waitFor(() => expect(polls).toBe(1), { timeout: 5000 });
+    expect(within(form).getByText("WXYZ-1234")).toBeTruthy();
 
     await screen.findByText(
       "Connected and added to this workspace.",
@@ -566,4 +586,67 @@ describe("adding a provider and connecting its account in one dialog", () => {
       ),
     );
   }, 15_000);
+
+  it("lets the user leave a waiting sign-in and start over", async () => {
+    vi.mocked(beginPersonalGatewayOAuth).mockImplementation(
+      async (_context, intent) => ({
+        status: "ok",
+        value: {
+          operation: {
+            nonce: intent.nonce,
+            state: "pending",
+            oauthMethod: "device_code",
+            cleanup: "unresolved",
+          },
+          deviceAuthorization: {
+            userCode: "WXYZ-1234",
+            verificationURL: "https://auth.openai.com/codex/device",
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            intervalSeconds: 60,
+          },
+        },
+      }),
+    );
+    vi.mocked(readPersonalGatewayOperation).mockImplementation(
+      async (_context, nonce) => ({
+        status: "ok",
+        value: {
+          nonce,
+          state: "pending",
+          oauthMethod: "device_code",
+          cleanup: "unresolved",
+        },
+      }),
+    );
+    renderAddProvider();
+    fireEvent.click(
+      await screen.findByRole("combobox", { name: /^Provider\b/ }),
+    );
+    const option = await screen.findByRole("option", { name: /^Codex/ });
+    fireEvent.mouseMove(option);
+    fireEvent.click(option);
+    const form = await screen.findByRole("region", { name: "Connect Codex" });
+    const start = await within(form).findByRole("button", {
+      name: "Sign in to Codex",
+    });
+    await waitFor(() => expect(start).toHaveProperty("disabled", false));
+    fireEvent.click(start);
+    await within(form).findByText("WXYZ-1234");
+
+    fireEvent.click(
+      within(form).getByRole("button", { name: "Cancel sign-in" }),
+    );
+
+    await within(form).findByRole("button", { name: "Sign in to Codex" });
+    expect(
+      screen.getByRole("combobox", { name: /^Provider\b/ }),
+    ).toHaveProperty("disabled", false);
+    // The waiting request stays a receipt in Connections.
+    expect(
+      JSON.parse(
+        sessionStorage.getItem(`rr-c3-account-operations:personal:${scope}`) ??
+          "[]",
+      ),
+    ).toHaveLength(1);
+  });
 });

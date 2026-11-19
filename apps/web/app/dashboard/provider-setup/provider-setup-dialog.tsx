@@ -1286,6 +1286,8 @@ function ProviderChoiceStep({
     mutationsEnabled &&
     !readUnavailable &&
     !pending &&
+    // A sign-in in progress decides which account this provider uses.
+    !connectLocked &&
     choice !== null &&
     (!adding || choice.kind === "new") &&
     decision?.allowed === true &&

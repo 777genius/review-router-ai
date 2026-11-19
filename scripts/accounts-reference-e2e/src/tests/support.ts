@@ -1,5 +1,7 @@
 import type { BrowserContext, Locator, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 const observedRequests = new WeakMap<
   Page,
@@ -157,4 +159,80 @@ export async function bodyScrollLocked(page: Page): Promise<boolean> {
     const root = getComputedStyle(document.documentElement).overflow;
     return body.includes("hidden") || root.includes("hidden");
   });
+}
+
+/** No secret stays in storage, the URL, markup or form fields. */
+export async function noSecrets(page: Page, secrets: readonly string[]) {
+  const retained = await page.evaluate(() =>
+    JSON.stringify({
+      local: { ...localStorage },
+      session: { ...sessionStorage },
+      location: location.href,
+      markup: document.body.innerHTML,
+      inputValues: Array.from(
+        document.querySelectorAll("input"),
+        (input) => input.value,
+      ),
+    }),
+  );
+  for (const secret of secrets) expect(retained).not.toContain(secret);
+}
+
+/** Watches every channel a secret could leak through until `verify`. */
+export function captureSecretLeaks(page: Page, secrets: readonly string[]) {
+  const leakedChannels = new Set<string>();
+  const pending = new Set<Promise<void>>();
+  let inspectedResponses = 0;
+  const inspect = (channel: string, value: string) => {
+    if (secrets.some((secret) => value.includes(secret)))
+      leakedChannels.add(channel);
+  };
+  page.on("console", (message) => inspect("browser console", message.text()));
+  page.on("pageerror", (error) => inspect("browser error", error.message));
+  page.on("requestfinished", (request) => {
+    // Next may keep speculative navigation streams open. Inspect complete
+    // responses instead of waiting forever after their headers arrive.
+    const reading: Promise<void> = (async () => {
+      const response = await request.response();
+      if (
+        !response ||
+        !/json|text\/html|text\/x-component/.test(
+          response.headers()["content-type"] ?? "",
+        )
+      )
+        return;
+      try {
+        const body = await response.text();
+        inspectedResponses += 1;
+        inspect("HTTP/SSR response", body);
+      } catch {
+        leakedChannels.add("unreadable completed HTTP/SSR response");
+      }
+    })().finally(() => pending.delete(reading));
+    pending.add(reading);
+  });
+  const drain = async () => {
+    // A body read can finish while another completed response is queued.
+    // Drain all of them before navigation can evict the previous document.
+    while (pending.size) await Promise.all([...pending]);
+  };
+  return {
+    drain,
+    verify: async () => {
+      await drain();
+      expect(inspectedResponses).toBeGreaterThan(0);
+      const workDir = dirname(process.env.ACCOUNTS_REFERENCE_E2E_RESULT_JSON!);
+      for (const name of [
+        "next-app.log",
+        "gateway-requests.jsonl",
+        "runtime.json",
+        "boot-report.json",
+        "boot-viewer.html",
+      ]) {
+        inspect(name, await readFile(join(workDir, name), "utf8"));
+      }
+      // Report the channel only; never copy a secret into assertion diagnostics.
+      expect([...leakedChannels]).toEqual([]);
+    },
+  };
 }

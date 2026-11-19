@@ -238,7 +238,7 @@ function validAuthorizationURL(value: string | undefined): value is string {
   }
 }
 
-const ApiKeySetupContext = createContext<{
+const ConnectWorkspaceContext = createContext<{
   workspaceId?: string | undefined;
 }>({});
 
@@ -366,7 +366,7 @@ export function AccountGatewayControls({
             bootstrap.page.status !== "unavailable",
         }}
       >
-        <ApiKeySetupContext.Provider value={{ workspaceId }}>
+        <ConnectWorkspaceContext.Provider value={{ workspaceId }}>
           <Controls
             key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
             bootstrap={bootstrap}
@@ -384,7 +384,7 @@ export function AccountGatewayControls({
               managementScope === "personal" ? addToWorkspace : undefined
             }
           />
-        </ApiKeySetupContext.Provider>
+        </ConnectWorkspaceContext.Provider>
       </AccountLimitsReadContext.Provider>
     </QueryClientProvider>
   );
@@ -1181,6 +1181,10 @@ function Controls({
                 completionProvider={completionProviders[nonce]}
                 beginContinuation={(intent) => beginOAuth(intent, nonce)}
                 inline={connectOnly}
+                cancel={
+                  // Leaves a waiting sign-in as a receipt in Connections.
+                  embedded ? () => setActiveNonce(null) : undefined
+                }
                 startAnother={() => {
                   // Embedded: a declined request leaves nothing to keep. Any
                   // other result stays a receipt in Connections, with its retry.
@@ -1439,7 +1443,7 @@ function ConnectionForm({
   const ordered = [...profiles].sort(
     (a, b) => Number(b.authKind === "oauth") - Number(a.authKind === "oauth"),
   );
-  const setup = useContext(ApiKeySetupContext);
+  const setup = useContext(ConnectWorkspaceContext);
   const [profileId, setProfileId] = useState(ordered[0]?.id ?? "");
   const profile = profiles.find((row) => row.id === profileId);
   const formContainer = useRef<HTMLDivElement>(null);
@@ -1796,6 +1800,7 @@ function OperationReadback({
   beginContinuation,
   inline = false,
   startAnother,
+  cancel,
   dismiss,
   refresh,
   oauthEnabled,
@@ -1811,6 +1816,8 @@ function OperationReadback({
   nonce: string;
   listFailed: boolean;
   startAnother(): void;
+  /** An embedded form may leave a waiting request and start over. */
+  cancel?: (() => void) | undefined;
   deviceAuthorization?: DeviceAuthorization | undefined;
   completionProvider?: OAuthCompletionPresentation | undefined;
   beginContinuation(intent: OAuthFormIntent): Promise<void>;
@@ -2149,6 +2156,11 @@ function OperationReadback({
       {inline && terminal ? (
         <Button variant="outline" size="sm" onClick={startAnother}>
           Add another account
+        </Button>
+      ) : null}
+      {cancel && !terminal ? (
+        <Button variant="ghost" size="sm" onClick={cancel}>
+          Cancel sign-in
         </Button>
       ) : null}
       {(terminal && !inline) || state === "unknown" ? (
@@ -2579,7 +2591,7 @@ function AccountForm({
   const selected =
     profiles.find((p) => p.id === selectedId) ??
     (inline ? profiles[0] : undefined);
-  const setup = useContext(ApiKeySetupContext);
+  const setup = useContext(ConnectWorkspaceContext);
   // Inside another flow the storage is already chosen there.
   const embedded = useConnectTarget() !== null;
   const apiKeyProvider = apiKeyProviderForGatewayProfile(selected);

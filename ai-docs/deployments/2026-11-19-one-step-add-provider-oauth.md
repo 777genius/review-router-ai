@@ -7,8 +7,8 @@
   no "Connect account" link with a return intent, no return banner on
   Connections and no "Continue provider setup" button there.
 - Affected target: Web only.
-- Implementation: stage 2 of [plan 79](../architecture/79-one-step-add-provider.md).
-  The PR link is added when it is opened.
+- Implementation: [ReviewRouter AI PR #919](https://github.com/777genius/review-router-ai/pull/919),
+  stage 2 of [plan 79](../architecture/79-one-step-add-provider.md).
 - Dependencies: [stage 1](2026-11-19-one-step-add-provider.md) (PR #917). No
   migration, configuration, feature flag, Gateway or native change.
 - Last updated: 2026-11-19.

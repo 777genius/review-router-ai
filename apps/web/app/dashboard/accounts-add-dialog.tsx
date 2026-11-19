@@ -1,22 +1,8 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Button, Dialog, SelectField } from "@reviewrouter/ui";
 import { accountsCopy } from "./accounts-copy";
-
-/**
- * Closes the Add dialog to reveal the Connections list right under it. Null
- * outside the dialog, where callers link to the list instead.
- */
-const ShowConnectionsListContext = createContext<(() => void) | null>(null);
-export const useShowConnectionsList = () =>
-  useContext(ShowConnectionsListContext);
 
 export function AccountsAddDialog({
   personalConnect,
@@ -40,12 +26,13 @@ export function AccountsAddDialog({
         field.value = "";
       });
   }
+  // Closes the dialog to reveal the Connections list right under it.
   function showConnectionsList() {
     clearUnsubmittedCredentials();
     setOpen(false);
   }
   return (
-    <ShowConnectionsListContext.Provider value={showConnectionsList}>
+    <>
       <Dialog.Root
         open={open}
         onOpenChange={(next) => {
@@ -112,6 +99,6 @@ export function AccountsAddDialog({
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>
-    </ShowConnectionsListContext.Provider>
+    </>
   );
 }

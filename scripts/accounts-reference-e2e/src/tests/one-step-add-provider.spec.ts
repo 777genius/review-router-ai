@@ -11,8 +11,10 @@ import {
   openNewProvider,
 } from "./provider-setup-support.ts";
 import {
+  captureSecretLeaks,
   expectNetworkViolations,
   installLoopbackOnlyNetworkGuard,
+  noSecrets,
   useViewerSession,
 } from "./support.ts";
 
@@ -56,6 +58,8 @@ test("Add provider connects an API-key account in place and saves it with its mo
   );
   test.setTimeout(240_000);
   const violations: string[] = [];
+  const secret = `synthetic-${openRouter.provider}-subscription-key`;
+  const leaks = captureSecretLeaks(page, [secret]);
   await useViewerSession(context);
   await installLoopbackOnlyNetworkGuard(page, violations);
   const before = await gatewayProfiles();
@@ -86,9 +90,7 @@ test("Add provider connects an API-key account in place and saves it with its mo
 
   const name = `One step ${Date.now()}`;
   await form.getByLabel("Connection name (optional)").fill(name);
-  await form
-    .locator('input[name="credential"]')
-    .fill(`synthetic-${openRouter.provider}-subscription-key`);
+  await form.locator('input[name="credential"]').fill(secret);
   await form.getByRole("button", { name: "Connect account" }).click();
 
   await expect(
@@ -100,8 +102,9 @@ test("Add provider connects an API-key account in place and saves it with its mo
   await expect(form).toHaveCount(0);
   const model = dialog.getByRole("combobox", { name: "Model", exact: true });
   await expect(model).toHaveValue(openRouter.model);
-  // The whole flow stayed in one dialog on one page.
+  // The whole flow stayed in one dialog on one page, and the key left no trace.
   expect(page.url()).toBe(startUrl);
+  await noSecrets(page, [secret]);
   await page.screenshot({
     path: info.outputPath("one-step-connected-desktop.png"),
     fullPage: true,
@@ -136,6 +139,7 @@ test("Add provider connects an API-key account in place and saves it with its mo
     model: openRouter.model,
   });
   expect(added[0]!.gatewayBindingId).toBeTruthy();
+  await leaks.verify();
   await expectNetworkViolations(violations);
 });
 
@@ -151,14 +155,17 @@ test("Add provider signs in to Grok in place and selects the new account", async
   );
   test.setTimeout(240_000);
   const violations: string[] = [];
+  const authorizationCode = "synthetic-browser-grok-code";
+  const leaks = captureSecretLeaks(page, [authorizationCode]);
   await useViewerSession(context);
   await installLoopbackOnlyNetworkGuard(page, violations);
+  const before = await gatewayProfiles();
   // The SDK validates the fixed provider origin; serve one synthetic page
   // in the browser instead of reaching xAI.
   await context.route("https://auth.x.ai/oauth2/authorize?*", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: "<!doctype html><title>Synthetic authorization</title><code>synthetic-browser-grok-code</code>",
+      body: `<!doctype html><title>Synthetic authorization</title><code>${authorizationCode}</code>`,
     }),
   );
 
@@ -195,9 +202,40 @@ test("Add provider signs in to Grok in place and selects the new account", async
     dialog.getByRole("combobox", { name: "Model", exact: true }),
   ).toHaveValue(grok.model);
   expect(page.url()).toBe(startUrl);
+  await noSecrets(page, [authorizationCode]);
   await page.screenshot({
     path: info.outputPath("one-step-grok-connected-desktop.png"),
     fullPage: true,
   });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: info.outputPath("one-step-grok-connected-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  await dialog
+    .getByRole("button", { name: /^Add (and make default|provider)$/ })
+    .click();
+  await expect(
+    dialog.getByRole("heading", {
+      name: /^(Workspace default|Provider) saved$/,
+    }),
+  ).toBeVisible();
+  const added = (await gatewayProfiles()).filter(
+    (row) =>
+      !before.some(
+        (old) =>
+          old.gatewayBindingId === row.gatewayBindingId &&
+          old.model === row.model,
+      ),
+  );
+  expect(added).toHaveLength(1);
+  expect(added[0]).toMatchObject({
+    gatewayProfileRef: grok.profileId,
+    model: grok.model,
+  });
+  await leaks.verify();
   await expectNetworkViolations(violations);
 });
