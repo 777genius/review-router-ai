@@ -12,6 +12,8 @@ import { AccountGatewayControls } from "./account-gateway-account-controls";
 import { AccountsAddDialog } from "./accounts-add-dialog";
 import { PersonalAccountControls } from "./personal-account-controls";
 import { PersonalAccountsPanel } from "./personal-accounts-panel";
+import { PersonalConnectPanel } from "./personal-connect-panel";
+import { personalManagementApi } from "./personal-management-api";
 import { WorkspaceAccountsPanel } from "./workspace-accounts-panel";
 import type { ApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
 import { accountsCopy } from "./accounts-copy";
@@ -124,15 +126,6 @@ export async function AccountGatewayAccountsSection({
         ),
       }
     : null;
-  const managementApi = {
-    listGatewayAccounts: personalActions.listPersonalGatewayAccounts,
-    mutateGatewayAccount: personalActions.mutatePersonalGatewayAccount,
-    submitGatewayApiKey: personalActions.submitPersonalGatewayKey,
-    readGatewayOperation: personalActions.readPersonalGatewayOperation,
-    beginGatewayOAuth: personalActions.beginPersonalGatewayOAuth,
-    pollGatewayOAuth: personalActions.pollPersonalGatewayOAuth,
-    completeGatewayOAuth: personalActions.completePersonalGatewayOAuth,
-  };
   // A connection made while viewing a shared workspace is added to it when the
   // owner may grant it there. The personal workspace gets its binding from connect.
   const addToWorkspace =
@@ -160,7 +153,7 @@ export async function AccountGatewayAccountsSection({
         setupIntent={setupIntent}
         management={management}
         addToWorkspace={addToWorkspace}
-        managementApi={managementApi}
+        managementApi={personalManagementApi}
         {...extra}
       />
     ) : (
@@ -221,14 +214,14 @@ export async function AccountGatewayAccountsSection({
 
   const overviewScope = `${personalService.scope}:workspace:${workspaceId}`;
   const personalConnect = (
-    <AccountGatewayControls
-      bootstrap={management}
-      managementScope="personal"
-      workspaceId={workspaceId}
+    <PersonalConnectPanel
+      place={{
+        scope: personalService.scope,
+        workspaceId,
+        workspaceName: workspaceName ?? "this workspace",
+      }}
+      initialPage={management.page}
       setupIntent={setupIntent}
-      connectOnly
-      addToWorkspace={addToWorkspace}
-      api={managementApi}
     />
   );
   return (

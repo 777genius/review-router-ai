@@ -1,5 +1,9 @@
 import { accountModelDiscoverySource } from "@agent-teams/account-gateway/contracts";
-import type { ReviewModelOption } from "@reviewrouter/features-review-providers";
+import {
+  getProviderCatalogEntry,
+  type ReviewModelOption,
+} from "@reviewrouter/features-review-providers";
+import { getSetupProvider, type SetupProviderId } from "./setup-provider";
 import type { AccountProfileView } from "../../server/account-gateway-accounts";
 import type { AccountModelCatalogView } from "../account-gateway/connection-capabilities";
 
@@ -105,4 +109,25 @@ export function gatewayProviderModelOptions(
     ...combined.filter((option) => !option.disabled),
     ...combined.filter((option) => option.disabled),
   ];
+}
+
+/**
+ * The model a new provider starts with: the provider's catalogue default when
+ * this account offers it, otherwise its only usable model, otherwise none.
+ * The user still sees it and confirms the provider before anything is saved.
+ */
+export function suggestedModel(
+  options: readonly ReviewModelOption[],
+  provider: SetupProviderId | null,
+): string {
+  const usable = options.filter((option) => !option.disabled);
+  const catalog = provider
+    ? getSetupProvider(provider).publicCatalogProvider
+    : null;
+  const preferred = catalog
+    ? getProviderCatalogEntry(catalog).defaultModel
+    : null;
+  if (preferred && usable.some((option) => option.value === preferred))
+    return preferred;
+  return usable.length === 1 ? usable[0]!.value : "";
 }

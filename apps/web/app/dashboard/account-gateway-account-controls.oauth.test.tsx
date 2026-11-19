@@ -3103,7 +3103,7 @@ test("a fresh personal connect records the workspace it was started in", async (
   const api = personalApi();
   const addToWorkspace = vi.fn(async () => ({
     status: "ok" as const,
-    value: { status: "attached" as const },
+    value: { status: "attached" as const, bindingId: "org-binding" },
   }));
   render(
     <AccountGatewayControls

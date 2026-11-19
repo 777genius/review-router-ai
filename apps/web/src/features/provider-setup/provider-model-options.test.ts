@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { gatewayProviderModelOptions } from "./provider-model-options";
+import {
+  gatewayProviderModelOptions,
+  suggestedModel,
+} from "./provider-model-options";
 
 describe("Gateway model catalog presentation", () => {
   it("keeps public recommendation and pricing metadata while exact account admission disables unavailable models", () => {
@@ -323,5 +326,45 @@ describe("Gateway model catalog presentation", () => {
       "glm-5.3",
     ]);
     expect(options.every((option) => option.disabled === false)).toBe(true);
+  });
+});
+
+describe("the model a new provider starts with", () => {
+  const option = (value: string, disabled = false) => ({
+    value,
+    label: value,
+    provider: "openrouter" as const,
+    disabled,
+  });
+
+  it("prefers the provider's catalogue default when this account offers it", () => {
+    expect(
+      suggestedModel(
+        [option("openai/other"), option("openai/gpt-5.3-codex")],
+        "openrouter",
+      ),
+    ).toBe("openai/gpt-5.3-codex");
+  });
+
+  it("never suggests a default the account cannot use", () => {
+    expect(
+      suggestedModel(
+        [option("openai/gpt-5.3-codex", true), option("openai/only")],
+        "openrouter",
+      ),
+    ).toBe("openai/only");
+  });
+
+  it("takes the only usable model, otherwise leaves the choice to the user", () => {
+    expect(
+      suggestedModel(
+        [option("nvidia/one"), option("nvidia/off", true)],
+        "nvidia",
+      ),
+    ).toBe("nvidia/one");
+    expect(
+      suggestedModel([option("nvidia/one"), option("nvidia/two")], "nvidia"),
+    ).toBe("");
+    expect(suggestedModel([], "openrouter")).toBe("");
   });
 });
