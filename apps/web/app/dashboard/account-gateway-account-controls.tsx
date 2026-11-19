@@ -2147,6 +2147,9 @@ function OperationReadback({
     if (keyContinuationEntered.current || !keyResume || state !== "pending")
       return;
     const selectedResume = { ...keyResume };
+    const unconfirmedText = selectedResume.credentialImportMethod
+      ? "The credential import was not confirmed. Use Check status to see the current state before submitting it again."
+      : keyUnconfirmedText;
     keyContinuationEntered.current = true;
     keyContinuationInFlight.current = true;
     keyContinuationGeneration.current++;
@@ -2173,12 +2176,12 @@ function OperationReadback({
         else
           setKeySubmitFailure(
             returned.status === "ok"
-              ? keyUnconfirmedText
-              : `The key was not saved. ${statusText(returned.status, managementScope)}`,
+              ? unconfirmedText
+              : `${selectedResume.credentialImportMethod ? "The credential import" : "The key"} was not saved. ${statusText(returned.status, managementScope)}`,
           );
       } catch {
         // Any uncertain submission is readback-only under this original nonce.
-        setKeySubmitFailure(keyUnconfirmedText);
+        setKeySubmitFailure(unconfirmedText);
       }
       // A ready read may have started during the direct request. Cancel it before publish.
       await client.cancelQueries({ queryKey, exact: true });

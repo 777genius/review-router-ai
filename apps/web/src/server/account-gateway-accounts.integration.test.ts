@@ -1279,6 +1279,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
       observe(fresh.operation); // one-off capability is deliberately outside the safe-data set
       assert.equal(fresh.operation.state, "pending");
       assert.deepEqual(fresh.operation.completion, {
+        providerId: "openai",
         providerLabel: "Codex",
         inputKind: "callback_url",
       });
@@ -1697,10 +1698,11 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
             row.ownerUserId === null && row.ownerWorkspaceId === workspaceId,
         ),
       );
-      assert.equal(
-        JSON.stringify({ observed, rows }).includes(sentinel),
-        false,
+      const serializedSafeState = JSON.stringify(
+        { observed, rows, operations: [...operations.values()] },
+        (_key, value) => (typeof value === "bigint" ? value.toString() : value),
       );
+      assert.equal(serializedSafeState.includes(sentinel), false);
       for (const secret of [
         authorizationURL,
         oauthState,
@@ -1712,14 +1714,7 @@ test.skipIf(process.env.RR_C3_ACCOUNTS_PG_TEST !== "1")(
         "refresh_token",
         "access_token",
       ]) {
-        assert.equal(
-          JSON.stringify({
-            observed,
-            rows,
-            operations: [...operations.values()],
-          }).includes(secret),
-          false,
-        );
+        assert.equal(serializedSafeState.includes(secret), false);
       }
       // Controlled personal source recovery uses the real store and public C1
       // consumer-control factory. These retained inert rows do not enable H.
