@@ -379,6 +379,10 @@ export class ReviewProgressGitHubGateway {
     mutationError: unknown,
     expectedCommentId?: number,
   ): Promise<ReviewProgressComment[]> {
+    const classified = this.classify(mutationError, "ambiguous_mutation");
+    // A definitive unthrottled 403 did not mutate the comment. An unrelated
+    // read failure must not promote this into an ambiguous landed write.
+    if (classified.kind === "revoked_app") throw classified;
     let observed: ReviewProgressComment[];
     try {
       observed = await this.findMarkedComments(input);
@@ -396,8 +400,6 @@ export class ReviewProgressGitHubGateway {
       expectedCommentId,
     );
     if (confirmed) return confirmed;
-    const classified = this.classify(mutationError, "ambiguous_mutation");
-    if (classified.kind === "revoked_app") throw classified;
     throw new ReviewProgressGitHubError(
       classified.kind,
       classified.message,
