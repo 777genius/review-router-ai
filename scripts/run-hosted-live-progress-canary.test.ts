@@ -290,7 +290,10 @@ describe("hosted live-progress canary", () => {
     });
     expect(
       parseProgressComment(
-        comment(41, body.replace(/^Parts that could not be finished.*\n/mu, "")),
+        comment(
+          41,
+          body.replace(/^Parts that could not be finished.*\n/mu, ""),
+        ),
         configFixture(),
       ).exhaustedUnits,
     ).toBe(0);

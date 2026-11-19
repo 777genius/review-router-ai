@@ -814,9 +814,7 @@ describeWithDatabase.sequential(
       expect(comments[0]?.body).toContain(
         "Progress: 42 of 72 parts reviewed (58%)",
       );
-      expect(comments[0]?.body).toContain(
-        "Files fully reviewed: 84 of 108",
-      );
+      expect(comments[0]?.body).toContain("Files fully reviewed: 84 of 108");
       expect(comments[0]?.body).toContain("Parts being retried: 6");
 
       await fixture.setProgressFixture({

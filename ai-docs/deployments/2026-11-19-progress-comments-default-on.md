@@ -15,9 +15,9 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                                                                                  |
-| ---------- | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker and API rollout and the checks below                                                                      |
+| Target     | Status    | Actual image | Evidence                                                                                                                     |
+| ---------- | --------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending` | Not verified | Ordinary worker and API rollout and the checks below                                                                         |
 | Production | `pending` | Not verified | Not deployed. Ships in one bundled worker rollout with the next approved change, not on its own (owner decision 2026-11-19). |
 
 `pending` means no verified completion is recorded, not that deployment was
@@ -30,12 +30,12 @@ One reader, `readReviewProgressSettings` in
 `packages/features/review-progress/src/composition/review-progress-settings.ts`,
 now owns these keys for the worker and the API:
 
-| Key                                            | Unset or empty                 | `0`                     | Other values                                     |
-| ---------------------------------------------- | ------------------------------ | ----------------------- | ------------------------------------------------ |
-| `REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE`    | on                             | off                     | invalid: off and a warning with the key name     |
-| `REVIEW_ROUTER_PROGRESS_FILE_COVERAGE`         | on                             | off                     | invalid: off and a warning                       |
-| `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES` | on                             | off (the kill switch)   | invalid: off and a warning                       |
-| `REVIEW_ROUTER_PROGRESS_REPOSITORIES`          | every repository               | -                       | `owner/repo,...` allow-list; a malformed entry (including `*`, empty entries) turns writes off with a warning |
+| Key                                            | Unset or empty   | `0`                   | Other values                                                                                                  |
+| ---------------------------------------------- | ---------------- | --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE`    | on               | off                   | invalid: off and a warning with the key name                                                                  |
+| `REVIEW_ROUTER_PROGRESS_FILE_COVERAGE`         | on               | off                   | invalid: off and a warning                                                                                    |
+| `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES` | on               | off (the kill switch) | invalid: off and a warning                                                                                    |
+| `REVIEW_ROUTER_PROGRESS_REPOSITORIES`          | every repository | -                     | `owner/repo,...` allow-list; a malformed entry (including `*`, empty entries) turns writes off with a warning |
 
 `1` still means on. A malformed value never crashes the worker or API start;
 the warning `Review progress settings are invalid; the affected progress
@@ -128,6 +128,6 @@ comments stay on GitHub; an in-flight comment can freeze in a middle phase.
 
 ## Execution log
 
-| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                                   |
-| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | --------------------------------------------- |
-| Not executed | staging / production | Unassigned | Not verified           | Merged, not deployed     | PR       | Ship in the next bundled worker/API rollout.  |
+| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result | Evidence | Next action                                  |
+| ------------ | -------------------- | ---------- | ---------------------- | ------------------------ | -------- | -------------------------------------------- |
+| Not executed | staging / production | Unassigned | Not verified           | Merged, not deployed     | PR       | Ship in the next bundled worker/API rollout. |

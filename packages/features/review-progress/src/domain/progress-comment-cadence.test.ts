@@ -31,7 +31,12 @@ describe("progressCommentPublishAt", () => {
       null,
       new Date(now.getTime() + progressCommentFirstPublishDelayMs),
     ],
-    ["first comment, already terminal", { terminal: true, phaseChanged: true }, null, now],
+    [
+      "first comment, already terminal",
+      { terminal: true, phaseChanged: true },
+      null,
+      now,
+    ],
   ])("schedules a %s", (_name, flags, lastPublishedAt, expected) => {
     expect(
       progressCommentPublishAt({
@@ -53,7 +58,9 @@ describe("progressCommentPublishAt", () => {
         pendingPublishAt: now,
       }),
     ).toEqual(now);
-    const later = new Date(now.getTime() + 5 * progressCommentMinEditIntervalMs);
+    const later = new Date(
+      now.getTime() + 5 * progressCommentMinEditIntervalMs,
+    );
     expect(
       progressCommentPublishAt({
         now,

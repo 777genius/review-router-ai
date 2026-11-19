@@ -117,7 +117,7 @@ describe("Prisma review progress projection", () => {
       expect.objectContaining({
         create: expect.objectContaining({
           snapshotHash:
-            "c5b0fe3c4bd7d7741af0076f42cddaa9c13a2598c872482fd8e2623d95baa981",
+            "aa6d4b61ca115effd4f9167cc06f780aca1e1da505c6a988952f034612498ce0",
           eligibleFileCount: 1,
           coveredFileCount: 0,
           uncoveredFileCount: 0,

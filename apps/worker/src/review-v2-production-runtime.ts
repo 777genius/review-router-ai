@@ -224,7 +224,8 @@ export function createProductionReviewV2WorkerRuntime(input: {
 }): ProductionReviewV2WorkerRuntime {
   const capabilityKeyRing = readCapabilityKeyRing(input.env);
   const progressSettings = readReviewProgressSettings(input.env, input.logger);
-  const progressCapture = createConfiguredReviewProgressCapture(progressSettings);
+  const progressCapture =
+    createConfiguredReviewProgressCapture(progressSettings);
   const historyWriter =
     input.env.REVIEW_ROUTER_REVIEW_HISTORY_CAPTURE === "1"
       ? input.historyWriter
