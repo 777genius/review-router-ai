@@ -146,8 +146,8 @@ export class GitCliConflictDiffSource implements ConflictRuntimeDiffSourcePort {
 
     const files: ConflictRuntimeFileDiff[] = [];
     for (const entry of entries) {
-      // NFC is the packet identity; git still needs the bytes it reported,
-      // or a decomposed file name matches nothing and yields an empty patch.
+      // NFC is the packet identity; git still needs the name as it reported
+      // it, or a decomposed file name matches nothing and yields no patch.
       const path = normalizeConflictRuntimeRepositoryPath(entry.path);
       const previousPath =
         entry.previousPath === undefined
@@ -168,6 +168,11 @@ export class GitCliConflictDiffSource implements ConflictRuntimeDiffSourcePort {
         ],
         { maxStdoutBytes: maxPatchBytes },
       );
+      // Every name-status entry has at least a diff header. No output means
+      // the pathspec missed the file, which would also skip the mode checks.
+      if (patch.stdout.length === 0) {
+        throw new Error("conflict_diff_patch_missing");
+      }
       if (hasUnsupportedGitFileMode(patch.stdout)) {
         throw new Error("conflict_diff_file_type_unsupported");
       }

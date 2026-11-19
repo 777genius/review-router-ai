@@ -215,6 +215,33 @@ describe("git cli conflict runtime", () => {
         patch: "diff --git a/x b/x\n+change\n",
       }),
     ]);
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining(["--binary", "--", decomposed]),
+      }),
+    );
+  });
+
+  it("fails closed when git returns no patch for a reported file", async () => {
+    const runner = async (
+      input: ConflictRuntimeCommandInput,
+    ): Promise<ConflictRuntimeCommandOutput> => {
+      if (input.args[0] === "cat-file") {
+        return output("");
+      }
+      if (input.args.includes("--name-status")) {
+        return output(["M", "links/target", ""].join("\0"));
+      }
+      // A missed pathspec would also hide a symlink or submodule mode line.
+      return output("");
+    };
+
+    await expect(
+      new GitCliConflictDiffSource({
+        workspace: "/repo",
+        runCommand: runner,
+      }).collectDiff({ config }),
+    ).rejects.toThrow("conflict_diff_patch_missing");
   });
 
   it("rejects unsafe repository paths before per-file diff commands", async () => {
