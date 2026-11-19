@@ -13,6 +13,7 @@ import {
   type ReviewRequestedIntent,
 } from "@reviewrouter/features-review-executions";
 import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
+import type { ReviewSizeLimitNoticePort } from "./review-size-limit-notice.js";
 
 const now = new Date("2026-07-25T08:00:00.000Z");
 const headSha = "a".repeat(40);
@@ -89,6 +90,72 @@ describe("ProductionHostedReviewPreleaseGate", () => {
         verdict: ReviewRequestAdmissionState.Rejected,
       }),
     );
+  });
+
+  it("explains an oversized refusal on the pull request with the real numbers", async () => {
+    const publish = vi.fn(async () => undefined);
+    const kit = buildGate({
+      additions: 1_902_878,
+      deletions: 9_579,
+      sizeLimitNotices: { publish },
+    });
+
+    await expect(kit.gate.evaluate(input())).resolves.toMatchObject({
+      status: "skipped",
+    });
+    // A retry of the same run restores the stored refusal and explains it again.
+    await expect(kit.gate.evaluate(input())).resolves.toMatchObject({
+      status: "skipped",
+    });
+
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenCalledWith({
+      githubInstallationId: "789",
+      repositoryFullName: "777genius/agent-teams-ai",
+      pullRequestNumber: 252,
+      headSha,
+      changedLines: 1_912_457,
+      maxChangedLines: 250_000,
+    });
+  });
+
+  it("keeps the refusal unchanged when the pull request notice fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const publish = vi.fn(async () => {
+      throw Object.assign(new Error("GitHub is down"), { status: 502 });
+    });
+    const kit = buildGate({
+      additions: 300_000,
+      deletions: 0,
+      sizeLimitNotices: { publish },
+    });
+
+    await expect(kit.gate.evaluate(input())).resolves.toMatchObject({
+      status: "skipped",
+      changedLines: 300_000,
+    });
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith("review_size_limit_notice_failed", {
+        repository: "777genius/agent-teams-ai",
+        pullRequestNumber: 252,
+        status: 502,
+      }),
+    );
+    warn.mockRestore();
+  });
+
+  it("does not post a notice for an admitted review", async () => {
+    const publish = vi.fn(async () => undefined);
+    const kit = buildGate({
+      additions: 100,
+      deletions: 50,
+      sizeLimitNotices: { publish },
+    });
+
+    await expect(kit.gate.evaluate(input())).resolves.toMatchObject({
+      status: "admitted",
+    });
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it("restores a matching durable decision after a concurrent CAS race", async () => {
@@ -256,6 +323,7 @@ function buildGate(options: {
   readonly missingIntentAttempts?: number;
   readonly initialIntent?: ReviewRequestedIntent;
   readonly clockNow?: Date;
+  readonly sizeLimitNotices?: ReviewSizeLimitNoticePort;
 }) {
   const persisted = new Map<string, ReviewRequestedIntent>();
   if (!options.noIntent) {
@@ -362,6 +430,9 @@ function buildGate(options: {
       pullRequests: { resolve: resolvePullRequest },
       clock: { now: () => options.clockNow ?? now },
       maxChangedLines: 250_000,
+      ...(options.sizeLimitNotices
+        ? { sizeLimitNotices: options.sizeLimitNotices }
+        : {}),
       sleep,
     }),
     recordAdmissionDecision,

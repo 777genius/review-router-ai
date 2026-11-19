@@ -16,6 +16,7 @@ import {
   type ReviewRequestedIntentQueryPort,
 } from "@reviewrouter/features-review-executions";
 import type { Clock } from "@reviewrouter/shared";
+import type { ReviewSizeLimitNoticePort } from "./review-size-limit-notice.js";
 
 export interface HostedReviewPullRequestFactsPort {
   resolve(input: {
@@ -43,6 +44,8 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
       readonly pullRequests: HostedReviewPullRequestFactsPort;
       readonly clock: Clock;
       readonly maxChangedLines: number;
+      /** Explains a size refusal on the pull request; never changes it. */
+      readonly sizeLimitNotices?: ReviewSizeLimitNoticePort;
       readonly sleep?: (delayMs: number) => Promise<void>;
     },
   ) {
@@ -78,7 +81,8 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
       (await this.createRerunIntent(input));
     if (!intent) return { status: "not_applicable" as const };
     const restored = await this.restorePersistedDecision(input, intent);
-    if (restored) return restored;
+    if (restored)
+      return this.explainRefusal(input.repository, intent, restored);
     if (intent.state !== ReviewRequestedIntentState.AwaitingAuthorization) {
       throw new Error("review_request_intent_not_awaiting_authorization");
     }
@@ -140,6 +144,49 @@ export class ProductionHostedReviewPreleaseGate implements HostedReviewPreleaseG
           : await this.restorePersistedDecision(input, decidedIntent);
     if (!decision || decision.decisionHash !== decisionHash) {
       throw new Error("review_request_admission_transition_conflict");
+    }
+    return this.explainRefusal(input.repository, intent, decision);
+  }
+
+  /**
+   * A refused run otherwise only fails red in Actions. The notice is posted in
+   * the background so a slow or failing GitHub call never delays or alters the
+   * authorization answer.
+   */
+  private explainRefusal<
+    TDecision extends
+      | { readonly status: "admitted" }
+      | {
+          readonly status: "skipped";
+          readonly changedLines: number;
+          readonly maxChangedLines: number;
+        },
+  >(
+    repository: ActionRepositoryContext,
+    intent: ReviewRequestedIntent,
+    decision: TDecision,
+  ): TDecision {
+    const notices = this.dependencies.sizeLimitNotices;
+    if (decision.status === "skipped" && notices) {
+      notices
+        .publish({
+          githubInstallationId: repository.githubInstallationId,
+          repositoryFullName: repository.fullName,
+          pullRequestNumber: intent.pullRequestNumber,
+          headSha: intent.revision.headSha,
+          changedLines: decision.changedLines,
+          maxChangedLines: decision.maxChangedLines,
+        })
+        .catch((error: unknown) => {
+          console.warn("review_size_limit_notice_failed", {
+            repository: repository.fullName,
+            pullRequestNumber: intent.pullRequestNumber,
+            status:
+              typeof error === "object" && error !== null && "status" in error
+                ? error.status
+                : null,
+          });
+        });
     }
     return decision;
   }

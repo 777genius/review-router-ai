@@ -77,6 +77,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { App } from "@octokit/app";
 import { ProductionHostedReviewPreleaseGate } from "./hosted-review-prelease-gate.js";
 import { readHostedReviewMaxChangedLines } from "./hosted-review-config.js";
+import { OctokitReviewSizeLimitNoticeGateway } from "./github/octokit-review-size-limit-notice-gateway.js";
 import {
   HmacActionLedgerKey,
   JoseGitHubActionsOidcTokenVerifier,
@@ -711,6 +712,10 @@ export function composeReviewActionV2ProductionRoutes(input: {
             maxChangedLines: readHostedReviewMaxChangedLines(
               input.env.REVIEW_ROUTER_HOSTED_MAX_CHANGED_LINES,
             ),
+            sizeLimitNotices: new OctokitReviewSizeLimitNoticeGateway({
+              appId: githubAppId,
+              privateKey: githubAppPrivateKey,
+            }),
           }),
         }
       : {}),
