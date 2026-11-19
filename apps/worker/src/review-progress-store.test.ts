@@ -240,6 +240,35 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
     expect(repair).not.toHaveBeenCalled();
   });
 
+  it("releases only the original claim after a stale suppression", async () => {
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const repair = vi.fn();
+    const store = new PrismaReviewProgressPublicationStore({
+      reviewProgressPublicationV1: { updateMany },
+      $executeRaw: repair,
+    } as never);
+    const publication = claimed();
+
+    await expect(
+      store.suppress({ publication, safeCode: "snapshot_invalid", now }),
+    ).resolves.toBe(false);
+    expect(updateMany).toHaveBeenCalledTimes(2);
+    expect(updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        ...publication.scope,
+        claimId: publication.claim.claimId,
+        claimOwnerIdHash: publication.claim.ownerIdHash,
+      },
+      data: {
+        claimId: null,
+        claimOwnerIdHash: null,
+        claimUntil: null,
+        updatedAt: now,
+      },
+    });
+    expect(repair).not.toHaveBeenCalled();
+  });
+
   it("preserves deferred publication when stale no-write claim cleanup fails", async () => {
     let updateCalls = 0;
     const updateMany = vi.fn(async () => {

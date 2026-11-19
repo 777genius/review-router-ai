@@ -113,23 +113,7 @@ export class PrismaReviewProgressPublicationStore {
       if (input.repairOnFenceLoss === false) {
         // A no-write stale claim must not stop the maintenance pass when
         // cleanup fails. Its fenced lease will otherwise expire normally.
-        try {
-          await this.prisma.reviewProgressPublicationV1.updateMany({
-            where: {
-              ...input.publication.scope,
-              claimId: input.publication.claim.claimId,
-              claimOwnerIdHash: input.publication.claim.ownerIdHash,
-            },
-            data: {
-              claimId: null,
-              claimOwnerIdHash: null,
-              claimUntil: null,
-              updatedAt: input.now,
-            },
-          });
-        } catch {
-          console.warn("review_progress_stale_claim_cleanup_failed");
-        }
+        await this.releaseOwnStaleNoWriteClaim(input.publication, input.now);
       } else {
         await this.requeueAfterClaimLoss({
           scope: input.publication.scope,
@@ -185,7 +169,35 @@ export class PrismaReviewProgressPublicationStore {
         updatedAt: input.now,
       },
     });
+    if (result.count !== 1) {
+      await this.releaseOwnStaleNoWriteClaim(input.publication, input.now);
+    }
     return result.count === 1;
+  }
+
+  /** Do not leave an obsolete claim delaying a newer publishable version. */
+  private async releaseOwnStaleNoWriteClaim(
+    publication: ClaimedReviewProgress,
+    now: Date,
+  ): Promise<void> {
+    try {
+      await this.prisma.reviewProgressPublicationV1.updateMany({
+        where: {
+          ...publication.scope,
+          claimId: publication.claim.claimId,
+          claimOwnerIdHash: publication.claim.ownerIdHash,
+        },
+        data: {
+          claimId: null,
+          claimOwnerIdHash: null,
+          claimUntil: null,
+          updatedAt: now,
+        },
+      });
+    } catch {
+      // A failed secondary cleanup is safe to defer until lease expiry.
+      console.warn("review_progress_stale_claim_cleanup_failed");
+    }
   }
 
   async promoteSettledExecutions(
