@@ -168,7 +168,7 @@ test("dynamic Codex account models work in provider edit and add with exact bind
   await expect(
     dialog.getByRole("button", { name: "Refresh models", exact: true }),
   ).toHaveCount(1);
-  await expect(dialog.getByText("Model list is up to date.")).toHaveCount(0);
+  await expect(dialog.getByText("Access to these models has not been checked.")).toHaveCount(0);
   await dialog
     .getByRole("button", { name: "Add provider", exact: true })
     .click();

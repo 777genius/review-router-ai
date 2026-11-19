@@ -213,6 +213,10 @@ export function GatewayReviewerRoster({
     rows.map((row) => row.bindingId),
   );
   const accounts = getGatewaySetupAccounts(options.accounts);
+  // A failed account list is said once; rows then do not call accounts missing.
+  const listFailed =
+    options.accounts?.status !== "ok" ||
+    ("pageError" in options && options.pageError === true);
   const repository =
     target.kind === "repository"
       ? observed.repositories.find((row) => row.id === target.repository.id)
@@ -505,7 +509,10 @@ export function GatewayReviewerRoster({
                     <p className="break-words text-xs leading-5 text-slate-400">
                       {account?.label ?? existing?.label ?? "Choose an account"}
                     </p>
-                    {row.bindingId && !account && !options.loading ? (
+                    {row.bindingId &&
+                    !account &&
+                    !options.loading &&
+                    !listFailed ? (
                       <p className="text-xs leading-5 text-amber-100">
                         This account is unavailable. Edit this reviewer to
                         choose another account.
@@ -518,7 +525,7 @@ export function GatewayReviewerRoster({
                           ? "This model is unavailable for this account. Edit this reviewer to choose another model."
                           : account?.modelCatalog?.status === "unknown" ||
                               account?.modelCatalog?.status === "unavailable"
-                            ? "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged."
+                            ? "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged."
                             : "This model is not in the configured choices for this account. Edit this reviewer to check its connection."}
                       </p>
                     ) : profile &&
@@ -718,11 +725,15 @@ export function GatewayReviewerRoster({
                         {providerSetupDenialText(denied)}
                       </p>
                     ) : null}
-                    {row.bindingId && !account ? (
+                    {row.bindingId && !account && !listFailed ? (
                       <StatusLine
                         message="This account is unavailable. Choose another account."
-                        busy={blocked}
-                        onRetry={() => options.recheck(row.bindingId)}
+                        busy={blocked || options.bindingLoading(row.bindingId)}
+                        onRetry={
+                          options.canRefresh
+                            ? () => options.recheck(row.bindingId)
+                            : undefined
+                        }
                       />
                     ) : null}
                   </div>
@@ -738,11 +749,11 @@ export function GatewayReviewerRoster({
           loading={options.loading}
           onLoadMore={options.loadMore}
         />
-        {"pageError" in options && options.pageError ? (
+        {listFailed ? (
           <StatusLine
             message="Could not load the account list."
             busy={blocked || options.loading}
-            onRetry={options.refresh}
+            onRetry={options.canRefresh ? options.refresh : undefined}
           />
         ) : null}
       </div>

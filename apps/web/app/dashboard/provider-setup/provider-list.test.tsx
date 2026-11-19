@@ -433,7 +433,7 @@ describe("Providers list", () => {
       expect(
         within(edit).getByRole("button", { name: "Test connection" }),
       ).toBeTruthy();
-      expect(within(edit).queryByText("Model list is up to date.")).toBeNull();
+      expect(within(edit).queryByText("Access to these models has not been checked.")).toBeNull();
       const refreshModels = await within(edit).findByRole("button", {
         name: "Try again",
       });

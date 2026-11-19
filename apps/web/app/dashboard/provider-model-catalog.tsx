@@ -176,15 +176,19 @@ export function ProviderModelCatalogStatus({
           ? "Showing built-in model choices."
           : "Model list is unavailable.";
   const retry = failed || !snapshot || snapshot.state === "unavailable";
+  // The server refuses another forced read for a while after a failure.
+  const cooldown = snapshot?.refresh === "cooldown";
+  const refresh = () => void status.refresh();
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
       <StatusLine
-        message={`${message}${snapshot?.refresh === "cooldown" ? " Please wait before refreshing again." : ""}`}
-        {...(status.loading
+        message={`${message}${cooldown ? " Try again in a few minutes." : ""}`}
+        busy={status.loading}
+        {...(cooldown
           ? {}
           : retry
-            ? { onRetry: () => void status.refresh() }
-            : { onRefreshModels: () => void status.refresh() })}
+            ? { onRetry: refresh }
+            : { onRefreshModels: refresh })}
       />
       <span>Access to these models has not been checked.</span>
     </div>

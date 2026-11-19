@@ -148,7 +148,7 @@ describe("public model catalog query", () => {
       ]);
       await waitFor(() =>
         expect(screen.getByRole("status").textContent).toContain(
-          "Please wait before refreshing again",
+          "Try again in a few minutes",
         ),
       );
     },

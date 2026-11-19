@@ -227,7 +227,7 @@ describe("Gateway reviewer roster", () => {
       expect(screen.getByText(/1\. model-one/)).toBeTruthy();
       expect(screen.getByText(/2\. model-two/)).toBeTruthy();
       const unknownWarning =
-        "Model availability could not be checked. Edit this reviewer to refresh account models. Your saved selection is unchanged.";
+        "Model availability could not be checked. Edit this reviewer to try again. Your saved selection is unchanged.";
       const unavailableWarning =
         "This model is unavailable for this account. Edit this reviewer to choose another model.";
       expect(
@@ -635,5 +635,7 @@ describe("Gateway reviewer roster", () => {
     const reads = get.mock.calls.length;
     fireEvent.click(screen.getAllByRole("button", { name: "Try again" })[0]!);
     await waitFor(() => expect(get.mock.calls.length).toBe(reads + 1));
+    // An ordinary read of that one binding, not a forced model refresh.
+    expect(get).toHaveBeenLastCalledWith("binding");
   });
 });
