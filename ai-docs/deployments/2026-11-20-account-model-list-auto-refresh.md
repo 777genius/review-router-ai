@@ -29,7 +29,8 @@
 ## Applicability and prerequisites
 
 - Load: the existing non-forced account read, at most once per ~45 seconds
-  per open picker of an NVIDIA account (native's snapshot lasts one minute),
+  per NVIDIA binding while a dialog that shows it is open (the reviewer
+  roster reads every NVIDIA row it lists; native's snapshot lasts one minute),
   paused in background tabs; a failed read waits 60 seconds. Native keeps
   its own 5-minute cache of the NVIDIA list, so these reads do not reach
   NVIDIA more often than before.
@@ -57,3 +58,9 @@ Stateless; roll back by deploying the previous Web image.
 ## Related links
 
 - [PR #932](https://github.com/777genius/review-router-ai/pull/932)
+
+## Execution log
+
+| Time (UTC)   | Environment          | Operator   | Actual version / image | Step and observed result                         | Evidence | Next action                              |
+| ------------ | -------------------- | ---------- | ---------------------- | ------------------------------------------------ | -------- | ---------------------------------------- |
+| Not executed | staging / production | Unassigned | Not verified           | Merged only; ships with the next Web release.    | None     | Ordinary Web rollout, then verification. |
