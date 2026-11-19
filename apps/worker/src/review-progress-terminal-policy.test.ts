@@ -56,6 +56,26 @@ describe("Review progress terminal policy", () => {
     ).toThrow("review_progress_complete_outcome_inconsistent");
   });
 
+  it.each([
+    { name: "later reviewers were not needed", cancelled: 2, exhausted: 0 },
+    { name: "an earlier reviewer failed", cancelled: 0, exhausted: 1 },
+  ])("completes an ordered fallback when $name", ({ cancelled, exhausted }) => {
+    // The execution's coverage verdict owns completeness (plan 67).
+    const snapshot = {
+      schemaVersion: 1,
+      counts: {
+        requiredCompleted: 1,
+        requiredTotal: 1 + cancelled + exhausted,
+        requiredExhausted: exhausted,
+        requiredCancelled: cancelled,
+      },
+    };
+    expect(terminalSnapshot(snapshot, "complete", now)).toMatchObject({
+      phase: "terminal",
+      terminal: "complete",
+    });
+  });
+
   it("rejects over-total required settlements before partial-outcome checks", () => {
     for (const gaps of [
       { requiredExhausted: 1, requiredCancelled: 0 },

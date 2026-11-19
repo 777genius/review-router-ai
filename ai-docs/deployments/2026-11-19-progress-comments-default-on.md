@@ -108,7 +108,9 @@ Other environments:
 The order matters. Promotion of finished reviews to a terminal state runs only
 in a worker that has writes on, so every review that finishes while writes are
 off stays in "Assembling results". The backlog must be expired as close to the
-switch as possible.
+switch as possible. Since [the promotion sweep](2026-11-20-progress-terminal-promotion-retry.md),
+expired rows that already had a posted comment are promoted and edited in place
+once writes are on; rows without a comment stay closed.
 
 1. Roll out the worker and API image through the
    [release procedure](../operations/07-environments-and-release-management.md)

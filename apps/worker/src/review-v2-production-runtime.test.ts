@@ -167,6 +167,29 @@ describe("review v2 production worker composition", () => {
     );
   });
 
+  it("sweeps for lost terminal promotions even without settlement hints", async () => {
+    const findMany = vi.fn(async () => []);
+    const progress = createProductionReviewV2WorkerRuntime({
+      prisma: {
+        reviewProgressPublicationV1: { findMany },
+      } as unknown as ReturnType<typeof createPrismaClient>,
+      clock: new SystemClock(),
+      env: enabledWorkerEnv(),
+      githubAppId: "1",
+      githubPrivateKey: generateKeyPairSync("rsa", { modulusLength: 2048 })
+        .privateKey.export({ type: "pkcs8", format: "pem" })
+        .toString(),
+      settlementHook: async () => {},
+    }).progress;
+
+    await expect(
+      progress?.promoteSettledExecutions({ settlements: [] }),
+    ).resolves.toBe(0);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 100 }),
+    );
+  });
+
   it("reports the missing enabled-only key explicitly", () => {
     expect(() =>
       createProductionReviewV2WorkerRuntime({

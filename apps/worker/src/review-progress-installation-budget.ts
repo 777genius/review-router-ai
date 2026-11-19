@@ -41,7 +41,6 @@ export async function reserveInstallationBudgetMutation(
   const { budget, lockedAt } = await lockInstallationBudget(
     transaction,
     input.publication.repository.githubInstallationId,
-    input.now,
   );
   const stillClaimed = await transaction.reviewProgressPublicationV1.count({
     where: {
@@ -69,12 +68,17 @@ export async function reserveInstallationBudgetMutation(
 async function lockInstallationBudget(
   transaction: Prisma.TransactionClient,
   installationId: bigint,
-  now: Date,
 ) {
+  // A new budget starts on the database clock, as every later check does; a
+  // worker clock ahead of it would read as a cooldown that nothing set.
   await transaction.$executeRaw(Prisma.sql`
   INSERT INTO "ReviewProgressInstallationBudgetV1"
     ("githubInstallationId", "nextMutationAt", "updatedAt")
-  VALUES (${installationId}, ${now}, ${now})
+  VALUES (
+    ${installationId},
+    clock_timestamp() AT TIME ZONE 'UTC',
+    clock_timestamp() AT TIME ZONE 'UTC'
+  )
   ON CONFLICT DO NOTHING
 `);
   await transaction.$queryRaw(Prisma.sql`
