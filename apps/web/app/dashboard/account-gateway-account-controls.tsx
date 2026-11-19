@@ -37,7 +37,6 @@ import {
   apiKeyProviderForGatewayProfile,
   apiKeySetupHref,
   apiKeyStorageLabel,
-  type ApiKeySetupIntent,
   type ApiKeyStorage,
 } from "../../src/features/provider-setup/api-key-storage";
 import {
@@ -52,12 +51,7 @@ import {
   useAccountMenuReturnFocus,
 } from "./account-actions-menu";
 import { Copy, ExternalLink, Plus, RefreshCw } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { hasReadySetupProvider } from "../../src/features/provider-setup/connection-setup-continuation";
-import {
-  useGatewayModelAccounts,
-  useCurrentGatewayModelAccountsCache,
-} from "./gateway-model-account-options";
+import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
 import { ChooseForReviewsLink } from "./choose-for-reviews-link";
 import {
   accountsCopy,
@@ -65,7 +59,6 @@ import {
   removedFromWorkspaceText,
 } from "./accounts-copy";
 import { bindingWorkspaceUse, WorkspaceUseLine } from "./account-workspace-use";
-import { useShowConnectionsList } from "./accounts-add-dialog";
 import { useConnectTarget } from "./account-connect-target";
 import { dashboardPath } from "./dashboard-section";
 import { refreshPersonalAccountViews } from "./personal-account-controls";
@@ -245,9 +238,8 @@ function validAuthorizationURL(value: string | undefined): value is string {
   }
 }
 
-const ApiKeySetupContext = createContext<{
+const ConnectWorkspaceContext = createContext<{
   workspaceId?: string | undefined;
-  intent?: ApiKeySetupIntent | undefined;
 }>({});
 
 export function AccountGatewayControls({
@@ -260,8 +252,6 @@ export function AccountGatewayControls({
   connectEntry,
   connectOnly = false,
   workspaceId,
-  setupIntent,
-  initiallyOpenConnect = false,
   addToWorkspace,
 }: {
   bootstrap: AccountsBootstrap;
@@ -275,8 +265,6 @@ export function AccountGatewayControls({
   connectEntry?: ReactNode;
   connectOnly?: boolean;
   workspaceId?: string | undefined;
-  setupIntent?: ApiKeySetupIntent | undefined;
-  initiallyOpenConnect?: boolean;
   addToWorkspace?: AddConnectionToWorkspace | undefined;
 }) {
   const optionsCache = useCurrentGatewayModelAccountsCache();
@@ -378,9 +366,7 @@ export function AccountGatewayControls({
             bootstrap.page.status !== "unavailable",
         }}
       >
-        <ApiKeySetupContext.Provider
-          value={{ workspaceId, intent: setupIntent }}
-        >
+        <ConnectWorkspaceContext.Provider value={{ workspaceId }}>
           <Controls
             key={`${managementScope}:${bootstrap.context.split(".")[0]}`}
             bootstrap={bootstrap}
@@ -393,13 +379,12 @@ export function AccountGatewayControls({
             hideToolbar={hideToolbar}
             connectEntry={connectEntry}
             connectOnly={connectOnly}
-            initiallyOpenConnect={initiallyOpenConnect}
             workspaceId={workspaceId}
             addToWorkspace={
               managementScope === "personal" ? addToWorkspace : undefined
             }
           />
-        </ApiKeySetupContext.Provider>
+        </ConnectWorkspaceContext.Provider>
       </AccountLimitsReadContext.Provider>
     </QueryClientProvider>
   );
@@ -416,7 +401,6 @@ function Controls({
   hideToolbar,
   connectEntry,
   connectOnly,
-  initiallyOpenConnect,
   workspaceId,
   addToWorkspace,
 }: {
@@ -430,11 +414,9 @@ function Controls({
   hideToolbar: boolean;
   connectEntry: ReactNode;
   connectOnly: boolean;
-  initiallyOpenConnect: boolean;
   workspaceId: string | undefined;
   addToWorkspace: AddConnectionToWorkspace | undefined;
 }) {
-  const setup = useContext(ApiKeySetupContext);
   // An embedded form follows the request its host holds, not the latest one.
   const target = useConnectTarget();
   const { context } = bootstrap;
@@ -1119,12 +1101,10 @@ function Controls({
         <div className="flex flex-wrap gap-3">
           {!fullToolbar ? null : connectEntry !== undefined ? (
             connectEntry
-          ) : (!initiallyOpenConnect || ready) &&
-            enrollmentProfiles.some(
+          ) : enrollmentProfiles.some(
               (p) => p.authKind === "api_key" || p.authKind === "oauth",
             ) ? (
             <ConnectAccountDialog
-              initiallyOpen={initiallyOpenConnect && !activeNonce}
               profiles={enrollmentProfiles.filter(
                 (p) => p.authKind === "api_key" || p.authKind === "oauth",
               )}
@@ -1201,6 +1181,10 @@ function Controls({
                 completionProvider={completionProviders[nonce]}
                 beginContinuation={(intent) => beginOAuth(intent, nonce)}
                 inline={connectOnly}
+                cancel={
+                  // Leaves a waiting sign-in as a receipt in Connections.
+                  embedded ? () => setActiveNonce(null) : undefined
+                }
                 startAnother={() => {
                   // Embedded: a declined request leaves nothing to keep. Any
                   // other result stays a receipt in Connections, with its retry.
@@ -1236,37 +1220,6 @@ function Controls({
                         if (followedNonce.current !== nonce) return;
                         dismiss(nonce);
                         target.onConnected(bindingId);
-                      }
-                    : undefined
-                }
-                renderSetupContinuation={
-                  setup.intent?.storage === "reviewrouter" &&
-                  data?.status === "ok"
-                    ? (operationAccount) => {
-                        const account =
-                          data.value.accounts.find(
-                            (candidate) =>
-                              candidate.connectionId ===
-                              operationAccount.connectionId,
-                          ) ?? operationAccount;
-                        const profile = data.value.profiles.find(
-                          (candidate) => candidate.id === account.profileId,
-                        );
-                        return setupProviderForGatewayProfile(profile) ===
-                          setup.intent!.provider ? (
-                          <ConnectionSetupContinuation
-                            intent={setup.intent!}
-                            account={account}
-                            managementScope={managementScope}
-                            disabled={
-                              disabled ||
-                              lifecycleActivities.has(account.connectionId)
-                            }
-                            makeAvailable={(selected) =>
-                              bindingMutation.mutateAsync(selected)
-                            }
-                          />
-                        ) : null;
                       }
                     : undefined
                 }
@@ -1411,132 +1364,8 @@ function Controls({
   );
 }
 
-function ConnectionSetupContinuation({
-  intent,
-  account,
-  managementScope,
-  disabled,
-  makeAvailable,
-}: {
-  intent: ApiKeySetupIntent;
-  account: AccountView;
-  managementScope: ManagementScope;
-  disabled: boolean;
-  makeAvailable(
-    account: AccountView,
-  ): Promise<AccountsResult<{ label: string }>>;
-}): React.ReactElement {
-  const router = useRouter();
-  const showConnectionsList = useShowConnectionsList();
-  const targetAccounts = useGatewayModelAccounts(undefined, []);
-  const personal = managementScope === "personal";
-  const availableForProvider = hasReadySetupProvider(
-    targetAccounts.accounts,
-    intent.provider,
-  );
-  const needsBinding =
-    !personal &&
-    (account.binding?.state !== "active" || account.binding.fencePending);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const href = apiKeySetupHref("providers", intent);
-  async function continueSetup() {
-    if (pending || disabled) return;
-    setError(null);
-    setPending(true);
-    try {
-      if (needsBinding) {
-        const result = await makeAvailable(account);
-        if (result.status !== "ok") {
-          setError(statusText(result.status));
-          return;
-        }
-      }
-      router.push(href);
-    } catch {
-      setError(
-        "The connection could not be made available. Check its status before trying again.",
-      );
-    } finally {
-      setPending(false);
-    }
-  }
-  if (personal)
-    return (
-      <div className="grid gap-2">
-        <p className="text-sm text-slate-400">
-          {availableForProvider
-            ? "A connection for this provider is available to this workspace. Continue to choose which connection to use."
-            : "Continue to provider setup to choose a connection, or manage this connection's workspace access."}
-        </p>
-        <Button
-          type="button"
-          size="sm"
-          className="w-fit"
-          disabled={disabled || pending || account.state !== "active"}
-          onClick={() => void continueSetup()}
-        >
-          Continue provider setup
-        </Button>
-        {showConnectionsList ? (
-          <button
-            type="button"
-            className="w-fit font-semibold text-cyan-200 underline"
-            onClick={showConnectionsList}
-          >
-            Manage workspace access
-          </button>
-        ) : (
-          <a
-            className="w-fit font-semibold text-cyan-200 underline"
-            href={`${apiKeySetupHref("accounts", intent)}#your-accounts`}
-          >
-            Manage workspace access
-          </a>
-        )}
-      </div>
-    );
-  return (
-    <div className="grid gap-2">
-      {needsBinding ? (
-        <p className="text-sm text-slate-400">
-          Continue makes this connection available to the selected workspace,
-          then returns to the same provider and repository setup.
-        </p>
-      ) : null}
-      <Button
-        type="button"
-        size="sm"
-        className="w-fit"
-        disabled={
-          disabled ||
-          pending ||
-          account.state !== "active" ||
-          (needsBinding &&
-            (account.canManage !== true ||
-              Boolean(account.binding?.fencePending)))
-        }
-        aria-busy={pending}
-        onClick={() => void continueSetup()}
-      >
-        {pending
-          ? "Making available..."
-          : needsBinding
-            ? "Make available and continue"
-            : "Continue provider setup"}
-      </Button>
-      {error ? (
-        <p role="alert" className="text-sm text-red-100">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 /** One provider-first entry point; operation progress stays with the controller. */
 function ConnectAccountDialog({
-  initiallyOpen = false,
   profiles,
   accounts,
   disabled,
@@ -1545,10 +1374,9 @@ function ConnectAccountDialog({
   begin,
   submit,
 }: Parameters<typeof ConnectionForm>[0] & {
-  initiallyOpen?: boolean;
   addsToWorkspace?: boolean;
 }): React.ReactElement {
-  const [open, setOpen] = useState(initiallyOpen);
+  const [open, setOpen] = useState(false);
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger
@@ -1615,16 +1443,8 @@ function ConnectionForm({
   const ordered = [...profiles].sort(
     (a, b) => Number(b.authKind === "oauth") - Number(a.authKind === "oauth"),
   );
-  const setup = useContext(ApiKeySetupContext);
-  const [profileId, setProfileId] = useState(
-    ordered.find(
-      (profile) =>
-        setup.intent !== undefined &&
-        setupProviderForGatewayProfile(profile) === setup.intent?.provider,
-    )?.id ??
-      ordered[0]?.id ??
-      "",
-  );
+  const setup = useContext(ConnectWorkspaceContext);
+  const [profileId, setProfileId] = useState(ordered[0]?.id ?? "");
   const profile = profiles.find((row) => row.id === profileId);
   const formContainer = useRef<HTMLDivElement>(null);
   const target = useConnectTarget();
@@ -1980,6 +1800,7 @@ function OperationReadback({
   beginContinuation,
   inline = false,
   startAnother,
+  cancel,
   dismiss,
   refresh,
   oauthEnabled,
@@ -1989,13 +1810,14 @@ function OperationReadback({
   managementScope,
   addToWorkspace,
   onConnected,
-  renderSetupContinuation,
 }: {
   context: string;
   scope: string;
   nonce: string;
   listFailed: boolean;
   startAnother(): void;
+  /** An embedded form may leave a waiting request and start over. */
+  cancel?: (() => void) | undefined;
   deviceAuthorization?: DeviceAuthorization | undefined;
   completionProvider?: OAuthCompletionPresentation | undefined;
   beginContinuation(intent: OAuthFormIntent): Promise<void>;
@@ -2010,7 +1832,6 @@ function OperationReadback({
   addToWorkspace?: AddConnectionToWorkspace | undefined;
   /** Once the new connection is added to the workspace it was made from. */
   onConnected?: ((bindingId: string) => void) | undefined;
-  renderSetupContinuation?: ((account: AccountView) => ReactNode) | undefined;
 }) {
   const client = useQueryClient();
   const [pollUntil] = useState(() => Date.now() + 15 * 60000);
@@ -2264,9 +2085,6 @@ function OperationReadback({
           onConnected={onConnected}
         />
       ) : null}
-      {state === "applied" && data?.status === "ok" && data.value.account
-        ? renderSetupContinuation?.(data.value.account)
-        : null}
       {state === "pending" &&
       data?.status === "ok" &&
       data.value.oauthMethod === "device_code" ? (
@@ -2338,6 +2156,11 @@ function OperationReadback({
       {inline && terminal ? (
         <Button variant="outline" size="sm" onClick={startAnother}>
           Add another account
+        </Button>
+      ) : null}
+      {cancel && !terminal ? (
+        <Button variant="ghost" size="sm" onClick={cancel}>
+          Cancel sign-in
         </Button>
       ) : null}
       {(terminal && !inline) || state === "unknown" ? (
@@ -2768,7 +2591,7 @@ function AccountForm({
   const selected =
     profiles.find((p) => p.id === selectedId) ??
     (inline ? profiles[0] : undefined);
-  const setup = useContext(ApiKeySetupContext);
+  const setup = useContext(ConnectWorkspaceContext);
   // Inside another flow the storage is already chosen there.
   const embedded = useConnectTarget() !== null;
   const apiKeyProvider = apiKeyProviderForGatewayProfile(selected);
@@ -2779,7 +2602,7 @@ function AccountForm({
           provider: apiKeyProvider,
           storage: "github_secrets" as const,
           workspaceId: setup.workspaceId,
-          repositoryIds: setup.intent?.repositoryIds ?? [],
+          repositoryIds: [],
         }
       : null;
   const keyURL = selected?.connection
@@ -3070,12 +2893,7 @@ function AccountForm({
         }
         if (next && mode !== "connect") setLabelValue(account?.label ?? "");
         if (next && mode === "connect") {
-          const profile =
-            profiles.find(
-              (profile) =>
-                setupProviderForGatewayProfile(profile) ===
-                setup.intent?.provider,
-            ) ?? profiles[0];
+          const profile = profiles[0];
           setSelectedId(profile?.id ?? "");
           setKeyStorage("reviewrouter");
           setBaseURL(profile?.dedicatedBaseURL ?? "");

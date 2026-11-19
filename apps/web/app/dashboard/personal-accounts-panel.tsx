@@ -18,7 +18,6 @@ import {
 } from "./personal-account-controls";
 import { personalAccountAccessReads } from "./personal-account-access-api";
 import { useCurrentGatewayModelAccountsCache } from "./gateway-model-account-options";
-import type { ApiKeySetupIntent } from "../../src/features/provider-setup/api-key-storage";
 
 export function PersonalAccountsPanel({
   bootstrap,
@@ -27,8 +26,6 @@ export function PersonalAccountsPanel({
   managementApi,
   workspaceId,
   accessReadContext,
-  setupIntent,
-  initiallyOpenConnect = false,
   addToWorkspace,
   connectEntry,
   workspaceList,
@@ -39,8 +36,6 @@ export function PersonalAccountsPanel({
   managementApi: AccountGatewayManagementApi;
   workspaceId?: string;
   accessReadContext?: string;
-  setupIntent?: ApiKeySetupIntent | undefined;
-  initiallyOpenConnect?: boolean;
   addToWorkspace?: AddConnectionToWorkspace | undefined;
   connectEntry?: ReactNode;
   workspaceList?: PersonalWorkspaceList | undefined;
@@ -66,8 +61,6 @@ export function PersonalAccountsPanel({
         bootstrap={management}
         managementScope="personal"
         workspaceId={workspaceId}
-        setupIntent={setupIntent}
-        initiallyOpenConnect={initiallyOpenConnect}
         addToWorkspace={addToWorkspace}
         connectEntry={connectEntry}
         api={managementApi}

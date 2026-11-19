@@ -1075,33 +1075,6 @@ describe("dashboard server loading boundaries", () => {
     },
   );
 
-  it("preserves the validated provider setup continuation across Providers views", async () => {
-    const data = await loadDashboardSectionData(workspace, "setup", access);
-    const html = renderToStaticMarkup(
-      <WorkspaceCard
-        data={data}
-        mutationsEnabled
-        selectedSection="setup"
-        params={{
-          keyProvider: "openrouter",
-          keyStorage: "reviewrouter",
-          keyWorkspace: "workspace-a",
-          keyRepository: ["repo-a", "repo-b"],
-        }}
-        repositoryAccess={access}
-        workspaceKey="acme"
-        appInstallUrl={null}
-        modelOptions={[]}
-      />,
-    );
-    expect(html).toContain(
-      "/dashboard?workspace=workspace-a&amp;keyProvider=openrouter&amp;keyStorage=reviewrouter&amp;keyWorkspace=workspace-a&amp;section=providers&amp;keyRepository=repo-a&amp;keyRepository=repo-b",
-    );
-    expect(html).toContain(
-      "/dashboard/setup?workspace=workspace-a&amp;keyProvider=openrouter&amp;keyStorage=reviewrouter&amp;keyWorkspace=workspace-a&amp;keyRepository=repo-a&amp;keyRepository=repo-b",
-    );
-  });
-
   it.each(["provider_selection_required", "resave_required"] as const)(
     "keeps Review settings focused on behavior and points to Providers (%s)",
     async (reviewConfigStatus) => {

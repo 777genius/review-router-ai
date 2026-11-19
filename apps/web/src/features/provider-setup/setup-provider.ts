@@ -182,32 +182,34 @@ export function setupProviderForGatewayProfile(
   return undefined;
 }
 
-/**
- * A profile the provider dialog may connect in place (79). Stage 1: API-key
- * sign-in only; OAuth providers keep their link to Connections for now.
- */
+type EnrollableProfile = GatewayProfileIdentity &
+  Pick<AccountProfileView, "availability">;
+
+/** The provider a new connection of this profile sets up, if it may be made. */
+function enrollableSetupProvider(
+  profile: EnrollableProfile,
+): SetupProviderId | undefined {
+  return profile.availability === "deployment_configuration_required"
+    ? undefined
+    : setupProviderForGatewayProfile(profile);
+}
+
+/** A profile the provider dialog may connect in place (79). */
 export function connectsInProviderDialog(
-  profile: GatewayProfileIdentity & Pick<AccountProfileView, "availability">,
+  profile: EnrollableProfile,
   provider: SetupProviderId,
 ): boolean {
-  return (
-    profile.authKind === "api_key" &&
-    profile.availability !== "deployment_configuration_required" &&
-    setupProviderForGatewayProfile(profile) === provider
-  );
+  return enrollableSetupProvider(profile) === provider;
 }
 
 /** Enrollment is advertised independently of an existing account inventory. */
 export function gatewaySetupProvidersForProfiles(
-  profiles: readonly (GatewayProfileIdentity &
-    Pick<AccountProfileView, "availability">)[],
+  profiles: readonly EnrollableProfile[],
 ): SetupProviderId[] {
   return [
     ...new Set(
       profiles.flatMap((profile) => {
-        if (profile.availability === "deployment_configuration_required")
-          return [];
-        const provider = setupProviderForGatewayProfile(profile);
+        const provider = enrollableSetupProvider(profile);
         return provider ? [provider] : [];
       }),
     ),
