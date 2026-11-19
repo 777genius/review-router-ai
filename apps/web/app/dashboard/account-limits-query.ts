@@ -1,3 +1,4 @@
+import { ACCOUNT_LIMITS_OBSERVATION_TTL_MS } from "@reviewrouter/features-provider-accounts/account-limits";
 import { AccountDiagnosisError } from "../../src/features/account-gateway/account-diagnosis";
 import {
   type QueryClient,
@@ -20,11 +21,9 @@ export const accountLimitsKey = (scope: string, connectionId: string) =>
 export const accountLimitsScope = (context: string, workspaceId?: string) =>
   `${workspaceId ? `workspace:${workspaceId}` : "personal"}:${context.split(".")[0] ?? ""}`;
 
-/** Observation age at which saved limits are shown as Outdated. */
-export const ACCOUNT_LIMITS_OUTDATED_AFTER_MS = 300_000;
-/** A refreshed observation stays current for the same period. */
+/** A refreshed observation stays current for the domain observation TTL. */
 export const ACCOUNT_LIMITS_AUTO_REFRESH_COOLDOWN_MS =
-  ACCOUNT_LIMITS_OUTDATED_AFTER_MS;
+  ACCOUNT_LIMITS_OBSERVATION_TTL_MS;
 const autoRefreshAttempts = new Map<string, number>();
 
 /**
