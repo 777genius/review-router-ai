@@ -143,14 +143,17 @@ export class InMemoryInvestigationStore
   async findExpiredActiveTurnIds(input: {
     readonly expiresAtOrBefore: string;
     readonly limit: number;
+    readonly excludeInvestigationIds?: readonly string[];
   }): Promise<readonly string[]> {
     await this.transactionTail;
     const cutoff = new Date(input.expiresAtOrBefore);
+    const excluded = new Set(input.excludeInvestigationIds ?? []);
     return [...this.investigations.values()]
       .filter(
         (item) =>
           item.activeTurn !== null &&
-          new Date(item.activeTurn.expiresAt) <= cutoff,
+          new Date(item.activeTurn.expiresAt) <= cutoff &&
+          !excluded.has(item.investigationId),
       )
       .sort(
         (left, right) =>

@@ -219,7 +219,10 @@ describe("Gateway reviewer roster", () => {
       expect(save).toHaveProperty("disabled", false);
       fireEvent.click(refresh);
       await waitFor(() => expect(save).toHaveProperty("disabled", true));
-      const retry = screen.getByRole("button", { name: /^Refresh models$/ });
+      // A failed read offers Try again; an empty list keeps its small refresh.
+      const retry = screen.getByRole("button", {
+        name: outcome === "unavailable" ? "Try again" : /^Refresh models$/,
+      });
       await waitFor(() => expect(retry).toHaveProperty("disabled", false));
       expect(screen.getByText(/1\. model-one/)).toBeTruthy();
       expect(screen.getByText(/2\. model-two/)).toBeTruthy();
@@ -577,7 +580,8 @@ describe("Gateway reviewer roster", () => {
     const props = base();
     props.view = { ...props.view, defaultSelections: [selection("one")] };
     // An NVIDIA account without its own fresh catalogue: every model is listed
-    // but marked unusable, so typing its exact name must not make it savable.
+    // but unusable and the list says why once, so typing its exact name must
+    // not make it savable.
     props.gatewayAccounts = {
       status: "ok",
       value: {
@@ -597,9 +601,8 @@ describe("Gateway reviewer roster", () => {
       target: { value: "model-two" },
     });
     expect(
-      screen.getAllByText(/NVIDIA account model qualification unavailable/)
-        .length,
-    ).toBeGreaterThan(0);
+      screen.getByText("Could not update the model list for this account."),
+    ).toBeTruthy();
     const save = screen.getByRole("button", { name: "Save reviewers" });
     expect(save).toHaveProperty("disabled", true);
     fireEvent.click(save);

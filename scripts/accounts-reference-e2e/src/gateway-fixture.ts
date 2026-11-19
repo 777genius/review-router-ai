@@ -240,6 +240,8 @@ export async function startGatewayFixture(input: {
       return;
     }
     if (subscriptions && requestUrl.pathname === "/__subscription-fixture") {
+      if (request.method === "POST")
+        subscriptions.configure(await readJson(request));
       send(response, 200, subscriptions.stats());
       return;
     }
@@ -391,9 +393,24 @@ export async function startGatewayFixture(input: {
       requestUrl.pathname === "/v1/account-models/read" &&
       request.method === "POST"
     ) {
-      const result = accountModels.read(await readJson(request));
-      send(response, result.status, result.body);
-      return;
+      const body = await readJson(request);
+      const owned =
+        accounts.find((account) => account.accountRef === body.accountRef)
+          ?.profileId === CODEX_MODEL_PROFILE;
+      // An account enrolled by the API-key fixture in the same run (e.g. an
+      // NVIDIA key) is answered by that fixture.
+      const result =
+        owned || !subscriptions
+          ? accountModels.read(body)
+          : await subscriptions.handle(
+              "POST",
+              requestUrl.pathname,
+              async () => body,
+            );
+      if (result) {
+        send(response, result.status, result.body);
+        return;
+      }
     }
     if (subscriptions) {
       const result = await subscriptions.handle(
