@@ -117,6 +117,8 @@ describe("ReviewProgressTerminalPromotion", () => {
     const { promotion: sweep, logger } = promotion(store);
 
     await expect(sweep.promote([])).resolves.toBe(1);
+    await expect(sweep.promote([])).resolves.toBe(1);
+    expect(logger.warn).toHaveBeenCalledOnce();
     expect(logger.warn).toHaveBeenCalledWith(
       "Review progress sweep could not promote a review",
       {

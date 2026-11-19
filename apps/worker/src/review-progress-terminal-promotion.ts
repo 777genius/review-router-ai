@@ -28,6 +28,8 @@ export type ReviewProgressPromotionStore = Pick<
  */
 export class ReviewProgressTerminalPromotion {
   private cursor: PromotionScanCursor | null = null;
+  /** Executions already reported, so a bad row warns once per process. */
+  private readonly reported = new Set<string>();
   private readonly pageSize: number;
   private readonly logger: Pick<Logger, "warn">;
 
@@ -82,6 +84,8 @@ export class ReviewProgressTerminalPromotion {
           now: this.clock.now(),
         });
       } catch (error) {
+        if (this.reported.has(executionId)) continue;
+        this.reported.add(executionId);
         this.logger.warn("Review progress sweep could not promote a review", {
           executionId,
           safeErrorSummary: safeWorkerErrorSummary(error),

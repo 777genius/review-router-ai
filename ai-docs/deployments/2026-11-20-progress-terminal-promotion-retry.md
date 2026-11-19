@@ -46,15 +46,18 @@ Merging the PR did not deploy anything.
   and stops once it is terminal.
 - A swept candidate that cannot be promoted is logged as
   `Review progress sweep could not promote a review` (execution ID and safe
-  error code) and does not fail the phase, so one bad row cannot keep the
-  worker loop on `errorDelayMs`. Failures of this pass's own settlements still
+  error code, once per execution and worker process) and does not fail the
+  phase, so one bad row cannot keep the worker loop on `errorDelayMs`. Failures of this pass's own settlements still
   fail `review_v2.progress_promotion` as before.
 - "Complete" now accepts every required part settled with at least one
   finished, matching the execution's coverage verdict: an ordered fallback
   (plan 67) completes with later reviewers' parts cancelled or a failed
   earlier reviewer's parts exhausted. Before, such a review threw
   `review_progress_complete_outcome_inconsistent` and its comment stayed at
-  "Assembling results". The comment shows Complete with its real part counts.
+  "Assembling results". The Complete comment counts only the parts that
+  covered the review ("Progress: 2 of 2 parts reviewed (100%)"), adds "Parts
+  not needed: N" for the cancelled ones and keeps "Parts that could not be
+  finished" for a failed reviewer.
 - The sweep skips scopes without a posted comment, so rows closed by the
   backlog expiry that never had a comment get no new comment. Expired rows
   that do have a comment (the canary repository, or PRs commented before a
@@ -80,9 +83,8 @@ Merging the PR did not deploy anything.
    about 30 s after the App summary.
 3. Watch the worker log for `ReviewRouter worker phases failed` with
    `review_v2.progress_promotion` and for
-   `Review progress sweep could not promote a review`. A sweep warning that
-   repeats for the same execution points at a progress row that cannot become
-   terminal; it does not fail the phase or delay the final review.
+   `Review progress sweep could not promote a review`. A sweep warning names
+   a progress row that cannot become terminal (logged once per worker process); it does not fail the phase or delay the final review.
 
 ## Verification and completion
 
@@ -96,6 +98,10 @@ Merging the PR did not deploy anything.
 
 No data is migrated. Rolling back the image restores the hint-only promotion
 and the strict "Complete" counts; progress already promoted stays terminal.
+An older worker image treats a Complete snapshot of an ordered fallback as
+invalid and suppresses it, and that comment then stays at "Assembling results".
+So do not run older workers with writes on next to this one, and prefer the
+kill switch over an image rollback while writes are on.
 
 ## Related links
 
