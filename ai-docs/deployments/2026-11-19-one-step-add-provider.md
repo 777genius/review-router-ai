@@ -8,8 +8,8 @@
   no trip to Connections and back. OAuth providers (Codex, Grok) keep the
   existing link until stage 2 of the plan.
 - Affected target: Web only (UI and its server actions).
-- Implementation: stage 1 of [plan 79](../architecture/79-one-step-add-provider.md).
-  The PR link is added when it is opened.
+- Implementation: [ReviewRouter AI PR #917](https://github.com/777genius/review-router-ai/pull/917),
+  stage 1 of [plan 79](../architecture/79-one-step-add-provider.md).
 - Dependencies: PRs #901, #912, #913, #915 and #916, already merged. No
   migration, configuration, feature flag, Gateway or native change.
 - Last updated: 2026-11-19.
