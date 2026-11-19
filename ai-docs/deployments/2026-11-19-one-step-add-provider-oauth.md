@@ -15,10 +15,10 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                       |
-| ---------- | --------- | ------------ | ---------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary web rollout and the checks below      |
-| Production | `pending` | Not verified | Ordinary web rollout with the next Web release |
+| Target     | Status      | Actual image                         | Evidence                                                                                                         |
+| ---------- | ----------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Staging    | `pending`   | Not verified                         | Ordinary web rollout and the checks below                                                                        |
+| Production | `installed` | `061f04bc`, image `sha256:c196f4fb…` | [rollout 061f04bc](2026-11-19-rollout-061f04bc.md) 2026-11-19 17:00 UTC. Dialog check needs the owner's session. |
 
 `pending` means no verified completion is recorded, not that deployment was
 observed to be absent. Use the [status contract](README.md#status-contract).
