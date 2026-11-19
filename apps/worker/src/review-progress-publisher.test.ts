@@ -988,6 +988,7 @@ describe("ReviewProgressPublisher", () => {
     const error = await run.catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(AggregateError);
     expect((error as AggregateError).errors).toEqual([retryError, repairError]);
+    expect((error as AggregateError).cause).toBe(repairError);
     expect(store.requeueAfterClaimLoss).toHaveBeenCalledWith({
       scope: publication.scope,
       now,

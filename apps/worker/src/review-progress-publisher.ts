@@ -347,6 +347,7 @@ export class ReviewProgressPublisher {
           throw new AggregateError(
             [retryError, repairError],
             "review_progress_retry_and_repair_failed",
+            { cause: repairError },
           );
         }
       }
