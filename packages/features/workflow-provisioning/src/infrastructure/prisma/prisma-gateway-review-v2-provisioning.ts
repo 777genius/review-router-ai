@@ -398,3 +398,21 @@ export function isGatewayReviewV2RepositoryReady(
 ): boolean {
   return readiness?.status === "ready";
 }
+
+/**
+ * Hosted review authorization as the dashboard shows it. A missing authority
+ * or repository identity is what a merged setup has before its verification;
+ * every other refusal is an operator state (pause, drain, legacy enrollment,
+ * safety block) that verification does not clear.
+ */
+export function gatewayReviewV2AuthorizationState(
+  readiness: GatewayReviewV2RepositoryReadiness | undefined,
+): "ready" | "not_established" | "blocked" {
+  if (!readiness) return "not_established";
+  if (readiness.status === "ready") return "ready";
+  return "issue" in readiness &&
+    (readiness.issue === "mutation_authority_unavailable" ||
+      readiness.issue === "gateway_repository_identity_missing")
+    ? "not_established"
+    : "blocked";
+}

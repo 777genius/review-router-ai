@@ -7,5 +7,6 @@ export {
   provisionGatewayReviewV2Repository,
   readGatewayReviewV2RepositoryReadiness,
   isGatewayReviewV2RepositoryReady,
+  gatewayReviewV2AuthorizationState,
   type GatewayReviewV2RepositoryReadiness,
 } from "@reviewrouter/features-workflow-provisioning/composition";

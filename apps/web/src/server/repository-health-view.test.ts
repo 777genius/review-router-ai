@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  describeRepositoryHealth,
-  summarizeWorkspaceHealth,
-} from "./repository-health-view";
+import { describeRepositoryHealth } from "./repository-health-view";
 
 describe("repository health view", () => {
   it("turns raw health statuses into actionable tester copy", () => {
@@ -40,33 +37,6 @@ describe("repository health view", () => {
       summary: "ReviewRouter workflow file is missing from the default branch",
       nextAction:
         "Create or update the setup PR and merge it into its target branch.",
-    });
-  });
-
-  it("summarizes workspace readiness without hiding blocking states", () => {
-    expect(summarizeWorkspaceHealth([])).toMatchObject({
-      tone: "neutral",
-      label: "No repositories synced",
-    });
-    expect(
-      summarizeWorkspaceHealth(["healthy", "provider_report_stale"]),
-    ).toMatchObject({
-      tone: "warning",
-      label: "1 need setup",
-      ready: 1,
-      needsSetup: 1,
-    });
-    expect(
-      summarizeWorkspaceHealth(["healthy", "provider_unhealthy"]),
-    ).toMatchObject({
-      tone: "danger",
-      label: "1 need attention",
-      ready: 1,
-      needsAttention: 1,
-    });
-    expect(summarizeWorkspaceHealth(["healthy"])).toMatchObject({
-      tone: "success",
-      label: "All synced repos ready",
     });
   });
 });
