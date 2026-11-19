@@ -65,6 +65,34 @@ describe("ReviewProgressGitHubGateway", () => {
     ).toHaveLength(5);
   });
 
+  it("does not confirm a possibly landed POST after the pull head changes", async () => {
+    const fixture = githubFixture([], { throwAfterPost: true });
+    let pullReads = 0;
+    const pullRoute = "GET /repos/{owner}/{repo}/pulls/{pull_number}";
+    const request: ReviewProgressGitHubRequester = async (route, parameters) => {
+      const response = await fixture.request(route, parameters);
+      if (route !== pullRoute) return response;
+      pullReads += 1;
+      if (pullReads !== 3) return response;
+      return {
+        ...response,
+        data: {
+          ...(response.data as Record<string, unknown>),
+          head: { sha: "b".repeat(40) },
+        },
+      };
+    };
+
+    await expect(gateway(request).upsert(input())).rejects.toMatchObject({
+      kind: "ambiguous_mutation",
+      metadata: { mutationMayHaveLanded: true, retryable: true },
+    });
+    expect(pullReads).toBe(3);
+    expect(mutations(fixture.calls).map(({ route }) => route)).toEqual([
+      "POST /repos/{owner}/{repo}/issues/{issue_number}/comments",
+    ]);
+  });
+
   it("reconciles a timed-out PATCH when the marked comment was updated", async () => {
     const fixture = githubFixture([{ id: 8, body: `old\n${marker}` }], {
       throwAfterPatch: true,

@@ -459,6 +459,8 @@ export class ReviewProgressGitHubGateway {
     if (classified.kind === "revoked_app") throw classified;
     let observed: ReviewProgressComment[];
     try {
+      // A write may land just as the PR head changes. Do not reconcile it
+      // against a stale publication identity, even after an earlier fence.
       observed = await this.findMarkedComments(
         input,
         await this.assertCurrentPullRequest(input),
