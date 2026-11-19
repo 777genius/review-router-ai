@@ -1,9 +1,10 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
-// Web source files stay under 600 lines. Files that were already longer keep
-// their size as a ceiling: they may shrink (lower the number in the same PR)
-// but not grow. See ai-docs/architecture/83-file-size-governance.md.
+// Web source files have at most `webMaxLines` lines. Files that were already
+// longer keep their size as a ceiling: lower it in the PR that shrinks the
+// file, and raise it only with a reason in the PR description.
+// See ai-docs/architecture/83-file-size-governance.md.
 const webMaxLines = 600;
 const webMaxLinesCeilings = {
   "apps/web/app/dashboard/account-gateway-account-controls.tsx": 2944,
@@ -91,8 +92,10 @@ export default [
     files: ["apps/web/**/*.{ts,tsx,mts,cts,js,mjs,cjs}"],
     ignores: [
       "**/*.test.*",
+      "**/*.test-*",
       "**/*.spec.*",
       "**/tests/**",
+      "**/test-support/**",
       // Third-party components copied as-is.
       "apps/web/app/vendor/**",
     ],
