@@ -372,7 +372,7 @@ export class ReviewProgressGitHubGateway {
     }
     return {
       comments: response.data,
-      ...commentPageLinks(response.headers, page),
+      ...commentPageLinks(response.headers, page, input),
     };
   }
 
