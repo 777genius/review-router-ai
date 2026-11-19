@@ -174,9 +174,9 @@ are upstream results, not independent ReviewRouter measurements.
 | GitLab      | In development.                                                    |
 | Self-hosted | Guided Docker Compose installation on your infrastructure.         |
 
-Live PR progress comments require deployment-specific rollout. See
-[capabilities and limits](./docs/capabilities.md) for availability, the review
-runtime boundaries and privacy details.
+ReviewRouter keeps a live progress comment on the pull request while a review
+runs, on by default. See [capabilities and limits](./docs/capabilities.md) for
+availability, the review runtime boundaries and privacy details.
 
 ## Learn more
 

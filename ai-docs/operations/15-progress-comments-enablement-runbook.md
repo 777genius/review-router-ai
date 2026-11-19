@@ -2,6 +2,19 @@
 
 Статус: решения для владельца, ничего не включено и не перезапущено. Факты: код `main` `50e966d06`, prod `061f04bc`, read-only SQL и `gh` на 2026-11-19 17:30 UTC.
 
+**Обновление 2026-11-19 (владелец: включить по умолчанию).** В коде, который ещё не выкачен, комментарий включён по умолчанию для всех репозиториев. Разделы 1-7 ниже описывают код `50e966d06` (prod). Новые правила:
+
+- Ключи читает один парсер `readReviewProgressSettings` (`packages/features/review-progress/src/composition/review-progress-settings.ts`), его используют worker и API. Пустое или не заданное значение `REVIEW_ROUTER_PROGRESS_PROJECTION_CAPTURE`, `REVIEW_ROUTER_PROGRESS_FILE_COVERAGE`, `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES` означает «включено», `1` тоже, `0` выключает.
+- `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=0` это kill switch комментария (читается при старте worker).
+- `REVIEW_ROUTER_PROGRESS_REPOSITORIES` пустой или не задан: все репозитории. Иначе необязательный allow-list `owner/repo,...`. `*` больше не особый и считается ошибкой.
+- Любое другое значение (`true`, `*`, пустой элемент списка) это ошибка: соответствующая часть выключается, в лог пишется предупреждение `Review progress settings are invalid; ...` с именами ключей, без значений. Worker и API при этом стартуют.
+- Текст комментария простой: строка «Progress: N of M parts reviewed (P%)» и полоса показываются только при двух и более обязательных частях (на prod у 98.6% review одна часть), строки повторов только если число не ноль, есть «Started» и «Last update».
+- Смена фазы и терминальное состояние публикуются сразу. Обновления внутри одной фазы ждут `progressCommentMinEditIntervalMs` (60 с) в `packages/features/review-progress/src/domain/progress-comment-cadence.ts`, это единственное место. `REVIEW_ROUTER_PROGRESS_MIN_MUTATION_INTERVAL_MS` (интервал записей на установку), claim fence и проверка head остаются.
+- Backlog из раздела 4 всё равно нужно закрыть, теперь для всех репозиториев. Это делает оператор, кода и миграции для этого нет. Порядок: сначала образ с явным `WRITES=0`, затем в одном окне остановить worker, закрыть backlog (строки, чей execution не `planned`/`running`; SQL в записи выкатки) и сразу запустить worker без ключей. Promotion работает только при включённой записи, поэтому review, закончившиеся между закрытием backlog и стартом, навсегда останутся «Assembling results». То же при повторном включении после kill switch.
+- `PROJECTION_CAPTURE` и `FILE_COVERAGE` должны совпадать на API и worker: capture идёт в транзакции execution на обеих ролях, и одностороннее изменение может уронить следующий capture идущего review.
+- Следующий шаг (не сделан): прогресс по вызовам «сделано из запланированных». 44 вызова OCR в БД не хранятся, и не проверено, что OCR заранее знает их число. Без этого точный процент для review из одной части не получить.
+- Выкатка: [2026-11-19-progress-comments-default-on](../deployments/2026-11-19-progress-comments-default-on.md).
+
 ## 1. Как работает publisher (по коду)
 
 - Runtime создаётся только при `REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=1` и непустом `REVIEW_ROUTER_PROGRESS_REPOSITORIES` (`review-v2-production-runtime.ts`, `createHostedReviewProgressRuntime`). Env читается при старте worker. API и scan worker эти ключи не читают.

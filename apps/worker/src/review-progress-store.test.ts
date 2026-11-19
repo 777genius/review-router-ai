@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { progressCommentMinEditIntervalMs } from "@reviewrouter/features-review-progress";
 import { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 
 const now = new Date("2026-08-12T12:00:00.000Z");
@@ -303,7 +304,11 @@ describe("PrismaReviewProgressPublicationStore fencing", () => {
   });
 
   it.each([
-    { mode: "ongoing", terminal: false, delayMs: 60_000 },
+    {
+      mode: "ongoing",
+      terminal: false,
+      delayMs: progressCommentMinEditIntervalMs,
+    },
     { mode: "terminal", terminal: true, delayMs: 0 },
   ])("settles $mode claims", async ({ terminal, delayMs }) => {
     const updateMany = vi.fn(async () => ({ count: 1 }));

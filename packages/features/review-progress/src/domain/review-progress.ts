@@ -89,6 +89,8 @@ export type ProgressSnapshot = {
   readonly phase: ProgressPhase;
   readonly terminal: ProgressTerminal;
   readonly updatedAt: string;
+  /** When the review started; absent on snapshots captured before it existed. */
+  readonly startedAt?: string | undefined;
   readonly counts: ProgressCounts;
   readonly fileCoverage: FileCoverage;
   /** Non-secret GitHub Actions identity used to causally bind hosted progress. */
@@ -100,6 +102,7 @@ export type ComputeProgressSnapshotInput = {
   readonly phase: ProgressPhase;
   readonly terminal: ProgressTerminal;
   readonly updatedAt: Date | string;
+  readonly startedAt?: Date | string | undefined;
   readonly slots: readonly ReviewSlotProgressInput[];
   readonly assignmentManifest?: ReviewAssignmentManifest | undefined;
   readonly sourceIdentity?: ProgressSourceIdentity | undefined;
@@ -154,6 +157,14 @@ export function computeProgressSnapshot(
     phase: input.phase,
     terminal: input.terminal,
     updatedAt,
+    ...(input.startedAt === undefined
+      ? {}
+      : {
+          startedAt: normalizeInstant(
+            input.startedAt,
+            "progress_started_at_invalid",
+          ),
+        }),
     counts,
     fileCoverage: computeFileCoverage(input.assignmentManifest, slots),
     ...(input.sourceIdentity === undefined
@@ -373,10 +384,12 @@ function phaseRank(phase: ProgressPhase): number {
   }[phase];
 }
 
-function normalizeInstant(value: Date | string): string {
+function normalizeInstant(
+  value: Date | string,
+  code = "progress_updated_at_invalid",
+): string {
   const date = value instanceof Date ? value : new Date(value);
-  if (!Number.isFinite(date.getTime()))
-    throw new Error("progress_updated_at_invalid");
+  if (!Number.isFinite(date.getTime())) throw new Error(code);
   return date.toISOString();
 }
 

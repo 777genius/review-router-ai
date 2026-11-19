@@ -1026,6 +1026,7 @@ export async function createApiApp(
             logger.warn("Review investigation operations diagnostic", {
               code,
             }),
+          logger,
         })
       : undefined;
   const standaloneUsagePrivateKey =

@@ -1,3 +1,4 @@
+import { progressCommentMinEditIntervalMs } from "@reviewrouter/features-review-progress";
 import type { PrismaReviewProgressPublicationStore } from "./review-progress-store";
 
 /** Derive terminal/ongoing publication settlement fields before the fenced write. */
@@ -6,7 +7,7 @@ export function completionMutationData(
 ) {
   const nextPublishAt = input.publication.terminal
     ? input.now
-    : new Date(input.now.getTime() + 60_000);
+    : new Date(input.now.getTime() + progressCommentMinEditIntervalMs);
   return {
     publishedVersion: input.publication.desiredVersion,
     commentId: input.commentId,

@@ -83,9 +83,10 @@ and [GitLab runtime reference](../deploy/gitlab/README.md).
 
 ## Deployment-specific and legacy capabilities
 
-Optional GitHub live-progress comments require explicit capture, publisher
-and repository-cohort configuration. The defaults are off; failed progress
-publication must not block a final review. See the
+GitHub live-progress comments are on by default for every repository.
+`REVIEW_ROUTER_HOSTED_PROGRESS_COMMENT_WRITES=0` turns them off and
+`REVIEW_ROUTER_PROGRESS_REPOSITORIES` can limit them to an allow-list. Failed
+progress publication must not block a final review. See the
 [progress rollout guide](./operations/live-review-progress-rollout.md).
 
 The default OpenCodeReview path runs separately from the earlier
