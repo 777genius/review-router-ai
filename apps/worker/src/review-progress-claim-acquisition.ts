@@ -11,7 +11,7 @@ import type {
 } from "./review-progress-store";
 
 /** Select one due publication scope under the existing row lock and priority policy. */
-export async function selectDuePublicationScope(
+async function selectDuePublicationScope(
   transaction: Prisma.TransactionClient,
   now: Date,
   repositoryPredicate: Prisma.Sql,
@@ -40,7 +40,7 @@ export async function selectDuePublicationScope(
 }
 
 /** Persist the fenced claim and construct its owned publication projection. */
-export async function claimPreparedPublication(
+async function claimPreparedPublication(
   transaction: Prisma.TransactionClient,
   input: Parameters<PrismaReviewProgressPublicationStore["claimNext"]>[0],
   candidate: ClaimedReviewProgress["scope"],

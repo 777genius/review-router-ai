@@ -112,7 +112,7 @@ async function durableSettledPublicationOutcome(
 }
 
 /** Promote only a fully settled current attempt that still owns progress. */
-export async function promoteSettledExecution(
+async function promoteSettledExecution(
   transaction: Prisma.TransactionClient,
   executionId: string,
   now: Date,
