@@ -19,14 +19,21 @@ export function validCredentialImportText(value: string): boolean {
 export function CredentialImportFields({
   method,
   loading,
+  validationErrorId,
 }: {
   method: CredentialImportMethod;
   loading(value: boolean): void;
+  validationErrorId?: string | undefined;
 }) {
   const text = useRef<HTMLTextAreaElement>(null);
   const generation = useRef(0);
   const [error, setError] = useState("");
   const errorId = useId();
+  const invalid = Boolean(error || validationErrorId) || undefined;
+  const description =
+    [error ? errorId : undefined, validationErrorId]
+      .filter(Boolean)
+      .join(" ") || undefined;
   return (
     <div className="grid min-w-0 gap-3">
       <label className="grid min-w-0 gap-2 text-sm">
@@ -40,8 +47,8 @@ export function CredentialImportFields({
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
+          aria-invalid={invalid}
+          aria-describedby={description}
           onInput={() => {
             generation.current += 1;
             setError("");
@@ -57,8 +64,8 @@ export function CredentialImportFields({
             type="file"
             name="credentialFile"
             accept=".json,application/json"
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? errorId : undefined}
+            aria-invalid={invalid}
+            aria-describedby={description}
             className="min-w-0 text-xs"
             onChange={(event) => {
               const input = event.currentTarget;

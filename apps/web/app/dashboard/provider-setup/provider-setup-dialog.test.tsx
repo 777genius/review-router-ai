@@ -941,6 +941,109 @@ describe("ProviderSetupDialog", () => {
     expect(createProviderProfileAction).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "workspace",
+    "personal",
+    "personal-denied",
+    "fenced",
+    "disabled",
+    "source-denied",
+    "profile-unavailable",
+  ] as const)(
+    "separates existing Codex binding use from disabled enrollment (%s)",
+    async (scenario) => {
+      const fixture = gatewayFixture();
+      if (fixture.status !== "ok") throw new Error("fixture unavailable");
+      const profile = fixture.value.profiles[0]!;
+      profile.id = "openai-codex-oauth-responses-v1";
+      profile.label = "Codex";
+      profile.provider = "codex";
+      profile.authKind = "oauth";
+      profile.connection = {
+        ...profile.connection!,
+        provider: "openai",
+        methods: [{ kind: "browser", create: false, reconnect: false }],
+      };
+      if (scenario === "profile-unavailable")
+        profile.availability = "deployment_configuration_required";
+      const account = fixture.value.accounts[0]!;
+      account.profileId = profile.id;
+      account.profileLabel = profile.label;
+      account.modelCatalog = {
+        status: "snapshot",
+        source: "codex",
+        fetchedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        models: profile.models,
+      };
+      if (scenario === "personal" || scenario === "personal-denied")
+        account.origin = "personal";
+      if (scenario === "disabled") account.state = "disabled";
+      if (scenario === "fenced") account.binding!.fencePending = true;
+      fixture.value.nextCursor = null;
+      view = {
+        ...view,
+        target: "workspace",
+        gatewaySetupProviders: [],
+        sources: apiSources().map((source) =>
+          source.key === "gateway_binding"
+            ? {
+                ...source,
+                decision:
+                  scenario === "source-denied"
+                    ? { allowed: false, reason: "workspace_admin_required" }
+                    : { allowed: true },
+                personalAccountDecision:
+                  scenario === "personal-denied"
+                    ? { allowed: false, reason: "workspace_admin_required" }
+                    : { allowed: true },
+              }
+            : source,
+        ),
+      };
+      renderDialog(
+        { kind: "workspace" },
+        { mode: "add", gatewayAccounts: fixture },
+      );
+      fireEvent.click(
+        await screen.findByRole("combobox", { name: "Provider" }),
+      );
+      const option = await screen.findByRole("option", { name: /^Codex/u });
+      const allowed = scenario === "workspace" || scenario === "personal";
+      expect(option.getAttribute("aria-disabled")).toBe(
+        allowed ? null : "true",
+      );
+      if (!allowed) {
+        expect(createProviderProfileAction).not.toHaveBeenCalled();
+        return;
+      }
+      fireEvent.click(option);
+      expect(
+        screen
+          .getByRole("radio", { name: "ReviewRouter" })
+          .getAttribute("aria-checked"),
+      ).toBe("true");
+      await screen.findByRole("combobox", { name: "Model" });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Add provider", exact: true }),
+      );
+      await waitFor(() =>
+        expect(createProviderProfileAction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            credential: {
+              kind: "gateway_binding",
+              bindingId: "binding-1",
+              gatewayProfileRef: profile.id,
+            },
+          }),
+        ),
+      );
+      expect(profile.connection.methods).toEqual([
+        { kind: "browser", create: false, reconnect: false },
+      ]);
+    },
+  );
+
   it.each([false, true])(
     "installs the GitHub key through the existing batch API before assignment (partial first attempt: %s)",
     async (partialFirstAttempt) => {

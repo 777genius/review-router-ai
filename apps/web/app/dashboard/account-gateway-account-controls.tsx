@@ -29,6 +29,7 @@ import { useAccountLifecycleActivities } from "./account-lifecycle-controls";
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   createContext,
@@ -1707,6 +1708,7 @@ function OAuthForm({
       : undefined;
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState("");
+  const importErrorId = useId();
   const formRef = useRef<HTMLFormElement>(null);
   function chooseMethod(value: Method) {
     formRef.current
@@ -1815,6 +1817,7 @@ function OAuthForm({
           key={importMethod}
           method={importMethod}
           loading={setImportLoading}
+          validationErrorId={importError ? importErrorId : undefined}
         />
       ) : method === "browser" || method === "device_code" ? (
         <OAuthMethodChoice
@@ -1832,7 +1835,7 @@ function OAuthForm({
         <p role="status">No sign-in method is currently available.</p>
       )}
       {importError ? (
-        <p role="alert" className="text-sm text-amber-200">
+        <p id={importErrorId} role="alert" className="text-sm text-amber-200">
           {importError}
         </p>
       ) : null}
@@ -2576,6 +2579,7 @@ function KeyUpdateContinuation({
   const formRef = useRef<HTMLFormElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const errorId = useId();
   return (
     <Dialog.Root
       open={open}
@@ -2635,7 +2639,11 @@ function KeyUpdateContinuation({
             }}
           >
             {method ? (
-              <CredentialImportFields method={method} loading={setLoading} />
+              <CredentialImportFields
+                method={method}
+                loading={setLoading}
+                validationErrorId={error ? errorId : undefined}
+              />
             ) : (
               <label className="grid gap-2 text-sm">
                 API key
@@ -2651,7 +2659,7 @@ function KeyUpdateContinuation({
               </label>
             )}
             {error ? (
-              <p role="alert" className="text-sm text-amber-200">
+              <p id={errorId} role="alert" className="text-sm text-amber-200">
                 {error}
               </p>
             ) : null}

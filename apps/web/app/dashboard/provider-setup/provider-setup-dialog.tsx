@@ -917,9 +917,8 @@ function ProviderChoiceStep({
     gatewayOptions.accounts?.status === "ok"
       ? gatewayOptions.accounts.value
       : null;
-  const gatewayAccountList = getGatewaySetupAccounts(
-    gatewayOptions.accounts,
-  ).filter((account) =>
+  const gatewaySetupAccounts = getGatewaySetupAccounts(gatewayOptions.accounts);
+  const gatewayAccountList = gatewaySetupAccounts.filter((account) =>
     gatewayPage?.profiles.some(
       (profile) =>
         profile.id === account.profileId &&
@@ -1125,16 +1124,26 @@ function ProviderChoiceStep({
     const githubSource = view.sources.find(
       (option) => option.key === githubSourceFor(provider, claudeMethod),
     );
-    const gatewayAllowed = view.sources.some(
-      (option) => option.key === "gateway_binding" && option.decision.allowed,
+    const gatewaySource = view.sources.find(
+      (option) => option.key === "gateway_binding",
     );
-    const gatewaySupported = view.gatewaySetupProviders
-      ? view.gatewaySetupProviders.includes(provider)
-      : gatewayPage?.profiles.some(
-          (profile) =>
-            profile.availability !== "deployment_configuration_required" &&
-            setupProviderForGatewayProfile(profile) === provider,
-        );
+    const gatewayAllowed = gatewaySource?.decision.allowed;
+    // Enrollment availability does not withdraw an existing authorized binding.
+    const gatewaySupported =
+      gatewaySetupAccounts.some(
+        (account) =>
+          setupProviderForGatewayProfile(gatewayOptions.profileFor(account)) ===
+            provider &&
+          (account.origin !== "personal" ||
+            gatewaySource?.personalAccountDecision?.allowed !== false),
+      ) ||
+      (view.gatewaySetupProviders
+        ? view.gatewaySetupProviders.includes(provider)
+        : gatewayPage?.profiles.some(
+            (profile) =>
+              profile.availability !== "deployment_configuration_required" &&
+              setupProviderForGatewayProfile(profile) === provider,
+          ));
     return {
       githubUnavailable:
         githubSource?.decision.allowed ||

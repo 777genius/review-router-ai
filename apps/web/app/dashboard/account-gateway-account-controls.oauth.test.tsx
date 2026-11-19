@@ -1074,6 +1074,77 @@ test("personal OAuth injection preserves the existing one-off handoff and comple
   assertNoCapability();
   assertNoCallback();
 });
+test("personal import continuation associates byte-limit errors and preserves the original operation", async () => {
+  sessionStorage.setItem(
+    "rr-c3-account-operations:personal:workspace-user",
+    JSON.stringify([savedNonce]),
+  );
+  const resume = {
+    kind: "reconnect" as const,
+    connectionId: "own-source",
+    profileId: oauthProfileId,
+    gatewayRevision: 17,
+    mirrorRevision: 4,
+    credentialImportMethod: "oauth_auth_json" as const,
+  };
+  const api = personalApi();
+  api.readGatewayOperation.mockResolvedValue({
+    status: "ok",
+    value: {
+      nonce: savedNonce,
+      state: "pending",
+      cleanup: "unresolved",
+      resume,
+    },
+  });
+  await mount({ api, managementScope: "personal" });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Continue account import" }),
+  );
+  const dialog = await screen.findByRole("dialog", {
+    name: "Continue account import",
+  });
+  const field = within(dialog).getByLabelText("Codex auth.json");
+  const file = within(dialog).getByLabelText("Or choose an auth.json file");
+  const submit = within(dialog).getByRole("button", {
+    name: "Continue update",
+  });
+  fireEvent.input(field, { target: { value: "é".repeat(32769) } });
+  fireEvent.click(submit);
+  const validation = within(dialog).getByRole("alert");
+  expect(validation.textContent).toBe("Enter valid text of 64 KiB or smaller.");
+  for (const input of [field, file]) {
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")).toBe(validation.id);
+  }
+  expect(api.submitGatewayApiKey).not.toHaveBeenCalled();
+  const secret =
+    '{"tokens":{"refresh_token":"synthetic-personal-resume-token"}}';
+  fireEvent.input(field, { target: { value: secret } });
+  expect(within(dialog).queryByRole("alert")).toBeNull();
+  for (const input of [field, file]) {
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+    expect(input.hasAttribute("aria-describedby")).toBe(false);
+  }
+  fireEvent.click(submit);
+  await waitFor(() => expect(api.submitGatewayApiKey).toHaveBeenCalledTimes(1));
+  expect(api.submitGatewayApiKey).toHaveBeenCalledWith(
+    context,
+    { ...resume, nonce: savedNonce },
+    secret,
+  );
+  expect(api.beginGatewayOAuth).not.toHaveBeenCalled();
+  expect(api.completeGatewayOAuth).not.toHaveBeenCalled();
+  expect((field as HTMLTextAreaElement).value).toBe("");
+  expect(
+    [
+      document.body.innerHTML,
+      ...cacheSnapshots,
+      ...[...clients].map(caches),
+      JSON.stringify(storageWrites.mock.calls),
+    ].join("\n"),
+  ).not.toContain(secret);
+});
 test.each(["applied", "lost_ack"] as const)(
   "personal key continuation keeps original nonce and discards deferred ready reads (%s)",
   async (outcome) => {
@@ -3157,7 +3228,36 @@ test.each(["refresh_token", "oauth_auth_json"] as const)(
     const field = within(dialog).getByLabelText(
       method === "refresh_token" ? "Refresh token" : "Codex auth.json",
     );
-    fireEvent.change(field, { target: { value: secret } });
+    const submit = within(dialog).getByRole("button", {
+      name:
+        method === "refresh_token"
+          ? "Import Refresh token"
+          : "Import Codex auth.json",
+    });
+    // Below the character limit, but above the UTF-8 byte limit.
+    fireEvent.input(field, { target: { value: "é".repeat(32769) } });
+    fireEvent.click(submit);
+    const validation = within(dialog).getByRole("alert");
+    expect(validation.textContent).toBe(
+      "Enter valid text of 64 KiB or smaller.",
+    );
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBe(validation.id);
+    const file = within(dialog).queryByLabelText("Or choose an auth.json file");
+    if (method === "oauth_auth_json") {
+      expect(file?.getAttribute("aria-invalid")).toBe("true");
+      expect(file?.getAttribute("aria-describedby")).toBe(validation.id);
+    }
+    expect(submitGatewayApiKey).not.toHaveBeenCalled();
+    expect(beginGatewayOAuth).not.toHaveBeenCalled();
+    fireEvent.input(field, { target: { value: secret } });
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(field.hasAttribute("aria-invalid")).toBe(false);
+    expect(field.hasAttribute("aria-describedby")).toBe(false);
+    if (file) {
+      expect(file.hasAttribute("aria-invalid")).toBe(false);
+      expect(file.hasAttribute("aria-describedby")).toBe(false);
+    }
     fireEvent.click(
       within(dialog).getByRole("button", {
         name:
