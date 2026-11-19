@@ -15,9 +15,9 @@
 
 ## Environment status
 
-| Target     | Status    | Actual image | Evidence                                                                     |
-| ---------- | --------- | ------------ | ---------------------------------------------------------------------------- |
-| Staging    | `pending` | Not verified | Ordinary worker rollout and the checks below                                 |
+| Target     | Status    | Actual image | Evidence                                                                      |
+| ---------- | --------- | ------------ | ----------------------------------------------------------------------------- |
+| Staging    | `pending` | Not verified | Ordinary worker rollout and the checks below                                  |
 | Production | `pending` | Not verified | Not deployed. Rides in the next bundled rollout, not on its own (2026-11-20). |
 
 `pending` means no verified completion is recorded, not that deployment was
