@@ -28,34 +28,89 @@ const proof = {
 
 describe("joined read-only sandbox proof", () => {
   it("accepts only the complete closed proof from a successful child", () => {
-    expect(requireSandboxProof(JSON.stringify(proof))).toEqual({
-      ...proof,
-      backend: "bubblewrap",
-    });
-    for (const key of Object.keys(proof).filter((key) => key !== "contract")) {
-      expect(() =>
-        requireSandboxProof(JSON.stringify({ ...proof, [key]: false })),
-      ).toThrow("codex_read_only_sandbox_unqualified");
+    const raw = JSON.stringify(proof);
+    for (const value of [
+      raw,
+      raw + "\n",
+      raw + " ".repeat(4096 - Buffer.byteLength(raw)),
+    ])
+      expect(requireSandboxProof(value)).toEqual({
+        ...proof,
+        backend: "bubblewrap",
+      });
+  });
+
+  it("reports only closed proof categories without echoing private output", () => {
+    const failures: { raw: string; reason: string }[] = [
+      { raw: "", reason: "proof_empty" },
+      { raw: " \t\r\n", reason: "proof_empty" },
+      { raw: " ".repeat(4097), reason: "proof_size" },
+      { raw: "€".repeat(1366), reason: "proof_size" },
+      {
+        raw: "startup failed with a private diagnostic",
+        reason: "proof_json",
+      },
+      {
+        raw: JSON.stringify(proof) + JSON.stringify(proof),
+        reason: "proof_json",
+      },
+      { raw: "{}", reason: "proof_fields" },
+      {
+        raw: JSON.stringify({ ...proof, extra: "private diagnostic" }),
+        reason: "proof_fields",
+      },
+      {
+        raw: JSON.stringify({
+          ...proof,
+          readSucceeded: undefined,
+          extra: true,
+        }),
+        reason: "proof_fields",
+      },
+      {
+        raw: JSON.stringify({ ...proof, contract: "private unknown contract" }),
+        reason: "proof_contract",
+      },
+    ];
+    for (const raw of ["null", "true", "1", '"private scalar"', "[]"])
+      failures.push({ raw, reason: "proof_shape" });
+    for (const [field, reason] of [
+      ["childExecuted", "proof_child_executed"],
+      ["readSucceeded", "proof_read_succeeded"],
+      ["workspaceWriteDenied", "proof_workspace_write_denied"],
+      ["outsideWriteDenied", "proof_outside_write_denied"],
+      ["loopbackTCPDenied", "proof_loopback_tcp_denied"],
+      ["noNewPrivileges", "proof_no_new_privileges"],
+    ] as const) {
+      for (const value of [false, 0, 1, "true", null])
+        failures.push({
+          raw: JSON.stringify({ ...proof, [field]: value }),
+          reason,
+        });
     }
-    for (const raw of [
-      "",
-      "null",
-      "{}",
-      "[]",
-      "startup failed with a private diagnostic",
-      JSON.stringify({ ...proof, contract: "unknown" }),
-      JSON.stringify({ ...proof, extra: true }),
-      JSON.stringify(proof) + JSON.stringify(proof),
-      " ".repeat(4097) + JSON.stringify(proof),
-    ]) {
-      expect(() => requireSandboxProof(raw)).toThrow(
-        "codex_read_only_sandbox_unqualified",
-      );
+    for (const { raw, reason } of failures) {
+      let failure: unknown;
+      try {
+        requireSandboxProof(raw);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(SandboxQualificationError);
+      expect(failure).toMatchObject({
+        message: "codex_read_only_sandbox_unqualified",
+        reason,
+      });
+      expect(JSON.stringify(failure)).toBe(JSON.stringify({ reason }));
     }
   });
 
   for (const fixture of [
-    { name: "empty successful exit", body: "exit 0", reason: "proof" },
+    { name: "empty successful exit", body: "exit 0", reason: "proof_empty" },
+    {
+      name: "successful exit with a forged failed network control",
+      body: `printf '%s' '${JSON.stringify({ ...proof, loopbackTCPDenied: false })}'; exit 0`,
+      reason: "proof_loopback_tcp_denied",
+    },
     {
       name: "nonzero exit with a forged complete proof",
       body: `printf '%s' '${JSON.stringify(proof)}'; exit 9`,

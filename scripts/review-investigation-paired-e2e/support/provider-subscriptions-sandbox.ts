@@ -29,6 +29,18 @@ type SandboxFailureReason =
   | "child_namespace_refused"
   | "child_nonzero_exit"
   | "proof"
+  | "proof_empty"
+  | "proof_size"
+  | "proof_json"
+  | "proof_shape"
+  | "proof_fields"
+  | "proof_contract"
+  | "proof_child_executed"
+  | "proof_read_succeeded"
+  | "proof_workspace_write_denied"
+  | "proof_outside_write_denied"
+  | "proof_loopback_tcp_denied"
+  | "proof_no_new_privileges"
   | "postconditions"
   | "cleanup";
 
@@ -42,11 +54,43 @@ export class SandboxQualificationError extends Error {
 
 export function requireSandboxProof(stdout: string): SandboxQualification {
   try {
-    assert.ok(Buffer.byteLength(stdout) <= 4096);
-    assert.deepEqual(JSON.parse(stdout) as unknown, childProof);
+    if (Buffer.byteLength(stdout) > 4096)
+      throw new SandboxQualificationError("proof_size");
+    if (stdout.trim().length === 0)
+      throw new SandboxQualificationError("proof_empty");
+    let proof: unknown;
+    try {
+      proof = JSON.parse(stdout) as unknown;
+    } catch {
+      throw new SandboxQualificationError("proof_json");
+    }
+    if (proof === null || typeof proof !== "object" || Array.isArray(proof))
+      throw new SandboxQualificationError("proof_shape");
+    const fields = Object.keys(childProof);
+    if (
+      Object.keys(proof).length !== fields.length ||
+      !fields.every((field) => Object.hasOwn(proof, field))
+    )
+      throw new SandboxQualificationError("proof_fields");
+    const record = proof as Record<string, unknown>;
+    if (record.contract !== childProof.contract)
+      throw new SandboxQualificationError("proof_contract");
+    for (const [field, reason] of [
+      ["childExecuted", "proof_child_executed"],
+      ["readSucceeded", "proof_read_succeeded"],
+      ["workspaceWriteDenied", "proof_workspace_write_denied"],
+      ["outsideWriteDenied", "proof_outside_write_denied"],
+      ["loopbackTCPDenied", "proof_loopback_tcp_denied"],
+      ["noNewPrivileges", "proof_no_new_privileges"],
+    ] as const) {
+      if (record[field] !== true) throw new SandboxQualificationError(reason);
+    }
+    assert.deepEqual(proof, childProof);
     return Object.freeze({ ...childProof, backend: "bubblewrap" });
-  } catch {
-    throw new Error("codex_read_only_sandbox_unqualified");
+  } catch (error) {
+    throw error instanceof SandboxQualificationError
+      ? error
+      : new SandboxQualificationError("proof");
   }
 }
 
