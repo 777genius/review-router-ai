@@ -90,7 +90,10 @@ test.each([
         profiles.profiles.map((entry) => entry.profileId),
       );
       for (const entry of snapshot.capabilities) {
-        expect(entry.accountInfo).toBe(false);
+        expect(entry.accountInfo).toBe(
+          flag === "--account-models-fixture" &&
+            entry.profileId === CODEX_MODEL_PROFILE,
+        );
         expect(entry.models.map((model) => model.modelId)).toEqual(
           profiles.profiles.find(
             (profile) => profile.profileId === entry.profileId,
