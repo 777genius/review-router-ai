@@ -37,7 +37,11 @@ import {
   assertPersistedInvestigationRequirementsSanitized,
   validateInvestigationPrivateMaterialCommit,
 } from "../../application/investigation-private-material-commit-policy";
-import { ReconcileExpiredInvestigationPrivateMaterial } from "../../application/use-cases/reconcile-expired-investigation-private-material";
+import {
+  ReconcileExpiredInvestigationPrivateMaterial,
+  type ReconcileExpiredInvestigationPrivateMaterialResult,
+} from "../../application/use-cases/reconcile-expired-investigation-private-material";
+import { investigationDossierDigestInvalidMessage } from "../../application/use-cases/investigation-use-case-support";
 import {
   assertInvestigationPolicy,
   assertInvestigationPolicyCanonicalCompatibility,
@@ -919,16 +923,27 @@ export class PrismaInvestigationStore
                 InvestigationPrivateMaterialPruneFailureCause.ParentMissing,
               );
             }
-            const reconciled: Awaited<
-              ReturnType<
-                ReconcileExpiredInvestigationPrivateMaterial["execute"]
-              >
-            > = await this.privateMaterialExpiry.execute({
-              investigation: current,
-              privateMaterialIds: lockedGroup.privateMaterialIds,
-              obligationIds: lockedGroup.obligationIds,
-              expiredAt: effectiveCutoff.toISOString(),
-            });
+            let reconciled: ReconcileExpiredInvestigationPrivateMaterialResult;
+            try {
+              reconciled = await this.privateMaterialExpiry.execute({
+                investigation: current,
+                privateMaterialIds: lockedGroup.privateMaterialIds,
+                obligationIds: lockedGroup.obligationIds,
+                expiredAt: effectiveCutoff.toISOString(),
+              });
+            } catch (error: unknown) {
+              // An unverifiable dossier belongs to this one aggregate; it must
+              // not stop the groups behind it in the batch.
+              if (
+                error instanceof Error &&
+                error.message === investigationDossierDigestInvalidMessage
+              ) {
+                throw new PrivateMaterialGroupPruneError(
+                  InvestigationPrivateMaterialPruneFailureCause.DossierDigestInvalid,
+                );
+              }
+              throw error;
+            }
             if (
               reconciled.disposition ===
               InvestigationPrivateMaterialExpiryDisposition.DeferredActiveTurn

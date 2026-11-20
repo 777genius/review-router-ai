@@ -19,6 +19,7 @@ import { ExpiredActiveTurnRecoveryBackoff } from "../expired-active-turn-recover
 import { issueReplayEvidenceCheckpoint } from "../replay-evidence-checkpoint-issuer";
 import {
   commitOrThrow,
+  investigationDossierDigestInvalidMessage,
   requireValidDossierDigest,
   withCurrentDossierDigest,
 } from "./investigation-use-case-support";
@@ -179,7 +180,7 @@ const recoveryFailureCauseByMessage: ReadonlyMap<
   InvestigationExpiredTurnRecoveryFailureCause
 > = new Map([
   [
-    "investigation_dossier_digest_invalid",
+    investigationDossierDigestInvalidMessage,
     InvestigationExpiredTurnRecoveryFailureCause.DossierDigestInvalid,
   ],
   [

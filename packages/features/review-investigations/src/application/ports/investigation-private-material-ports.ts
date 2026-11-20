@@ -24,6 +24,7 @@ export enum InvestigationPrivateMaterialPersistenceStatus {
 
 export enum InvestigationPrivateMaterialPruneFailureCause {
   AggregateIncompatible = "aggregate_incompatible",
+  DossierDigestInvalid = "dossier_digest_invalid",
   ParentMissing = "parent_missing",
   PersistenceRace = "persistence_race",
   ExpiryFenceChanged = "expiry_fence_changed",
